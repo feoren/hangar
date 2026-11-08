@@ -45,14 +45,28 @@ on `navigator.clipboard` and fail in WebView2.
   per session at a time (tag or replace by session id). Title and body are cut to 200 characters.
 - Click on the notification: the backend shows, unminimizes and focuses the main window and emits
   the event `notification-activated` with `{ sessionId: number }`.
+- `close_session` also withdraws the session's toast from the notification center
+  (`ToastNotificationHistory.RemoveGroupedTagWithId`) and drops its click handler.
+- Titles and bodies lose control characters, bidi controls (U+200E, U+200F, U+202A to U+202E,
+  U+2066 to U+2069), zero-width characters (U+200B to U+200D, U+2060, U+FEFF); U+FFFE and U+FFFF
+  become U+FFFD.
 
 ### Git
 All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
-`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv.
+`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv. Every inherited
+`GIT_*` variable is removed from git's environment before Hangar sets its own. If the process tree
+cannot be put into a Job Object, git is killed and the call fails. `status` and `diff` run without
+the repository's filters: Hangar first reads `git config -z --get-regexp
+"^filter\..*\.(clean|smudge|process)$"` and passes `-c filter.<name>.clean= -c
+filter.<name>.smudge= -c filter.<name>.process= -c filter.<name>.required=false` per driver
+(a driver name with `=` or more than 64 drivers refuse the call), plus `--ignore-submodules=all`.
 - `git_branches(paths: string[]) -> Record<string, string | null>`: branch per folder. Reads
   `HEAD` from the `.git` directory or follows a `.git` file (`gitdir: ...`, worktrees,
   submodules) walking up from the folder; no process. `ref: refs/heads/x` gives `x`, a detached
-  HEAD the first 7 hex characters; no repository gives `null`. At most 64 paths per call.
+  HEAD the first 7 hex characters; no repository gives `null`. At most 64 paths per call. A
+  `.git` file in a local folder whose `gitdir:` leads to a UNC share, `\\?\UNC\`, `\\.\` or
+  another `\\?\` namespace is not followed (`null`): reading HEAD every 15 s would send the
+  user's NTLM credentials to that host. A folder on a share may point into the same share.
 - `git_diff(cwd: string) -> GitDiff`:
   `{ isRepo: boolean, files: { path: string, status: string, additions: number, deletions: number }[], diff: string, truncated: boolean }`.
   `status` is the porcelain v1 XY code. `diff` is `git diff HEAD --no-color --no-ext-diff
@@ -66,15 +80,24 @@ All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL
   `label` (lowercase ASCII letters, digits, `-`, at most 40) plus a short random suffix. The app
   data folder keeps repositories and synced folders clean.
 - `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: string | null }`:
-  `git worktree remove <path>` without `--force` (a worktree with changes stays, `reason` says
-  why), then `git branch -d <branch>` (an unmerged branch stays). Refuses any path outside the
-  app's worktrees folder. `worktree add` and `worktree remove` get 120 s instead of 10 s,
-  because killing a checkout halfway leaves a broken worktree.
+  first `git status --porcelain=v1 -z --ignored=matching` in the worktree (filters off as above):
+  with ignored files (`!!`) nothing is removed and `reason` is "The worktree contains ignored
+  files: a, b, c and N more", because `git worktree remove` deletes ignored files even without
+  `--force`. Otherwise `git worktree remove <path>` without `--force` (a worktree with changes
+  stays, `reason` says why); `removed` is true only when the folder is gone afterwards. Then
+  `git branch -d <branch>` (an unmerged branch stays). `worktree remove`, `worktree prune` and
+  `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
+  folder), so no repository hook runs; `worktree add` keeps the hooks. Refuses any path outside
+  the app's worktrees folder, and any record whose path does not end in
+  `<repo dir of repoRoot>/<slug of branch>` (so `repoRoot` cannot be swapped for another
+  repository). `worktree add` and `worktree remove` get 120 s instead of 10 s, because killing a
+  checkout halfway leaves a broken worktree.
 
 ### Workspace
 `SavedSession` gains three optional fields (absent or `null` in old files):
 `color: string | null` (`#rrggbb`), `emoji: string | null` (at most 16 bytes UTF-8), and
-`worktree: Worktree | null`. The backend validates them.
+`worktree: Worktree | null`. The backend validates them; a worktree must have absolute `path` and
+`repoRoot`, branch `hangar/<slug>` and the path shape `remove_worktree` checks.
 
 ### Taskbar badge
 Tauri feature `image-png`; capabilities `core:window:allow-set-overlay-icon` (Windows) and
@@ -82,13 +105,24 @@ Tauri feature `image-png`; capabilities `core:window:allow-set-overlay-icon` (Wi
 
 ### Profiles in Settings
 - `save_profile(profile: ProfileInput) -> Profile[]`: inserts or replaces a `[[profile]]` in
-  `profiles.toml` by id, keeps comments and other entries (`toml_edit`), validates like loading,
-  reloads and returns the new list. `ProfileInput`:
+  `profiles.toml` by id, keeps comments, layout, order, other entries and fields the form does not
+  know (`icon`, `latest`, ...) (`toml_edit`); an unchanged value keeps its exact spelling, an
+  inline `env = { ... }` stays inline. Empty `args`, `cwd`, `env`, `secretEnv` are removed from
+  the entry. Validates like loading, writes atomically, reloads and returns the new list.
+  `ProfileInput`:
   `{ id, name, command, args: string[], cwd: string | null, env: Record<string, string>, secretEnv: string[] }`.
-- `delete_profile(id: string) -> Profile[]`.
+  The id must not be empty or contain whitespace or `/`. A catalog or WSL id creates a user
+  profile that replaces that entry. Names dropped from `secretEnv` lose their keychain entries.
+- `delete_profile(id: string) -> Profile[]`: only user profiles (error otherwise; the catalog
+  entry of the same id shows up again); the last `[[profile]]` of the file cannot be deleted.
+  The profile's keychain entries are deleted too.
 - `Profile` (list view) gains `editable: boolean` (user profile) and `env: string[]` (names only,
   never values) and `secretEnv: string[]`. Values of `env` are returned by
-  `profile_env(id) -> Record<string, string>` only for the edit form.
+  `profile_env(id) -> Record<string, string>` only for the edit form (empty for catalog and WSL
+  entries, error for an unknown id).
+- `profiles.toml` gains `secret_env = ["NAME", ...]` per profile: names `[A-Za-z_][A-Za-z0-9_]*`,
+  each once, never also in `env`. `env` names must not be empty or contain `=` or NUL. Both
+  apply when loading too.
 
 ### Secrets (OS keychain)
 Crate `keyring` (Windows Credential Manager, macOS Keychain, Linux Secret Service). Service
@@ -96,25 +130,43 @@ Crate `keyring` (Windows Credential Manager, macOS Keychain, Linux Secret Servic
 - `set_profile_secret(profileId, name, value) -> null`, `delete_profile_secret(profileId, name) -> null`,
   `profile_secrets(profileId) -> { name: string, stored: boolean }[]`. Values never leave the
   backend and never reach logs or error texts.
-- On session start, each name in the profile's `secret_env` is read from the keychain and set as
-  an environment variable of the child process. A missing secret is skipped.
+- On session start (also restart and the normal start after a failed resume), each name in the
+  profile's `secret_env` is read from the keychain and set as an environment variable of the
+  child process. A missing secret is skipped; a failing keychain is logged with the name only.
+  Update sessions get no secrets.
+- `set_profile_secret` rejects an empty value and values over 1280 UTF-16 units (Windows
+  Credential Manager stores at most 2560 bytes). Profile id and name follow the rules above.
+  `profile_secrets` lists the names of the profile's `secret_env`; an unknown id is an error.
 
 ### Export
 `export_session(format: "text" | "html", content: string, suggestedName: string) -> string | null`:
-the backend opens the save dialog itself (the frontend never picks a path) and writes the file;
-returns the path or `null` when cancelled. At most 32 MiB.
+the backend opens the save dialog itself (the frontend never picks a path, the dialog is modal to
+the window, filter "Text" `*.txt` or "HTML" `*.html`) and writes the file atomically; returns the
+path or `null` when cancelled. At most 32 MiB (checked before the dialog opens). The suggested
+name is cleaned: `< > : " / \ | ? *` become `_`, control and invisible format characters go,
+leading and trailing dots and spaces go, Windows device names (`CON`, `NUL`, `COM1`, ...) get a
+leading `_`, at most 100 characters, empty becomes `session`; the extension is added once.
 
 ### WSL
 Windows only: the profile list gains one terminal per installed WSL distribution
-(`wsl.exe --list --quiet`, UTF-16LE output), id `wsl-<distro lowercase>`, command
-`wsl.exe -d <distro>`, working folder via `--cd`. Docker Desktop's internal distributions are
-left out. Detection is cached per profile reload.
+(`%SystemRoot%\System32\wsl.exe --list --quiet`, UTF-16LE output, `WSL_UTF8` removed from its
+environment, `CREATE_NO_WINDOW`, Job Object, 5 s limit), id `wsl-<distro lowercase>`, command
+`wsl.exe -d <distro>`, the session's working folder appended as `--cd <folder>`. Docker Desktop's
+internal distributions (`docker-desktop*`) and names outside `[A-Za-z0-9._-]` are left out. The
+entries have `source: "catalog"` (no new source value), `editable: false`, icon `WSL` and no
+version query (`version_args = []`). They come after the catalog; a user profile or catalog entry
+with the same id wins. Detection runs on a thread at startup, again on `reload_profiles`, and
+`list_profiles` or a start of a `wsl-` id waits for it if it has not finished; measured
+[[wsl-list-measurement]].
 
 ### Tray
 Tauri feature `tray-icon`. `configure_tray(enabled: boolean, labels: { open, quit, tooltip }) -> null`.
-With tray enabled, closing the window hides it; the tray icon (left click) and the menu item
-Open show it again; the menu item Quit emits `tray-quit`, and the frontend saves and quits as
-usual. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
+Calling it again updates menu texts and tooltip; `enabled: false` removes the icon. Labels are cut
+to one line of at most 64 characters (empty ones fall back to English). With tray enabled,
+closing the window hides it (the frontend's close handler calls `hide()`); the tray icon (left
+click) and the menu item Open show, unminimize and focus it again; the menu item Quit emits
+`tray-quit` (payload `null`), and the frontend saves and quits as usual. Right click opens the
+menu. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
 
 ## Frontend features
 

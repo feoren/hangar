@@ -52,3 +52,6 @@ pages/syntheses/release-rollout.md: releases are published as GitHub releases (t
 
 ## [2026-11-08] schema | Public repository
 The repository starts on GitHub with a fresh history. ADR 0002: the build number adds `buildNumberBase` (84, the commit count before the start) from `package.json`, so build numbers keep growing. Pages that referred to local working instructions now refer to `CONTRIBUTING.md` or describe the point directly.
+
+## [2026-11-08] ingest | WSL distribution list and keyring
+Processed our own measurement raw/2026-11-08-wsl-list-measurement.md (Windows 11, WSL 2.7.14.0, keyring 4.2.0) as the source pages/sources/wsl-list-measurement.md. Created the component page pages/components/keyring.md. pages/syntheses/agent-workflow-features.md: backend contracts for profiles in Settings, secrets, export, WSL and tray, and the hardened git, worktree and notification rules. Index updated.
