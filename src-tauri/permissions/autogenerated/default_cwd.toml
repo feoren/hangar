@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-default-cwd"
+description = "Enables the default_cwd command without any pre-configured scope."
+commands.allow = ["default_cwd"]
+
+[[permission]]
+identifier = "deny-default-cwd"
+description = "Denies the default_cwd command without any pre-configured scope."
+commands.deny = ["default_cwd"]

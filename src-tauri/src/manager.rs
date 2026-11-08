@@ -1,0 +1,929 @@
+//! Session manager: owns all child processes and their PTYs.
+//!
+//! Each session runs four threads:
+//! - Read: read from the PTY (blocking) and hand off to the batcher (bounded channel = backpressure)
+//! - Batch: collect output, send it to the frontend as UTF-8, wait for acknowledgements
+//! - Wait: wait for the process to exit, then close the pseudo console
+//! - Input: write keyboard input in order without blocking the caller
+//!
+//! Resume: with `resume`, a profile starts with `resume_args` instead of `args`. If that fails
+//! within [`RESUME_WINDOW`], the batch thread of the failed process (without holding the
+//! session lock) restarts it once normally and hands its event receiver over.
+
+use std::collections::HashMap;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use serde::{Deserialize, Serialize, Serializer};
+
+use crate::agent_catalog::{merge, Agent, CatalogAgent, ProfileView};
+use crate::batch;
+use crate::lock;
+use crate::output::{Batcher, Flow, Utf8Carry};
+use crate::proctree::ProcTree;
+use crate::profile::Profile;
+use crate::session::{SessionId, SessionInfo, SessionKind, Status, TransitionError};
+use crate::updates::{self, CommandError};
+
+/// Batching window per the architecture: 8 to 16 ms.
+const BATCH_DELAY: Duration = Duration::from_millis(12);
+const BATCH_MAX_BYTES: usize = 256 * 1024;
+const READ_BUFFER: usize = 64 * 1024;
+/// At most this many read buffers sit between PTY and batcher; beyond that reading blocks
+/// and the child process is slowed down when it writes.
+const CHANNEL_DEPTH: usize = 64;
+/// At most this many unacknowledged bytes are in flight to the frontend.
+const HIGH_WATER: usize = 2 * 1024 * 1024;
+const FLOW_STALL: Duration = Duration::from_secs(5);
+/// How long to keep waiting for remaining output after the process exits.
+const EXIT_GRACE: Duration = Duration::from_secs(2);
+const IDLE_WAIT: Duration = Duration::from_secs(3600);
+/// If a resume fails this quickly, there was probably nothing to resume (or the
+/// CLI does not know the option). The session then starts once normally.
+pub const RESUME_WINDOW: Duration = Duration::from_secs(5);
+
+/// Identifiers of a calling agent session that launched Hangar (such as `pnpm tauri dev` in
+/// Claude Code). They belong to the calling session, not to the sessions in Hangar: Claude Code
+/// would otherwise take itself for a sub-session (no transcript), and tokens such as
+/// `CLAUDE_CODE_MESSAGING_TOKEN` would be passed on to every child. Real settings such as
+/// `CLAUDE_CODE_GIT_BASH_PATH` are kept on purpose. A profile can set any of them again
+/// through `env`.
+pub const INHERITED_SESSION_MARKERS: &[&str] = &[
+    "AI_AGENT",
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+];
+
+/// Windows: while the variable is set, the program search (`NeedCurrentDirectoryForExePath`,
+/// used by cmd.exe among others) no longer looks in the current folder. Set for update sessions
+/// and for every session whose program is a `.cmd`/`.bat` ([`batch::is_batch`]); an empty value
+/// in the profile `env` removes it.
+pub const NO_CWD_IN_EXE_PATH: &str = "NoDefaultCurrentDirectoryInExePath";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SessionEvent {
+    /// `bytes` is the UTF-8 length of `data`; the frontend acknowledges exactly this number.
+    Output {
+        data: String,
+        bytes: usize,
+    },
+    Exit {
+        code: Option<u32>,
+    },
+    /// The resume (`resume_args`) ended within [`RESUME_WINDOW`] with a nonzero `code`. The
+    /// session immediately restarts once normally, on the same channel and with the same id; its
+    /// `Output` and `Exit` events follow. There is no `Exit` for the resume
+    /// attempt.
+    ResumeFallback {
+        code: Option<u32>,
+    },
+}
+
+/// Receiver of a session's events (a Tauri channel in production, a closure in tests).
+/// `Sync`, because after a fallback the batch thread of the new process uses the same receiver.
+pub trait EventSink: Send + Sync + 'static {
+    fn emit(&self, event: SessionEvent);
+}
+
+impl<F> EventSink for F
+where
+    F: Fn(SessionEvent) + Send + Sync + 'static,
+{
+    fn emit(&self, event: SessionEvent) {
+        self(event);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct TermSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl TermSize {
+    fn to_pty(self) -> PtySize {
+        PtySize {
+            rows: self.rows.max(1),
+            cols: self.cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ManagerError {
+    #[error("Unknown profile '{0}'")]
+    UnknownProfile(String),
+    #[error("Unknown session {0}")]
+    UnknownSession(SessionId),
+    #[error("Session {0} is not running")]
+    NotRunning(SessionId),
+    #[error("Session {0} is still running")]
+    StillRunning(SessionId),
+    #[error("Command '{0}' was not found. Is it installed and on the PATH?")]
+    CommandNotFound(String),
+    #[error("Working folder '{0}' does not exist")]
+    BadCwd(PathBuf),
+    #[error("The title must not be empty")]
+    EmptyTitle,
+    #[error("The update of {0} is already running")]
+    UpdateRunning(String),
+    #[error("{profile} cannot be updated from Hangar: {reason}")]
+    NoUpdateCommand {
+        profile: String,
+        reason: CommandError,
+    },
+    #[error("'{program}' is a cmd.exe script and will not start: {reason}")]
+    UnsafeBatch {
+        program: String,
+        reason: batch::UnsafeBatch,
+    },
+    #[error("PTY error: {0}")]
+    Pty(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
+    #[error(transparent)]
+    Transition(#[from] TransitionError),
+}
+
+/// Errors reach the frontend as readable text.
+impl Serialize for ManagerError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+fn pty_error(error: impl std::fmt::Display) -> ManagerError {
+    ManagerError::Pty(error.to_string())
+}
+
+enum Message {
+    Data(Vec<u8>),
+    /// Exit code and time of the process exit.
+    Exited(Option<u32>, Instant),
+}
+
+type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
+
+/// Everything that exists only while a process is running. Drop ends the input and
+/// (on Windows through the Job Object) every descendant still alive.
+struct Runtime {
+    master: SharedMaster,
+    input: Sender<Vec<u8>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    tree: Option<ProcTree>,
+    flow: Arc<Flow>,
+}
+
+impl Runtime {
+    fn kill(&self) -> io::Result<()> {
+        if let Some(tree) = &self.tree {
+            if tree.terminate().is_ok() {
+                return Ok(());
+            }
+        }
+        lock(&self.killer).kill()
+    }
+}
+
+struct Entry {
+    info: SessionInfo,
+    /// The entry the session was started from; a restart looks up the program again.
+    agent: Agent,
+    /// Incremented on every restart so threads of an old process do not touch the new one.
+    generation: u64,
+    runtime: Option<Runtime>,
+    /// Last known size; a fallback after a failed resume starts with it.
+    size: TermSize,
+    /// The user ended the running process. Its exit code is then no sign of a
+    /// failed resume.
+    kill_requested: bool,
+}
+
+#[derive(Default)]
+struct Shared {
+    sessions: Mutex<HashMap<SessionId, Entry>>,
+}
+
+impl Shared {
+    fn finish(&self, id: SessionId, generation: u64, code: Option<u32>) {
+        let mut sessions = lock(&self.sessions);
+        if let Some(entry) = sessions.get_mut(&id) {
+            if entry.generation == generation {
+                entry.runtime = None;
+                // Already exited means another path was faster. Nothing to do.
+                let _ = entry.info.mark_exited(code);
+            }
+        }
+    }
+
+    fn attach(&self, id: SessionId, runtime: Runtime) -> Result<SessionInfo, ManagerError> {
+        let mut sessions = lock(&self.sessions);
+        let Some(entry) = sessions.get_mut(&id) else {
+            // Closed during startup. On Unix, Drop does not end the process, hence
+            // explicitly; the signal does not block.
+            runtime.flow.close();
+            let _ = runtime.kill();
+            return Err(ManagerError::UnknownSession(id));
+        };
+        // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
+        if entry.info.status == Status::Starting {
+            entry.info.mark_running()?;
+            entry.runtime = Some(runtime);
+        }
+        Ok(entry.info.clone())
+    }
+
+    /// Replaces a failed resume attempt with a normal start. `false` means
+    /// no fallback (session closed, new process, ended by the user); the caller then reports
+    /// the exit as usual.
+    fn resume_fallback(
+        self: &Arc<Self>,
+        id: SessionId,
+        generation: u64,
+        code: Option<u32>,
+        sink: &Arc<dyn EventSink>,
+    ) -> bool {
+        let (agent, cwd, size, next) = {
+            let mut sessions = lock(&self.sessions);
+            let Some(entry) = sessions.get_mut(&id) else {
+                return false;
+            };
+            if entry.generation != generation
+                || entry.kill_requested
+                || entry.info.status == Status::Exited
+            {
+                return false;
+            }
+            entry.runtime = None;
+            // Running or starting to exited is always allowed, exited to starting as well.
+            if entry.info.mark_exited(code).is_err() || entry.info.mark_restarting().is_err() {
+                return false;
+            }
+            entry.info.resumed = false;
+            entry.generation += 1;
+            (
+                entry.agent.clone(),
+                entry.info.cwd.clone(),
+                entry.size,
+                entry.generation,
+            )
+        };
+        sink.emit(SessionEvent::ResumeFallback { code });
+        let args = agent.profile.args.clone();
+        let started = spawn(
+            self,
+            id,
+            next,
+            &agent,
+            &Launch::normal(&args, SessionKind::Agent),
+            &cwd,
+            size,
+            Arc::clone(sink),
+        );
+        match started {
+            Ok(runtime) => {
+                // If the session is gone by now, `attach` has already cleaned up; the batch thread
+                // of the new process reports its exit itself.
+                let _ = self.attach(id, runtime);
+            }
+            Err(error) => {
+                eprintln!("hangar: session {id}: normal start after resume failed: {error}");
+                self.finish(id, next, None);
+                sink.emit(SessionEvent::Exit { code });
+            }
+        }
+        true
+    }
+}
+
+/// How a process starts.
+struct Launch<'a> {
+    args: &'a [String],
+    /// Started with `resume_args`: a quick failure triggers the fallback.
+    resume: bool,
+    kind: SessionKind,
+}
+
+impl<'a> Launch<'a> {
+    fn normal(args: &'a [String], kind: SessionKind) -> Self {
+        Self {
+            args,
+            resume: false,
+            kind,
+        }
+    }
+}
+
+/// Is an update already running for this profile (other than in session `except`)? Two concurrent
+/// updates of the same program write to the same files.
+fn update_running(
+    sessions: &HashMap<SessionId, Entry>,
+    profile_id: &str,
+    except: Option<SessionId>,
+) -> bool {
+    sessions.values().any(|e| {
+        e.info.kind == SessionKind::Update
+            && e.info.profile_id == profile_id
+            && e.info.status != Status::Exited
+            && Some(e.info.id) != except
+    })
+}
+
+pub struct SessionManager {
+    /// Current state for new starts. Running sessions keep their own `Agent` in their
+    /// entry; reloading the profiles ([`Self::set_profiles`]) therefore does not touch them.
+    agents: Mutex<Arc<Vec<Agent>>>,
+    catalog: Vec<CatalogAgent>,
+    home: PathBuf,
+    next_id: AtomicU64,
+    shared: Arc<Shared>,
+}
+
+impl SessionManager {
+    /// `profiles` from the user file take precedence; catalog agents with the same `id` are dropped.
+    pub fn new(profiles: Vec<Profile>, catalog: Vec<CatalogAgent>, home: PathBuf) -> Self {
+        Self {
+            agents: Mutex::new(Arc::new(merge(profiles, catalog.clone()))),
+            catalog,
+            home,
+            next_id: AtomicU64::new(1),
+            shared: Arc::default(),
+        }
+    }
+
+    /// All startable entries including detection. The PATH search runs on every call so that
+    /// a freshly installed agent shows up without restarting Hangar.
+    pub fn profiles(&self) -> Vec<ProfileView> {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        self.agents()
+            .iter()
+            .map(|agent| agent.view(path.as_deref(), pathext.as_deref()))
+            .collect()
+    }
+
+    /// Installed entries with their resolved program path, for version and icon queries.
+    /// The search runs on every call, as in [`Self::profiles`].
+    pub fn installed(&self) -> Vec<(Agent, PathBuf)> {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        self.agents()
+            .iter()
+            .filter_map(|agent| {
+                let program = agent.resolve(path.as_deref(), pathext.as_deref())?.program;
+                Some((agent.clone(), program))
+            })
+            .collect()
+    }
+
+    /// Replaces the user profiles (freshly read profiles.toml) and merges in the catalog as at
+    /// startup. Affects new starts only.
+    pub fn set_profiles(&self, profiles: Vec<Profile>) {
+        let agents = Arc::new(merge(profiles, self.catalog.clone()));
+        *lock(&self.agents) = agents;
+    }
+
+    /// Snapshot, so the PATH search does not run under the lock.
+    fn agents(&self) -> Arc<Vec<Agent>> {
+        Arc::clone(&lock(&self.agents))
+    }
+
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    pub fn list(&self) -> Vec<SessionInfo> {
+        let mut list: Vec<SessionInfo> = lock(&self.shared.sessions)
+            .values()
+            .map(|e| e.info.clone())
+            .collect();
+        list.sort_by_key(|info| info.id);
+        list
+    }
+
+    /// Kind of the session, `None` for unknown ones.
+    pub fn kind(&self, id: SessionId) -> Option<SessionKind> {
+        lock(&self.shared.sessions).get(&id).map(|e| e.info.kind)
+    }
+
+    pub fn create(
+        &self,
+        profile_id: &str,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        self.create_with(profile_id, cwd, size, false, sink)
+    }
+
+    /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
+    /// instead of `args`, if the profile has any (otherwise normally, `resumed` stays `false`).
+    /// If this attempt ends within [`RESUME_WINDOW`] with a nonzero exit code, one
+    /// normal start follows ([`SessionEvent::ResumeFallback`]).
+    pub fn create_with(
+        &self,
+        profile_id: &str,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        resume: bool,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let agent = self.agent(profile_id)?;
+        let title = agent.profile.name.clone();
+        self.start(agent, cwd, size, resume, SessionKind::Agent, title, sink)
+    }
+
+    /// Starts a program update as a normal session (`kind: update`, title
+    /// "Update: <name>"). Only the platform's `update_hint` runs, as argv without a shell
+    /// ([`updates::update_agent`]); the command text never comes from the frontend. Restarting the
+    /// session repeats the update. If an update is already running for the profile, the result is
+    /// [`ManagerError::UpdateRunning`].
+    ///
+    /// The working folder is the profile's fixed folder, otherwise the user's home folder, never one
+    /// chosen by the frontend: on Windows `npm.cmd` looks for `node` in the current folder first, and
+    /// a foreign project could plant a `node.cmd` there.
+    pub fn create_update(
+        &self,
+        profile_id: &str,
+        size: TermSize,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let agent = self.agent(profile_id)?;
+        let updater =
+            updates::update_agent(&agent).map_err(|reason| ManagerError::NoUpdateCommand {
+                profile: agent.profile.name.clone(),
+                reason,
+            })?;
+        let title = format!("Update: {}", agent.profile.name);
+        self.start(updater, None, size, false, SessionKind::Update, title, sink)
+    }
+
+    fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
+        self.agents()
+            .iter()
+            .find(|a| a.id() == profile_id)
+            .cloned()
+            .ok_or_else(|| ManagerError::UnknownProfile(profile_id.to_owned()))
+    }
+
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
+    fn start(
+        &self,
+        agent: Agent,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        resume: bool,
+        kind: SessionKind,
+        title: String,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let profile = &agent.profile;
+        // A folder fixed in the profile wins over the one chosen in the sidebar.
+        let cwd = profile
+            .cwd
+            .clone()
+            .or(cwd)
+            .unwrap_or_else(|| self.home.clone());
+        if !cwd.is_dir() {
+            return Err(ManagerError::BadCwd(cwd));
+        }
+
+        let resume_args = profile.resume_args().filter(|_| resume);
+        let launch = Launch {
+            args: resume_args.unwrap_or(&profile.args),
+            resume: resume_args.is_some(),
+            kind,
+        };
+
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut info = SessionInfo::new(id, profile.id.clone(), title, cwd.clone(), now_millis());
+        info.resumed = launch.resume;
+        info.kind = kind;
+        // Register first, then start: if the process exits at once, the threads find their session.
+        // Check and register under the same lock so two quick clicks do not both
+        // start an update.
+        {
+            let mut sessions = lock(&self.shared.sessions);
+            if kind == SessionKind::Update && update_running(&sessions, &profile.id, None) {
+                return Err(ManagerError::UpdateRunning(agent.profile.name.clone()));
+            }
+            sessions.insert(
+                id,
+                Entry {
+                    info,
+                    agent: agent.clone(),
+                    generation: 0,
+                    runtime: None,
+                    size,
+                    kill_requested: false,
+                },
+            );
+        }
+
+        match spawn(
+            &self.shared,
+            id,
+            0,
+            &agent,
+            &launch,
+            &cwd,
+            size,
+            Arc::new(sink),
+        ) {
+            Ok(runtime) => self.shared.attach(id, runtime),
+            Err(error) => {
+                lock(&self.shared.sessions).remove(&id);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn restart(
+        &self,
+        id: SessionId,
+        size: TermSize,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let (agent, cwd, generation, kind) = {
+            let mut sessions = lock(&self.shared.sessions);
+            let (kind, profile_id) = sessions
+                .get(&id)
+                .map(|e| (e.info.kind, e.info.profile_id.clone()))
+                .ok_or(ManagerError::UnknownSession(id))?;
+            if kind == SessionKind::Update && update_running(&sessions, &profile_id, Some(id)) {
+                let name = sessions
+                    .get(&id)
+                    .map_or(profile_id.clone(), |e| e.agent.profile.name.clone());
+                return Err(ManagerError::UpdateRunning(name));
+            }
+            let entry = sessions
+                .get_mut(&id)
+                .ok_or(ManagerError::UnknownSession(id))?;
+            if entry.info.status != Status::Exited {
+                return Err(ManagerError::StillRunning(id));
+            }
+            entry.info.mark_restarting()?;
+            entry.info.resumed = false;
+            entry.generation += 1;
+            entry.size = size;
+            entry.kill_requested = false;
+            (
+                entry.agent.clone(),
+                entry.info.cwd.clone(),
+                entry.generation,
+                kind,
+            )
+        };
+        match spawn(
+            &self.shared,
+            id,
+            generation,
+            &agent,
+            &Launch::normal(&agent.profile.args, kind),
+            &cwd,
+            size,
+            Arc::new(sink),
+        ) {
+            Ok(runtime) => self.shared.attach(id, runtime),
+            Err(error) => {
+                if let Some(entry) = lock(&self.shared.sessions).get_mut(&id) {
+                    let _ = entry.info.mark_exited(None);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn write(&self, id: SessionId, data: &str) -> Result<(), ManagerError> {
+        let sessions = lock(&self.shared.sessions);
+        let runtime = running(&sessions, id)?;
+        runtime
+            .input
+            .send(data.as_bytes().to_vec())
+            .map_err(|_| ManagerError::NotRunning(id))
+    }
+
+    pub fn resize(&self, id: SessionId, size: TermSize) -> Result<(), ManagerError> {
+        let master = {
+            let mut sessions = lock(&self.shared.sessions);
+            let master = Arc::clone(&running(&sessions, id)?.master);
+            if let Some(entry) = sessions.get_mut(&id) {
+                entry.size = size;
+            }
+            master
+        };
+        let master = lock(&master);
+        if let Some(master) = master.as_ref() {
+            master.resize(size.to_pty()).map_err(pty_error)?;
+        }
+        Ok(())
+    }
+
+    /// Acknowledgements for exited sessions are harmless and get ignored.
+    pub fn ack(&self, id: SessionId, bytes: usize) -> Result<(), ManagerError> {
+        let sessions = lock(&self.shared.sessions);
+        let entry = sessions.get(&id).ok_or(ManagerError::UnknownSession(id))?;
+        if let Some(runtime) = &entry.runtime {
+            runtime.flow.ack(bytes);
+        }
+        Ok(())
+    }
+
+    pub fn kill(&self, id: SessionId) -> Result<(), ManagerError> {
+        let mut sessions = lock(&self.shared.sessions);
+        running(&sessions, id)?.kill()?;
+        if let Some(entry) = sessions.get_mut(&id) {
+            entry.kill_requested = true;
+        }
+        Ok(())
+    }
+
+    pub fn rename(&self, id: SessionId, title: &str) -> Result<SessionInfo, ManagerError> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(ManagerError::EmptyTitle);
+        }
+        let mut sessions = lock(&self.shared.sessions);
+        let entry = sessions
+            .get_mut(&id)
+            .ok_or(ManagerError::UnknownSession(id))?;
+        title.clone_into(&mut entry.info.title);
+        Ok(entry.info.clone())
+    }
+
+    /// Ends the process (if it is running) and removes the session.
+    pub fn close(&self, id: SessionId) -> Result<(), ManagerError> {
+        let entry = lock(&self.shared.sessions)
+            .remove(&id)
+            .ok_or(ManagerError::UnknownSession(id))?;
+        if let Some(runtime) = entry.runtime {
+            runtime.flow.close();
+            // Failure usually means the process was already gone. Dropping `runtime` cleans up the rest.
+            let _ = runtime.kill();
+        }
+        Ok(())
+    }
+
+    /// Ends all sessions, for example when the app closes.
+    pub fn shutdown(&self) {
+        let entries: Vec<Entry> = lock(&self.shared.sessions)
+            .drain()
+            .map(|(_, e)| e)
+            .collect();
+        for runtime in entries.into_iter().filter_map(|e| e.runtime) {
+            runtime.flow.close();
+            let _ = runtime.kill();
+        }
+    }
+}
+
+fn running(sessions: &HashMap<SessionId, Entry>, id: SessionId) -> Result<&Runtime, ManagerError> {
+    let entry = sessions.get(&id).ok_or(ManagerError::UnknownSession(id))?;
+    entry.runtime.as_ref().ok_or(ManagerError::NotRunning(id))
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+fn spawn_thread(name: String, body: impl FnOnce() + Send + 'static) -> Result<(), ManagerError> {
+    thread::Builder::new().name(name).spawn(body)?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
+fn spawn(
+    shared: &Arc<Shared>,
+    id: SessionId,
+    generation: u64,
+    agent: &Agent,
+    launch: &Launch<'_>,
+    cwd: &Path,
+    size: TermSize,
+    sink: Arc<dyn EventSink>,
+) -> Result<Runtime, ManagerError> {
+    let path = std::env::var_os("PATH");
+    let pathext = std::env::var_os("PATHEXT");
+    let program = agent
+        .resolve(path.as_deref(), pathext.as_deref())
+        .ok_or_else(|| ManagerError::CommandNotFound(agent.command_label()))?
+        .program;
+    let profile = &agent.profile;
+    let batch = batch::is_batch(&program);
+    if batch {
+        batch::check(&program, launch.args).map_err(|reason| ManagerError::UnsafeBatch {
+            program: program.display().to_string(),
+            reason,
+        })?;
+    }
+
+    let pair = native_pty_system()
+        .openpty(size.to_pty())
+        .map_err(pty_error)?;
+    // argv array, never an assembled shell string.
+    let mut command = CommandBuilder::new(&program);
+    command.args(launch.args);
+    command.cwd(cwd);
+    // Agent CLIs expect a real terminal that supports color.
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    for key in INHERITED_SESSION_MARKERS {
+        command.env_remove(key);
+    }
+    if cfg!(windows) && (launch.kind == SessionKind::Update || batch) {
+        // Otherwise cmd.exe (and with it every `.cmd` launcher script such as `npm.cmd` or `codex.cmd`)
+        // looks for programs in the working folder first, where a foreign project could drop `node.cmd`.
+        // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
+        // Set before the profile environment so a profile can change it deliberately.
+        command.env(NO_CWD_IN_EXE_PATH, "1");
+    }
+    for (key, value) in &profile.env {
+        // Only the presence of the variable counts, not its value. An empty value in the profile
+        // therefore turns the protection off instead of leaving it set with an empty value.
+        if value.is_empty() && key.eq_ignore_ascii_case(NO_CWD_IN_EXE_PATH) {
+            command.env_remove(key);
+        } else {
+            command.env(key, value);
+        }
+    }
+    let started = Instant::now();
+    let mut child = pair.slave.spawn_command(command).map_err(pty_error)?;
+    // Close our end of the slave side, otherwise EOF never arrives on Unix.
+    drop(pair.slave);
+
+    let tree = child
+        .process_id()
+        .and_then(|pid| match ProcTree::attach(pid) {
+            Ok(tree) => Some(tree),
+            Err(error) => {
+                eprintln!("hangar: process tree of session {id} is not monitored: {error}");
+                None
+            }
+        });
+    let killer = child.clone_killer();
+    let reader = pair.master.try_clone_reader().map_err(pty_error)?;
+    let writer = pair.master.take_writer().map_err(pty_error)?;
+    let master: SharedMaster = Arc::new(Mutex::new(Some(pair.master)));
+    let flow = Arc::new(Flow::new(HIGH_WATER, FLOW_STALL));
+    let (tx, rx) = sync_channel(CHANNEL_DEPTH);
+    let (input_tx, input_rx) = mpsc::channel();
+
+    let tx_read = tx.clone();
+    spawn_thread(format!("pty-read-{id}"), move || {
+        read_loop(reader, &tx_read)
+    })?;
+    spawn_thread(format!("pty-input-{id}"), move || {
+        input_loop(writer, &input_rx)
+    })?;
+
+    let master_wait = Arc::clone(&master);
+    spawn_thread(format!("pty-wait-{id}"), move || {
+        let code = child.wait().ok().map(|status| status.exit_code());
+        // Measured here, not in the batcher: there backpressure can delay the report.
+        let at = Instant::now();
+        // ConPTY closes the output only once the pseudo console is closed. Without this
+        // the read thread would never reach EOF on Windows.
+        lock(&master_wait).take();
+        let _ = tx.send(Message::Exited(code, at));
+    })?;
+
+    let shared_batch = Arc::clone(shared);
+    let flow_batch = Arc::clone(&flow);
+    let resume = launch.resume;
+    spawn_thread(format!("pty-batch-{id}"), move || {
+        let (code, exited_at) = batch_loop(&rx, &flow_batch, sink.as_ref());
+        let failed_fast = exited_at.is_some_and(|at| at.duration_since(started) < RESUME_WINDOW)
+            && code != Some(0);
+        if resume && failed_fast && shared_batch.resume_fallback(id, generation, code, &sink) {
+            return;
+        }
+        shared_batch.finish(id, generation, code);
+        sink.emit(SessionEvent::Exit { code });
+    })?;
+
+    Ok(Runtime {
+        master,
+        input: input_tx,
+        killer: Mutex::new(killer),
+        tree,
+        flow,
+    })
+}
+
+fn read_loop(mut reader: Box<dyn Read + Send>, tx: &SyncSender<Message>) {
+    let mut buffer = vec![0u8; READ_BUFFER];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => {
+                if tx.send(Message::Data(buffer[..n].to_vec())).is_err() {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            // On Unix the PTY reports EIO instead of EOF after the process exits.
+            Err(_) => break,
+        }
+    }
+}
+
+fn input_loop(mut writer: Box<dyn Write + Send>, rx: &Receiver<Vec<u8>>) {
+    while let Ok(data) = rx.recv() {
+        if writer
+            .write_all(&data)
+            .and_then(|()| writer.flush())
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+/// Runs until the read and wait threads are done and returns exit code and time of the
+/// process exit (`None` if the exit was never reported).
+fn batch_loop(
+    rx: &Receiver<Message>,
+    flow: &Flow,
+    sink: &dyn EventSink,
+) -> (Option<u32>, Option<Instant>) {
+    let mut batcher = Batcher::new(BATCH_DELAY, BATCH_MAX_BYTES);
+    let mut utf8 = Utf8Carry::default();
+    // Exit code, process exit, arrival of the report (the grace period starts from there).
+    let mut exited: Option<(Option<u32>, Instant, Instant)> = None;
+
+    loop {
+        let grace_end = exited.map(|(_, _, received)| received + EXIT_GRACE);
+        let wake = [batcher.deadline(), grace_end].into_iter().flatten().min();
+        let timeout = wake.map_or(IDLE_WAIT, |at| at.saturating_duration_since(Instant::now()));
+        match rx.recv_timeout(timeout) {
+            Ok(Message::Data(data)) => batcher.push(&data, Instant::now()),
+            Ok(Message::Exited(code, at)) => exited = Some((code, at, Instant::now())),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        let now = Instant::now();
+        if batcher.ready(now) {
+            send_text(utf8.decode(&batcher.take()), flow, sink);
+        }
+        // Does not close the PTY by itself after the process exits; do not wait forever.
+        if grace_end.is_some_and(|end| now >= end) {
+            break;
+        }
+    }
+    send_text(utf8.decode(&batcher.take()), flow, sink);
+    send_text(utf8.finish(), flow, sink);
+    match exited {
+        Some((code, at, _)) => (code, Some(at)),
+        None => (None, None),
+    }
+}
+
+fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
+    if data.is_empty() || !flow.wait_below_high() {
+        return;
+    }
+    let bytes = data.len();
+    flow.add(bytes);
+    sink.emit(SessionEvent::Output { data, bytes });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn events_serialize_as_in_contract() {
+        let json = |event| serde_json::to_value(event).unwrap();
+        assert_eq!(
+            json(SessionEvent::ResumeFallback { code: Some(2) }),
+            serde_json::json!({ "type": "resumeFallback", "code": 2 })
+        );
+        assert_eq!(
+            json(SessionEvent::ResumeFallback { code: None }),
+            serde_json::json!({ "type": "resumeFallback", "code": null })
+        );
+        assert_eq!(
+            json(SessionEvent::Exit { code: Some(0) }),
+            serde_json::json!({ "type": "exit", "code": 0 })
+        );
+    }
+}

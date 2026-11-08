@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hangar",
+  "version": "0.2.0",
+  "identifier": "com.feoren.hangar",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Hangar",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 420
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "Feoren",
+    "copyright": "© 2026 Feoren",
+    "category": "DeveloperTool",
+    "shortDescription": "Terminal sessions and agent CLIs in one window",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["German", "English"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzNEMxNjhGQzVCMTE1QzgKUldUSUZiSEZqeFpNNDhtWlNSdWMrQ2xwbG5Qc2duOGE0aDlucG1KMG5yd2RrTmRqNXF3dnZ4M00K",
+      "endpoints": [
+        "https://github.com/feoren/hangar/releases/latest/download/latest.json",
+        "https://hangar.feoren.com/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

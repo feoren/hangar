@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-update-session"
+description = "Enables the create_update_session command without any pre-configured scope."
+commands.allow = ["create_update_session"]
+
+[[permission]]
+identifier = "deny-create-update-session"
+description = "Denies the create_update_session command without any pre-configured scope."
+commands.deny = ["create_update_session"]

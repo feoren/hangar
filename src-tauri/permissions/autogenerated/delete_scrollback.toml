@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-scrollback"
+description = "Enables the delete_scrollback command without any pre-configured scope."
+commands.allow = ["delete_scrollback"]
+
+[[permission]]
+identifier = "deny-delete-scrollback"
+description = "Denies the delete_scrollback command without any pre-configured scope."
+commands.deny = ["delete_scrollback"]

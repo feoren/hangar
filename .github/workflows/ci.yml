@@ -1,0 +1,59 @@
+# The check suite (see CONTRIBUTING.md) on Windows, macOS and Linux.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The check suite only reads, so a pull request from a fork gets no write access.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Per the Tauri prerequisites for Linux: WebKitGTK 4.1 and companion libraries.
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Frontend
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm test
+          pnpm build
+
+      # After pnpm build, because tauri::generate_context! expects the dist/ folder.
+      - name: Backend
+        shell: bash
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml

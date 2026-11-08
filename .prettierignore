@@ -1,0 +1,12 @@
+node_modules
+dist
+src-tauri
+docs
+tools
+pnpm-lock.yaml
+CLAUDE.md
+AGENTS.md
+.claude
+private
+output
+release

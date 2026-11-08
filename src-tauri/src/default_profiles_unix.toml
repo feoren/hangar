@@ -1,0 +1,43 @@
+# Hangar profiles. Every [[profile]] appears on the left under "New session".
+#
+# Hangar knows agent CLIs (Claude Code, Codex CLI, Gemini CLI, Aider and more) on its own from its
+# built-in catalog and shows whether they are installed. Only your own profiles go here.
+#
+# Fields:
+#   id       unique, without spaces
+#   name     display name
+#   command  program name (looked up on the PATH) or full path. No shell syntax.
+#   args     arguments as a list, e.g. ["--model", "x"]
+#   cwd      optional fixed working folder; otherwise the folder you pick
+#   icon     optional: one or two characters for the icon in the sidebar
+#   version_args  optional: arguments Hangar uses to query the version (default
+#            ["--version"]); [] means: never start the program to query its version
+#   resume_args   optional: arguments to resume the last conversation; they replace args
+#   latest        optional: where the newest version is published, { npm = "..." },
+#            { pypi = "..." } or { github = "owner/repo", tag_prefix = "v" }
+#   update_hint   optional: { windows = "...", unix = "..." }, the update command; Hangar
+#                 runs it on click without a shell, so no shell syntax such as | & ; > $ "
+#   [profile.env]  optional environment variables. Do NOT put secrets here.
+#
+# To start a catalog agent differently, create a profile with the same id. It replaces the
+# catalog entry (name, icon, command, arguments) and takes its place in the order of this
+# file; homepage and install command stay from the catalog. Catalog IDs include: claude,
+# codex, gemini, antigravity, copilot, cursor, kimi, qwen, kiro, opencode, aider, goose, crush, pi,
+# omp, forge, kode, codebuff, cline, vibe, droid, amp. Example:
+#
+#   [[profile]]
+#   id = "claude"
+#   name = "Claude Code (Opus)"
+#   command = "claude"
+#   args = ["--model", "opus"]
+#   icon = "C"
+#
+# After saving, choose "Reload profiles" in Hangar under Settings > Terminals & agents, or simply
+# switch back to the Hangar window. Running sessions stay as they are.
+
+[[profile]]
+id = "shell"
+name = "Login shell"
+command = "bash"
+args = ["-l"]
+icon = "$"

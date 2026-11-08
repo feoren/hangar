@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Hangar: Gefaltetes H</title>
+  <rect width="256" height="256" rx="56" fill="#141a24" />
+  <path d="M40 72L80 58V120L176 84V72L216 58V200H176V120L80 156V200H40Z" fill="#5aa9ff" />
+  <path d="M110 172H150V190H110Z" fill="#f2e3c6" />
+</svg>

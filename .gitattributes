@@ -1,0 +1,22 @@
+# LF everywhere, in the repo and the working tree, regardless of core.autocrlf.
+* text=auto eol=lf
+
+# Windows scripts need CRLF, otherwise cmd.exe labels and line continuations break.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Never normalize or diff binary files.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary
+*.gz   binary

@@ -1,0 +1,293 @@
+# Built-in catalog of the known agent CLIs. Embedded into Hangar at build time
+# (include_str!) and not editable by the user. To start an entry differently, add a [[profile]]
+# with the same id to your profiles.toml. It determines name, command, arguments and
+# position; homepage and install command still come from here.
+#
+# Hangar lists every entry under "New session" and checks on every fetch of the list whether one of
+# the commands from `commands` is on the PATH. If not, the entry shows up as "not installed" with
+# the platform's install command.
+#
+# Fields per entry (unknown fields are an error):
+#   id               Required. Unique, without spaces. Same id as a user profile = overridden.
+#   name             Required. Display name.
+#   commands         Required, at least one entry. Plain program names without path and without extension
+#                    (on Windows Hangar adds the extensions from PATHEXT). The first name found
+#                    on the PATH wins and is also used for starting.
+#   args             Optional. Arguments as a list; default: none.
+#   icon             Optional. One or two characters for the icon in the sidebar.
+#   homepage         Project page, display only (the catalog test requires it as a source).
+#   install_windows  Optional. Install command as text, displayed on Windows.
+#   install_unix     Optional. Install command as text, displayed on macOS and Linux.
+#                    Hangar never runs install commands itself.
+#   version_args     Optional. Arguments of the version query (ADR 0003); default ["--version"],
+#                    [] = never query.
+#   resume_args      Optional. Arguments to resume the last conversation in the working folder
+#                    (when restoring a session after Hangar restarts). They
+#                    REPLACE args and append nothing: a subcommand from args must come first
+#                    here again (goose: args ["session"], resume_args ["session", "--resume"]).
+#                    If a resume ends within 5 s with a nonzero exit code, Hangar starts once
+#                    normally with args. Only add with evidence (docs/wiki/pages/agents/resume.md).
+#   latest           Optional. Where the newest version is published, exactly one source:
+#                    { npm = "<package>" }, { pypi = "<package>" } or
+#                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
+#                    is queried. compare = "equal" reports an update on any difference instead of
+#                    only on a higher version (for versions that cannot be ordered, as with amp).
+#   update_hint      Optional. { windows = "...", unix = "..." }: update command. Hangar
+#                    shows it and, on click, runs it as a session of its own, split at whitespace into
+#                    argv, without a shell. So only a simple command without shell syntax
+#                    (no | & ; < > $ ` ( ) " ' % ^ ! * ? [ ] { } # ~), program as a bare name
+#                    or absolute path, otherwise Hangar rejects it. The block prevents wrong
+#                    splitting and interpretation by cmd.exe; it is not a sandbox: update_hint is as
+#                    trustworthy as command.
+#                    If it is missing for the platform, Hangar shows install_* for copying only.
+#                    Values and evidence: docs/wiki/pages/agents/updates.md.
+#
+# Source of all entries: official vendor docs, as of 2026-11-07
+# (docs/wiki/raw/2026-11-07-agent-clis-research.md, rules in docs/wiki/pages/agents/catalog.md).
+# install_* only if the command is in the vendor docs. Generic names such as `q` (the old
+# Amazon Q CLI) and `kd` (Kode) stay out on purpose, because they could hit other programs.
+# Spot check before every release; installation methods change quickly.
+
+[[agent]]
+id = "claude"
+name = "Claude Code"
+commands = ["claude"]
+resume_args = ["--continue"]
+icon = "C"
+homepage = "https://github.com/anthropics/claude-code"
+install_windows = "irm https://claude.ai/install.ps1 | iex"
+install_unix = "curl -fsSL https://claude.ai/install.sh | bash"
+latest = { npm = "@anthropic-ai/claude-code" }
+update_hint = { windows = "claude update", unix = "claude update" }
+
+[[agent]]
+id = "codex"
+name = "Codex CLI"
+commands = ["codex"]
+resume_args = ["resume", "--last"]
+icon = "Cx"
+homepage = "https://github.com/openai/codex"
+install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+install_unix = "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
+latest = { npm = "@openai/codex" }
+
+[[agent]]
+id = "gemini"
+name = "Gemini CLI"
+commands = ["gemini"]
+resume_args = ["--resume"]
+icon = "G"
+homepage = "https://github.com/google-gemini/gemini-cli"
+install_windows = "npm install -g @google/gemini-cli"
+install_unix = "npm install -g @google/gemini-cli"
+latest = { npm = "@google/gemini-cli" }
+update_hint = { windows = "npm install -g @google/gemini-cli@latest", unix = "npm install -g @google/gemini-cli@latest" }
+
+[[agent]]
+id = "antigravity"
+name = "Antigravity CLI"
+commands = ["agy"]
+resume_args = ["--continue"]
+icon = "Ag"
+homepage = "https://antigravity.google"
+install_windows = "irm https://antigravity.google/cli/install.ps1 | iex"
+install_unix = "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+
+[[agent]]
+id = "copilot"
+name = "GitHub Copilot CLI"
+commands = ["copilot"]
+resume_args = ["--continue"]
+icon = "Co"
+homepage = "https://github.com/github/copilot-cli"
+install_windows = "winget install GitHub.Copilot"
+install_unix = "curl -fsSL https://gh.io/copilot-install | bash"
+latest = { npm = "@github/copilot" }
+update_hint = { windows = "winget upgrade GitHub.Copilot" }
+
+# The current Cursor docs name `agent`. That is generic, so `cursor-agent` is searched first.
+[[agent]]
+id = "cursor"
+name = "Cursor CLI"
+commands = ["cursor-agent", "agent"]
+resume_args = ["--continue"]
+icon = "Cu"
+homepage = "https://cursor.com/cli"
+install_windows = "irm 'https://cursor.com/install?win32=true' | iex"
+install_unix = "curl https://cursor.com/install -fsS | bash"
+
+[[agent]]
+id = "kimi"
+name = "Kimi Code CLI"
+commands = ["kimi"]
+resume_args = ["--continue"]
+icon = "K"
+homepage = "https://github.com/MoonshotAI/kimi-cli"
+install_windows = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
+install_unix = "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"
+latest = { pypi = "kimi-cli" }
+
+[[agent]]
+id = "qwen"
+name = "Qwen Code"
+commands = ["qwen"]
+icon = "Q"
+homepage = "https://github.com/QwenLM/qwen-code"
+install_windows = "irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex"
+install_unix = "curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash"
+latest = { npm = "@qwen-code/qwen-code" }
+
+# Successor of the Amazon Q Developer CLI. For Windows the docs give no install command.
+[[agent]]
+id = "kiro"
+name = "Kiro CLI"
+commands = ["kiro-cli"]
+resume_args = ["chat", "--resume"]
+icon = "Ki"
+homepage = "https://kiro.dev"
+install_unix = "curl -fsSL https://cli.kiro.dev/install | bash"
+
+# Two npm packages provide `opencode`: `@opencode/cli` (2.x) and `opencode-ai` (1.x). The version
+# source is therefore the GitHub release of the official repo anomalyco/opencode (as of 2026-11-07:
+# v1.19.5, matching `opencode-ai` and `opencode upgrade`). With npm `@opencode/cli`, 1.x installs would
+# permanently see an "update" to 2.x that `opencode upgrade` does not deliver (docs/wiki/pages/agents/updates.md).
+[[agent]]
+id = "opencode"
+name = "OpenCode"
+commands = ["opencode"]
+resume_args = ["--continue"]
+icon = "OC"
+homepage = "https://opencode.ai"
+install_windows = "npm install -g @opencode/cli"
+install_unix = "curl -fsSL https://opencode.ai/v2/install | bash"
+latest = { github = "anomalyco/opencode", tag_prefix = "v" }
+update_hint = { windows = "opencode upgrade", unix = "opencode upgrade" }
+
+[[agent]]
+id = "aider"
+name = "Aider"
+commands = ["aider"]
+resume_args = ["--restore-chat-history"]
+icon = "A"
+homepage = "https://github.com/Aider-AI/aider"
+install_windows = "python -m pip install aider-install && aider-install"
+install_unix = "python -m pip install aider-install && aider-install"
+latest = { pypi = "aider-chat" }
+
+# According to the docs, Goose starts the interactive session with `goose session`.
+[[agent]]
+id = "goose"
+name = "Goose"
+commands = ["goose"]
+args = ["session"]
+resume_args = ["session", "--resume"]
+icon = "Gs"
+homepage = "https://github.com/aaif-goose/goose"
+install_windows = "Invoke-WebRequest -Uri \"https://raw.githubusercontent.com/aaif-goose/goose/main/download_cli.ps1\" -OutFile \"download_cli.ps1\"; .\\download_cli.ps1"
+install_unix = "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash"
+latest = { github = "aaif-goose/goose", tag_prefix = "v" }
+
+[[agent]]
+id = "crush"
+name = "Crush"
+commands = ["crush"]
+icon = "Cr"
+homepage = "https://github.com/charmbracelet/crush"
+install_windows = "winget install charmbracelet.crush"
+install_unix = "npm install -g @charmland/crush"
+latest = { npm = "@charmland/crush" }
+update_hint = { windows = "winget upgrade charmbracelet.crush", unix = "npm install -g @charmland/crush@latest" }
+
+[[agent]]
+id = "pi"
+name = "Pi"
+commands = ["pi"]
+resume_args = ["--continue"]
+icon = "Pi"
+homepage = "https://github.com/earendil-works/pi"
+install_windows = "powershell -c \"irm https://pi.dev/install.ps1 | iex\""
+install_unix = "curl -fsSL https://pi.dev/install.sh | sh"
+latest = { npm = "@earendil-works/pi-coding-agent" }
+update_hint = { windows = "pi update", unix = "pi update" }
+
+[[agent]]
+id = "omp"
+name = "Oh My Pi"
+commands = ["omp"]
+icon = "OP"
+homepage = "https://github.com/can1357/oh-my-pi"
+install_windows = "irm https://omp.sh/install.ps1 | iex"
+install_unix = "curl -fsSL https://omp.sh/install | sh"
+latest = { npm = "@oh-my-pi/pi-coding-agent" }
+
+[[agent]]
+id = "forge"
+name = "ForgeCode"
+commands = ["forge"]
+icon = "F"
+homepage = "https://forgecode.dev"
+install_unix = "curl -fsSL https://forgecode.dev/cli | sh"
+
+[[agent]]
+id = "kode"
+name = "Kode CLI"
+commands = ["kode", "kwa"]
+icon = "Ko"
+homepage = "https://github.com/shareAI-lab/Kode-CLI"
+install_windows = "npm install -g @shareai-lab/kode"
+install_unix = "npm install -g @shareai-lab/kode"
+latest = { npm = "@shareai-lab/kode" }
+update_hint = { windows = "npm install -g @shareai-lab/kode@latest", unix = "npm install -g @shareai-lab/kode@latest" }
+
+[[agent]]
+id = "codebuff"
+name = "Codebuff"
+commands = ["codebuff"]
+icon = "Cb"
+homepage = "https://codebuff.com"
+install_windows = "npm install -g codebuff"
+install_unix = "npm install -g codebuff"
+latest = { npm = "codebuff" }
+update_hint = { windows = "npm install -g codebuff@latest", unix = "npm install -g codebuff@latest" }
+
+[[agent]]
+id = "cline"
+name = "Cline CLI"
+commands = ["cline"]
+icon = "Cl"
+homepage = "https://docs.cline.bot/cline-cli/overview"
+install_windows = "npm i -g cline"
+install_unix = "npm i -g cline"
+latest = { npm = "cline" }
+update_hint = { windows = "npm install -g cline@latest", unix = "npm install -g cline@latest" }
+
+[[agent]]
+id = "vibe"
+name = "Mistral Vibe"
+commands = ["vibe"]
+resume_args = ["--continue"]
+icon = "V"
+homepage = "https://github.com/mistralai/mistral-vibe"
+install_windows = "uv tool install mistral-vibe"
+install_unix = "curl -LsSf https://mistral.ai/vibe/install.sh | bash"
+latest = { pypi = "mistral-vibe" }
+update_hint = { windows = "uv tool upgrade mistral-vibe" }
+
+# Install commands could not be read from the vendor docs.
+[[agent]]
+id = "droid"
+name = "Droid (Factory)"
+commands = ["droid"]
+resume_args = ["--resume"]
+icon = "D"
+homepage = "https://docs.factory.com/cli/getting-started/quickstart"
+
+[[agent]]
+id = "amp"
+name = "Amp"
+commands = ["amp"]
+icon = "Am"
+homepage = "https://ampcode.com/manual"
+latest = { npm = "@sourcegraph/amp", compare = "equal" }
+update_hint = { windows = "npm install -g @sourcegraph/amp@latest", unix = "npm install -g @sourcegraph/amp@latest" }
+

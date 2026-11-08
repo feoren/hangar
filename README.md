@@ -1,1 +1,122 @@
-# hangar
+# Hangar
+
+**One window for all your terminal sessions and AI coding agents.**
+
+Hangar is a desktop app that runs Claude Code, Codex CLI, Gemini CLI, Aider and any other command-line
+tool side by side. A sidebar switches between sessions while every session keeps running in the
+background, with its full scrollback.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
+  <img alt="Hangar with Claude Code, Codex CLI, Aider and PowerShell sessions in the sidebar" src="docs/images/hangar-dark.png">
+</picture>
+
+[![CI](https://github.com/feoren/hangar/actions/workflows/ci.yml/badge.svg)](https://github.com/feoren/hangar/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/feoren/hangar)](https://github.com/feoren/hangar/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+## Features
+
+- **Sessions that keep running.** Switch freely; nothing stops when a session is out of view.
+- **Knows your agents.** A built-in catalog of 22 agent CLIs detects what is installed, shows the
+  version and offers only what you can start. Any other program can be added as a profile.
+- **Tells you when an agent is waiting for you.** Sessions that go quiet, ring the bell or exit get
+  a subtle pulse in the sidebar, and the taskbar button flashes while Hangar is in the background;
+  jump to the next waiting session with `Ctrl+Shift+A`.
+- **Picks up where you left off.** Sessions, their order and their scrollback are restored after a
+  restart, and agents that support it resume their last conversation.
+- **Notes per project folder.** A tabbed Markdown notepad next to the terminal, saved automatically
+  and attached to the working folder, not to a single session.
+- **Program updates.** Shows when a newer version of an installed agent is available and runs the
+  update in its own visible session on request. Hangar never installs anything on its own.
+- **Real terminal.** xterm.js with truecolor, Unicode and emoji, OSC 8 links, bracketed paste and a
+  real PTY (ConPTY on Windows), so agent CLIs behave exactly as in any other terminal.
+- **Stays smooth under load.** Output is batched with backpressure, so even heavy agent output never
+  freezes the UI.
+- **Light and dark themes, 12 languages,** keyboard-driven menus and shortcuts that never steal keys
+  from your shell (`Ctrl+<letter>` alone always goes to the program).
+- **Signed auto-updates** for Hangar itself.
+
+## Platforms
+
+| Platform                    | Status                         |
+| --------------------------- | ------------------------------ |
+| Windows 10 1809+ / 11 (x64) | supported, installer available |
+| macOS 13+                   | planned                        |
+| Linux x64 (X11, Wayland)    | planned                        |
+
+The code base already builds and passes its tests on all three systems in CI; installers and
+updates for macOS and Linux follow once they have been tested by hand.
+
+## Install
+
+1. Download **`Hangar-Setup.exe`** from the [latest release](https://github.com/feoren/hangar/releases/latest).
+2. Run it. It installs for the current user, without administrator rights.
+
+Until the installer is code-signed, Windows SmartScreen may warn the first time you run it; choose
+**More info → Run anyway**.
+
+## Updates
+
+Hangar updates itself. Shortly after start and every 6 hours it checks the latest GitHub release.
+When a newer version exists, the sidebar shows **Update x.y.z available · Install**. One click downloads
+it, verifies its signature and installs it; Hangar asks before it restarts, because running sessions
+end. You can also check by hand under **Help → Check for updates**.
+
+Every update is signed with the project's private key, and Hangar refuses any file whose signature
+does not match the public key built into the app.
+
+## Build from source
+
+Requirements: [Rust](https://rustup.rs) (stable), [Node.js](https://nodejs.org) 22+,
+[pnpm](https://pnpm.io), and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for
+your platform.
+
+```sh
+pnpm install
+pnpm tauri dev      # run in development mode
+pnpm tauri build    # build an installer
+```
+
+The check suite (everything must pass before a commit):
+
+```sh
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+pnpm format:check && pnpm lint && pnpm test && pnpm build
+```
+
+## Profiles
+
+Custom programs are defined in `profiles.toml` in the app's config folder. **Settings > Terminals &
+agents > Open profile file** opens it in your editor (and creates it if it is missing); **Help >
+About Hangar** shows the exact path.
+
+```toml
+[[profile]]
+id = "mytool"
+name = "My tool"
+command = "mytool"        # looked up in PATH, or a full path; no shell syntax
+args = ["--flag"]
+```
+
+A profile with the `id` of a catalog agent (for example `claude`) overrides how that agent is
+launched. The generated file explains every field. After saving, switch back
+to the Hangar window or choose **Reload profiles**; running sessions are not affected. Never put
+secrets in it.
+
+## Architecture
+
+Tauri 2 with a Rust backend that owns every process (PTY via `portable-pty`, process trees via Job
+Objects on Windows) and a React + TypeScript frontend that only renders. The frontend can call only
+explicitly allowed backend commands. Design decisions are recorded as ADRs in
+[`docs/wiki`](docs/wiki/index.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: see [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)

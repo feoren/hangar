@@ -1,0 +1,2 @@
+# Changes in these paths do not restart the app in `pnpm tauri dev` (running sessions stay).
+tests/

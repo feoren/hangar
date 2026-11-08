@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-program-icons"
+description = "Enables the program_icons command without any pre-configured scope."
+commands.allow = ["program_icons"]
+
+[[permission]]
+identifier = "deny-program-icons"
+description = "Denies the program_icons command without any pre-configured scope."
+commands.deny = ["program_icons"]

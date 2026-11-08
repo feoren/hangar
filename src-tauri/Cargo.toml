@@ -1,0 +1,49 @@
+[package]
+name = "hangar"
+version = "0.2.0"
+description = "Terminal sessions and agent CLIs in one window"
+edition = "2021"
+publish = false
+
+[lib]
+name = "hangar_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "1.2"
+portable-pty = "0.9"
+# Signed updates and restart after the update (official Tauri plugins, MIT/Apache-2.0).
+tauri-plugin-updater = "2.14"
+tauri-plugin-process = "2.4"
+# PNG encoding of program icons. Already part of the build through tauri (muda, ico), so it adds
+# no extra code; MIT/Apache-2.0, maintained by image-rs.
+png = "0.18"
+# Notes (ADR 0004): stable IDs and folder keys. Both are already in the tree (uuid with v4
+# through tauri, sha2 through tauri-codegen), MIT/Apache-2.0, RustCrypto and uuid-rs.
+uuid = { version = "1", default-features = false, features = ["std", "v4"] }
+sha2 = "0.10"
+# Checking for new program versions. Same crates and features as tauri-plugin-updater
+# (rustls with ring, system proxy), so no extra code in the build; MIT/Apache-2.0.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

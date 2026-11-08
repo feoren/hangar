@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-program-updates"
+description = "Enables the check_program_updates command without any pre-configured scope."
+commands.allow = ["check_program_updates"]
+
+[[permission]]
+identifier = "deny-check-program-updates"
+description = "Denies the check_program_updates command without any pre-configured scope."
+commands.deny = ["check_program_updates"]

@@ -1,0 +1,22 @@
+# Secrets and local configuration
+.env
+.env.*
+
+# Build output and dependencies
+node_modules/
+dist/
+src-tauri/target/
+release/
+
+# Python tools under tools/
+__pycache__/
+*.py[cod]
+
+# Agent working copies (git worktree)
+.claude/worktrees/
+
+# Local design drafts, not versioned
+output/
+
+# Local test files (test data stays inside the project)
+tests/.tmp/

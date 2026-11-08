@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-profile-path"
+description = "Enables the profile_path command without any pre-configured scope."
+commands.allow = ["profile_path"]
+
+[[permission]]
+identifier = "deny-profile-path"
+description = "Denies the profile_path command without any pre-configured scope."
+commands.deny = ["profile_path"]
