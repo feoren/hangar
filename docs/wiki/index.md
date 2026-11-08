@@ -33,6 +33,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[conpty-cursor-query-measurement]]: measurement: ConPTY waits for the reply to ESC[6n at startup (updated: 2026-11-07)
 
 ## Syntheses
+- [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, tabs, trash) (sources: 0, updated: 2026-11-07)
 - [[program-updates]]: contract of check_program_updates and create_update_session, canRun, execution rules, cache, network rules (sources: 1, updated: 2026-11-08)
