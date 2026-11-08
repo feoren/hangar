@@ -371,3 +371,18 @@ request). Right click opens the menu. No window capability is needed for hiding;
 
 Paste fix: Ctrl+V in the terminal lets the native paste event happen (handled in `handlePaste`);
 menu paste uses the clipboard plugin.
+
+## Additions (2026-11-08, second request)
+
+21. **Reorder sessions** in the sidebar by drag and drop (mouse) and with the keyboard (e.g.
+    Alt+Up/Down on a focused row); the order is the workspace order and survives a restart.
+22. **Snap layouts** like Windows 11: the split view gets layout presets instead of three fixed
+    modes: single, two side by side, three columns, one large plus two stacked, four in a grid.
+    Dragging a session from the sidebar over the body shows a slim bar with layout thumbnails
+    at the top; dropping on a zone switches to that layout and places the session in that zone.
+    The same picker is available from View and the launcher without dragging. Replaces
+    `splitMode` (old stored values migrate).
+23. **Sub-agents in the body**: right click on a running agent session, "Show sub-agents". Sub-agents
+    run inside the agent's process and have no terminal of their own, so Hangar shows each one as
+    a read-only live view of its transcript in a pane. Depends on research into where each CLI
+    stores sub-agent transcripts and how Hangar maps its session to the CLI's session id.
