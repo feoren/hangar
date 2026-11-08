@@ -35,6 +35,11 @@ const COMMANDS: &[&str] = &[
     "reveal_notes_folder",
     "check_program_updates",
     "create_update_session",
+    "notify_session",
+    "git_branches",
+    "git_diff",
+    "create_worktree",
+    "remove_worktree",
 ];
 
 fn main() {

@@ -13,8 +13,13 @@ crate-type = ["rlib"]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
-tauri = { version = "2.12", features = [] }
+# image-png: the frontend draws the taskbar badge as a PNG (overlay icon on Windows).
+tauri = { version = "2.12", features = ["image-png"] }
 tauri-plugin-dialog = "2.8"
+# Menu Copy and Paste: navigator.clipboard fails in WebView2. Official Tauri plugin
+# (MIT/Apache-2.0, maintained in plugins-workspace); adds arboard (MIT/Apache-2.0, maintained
+# by 1Password), which is not in the tree otherwise.
+tauri-plugin-clipboard-manager = "2.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -44,6 +49,12 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Desktop notifications (notify.rs) through the WinRT toast API. The crate is already in the tree
+# through tauri (tao, webview2-com), so only the two API features are new; MIT/Apache-2.0,
+# Microsoft. Used directly rather than tauri-winrt-notification, which cannot set a toast tag,
+# and the contract asks for one notification per session.
+windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

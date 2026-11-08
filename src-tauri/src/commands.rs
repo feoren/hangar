@@ -4,19 +4,23 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{Manager as _, State};
+use tauri::{Emitter as _, Manager as _, State};
 
 use crate::agent_catalog::ProfileView;
 use crate::desktop;
+use crate::git::{self, Git, GitDiff, GitError};
 use crate::icon::{self, IconCache};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
 use crate::notes::{FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore};
+use crate::notify::{self, Notifier};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::session::{SessionId, SessionInfo, SessionKind};
 use crate::updates::{self, Item, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
+use crate::worktree::{self, Removal, Worktree, WorktreeError};
 
 /// Result of loading the profiles at startup. A broken profile file must not keep the app from
 /// starting; it shows up as an error in the window instead. A successful reload
@@ -430,4 +434,111 @@ pub async fn reveal_notes_folder(
     folder: NoteFolder,
 ) -> Result<(), NotesError> {
     notes_blocking(store, move |s| s.reveal(&folder)).await
+}
+
+// Desktop notifications (notify.rs).
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationActivated {
+    session_id: SessionId,
+}
+
+/// Mirrors tauri-plugin-notification: see [`notify::app_id`].
+fn notification_app_id(app: &tauri::AppHandle) -> String {
+    let identifier = &app.config().identifier;
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from))
+        .unwrap_or_default();
+    notify::app_id(identifier, &exe_dir).to_owned()
+}
+
+/// Brings the main window to the front and tells the frontend which session was meant.
+fn activate_session(app: &tauri::AppHandle, id: SessionId) {
+    if let Some(window) = app.get_webview_window("main") {
+        // Each step may fail harmlessly (already visible, not minimized).
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit(
+        "notification-activated",
+        NotificationActivated { session_id: id },
+    );
+}
+
+/// `false` when the platform has no support or the toast failed; the reason goes to the log,
+/// the texts do not.
+#[tauri::command]
+pub async fn notify_session(
+    app: tauri::AppHandle,
+    id: SessionId,
+    title: String,
+    body: String,
+) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_id = notification_app_id(&app);
+        let handle = app.clone();
+        let shown = app
+            .state::<Notifier>()
+            .show(&app_id, id, &title, &body, move || {
+                activate_session(&handle, id);
+            });
+        shown.unwrap_or_else(|error| {
+            eprintln!("hangar: notification not shown: {error}");
+            false
+        })
+    })
+    .await
+    .unwrap_or(false)
+}
+
+// Git and worktrees (git.rs, worktree.rs), on a blocking thread because git may take seconds.
+
+/// Branch per folder, read from the files under `.git`; no process.
+#[tauri::command]
+pub async fn git_branches(paths: Vec<String>) -> Result<HashMap<String, Option<String>>, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::branches(&paths))
+        .await
+        .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
+        .await
+        .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+fn worktrees_dir(store: &Store) -> PathBuf {
+    store.dir().join(worktree::DIR_NAME)
+}
+
+#[tauri::command]
+pub async fn create_worktree(
+    store: State<'_, Store>,
+    cwd: PathBuf,
+    label: String,
+) -> Result<Worktree, WorktreeError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree::create(&Git::locate()?, &base, &cwd, &label)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Never forces: what stays is reported in `reason`.
+#[tauri::command]
+pub async fn remove_worktree(
+    store: State<'_, Store>,
+    worktree: Worktree,
+) -> Result<Removal, WorktreeError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree::remove(&Git::locate()?, &base, &worktree)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
 }

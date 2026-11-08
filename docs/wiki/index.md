@@ -23,6 +23,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Concepts
 
 ## Sources
+- [[windows-toast-notifications]]: app id rule of tauri-plugin-notification, missing toast tag in tauri-winrt-notification, implicit MTA (sources: 0, updated: 2026-11-08)
 - [[code-signing-research]]: code signing: vendors and costs, Tauri signing options, --config, Get-AuthenticodeSignature (updated: 2026-11-08)
 - [[cmd-launcher-measurement]]: measurement: .cmd launcher scripts via portable-pty, node from the working folder, injection via `&`, `"`, `%` (updated: 2026-11-08)
 - [[update-sources]]: research and measurement: npm, PyPI and GitHub endpoints per agent, OpenCode packages (updated: 2026-11-07)

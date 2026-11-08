@@ -39,8 +39,9 @@ on `navigator.clipboard` and fail in WebView2.
 ### Notifications
 - `notify_session(id: number, title: string, body: string) -> boolean`: shows a desktop
   notification; `false` when the platform has no support (macOS and Linux for now).
-  Windows: `tauri-winrt-notification` (the crate `tauri-plugin-notification` uses), app id =
-  bundle identifier in release builds, the PowerShell app id in `tauri dev`. One notification
+  Windows: the WinRT toast API through the `windows` crate (`tauri-winrt-notification` cannot
+  set a toast tag, [[windows-toast-notifications]]); app id = bundle identifier, the PowerShell
+  app id for executables under `target\debug` or `target\release`. One notification
   per session at a time (tag or replace by session id). Title and body are cut to 200 characters.
 - Click on the notification: the backend shows, unminimizes and focuses the main window and emits
   the event `notification-activated` with `{ sessionId: number }`.
@@ -67,7 +68,8 @@ All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL
 - `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: string | null }`:
   `git worktree remove <path>` without `--force` (a worktree with changes stays, `reason` says
   why), then `git branch -d <branch>` (an unmerged branch stays). Refuses any path outside the
-  app's worktrees folder.
+  app's worktrees folder. `worktree add` and `worktree remove` get 120 s instead of 10 s,
+  because killing a checkout halfway leaves a broken worktree.
 
 ### Workspace
 `SavedSession` gains three optional fields (absent or `null` in old files):

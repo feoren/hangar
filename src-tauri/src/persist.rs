@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::worktree::Worktree;
+
 pub const WORKSPACE_FILE: &str = "workspace.json";
 pub const SCROLLBACK_DIR: &str = "scrollback";
 const SCROLLBACK_EXT: &str = "txt";
@@ -30,6 +32,8 @@ pub const WORKSPACE_VERSION: u32 = 1;
 pub const MAX_SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_WORKSPACE_BYTES: usize = 1024 * 1024;
 pub const MAX_SESSIONS: usize = 512;
+/// One emoji with modifiers and joiners fits; a sentence does not.
+pub const MAX_EMOJI_BYTES: usize = 16;
 
 /// Content of `workspace.json` and argument of `save_workspace`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +57,15 @@ pub struct SavedSession {
     pub title: String,
     /// Position in the sidebar.
     pub order: u32,
+    /// Session marker: `#rrggbb`. Absent in files from before 0.3.0.
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Session marker: at most [`MAX_EMOJI_BYTES`] of UTF-8.
+    #[serde(default)]
+    pub emoji: Option<String>,
+    /// Own worktree of the session, removed when the session is closed.
+    #[serde(default)]
+    pub worktree: Option<Worktree>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +136,25 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
         if session.profile_id.trim().is_empty() {
             return invalid("profileId must not be empty");
         }
+        if session.color.as_deref().is_some_and(|c| !is_hex_color(c)) {
+            return invalid("color must be #rrggbb");
+        }
+        if let Some(emoji) = &session.emoji {
+            if emoji.is_empty()
+                || emoji.len() > MAX_EMOJI_BYTES
+                || emoji.chars().any(char::is_control)
+            {
+                return invalid("emoji must be 1 to 16 bytes without control characters");
+            }
+        }
+        if let Some(worktree) = &session.worktree {
+            if worktree.path.as_os_str().is_empty()
+                || worktree.repo_root.as_os_str().is_empty()
+                || worktree.branch.trim().is_empty()
+            {
+                return invalid("worktree needs path, branch and repoRoot");
+            }
+        }
     }
     if let Some(active) = &workspace.active_key {
         let active = normalize_key(active).or(Err(PersistError::InvalidWorkspace(
@@ -133,6 +165,13 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
         }
     }
     Ok(())
+}
+
+/// `#rrggbb` with hex digits in either case.
+fn is_hex_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color.bytes().skip(1).all(|b| b.is_ascii_hexdigit())
 }
 
 /// File storage in the app data folder. Cheap to clone, so commands can hand the work to a
@@ -370,24 +409,18 @@ fn create_private_file(path: &Path) -> io::Result<File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
 
     const KEY: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
     const KEY2: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 
-    struct TempStore(Store);
+    /// The folder is removed when the [`TempDir`] drops.
+    struct TempStore(Store, #[allow(dead_code)] TempDir);
 
     impl TempStore {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("hangar-persist-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            Self(Store::new(dir))
-        }
-    }
-
-    impl Drop for TempStore {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(self.0.dir());
+            let dir = TempDir::new(&format!("persist-{name}"));
+            Self(Store::new(dir.path().to_path_buf()), dir)
         }
     }
 
@@ -398,6 +431,9 @@ mod tests {
             cwd: PathBuf::from(r"C:\Users\Test User\project"),
             title: "Claude Code".into(),
             order,
+            color: None,
+            emoji: None,
+            worktree: None,
         }
     }
 
@@ -493,6 +529,94 @@ mod tests {
             );
         }
         assert!(!store.0.dir().join(WORKSPACE_FILE).exists());
+    }
+
+    #[test]
+    fn markers_and_worktree_round_trip() {
+        let store = TempStore::new("ws-markers");
+        let mut w = workspace();
+        w.sessions[0].color = Some("#1a2B3c".into());
+        w.sessions[0].emoji = Some("\u{1F468}\u{200D}\u{1F4BB}".into());
+        w.sessions[0].worktree = Some(Worktree {
+            path: PathBuf::from(
+                r"C:\Users\Test User\AppData\Local\x\worktrees\repo-0123abcd\fix-1a2b3c",
+            ),
+            branch: "hangar/fix-1a2b3c".into(),
+            repo_root: PathBuf::from(r"C:\Users\Test User\repo"),
+        });
+        store.0.save_workspace(&w).unwrap();
+        assert_eq!(store.0.load_workspace(), Some(w));
+        let json: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.0.dir().join(WORKSPACE_FILE)).unwrap()).unwrap();
+        assert_eq!(json["sessions"][0]["color"], "#1a2B3c");
+        assert_eq!(
+            json["sessions"][0]["worktree"]["branch"],
+            "hangar/fix-1a2b3c"
+        );
+        assert!(json["sessions"][0]["worktree"]["repoRoot"].is_string());
+        assert!(json["sessions"][1]["color"].is_null());
+        assert!(json["sessions"][1]["worktree"].is_null());
+    }
+
+    #[test]
+    fn old_files_without_markers_still_load() {
+        let store = TempStore::new("ws-old");
+        fs::create_dir_all(store.0.dir()).unwrap();
+        let old = format!(
+            r#"{{"version":1,"sessions":[
+                {{"key":"{KEY}","profileId":"claude","cwd":"c","title":"t","order":0}},
+                {{"key":"{KEY2}","profileId":"claude","cwd":"c","title":"t","order":1,
+                  "color":null,"emoji":null,"worktree":null}}]}}"#
+        );
+        fs::write(store.0.dir().join(WORKSPACE_FILE), old).unwrap();
+        let loaded = store.0.load_workspace().unwrap();
+        assert_eq!(loaded.sessions.len(), 2);
+        assert!(loaded
+            .sessions
+            .iter()
+            .all(|s| s.color.is_none() && s.emoji.is_none() && s.worktree.is_none()));
+    }
+
+    #[test]
+    fn invalid_markers_are_not_saved() {
+        let store = TempStore::new("ws-markers-invalid");
+        let mut cases = Vec::new();
+        for color in ["", "red", "#12345", "#1234567", "#12345g", "123456#"] {
+            let mut w = workspace();
+            w.sessions[0].color = Some(color.into());
+            cases.push(w);
+        }
+        for emoji in ["", "\u{1F600}\u{1F600}\u{1F600}\u{1F600}\u{1F600}", "a\nb"] {
+            let mut w = workspace();
+            w.sessions[0].emoji = Some(emoji.into());
+            cases.push(w);
+        }
+        for (path, branch, root) in [
+            ("", "hangar/x", "r"),
+            ("p", " ", "r"),
+            ("p", "hangar/x", ""),
+        ] {
+            let mut w = workspace();
+            w.sessions[0].worktree = Some(Worktree {
+                path: path.into(),
+                branch: branch.into(),
+                repo_root: root.into(),
+            });
+            cases.push(w);
+        }
+        for w in cases {
+            assert!(
+                matches!(
+                    store.0.save_workspace(&w),
+                    Err(PersistError::InvalidWorkspace(_))
+                ),
+                "{w:?}"
+            );
+        }
+        // Exactly 16 bytes is allowed.
+        let mut w = workspace();
+        w.sessions[0].emoji = Some("\u{1F600}\u{1F600}\u{1F600}\u{1F600}".into());
+        store.0.save_workspace(&w).unwrap();
     }
 
     #[test]

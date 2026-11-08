@@ -219,6 +219,12 @@
           "markdownDescription": "Enables the create_update_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the create_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-worktree",
+          "markdownDescription": "Enables the create_worktree command without any pre-configured scope."
+        },
+        {
           "description": "Enables the default_cwd command without any pre-configured scope.",
           "type": "string",
           "const": "allow-default-cwd",
@@ -241,6 +247,18 @@
           "type": "string",
           "const": "allow-detect-versions",
           "markdownDescription": "Enables the detect_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the git_branches command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-branches",
+          "markdownDescription": "Enables the git_branches command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the git_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-diff",
+          "markdownDescription": "Enables the git_diff command without any pre-configured scope."
         },
         {
           "description": "Enables the kill_session command without any pre-configured scope.",
@@ -285,6 +303,12 @@
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Enables the notify_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notify-session",
+          "markdownDescription": "Enables the notify_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-profile-file",
@@ -313,6 +337,12 @@
           "type": "string",
           "const": "allow-reload-profiles",
           "markdownDescription": "Enables the reload_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-worktree",
+          "markdownDescription": "Enables the remove_worktree command without any pre-configured scope."
         },
         {
           "description": "Enables the rename_note command without any pre-configured scope.",
@@ -417,6 +447,12 @@
           "markdownDescription": "Denies the create_update_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the create_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-worktree",
+          "markdownDescription": "Denies the create_worktree command without any pre-configured scope."
+        },
+        {
           "description": "Denies the default_cwd command without any pre-configured scope.",
           "type": "string",
           "const": "deny-default-cwd",
@@ -439,6 +475,18 @@
           "type": "string",
           "const": "deny-detect-versions",
           "markdownDescription": "Denies the detect_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the git_branches command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-branches",
+          "markdownDescription": "Denies the git_branches command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the git_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-diff",
+          "markdownDescription": "Denies the git_diff command without any pre-configured scope."
         },
         {
           "description": "Denies the kill_session command without any pre-configured scope.",
@@ -483,6 +531,12 @@
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Denies the notify_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notify-session",
+          "markdownDescription": "Denies the notify_session command without any pre-configured scope."
+        },
+        {
           "description": "Denies the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-profile-file",
@@ -511,6 +565,12 @@
           "type": "string",
           "const": "deny-reload-profiles",
           "markdownDescription": "Denies the reload_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-worktree",
+          "markdownDescription": "Denies the remove_worktree command without any pre-configured scope."
         },
         {
           "description": "Denies the rename_note command without any pre-configured scope.",
@@ -571,6 +631,96 @@
           "type": "string",
           "const": "deny-write-session",
           "markdownDescription": "Denies the write_session command without any pre-configured scope."
+        },
+        {
+          "description": "No features are enabled by default, as we believe\nthe clipboard can be inherently dangerous and it is \napplication specific if read and/or write access is needed.\n\nClipboard interaction needs to be explicitly enabled.\n",
+          "type": "string",
+          "const": "clipboard-manager:default",
+          "markdownDescription": "No features are enabled by default, as we believe\nthe clipboard can be inherently dangerous and it is \napplication specific if read and/or write access is needed.\n\nClipboard interaction needs to be explicitly enabled.\n"
+        },
+        {
+          "description": "Enables the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-clear",
+          "markdownDescription": "Enables the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the read_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-read-image",
+          "markdownDescription": "Enables the read_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the read_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-read-text",
+          "markdownDescription": "Enables the read_text command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the write_html command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-write-html",
+          "markdownDescription": "Enables the write_html command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the write_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-write-image",
+          "markdownDescription": "Enables the write_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the write_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-write-secret",
+          "markdownDescription": "Enables the write_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the write_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:allow-write-text",
+          "markdownDescription": "Enables the write_text command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-clear",
+          "markdownDescription": "Denies the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the read_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-read-image",
+          "markdownDescription": "Denies the read_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the read_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-read-text",
+          "markdownDescription": "Denies the read_text command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_html command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-write-html",
+          "markdownDescription": "Denies the write_html command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-write-image",
+          "markdownDescription": "Denies the write_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-write-secret",
+          "markdownDescription": "Denies the write_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "clipboard-manager:deny-write-text",
+          "markdownDescription": "Denies the write_text command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

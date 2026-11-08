@@ -5,17 +5,22 @@ pub mod batch;
 mod commands;
 pub mod desktop;
 pub mod filecache;
+pub mod git;
 pub mod icon;
 pub mod manager;
 pub mod notes;
+pub mod notify;
 pub mod output;
 pub mod persist;
 pub mod proctree;
 pub mod profile;
 pub mod resolve;
 pub mod session;
+#[cfg(test)]
+mod test_support;
 pub mod updates;
 pub mod version;
+pub mod worktree;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -35,6 +40,7 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let home = app.path().home_dir()?;
             let config_dir = app.path().app_config_dir()?;
@@ -59,6 +65,7 @@ pub fn run() -> tauri::Result<()> {
                 path: profile_path,
             });
             app.manage(ProbeCaches::default());
+            app.manage(notify::Notifier::default());
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
             // this machine (Windows: %LOCALAPPDATA%\<identifier>).
             let local_dir = app.path().app_local_data_dir()?;
@@ -102,6 +109,11 @@ pub fn run() -> tauri::Result<()> {
             commands::reveal_notes_folder,
             commands::check_program_updates,
             commands::create_update_session,
+            commands::notify_session,
+            commands::git_branches,
+            commands::git_diff,
+            commands::create_worktree,
+            commands::remove_worktree,
         ])
         .build(tauri::generate_context!())?;
 
