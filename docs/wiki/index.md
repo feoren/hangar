@@ -6,6 +6,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[overview]]: state of knowledge, open risks and questions
 
 ## Decisions
+- [[0005-team-collaboration]]: proposed: several people and their agents on one project; requirements from the owner interview, end-to-end encrypted Hangar service, reservations, live file claims, merge queue (sources: 0, updated: 2026-11-08)
 - [[0004-notes-per-working-folder]]: notes belong to the working folder, stored as .md in the app data folder, keyed by the normalized path; folder names `general` and `.trash` since 2026-11-08 (sources: 0, updated: 2026-11-08)
 - [[0003-program-versions]]: program versions via a `--version` call with timeout and cache; program icons (sources: 0, updated: 2026-11-07)
 - [[0002-version-scheme]]: versions X.Y.Z-Build (internally X.Y.Z+Build), build number from Git; the code always carries the upcoming version (sources: 2, updated: 2026-11-08)
