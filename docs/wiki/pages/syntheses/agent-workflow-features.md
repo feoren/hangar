@@ -123,8 +123,10 @@ usual. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
    or "{title} has finished" after an exit. `notification-activated` activates the session and
    focuses its terminal.
 2. **Search** (Ctrl+Shift+F): `@xterm/addon-search` with match decorations; a small bar at the top
-   right of the focused pane: field, "3 of 17", previous, next, case toggle, close. Enter next,
-   Shift+Enter previous, Escape closes and returns focus to the terminal.
+   right of the focused pane: field, "3 of 17", previous, next, case toggle, close. Enter goes to
+   the next older match (up, since new output arrives at the bottom), Shift+Enter to the next
+   newer one; typing searches from the newest output. Escape closes and returns focus to the
+   terminal.
 3. **Split view**: modes single, two side by side, four in a grid (menu View and launcher).
    Clicking a session shows it in the focused pane (or focuses it when visible). In split modes
    each pane gets a slim header (badge, title, attention dot); the focused pane has an accent
@@ -155,8 +157,9 @@ usual. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
     cmd `"..."`, POSIX shells and WSL `'...'` with `'\''`, agent CLIs `"..."` when needed.
 12. **Terminal look**: color scheme (Hangar, Catppuccin, Solarized, each with light and dark variant
     following the app theme), font (Cascadia Code, Cascadia Mono, JetBrains Mono, Fira Code,
-    Consolas; installed ones only), ligatures where the renderer supports them, cursor style and
-    blink.
+    Consolas; installed ones only), cursor style and blink. Ligatures are left out for now
+    (unverified assumption: `@xterm/addon-ligatures` reads font files through Node, which the
+    WebView does not offer).
 13. **Session marker**: color and emoji per session (context menu "Marker"), shown in the
     sidebar, pane header and rail; saved in the workspace.
 14. **Taskbar badge**: number of waiting sessions as an overlay icon (Windows) or badge count.
