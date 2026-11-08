@@ -12,13 +12,20 @@ export type ShellKind = "powershell" | "cmd" | "posix" | "wsl" | "agent";
 
 const POSIX_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "mksh", "tcsh", "csh"]);
 
+/**
+ * `bash.exe` in the Windows system folder is the WSL launcher, not Git Bash: it runs the default
+ * distribution, which sees Windows drives under `/mnt`.
+ */
+const WSL_BASH = /^[a-z]:[\\/]windows[\\/](system32|sysnative)[\\/]bash(\.exe)?$/i;
+
 /** Decides by the program's file name; the command may be a full path with an extension. */
 export function shellKind(command: string): ShellKind {
-  const file = command.trim().split(/[\\/]/).pop() ?? "";
+  const trimmed = command.trim();
+  const file = trimmed.split(/[\\/]/).pop() ?? "";
   const name = file.toLowerCase().replace(/\.(exe|cmd|bat|com)$/, "");
   if (name === "pwsh" || name === "powershell" || name === "pwsh-preview") return "powershell";
   if (name === "cmd") return "cmd";
-  if (name === "wsl") return "wsl";
+  if (name === "wsl" || WSL_BASH.test(trimmed)) return "wsl";
   if (POSIX_SHELLS.has(name)) return "posix";
   return "agent";
 }
@@ -52,7 +59,10 @@ export function quotePath(path: string, kind: ShellKind): string {
     case "powershell":
       return SAFE_WINDOWS.test(path) ? path : `'${path.replace(POWERSHELL_QUOTES, "$&$&")}'`;
     case "cmd":
-      // Windows file names cannot contain `"`, so plain double quotes are enough.
+      // Windows file names cannot contain `"`, so plain double quotes are enough. Known limit:
+      // cmd expands `%NAME%` even inside double quotes when NAME is a defined variable, and an
+      // interactive command line has no escape for `%`. Undefined names stay literal; such file
+      // names are rare enough to accept this.
       return SAFE_WINDOWS.test(path) ? path : `"${path}"`;
     case "posix":
       return posixQuote(path);

@@ -19,6 +19,14 @@ describe("shellKind", () => {
     expect(shellKind("wsl")).toBe("wsl");
   });
 
+  it("treats bash from the Windows system folder as WSL, Git Bash as POSIX", () => {
+    expect(shellKind("C:\\Windows\\System32\\bash.exe")).toBe("wsl");
+    expect(shellKind("c:/windows/system32/BASH.EXE")).toBe("wsl");
+    expect(shellKind("C:\\Windows\\Sysnative\\bash.exe")).toBe("wsl");
+    expect(shellKind("C:\\Program Files\\Git\\usr\\bin\\bash.exe")).toBe("posix");
+    expect(shellKind("bash.exe")).toBe("posix");
+  });
+
   it("treats everything else as an agent", () => {
     expect(shellKind("claude")).toBe("agent");
     expect(shellKind("C:\\Users\\a\\AppData\\Roaming\\npm\\codex.cmd")).toBe("agent");
@@ -67,6 +75,13 @@ describe("cmd", () => {
     expect(quotePath("C:\\a&b", "cmd")).toBe('"C:\\a&b"');
     expect(quotePath("C:\\Ada's", "cmd")).toBe('"C:\\Ada\'s"');
     expect(quotePath("\\\\server\\my share", "cmd")).toBe('"\\\\server\\my share"');
+  });
+
+  // Documents a known limit: cmd expands %NAME% inside double quotes when NAME is defined, and an
+  // interactive command line has no escape for it. The path is passed through unchanged.
+  it("leaves percent signs as they are, quoted like any other special character", () => {
+    expect(quotePath("C:\\100%\\a.txt", "cmd")).toBe('"C:\\100%\\a.txt"');
+    expect(quotePath("C:\\%PATH%\\a.txt", "cmd")).toBe('"C:\\%PATH%\\a.txt"');
   });
 });
 
