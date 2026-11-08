@@ -271,7 +271,24 @@ mod tests {
     #[test]
     fn arguments_default_and_exceptions() {
         let p = |s: &str| PathBuf::from(s);
+        let powershell = [
+            "-NoProfile",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ];
         assert_eq!(version_args(None, &p("/usr/bin/claude")), ["--version"]);
+        assert_eq!(version_args(None, &p("codex.cmd")), ["--version"]);
+        assert_eq!(version_args(None, &p("cmd.exe")), ["/d", "/c", "ver"]);
+        assert_eq!(version_args(None, &p("PowerShell.EXE")), powershell);
+        // pwsh knows --version; only Windows PowerShell 5.1 needs the exception.
+        assert_eq!(version_args(None, &p("pwsh.exe")), ["--version"]);
+    }
+
+    /// Backslash paths only split into folder and file name on Windows.
+    #[cfg(windows)]
+    #[test]
+    fn arguments_for_full_windows_paths() {
+        let p = |s: &str| PathBuf::from(s);
         assert_eq!(version_args(None, &p(r"C:\npm\codex.cmd")), ["--version"]);
         assert_eq!(
             version_args(None, &p(r"C:\Windows\System32\cmd.exe")),
@@ -288,8 +305,6 @@ mod tests {
                 "$PSVersionTable.PSVersion.ToString()"
             ]
         );
-        // pwsh knows --version; only Windows PowerShell 5.1 needs the exception.
-        assert_eq!(version_args(None, &p("pwsh.exe")), ["--version"]);
     }
 
     #[test]

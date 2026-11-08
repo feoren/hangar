@@ -716,6 +716,10 @@ mod tests {
             "github:PowerShell/PowerShell:v"
         );
         assert!(hint.windows.is_some());
+        assert!(builtin_for_command("PWSH.EXE").is_some());
+        assert!(builtin_for_command("/opt/microsoft/powershell/7/pwsh").is_some());
+        // Backslash paths only split into folder and file name on Windows.
+        #[cfg(windows)]
         assert!(builtin_for_command(r"C:\Program Files\PowerShell\7\PWSH.EXE").is_some());
         assert!(builtin_for_command("powershell").is_none());
         assert!(builtin_for_command("cmd").is_none());
