@@ -40,6 +40,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[conpty-cursor-query-measurement]]: measurement: ConPTY waits for the reply to ESC[6n at startup (updated: 2026-11-07)
 
 ## Syntheses
+- [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings and accepted redesign direction (sources: 0, updated: 2026-11-08)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, tabs, trash) (sources: 0, updated: 2026-11-07)
