@@ -53,3 +53,46 @@ major findings. The redesign below is the accepted direction for the 0.3.0 rewor
 
 Backend needs: a capability and window configuration for the detached notes window, optional
 `search_notes`, restore from trash, export and reveal of a single note.
+
+## As built: starting a session (S1 to S9)
+- **One start target** (`src/startTarget.ts`): the active session's project folder (the repository
+  for a worktree session, nothing for an update session), without one the most recent start
+  (`FolderPrefs.recent[0]`, the old `hangar.lastCwd` only as a fallback), then the home folder. A
+  folder chosen in the folder menu or the folder dialog applies to the next start in the target
+  only; the sidebar labels it "Next start in" with an accent edge and a reset button. Choosing the
+  default itself is no deviation. No setting for the old fixed folder: it would bring back the
+  second mental model of S1, and favorites cover the "always this folder" case.
+- **Target everywhere:** sidebar group New session (name plus middle-elided parent, full path and
+  source in the tooltip), rail "+" menu (first row "Starts in <folder>" opens the folder menu, a note
+  when no worktree is possible), empty state ("Starts in <folder> · Change", reset when chosen), a
+  2.5 s hint after Ctrl+Shift+T, quick access.
+- **Folder menu** (`FolderMenu.tsx`, sections in `src/folderSections.ts`): Running projects,
+  Favorites, Recent, each folder once in that order; a star per row (filled = favorite,
+  `menuitemcheckbox`, the menu stays open and rows do not move while it is open); "Choose another
+  folder …". Same names get parent folders (`acme\web`, `fork\web`), details are parents shortened
+  in the middle (`C:\Users\…\clients\acme`). Keyboard: Right and Left reach the star, Shift+Enter
+  toggles it from the row (`menuNav.secondaryCommand`).
+- **Worktree per start:** "+ Worktree" over the end of each program row on hover or focus, Shift+click
+  on a program, "+ Worktree" below each card in the empty state, a worktree button per program in
+  the rail menu. Nothing is sticky. One visible line below the target says "Shift+click: own
+  worktree" or "Not a git repository, so no own worktree" (nothing while the branch is unknown).
+- **Quick access:** "program in folder" for the target, all running projects, favorites and recent
+  folders, plus the worktree variant for every place whose branch is known.
+- **Sidebar:** the active session scrolls into view; a worktree session is titled
+  "<program> · <branch suffix>" (`worktreeTitle`), the full branch stays in the status line.
+
+## As built: one-click program updates
+- `src/programUpdates.ts` parses `plan`, `reason`, `needsAdmin`, `command`, `warnings`, `copies`
+  and `planId` (older backends: `canRun` and `updateHint` map to `run` or `copy`; no command means
+  `none`), and the `program-update-result` payload. All reason and outcome codes are translated.
+- `ProgramUpdateOffer.tsx` (sidebar and Settings > Terminals & Agents): `run` shows
+  "2.0.31 → 2.0.35 [Update]" and "Asks for administrator rights." when `needsAdmin`; `copy` shows
+  the new version, "Copy command" and the reason; `none` the version and the reason. A second copy
+  opens a list of all copies on demand. The rail menu lists runnable updates.
+- When the program runs in a session, "Update" asks inline first (close its sessions, or "Update
+  anyway"); from the rail the sidebar opens to show that question. Otherwise one click starts the
+  update session with `expectedPlan = planId`; a refusal because the plan changed shows a notice
+  with "Check again".
+- After `program-update-result`: a notice with the outcome (updated from X to Y, still running,
+  failed with exit code, another copy earlier on PATH with the copies, unchanged), "Show session";
+  a good result fades after 12 s, a problem stays. Versions are queried again.

@@ -77,3 +77,11 @@ the package `uv` of winget, Scoop, Homebrew, pipx); a uv bundled in another appl
 yields `tool-missing` with copy text. The update outcome claims no cause after a successful update
 without versions to compare. Trash records that name anything but a plain `.md` file in `.trash/`
 are ignored. Pages changed: [[program-updates]], [[notes]], index.
+
+## [2026-11-08] query | Starting a session and one-click updates as built
+pages/syntheses/notes-and-start-usability.md: "As built" for findings S1 to S9 (one start target from
+the active session's project, folder menu with running projects, favorites and recent folders and a
+star per row, worktree decided per start, target shown in sidebar, rail, empty state, Ctrl+Shift+T
+hint and quick access) and for one-click program updates (plan, reason and outcome texts, admin
+note, second copies, `expectedPlan`, inline question while the program runs). Glossary: start
+target, running projects, update plan, second copy, update outcome.
