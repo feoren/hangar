@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "hangar"
-version = "0.2.0"
+version = "0.2.0+88"
 dependencies = [
  "libc",
  "png",
