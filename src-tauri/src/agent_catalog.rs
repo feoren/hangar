@@ -41,6 +41,15 @@ pub struct CatalogAgent {
     /// (see [`Profile::resume_args`]).
     #[serde(default)]
     pub resume_args: Option<Vec<String>>,
+    /// Fresh start with a conversation id chosen by Hangar (see [`Profile::session_id_args`]).
+    #[serde(default)]
+    pub session_id_args: Option<Vec<String>>,
+    /// Resume of the conversation with the stored id (see [`Profile::resume_id_args`]).
+    #[serde(default)]
+    pub resume_id_args: Option<Vec<String>>,
+    /// Source of sub-agent transcripts (see [`Profile::sub_agents`]).
+    #[serde(default)]
+    pub sub_agents: Option<crate::subagents::SubAgentKind>,
     /// Source of the newest version (see [`Latest`]).
     #[serde(default)]
     pub latest: Option<Latest>,
@@ -104,6 +113,12 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
             return Err(CatalogError::DuplicateId(agent.id.clone()));
         }
         if let Some(Err(problem)) = agent.latest.as_ref().map(Latest::validate) {
+            return Err(invalid(problem));
+        }
+        if let Err(problem) = crate::profile::check_id_args(
+            agent.session_id_args.as_deref(),
+            agent.resume_id_args.as_deref(),
+        ) {
             return Err(invalid(problem));
         }
     }
@@ -177,6 +192,9 @@ impl Agent {
                 icon: agent.icon,
                 version_args: agent.version_args,
                 resume_args: agent.resume_args,
+                session_id_args: agent.session_id_args,
+                resume_id_args: agent.resume_id_args,
+                sub_agents: agent.sub_agents,
                 latest: agent.latest,
                 update_hint: agent.update_hint,
             },
@@ -305,11 +323,8 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                 agent.homepage.clone_from(&from_catalog.homepage);
                 agent.install_hint.clone_from(&from_catalog.install_hint);
                 let same_program = from_catalog.candidates.contains(&agent.profile.command);
-                if agent.profile.resume_args.is_none() && same_program {
-                    agent
-                        .profile
-                        .resume_args
-                        .clone_from(&from_catalog.profile.resume_args);
+                if same_program {
+                    inherit_session_options(&mut agent.profile, &from_catalog.profile);
                 }
                 // Same program, same version source; the update command belongs with it.
                 if agent.profile.latest.is_none() && same_program {
@@ -337,6 +352,23 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
         .collect()
 }
 
+/// Resume, conversation id and sub-agent options belong to the program, so a user profile that
+/// starts the catalog's program takes each one it does not set itself.
+fn inherit_session_options(profile: &mut Profile, catalog: &Profile) {
+    if profile.resume_args.is_none() {
+        profile.resume_args.clone_from(&catalog.resume_args);
+    }
+    if profile.session_id_args.is_none() {
+        profile.session_id_args.clone_from(&catalog.session_id_args);
+    }
+    if profile.resume_id_args.is_none() {
+        profile.resume_id_args.clone_from(&catalog.resume_id_args);
+    }
+    if profile.sub_agents.is_none() {
+        profile.sub_agents = catalog.sub_agents;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -355,6 +387,9 @@ mod tests {
             icon: None,
             version_args: None,
             resume_args: None,
+            session_id_args: None,
+            resume_id_args: None,
+            sub_agents: None,
             latest: None,
             update_hint: None,
         }
@@ -372,6 +407,9 @@ mod tests {
             install_unix: Some(format!("unix-install {id}")),
             version_args: None,
             resume_args: Some(vec!["--continue".into()]),
+            session_id_args: None,
+            resume_id_args: None,
+            sub_agents: None,
             latest: None,
             update_hint: None,
         }
@@ -487,6 +525,38 @@ mod tests {
         assert!(merged[0].profile.latest.is_some());
         let merged = merge(vec![user("claude", "my-claude")], agents);
         assert!(merged[0].profile.latest.is_none());
+    }
+
+    #[test]
+    fn claude_has_conversation_ids_and_sub_agents() {
+        // Evidence: docs/wiki/pages/agents/resume.md, docs/wiki/pages/sources/subagent-transcripts.md
+        let agents = builtin().unwrap();
+        let claude = agents.iter().find(|a| a.id == "claude").unwrap();
+        assert_eq!(
+            claude.session_id_args,
+            Some(strings(&["--session-id", "{id}"]))
+        );
+        assert_eq!(claude.resume_id_args, Some(strings(&["--resume", "{id}"])));
+        assert_eq!(
+            claude.sub_agents,
+            Some(crate::subagents::SubAgentKind::Claude)
+        );
+        for agent in agents.iter().filter(|a| a.id != "claude") {
+            assert_eq!(agent.session_id_args, None, "{}", agent.id);
+            assert_eq!(agent.sub_agents, None, "{}", agent.id);
+        }
+        // Inherited by a user profile with the same program only.
+        let merged = merge(
+            vec![user("claude", "claude"), user("x", "y")],
+            agents.clone(),
+        );
+        assert!(merged[0].profile.session_id_args().is_some());
+        assert!(merged[0].profile.sub_agents.is_some());
+        let merged = merge(vec![user("claude", "my-claude")], agents);
+        assert!(merged[0].profile.session_id_args().is_none());
+        assert!(merged[0].profile.sub_agents.is_none());
+        let bad = "[[agent]]\nid='a'\nname='A'\ncommands=['a']\nresume_id_args=['--resume']\n";
+        assert!(matches!(parse(bad), Err(CatalogError::Invalid { .. })));
     }
 
     #[test]

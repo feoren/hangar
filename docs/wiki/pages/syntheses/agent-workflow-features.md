@@ -234,7 +234,8 @@ request). Right click opens the menu. No window capability is needed for hiding;
    hidden sessions in sidebar order, so a pane stays empty only while there are fewer sessions
    than panes. Switching modes fills again: active session first, then sidebar order. Ctrl+Tab
    activates the next session in sidebar order, which follows the same rules as a click. Double
-   click on a pane header shows only that session. No extra shortcut.
+   click on a pane header shows only that session. No extra shortcut. The three modes were
+   replaced by snap layouts in 0.3.0 (item 22).
 4. **Launcher** (Ctrl+Shift+P): one field, fuzzy search over: running sessions (switch),
    "program in folder" for favorites and recent folders (start), notes folders (open notes),
    snippets (insert), view and broadcast commands. Own scorer, no dependency.
@@ -382,7 +383,72 @@ menu paste uses the clipboard plugin.
     at the top; dropping on a zone switches to that layout and places the session in that zone.
     The same picker is available from View and the launcher without dragging. Replaces
     `splitMode` (old stored values migrate).
+    As built, 21 (`src/sessionDrag.ts`, `src/useSessionDrag.ts`, reducer action `moved`): a press
+    on a row becomes a drag after 5 px, so click, double click (rename) and the context menu stay
+    as they were. A 2 px accent line shows where the row lands (none when nothing would change);
+    the dragged row fades and its hover actions hide; a small ghost (badge, title) follows the
+    pointer by `transform` only, so no React render per move. Near the list edges the list
+    scrolls (up to 14 px per frame). Escape, window blur or a lost pointer capture cancel. The
+    collapsed rail reorders the same way. Alt+Up / Alt+Down on a focused row moves it one place
+    (`rowMoveStep` in `src/shortcuts.ts`, handled by the row and not by `matchShortcut`, because
+    in the terminal Alt+arrow belongs to shells and agents); the focus stays on the row and a
+    status region announces "Title: position 2 of 5". The workspace saves the new order.
+    Pointer events with pointer capture, not HTML5 drag and drop: Tauri's native file drop
+    (`dragDropEnabled`, needed for files from Explorer, item 11) is said to disable HTML5 drag
+    and drop inside the page on Windows.
+    > [!question] Unverified
+    > The HTML5 statement comes from Tauri's configuration reference for `dragDropEnabled` and
+    > was not measured here. Pointer capture also keeps the gesture away from xterm, so no
+    > program sees mouse motion with a pressed button. File drops and session drags never meet.
+    As built, 22 (`src/snapLayouts.ts`, `src/split.ts`, `src/SnapBar.tsx`): layouts `single`,
+    `pair`, `triple`, `mainStack` (left 60 %, two stacked right) and `quad`, each a list of zones
+    as fractions; one pane per zone. Stored as `snapLayout` in the layout; `splitMode` values
+    migrate (`columns` to `pair`, `grid` to `quad`). Panes stay absolutely positioned from the
+    zone rectangles instead of a CSS grid: hidden panes keep their size in the DOM. Switching to a
+    layout with as many zones keeps every session in its pane; otherwise the old fill rule
+    applies. `placeSession`: same zone count, the session takes the zone (swapping with its old
+    pane when visible); another count, the zone gets the session, the other zones keep the
+    visible sessions in order, then hidden ones. While a session is dragged over the panes area,
+    the snap bar shows at the top center; the zone under the pointer lights up and an accent
+    outline previews it in the panes area. Dropping on a pane outside the bar puts the session
+    into that pane of the current layout. The picker ("Choose layout ...", View and quick
+    access) shows the same bar with a caption; arrows move through all 13 zones, Enter places the
+    active session, Escape, a click outside or focus leaving closes it. View and quick access
+    also list the five layouts by name. "Send to several" picks the smallest fitting layout
+    (three sessions now get `triple`). Reduced motion turns off the bar's slide and the
+    preview's movement.
 23. **Sub-agents in the body**: right click on a running agent session, "Show sub-agents". Sub-agents
     run inside the agent's process and have no terminal of their own, so Hangar shows each one as
     a read-only live view of its transcript in a pane. Depends on research into where each CLI
     stores sub-agent transcripts and how Hangar maps its session to the CLI's session id.
+    As built, backend (`src-tauri/src/subagents/`, `src-tauri/src/cli_session.rs`): every claude
+    session gets a conversation id ([[resume]]); `SessionInfo.subAgents` is `true` when the
+    program has a sub-agent source (`sub_agents = "claude"` in the catalog) and the session an
+    id, which is when the menu entry applies.
+    - `watch_sub_agents(sessionId: number, onEvent: Channel)`: `null`, or an error text (unknown
+      session, no sub-agents for it). A second call for the same session replaces the first watch.
+    - `unwatch_sub_agents(sessionId: number)`: `true` if a watch was running. `close_session` and
+      app exit end the watch too, as does a channel the window dropped (noticed at the next
+      change; a reload that calls `watch_sub_agents` again replaces the old watch).
+      `restart_session` ends it as well, because the restart runs under a new `cliSessionId`: the
+      window calls `watch_sub_agents` again with the returned `SessionInfo` if the view is open.
+      A `resumeFallback` carries the current `cliSessionId` and `subAgents`: the same id after
+      `resume_id_args`, a new one after `resume_args` (`--continue`), which had none. While a
+      `--continue` resume runs, `subAgents` is `false`.
+    - Event, always a full snapshot that replaces the previous one, sent once at the start and
+      then only on a change (one poll every 250 ms, so at most 4 events per second per session):
+      `{ "type": "snapshot", "located": bool, "agents": [{ "id": string, "description":
+      string | null, "agentType": string | null, "spawnDepth": number | null, "status": "running" |
+      "finished" | "stale", "startedAt": number | null, "lastActivity": number | null, "tool":
+      string | null, "excerpt": string | null }] }`. `located: false` until claude wrote the
+      session's transcript (after the first prompt). Times are Unix milliseconds; agents are
+      ordered oldest first; `stale` = not finished and no write for 60 s; `tool` = newest tool
+      call name; `excerpt` = newest assistant text, at most 400 characters, control characters
+      removed. Prompts, tool inputs, tool results and every other record type are never read.
+    - Files: `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<id>.jsonl` (the encoded working
+      folder first, then a search every 2 s), then `<id>/subagents/agent-<agentId>.jsonl` and
+      `.meta.json`; links and junctions out of the projects folder are not followed; the newest
+      256 sub-agents at most; only the last 256 KiB of a transcript are read at first; lines over
+      1 MiB are skipped. Polling instead of `notify` (CC0-1.0, outside the license policy).
+    - Codex, OpenCode and Gemini: not built; each would be another `SubAgentKind` with its own
+      `SubAgentSource` ([[subagent-transcripts]]).

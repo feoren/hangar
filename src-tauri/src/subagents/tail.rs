@@ -1,0 +1,196 @@
+//! Follows a growing JSONL file that another process keeps writing (the agent CLI).
+//!
+//! The file is opened per poll and closed again, with read, write and delete sharing on Windows,
+//! so Hangar never keeps the CLI from appending, rotating or deleting it. A byte offset marks what
+//! was read; an incomplete last line waits in a buffer until its newline arrives.
+
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::Path;
+
+/// On the first read only this much of the end of the file is read: the live view needs the
+/// latest state, not the whole history of a long-running sub-agent.
+pub const INITIAL_TAIL: u64 = 256 * 1024;
+/// Longer lines (huge tool results) are dropped instead of buffered without bound.
+pub const MAX_LINE: usize = 1024 * 1024;
+/// At most this much is read per poll, so a burst cannot block the watcher for long; the rest
+/// follows on the next polls.
+pub const MAX_READ: u64 = 4 * 1024 * 1024;
+
+#[derive(Debug, Default)]
+pub struct Tail {
+    /// `None` before the first read.
+    offset: Option<u64>,
+    partial: Vec<u8>,
+    /// Discarding up to the next newline: the read started in the middle of a line, or the
+    /// line grew past [`MAX_LINE`].
+    skipping: bool,
+}
+
+impl Tail {
+    /// Complete lines written since the last call, without `\n` or `\r\n`.
+    pub fn read_new(&mut self, path: &Path) -> io::Result<Vec<Vec<u8>>> {
+        let mut file = open_shared(path)?;
+        let len = file.metadata()?.len();
+        let offset = match self.offset {
+            // Shrunk: the file was truncated or replaced. Start over like a first read.
+            Some(offset) if offset <= len => offset,
+            _ => {
+                self.partial.clear();
+                let start = len.saturating_sub(INITIAL_TAIL);
+                self.skipping = start > 0;
+                start
+            }
+        };
+        let wanted = (len - offset).min(MAX_READ);
+        let mut buffer = Vec::new();
+        if wanted > 0 {
+            file.seek(SeekFrom::Start(offset))?;
+            file.take(wanted).read_to_end(&mut buffer)?;
+        }
+        self.offset = Some(offset + buffer.len() as u64);
+        Ok(self.split(&buffer))
+    }
+
+    fn split(&mut self, mut data: &[u8]) -> Vec<Vec<u8>> {
+        let mut lines = Vec::new();
+        while !data.is_empty() {
+            let (segment, complete) = match data.iter().position(|b| *b == b'\n') {
+                Some(end) => (&data[..end], true),
+                None => (data, false),
+            };
+            data = &data[segment.len() + usize::from(complete)..];
+            if self.skipping {
+                if complete {
+                    self.skipping = false;
+                }
+                continue;
+            }
+            if self.partial.len() + segment.len() > MAX_LINE {
+                self.partial.clear();
+                self.skipping = !complete;
+                continue;
+            }
+            self.partial.extend_from_slice(segment);
+            if complete {
+                let mut line = std::mem::take(&mut self.partial);
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                if !line.is_empty() {
+                    lines.push(line);
+                }
+            }
+        }
+        lines
+    }
+}
+
+/// Read-only, shared with writers and deleters; never follows the file beyond this call.
+pub fn open_shared(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        options.share_mode(0x1 | 0x2 | 0x4);
+    }
+    options.open(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+    use crate::test_support::TempDir;
+
+    fn append(path: &Path, data: &[u8]) {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        file.write_all(data).unwrap();
+    }
+
+    fn text(lines: Vec<Vec<u8>>) -> Vec<String> {
+        lines
+            .into_iter()
+            .map(|l| String::from_utf8(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn partial_lines_wait_for_their_newline() {
+        let dir = TempDir::new("tail-partial");
+        let path = dir.path().join("a.jsonl");
+        append(&path, b"one\r\ntw");
+        let mut tail = Tail::default();
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["one"]);
+        assert!(tail.read_new(&path).unwrap().is_empty());
+        append(&path, b"o\n\nthree\n");
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["two", "three"]);
+    }
+
+    #[test]
+    fn first_read_starts_near_the_end_at_a_line_start() {
+        let dir = TempDir::new("tail-initial");
+        let path = dir.path().join("a.jsonl");
+        let filler = format!("{}\n", "x".repeat(1023));
+        let mut content = String::new();
+        while (content.len() as u64) < INITIAL_TAIL * 2 {
+            content.push_str(&filler);
+        }
+        content.push_str("last\n");
+        append(&path, content.as_bytes());
+        let lines = text(Tail::default().read_new(&path).unwrap());
+        assert_eq!(lines.last().map(String::as_str), Some("last"));
+        // No cut-off first line, and not the whole file.
+        assert!(lines[..lines.len() - 1].iter().all(|l| l.len() == 1023));
+        assert!((lines.len() as u64) < INITIAL_TAIL / 1024 + 2);
+    }
+
+    #[test]
+    fn huge_lines_are_dropped_and_reading_goes_on() {
+        let dir = TempDir::new("tail-huge");
+        let path = dir.path().join("a.jsonl");
+        let mut tail = Tail::default();
+        append(&path, b"before\n");
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["before"]);
+        // Arrives over several polls, as a CLI flushes it.
+        let chunk = vec![b'y'; MAX_LINE / 2 + 1];
+        for _ in 0..3 {
+            append(&path, &chunk);
+            assert!(tail.read_new(&path).unwrap().is_empty());
+        }
+        append(&path, b"tail of huge\nafter\n");
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["after"]);
+    }
+
+    #[test]
+    fn shrinking_file_starts_over() {
+        let dir = TempDir::new("tail-shrink");
+        let path = dir.path().join("a.jsonl");
+        append(&path, b"aaaaaaaaaa\nbbbbbbbbbb\n");
+        let mut tail = Tail::default();
+        assert_eq!(tail.read_new(&path).unwrap().len(), 2);
+        std::fs::write(&path, b"new\n").unwrap();
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["new"]);
+        append(&path, b"next\n");
+        assert_eq!(text(tail.read_new(&path).unwrap()), ["next"]);
+    }
+
+    #[test]
+    fn file_stays_writable_and_deletable_while_followed() {
+        let dir = TempDir::new("tail-share");
+        let path = dir.path().join("a.jsonl");
+        append(&path, b"x\n");
+        let held = open_shared(&path).unwrap();
+        append(&path, b"y\n");
+        std::fs::remove_file(&path).unwrap();
+        drop(held);
+        assert!(Tail::default().read_new(&path).is_err());
+    }
+}

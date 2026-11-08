@@ -46,6 +46,17 @@ pub struct Profile {
     /// normally with `args`. Same name as in the catalog, hence snake_case.
     #[serde(default, rename = "resume_args")]
     pub resume_args: Option<Vec<String>>,
+    /// Arguments that give a fresh start a conversation id chosen by Hangar, with `{id}` as the
+    /// placeholder (`["--session-id", "{id}"]`). APPENDED to `args`. See [`crate::cli_session`].
+    #[serde(default, rename = "session_id_args")]
+    pub session_id_args: Option<Vec<String>>,
+    /// Arguments that resume exactly the conversation with the stored id (`["--resume", "{id}"]`).
+    /// They REPLACE `args`, like `resume_args`, which still applies to sessions without a stored id.
+    #[serde(default, rename = "resume_id_args")]
+    pub resume_id_args: Option<Vec<String>>,
+    /// Where the program keeps sub-agent transcripts that Hangar can show ([`crate::subagents`]).
+    #[serde(default, rename = "sub_agents")]
+    pub sub_agents: Option<crate::subagents::SubAgentKind>,
     /// Where the newest version is published (npm, PyPI or GitHub release), see [`Latest`].
     #[serde(default)]
     pub latest: Option<Latest>,
@@ -60,6 +71,40 @@ impl Profile {
     pub fn resume_args(&self) -> Option<&[String]> {
         self.resume_args.as_deref().filter(|args| !args.is_empty())
     }
+
+    /// `session_id_args`, if the profile has any. An empty list counts as none.
+    pub fn session_id_args(&self) -> Option<&[String]> {
+        self.session_id_args
+            .as_deref()
+            .filter(|args| !args.is_empty())
+    }
+
+    /// `resume_id_args`, if the profile has any. An empty list counts as none.
+    pub fn resume_id_args(&self) -> Option<&[String]> {
+        self.resume_id_args
+            .as_deref()
+            .filter(|args| !args.is_empty())
+    }
+}
+
+/// A non-empty `session_id_args` or `resume_id_args` must carry the id somewhere; without the
+/// placeholder every session would share one conversation or none would get its own.
+pub fn check_id_args(
+    session_id_args: Option<&[String]>,
+    resume_id_args: Option<&[String]>,
+) -> Result<(), &'static str> {
+    let lacks_placeholder = |args: Option<&[String]>| {
+        args.is_some_and(|args| {
+            !args.is_empty()
+                && !args
+                    .iter()
+                    .any(|a| a.contains(crate::cli_session::PLACEHOLDER))
+        })
+    };
+    if lacks_placeholder(session_id_args) || lacks_placeholder(resume_id_args) {
+        return Err("session_id_args and resume_id_args need the placeholder {id}");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,6 +176,15 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
             return Err(ProfileError::IdCase(other.to_owned(), profile.id.clone()));
         }
         if let Some(Err(problem)) = profile.latest.as_ref().map(Latest::validate) {
+            return Err(ProfileError::Invalid {
+                profile: label.clone(),
+                problem,
+            });
+        }
+        if let Err(problem) = check_id_args(
+            profile.session_id_args.as_deref(),
+            profile.resume_id_args.as_deref(),
+        ) {
             return Err(ProfileError::Invalid {
                 profile: label.clone(),
                 problem,
@@ -333,6 +387,36 @@ mod tests {
         // camelCase would be a typo and gets caught by deny_unknown_fields.
         let camel = "[[profile]]\nid='a'\nname='A'\ncommand='a'\nresumeArgs=['x']\n";
         assert!(matches!(parse(camel), Err(ProfileError::Parse(_))));
+    }
+
+    #[test]
+    fn id_args_and_sub_agents() {
+        let src = "[[profile]]\nid='c'\nname='C'\ncommand='claude'\n\
+                   session_id_args=['--session-id','{id}']\nresume_id_args=['--resume','{id}']\n\
+                   sub_agents='claude'\n";
+        let p = &parse(src).unwrap()[0];
+        assert_eq!(p.session_id_args().map(<[String]>::len), Some(2));
+        assert_eq!(p.resume_id_args().map(<[String]>::len), Some(2));
+        assert_eq!(p.sub_agents, Some(crate::subagents::SubAgentKind::Claude));
+        let base = "[[profile]]\nid='c'\nname='C'\ncommand='claude'\n";
+        let empty = &parse(&format!("{base}session_id_args=[]\n")).unwrap()[0];
+        assert_eq!(empty.session_id_args(), None);
+        for bad in [
+            "session_id_args=['--session-id']\n",
+            "resume_id_args=['--resume','id']\n",
+        ] {
+            assert!(
+                matches!(
+                    parse(&format!("{base}{bad}")),
+                    Err(ProfileError::Invalid { .. })
+                ),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            parse(&format!("{base}sub_agents='codex'\n")),
+            Err(ProfileError::Parse(_))
+        ));
     }
 
     #[test]

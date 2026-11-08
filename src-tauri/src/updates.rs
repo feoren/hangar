@@ -150,6 +150,9 @@ pub fn update_agent(agent: &Agent) -> Result<Agent, CommandError> {
     updater.profile.command.clone_from(&command);
     updater.profile.args = argv.collect();
     updater.profile.resume_args = None;
+    updater.profile.session_id_args = None;
+    updater.profile.resume_id_args = None;
+    updater.profile.sub_agents = None;
     // The update command needs no API keys of the agent.
     updater.profile.secret_env.clear();
     updater.cwd_flag = None;
@@ -823,6 +826,9 @@ mod tests {
             install_unix: Some(install.into()),
             version_args: None,
             resume_args: Some(vec!["--resume".into()]),
+            session_id_args: Some(vec!["--id".into(), "{id}".into()]),
+            resume_id_args: None,
+            sub_agents: Some(crate::subagents::SubAgentKind::Claude),
             latest: None,
             update_hint,
         });
@@ -848,6 +854,8 @@ mod tests {
         assert_eq!(updater.profile.args, ["install", "-g", "x@latest"]);
         assert_eq!(updater.candidates, ["npm"]);
         assert_eq!(updater.profile.resume_args, None);
+        assert_eq!(updater.profile.session_id_args, None);
+        assert_eq!(updater.profile.sub_agents, None);
         assert_eq!(updater.id(), "x");
         // The profile's environment applies to the update as well.
         assert_eq!(updater.profile.env, agent.profile.env);

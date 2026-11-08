@@ -26,6 +26,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Sources
 - [[update-installers]]: research and measurement: detecting npm, winget, uv, brew and native installs from the resolved path, self-updaters, look-alike packages (updated: 2026-11-08)
+- [[resume-id-measurement]]: measurement: `claude --resume <unknown uuid>` exits 1 after about 1 s and creates nothing; `--session-id` refuses an id whose transcript exists (updated: 2026-11-08)
 - [[subagent-transcripts]]: research and measurement: where Claude Code, Codex, OpenCode and Gemini keep sub-agent transcripts, session id flags, hooks, tailing rules (updated: 2026-11-08)
 - [[wsl-list-measurement]]: measurement: `wsl.exe --list --quiet` writes UTF-16LE into a pipe, Docker Desktop distribution, keychain round trip through keyring 4.2 (updated: 2026-11-08)
 - [[webgl-measurement]]: measurement: xterm.js 6 DOM vs WebGL renderer in Edge 157 (WebView2 engine), no gain, 4x slower on color-heavy output; WebGL stays off (updated: 2026-11-08)

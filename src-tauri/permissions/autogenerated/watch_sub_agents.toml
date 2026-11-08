@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-watch-sub-agents"
+description = "Enables the watch_sub_agents command without any pre-configured scope."
+commands.allow = ["watch_sub_agents"]
+
+[[permission]]
+identifier = "deny-watch-sub-agents"
+description = "Denies the watch_sub_agents command without any pre-configured scope."
+commands.deny = ["watch_sub_agents"]

@@ -134,6 +134,9 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
         icon: None,
         version_args: version_args.map(args),
         resume_args: None,
+        session_id_args: None,
+        resume_id_args: None,
+        sub_agents: None,
         latest: None,
         update_hint: None,
     }

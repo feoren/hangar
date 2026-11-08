@@ -92,6 +92,9 @@ pub fn agent(distro: &str) -> Agent {
             // Every entry is the same wsl.exe; its version says nothing about the distribution.
             version_args: Some(Vec::new()),
             resume_args: None,
+            session_id_args: None,
+            resume_id_args: None,
+            sub_agents: None,
             latest: None,
             update_hint: None,
         },

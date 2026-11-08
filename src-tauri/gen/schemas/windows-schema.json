@@ -441,6 +441,18 @@
           "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Enables the unwatch_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unwatch-sub-agents",
+          "markdownDescription": "Enables the unwatch_sub_agents command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the watch_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-watch-sub-agents",
+          "markdownDescription": "Enables the watch_sub_agents command without any pre-configured scope."
+        },
+        {
           "description": "Enables the write_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-write-note",
@@ -715,6 +727,18 @@
           "type": "string",
           "const": "deny-set-profile-secret",
           "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unwatch_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unwatch-sub-agents",
+          "markdownDescription": "Denies the unwatch_sub_agents command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the watch_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-watch-sub-agents",
+          "markdownDescription": "Denies the watch_sub_agents command without any pre-configured scope."
         },
         {
           "description": "Denies the write_note command without any pre-configured scope.",

@@ -48,6 +48,8 @@ const COMMANDS: &[&str] = &[
     "profile_secrets",
     "export_session",
     "configure_tray",
+    "watch_sub_agents",
+    "unwatch_sub_agents",
 ];
 
 fn main() {

@@ -27,6 +27,15 @@
 #                    here again (goose: args ["session"], resume_args ["session", "--resume"]).
 #                    If a resume ends within 5 s with a nonzero exit code, Hangar starts once
 #                    normally with args. Only add with evidence (docs/wiki/pages/agents/resume.md).
+#   session_id_args  Optional. Arguments that give a fresh start a conversation id chosen by
+#                    Hangar; {id} is replaced by a new UUID. APPENDED to args. Hangar stores the id
+#                    with the session.
+#   resume_id_args   Optional. Arguments that resume exactly the conversation with the stored id
+#                    ({id}). They REPLACE args; sessions without a stored id use resume_args. If
+#                    this resume ends within 5 s with a nonzero exit code, Hangar starts once
+#                    normally with args plus session_id_args and the same id.
+#   sub_agents       Optional. Where the program keeps sub-agent transcripts that Hangar can show
+#                    read-only; only "claude" so far (docs/wiki/pages/sources/subagent-transcripts.md).
 #   latest           Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
@@ -53,6 +62,9 @@ id = "claude"
 name = "Claude Code"
 commands = ["claude"]
 resume_args = ["--continue"]
+session_id_args = ["--session-id", "{id}"]
+resume_id_args = ["--resume", "{id}"]
+sub_agents = "claude"
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"

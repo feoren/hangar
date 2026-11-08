@@ -21,6 +21,7 @@ use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind};
+use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, Item, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
@@ -354,13 +355,15 @@ pub fn create_session(
     size: TermSize,
     on_event: Channel<SessionEvent>,
     resume: Option<bool>,
+    cli_session_id: Option<String>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Optional, so existing calls without `resume` stay valid.
-    manager.create_with(
+    // Optional, so existing calls without `resume` or `cliSessionId` stay valid.
+    manager.create_resuming(
         &profile_id,
         cwd,
         size,
         resume.unwrap_or(false),
+        cli_session_id.as_deref(),
         channel_sink(on_event),
     )
 }
@@ -411,16 +414,21 @@ pub fn kill_session(manager: Manager<'_>, id: SessionId) -> Result<(), ManagerEr
 pub fn restart_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
+    watchers: State<'_, Watchers>,
     id: SessionId,
     size: TermSize,
     on_event: Channel<SessionEvent>,
 ) -> Result<SessionInfo, ManagerError> {
     // Restarting an update session repeats the update; after that it behaves like a start.
-    if manager.kind(id) == Some(SessionKind::Update) {
+    let info = if manager.kind(id) == Some(SessionKind::Update) {
         manager.restart(id, size, update_sink(app, on_event))
     } else {
         manager.restart(id, size, channel_sink(on_event))
-    }
+    }?;
+    // The restart runs under a new conversation id; a watch would keep following the old one.
+    // The window starts a new watch with the returned `SessionInfo` if it wants one.
+    watchers.stop(id);
+    Ok(info)
 }
 
 #[tauri::command]
@@ -432,16 +440,43 @@ pub fn rename_session(
     manager.rename(id, &title)
 }
 
-/// Also withdraws the session's desktop notification, off the main thread.
+/// Also withdraws the session's desktop notification, off the main thread, and ends its
+/// sub-agent watch.
 #[tauri::command]
 pub fn close_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
+    watchers: State<'_, Watchers>,
     id: SessionId,
 ) -> Result<(), ManagerError> {
     manager.close(id)?;
+    watchers.stop(id);
     tauri::async_runtime::spawn_blocking(move || app.state::<Notifier>().forget(id));
     Ok(())
+}
+
+// Sub-agent view (subagents/). Contract: docs/wiki/pages/syntheses/agent-workflow-features.md, item 23.
+
+/// Streams snapshots of the session's sub-agents on `on_event` until [`unwatch_sub_agents`], the
+/// session closes or the window drops the channel. A second call for the same session replaces
+/// the first watch.
+#[tauri::command]
+pub fn watch_sub_agents(
+    manager: Manager<'_>,
+    watchers: State<'_, Watchers>,
+    session_id: SessionId,
+    on_event: Channel<SubAgentEvent>,
+) -> Result<(), SubAgentError> {
+    let target = manager.sub_agent_target(session_id)?;
+    watchers.start(session_id, subagents::source_for(&target), move |event| {
+        on_event.send(event).is_ok()
+    })
+}
+
+/// `false` if no watch was running for the session.
+#[tauri::command]
+pub fn unwatch_sub_agents(watchers: State<'_, Watchers>, session_id: SessionId) -> bool {
+    watchers.stop(session_id)
 }
 
 // Workspace and scrollback (persist.rs). File access runs on a blocking thread because

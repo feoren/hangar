@@ -42,6 +42,13 @@ pub struct SessionInfo {
     /// show whether the conversation carries on or started fresh.
     pub resumed: bool,
     pub kind: SessionKind,
+    /// Conversation id Hangar gave the CLI (`session_id_args`, `resume_id_args`), a lowercase
+    /// UUID. The frontend stores it in the workspace to resume exactly this conversation. Changes
+    /// on a restart and after a resume fallback without an id.
+    pub cli_session_id: Option<String>,
+    /// `watch_sub_agents` works for this session: the program has a sub-agent source and the
+    /// session a conversation id.
+    pub sub_agents: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -69,6 +76,8 @@ impl SessionInfo {
             created_at,
             resumed: false,
             kind: SessionKind::Agent,
+            cli_session_id: None,
+            sub_agents: false,
         }
     }
 
@@ -163,6 +172,8 @@ mod tests {
         assert!(json.get("exitCode").is_some());
         assert_eq!(json["resumed"], false);
         assert_eq!(json["kind"], "agent");
+        assert!(json["cliSessionId"].is_null());
+        assert_eq!(json["subAgents"], false);
         let mut update = info();
         update.kind = SessionKind::Update;
         assert_eq!(serde_json::to_value(update).unwrap()["kind"], "update");

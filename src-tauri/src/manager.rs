@@ -24,12 +24,14 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source};
 use crate::batch;
+use crate::cli_session::{self, Plan};
 use crate::lock;
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::ProcTree;
 use crate::profile::Profile;
 use crate::secrets::{self, KeyringStore, SecretStore};
 use crate::session::{SessionId, SessionInfo, SessionKind, Status, TransitionError};
+use crate::subagents;
 use crate::updates::{self, CommandError};
 use crate::wsl;
 
@@ -90,9 +92,16 @@ pub enum SessionEvent {
     /// The resume (`resume_args`) ended within [`RESUME_WINDOW`] with a nonzero `code`. The
     /// session immediately restarts once normally, on the same channel and with the same id; its
     /// `Output` and `Exit` events follow. There is no `Exit` for the resume
-    /// attempt.
+    /// attempt. `cli_session_id` is the conversation id of the normal start (the same id after a
+    /// failed `resume_id_args`, a new one after a failed `resume_args`, `null` without
+    /// `session_id_args`); the frontend stores it like the one from `SessionInfo`. `sub_agents`
+    /// is the new `SessionInfo.subAgents`: a failed `resume_args` had no id, the normal start
+    /// has one.
+    #[serde(rename_all = "camelCase")]
     ResumeFallback {
         code: Option<u32>,
+        cli_session_id: Option<String>,
+        sub_agents: bool,
     },
 }
 
@@ -144,6 +153,10 @@ pub enum ManagerError {
     BadCwd(PathBuf),
     #[error("The title must not be empty")]
     EmptyTitle,
+    #[error(transparent)]
+    CliSessionId(#[from] cli_session::InvalidId),
+    #[error("Session {0} has no sub-agents Hangar can show")]
+    NoSubAgents(SessionId),
     #[error("The update of {0} is already running")]
     UpdateRunning(String),
     #[error("{profile} cannot be updated from Hangar: {reason}")]
@@ -267,7 +280,7 @@ impl Shared {
         code: Option<u32>,
         sink: &Arc<dyn EventSink>,
     ) -> bool {
-        let (agent, cwd, size, next) = {
+        let (agent, cwd, size, next, plan, sub_agents) = {
             let mut sessions = lock(&self.sessions);
             let Some(entry) = sessions.get_mut(&id) else {
                 return false;
@@ -285,21 +298,28 @@ impl Shared {
             }
             entry.info.resumed = false;
             entry.generation += 1;
+            let plan = Plan::fallback(&entry.agent.profile, entry.info.cli_session_id.take());
+            set_cli_session(&mut entry.info, &entry.agent, plan.cli_session_id.clone());
             (
                 entry.agent.clone(),
                 entry.info.cwd.clone(),
                 entry.size,
                 entry.generation,
+                plan,
+                entry.info.sub_agents,
             )
         };
-        sink.emit(SessionEvent::ResumeFallback { code });
-        let args = agent.profile.args.clone();
+        sink.emit(SessionEvent::ResumeFallback {
+            code,
+            cli_session_id: plan.cli_session_id.clone(),
+            sub_agents,
+        });
         let started = spawn(
             self,
             id,
             next,
             &agent,
-            &Launch::normal(&args, SessionKind::Agent),
+            &Launch::normal(&plan.args, SessionKind::Agent),
             &cwd,
             size,
             Arc::clone(sink),
@@ -530,6 +550,26 @@ impl SessionManager {
         self.create_with(profile_id, cwd, size, false, sink)
     }
 
+    /// Like [`Self::create_with`], with the conversation id stored for this session. With
+    /// `resume` and `resume_id_args`, exactly that conversation is resumed; without an id the
+    /// profile's `resume_args` apply as before ([`Plan::first`]). An id that is not a UUID is an
+    /// error.
+    pub fn create_resuming(
+        &self,
+        profile_id: &str,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        resume: bool,
+        cli_session_id: Option<&str>,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let stored = cli_session_id.map(cli_session::validate).transpose()?;
+        let agent = self.agent(profile_id)?;
+        let title = agent.profile.name.clone();
+        let plan = Plan::first(&agent.profile, resume, stored.as_deref());
+        self.start(agent, cwd, size, plan, SessionKind::Agent, title, sink)
+    }
+
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
     /// instead of `args`, if the profile has any (otherwise normally, `resumed` stays `false`).
     /// If this attempt ends within [`RESUME_WINDOW`] with a nonzero exit code, one
@@ -542,9 +582,7 @@ impl SessionManager {
         resume: bool,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
-        let agent = self.agent(profile_id)?;
-        let title = agent.profile.name.clone();
-        self.start(agent, cwd, size, resume, SessionKind::Agent, title, sink)
+        self.create_resuming(profile_id, cwd, size, resume, None, sink)
     }
 
     /// Starts a program update as a normal session (`kind: update`, title
@@ -569,7 +607,8 @@ impl SessionManager {
                 reason,
             })?;
         let title = format!("Update: {}", agent.profile.name);
-        self.start(updater, None, size, false, SessionKind::Update, title, sink)
+        let plan = Plan::normal(&updater.profile, None);
+        self.start(updater, None, size, plan, SessionKind::Update, title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -591,7 +630,7 @@ impl SessionManager {
         agent: Agent,
         cwd: Option<PathBuf>,
         size: TermSize,
-        resume: bool,
+        plan: Plan,
         kind: SessionKind,
         title: String,
         sink: impl EventSink,
@@ -609,10 +648,9 @@ impl SessionManager {
             return Err(ManagerError::BadCwd(cwd));
         }
 
-        let resume_args = profile.resume_args().filter(|_| resume);
         let launch = Launch {
-            args: resume_args.unwrap_or(&profile.args),
-            resume: resume_args.is_some(),
+            args: &plan.args,
+            resume: plan.resume,
             kind,
         };
 
@@ -620,6 +658,7 @@ impl SessionManager {
         let mut info = SessionInfo::new(id, profile.id.clone(), title, cwd.clone(), now_millis());
         info.resumed = launch.resume;
         info.kind = kind;
+        set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
         // Register first, then start: if the process exits at once, the threads find their session.
         // Check and register under the same lock so two quick clicks do not both
         // start an update.
@@ -665,7 +704,7 @@ impl SessionManager {
         size: TermSize,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
-        let (agent, cwd, generation, kind) = {
+        let (agent, cwd, generation, kind, plan) = {
             let mut sessions = lock(&self.shared.sessions);
             let (kind, profile_id) = sessions
                 .get(&id)
@@ -688,11 +727,15 @@ impl SessionManager {
             entry.generation += 1;
             entry.size = size;
             entry.kill_requested = false;
+            // A fresh conversation under a new id: the old id may already name one.
+            let plan = Plan::normal(&entry.agent.profile, None);
+            set_cli_session(&mut entry.info, &entry.agent, plan.cli_session_id.clone());
             (
                 entry.agent.clone(),
                 entry.info.cwd.clone(),
                 entry.generation,
                 kind,
+                plan,
             )
         };
         match spawn(
@@ -700,7 +743,7 @@ impl SessionManager {
             id,
             generation,
             &agent,
-            &Launch::normal(&agent.profile.args, kind),
+            &Launch::normal(&plan.args, kind),
             &cwd,
             size,
             Arc::new(sink),
@@ -772,6 +815,35 @@ impl SessionManager {
         Ok(entry.info.clone())
     }
 
+    /// What the sub-agent view needs to find the session's transcripts: the program's source,
+    /// the conversation id and working folder, and only the source's path variables from the
+    /// profile environment.
+    pub fn sub_agent_target(&self, id: SessionId) -> Result<subagents::Target, ManagerError> {
+        let sessions = lock(&self.shared.sessions);
+        let entry = sessions.get(&id).ok_or(ManagerError::UnknownSession(id))?;
+        let (Some(kind), Some(session)) = (
+            entry.agent.profile.sub_agents,
+            entry.info.cli_session_id.clone(),
+        ) else {
+            return Err(ManagerError::NoSubAgents(id));
+        };
+        let env = kind
+            .env_names()
+            .iter()
+            .filter_map(|name| {
+                let value = entry.agent.profile.env.get(*name)?;
+                Some(((*name).to_owned(), value.clone()))
+            })
+            .collect();
+        Ok(subagents::Target {
+            kind,
+            session,
+            cwd: entry.info.cwd.clone(),
+            env,
+            home: self.home.clone(),
+        })
+    }
+
     /// Ends the process (if it is running) and removes the session.
     pub fn close(&self, id: SessionId) -> Result<(), ManagerError> {
         let entry = lock(&self.shared.sessions)
@@ -796,6 +868,12 @@ impl SessionManager {
             let _ = runtime.kill();
         }
     }
+}
+
+/// The conversation id of the process that starts now, and whether sub-agents can be shown.
+fn set_cli_session(info: &mut SessionInfo, agent: &Agent, cli_session_id: Option<String>) {
+    info.sub_agents = agent.profile.sub_agents.is_some() && cli_session_id.is_some();
+    info.cli_session_id = cli_session_id;
 }
 
 fn running(sessions: &HashMap<SessionId, Entry>, id: SessionId) -> Result<&Runtime, ManagerError> {
@@ -1035,12 +1113,22 @@ mod tests {
     fn events_serialize_as_in_contract() {
         let json = |event| serde_json::to_value(event).unwrap();
         assert_eq!(
-            json(SessionEvent::ResumeFallback { code: Some(2) }),
-            serde_json::json!({ "type": "resumeFallback", "code": 2 })
+            json(SessionEvent::ResumeFallback {
+                code: Some(2),
+                cli_session_id: Some("0f8fad5b-d9cb-469f-a165-70867728950e".into()),
+                sub_agents: true,
+            }),
+            serde_json::json!({ "type": "resumeFallback", "code": 2,
+                "cliSessionId": "0f8fad5b-d9cb-469f-a165-70867728950e", "subAgents": true })
         );
         assert_eq!(
-            json(SessionEvent::ResumeFallback { code: None }),
-            serde_json::json!({ "type": "resumeFallback", "code": null })
+            json(SessionEvent::ResumeFallback {
+                code: None,
+                cli_session_id: None,
+                sub_agents: false,
+            }),
+            serde_json::json!({ "type": "resumeFallback", "code": null, "cliSessionId": null,
+                "subAgents": false })
         );
         assert_eq!(
             json(SessionEvent::Exit { code: Some(0) }),

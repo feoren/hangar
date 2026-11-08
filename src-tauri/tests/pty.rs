@@ -28,6 +28,9 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         icon: None,
         version_args: None,
         resume_args: None,
+        session_id_args: None,
+        resume_id_args: None,
+        sub_agents: None,
         latest: None,
         update_hint: None,
     }
@@ -122,7 +125,9 @@ fn collect_until_exit(
     loop {
         match next_event(manager, id, rx, deadline) {
             Some(SessionEvent::Output { data, .. }) => output.push_str(&data),
-            Some(SessionEvent::ResumeFallback { code }) => output.push_str(&fallback_marker(code)),
+            Some(SessionEvent::ResumeFallback { code, .. }) => {
+                output.push_str(&fallback_marker(code));
+            }
             Some(SessionEvent::Exit { code }) => return (output, code),
             None => {
                 panic!("no exit event within {TIMEOUT:?}; output so far: {output:?}")
@@ -142,7 +147,9 @@ fn wait_for_output(
     while !output.contains(needle) {
         match next_event(manager, id, rx, deadline) {
             Some(SessionEvent::Output { data, .. }) => output.push_str(&data),
-            Some(SessionEvent::ResumeFallback { code }) => output.push_str(&fallback_marker(code)),
+            Some(SessionEvent::ResumeFallback { code, .. }) => {
+                output.push_str(&fallback_marker(code));
+            }
             Some(SessionEvent::Exit { code }) => {
                 panic!("exited early ({code:?}): {output:?}")
             }
@@ -1034,4 +1041,134 @@ fn working_folder_argument_follows_the_profile_arguments() {
         .unwrap();
     assert!(!view.editable);
     assert_eq!(manager.user_profile("folder-arg"), None);
+}
+
+// --- Conversation ids (session_id_args, resume_id_args) ---
+
+const STORED_ID: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+/// Prints its arguments like an agent CLI would receive them: normal start with the appended
+/// `session_id_args`, resume with `resume_id_args` that fails quickly (no such conversation).
+fn id_profile() -> Profile {
+    let mut p = if cfg!(windows) {
+        let mut p = profile("ids", "cmd", &["/d", "/c", "echo hangar-normal"]);
+        p.resume_id_args = Some(vec![
+            "/d".into(),
+            "/c".into(),
+            "echo hangar-resume-id {id} & exit 2".into(),
+        ]);
+        p
+    } else {
+        let mut p = profile("ids", "sh", &["-c", "echo hangar-normal \"$0\""]);
+        p.resume_id_args = Some(vec![
+            "-c".into(),
+            "echo hangar-resume-id {id}; exit 2".into(),
+        ]);
+        p
+    };
+    p.session_id_args = Some(vec!["hangar-sid={id}".into()]);
+    p.sub_agents = Some(hangar_lib::subagents::SubAgentKind::Claude);
+    p
+}
+
+#[test]
+fn fresh_start_gets_a_conversation_id_and_restart_a_new_one() {
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    let (tx, rx) = channel();
+    let info = manager
+        .create("ids", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let id = info.cli_session_id.clone().expect("conversation id");
+    assert_eq!(id.len(), 36);
+    assert!(info.sub_agents);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains(&format!("hangar-normal hangar-sid={id}")),
+        "Output: {output:?}"
+    );
+    let target = manager.sub_agent_target(info.id).unwrap();
+    assert_eq!(target.session, id);
+
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let new_id = restarted.cli_session_id.clone().unwrap();
+    assert_ne!(new_id, id);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains(&new_id), "Output: {output:?}");
+}
+
+#[test]
+fn restore_resumes_the_stored_id_and_falls_back_under_the_same_id() {
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    let (tx, rx) = channel();
+    let upper = STORED_ID.to_uppercase();
+    let info = manager
+        .create_resuming("ids", None, SIZE, true, Some(&upper), move |e| {
+            tx.send(e).unwrap_or(())
+        })
+        .unwrap();
+    assert!(info.resumed);
+    assert_eq!(info.cli_session_id.as_deref(), Some(STORED_ID));
+    let deadline = Instant::now() + TIMEOUT;
+    let mut output = String::new();
+    let mut fallback_id = None;
+    loop {
+        match next_event(&manager, info.id, &rx, deadline) {
+            Some(SessionEvent::Output { data, .. }) => output.push_str(&data),
+            Some(SessionEvent::ResumeFallback {
+                code,
+                cli_session_id,
+                sub_agents,
+            }) => {
+                assert_eq!(code, Some(2));
+                assert!(sub_agents);
+                output.push_str("[[fallback]]");
+                fallback_id = cli_session_id;
+            }
+            Some(SessionEvent::Exit { .. }) => break,
+            None => panic!("no exit; output so far: {output:?}"),
+        }
+    }
+    assert_eq!(fallback_id.as_deref(), Some(STORED_ID));
+    let resume = output
+        .find(&format!("hangar-resume-id {STORED_ID}"))
+        .unwrap_or_else(|| panic!("resume attempt missing: {output:?}"));
+    let fallback = output.find("[[fallback]]").unwrap();
+    let normal = output
+        .find(&format!("hangar-normal hangar-sid={STORED_ID}"))
+        .unwrap_or_else(|| panic!("normal start missing: {output:?}"));
+    assert!(resume < fallback && fallback < normal, "Output: {output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+    let listed = manager.list();
+    assert_eq!(listed[0].cli_session_id.as_deref(), Some(STORED_ID));
+    assert!(!listed[0].resumed);
+}
+
+#[test]
+fn invalid_conversation_id_is_refused_before_anything_starts() {
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    for bad in ["", "../x", "0f8fad5b-d9cb-469f-a165-70867728950e x"] {
+        let result = manager.create_resuming("ids", None, SIZE, true, Some(bad), |_| {});
+        assert!(
+            matches!(result, Err(ManagerError::CliSessionId(_))),
+            "{bad:?}"
+        );
+    }
+    assert!(manager.list().is_empty());
+    // Profiles without a sub-agent source have no target.
+    let manager = self::manager();
+    let (tx, rx) = channel();
+    let info = manager
+        .create("echo", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(info.cli_session_id, None);
+    assert!(!info.sub_agents);
+    assert!(matches!(
+        manager.sub_agent_target(info.id),
+        Err(ManagerError::NoSubAgents(_))
+    ));
+    let _ = collect_until_exit(&manager, info.id, &rx);
 }

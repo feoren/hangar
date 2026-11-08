@@ -58,3 +58,9 @@ Processed our own measurement raw/2026-11-08-wsl-list-measurement.md (Windows 11
 
 ## [2026-11-08] ingest | keyring store internals
 Read the sources of windows-native-keyring-store 1.1.0, zbus-secret-service-keyring-store 1.0.1 and keyring-core 1.0.1: target names ignore case, `persistence` modifier (Local) applies on write, `get_attributes` tells "stored" without exposing the value (macOS: default implementation reads the value). Measured Local persistence with the ignored keychain test. Updated pages/components/keyring.md and pages/syntheses/agent-workflow-features.md.
+
+## [2026-11-08] query | Session reordering and snap layouts as built
+pages/syntheses/agent-workflow-features.md: "As built" notes for items 21 (reorder sessions by pointer drag and Alt+arrow) and 22 (snap layouts, picker, migration of `splitMode`), including why pointer events replace HTML5 drag and drop next to Tauri's file drop (marked unverified). Item 3 points to the replacement.
+
+## [2026-11-08] ingest | Conversation ids and the sub-agent view
+Processed our own measurement raw/2026-11-08-resume-id-measurement.md (Windows 11, Claude Code 2.1.319, without a terminal and in ConPTY) and the follow-up check raw/2026-11-08-session-id-in-use-check.md (strings of the 2.1.319 executable) as the source pages/sources/resume-id-measurement.md. pages/agents/resume.md: `session_id_args` and `resume_id_args`, why the fallback reuses the id, why a restart starts a new conversation. pages/syntheses/session-restore.md: `cliSessionId` in the workspace, `create_session` and the `resumeFallback` event (`cliSessionId`, `subAgents`). pages/syntheses/agent-workflow-features.md: item 23 as built (backend contract of `watch_sub_agents` and `unwatch_sub_agents`, polling instead of `notify`, path rules). Index updated.

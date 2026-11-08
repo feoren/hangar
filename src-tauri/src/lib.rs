@@ -2,6 +2,7 @@
 
 pub mod agent_catalog;
 pub mod batch;
+pub mod cli_session;
 mod commands;
 pub mod desktop;
 pub mod export;
@@ -19,6 +20,7 @@ pub mod profile_edit;
 pub mod resolve;
 pub mod secrets;
 pub mod session;
+pub mod subagents;
 #[cfg(test)]
 mod test_support;
 pub mod text;
@@ -83,6 +85,7 @@ pub fn run() -> tauri::Result<()> {
             }
             app.manage(ProbeCaches::default());
             app.manage(notify::Notifier::default());
+            app.manage(subagents::Watchers::default());
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
             // this machine (Windows: %LOCALAPPDATA%\<identifier>).
             let local_dir = app.path().app_local_data_dir()?;
@@ -139,12 +142,15 @@ pub fn run() -> tauri::Result<()> {
             commands::profile_secrets,
             commands::export_session,
             commands::configure_tray,
+            commands::watch_sub_agents,
+            commands::unwatch_sub_agents,
         ])
         .build(tauri::generate_context!())?;
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
             // Do not let any agent outlive the app.
+            handle.state::<subagents::Watchers>().stop_all();
             handle.state::<SessionManager>().shutdown();
         }
     });

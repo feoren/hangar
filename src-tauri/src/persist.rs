@@ -66,6 +66,10 @@ pub struct SavedSession {
     /// Own worktree of the session, removed when the session is closed.
     #[serde(default)]
     pub worktree: Option<Worktree>,
+    /// Conversation id of the agent CLI (`SessionInfo.cliSessionId`), a UUID. Absent in files
+    /// from before 0.3.0 and for programs without `session_id_args`.
+    #[serde(default)]
+    pub cli_session_id: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -146,6 +150,13 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
             {
                 return invalid("emoji must be 1 to 16 bytes without control characters");
             }
+        }
+        if session
+            .cli_session_id
+            .as_deref()
+            .is_some_and(|id| normalize_key(id).is_err())
+        {
+            return invalid("cliSessionId is not a UUID");
         }
         if let Some(worktree) = &session.worktree {
             if crate::worktree::check_shape(worktree).is_err() {
@@ -431,6 +442,7 @@ mod tests {
             color: None,
             emoji: None,
             worktree: None,
+            cli_session_id: None,
         }
     }
 
@@ -538,6 +550,11 @@ mod tests {
         let mut w = workspace();
         w.sessions[0].profile_id = " ".into();
         cases.push(w);
+        for id in ["", "x", "../0f8fad5b-d9cb-469f-a165-70867728950e"] {
+            let mut w = workspace();
+            w.sessions[0].cli_session_id = Some(id.into());
+            cases.push(w);
+        }
         for w in cases {
             assert!(
                 matches!(
@@ -557,6 +574,7 @@ mod tests {
         w.sessions[0].color = Some("#1a2B3c".into());
         w.sessions[0].emoji = Some("\u{1F468}\u{200D}\u{1F4BB}".into());
         w.sessions[0].worktree = Some(sample_worktree());
+        w.sessions[0].cli_session_id = Some(KEY2.into());
         store.0.save_workspace(&w).unwrap();
         assert_eq!(store.0.load_workspace(), Some(w));
         let json: serde_json::Value =
@@ -569,6 +587,8 @@ mod tests {
         assert!(json["sessions"][0]["worktree"]["repoRoot"].is_string());
         assert!(json["sessions"][1]["color"].is_null());
         assert!(json["sessions"][1]["worktree"].is_null());
+        assert_eq!(json["sessions"][0]["cliSessionId"], KEY2);
+        assert!(json["sessions"][1]["cliSessionId"].is_null());
     }
 
     #[test]
@@ -584,10 +604,10 @@ mod tests {
         fs::write(store.0.dir().join(WORKSPACE_FILE), old).unwrap();
         let loaded = store.0.load_workspace().unwrap();
         assert_eq!(loaded.sessions.len(), 2);
-        assert!(loaded
-            .sessions
-            .iter()
-            .all(|s| s.color.is_none() && s.emoji.is_none() && s.worktree.is_none()));
+        assert!(loaded.sessions.iter().all(|s| s.color.is_none()
+            && s.emoji.is_none()
+            && s.worktree.is_none()
+            && s.cli_session_id.is_none()));
     }
 
     #[test]

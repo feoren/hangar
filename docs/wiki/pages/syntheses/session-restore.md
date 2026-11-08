@@ -2,9 +2,9 @@
 title: Restoring sessions after a restart
 type: synthesis
 tags: [sessions, persistence, resume, contract]
-sources: ["[[resume-measurement]]"]
+sources: ["[[resume-measurement]]", "[[resume-id-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-08
 ---
 
 # Restoring sessions after a restart
@@ -18,7 +18,9 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
    (the frontend serializes the scrollback, e.g. with the xterm.js serialize addon; trim older content
    so that 2 MiB is enough).
 2. On startup, `load_workspace`; for each entry, write `load_scrollback(key)` into the terminal, then
-   `create_session(..., resume: true)`.
+   `create_session(..., resume: true, cliSessionId)` with the entry's stored `cliSessionId`.
+   Store `SessionInfo.cliSessionId` (from `create_session`, `restart_session`) and the
+   `cliSessionId` of a `resumeFallback` event in the entry on the next `save_workspace`.
 3. When a session is closed, `delete_scrollback(key)`; "clear scrollback" = `clear_scrollbacks`.
 
 ## Storage
@@ -41,14 +43,15 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
 | `load_scrollback` | `key` | `string` or `null`; error only on an invalid key |
 | `delete_scrollback` | `key` | `null` (also `null` if the file does not exist) |
 | `clear_scrollbacks` | none | `null`; deletes only `<uuid>.txt` and its own temporary files |
-| `create_session` | as before, plus optional `resume: bool` | `SessionInfo` with the new field `resumed` |
+| `create_session` | as before, plus optional `resume: bool` and optional `cliSessionId: string` (UUID) | `SessionInfo` with `resumed`, `cliSessionId` (`string` or `null`) and `subAgents` (`bool`); error text if `cliSessionId` is not a UUID |
 
 ```json
 {
   "version": 1,
   "sessions": [
     { "key": "0f8fad5b-d9cb-469f-a165-70867728950e", "profileId": "claude",
-      "cwd": "C:\\Users\\x\\projekt", "title": "Claude Code", "order": 0 }
+      "cwd": "C:\\Users\\x\\projekt", "title": "Claude Code", "order": 0,
+      "cliSessionId": "7c9e6679-7425-40de-944b-e07fc1f90ae7" }
   ],
   "activeKey": "0f8fad5b-d9cb-469f-a165-70867728950e"
 }
@@ -56,13 +59,19 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
 
 - `key`: UUID 8-4-4-4-12 (case-insensitive, stored in lower case), unique.
   `activeKey`: `null` or one of the `key` values. `version` must be 1. Unknown fields are an error.
-- Event on the session channel: `{ "type": "resumeFallback", "code": number | null }`. Sent when the
-  launch with `resume_args` exited with a nonzero code within 5 s and the user did not end it.
+- `cliSessionId` (optional, since 0.3.0): conversation id of the agent CLI, a UUID like `key`
+  ([[resume]]). Missing or `null` for older files and programs without `session_id_args`.
+- Event on the session channel:
+  `{ "type": "resumeFallback", "code": number | null, "cliSessionId": string | null, "subAgents": bool }`. Sent when the
+  launch with `resume_args` or `resume_id_args` exited with a nonzero code within 5 s and the user
+  did not end it. `cliSessionId` is the id of the normal start that follows (the same id after a
+  failed `resume_id_args`, a new one after a failed `resume_args`); `subAgents` replaces
+  `SessionInfo.subAgents`.
   The same session (same `id`, same channel) then starts once normally; its
   `output` and `exit` events follow. The failed attempt gets no `exit`. `resumed` is
   `false` afterwards.
 
 ## Known limits
 - Two sessions of the same agent in the same folder resume the same most recent conversation
-  ([[resume]]).
+  ([[resume]]), except for agents with conversation ids (claude since 0.3.0).
 - The scrollback may contain secrets (printed tokens). It is stored unencrypted in the user profile.
