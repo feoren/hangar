@@ -38,6 +38,10 @@ describe("parseSettings", () => {
       restoreSessions: false,
       scrollbackLines: 2000,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
+      terminalScheme: "solarized",
+      terminalFont: "JetBrains Mono",
+      cursorStyle: "bar",
+      cursorBlink: false,
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
@@ -61,6 +65,40 @@ describe("parseSettings", () => {
       scrollbackLines: "many",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
+  });
+
+  it("keeps the previous terminal look by default, also for older settings", () => {
+    for (const settings of [
+      defaultSettings("de"),
+      parseSettings(JSON.stringify({ language: "en" }), "de"),
+    ]) {
+      expect(settings.terminalScheme).toBe("hangar");
+      expect(settings.terminalFont).toBe("default");
+      expect(settings.cursorStyle).toBe("block");
+      expect(settings.cursorBlink).toBe(true);
+    }
+  });
+
+  it("replaces invalid terminal look values individually", () => {
+    const parsed = parseSettings(
+      JSON.stringify({
+        terminalScheme: "dracula",
+        terminalFont: "Comic Sans MS",
+        cursorStyle: 2,
+        cursorBlink: "no",
+      }),
+      "de",
+    );
+    expect(parsed.terminalScheme).toBe("hangar");
+    expect(parsed.terminalFont).toBe("default");
+    expect(parsed.cursorStyle).toBe("block");
+    expect(parsed.cursorBlink).toBe(true);
+    const valid = parseSettings(
+      JSON.stringify({ terminalScheme: "catppuccin", cursorStyle: "underline" }),
+      "de",
+    );
+    expect(valid.terminalScheme).toBe("catppuccin");
+    expect(valid.cursorStyle).toBe("underline");
   });
 
   it("follows the system by default and replaces invalid themes", () => {

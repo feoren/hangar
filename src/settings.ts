@@ -5,6 +5,15 @@
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
+import {
+  DEFAULT_TERMINAL_LOOK,
+  isColorScheme,
+  isCursorStyle,
+  isTerminalFont,
+  type ColorScheme,
+  type CursorStyle,
+  type TerminalFont,
+} from "./terminalLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
 
 const STORAGE_KEY = "hangar.settings";
@@ -61,6 +70,12 @@ export interface Settings {
   scrollbackLines: number;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
+  /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
+  terminalScheme: ColorScheme;
+  /** "default" keeps the font stack Hangar used before. */
+  terminalFont: TerminalFont;
+  cursorStyle: CursorStyle;
+  cursorBlink: boolean;
 }
 
 type Flag =
@@ -70,7 +85,8 @@ type Flag =
   | "showIcons"
   | "autoUpdate"
   | "checkProgramUpdates"
-  | "restoreSessions";
+  | "restoreSessions"
+  | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
   return {
@@ -87,6 +103,10 @@ export function defaultSettings(language: Language): Settings {
     restoreSessions: true,
     scrollbackLines: SCROLLBACK_LINES.default,
     programs: DEFAULT_PROGRAM_PREFS,
+    terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
+    terminalFont: DEFAULT_TERMINAL_LOOK.font,
+    cursorStyle: DEFAULT_TERMINAL_LOOK.cursorStyle,
+    cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
   };
 }
 
@@ -131,6 +151,9 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const theme = get("theme");
   const quiet = get("quietSeconds");
   const lines = get("scrollbackLines");
+  const scheme = get("terminalScheme");
+  const font = get("terminalFont");
+  const cursorStyle = get("cursorStyle");
   return {
     language: isLanguage(language) ? language : defaults.language,
     theme: isThemeSetting(theme) ? theme : defaults.theme,
@@ -153,6 +176,10 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampScrollbackLines(lines)
         : defaults.scrollbackLines,
     programs: parseProgramPrefs(get("programs")),
+    terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
+    terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
+    cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
+    cursorBlink: flag("cursorBlink"),
   };
 }
 

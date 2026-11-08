@@ -27,7 +27,19 @@ import {
   type Settings,
 } from "./settings";
 import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
-import { THEME_SETTINGS, type ThemeSetting } from "./theme";
+import {
+  canvasMeasure,
+  COLOR_SCHEMES,
+  CURSOR_STYLES,
+  fontStack,
+  installedFonts,
+  isTerminalFont,
+  schemeColors,
+  type ColorScheme,
+  type CursorStyle,
+  type TerminalFont,
+} from "./terminalLook";
+import { THEME_SETTINGS, type Theme, type ThemeSetting } from "./theme";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 import type { UpdateState } from "./useUpdater";
 import { displayVersion } from "./version";
@@ -39,6 +51,8 @@ interface Props {
   versions: ProgramVersions;
   badgeFor: (profileId: string) => BadgeLook;
   fontSize: number;
+  /** Appearance shown right now (the resolved one for "System"), for the terminal preview. */
+  theme: Theme;
   update: UpdateState;
   /** Version of Hangar, `null` until known. */
   version: string | null;
@@ -74,6 +88,30 @@ const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   programs: "settings.programs",
   updates: "settings.updates",
 };
+
+/** Product names; the same in every language. */
+const SCHEME_NAMES: Record<ColorScheme, string> = {
+  hangar: "Hangar",
+  catppuccin: "Catppuccin",
+  solarized: "Solarized",
+};
+
+const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
+  block: "settings.cursorBlock",
+  bar: "settings.cursorBar",
+  underline: "settings.cursorUnderline",
+};
+
+/** Installed fonts, measured once per app start (fonts rarely change while Hangar runs). */
+let fontCache: readonly TerminalFont[] | null = null;
+
+function availableFonts(): readonly TerminalFont[] {
+  if (fontCache === null) {
+    const measure = canvasMeasure();
+    fontCache = measure === null ? [] : installedFonts(measure);
+  }
+  return fontCache;
+}
 
 const THEME_NAMES: Record<ThemeSetting, MessageKey> = {
   system: "settings.themeSystem",
@@ -396,17 +434,7 @@ function AppearanceSection(props: Props) {
           {t("settings.themeHelp")}
         </p>
       </div>
-      <RangeField
-        id="font-size"
-        label={t("settings.fontSize")}
-        value={props.fontSize}
-        min={FONT_SIZE.min}
-        max={FONT_SIZE.max}
-        display={t("settings.fontSizeValue", { size: props.fontSize })}
-        onChange={(value) => {
-          props.onFontSize(clampFontSize(value));
-        }}
-      />
+      <TerminalLookFields {...props} />
       <div className="settings-row">
         <button
           type="button"
@@ -424,6 +452,163 @@ function AppearanceSection(props: Props) {
         </span>
       </div>
     </>
+  );
+}
+
+/** Color scheme, font, size and cursor of the terminals, with a small live preview. */
+function TerminalLookFields(props: Props) {
+  const { settings, onChange } = props;
+  const t = useT();
+  const installed = availableFonts();
+  // A stored font that is missing here stays selectable, so the list never shows a wrong value.
+  const fonts: TerminalFont[] = [
+    "default",
+    ...installed,
+    ...(settings.terminalFont === "default" || installed.includes(settings.terminalFont)
+      ? []
+      : [settings.terminalFont]),
+  ];
+  return (
+    <section className="settings-section terminal-look" aria-labelledby="settings-terminal">
+      <h4 id="settings-terminal" className="settings-subtitle">
+        {t("settings.terminal")}
+      </h4>
+      <TerminalPreview settings={settings} theme={props.theme} />
+      <div className="field">
+        <span id="settings-scheme">{t("settings.colorScheme")}</span>
+        <div
+          className="segmented"
+          role="radiogroup"
+          aria-labelledby="settings-scheme"
+          aria-describedby="settings-scheme-help"
+        >
+          {COLOR_SCHEMES.map((scheme) => (
+            <label key={scheme} className="segment">
+              <input
+                type="radio"
+                name="terminal-scheme"
+                value={scheme}
+                checked={settings.terminalScheme === scheme}
+                onChange={() => {
+                  onChange({ terminalScheme: scheme });
+                }}
+              />
+              <span>{SCHEME_NAMES[scheme]}</span>
+            </label>
+          ))}
+        </div>
+        <p id="settings-scheme-help" className="muted">
+          {t("settings.colorSchemeHelp")}
+        </p>
+      </div>
+      <div className="field">
+        <label htmlFor="settings-font">{t("settings.font")}</label>
+        <select
+          id="settings-font"
+          className="select"
+          value={settings.terminalFont}
+          aria-describedby="settings-font-help"
+          onChange={(event) => {
+            const font = event.currentTarget.value;
+            if (isTerminalFont(font)) onChange({ terminalFont: font });
+          }}
+        >
+          {fonts.map((font) => (
+            <option key={font} value={font}>
+              {font === "default" ? t("settings.fontDefault") : font}
+            </option>
+          ))}
+        </select>
+        <p id="settings-font-help" className="muted">
+          {t("settings.fontHelp")}
+        </p>
+      </div>
+      <RangeField
+        id="font-size"
+        label={t("settings.fontSize")}
+        value={props.fontSize}
+        min={FONT_SIZE.min}
+        max={FONT_SIZE.max}
+        display={t("settings.fontSizeValue", { size: props.fontSize })}
+        onChange={(value) => {
+          props.onFontSize(clampFontSize(value));
+        }}
+      />
+      <div className="field">
+        <span id="settings-cursor">{t("settings.cursor")}</span>
+        <div className="segmented" role="radiogroup" aria-labelledby="settings-cursor">
+          {CURSOR_STYLES.map((style) => (
+            <label key={style} className="segment">
+              <input
+                type="radio"
+                name="cursor-style"
+                value={style}
+                checked={settings.cursorStyle === style}
+                onChange={() => {
+                  onChange({ cursorStyle: style });
+                }}
+              />
+              <span>{t(CURSOR_NAMES[style])}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.cursorBlink}
+          onChange={(event) => {
+            onChange({ cursorBlink: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.cursorBlink")}</span>
+      </label>
+    </section>
+  );
+}
+
+/** A prompt line in the chosen scheme, font and cursor; decoration only. */
+function TerminalPreview({ settings, theme }: { settings: Settings; theme: Theme }) {
+  const colors = schemeColors(settings.terminalScheme, theme);
+  const palette = [
+    colors.red,
+    colors.green,
+    colors.yellow,
+    colors.blue,
+    colors.magenta,
+    colors.cyan,
+  ];
+  return (
+    <div
+      className="terminal-preview"
+      aria-hidden="true"
+      style={{
+        background: colors.background,
+        color: colors.foreground,
+        fontFamily: fontStack(settings.terminalFont),
+      }}
+    >
+      <div className="terminal-preview-line">
+        <span style={{ color: colors.green }}>~/hangar</span>{" "}
+        <span style={{ color: colors.blue }}>main</span>{" "}
+        <span style={{ color: colors.brightBlack }}>$</span> claude{" "}
+        <span
+          className={[
+            "terminal-preview-cursor",
+            settings.cursorStyle,
+            settings.cursorBlink ? "blink" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          style={{ color: colors.cursor }}
+        />
+      </div>
+      <div className="terminal-preview-palette">
+        {palette.map((color, index) => (
+          <span key={index} style={{ background: color }} />
+        ))}
+      </div>
+    </div>
   );
 }
 
