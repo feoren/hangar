@@ -945,6 +945,217 @@ h2 .beta-badge {
   border-radius: 0 0 6px 6px;
 }
 
+/* Sub-agent view: read-only panes beside the session's terminal, on the panel surface so they
+   never pass for a terminal. Text only; long excerpts scroll inside the body. */
+.subagent {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  white-space: normal;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.subagent-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.subagent-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subagent-type {
+  flex: none;
+  max-width: 30%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subagent-status {
+  display: inline-flex;
+  flex: none;
+  gap: 5px;
+  align-items: center;
+}
+
+.subagent-time {
+  flex: none;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.subagent-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.subagent-close:focus-visible,
+.subagent-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Shape tells the status apart as well as color: a filled dot runs, a ring has gone quiet, a
+   small square has finished. The text next to it says the same in words. */
+.subagent-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.subagent-dot.running {
+  background: var(--ok);
+  animation: subagent-running 1.6s ease-in-out infinite;
+}
+
+.subagent-dot.stale {
+  background: transparent;
+  border: 1.5px solid var(--warn);
+}
+
+.subagent-dot.finished {
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+@keyframes subagent-running {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-dot.running {
+    animation: none;
+  }
+}
+
+.subagent-body {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  line-height: 1.5;
+}
+
+.subagent-body p {
+  margin: 0 0 8px;
+}
+
+.subagent-label {
+  margin-right: 8px;
+  color: var(--muted);
+}
+
+.subagent-tool-name {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.subagent-history-names {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The excerpt keeps its line breaks but never becomes markup: React renders it as text. */
+.subagent-excerpt {
+  padding-top: 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  border-top: 1px solid var(--border);
+}
+
+.subagent-excerpt.empty,
+.subagent-notice p {
+  color: var(--muted);
+}
+
+.subagent-notice {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.subagent-notice p {
+  max-width: 320px;
+}
+
+.subagent-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.subagent-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.subagent-row:last-child {
+  border-bottom: none;
+}
+
+.subagent-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subagent-row-tool {
+  flex: none;
+  max-width: 25%;
+  overflow: hidden;
+  font-family: var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Narrow panes (a narrow window, the quad grid): the name of a sub-agent matters most, so the
+   secondary labels (type, counts, tool per row) give way before it is cut to a few letters. The
+   body still shows the tool. */
+.subagent {
+  container-type: inline-size;
+}
+
+@container (max-width: 360px) {
+  .subagent-type,
+  .subagent-row-tool {
+    display: none;
+  }
+}
+
 /* A pane without a session: a calm dashed frame with one line of help. */
 .pane-empty {
   position: absolute;

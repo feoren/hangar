@@ -40,6 +40,7 @@ describe("parseSettings", () => {
       checkProgramUpdates: false,
       restoreSessions: false,
       scrollbackLines: 2000,
+      subAgentExcerpts: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
       terminalScheme: "solarized",
       terminalFont: "JetBrains Mono",
@@ -69,6 +70,7 @@ describe("parseSettings", () => {
       checkProgramUpdates: "yes",
       restoreSessions: 0,
       scrollbackLines: "many",
+      subAgentExcerpts: "off",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
@@ -172,6 +174,14 @@ describe("parseSettings", () => {
     expect(old.restoreSessions).toBe(true);
     expect(old.checkProgramUpdates).toBe(true);
     expect(old.scrollbackLines).toBe(SCROLLBACK_LINES.default);
+  });
+
+  it("shows sub-agent excerpts by default, also for older settings", () => {
+    expect(defaultSettings("de").subAgentExcerpts).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").subAgentExcerpts).toBe(true);
+    expect(parseSettings(JSON.stringify({ subAgentExcerpts: false }), "de").subAgentExcerpts).toBe(
+      false,
+    );
   });
 
   it("keeps the scrollback per session within limits and steps", () => {

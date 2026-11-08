@@ -76,6 +76,11 @@ export interface Settings {
   restoreSessions: boolean;
   /** Lines of scrollback per session, in the terminal and when saving. */
   scrollbackLines: number;
+  /**
+   * The sub-agent view shows each sub-agent's newest text. Off: the backend reads no assistant
+   * text at all. The excerpts are never stored, whatever this says.
+   */
+  subAgentExcerpts: boolean;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
   /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
@@ -98,6 +103,7 @@ type Flag =
   | "autoUpdate"
   | "checkProgramUpdates"
   | "restoreSessions"
+  | "subAgentExcerpts"
   | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
@@ -116,6 +122,7 @@ export function defaultSettings(language: Language): Settings {
     checkProgramUpdates: true,
     restoreSessions: true,
     scrollbackLines: SCROLLBACK_LINES.default,
+    subAgentExcerpts: true,
     programs: DEFAULT_PROGRAM_PREFS,
     terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
@@ -193,6 +200,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
       typeof lines === "number" && Number.isFinite(lines)
         ? clampScrollbackLines(lines)
         : defaults.scrollbackLines,
+    subAgentExcerpts: flag("subAgentExcerpts"),
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,

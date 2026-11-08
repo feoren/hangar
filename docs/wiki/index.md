@@ -25,6 +25,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Concepts
 
 ## Sources
+- [[terminal-grapheme-widths]]: Unicode 11 counts emoji+VS16 as 1 cell, 15-graphemes as 2 like string-width; measured width table, no emoji fonts in the stack (sources: 0, updated: 2026-11-08)
 - [[update-installers]]: research and measurement: detecting npm, winget, uv, brew and native installs from the resolved path, self-updaters, look-alike packages (updated: 2026-11-08)
 - [[resume-id-measurement]]: measurement: `claude --resume <unknown uuid>` exits 1 after about 1 s and creates nothing; `--session-id` refuses an id whose transcript exists (updated: 2026-11-08)
 - [[subagent-transcripts]]: research and measurement: where Claude Code, Codex, OpenCode and Gemini keep sub-agent transcripts, session id flags, hooks, tailing rules (updated: 2026-11-08)

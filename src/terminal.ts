@@ -4,10 +4,9 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 
-import { api, Channel, type SessionEvent, type TermSize } from "./api";
+import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
 import {
   AttentionTracker,
   systemClock,
@@ -21,6 +20,7 @@ import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import { terminalKeyAction } from "./terminalKeys";
+import { setupUnicode } from "./terminalUnicode";
 import {
   DEFAULT_TERMINAL_LOOK,
   fontStack,
@@ -104,6 +104,12 @@ export class SessionTerminal {
   /** `undefined`: still running. Set as soon as the exit event arrives. */
   exitCode: number | null | undefined = undefined;
   onExit: ((code: number | null) => void) | null = null;
+  /**
+   * The newest `resumeFallback` (conversation id and sub-agent flag of the normal start). Kept,
+   * because the event may arrive before `create_session` has answered and the session exists.
+   */
+  fallback: SessionFallback | undefined = undefined;
+  onFallback: ((fallback: SessionFallback) => void) | null = null;
   /** Click on a link (OSC 8) with an allowed address; only http and https get this far. */
   onLink: ((url: string) => void) | null = null;
   /** Active session in a focused window; the app sets it as soon as the ID is known. */
@@ -137,7 +143,7 @@ export class SessionTerminal {
       },
     );
     this.term = new Terminal({
-      allowProposedApi: true, // for the Unicode 11 addon (emoji widths)
+      allowProposedApi: true, // for the Unicode grapheme addon (emoji widths)
       cursorBlink: look.cursorBlink,
       cursorStyle: look.cursorStyle,
       fontFamily: fontStack(look.font),
@@ -158,13 +164,12 @@ export class SessionTerminal {
       },
     });
     this.term.loadAddon(this.fitAddon);
-    this.term.loadAddon(new Unicode11Addon());
+    setupUnicode(this.term);
     this.term.loadAddon(this.serializeAddon);
     this.term.loadAddon(this.searchAddon);
     this.searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
       this.searchListener?.({ index: resultIndex, count: resultCount });
     });
-    this.term.unicode.activeVersion = "11";
 
     this.term.onData((data) => {
       this.send(data);
@@ -474,6 +479,7 @@ export class SessionTerminal {
 
   markRestarted(): void {
     this.exitCode = undefined;
+    this.fallback = undefined;
     this.attention.reset();
     this.term.write(`\r\n\x1b[2m${t("terminal.restarted")}\x1b[0m\r\n`);
   }
@@ -481,6 +487,7 @@ export class SessionTerminal {
   dispose(): void {
     this.disposed = true;
     this.onExit = null;
+    this.onFallback = null;
     this.onLink = null;
     this.attentionListener = null;
     this.searchListener = null;
@@ -492,6 +499,14 @@ export class SessionTerminal {
     if (event.type === "resumeFallback") {
       this.attention.reset();
       this.term.write(`\r\n\x1b[2m${t("terminal.resumeFallback")}\x1b[0m\r\n`);
+      // Older backends send neither field: nothing changes then.
+      if (event.cliSessionId !== undefined || event.subAgents !== undefined) {
+        this.fallback = {
+          cliSessionId: event.cliSessionId ?? null,
+          subAgents: event.subAgents ?? false,
+        };
+        this.onFallback?.(this.fallback);
+      }
       return;
     }
     if (event.type === "output") {

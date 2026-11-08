@@ -44,6 +44,11 @@ export interface LauncherContext {
   /** Opens the layout picker for the active session; `null` without sessions. */
   openSnapPicker: (() => void) | null;
   openBroadcast: () => void;
+  /**
+   * Sub-agent view of the active session: `null` when it has no sub-agents and no view is open;
+   * `shown` makes the entry hide the view.
+   */
+  subAgents: { shown: boolean; toggle: () => void } | null;
 }
 
 export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
@@ -159,6 +164,17 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       run: () => {
         ctx.setSnapLayout(layout);
       },
+    });
+  }
+  const subAgents = ctx.subAgents;
+  if (subAgents !== null) {
+    items.push({
+      key: "subAgents",
+      section: "commands",
+      label: subAgents.shown ? t("session.hideSubAgents") : t("session.showSubAgents"),
+      keywords: "agents subagents task",
+      primary: true,
+      run: subAgents.toggle,
     });
   }
   items.push({

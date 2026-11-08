@@ -58,6 +58,7 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     setSnapLayout: vi.fn(),
     openSnapPicker: null,
     openBroadcast: vi.fn(),
+    subAgents: null,
     ...patch,
   };
 }
@@ -170,5 +171,20 @@ describe("buildLauncherItems", () => {
       .find((item) => item.key === "session:7")
       ?.run();
     expect(ctx.activate).toHaveBeenCalledWith(7);
+  });
+
+  it("offers the sub-agent view only for an active session that has sub-agents", () => {
+    expect(buildLauncherItems(context()).some((item) => item.key === "subAgents")).toBe(false);
+    const toggle = vi.fn();
+    const show = buildLauncherItems(context({ subAgents: { shown: false, toggle } })).find(
+      (item) => item.key === "subAgents",
+    );
+    expect(show?.label).toBe(createTranslator("en")("session.showSubAgents"));
+    show?.run();
+    expect(toggle).toHaveBeenCalledOnce();
+    const hide = buildLauncherItems(context({ subAgents: { shown: true, toggle } })).find(
+      (item) => item.key === "subAgents",
+    );
+    expect(hide?.label).toBe(createTranslator("en")("session.hideSubAgents"));
   });
 });

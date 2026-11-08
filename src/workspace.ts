@@ -26,6 +26,12 @@ export interface SavedSession {
   emoji: string | null;
   /** The session's own git worktree, or `null`. */
   worktree: Worktree | null;
+  /**
+   * Conversation id of the agent CLI (lowercase UUID, unique across entries), passed to
+   * `create_session` on restore so the session resumes its own conversation. `null` for older
+   * files and programs without one.
+   */
+  cliSessionId: string | null;
 }
 
 export interface Workspace {
@@ -60,6 +66,12 @@ export interface SessionEntry {
   color?: string | null | undefined;
   emoji?: string | null | undefined;
   worktree?: Worktree | null | undefined;
+  cliSessionId?: string | null | undefined;
+}
+
+/** A conversation id as the backend accepts it: a UUID, stored in lower case; else `null`. */
+export function normalizeCliSessionId(value: unknown): string | null {
+  return isSessionKey(value) ? value.toLowerCase() : null;
 }
 
 /** Started again on restore. An update after a restart would come as a surprise. */
@@ -70,7 +82,9 @@ export function restorable(entry: { kind?: SessionKind | undefined }): boolean {
 /**
  * Builds the workspace from the sessions in sidebar order. Entries the backend would reject
  * (invalid or duplicate key, empty profile ID) are dropped, so a single broken session does
- * not prevent saving all the others. Update sessions are dropped as well; if one of them was
+ * not prevent saving all the others. A conversation id that is invalid or already taken by an
+ * earlier entry is left out (the backend refuses duplicates), so only that one session starts a
+ * fresh conversation on restore. Update sessions are dropped as well; if one of them was
  * active, the workspace records no active session.
  */
 export function buildWorkspace(
@@ -78,6 +92,7 @@ export function buildWorkspace(
   activeKey: string | null,
 ): Workspace {
   const seen = new Set<string>();
+  const conversations = new Set<string>();
   const sessions: SavedSession[] = [];
   for (const entry of entries) {
     if (sessions.length >= MAX_SESSIONS) break;
@@ -86,6 +101,11 @@ export function buildWorkspace(
     const key = entry.key.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    let cliSessionId = normalizeCliSessionId(entry.cliSessionId);
+    if (cliSessionId !== null) {
+      if (conversations.has(cliSessionId)) cliSessionId = null;
+      else conversations.add(cliSessionId);
+    }
     sessions.push({
       key,
       profileId: entry.profileId,
@@ -95,6 +115,7 @@ export function buildWorkspace(
       color: normalizeMarkerColor(entry.color),
       emoji: storedEmoji(entry.emoji),
       worktree: parseWorktree(entry.worktree ?? null),
+      cliSessionId,
     });
   }
   const active = activeKey?.toLowerCase() ?? null;
@@ -121,7 +142,19 @@ function savedSession(value: unknown): SavedSession | null {
   const color = normalizeMarkerColor(field("color"));
   const emoji = storedEmoji(field("emoji"));
   const worktree = parseWorktree(field("worktree"));
-  return { key: key.toLowerCase(), profileId, cwd, title, order, color, emoji, worktree };
+  // Missing before 0.3.0; an invalid id only costs the exact resume, not the session.
+  const cliSessionId = normalizeCliSessionId(field("cliSessionId"));
+  return {
+    key: key.toLowerCase(),
+    profileId,
+    cwd,
+    title,
+    order,
+    color,
+    emoji,
+    worktree,
+    cliSessionId,
+  };
 }
 
 /**

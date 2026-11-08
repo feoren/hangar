@@ -41,8 +41,22 @@ describe("buildWorkspace", () => {
     expect(workspace).toEqual({
       version: 1,
       sessions: [
-        { ...entry(B, "b"), order: 0, color: null, emoji: null, worktree: null },
-        { ...entry(A, "a"), order: 1, color: null, emoji: null, worktree: null },
+        {
+          ...entry(B, "b"),
+          order: 0,
+          color: null,
+          emoji: null,
+          worktree: null,
+          cliSessionId: null,
+        },
+        {
+          ...entry(A, "a"),
+          order: 1,
+          color: null,
+          emoji: null,
+          worktree: null,
+          cliSessionId: null,
+        },
       ],
       activeKey: A,
     });
@@ -62,6 +76,7 @@ describe("buildWorkspace", () => {
     expect(workspace.activeKey).toBeNull();
     // Only what the backend knows is saved: no `kind` field.
     expect(Object.keys(workspace.sessions[0] ?? {}).sort()).toEqual([
+      "cliSessionId",
       "color",
       "cwd",
       "emoji",
@@ -99,6 +114,67 @@ describe("buildWorkspace", () => {
     const workspace = buildWorkspace([entry(A.toUpperCase())], A.toUpperCase());
     expect(workspace.sessions[0]?.key).toBe(A);
     expect(workspace.activeKey).toBe(A);
+  });
+});
+
+describe("conversation id", () => {
+  const X = "9b2c7e1a-0d4f-4c3b-8a6e-5f1d2c3b4a59";
+  const Y = "e3a1c2b4-5d6f-4a7b-9c8d-0e1f2a3b4c5d";
+
+  it("is saved in lower case per session", () => {
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), cliSessionId: X.toUpperCase() },
+        { ...entry(B), cliSessionId: Y },
+        { ...entry(C), cliSessionId: null },
+      ],
+      null,
+    );
+    expect(workspace.sessions.map((s) => s.cliSessionId)).toEqual([X, Y, null]);
+  });
+
+  it("is left out when invalid or already taken, so the backend accepts the workspace", () => {
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), cliSessionId: X },
+        { ...entry(B), cliSessionId: X.toUpperCase() },
+        { ...entry(C), cliSessionId: "--resume" },
+      ],
+      null,
+    );
+    // Every session stays; only the second one starts a fresh conversation on restore.
+    expect(workspace.sessions.map((s) => [s.key, s.cliSessionId])).toEqual([
+      [A, X],
+      [B, null],
+      [C, null],
+    ]);
+  });
+
+  it("is restored, and older files without it still load", () => {
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, cliSessionId: X },
+        { ...entry(B), order: 1 },
+        { ...entry(C), order: 2, cliSessionId: 7 },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => [s.key, s.cliSessionId])).toEqual([
+      [A, X],
+      [B, null],
+      [C, null],
+    ]);
+  });
+
+  it("survives a merge after a reload without turning into a duplicate", () => {
+    const remembered = buildWorkspace([{ ...entry(A), cliSessionId: X }], null);
+    const current = buildWorkspace([{ ...entry(B), cliSessionId: X }], B);
+    const merged = mergeWorkspace(current, remembered);
+    expect(merged.sessions.map((s) => [s.key, s.cliSessionId])).toEqual([
+      [A, X],
+      [B, null],
+    ]);
   });
 });
 

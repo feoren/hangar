@@ -71,18 +71,37 @@ export interface SessionInfo {
    * repeats the update. Such sessions never go into the saved workspace.
    */
   kind?: SessionKind;
+  /**
+   * Conversation id Hangar gave the agent CLI (lowercase UUID), `null` for programs without
+   * one. Stored in the workspace so a restore resumes exactly this conversation.
+   */
+  cliSessionId?: string | null;
+  /** `watchSubAgents` works for this session (the program has sub-agents, the session an id). */
+  subAgents?: boolean;
 }
 
 export type SessionKind = "agent" | "update";
 
 /**
  * `resumeFallback`: resuming failed within seconds, so the backend starts the same session
- * once more without resuming. Its `output` and `exit` events follow.
+ * once more without resuming. Its `output` and `exit` events follow. `cliSessionId` and
+ * `subAgents` replace the session's values (older backends send neither).
  */
 export type SessionEvent =
   | { type: "output"; data: string; bytes: number }
   | { type: "exit"; code: number | null }
-  | { type: "resumeFallback"; code: number | null };
+  | {
+      type: "resumeFallback";
+      code: number | null;
+      cliSessionId?: string | null;
+      subAgents?: boolean;
+    };
+
+/** What a `resumeFallback` changes about the session. */
+export interface SessionFallback {
+  cliSessionId: string | null;
+  subAgents: boolean;
+}
 
 /** Scope of the notes: a working folder (absolute) or `null` for the General area. */
 export interface NoteFolder {
@@ -106,7 +125,9 @@ export const api = {
     size: TermSize,
     onEvent: Channel<SessionEvent>,
     resume = false,
-  ) => invoke<SessionInfo>("create_session", { profileId, cwd, size, onEvent, resume }),
+    cliSessionId: string | null = null,
+  ) =>
+    invoke<SessionInfo>("create_session", { profileId, cwd, size, onEvent, resume, cliSessionId }),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
    * the profile's `update_hint`; useful only when `ProgramUpdate.canRun` holds. There is
@@ -123,6 +144,16 @@ export const api = {
     invoke<SessionInfo>("restart_session", { id, size, onEvent }),
   rename: (id: number, title: string) => invoke<SessionInfo>("rename_session", { id, title }),
   close: (id: number) => invoke<null>("close_session", { id }),
+  /**
+   * Streams snapshots of the session's sub-agents on `onEvent` (contract:
+   * docs/wiki/pages/syntheses/agent-workflow-features.md, item 23). A second call for the same
+   * session replaces the first watch; `excerpts: false` sends no assistant text at all. Read
+   * the messages with `parseSubAgentEvent` (subAgents.ts); their excerpts are never stored.
+   */
+  watchSubAgents: (sessionId: number, onEvent: Channel, excerpts: boolean) =>
+    invoke<null>("watch_sub_agents", { sessionId, onEvent, excerpts }),
+  /** `true` if a watch was running. */
+  unwatchSubAgents: (sessionId: number) => invoke<boolean>("unwatch_sub_agents", { sessionId }),
   /**
    * Version per profile ID (`Record<string, string | null>`), installed programs only.
    * Slow (up to 5 s) because the backend starts the programs to ask. Check with `parseVersions`.

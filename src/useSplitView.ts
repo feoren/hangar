@@ -24,6 +24,8 @@ interface Options {
   setLayout: Dispatch<SetStateAction<Layout>>;
   activate: (id: number) => void;
   focusTerminal: () => void;
+  /** The user arranges the panes anew; a temporary view on top of them (sub-agents) ends. */
+  onArrange: () => void;
 }
 
 /** What a pane header shows besides its position (badge, attention state, status text). */
@@ -47,7 +49,7 @@ export interface SplitView {
 }
 
 export function useSplitView(options: Options): SplitView {
-  const { layout, sessions, activeId, setLayout, activate, focusTerminal } = options;
+  const { layout, sessions, activeId, setLayout, activate, focusTerminal, onArrange } = options;
   const [slots, setSlots] = useState<SplitSlots>(EMPTY_SLOTS);
   const sessionIds = sessions.map((session) => session.id);
 
@@ -57,6 +59,7 @@ export function useSplitView(options: Options): SplitView {
   if (split !== slots) setSlots(split);
 
   const setSnapLayout = (next: LayoutId) => {
+    onArrange();
     setLayout((current) =>
       current.snapLayout === next ? current : { ...current, snapLayout: next },
     );
@@ -65,6 +68,7 @@ export function useSplitView(options: Options): SplitView {
 
   const place = (id: number, next: LayoutId, zone: number) => {
     if (!sessionIds.includes(id)) return;
+    onArrange();
     setLayout((current) =>
       current.snapLayout === next ? current : { ...current, snapLayout: next },
     );
@@ -74,12 +78,14 @@ export function useSplitView(options: Options): SplitView {
   };
 
   const maximize = (id: number) => {
+    onArrange();
     setLayout((current) => ({ ...current, snapLayout: "single" }));
     activate(id);
     focusTerminal();
   };
 
   const showOnly = (ids: readonly number[]) => {
+    onArrange();
     const next = showSessions(ids, layout);
     setLayout((current) => ({ ...current, snapLayout: next.layout }));
     setSlots(next.split);

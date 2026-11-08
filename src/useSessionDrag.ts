@@ -59,9 +59,29 @@ export interface SessionDragOptions {
   onPlace: (id: number, layout: LayoutId, zone: number) => void;
 }
 
+/** What the drag needs of the pressed row; an `HTMLElement` in the app, a stand-in in tests. */
+export type DragHandle = Pick<
+  HTMLElement,
+  | "setPointerCapture"
+  | "hasPointerCapture"
+  | "releasePointerCapture"
+  | "addEventListener"
+  | "removeEventListener"
+>;
+
+/** The pointer down that may start a drag (a React pointer event in the app). */
+export interface DragPress {
+  button: number;
+  isPrimary: boolean;
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  currentTarget: DragHandle;
+}
+
 interface Gesture {
   id: number;
-  element: HTMLElement;
+  element: DragHandle;
   pointerId: number;
   startX: number;
   startY: number;
@@ -102,7 +122,7 @@ export class SessionDrag {
   };
 
   /** Pointer down on a session row; becomes a drag once it moves past the threshold. */
-  readonly begin = (id: number, event: React.PointerEvent<HTMLElement>) => {
+  readonly begin = (id: number, event: DragPress) => {
     if (event.button !== 0 || !event.isPrimary || this.gesture) return;
     const element = event.currentTarget;
     const pointerId = event.pointerId;

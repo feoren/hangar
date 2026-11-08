@@ -144,6 +144,9 @@ import { useProgramUpdates } from "./useProgramUpdates";
 import { useGitBranches } from "./useGitBranches";
 import { useSessionDrag } from "./useSessionDrag";
 import { useSplitView } from "./useSplitView";
+import { useSubAgents } from "./useSubAgents";
+import { planSubAgentPanes } from "./subAgents";
+import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
@@ -337,6 +340,11 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /**
+   * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
+   * is the active one; switching sessions or arranging the panes ends the view.
+   */
+  const [subAgentsOf, setSubAgentsOf] = useState<number | null>(null);
   /** Layout picker (View, quick access) for the active session; `preview` is its chosen zone. */
   const [snapPicker, setSnapPicker] = useState<{ preview: SnapTarget | null } | null>(null);
   /** Screen reader message after a session moved in the sidebar. */
@@ -698,6 +706,9 @@ export function App() {
   if (sessionMenu !== null && !state.sessions.some((s) => s.id === sessionMenu.id)) {
     setSessionMenu(null);
   }
+  // The sub-agent view belongs to the active session: another one becoming active, or the
+  // session closing, ends it (and with it the watch).
+  if (subAgentsOf !== null && subAgentsOf !== state.activeId) setSubAgentsOf(null);
 
   // New active session: the notes follow its working folder again (adjusted during render,
   // not in an effect, so no intermediate state with the old folder becomes visible).
@@ -737,7 +748,59 @@ export function App() {
       dispatch({ type: "activated", id });
     },
     focusTerminal,
+    onArrange: () => {
+      setSubAgentsOf(null);
+    },
   });
+
+  // Sub-agent view: the watch runs while the view is open and the session has sub-agents; a
+  // restart or resume fallback with a new conversation id starts a new watch.
+  const subAgentSession =
+    subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
+  const subAgentsAvailable =
+    subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
+  const subAgentWatch = useSubAgents(
+    subAgentSession !== undefined && subAgentsAvailable
+      ? {
+          sessionId: subAgentSession.id,
+          cliSessionId: subAgentSession.cliSessionId ?? null,
+          excerpts: settings.subAgentExcerpts,
+        }
+      : null,
+  );
+  const subAgentNotice =
+    subAgentWatch.error !== null
+      ? t("subAgents.error", { error: subAgentWatch.error })
+      : !subAgentsAvailable
+        ? t("subAgents.unavailable")
+        : subAgentWatch.view.located === null
+          ? t("subAgents.loading")
+          : !subAgentWatch.view.located
+            ? t("subAgents.notLocated")
+            : t("subAgents.none");
+  const subAgentPlan =
+    subAgentSession === undefined
+      ? null
+      : planSubAgentPanes(
+          subAgentWatch.view,
+          subAgentWatch.error !== null ||
+            !subAgentsAvailable ||
+            subAgentWatch.view.located !== true,
+        );
+  /** Opens or closes the sub-agent view of a session; opening makes the session active. */
+  const toggleSubAgents = (id: number) => {
+    if (subAgentsOf === id) {
+      setSubAgentsOf(null);
+    } else {
+      dispatch({ type: "activated", id });
+      setSubAgentsOf(id);
+    }
+    focusTerminal();
+  };
+  const closeSubAgents = () => {
+    setSubAgentsOf(null);
+    focusTerminal();
+  };
 
   /** New place of a session in the sidebar (drag or Alt+arrow); the workspace saves the order. */
   const moveSession = (id: number, index: number) => {
@@ -781,6 +844,9 @@ export function App() {
       terminal.onExit = (code) => {
         dispatch({ type: "exited", id, code });
       };
+      terminal.onFallback = (fallback) => {
+        dispatch({ type: "fellBack", id, ...fallback });
+      };
       terminal.isWatched = () => activeIdRef.current === id && windowWatched();
       terminal.onLink = (url) => {
         setLink({ url, copied: false });
@@ -815,6 +881,15 @@ export function App() {
     },
     [flasher],
   );
+
+  /**
+   * Events that arrived before `create_session` answered and the session existed: a very short
+   * process has already exited, or resuming has already fallen back to a normal start.
+   */
+  const catchUp = useCallback((terminal: SessionTerminal, id: number) => {
+    if (terminal.fallback !== undefined) dispatch({ type: "fellBack", id, ...terminal.fallback });
+    if (terminal.exitCode !== undefined) dispatch({ type: "exited", id, code: terminal.exitCode });
+  }, []);
 
   const forgetAttention = useCallback((id: number) => {
     setAttention((current) => {
@@ -1019,6 +1094,8 @@ export function App() {
           status: "exited",
           exitCode: null,
           createdAt: Date.now(),
+          // Kept, so the next save does not lose it and "Restart" resumes this conversation.
+          cliSessionId: saved.cliSessionId,
         },
       });
       return id;
@@ -1071,6 +1148,7 @@ export function App() {
           INITIAL_SIZE,
           terminal.createChannel(),
           true,
+          saved.cliSessionId,
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1081,16 +1159,14 @@ export function App() {
           ...(saved.worktree ? { worktree: saved.worktree } : {}),
           session: await withTitle(info, saved.title),
         });
-        if (terminal.exitCode !== undefined) {
-          dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
-        }
+        catchUp(terminal, info.id);
         return info.id;
       } catch (e) {
         terminal.writeNotice(tr("terminal.startFailed", { error: errorText(e) }));
         return addPlaceholder(terminal, saved);
       }
     },
-    [addPlaceholder, wire, withTitle],
+    [addPlaceholder, wire, withTitle, catchUp],
   );
 
   /** Ended by the user: the exit is no news to them, so the session does not pulse. */
@@ -1124,15 +1200,14 @@ export function App() {
             terminal.size(),
             terminal.createChannel(),
             true,
+            session.cliSessionId ?? null,
           );
           terminal.setId(info.id);
           terminals.delete(id);
           wire(terminal, info.id);
           forgetAttention(id);
           dispatch({ type: "replaced", oldId: id, session: await withTitle(info, session.title) });
-          if (terminal.exitCode !== undefined) {
-            dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
-          }
+          catchUp(terminal, info.id);
         } catch (e) {
           terminal.exitCode = null;
           terminal.writeNotice(t("terminal.startFailed", { error: errorText(e) }));
@@ -1150,7 +1225,7 @@ export function App() {
         showError(e);
       }
     },
-    [showError, wire, forgetAttention, withTitle, t],
+    [showError, wire, forgetAttention, withTitle, catchUp, t],
   );
 
   /**
@@ -1269,6 +1344,7 @@ export function App() {
               color: session.marker?.color ?? null,
               emoji: session.marker?.emoji ?? null,
               worktree: session.worktree ?? null,
+              cliSessionId: session.cliSessionId ?? null,
             },
           ]
         : [];
@@ -2365,6 +2441,9 @@ export function App() {
       case "marker":
         setMarkerId(id);
         break;
+      case "subAgents":
+        toggleSubAgents(id);
+        break;
       case "restart":
         void restart(id);
         break;
@@ -2379,17 +2458,19 @@ export function App() {
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : sessionMenuEntries(menuSession, t).map((entry): PopupItem => {
-          if (entry.type === "separator") return entry;
-          const action = entry.key;
-          const id = menuSession.id;
-          return {
-            ...entry,
-            run: () => {
-              runSessionAction(action, id);
-            },
-          };
-        });
+      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id).map(
+          (entry): PopupItem => {
+            if (entry.type === "separator") return entry;
+            const action = entry.key;
+            const id = menuSession.id;
+            return {
+              ...entry,
+              run: () => {
+                runSessionAction(action, id);
+              },
+            };
+          },
+        );
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
@@ -2426,6 +2507,16 @@ export function App() {
       openBroadcast: () => {
         setDialog("broadcast");
       },
+      subAgents:
+        activeSession !== undefined &&
+        (activeSession.subAgents === true || subAgentsOf === activeSession.id)
+          ? {
+              shown: subAgentsOf === activeSession.id,
+              toggle: () => {
+                toggleSubAgents(activeSession.id);
+              },
+            }
+          : null,
     });
 
   /** Pane header contents in split view: badge, attention state and status text. */
@@ -2590,7 +2681,14 @@ export function App() {
                 const terminal = terminals.get(session.id);
                 if (!terminal) return null;
                 const active = session.id === state.activeId;
-                const paneInfo = splitView.paneSplit(session, paneLook(session));
+                // The sub-agent view shows only its session, in the main zone of its own layout;
+                // the slots of the split view stay as they were for when it closes.
+                const paneInfo =
+                  subAgentPlan === null
+                    ? splitView.paneSplit(session, paneLook(session))
+                    : session.id === subAgentsOf
+                      ? { layout: subAgentPlan.layout, slot: 0, session, ...paneLook(session)() }
+                      : null;
                 return (
                   <TerminalPane
                     key={session.id}
@@ -2619,7 +2717,18 @@ export function App() {
                   </TerminalPane>
                 );
               })}
+              {subAgentPlan !== null && subAgentSession !== undefined && (
+                <SubAgentPanes
+                  title={subAgentSession.title}
+                  plan={subAgentPlan}
+                  view={subAgentWatch.view}
+                  notice={subAgentNotice}
+                  excerpts={settings.subAgentExcerpts}
+                  onClose={closeSubAgents}
+                />
+              )}
               {state.sessions.length > 0 &&
+                subAgentPlan === null &&
                 splitView.split.slots.map((id, slot) =>
                   id === null && splitView.layout !== "single" ? (
                     <EmptyPane

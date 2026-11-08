@@ -424,6 +424,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
           </span>
         </div>
       )}
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.subAgentExcerpts}
+          aria-describedby="sub-agent-excerpts-help"
+          onChange={(event) => {
+            onChange({ subAgentExcerpts: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.subAgentExcerpts")}</span>
+      </label>
+      <p id="sub-agent-excerpts-help" className="muted settings-help">
+        {t("settings.subAgentExcerptsHelp")}
+      </p>
     </section>
   );
 }

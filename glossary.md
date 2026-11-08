@@ -20,6 +20,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Unterhaltungs-ID                                | conversation id                   | the agent CLI's own session id, `cliSessionId`          |
 | Sub-Agent                                       | sub-agent                         | runs inside the agent's process, no terminal of its own |
 | Sub-Agent-Ansicht                               | sub-agent view                    | read-only, `subagents/`                                 |
+| Textauszug                                      | excerpt                           | a sub-agent's newest text, never stored                 |
 | Notiz                                           | note                              |                                                         |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                  |
 | Papierkorb                                      | trash                             |                                                         |

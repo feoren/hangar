@@ -58,7 +58,12 @@ export function sameLook(a: TerminalLook, b: TerminalLook): boolean {
 
 const FALLBACK_FONTS = ['"Cascadia Mono"', '"Cascadia Code"', "Consolas", '"DejaVu Sans Mono"'];
 
-/** CSS font stack: the chosen font first, then the fallbacks that applied before. */
+/**
+ * CSS font stack: the chosen font first, then the fallbacks that applied before. Deliberately no
+ * color emoji font: the system fallback already draws emoji and VS16 sequences in color, while a
+ * named emoji font would also take text-style symbols such as U+23FA (Claude Code's bullet), U+2714
+ * or U+26A0 and draw them as wide color emoji in a single cell (measured in headless Edge).
+ */
 export function fontStack(font: TerminalFont): string {
   const first = font === "default" ? [] : [`"${font}"`];
   const rest = FALLBACK_FONTS.filter((name) => !first.includes(name));

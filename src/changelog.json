@@ -296,6 +296,48 @@
         "ru": "В Windows твои дистрибутивы WSL появляются как терминалы в разделе «Новый сеанс».",
         "tr": "Windows'ta WSL dağıtımların Yeni oturum altında terminal olarak görünür.",
         "zh": "在 Windows 上，你的 WSL 发行版会作为终端显示在“新建会话”中。"
+      },
+      {
+        "de": "Rechtsklick auf eine Claude-Session, dann „Sub-Agents anzeigen“: Jeder Sub-Agent zeigt live Status, Laufzeit, Werkzeug und letzten Text.",
+        "en": "Right click a Claude session and choose \"Show sub-agents\": each sub-agent shows its status, run time, tool and latest text live.",
+        "el": "Δεξί κλικ σε συνεδρία Claude και «Εμφάνιση υπο-πρακτόρων»: κάθε υπο-πράκτορας δείχνει ζωντανά κατάσταση, χρόνο, εργαλείο και κείμενο.",
+        "es": "Clic derecho en una sesión de Claude y «Mostrar subagentes»: cada subagente muestra en vivo estado, tiempo, herramienta y último texto.",
+        "fr": "Clic droit sur une session Claude, puis « Afficher les sous-agents » : chacun montre en direct état, durée, outil et dernier texte.",
+        "it": "Clic destro su una sessione Claude e «Mostra sotto-agenti»: ognuno mostra dal vivo stato, durata, strumento e ultimo testo.",
+        "ja": "Claude のセッションを右クリックして「サブエージェントを表示」を選ぶと、各サブエージェントの状態、実行時間、ツール、最新のテキストがリアルタイムで表示されます。",
+        "pl": "Kliknij prawym sesję Claude i wybierz „Pokaż podagentów”: każdy pokazuje na żywo stan, czas, narzędzie i ostatni tekst.",
+        "pt": "Clique com o botão direito em uma sessão do Claude e em \"Mostrar subagentes\": cada um mostra ao vivo status, tempo, ferramenta e texto.",
+        "ru": "Щёлкни правой кнопкой по сеансу Claude, «Показать субагентов»: каждый показывает вживую состояние, время, инструмент и текст.",
+        "tr": "Bir Claude oturumuna sağ tıkla, \"Alt ajanları göster\": her alt ajan durumunu, süresini, aracını ve son metnini canlı gösterir.",
+        "zh": "右键单击 Claude 会话并选择“显示子代理”：每个子代理实时显示状态、运行时间、工具和最新文本。"
+      },
+      {
+        "de": "Zwei Claude-Sessions im selben Ordner setzen nach einem Neustart jeweils ihre eigene Unterhaltung fort.",
+        "en": "Two Claude sessions in the same folder now each resume their own conversation after a restart.",
+        "el": "Δύο συνεδρίες Claude στον ίδιο φάκελο συνεχίζουν πλέον η καθεμία τη δική της συνομιλία μετά από επανεκκίνηση.",
+        "es": "Dos sesiones de Claude en la misma carpeta continúan ahora cada una su propia conversación tras reiniciar.",
+        "fr": "Deux sessions Claude dans le même dossier reprennent désormais chacune leur propre conversation après un redémarrage.",
+        "it": "Due sessioni Claude nella stessa cartella riprendono ora ciascuna la propria conversazione dopo un riavvio.",
+        "ja": "同じフォルダーにある 2 つの Claude セッションが、再起動後にそれぞれ自分の会話を再開するようになりました。",
+        "pl": "Dwie sesje Claude w tym samym folderze wznawiają teraz po ponownym uruchomieniu każda własną rozmowę.",
+        "pt": "Duas sessões do Claude na mesma pasta agora retomam cada uma a própria conversa depois de reiniciar.",
+        "ru": "Два сеанса Claude в одной папке теперь после перезапуска продолжают каждый свой разговор.",
+        "tr": "Aynı klasördeki iki Claude oturumu artık yeniden başlatmadan sonra her biri kendi konuşmasını sürdürüyor.",
+        "zh": "同一文件夹中的两个 Claude 会话现在在重新启动后会各自继续自己的对话。"
+      },
+      {
+        "de": "Emojis wie 🏷️ oder ⏱️ in Statuszeilen von Agenten sind jetzt voll breit und verschieben den Rest der Zeile nicht mehr.",
+        "en": "Emoji such as 🏷️ or ⏱️ in agent status lines are now full width and no longer shift the rest of the line.",
+        "el": "Τα emoji όπως 🏷️ ή ⏱️ στις γραμμές κατάστασης των πρακτόρων έχουν πλέον πλήρες πλάτος και δεν μετατοπίζουν την υπόλοιπη γραμμή.",
+        "es": "Los emojis como 🏷️ o ⏱️ en las líneas de estado de los agentes ahora tienen ancho completo y ya no desplazan el resto de la línea.",
+        "fr": "Les emojis comme 🏷️ ou ⏱️ dans les lignes d'état des agents ont désormais leur pleine largeur et ne décalent plus le reste de la ligne.",
+        "it": "Le emoji come 🏷️ o ⏱️ nelle righe di stato degli agenti ora hanno larghezza piena e non spostano più il resto della riga.",
+        "ja": "エージェントのステータス行にある 🏷️ や ⏱️ などの絵文字が全角で表示されるようになり、行の残りがずれなくなりました。",
+        "pl": "Emoji takie jak 🏷️ czy ⏱️ w wierszach stanu agentów mają teraz pełną szerokość i nie przesuwają reszty wiersza.",
+        "pt": "Emojis como 🏷️ ou ⏱️ nas linhas de status dos agentes agora têm largura total e não deslocam mais o resto da linha.",
+        "ru": "Эмодзи вроде 🏷️ или ⏱️ в строках состояния агентов теперь занимают полную ширину и больше не сдвигают остаток строки.",
+        "tr": "Ajan durum satırlarındaki 🏷️ veya ⏱️ gibi emojiler artık tam genişlikte ve satırın geri kalanını kaydırmıyor.",
+        "zh": "代理状态行中的 🏷️、⏱️ 等表情符号现在以全宽显示，不再让行的其余部分错位。"
       }
     ]
   },

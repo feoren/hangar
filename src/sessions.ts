@@ -34,6 +34,11 @@ export type SessionsAction =
   /** The same session with a new ID at the same spot (placeholder after a successful start). */
   | { type: "replaced"; oldId: number; session: SessionInfo }
   | { type: "exited"; id: number; code: number | null }
+  /**
+   * Resuming failed and the backend started the session normally (`resumeFallback`): the
+   * conversation id and the sub-agent flag it sent replace the old ones.
+   */
+  | { type: "fellBack"; id: number; cliSessionId: string | null; subAgents: boolean }
   | { type: "removed"; id: number }
   | { type: "activated"; id: number }
   /** New marker; no color and no emoji removes it. */
@@ -102,6 +107,30 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
           s.id === action.id ? { ...s, status: "exited", exitCode: action.code } : s,
         ),
       };
+    case "fellBack": {
+      const session = state.sessions.find((s) => s.id === action.id);
+      if (!session) return state;
+      if (
+        session.cliSessionId === action.cliSessionId &&
+        session.subAgents === action.subAgents &&
+        session.resumed !== true
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === action.id
+            ? {
+                ...s,
+                cliSessionId: action.cliSessionId,
+                subAgents: action.subAgents,
+                resumed: false,
+              }
+            : s,
+        ),
+      };
+    }
     case "removed": {
       const index = state.sessions.findIndex((s) => s.id === action.id);
       if (index < 0) return state;

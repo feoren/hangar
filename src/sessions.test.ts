@@ -341,3 +341,53 @@ describe("moving sessions", () => {
     expect(moveItem(items, 2, 1)).toBeNull();
   });
 });
+
+describe("conversation id", () => {
+  const X = "9b2c7e1a-0d4f-4c3b-8a6e-5f1d2c3b4a59";
+  const Y = "e3a1c2b4-5d6f-4a7b-9c8d-0e1f2a3b4c5d";
+  const claude = (id: number): SessionInfo => ({
+    ...session(id),
+    profileId: "claude",
+    resumed: true,
+    cliSessionId: X,
+    subAgents: true,
+  });
+
+  it("follows a resume fallback, which also ends the resumed state", () => {
+    const state: SessionsState = { sessions: [claude(1), session(2)], activeId: 1 };
+    const next = sessionsReducer(state, {
+      type: "fellBack",
+      id: 1,
+      cliSessionId: Y,
+      subAgents: false,
+    });
+    expect(next.sessions[0]).toMatchObject({ cliSessionId: Y, subAgents: false, resumed: false });
+    expect(next.sessions[1]).toBe(state.sessions[1]);
+  });
+
+  it("ignores a fallback for an unknown session and one that changes nothing", () => {
+    const state: SessionsState = {
+      sessions: [{ ...claude(1), resumed: false }],
+      activeId: 1,
+    };
+    expect(
+      sessionsReducer(state, { type: "fellBack", id: 9, cliSessionId: Y, subAgents: true }),
+    ).toBe(state);
+    expect(
+      sessionsReducer(state, { type: "fellBack", id: 1, cliSessionId: X, subAgents: true }),
+    ).toBe(state);
+  });
+
+  it("takes the new id of a restart and keeps the marker", () => {
+    const state = sessionsReducer(
+      { sessions: [claude(1)], activeId: 1 },
+      { type: "marked", id: 1, marker: { color: "#e5534b", emoji: null } },
+    );
+    const next = sessionsReducer(state, {
+      type: "updated",
+      session: { ...claude(1), cliSessionId: Y, resumed: false },
+    });
+    expect(next.sessions[0]?.cliSessionId).toBe(Y);
+    expect(next.sessions[0]?.marker).toEqual({ color: "#e5534b", emoji: null });
+  });
+});
