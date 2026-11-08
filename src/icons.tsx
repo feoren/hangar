@@ -220,3 +220,25 @@ export function CheckIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Favorite folder; `filled` marks the current folder as a favorite. */
+export function StarIcon({ filled = false, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <Svg {...props}>
+      <path
+        d="M8 2.2l1.75 3.6 3.95.55-2.87 2.77.7 3.93L8 11.2l-3.53 1.85.7-3.93L2.3 6.35l3.95-.55z"
+        fill={filled ? "currentColor" : "none"}
+      />
+    </Svg>
+  );
+}
+
+/** Recently used. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M8 4.8V8l2.2 1.4" />
+    </Svg>
+  );
+}

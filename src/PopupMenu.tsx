@@ -12,6 +12,8 @@ export type PopupItem =
       shortcut?: string;
       /** Leading image, e.g. a program's badge. */
       icon?: React.ReactNode;
+      /** Tooltip, e.g. the full path behind a shortened label. */
+      title?: string;
       disabled?: boolean;
       run: () => void;
     }
@@ -23,6 +25,11 @@ interface Props {
   label: string;
   /** Top left corner in the window (clientX/clientY); the menu moves into the window if space is short. */
   position: { x: number; y: number };
+  /**
+   * Opened from a button near the bottom: if the menu does not fit below `position`, its bottom
+   * edge goes to this y instead (above the button) rather than covering the button.
+   */
+  flipAbove?: number;
   className?: string;
   /** Button that opens the menu: clicking it toggles instead of closing and reopening. */
   anchor?: React.RefObject<HTMLElement | null>;
@@ -38,7 +45,15 @@ interface Props {
  * Same keyboard control as the app menu: focus on the first entry, arrows, Home, End,
  * first letter, Enter, Escape.
  */
-export function PopupMenu({ items, label, position, className, anchor, onClose }: Props) {
+export function PopupMenu({
+  items,
+  label,
+  position,
+  flipAbove,
+  className,
+  anchor,
+  onClose,
+}: Props) {
   const entries: NavEntry[] = items.map((item) =>
     item.type === "separator"
       ? null
@@ -58,9 +73,14 @@ export function PopupMenu({ items, label, position, className, anchor, onClose }
     const element = panel.current;
     if (element) {
       const rect = element.getBoundingClientRect();
+      const fitsBelow = position.y + rect.height + 8 <= window.innerHeight;
+      const start =
+        !fitsBelow && flipAbove !== undefined
+          ? { x: position.x, y: flipAbove - rect.height }
+          : position;
       setPlaced(
         fitInViewport(
-          position,
+          start,
           { width: rect.width, height: rect.height },
           { width: window.innerWidth, height: window.innerHeight },
         ),
@@ -151,6 +171,7 @@ export function PopupMenu({ items, label, position, className, anchor, onClose }
               }}
               tabIndex={index === current ? 0 : -1}
               className="menu-item"
+              title={item.title}
               disabled={item.disabled}
               onPointerEnter={() => {
                 if (item.disabled === true) return;

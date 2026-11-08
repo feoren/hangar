@@ -4,6 +4,8 @@ import type { NoteFolder, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
+import { FolderMenu } from "./FolderMenu";
+import type { FolderPrefs } from "./folders";
 import { exitDetail, shortPath, statusText } from "./format";
 import { useT } from "./i18n";
 import {
@@ -90,7 +92,12 @@ interface Props {
   runningPrograms: ReadonlySet<string>;
   /** Runs a program's update as a new session (only with `canRun`). */
   onRunUpdate: (profileId: string) => void;
+  /** Opens the folder dialog for the working folder of new sessions. */
   onPickCwd: () => void;
+  /** Favorite and recent folders for the "Starts in" menu. */
+  folders: FolderPrefs;
+  onSelectCwd: (path: string) => void;
+  onToggleFavorite: (path: string) => void;
   onRestart: (id: number) => void;
   onKill: (id: number) => void;
   onClose: (id: number) => void;
@@ -113,6 +120,11 @@ export function Sidebar(props: Props) {
   const newButton = useRef<HTMLButtonElement>(null);
   /** Program picker of the collapsed bar, open at this position. */
   const [programMenu, setProgramMenu] = useState<{ x: number; y: number } | null>(null);
+  const cwdButton = useRef<HTMLButtonElement>(null);
+  /** "Starts in" menu, open at this position (below the button, or above it if space is short). */
+  const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(
+    null,
+  );
   const onClose = (id: number) => {
     if (!guard.allows()) return;
     guard.closed();
@@ -433,10 +445,20 @@ export function Sidebar(props: Props) {
         onToggle={props.onToggleGroup}
       >
         <button
+          ref={cwdButton}
           type="button"
           className="cwd"
           title={cwd ?? t("sidebar.pickCwdTitle")}
-          onClick={props.onPickCwd}
+          aria-haspopup="menu"
+          aria-expanded={folderMenu !== null}
+          onClick={(event) => {
+            if (folderMenu !== null) {
+              setFolderMenu(null);
+              return;
+            }
+            const rect = event.currentTarget.getBoundingClientRect();
+            setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
+          }}
         >
           <FolderIcon />
           <span className="cwd-text">
@@ -444,6 +466,24 @@ export function Sidebar(props: Props) {
             <span className="cwd-path">{cwd ? shortPath(cwd) : t("sidebar.pickCwd")}</span>
           </span>
         </button>
+        {folderMenu !== null && (
+          <FolderMenu
+            cwd={cwd}
+            folders={props.folders}
+            position={folderMenu}
+            flipAbove={folderMenu.flipAbove}
+            anchor={cwdButton}
+            onSelect={props.onSelectCwd}
+            onChoose={props.onPickCwd}
+            onToggleFavorite={props.onToggleFavorite}
+            onClose={(reason) => {
+              setFolderMenu(null);
+              // Escape returns to the button; a chosen folder returns to the terminal.
+              if (reason === "dismiss") cwdButton.current?.focus();
+              else props.onMenuClose();
+            }}
+          />
+        )}
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
           {startable.map((profile) => {
