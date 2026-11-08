@@ -201,6 +201,12 @@
           "markdownDescription": "Enables the close_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the configure_tray command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-configure-tray",
+          "markdownDescription": "Enables the configure_tray command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-note",
@@ -237,6 +243,18 @@
           "markdownDescription": "Enables the delete_note command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-profile",
+          "markdownDescription": "Enables the delete_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_profile_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-profile-secret",
+          "markdownDescription": "Enables the delete_profile_secret command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-scrollback",
@@ -247,6 +265,12 @@
           "type": "string",
           "const": "allow-detect-versions",
           "markdownDescription": "Enables the detect_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the export_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-session",
+          "markdownDescription": "Enables the export_session command without any pre-configured scope."
         },
         {
           "description": "Enables the git_branches command without any pre-configured scope.",
@@ -315,10 +339,22 @@
           "markdownDescription": "Enables the open_profile_file command without any pre-configured scope."
         },
         {
+          "description": "Enables the profile_env command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-profile-env",
+          "markdownDescription": "Enables the profile_env command without any pre-configured scope."
+        },
+        {
           "description": "Enables the profile_path command without any pre-configured scope.",
           "type": "string",
           "const": "allow-profile-path",
           "markdownDescription": "Enables the profile_path command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the profile_secrets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-profile-secrets",
+          "markdownDescription": "Enables the profile_secrets command without any pre-configured scope."
         },
         {
           "description": "Enables the program_icons command without any pre-configured scope.",
@@ -381,6 +417,12 @@
           "markdownDescription": "Enables the reveal_notes_folder command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-profile",
+          "markdownDescription": "Enables the save_profile command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-scrollback",
@@ -391,6 +433,12 @@
           "type": "string",
           "const": "allow-save-workspace",
           "markdownDescription": "Enables the save_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_profile_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-profile-secret",
+          "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
         },
         {
           "description": "Enables the write_note command without any pre-configured scope.",
@@ -429,6 +477,12 @@
           "markdownDescription": "Denies the close_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the configure_tray command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-configure-tray",
+          "markdownDescription": "Denies the configure_tray command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_note command without any pre-configured scope.",
           "type": "string",
           "const": "deny-create-note",
@@ -465,6 +519,18 @@
           "markdownDescription": "Denies the delete_note command without any pre-configured scope."
         },
         {
+          "description": "Denies the delete_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-profile",
+          "markdownDescription": "Denies the delete_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_profile_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-profile-secret",
+          "markdownDescription": "Denies the delete_profile_secret command without any pre-configured scope."
+        },
+        {
           "description": "Denies the delete_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "deny-delete-scrollback",
@@ -475,6 +541,12 @@
           "type": "string",
           "const": "deny-detect-versions",
           "markdownDescription": "Denies the detect_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the export_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-session",
+          "markdownDescription": "Denies the export_session command without any pre-configured scope."
         },
         {
           "description": "Denies the git_branches command without any pre-configured scope.",
@@ -543,10 +615,22 @@
           "markdownDescription": "Denies the open_profile_file command without any pre-configured scope."
         },
         {
+          "description": "Denies the profile_env command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-profile-env",
+          "markdownDescription": "Denies the profile_env command without any pre-configured scope."
+        },
+        {
           "description": "Denies the profile_path command without any pre-configured scope.",
           "type": "string",
           "const": "deny-profile-path",
           "markdownDescription": "Denies the profile_path command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the profile_secrets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-profile-secrets",
+          "markdownDescription": "Denies the profile_secrets command without any pre-configured scope."
         },
         {
           "description": "Denies the program_icons command without any pre-configured scope.",
@@ -609,6 +693,12 @@
           "markdownDescription": "Denies the reveal_notes_folder command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-profile",
+          "markdownDescription": "Denies the save_profile command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-scrollback",
@@ -619,6 +709,12 @@
           "type": "string",
           "const": "deny-save-workspace",
           "markdownDescription": "Denies the save_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_profile_secret command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-profile-secret",
+          "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
         },
         {
           "description": "Denies the write_note command without any pre-configured scope.",

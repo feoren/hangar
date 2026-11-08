@@ -130,6 +130,7 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
         args: Vec::new(),
         cwd: None,
         env: Default::default(),
+        secret_env: Vec::new(),
         icon: None,
         version_args: version_args.map(args),
         resume_args: None,

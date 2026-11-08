@@ -148,11 +148,8 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
             }
         }
         if let Some(worktree) = &session.worktree {
-            if worktree.path.as_os_str().is_empty()
-                || worktree.repo_root.as_os_str().is_empty()
-                || worktree.branch.trim().is_empty()
-            {
-                return invalid("worktree needs path, branch and repoRoot");
+            if crate::worktree::check_shape(worktree).is_err() {
+                return invalid("worktree is not one Hangar created");
             }
         }
     }
@@ -437,6 +434,28 @@ mod tests {
         }
     }
 
+    /// Absolute on every platform, in the shape `worktree::create` produces.
+    fn sample_worktree() -> Worktree {
+        let (root, base) = if cfg!(windows) {
+            (
+                PathBuf::from(r"C:\Users\Test User\repo"),
+                PathBuf::from(r"C:\Users\Test User\AppData\Local\x\worktrees"),
+            )
+        } else {
+            (
+                PathBuf::from("/home/test user/repo"),
+                PathBuf::from("/home/test user/.local/share/x/worktrees"),
+            )
+        };
+        Worktree {
+            path: base
+                .join(crate::worktree::repo_dir_name(&root))
+                .join("fix-1a2b3c"),
+            branch: "hangar/fix-1a2b3c".into(),
+            repo_root: root,
+        }
+    }
+
     fn workspace() -> Workspace {
         Workspace {
             version: WORKSPACE_VERSION,
@@ -537,13 +556,7 @@ mod tests {
         let mut w = workspace();
         w.sessions[0].color = Some("#1a2B3c".into());
         w.sessions[0].emoji = Some("\u{1F468}\u{200D}\u{1F4BB}".into());
-        w.sessions[0].worktree = Some(Worktree {
-            path: PathBuf::from(
-                r"C:\Users\Test User\AppData\Local\x\worktrees\repo-0123abcd\fix-1a2b3c",
-            ),
-            branch: "hangar/fix-1a2b3c".into(),
-            repo_root: PathBuf::from(r"C:\Users\Test User\repo"),
-        });
+        w.sessions[0].worktree = Some(sample_worktree());
         store.0.save_workspace(&w).unwrap();
         assert_eq!(store.0.load_workspace(), Some(w));
         let json: serde_json::Value =
@@ -591,17 +604,32 @@ mod tests {
             w.sessions[0].emoji = Some(emoji.into());
             cases.push(w);
         }
-        for (path, branch, root) in [
-            ("", "hangar/x", "r"),
-            ("p", " ", "r"),
-            ("p", "hangar/x", ""),
-        ] {
+        let good = sample_worktree();
+        let variants = [
+            Worktree {
+                branch: "hangar/other-1a2b3c".into(),
+                ..good.clone()
+            },
+            Worktree {
+                branch: " ".into(),
+                ..good.clone()
+            },
+            Worktree {
+                path: "".into(),
+                ..good.clone()
+            },
+            Worktree {
+                repo_root: "".into(),
+                ..good.clone()
+            },
+            Worktree {
+                repo_root: good.repo_root.join("elsewhere"),
+                ..good
+            },
+        ];
+        for worktree in variants {
             let mut w = workspace();
-            w.sessions[0].worktree = Some(Worktree {
-                path: path.into(),
-                branch: branch.into(),
-                repo_root: root.into(),
-            });
+            w.sessions[0].worktree = Some(worktree);
             cases.push(w);
         }
         for w in cases {

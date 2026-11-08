@@ -122,6 +122,8 @@ pub enum WorktreeError {
         #[source]
         source: std::io::Error,
     },
+    #[error("Folder {0} must be empty")]
+    NotEmpty(PathBuf),
 }
 
 impl Serialize for WorktreeError {
@@ -130,9 +132,36 @@ impl Serialize for WorktreeError {
     }
 }
 
-/// `path` must be `<base>/<repo dir>/<slug>`, both names in Hangar's own format, and must not
-/// leave `base` through a link once resolved.
-pub fn check_managed(base: &Path, path: &Path) -> Result<(), WorktreeError> {
+/// The rules every [`Worktree`] Hangar created follows, checked without knowing the worktrees
+/// folder (also when a workspace is loaded): absolute paths, branch `hangar/<slug>`, and a path
+/// that ends in `<repo dir of repoRoot>/<slug>`. A worktree record edited to name another
+/// repository or another branch than the one it was created for fails here.
+pub fn check_shape(worktree: &Worktree) -> Result<(), WorktreeError> {
+    check_branch(&worktree.branch)?;
+    let outside = Err(WorktreeError::OutsideFolder);
+    if !worktree.path.is_absolute() || !worktree.repo_root.is_absolute() {
+        return outside;
+    }
+    let slug = worktree
+        .branch
+        .strip_prefix(BRANCH_PREFIX)
+        .unwrap_or_default();
+    let repo_dir = repo_dir_name(&worktree.repo_root);
+    let mut names = worktree.path.components().rev();
+    let (Some(Component::Normal(last)), Some(Component::Normal(parent))) =
+        (names.next(), names.next())
+    else {
+        return outside;
+    };
+    if last != OsStr::new(slug) || parent != OsStr::new(&repo_dir) {
+        return outside;
+    }
+    Ok(())
+}
+
+/// `path` must be `<base>/<repo dir>/<slug>`, both names in Hangar's own format, the repo dir the
+/// one of `repo_root`, and must not leave `base` through a link once resolved.
+pub fn check_managed(base: &Path, path: &Path, repo_root: &Path) -> Result<(), WorktreeError> {
     let outside = Err(WorktreeError::OutsideFolder);
     if !path.is_absolute() || !base.is_absolute() {
         return outside;
@@ -152,6 +181,9 @@ pub fn check_managed(base: &Path, path: &Path) -> Result<(), WorktreeError> {
         return outside;
     };
     if !is_valid_slug(repo_dir) || !is_valid_slug(slug) {
+        return outside;
+    }
+    if *repo_dir != repo_dir_name(repo_root) {
         return outside;
     }
     // Junctions and symlinks: compare the resolved paths too, as far as they exist.
@@ -204,32 +236,116 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
     })
 }
 
-/// `git worktree remove` without `--force`, then `git branch -d`. What stays is reported in
-/// [`Removal::reason`], not as an error.
+/// Folder below `base` that stays empty; `core.hooksPath` points there while Hangar removes a
+/// worktree and its branch, so no hook of the repository runs (reference-transaction runs on
+/// `branch -d`). Not a valid slug, so it can never be taken for a worktree.
+pub const NO_HOOKS_DIR: &str = ".no-hooks";
+
+fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
+    let dir = base.join(NO_HOOKS_DIR);
+    let io = |source| WorktreeError::Io {
+        path: dir.clone(),
+        source,
+    };
+    crate::persist::create_private_dir(&dir).map_err(io)?;
+    if fs::read_dir(&dir).map_err(io)?.next().is_some() {
+        return Err(WorktreeError::NotEmpty(dir));
+    }
+    Ok(dir)
+}
+
+/// How many ignored names the reason lists before "and N more".
+const LISTED_IGNORED: usize = 3;
+
+/// Reason for keeping a worktree with ignored files: `git worktree remove` would delete them
+/// without asking, even without `--force` (build output, `.env` files, local databases).
+pub fn ignored_reason(ignored: &[String]) -> Option<String> {
+    let (first, rest) = ignored.split_at(ignored.len().min(LISTED_IGNORED));
+    if first.is_empty() {
+        return None;
+    }
+    let mut reason = format!("The worktree contains ignored files: {}", first.join(", "));
+    if !rest.is_empty() {
+        reason.push_str(&format!(" and {} more", rest.len()));
+    }
+    Some(reason)
+}
+
+/// Ignored files and folders in the worktree (`!!` entries of `git status --ignored=matching`).
+fn ignored_files(git: &Git, path: &Path, deadline: Instant) -> Result<Vec<String>, String> {
+    let neutral = git::filter_overrides(git, path, deadline).map_err(|e| e.to_string())?;
+    let status = git
+        .run(
+            path,
+            neutral.iter().map(String::as_str).chain([
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--ignored=matching",
+                "--ignore-submodules=all",
+            ]),
+            deadline,
+            git::MAX_LIST_BYTES,
+        )
+        .map_err(|e| e.to_string())?;
+    if !status.success {
+        // A cut list could hide ignored files; only a complete one counts.
+        return Err(git::message(&status.stderr));
+    }
+    Ok(git::parse_status(&status.stdout)
+        .into_iter()
+        .filter(|file| file.status == "!!")
+        .map(|file| file.path)
+        .collect())
+}
+
+/// `git worktree remove` without `--force`, then `git branch -d`. A worktree with ignored files
+/// stays too. What stays is reported in [`Removal::reason`], not as an error.
 pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, WorktreeError> {
-    check_managed(base, &worktree.path)?;
-    check_branch(&worktree.branch)?;
+    check_shape(worktree)?;
+    check_managed(base, &worktree.path, &worktree.repo_root)?;
     git::check_folder(&worktree.repo_root)?;
     let deadline = Instant::now() + TIMEOUT;
     let root = &worktree.repo_root;
+    let hooks = format!("core.hooksPath={}", empty_hooks_dir(base)?.display());
+    let kept = |reason: String| Removal {
+        removed: false,
+        branch_deleted: false,
+        reason: Some(reason),
+    };
 
     if worktree.path.exists() {
+        let ignored = match ignored_files(git, &worktree.path, deadline) {
+            Ok(ignored) => ignored,
+            Err(reason) => return Ok(kept(reason)),
+        };
+        if let Some(reason) = ignored_reason(&ignored) {
+            return Ok(kept(reason));
+        }
         let args = [
+            OsStr::new("-c"),
+            OsStr::new(&hooks),
             OsStr::new("worktree"),
             OsStr::new("remove"),
             worktree.path.as_os_str(),
         ];
         let output = git.run(root, args, deadline, 64 * 1024)?;
         if !output.success {
-            return Ok(Removal {
-                removed: false,
-                branch_deleted: false,
-                reason: Some(git::message(&output.stderr)),
-            });
+            return Ok(kept(git::message(&output.stderr)));
         }
     } else {
         // Deleted by hand: only git's bookkeeping is left. Failure changes nothing for the user.
-        let _ = git.run(root, ["worktree", "prune"], deadline, 64 * 1024);
+        let _ = git.run(
+            root,
+            ["-c", &hooks, "worktree", "prune"],
+            deadline,
+            64 * 1024,
+        );
+    }
+    if worktree.path.exists() {
+        return Ok(kept(
+            "The worktree folder could not be deleted completely".to_owned(),
+        ));
     }
     if let Some(parent) = worktree.path.parent() {
         // Only succeeds when no other worktree of this repository is left.
@@ -238,7 +354,7 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
 
     let output = git.run(
         root,
-        ["branch", "-d", worktree.branch.as_str()],
+        ["-c", &hooks, "branch", "-d", worktree.branch.as_str()],
         deadline,
         64 * 1024,
     )?;
@@ -314,27 +430,85 @@ mod tests {
     fn only_paths_inside_the_worktrees_folder() {
         let tmp = TempDir::new("worktree-paths");
         let base = tmp.path().join(DIR_NAME);
-        let good = base.join("repo-0123abcd").join("fix-1a2b3c");
-        assert!(check_managed(&base, &good).is_ok());
+        let root = tmp.path().join("repo");
+        let dir = repo_dir_name(&root);
+        let good = base.join(&dir).join("fix-1a2b3c");
+        assert!(check_managed(&base, &good, &root).is_ok());
+        // Same shape, but the folder of another repository.
+        let other_root = tmp.path().join("other");
+        assert!(check_managed(&base, &good, &other_root).is_err());
         for bad in [
             base.clone(),
-            base.join("repo-0123abcd"),
-            base.join("repo-0123abcd").join("fix").join("deeper"),
-            base.join("repo-0123abcd").join("..").join("x"),
-            base.join("..").join("repo-0123abcd").join("x"),
+            base.join(&dir),
+            base.join(&dir).join("fix").join("deeper"),
+            base.join(&dir).join("..").join("x"),
+            base.join("..").join(&dir).join("x"),
             base.join("Repo").join("x"),
-            tmp.path().join("elsewhere").join("repo-0123abcd").join("x"),
+            base.join(NO_HOOKS_DIR).join("x"),
+            tmp.path().join("elsewhere").join(&dir).join("x"),
             PathBuf::from("relative").join("a").join("b"),
         ] {
             assert!(
                 matches!(
-                    check_managed(&base, &bad),
+                    check_managed(&base, &bad, &root),
                     Err(WorktreeError::OutsideFolder)
                 ),
                 "{}",
                 bad.display()
             );
         }
+    }
+
+    #[test]
+    fn worktree_records_must_keep_their_shape() {
+        let tmp = TempDir::new("worktree-shape");
+        let root = tmp.path().join("repo");
+        let good = Worktree {
+            path: tmp
+                .path()
+                .join(DIR_NAME)
+                .join(repo_dir_name(&root))
+                .join("fix-1a2b3c"),
+            branch: "hangar/fix-1a2b3c".into(),
+            repo_root: root.clone(),
+        };
+        check_shape(&good).unwrap();
+        let mut cases = Vec::new();
+        let mut w = good.clone();
+        w.branch = "hangar/other-1a2b3c".into();
+        cases.push(w);
+        let mut w = good.clone();
+        w.branch = "main".into();
+        cases.push(w);
+        let mut w = good.clone();
+        w.repo_root = tmp.path().join("victim");
+        cases.push(w);
+        let mut w = good.clone();
+        w.repo_root = PathBuf::from("repo");
+        cases.push(w);
+        let mut w = good.clone();
+        w.path = PathBuf::from(repo_dir_name(&root)).join("fix-1a2b3c");
+        cases.push(w);
+        let mut w = good;
+        w.path = PathBuf::from("fix-1a2b3c");
+        cases.push(w);
+        for w in cases {
+            assert!(check_shape(&w).is_err(), "{w:?}");
+        }
+    }
+
+    #[test]
+    fn reasons_for_ignored_files() {
+        assert_eq!(ignored_reason(&[]), None);
+        let names = |n: usize| (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>();
+        assert_eq!(
+            ignored_reason(&names(2)).as_deref(),
+            Some("The worktree contains ignored files: f0, f1")
+        );
+        assert_eq!(
+            ignored_reason(&names(5)).as_deref(),
+            Some("The worktree contains ignored files: f0, f1, f2 and 2 more")
+        );
     }
 
     #[cfg(unix)]
@@ -345,9 +519,11 @@ mod tests {
         let outside = tmp.path().join("outside");
         fs::create_dir_all(outside.join("victim")).unwrap();
         fs::create_dir_all(&base).unwrap();
-        std::os::unix::fs::symlink(&outside, base.join("repo-0123abcd")).unwrap();
+        let root = tmp.path().join("repo");
+        let dir = repo_dir_name(&root);
+        std::os::unix::fs::symlink(&outside, base.join(&dir)).unwrap();
         assert!(matches!(
-            check_managed(&base, &base.join("repo-0123abcd").join("victim")),
+            check_managed(&base, &base.join(&dir).join("victim"), &root),
             Err(WorktreeError::OutsideFolder)
         ));
     }
@@ -360,6 +536,7 @@ mod tests {
         let repo = tmp.path().join("my repo");
         init_repo(&git, &repo);
         fs::write(repo.join("readme.txt"), "hello\n").unwrap();
+        fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
         git_ok(&git, &repo, &["add", "-A"]);
         git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
         fs::create_dir_all(repo.join("sub")).unwrap();
@@ -369,7 +546,8 @@ mod tests {
         assert!(worktree.branch.starts_with("hangar/fix-the-bug-"));
         assert!(worktree.path.join("readme.txt").is_file());
         assert!(worktree.path.starts_with(&base));
-        check_managed(&base, &worktree.path).unwrap();
+        check_managed(&base, &worktree.path, &worktree.repo_root).unwrap();
+        check_shape(&worktree).unwrap();
         assert_eq!(
             crate::git::branch_of(&worktree.path, None).as_deref(),
             Some(worktree.branch.as_str())
@@ -400,6 +578,44 @@ mod tests {
         assert!(removal.removed);
         assert!(!removal.branch_deleted);
         assert!(removal.reason.is_some());
+        assert!(!dirty.path.exists());
+
+        // Ignored files would be deleted by `worktree remove` even without --force: it stays.
+        let ignored = create(&git, &base, &repo, "ignored").unwrap();
+        fs::write(ignored.path.join("debug.log"), "local only\n").unwrap();
+        let removal = remove(&git, &base, &ignored).unwrap();
+        assert!(!removal.removed);
+        assert!(removal.reason.as_deref().unwrap().contains("debug.log"));
+        assert!(ignored.path.join("debug.log").is_file());
+        fs::remove_file(ignored.path.join("debug.log")).unwrap();
+
+        // No hook of the repository runs while Hangar removes the worktree and its branch.
+        let marker = tmp.path().join("hook-ran");
+        let hook = repo
+            .join(".git")
+            .join("hooks")
+            .join("reference-transaction");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        let marker_text = marker.to_string_lossy().replace('\\', "/");
+        fs::write(&hook, format!("#!/bin/sh\ntouch '{marker_text}'\n")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git_ok(&git, &repo, &["branch", "hook-probe"]);
+        assert!(marker.exists(), "git did not run the hook; test is void");
+        fs::remove_file(&marker).unwrap();
+        let removal = remove(&git, &base, &ignored).unwrap();
+        assert_eq!(
+            removal,
+            Removal {
+                removed: true,
+                branch_deleted: true,
+                reason: None
+            }
+        );
+        assert!(!marker.exists(), "a repository hook ran during removal");
 
         // Foreign paths and branches are refused before git runs.
         let mut foreign = worktree.clone();

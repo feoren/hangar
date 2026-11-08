@@ -4,6 +4,7 @@ pub mod agent_catalog;
 pub mod batch;
 mod commands;
 pub mod desktop;
+pub mod export;
 pub mod filecache;
 pub mod git;
 pub mod icon;
@@ -14,13 +15,17 @@ pub mod output;
 pub mod persist;
 pub mod proctree;
 pub mod profile;
+pub mod profile_edit;
 pub mod resolve;
+pub mod secrets;
 pub mod session;
 #[cfg(test)]
 mod test_support;
+pub mod tray;
 pub mod updates;
 pub mod version;
 pub mod worktree;
+pub mod wsl;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -63,7 +68,17 @@ pub fn run() -> tauri::Result<()> {
                 error: Mutex::new(error),
                 dir: config_dir,
                 path: profile_path,
+                edit: Mutex::new(()),
             });
+            // WSL detection takes a few hundred milliseconds; started now, it is usually done
+            // before the window asks for the list (which otherwise detects itself).
+            let handle = app.handle().clone();
+            let detection = std::thread::Builder::new()
+                .name("wsl-detect".to_owned())
+                .spawn(move || handle.state::<SessionManager>().ensure_wsl());
+            if let Err(error) = detection {
+                eprintln!("hangar: WSL detection not started: {error}");
+            }
             app.manage(ProbeCaches::default());
             app.manage(notify::Notifier::default());
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
@@ -114,6 +129,14 @@ pub fn run() -> tauri::Result<()> {
             commands::git_diff,
             commands::create_worktree,
             commands::remove_worktree,
+            commands::save_profile,
+            commands::delete_profile,
+            commands::profile_env,
+            commands::set_profile_secret,
+            commands::delete_profile_secret,
+            commands::profile_secrets,
+            commands::export_session,
+            commands::configure_tray,
         ])
         .build(tauri::generate_context!())?;
 

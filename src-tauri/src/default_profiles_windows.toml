@@ -18,6 +18,9 @@
 #   update_hint   optional: { windows = "...", unix = "..." }, the update command; Hangar
 #                 runs it on click without a shell, so no shell syntax such as | & ; > $ "
 #   [profile.env]  optional environment variables. Do NOT put secrets here.
+#   secret_env    optional: names of variables whose values Hangar keeps in the keychain of the
+#                 operating system, e.g. ["ANTHROPIC_API_KEY"]; enter the values in Hangar's
+#                 Settings, where the profile is edited
 #
 # To start a catalog agent differently, create a profile with the same id. It replaces the
 # catalog entry (name, icon, command, arguments) and takes its place in the order of this

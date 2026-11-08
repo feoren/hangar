@@ -30,6 +30,10 @@ pub struct Profile {
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// Names of variables whose values live in the OS keychain ([`crate::secrets`]) and are set
+    /// when a session starts. Never values. Same style as `version_args`, hence snake_case.
+    #[serde(default, rename = "secret_env")]
+    pub secret_env: Vec<String>,
     #[serde(default)]
     pub icon: Option<String>,
     /// Arguments for the version query (ADR 0003). If the field is missing, the default from
@@ -124,8 +128,39 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
                 problem,
             });
         }
+        if let Err(problem) = check_environment(profile) {
+            return Err(ProfileError::Invalid {
+                profile: label.clone(),
+                problem,
+            });
+        }
     }
     Ok(file.profiles)
+}
+
+/// `env` names a process can carry, and `secret_env` names that are valid variables, appear
+/// once and do not also have a plain value in `env`.
+fn check_environment(profile: &Profile) -> Result<(), &'static str> {
+    if profile
+        .env
+        .keys()
+        .any(|key| key.is_empty() || key.contains(['=', '\0']))
+    {
+        return Err("env names must not be empty or contain '=' or NUL");
+    }
+    let mut seen = HashSet::new();
+    for name in &profile.secret_env {
+        if !crate::secrets::is_valid_name(name) {
+            return Err("secret_env names may only contain letters, digits and _");
+        }
+        if !seen.insert(name.to_ascii_uppercase()) {
+            return Err("a secret_env name appears more than once");
+        }
+        if profile.env.keys().any(|key| key.eq_ignore_ascii_case(name)) {
+            return Err("a variable is listed in both env and secret_env");
+        }
+    }
+    Ok(())
 }
 
 /// Path of `profiles.toml` in `dir`. If it is missing, it is created from the commented template
@@ -333,20 +368,13 @@ mod tests {
         assert!(matches!(parse(""), Err(ProfileError::NoProfiles)));
     }
 
-    struct TempDir(PathBuf);
+    /// Not created yet, so tests can check that the file appears.
+    struct TempDir(PathBuf, #[allow(dead_code)] crate::test_support::TempDir);
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("hangar-profile-{name}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            Self(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            let outer = crate::test_support::TempDir::new(&format!("profile-{name}"));
+            Self(outer.path().join("config"), outer)
         }
     }
 
@@ -432,8 +460,8 @@ mod tests {
 
     #[test]
     fn load_or_init_creates_file() {
-        let dir = std::env::temp_dir().join(format!("hangar-profile-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = TempDir::new("init");
+        let dir = tmp.0.clone();
         let profiles = load_or_init(&dir).unwrap();
         assert!(!profiles.is_empty());
         assert!(dir.join(FILE_NAME).is_file());
@@ -444,6 +472,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load_or_init(&dir).unwrap()[0].id, "z");
-        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn secret_env_names_are_checked() {
+        let base = "[[profile]]\nid='a'\nname='A'\ncommand='a'\n";
+        let p = &parse(&format!("{base}secret_env=['ANTHROPIC_API_KEY','X_1']\n")).unwrap()[0];
+        assert_eq!(p.secret_env, ["ANTHROPIC_API_KEY", "X_1"]);
+        for bad in [
+            "secret_env=['A B']\n",
+            "secret_env=['1A']\n",
+            "secret_env=['A','a']\n",
+            "secret_env=['TOKEN']\nenv={ TOKEN='x' }\n",
+            "env={ 'A=B'='x' }\n",
+            "env={ ''='x' }\n",
+        ] {
+            assert!(
+                matches!(
+                    parse(&format!("{base}{bad}")),
+                    Err(ProfileError::Invalid { .. })
+                ),
+                "{bad}"
+            );
+        }
+        // camelCase is a typo here as elsewhere in the file.
+        assert!(matches!(
+            parse(&format!("{base}secretEnv=['A']\n")),
+            Err(ProfileError::Parse(_))
+        ));
     }
 }

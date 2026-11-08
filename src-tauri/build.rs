@@ -40,6 +40,14 @@ const COMMANDS: &[&str] = &[
     "git_diff",
     "create_worktree",
     "remove_worktree",
+    "save_profile",
+    "delete_profile",
+    "profile_env",
+    "set_profile_secret",
+    "delete_profile_secret",
+    "profile_secrets",
+    "export_session",
+    "configure_tray",
 ];
 
 fn main() {

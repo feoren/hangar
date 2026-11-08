@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -29,7 +29,7 @@ pub const MAX_BRANCH_PATHS: usize = 64;
 /// HEAD holds one line; anything larger is not a HEAD file.
 const MAX_HEAD_BYTES: usize = 4096;
 /// Status and numstat lists. Beyond this the file list is cut and `truncated` set.
-const MAX_LIST_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_LIST_BYTES: usize = 4 * 1024 * 1024;
 /// Only the first part of an error message is kept; the rest is read and dropped.
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_MESSAGE_CHARS: usize = 500;
@@ -37,19 +37,15 @@ const MAX_MESSAGE_CHARS: usize = 500;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Variables that would point git at another repository than the folder it runs in. Hangar
-/// itself may inherit them when it is started from a git hook or an IDE task.
-const REPOSITORY_OVERRIDES: &[&str] = &[
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_COMMON_DIR",
-    "GIT_NAMESPACE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_EXTERNAL_DIFF",
-];
+/// Inherited variables that git reads all start with this prefix (`GIT_DIR`, `GIT_WORK_TREE`,
+/// `GIT_CONFIG_PARAMETERS`, `GIT_EXTERNAL_DIFF`, `GIT_SSH_COMMAND`, ...). Hangar itself may inherit
+/// them when it is started from a git hook or an IDE task; every one of them is removed from git's
+/// environment before Hangar sets its own.
+const GIT_ENV_PREFIX: &str = "GIT_";
+
+/// Upper limit of filter drivers that are switched off; a repository with more is refused rather
+/// than diffed with some filters still active.
+const MAX_FILTER_DRIVERS: usize = 64;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
@@ -68,6 +64,10 @@ pub enum GitError {
     TooManyPaths,
     #[error("Background task aborted: {0}")]
     Task(String),
+    #[error("git cannot be watched: {0}")]
+    Watch(#[source] io::Error),
+    #[error("The repository configures filters Hangar cannot switch off safely")]
+    UnsafeFilters,
 }
 
 impl Serialize for GitError {
@@ -113,7 +113,8 @@ fn find_git_dir(start: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
                 let content = read_limited(&dot_git, MAX_HEAD_BYTES).ok()??;
                 let target = parse_gitdir_file(&String::from_utf8_lossy(&content))?;
                 // A relative gitdir is relative to the folder holding the `.git` file.
-                return Some(dir.join(target));
+                let git_dir = dir.join(target);
+                return gitdir_allowed(start, &git_dir).then_some(git_dir);
             }
             _ => {}
         }
@@ -122,6 +123,38 @@ fn find_git_dir(start: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Whether the sidebar may read `git_dir` for a folder below `start`. A `.git` file in a local
+/// folder must not lead to a network share or a device: the sidebar reads HEAD every 15 seconds,
+/// and on Windows each access to `\\host\share` sends the user's NTLM credentials to that host.
+/// The same prefix as the start folder stays allowed (a repository that lives on a share anyway).
+pub fn gitdir_allowed(start: &Path, git_dir: &Path) -> bool {
+    match (remote_prefix(start), remote_prefix(git_dir)) {
+        (_, None) => true,
+        (Some(start), Some(target)) => start.eq_ignore_ascii_case(&target),
+        (None, Some(_)) => false,
+    }
+}
+
+/// The prefix of a path that does not name a local drive (UNC share, `\\?\UNC\`, `\\.\` device,
+/// other `\\?\` namespaces), as text for comparison; `None` for local paths. Unix paths have no
+/// prefix.
+fn remote_prefix(path: &Path) -> Option<String> {
+    use std::path::Prefix;
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(_) | Prefix::VerbatimDisk(_) => None,
+            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => Some(format!(
+                "unc:{}\\{}",
+                server.to_string_lossy(),
+                share.to_string_lossy()
+            )),
+            Prefix::DeviceNS(name) => Some(format!("device:{}", name.to_string_lossy())),
+            Prefix::Verbatim(name) => Some(format!("verbatim:{}", name.to_string_lossy())),
+        },
+        _ => None,
+    }
 }
 
 /// Target of a `.git` file: `gitdir: <path>`.
@@ -155,6 +188,8 @@ pub fn parse_head(content: &str) -> Option<String> {
 #[derive(Debug)]
 pub struct Output {
     pub success: bool,
+    /// Exit code; `None` when git was stopped at the output limit or ended by a signal.
+    pub code: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
     pub truncated: bool,
@@ -227,14 +262,17 @@ impl Git {
             .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, _) in std::env::vars_os() {
+            if is_git_variable(&key) {
+                command.env_remove(&key);
+            }
+        }
+        command
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_PAGER", "cat")
             .env("PAGER", "cat");
-        for key in REPOSITORY_OVERRIDES {
-            command.env_remove(key);
-        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -254,7 +292,16 @@ impl Git {
                 GitError::Spawn(error)
             }
         })?;
-        let tree = ProcTree::attach(child.id()).ok();
+        // Without the tree a timeout could only kill git itself, not a helper it started; such a
+        // call is not started at all.
+        let tree = match ProcTree::attach(child.id()) {
+            Ok(tree) => tree,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(GitError::Watch(error));
+            }
+        };
 
         let (tx, rx) = mpsc::channel();
         let mut pending = 0;
@@ -276,7 +323,7 @@ impl Git {
                         data.truncate(limit);
                         truncated = true;
                         // Nobody reads the rest; git would block on a full pipe.
-                        terminate(tree.as_ref(), &mut child);
+                        terminate(&tree, &mut child);
                     }
                     if let Some(slot) = outputs.get_mut(index) {
                         *slot = data;
@@ -298,7 +345,7 @@ impl Git {
             timed_out = true;
         }
         // Always reap; after a regular exit this returns at once.
-        terminate(tree.as_ref(), &mut child);
+        terminate(&tree, &mut child);
         if timed_out {
             return Err(GitError::Timeout);
         }
@@ -306,11 +353,19 @@ impl Git {
         let [stdout, stderr] = outputs;
         Ok(Output {
             success: status.is_some_and(|status| status.success()),
+            code: status.and_then(|status| status.code()),
             stdout,
             stderr,
             truncated,
         })
     }
+}
+
+/// `GIT_*` in any case (Windows variable names ignore case).
+pub fn is_git_variable(name: &OsStr) -> bool {
+    name.as_encoded_bytes()
+        .get(..GIT_ENV_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(GIT_ENV_PREFIX.as_bytes()))
 }
 
 /// Reads a stream on a thread of its own; both streams must be read at the same time, or a
@@ -350,14 +405,12 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
     }
 }
 
-fn terminate(tree: Option<&ProcTree>, child: &mut Child) {
+fn terminate(tree: &ProcTree, child: &mut Child) {
     if let Ok(Some(_)) = child.try_wait() {
         return;
     }
-    if let Some(tree) = tree {
-        // Failure usually means everything has already ended.
-        let _ = tree.terminate();
-    }
+    // Failure usually means everything has already ended.
+    let _ = tree.terminate();
     let _ = child.kill();
     // Reap it so no zombie remains on Unix. After kill, wait returns immediately.
     let _ = child.wait();
@@ -427,7 +480,75 @@ impl GitDiff {
     }
 }
 
-const DIFF_ARGS: &[&str] = &["diff", "--no-color", "--no-ext-diff", "--no-textconv"];
+const DIFF_ARGS: &[&str] = &[
+    "diff",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--ignore-submodules=all",
+];
+
+/// Filters git must not run for Hangar. `status` and `diff` run a repository's clean filter on
+/// files whose stat data changed, and a filter is any program the repository's config names
+/// (a cloned repository with a planted `.git/config`, or a `[include]` from it). Reading the
+/// config runs nothing.
+const FILTER_KEYS: &str = r"^filter\..*\.(clean|smudge|process)$";
+
+/// `-c` arguments that switch off every clean, smudge and process filter configured for the
+/// repository at `root`: git skips a filter whose command is empty, and `required=false` keeps
+/// it from failing the call instead. Must come before the subcommand.
+pub fn filter_overrides(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+) -> Result<Vec<String>, GitError> {
+    let output = git.run(
+        root,
+        ["config", "-z", "--get-regexp", FILTER_KEYS],
+        deadline,
+        MAX_LIST_BYTES,
+    )?;
+    if output.truncated {
+        return Err(GitError::UnsafeFilters);
+    }
+    if !output.success {
+        // 1: no such key, which is the normal case.
+        return match output.code {
+            Some(1) => Ok(Vec::new()),
+            _ => Err(output.failure()),
+        };
+    }
+    let drivers = filter_drivers(&output.stdout).ok_or(GitError::UnsafeFilters)?;
+    if drivers.len() > MAX_FILTER_DRIVERS {
+        return Err(GitError::UnsafeFilters);
+    }
+    Ok(drivers
+        .iter()
+        .flat_map(|name| {
+            ["clean=", "smudge=", "process=", "required=false"]
+                .into_iter()
+                .flat_map(move |setting| ["-c".to_owned(), format!("filter.{name}.{setting}")])
+        })
+        .collect())
+}
+
+/// Driver names from `git config -z --get-regexp`: records `filter.<name>.<key>\n<value>\0`; a
+/// name may itself contain dots. `None` when a name could not be passed back through `-c`, which
+/// splits at the first `=`.
+pub fn filter_drivers(output: &[u8]) -> Option<std::collections::BTreeSet<String>> {
+    let mut names = std::collections::BTreeSet::new();
+    for record in output.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        let key = record.split(|b| *b == b'\n').next().unwrap_or_default();
+        let key = std::str::from_utf8(key).ok()?;
+        let rest = key.strip_prefix("filter.")?;
+        let (name, _variable) = rest.rsplit_once('.')?;
+        if name.is_empty() || name.contains(['=', '\n', '\0']) {
+            return None;
+        }
+        names.insert(name.to_owned());
+    }
+    Some(names)
+}
 
 /// Changes of the work tree against HEAD: file list with +/- and the unified diff.
 pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
@@ -436,6 +557,7 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
     let Some(root) = toplevel(git, cwd, deadline)? else {
         return Ok(GitDiff::not_a_repo());
     };
+    let neutral = filter_overrides(git, &root, deadline)?;
     let has_head = git
         .run(
             &root,
@@ -447,7 +569,13 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
 
     let status = git.run(
         &root,
-        ["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+        neutral.iter().map(String::as_str).chain([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+            "--ignore-submodules=all",
+        ]),
         deadline,
         MAX_LIST_BYTES,
     )?;
@@ -469,7 +597,12 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
     for target in targets {
         let numstat = git.run(
             &root,
-            DIFF_ARGS.iter().chain(&["--numstat", "-z"]).chain(*target),
+            neutral
+                .iter()
+                .map(String::as_str)
+                .chain(DIFF_ARGS.iter().copied())
+                .chain(["--numstat", "-z"])
+                .chain(target.iter().copied()),
             deadline,
             MAX_LIST_BYTES,
         )?;
@@ -484,7 +617,16 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
         }
 
         let room = MAX_DIFF_BYTES.saturating_sub(text.len());
-        let patch = git.run(&root, DIFF_ARGS.iter().chain(*target), deadline, room)?;
+        let patch = git.run(
+            &root,
+            neutral
+                .iter()
+                .map(String::as_str)
+                .chain(DIFF_ARGS.iter().copied())
+                .chain(target.iter().copied()),
+            deadline,
+            room,
+        )?;
         if !patch.usable() {
             return Err(patch.failure());
         }
@@ -761,6 +903,7 @@ pub(crate) mod tests {
         assert!(output.usable());
         let failed = Output {
             success: false,
+            code: Some(128),
             stdout: Vec::new(),
             stderr: b"fatal: x".to_vec(),
             truncated: false,
@@ -799,6 +942,125 @@ pub(crate) mod tests {
     pub(crate) fn init_repo(git: &Git, dir: &Path) {
         fs::create_dir_all(dir).unwrap();
         git_ok(git, dir, &["init", "--quiet", "--initial-branch=main"]);
+    }
+
+    #[test]
+    fn inherited_git_variables_are_recognized() {
+        for name in [
+            "GIT_DIR",
+            "git_dir",
+            "Git_Config_Parameters",
+            "GIT_SSH_COMMAND",
+            "GIT_",
+        ] {
+            assert!(is_git_variable(OsStr::new(name)), "{name}");
+        }
+        for name in ["PATH", "GITHUB_TOKEN", "GI", "", "MY_GIT_DIR"] {
+            assert!(!is_git_variable(OsStr::new(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn filter_driver_names() {
+        let output =
+            b"filter.lfs.clean\ngit-lfs clean -- %f\0filter.lfs.process\ngit-lfs filter-process\0\
+              filter.with.dots.smudge\nx\0filter.bare.clean\0";
+        let names: Vec<String> = filter_drivers(output).unwrap().into_iter().collect();
+        assert_eq!(names, ["bare", "lfs", "with.dots"]);
+        assert!(filter_drivers(b"").unwrap().is_empty());
+        // A name `-c` would split wrongly, and records that are no filter keys.
+        assert_eq!(filter_drivers(b"filter.a=b.clean\nx\0"), None);
+        assert_eq!(filter_drivers(b"filter..clean\nx\0"), None);
+        assert_eq!(filter_drivers(b"core.editor\nx\0"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn gitdir_files_do_not_lead_to_network_shares() {
+        let local = Path::new(r"C:\Users\x\repo");
+        for allowed in [
+            r"C:\Users\x\main\.git\worktrees\a",
+            r"D:\elsewhere\.git",
+            r"\\?\C:\long\path\.git",
+        ] {
+            assert!(gitdir_allowed(local, Path::new(allowed)), "{allowed}");
+        }
+        for refused in [
+            r"\\attacker.example\share\.git",
+            r"//attacker.example/share/.git",
+            r"\\?\UNC\attacker.example\share\.git",
+            r"\\.\pipe\x",
+            r"\\?\GLOBALROOT\Device\Mup\host\share",
+        ] {
+            assert!(!gitdir_allowed(local, Path::new(refused)), "{refused}");
+        }
+        // A repository on a share may point into the same share, not into another one.
+        let share = Path::new(r"\\server\share\repo");
+        assert!(gitdir_allowed(
+            share,
+            Path::new(r"\\SERVER\share\main\.git")
+        ));
+        assert!(gitdir_allowed(
+            share,
+            Path::new(r"\\?\UNC\server\share\.git")
+        ));
+        assert!(gitdir_allowed(share, Path::new(r"C:\local\.git")));
+        assert!(!gitdir_allowed(share, Path::new(r"\\other\share\.git")));
+
+        // The sidebar never follows such a file: no HEAD is read from the share.
+        let tmp = TempDir::new("git-unc");
+        let repo = tmp.path().join("cloned");
+        write(&repo.join(".git"), "gitdir: \\\\192.0.2.1\\share\\.git\n");
+        assert_eq!(branch_of(&repo, Some(tmp.path())), None);
+    }
+
+    /// git config value that runs `touch <marker>` before passing the content through. git runs
+    /// filter commands through its shell (Git for Windows brings its own `sh`).
+    fn marker_filter(marker: &Path) -> String {
+        let marker = marker.to_string_lossy().replace('\\', "/");
+        format!("touch '{marker}' && cat")
+    }
+
+    #[test]
+    fn repository_filters_never_run() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-filter");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        write(
+            &repo.join(".gitattributes"),
+            "*.txt filter=marker\n*.md filter=with.dot\n",
+        );
+        write(&repo.join("a.txt"), "one\n");
+        write(&repo.join("b.md"), "one\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+
+        let marker = tmp.path().join("marker");
+        let filter = marker_filter(&marker);
+        for key in [
+            "filter.marker.clean",
+            "filter.marker.smudge",
+            "filter.with.dot.clean",
+        ] {
+            git_ok(&git, &repo, &["config", key, &filter]);
+        }
+        git_ok(&git, &repo, &["config", "filter.marker.required", "true"]);
+        write(&repo.join("a.txt"), "one\ntwo\n");
+        write(&repo.join("b.md"), "one\ntwo\n");
+
+        // The test is only meaningful if plain git would run the filter here.
+        git_ok(&git, &repo, &["diff", "HEAD", "--stat"]);
+        assert!(marker.exists(), "git did not run the filter; test is void");
+        fs::remove_file(&marker).unwrap();
+
+        let result = diff(&git, &repo).unwrap();
+        assert!(!marker.exists(), "a repository filter ran during git_diff");
+        assert_eq!(result.files.len(), 2);
+        assert!(result.diff.contains("+two"));
+        let overrides = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(overrides.contains(&"filter.with.dot.clean=".to_owned()));
+        assert!(overrides.contains(&"filter.marker.required=false".to_owned()));
     }
 
     #[test]

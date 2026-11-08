@@ -132,6 +132,9 @@ pub struct Agent {
     pub candidates: Vec<String>,
     pub homepage: Option<String>,
     pub install_hint: Option<String>,
+    /// Option that hands the working folder to the program as an argument, followed by the
+    /// folder (`wsl.exe --cd <folder>`); `None` for programs that simply start in it.
+    pub cwd_flag: Option<&'static str>,
 }
 
 impl Agent {
@@ -150,6 +153,7 @@ impl Agent {
             source: Source::User,
             homepage: None,
             install_hint: None,
+            cwd_flag: None,
         }
     }
 
@@ -169,6 +173,7 @@ impl Agent {
                 args: agent.args,
                 cwd: None,
                 env: Default::default(),
+                secret_env: Vec::new(),
                 icon: agent.icon,
                 version_args: agent.version_args,
                 resume_args: agent.resume_args,
@@ -179,6 +184,7 @@ impl Agent {
             candidates: agent.commands,
             homepage: agent.homepage,
             install_hint,
+            cwd_flag: None,
         }
     }
 
@@ -198,7 +204,8 @@ impl Agent {
         self.candidates.join(" | ")
     }
 
-    /// What the frontend sees. `env` is left out on purpose because it may contain secrets.
+    /// What the frontend sees. Of `env` only the names: values may contain secrets, the edit
+    /// form fetches them separately (`profile_env`). Of `secret_env` only the names, as in the file.
     pub fn view(&self, path: Option<&OsStr>, pathext: Option<&OsStr>) -> ProfileView {
         let resolved = self.resolve(path, pathext);
         ProfileView {
@@ -216,6 +223,9 @@ impl Agent {
             installed: resolved.is_some(),
             homepage: self.homepage.clone(),
             install_hint: self.install_hint.clone(),
+            editable: self.source == Source::User,
+            env: self.profile.env.keys().cloned().collect(),
+            secret_env: self.profile.secret_env.clone(),
         }
     }
 }
@@ -245,9 +255,17 @@ pub struct ProfileView {
     pub installed: bool,
     pub homepage: Option<String>,
     pub install_hint: Option<String>,
+    /// A profile from profiles.toml, which Settings can change and delete. Catalog entries and
+    /// WSL distributions are not; saving one under its id creates a user profile that replaces it.
+    pub editable: bool,
+    /// Names of the plain environment variables, never their values.
+    pub env: Vec<String>,
+    /// Names of the variables whose values are kept in the OS keychain.
+    pub secret_env: Vec<String>,
 }
 
-/// User profiles in file order, followed by the catalog agents without a user profile of the same name.
+/// User profiles in file order, followed by the catalog agents and then the detected WSL
+/// distributions ([`crate::wsl`]), each without a user profile of the same id.
 ///
 /// A user profile with a catalog ID determines name, command, arguments and position. Homepage and
 /// install command still come from the catalog: existing users whose profiles.toml still holds the
@@ -257,6 +275,20 @@ pub struct ProfileView {
 /// and starts the same program (`command` is one of the catalog commands). The options
 /// belong to the program; a profile with its own wrapper would otherwise get foreign arguments.
 pub fn merge(user: Vec<Profile>, catalog: Vec<CatalogAgent>) -> Vec<Agent> {
+    merge_all(user, catalog, Vec::new())
+}
+
+/// [`merge`] plus terminals found on this machine (WSL), which behave like catalog entries.
+pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agent>) -> Vec<Agent> {
+    let taken: HashSet<String> = user
+        .iter()
+        .map(|p| p.id.clone())
+        .chain(catalog.iter().map(|a| a.id.clone()))
+        .collect();
+    let found: Vec<Agent> = found
+        .into_iter()
+        .filter(|agent| !taken.contains(agent.id()))
+        .collect();
     let taken: HashSet<String> = user.iter().map(|p| p.id.clone()).collect();
     let metadata: std::collections::HashMap<String, Agent> = catalog
         .iter()
@@ -298,6 +330,7 @@ pub fn merge(user: Vec<Profile>, catalog: Vec<CatalogAgent>) -> Vec<Agent> {
                 .filter(|a| !taken.contains(&a.id))
                 .map(Agent::from_catalog),
         )
+        .chain(found)
         .collect()
 }
 
@@ -315,6 +348,7 @@ mod tests {
             args: vec!["--own".into()],
             cwd: None,
             env: [("TOKEN".to_owned(), "secret".to_owned())].into(),
+            secret_env: Vec::new(),
             icon: None,
             version_args: None,
             resume_args: None,
@@ -626,6 +660,32 @@ mod tests {
     }
 
     #[test]
+    fn found_terminals_come_last_and_yield_to_profiles() {
+        let found = vec![
+            crate::wsl::agent("Ubuntu"),
+            crate::wsl::agent("Debian"),
+            crate::wsl::agent("claude"),
+        ];
+        let merged = merge_all(
+            vec![user("pwsh", "pwsh"), user("wsl-debian", "my-debian")],
+            vec![
+                catalog("claude", &["claude"]),
+                catalog("wsl-claude", &["x"]),
+            ],
+            found,
+        );
+        let ids: Vec<&str> = merged.iter().map(Agent::id).collect();
+        assert_eq!(
+            ids,
+            ["pwsh", "wsl-debian", "claude", "wsl-claude", "wsl-ubuntu"]
+        );
+        // The user's own profile under a WSL id wins and is editable.
+        assert_eq!(merged[1].profile.command, "my-debian");
+        assert!(merged[1].view(None, None).editable);
+        assert_eq!(merged[4].cwd_flag, Some("--cd"));
+    }
+
+    #[test]
     fn user_profile_overrides_catalog_keeps_hints() {
         let merged = merge(
             vec![user("codex", "my-codex")],
@@ -723,8 +783,11 @@ mod tests {
             Agent::from_user(user("u", "missing")).view(Some(&dir.path()), None),
         )
         .unwrap();
-        assert!(json.get("env").is_none());
-        assert!(!json.to_string().contains("secret"));
+        // Names only: the value "secret" never appears.
+        assert_eq!(json["env"], serde_json::json!(["TOKEN"]));
+        assert!(!json.to_string().contains("secret\""));
+        assert_eq!(json["editable"], true);
+        assert_eq!(json["secretEnv"], serde_json::json!([]));
         assert_eq!(json["source"], "user");
         assert_eq!(json["installed"], false);
         assert!(json["homepage"].is_null());
@@ -733,6 +796,7 @@ mod tests {
         let json = serde_json::to_value(Agent::from_catalog(catalog("c", &["c"])).view(None, None))
             .unwrap();
         assert_eq!(json["source"], "catalog");
+        assert_eq!(json["editable"], false);
         assert_eq!(json["homepage"], "https://example.org/c");
         assert!(json["installHint"].is_string());
     }

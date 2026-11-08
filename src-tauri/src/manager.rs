@@ -22,14 +22,16 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::agent_catalog::{merge, Agent, CatalogAgent, ProfileView};
+use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source};
 use crate::batch;
 use crate::lock;
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::ProcTree;
 use crate::profile::Profile;
+use crate::secrets::{self, KeyringStore, SecretStore};
 use crate::session::{SessionId, SessionInfo, SessionKind, Status, TransitionError};
 use crate::updates::{self, CommandError};
+use crate::wsl;
 
 /// Batching window per the architecture: 8 to 16 ms.
 const BATCH_DELAY: Duration = Duration::from_millis(12);
@@ -156,6 +158,10 @@ pub enum ManagerError {
     },
     #[error("PTY error: {0}")]
     Pty(String),
+    #[error(
+        "The process tree of the session cannot be watched, so the program was not started: {0}"
+    )]
+    Watch(#[source] io::Error),
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
@@ -216,9 +222,10 @@ struct Entry {
     kill_requested: bool,
 }
 
-#[derive(Default)]
 struct Shared {
     sessions: Mutex<HashMap<SessionId, Entry>>,
+    /// Values of the profiles' `secret_env`, read at every start (also restart and fallback).
+    secrets: Arc<dyn SecretStore>,
 }
 
 impl Shared {
@@ -346,10 +353,21 @@ fn update_running(
     })
 }
 
+/// Inputs of the entry list and the merged result.
+struct Entries {
+    user: Vec<Profile>,
+    /// WSL distributions; `None` until detected once ([`SessionManager::refresh_wsl`]).
+    wsl: Option<Vec<Agent>>,
+    merged: Arc<Vec<Agent>>,
+}
+
 pub struct SessionManager {
     /// Current state for new starts. Running sessions keep their own `Agent` in their
     /// entry; reloading the profiles ([`Self::set_profiles`]) therefore does not touch them.
-    agents: Mutex<Arc<Vec<Agent>>>,
+    entries: Mutex<Entries>,
+    /// Held while [`Self::ensure_wsl`] detects, so a second caller waits for that result
+    /// instead of starting wsl.exe again. Never taken under `entries`.
+    wsl_detection: Mutex<()>,
     catalog: Vec<CatalogAgent>,
     home: PathBuf,
     next_id: AtomicU64,
@@ -358,14 +376,38 @@ pub struct SessionManager {
 
 impl SessionManager {
     /// `profiles` from the user file take precedence; catalog agents with the same `id` are dropped.
+    /// Secrets come from the OS keychain ([`KeyringStore`]); see [`Self::with_secret_store`].
     pub fn new(profiles: Vec<Profile>, catalog: Vec<CatalogAgent>, home: PathBuf) -> Self {
+        let merged = Arc::new(merge_all(profiles.clone(), catalog.clone(), Vec::new()));
         Self {
-            agents: Mutex::new(Arc::new(merge(profiles, catalog.clone()))),
+            entries: Mutex::new(Entries {
+                user: profiles,
+                wsl: None,
+                merged,
+            }),
+            wsl_detection: Mutex::new(()),
             catalog,
             home,
             next_id: AtomicU64::new(1),
-            shared: Arc::default(),
+            shared: Arc::new(Shared {
+                sessions: Mutex::default(),
+                secrets: Arc::new(KeyringStore::default()),
+            }),
         }
+    }
+
+    /// Another place for secret values, for tests. Only before the first session starts.
+    #[must_use]
+    pub fn with_secret_store(mut self, store: Arc<dyn SecretStore>) -> Self {
+        self.shared = Arc::new(Shared {
+            sessions: Mutex::default(),
+            secrets: store,
+        });
+        self
+    }
+
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        Arc::clone(&self.shared.secrets)
     }
 
     /// All startable entries including detection. The PATH search runs on every call so that
@@ -396,13 +438,60 @@ impl SessionManager {
     /// Replaces the user profiles (freshly read profiles.toml) and merges in the catalog as at
     /// startup. Affects new starts only.
     pub fn set_profiles(&self, profiles: Vec<Profile>) {
-        let agents = Arc::new(merge(profiles, self.catalog.clone()));
-        *lock(&self.agents) = agents;
+        let mut entries = lock(&self.entries);
+        entries.user = profiles;
+        self.remerge(&mut entries);
+    }
+
+    /// Replaces the detected WSL distributions ([`wsl::detect`]).
+    pub fn set_wsl(&self, distributions: Vec<Agent>) {
+        let mut entries = lock(&self.entries);
+        entries.wsl = Some(distributions);
+        self.remerge(&mut entries);
+    }
+
+    /// Detects the WSL distributions again (a few hundred milliseconds, up to the time limit);
+    /// not under the lock.
+    pub fn refresh_wsl(&self) {
+        self.set_wsl(wsl::detect());
+    }
+
+    /// Detects once if that has not happened yet; a caller that comes while a detection runs
+    /// waits for it.
+    pub fn ensure_wsl(&self) {
+        let _detecting = lock(&self.wsl_detection);
+        if lock(&self.entries).wsl.is_none() {
+            self.refresh_wsl();
+        }
+    }
+
+    fn remerge(&self, entries: &mut Entries) {
+        entries.merged = Arc::new(merge_all(
+            entries.user.clone(),
+            self.catalog.clone(),
+            entries.wsl.clone().unwrap_or_default(),
+        ));
     }
 
     /// Snapshot, so the PATH search does not run under the lock.
     fn agents(&self) -> Arc<Vec<Agent>> {
-        Arc::clone(&lock(&self.agents))
+        Arc::clone(&lock(&self.entries).merged)
+    }
+
+    /// The profile `id` from profiles.toml, `None` for catalog and WSL entries and unknown ids.
+    pub fn user_profile(&self, id: &str) -> Option<Profile> {
+        self.agents()
+            .iter()
+            .find(|agent| agent.id() == id && agent.source == Source::User)
+            .map(|agent| agent.profile.clone())
+    }
+
+    /// `secret_env` of any entry; `None` for an unknown id.
+    pub fn secret_names(&self, id: &str) -> Option<Vec<String>> {
+        self.agents()
+            .iter()
+            .find(|agent| agent.id() == id)
+            .map(|agent| agent.profile.secret_env.clone())
     }
 
     pub fn home(&self) -> &Path {
@@ -476,11 +565,16 @@ impl SessionManager {
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
-        self.agents()
-            .iter()
-            .find(|a| a.id() == profile_id)
-            .cloned()
-            .ok_or_else(|| ManagerError::UnknownProfile(profile_id.to_owned()))
+        let find = || self.agents().iter().find(|a| a.id() == profile_id).cloned();
+        // A restored WSL session may start before the first detection is done.
+        let found = match find() {
+            None if profile_id.starts_with(wsl::ID_PREFIX) => {
+                self.ensure_wsl();
+                find()
+            }
+            found => found,
+        };
+        found.ok_or_else(|| ManagerError::UnknownProfile(profile_id.to_owned()))
     }
 
     #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
@@ -728,9 +822,14 @@ fn spawn(
         .ok_or_else(|| ManagerError::CommandNotFound(agent.command_label()))?
         .program;
     let profile = &agent.profile;
+    let mut args = launch.args.to_vec();
+    if let Some(flag) = agent.cwd_flag {
+        args.push(flag.to_owned());
+        args.push(cwd.to_string_lossy().into_owned());
+    }
     let batch = batch::is_batch(&program);
     if batch {
-        batch::check(&program, launch.args).map_err(|reason| ManagerError::UnsafeBatch {
+        batch::check(&program, &args).map_err(|reason| ManagerError::UnsafeBatch {
             program: program.display().to_string(),
             reason,
         })?;
@@ -741,7 +840,7 @@ fn spawn(
         .map_err(pty_error)?;
     // argv array, never an assembled shell string.
     let mut command = CommandBuilder::new(&program);
-    command.args(launch.args);
+    command.args(&args);
     command.cwd(cwd);
     // Agent CLIs expect a real terminal that supports color.
     command.env("TERM", "xterm-256color");
@@ -765,20 +864,32 @@ fn spawn(
             command.env(key, value);
         }
     }
+    // Straight into the child's environment; the values are not kept anywhere else.
+    for (name, value) in
+        secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)
+    {
+        command.env(name, value);
+    }
     let started = Instant::now();
     let mut child = pair.slave.spawn_command(command).map_err(pty_error)?;
     // Close our end of the slave side, otherwise EOF never arrives on Unix.
     drop(pair.slave);
 
-    let tree = child
-        .process_id()
-        .and_then(|pid| match ProcTree::attach(pid) {
-            Ok(tree) => Some(tree),
-            Err(error) => {
-                eprintln!("hangar: process tree of session {id} is not monitored: {error}");
-                None
-            }
-        });
+    // Without the tree, closing the session would leave the program's children running: such a
+    // session does not start at all.
+    let tree = match child.process_id().map(ProcTree::attach) {
+        Some(Ok(tree)) => Some(tree),
+        // A program that ended before it could join the job has no tree left to watch; the
+        // wait thread reports its exit like any other.
+        Some(Err(_)) if matches!(child.try_wait(), Ok(Some(_))) => None,
+        Some(Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ManagerError::Watch(error));
+        }
+        // Already gone again; the wait thread reports the exit.
+        None => None,
+    };
     let killer = child.clone_killer();
     let reader = pair.master.try_clone_reader().map_err(pty_error)?;
     let writer = pair.master.take_writer().map_err(pty_error)?;

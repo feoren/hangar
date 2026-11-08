@@ -2,11 +2,13 @@
 //! echo, exit code, size, kill, restart, start from the agent catalog.
 
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::manager::{ManagerError, SessionEvent, SessionManager, TermSize};
 use hangar_lib::profile::Profile;
+use hangar_lib::secrets::{self, MemoryStore};
 use hangar_lib::session::{SessionInfo, SessionKind, Status};
 use hangar_lib::updates::{CommandError, PlatformHint};
 
@@ -21,6 +23,7 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         args: args.iter().map(|a| (*a).to_owned()).collect(),
         cwd: None,
         env: Default::default(),
+        secret_env: Vec::new(),
         icon: None,
         version_args: None,
         resume_args: None,
@@ -877,4 +880,112 @@ fn reloaded_profiles_leave_running_sessions_untouched() {
     let (output, code) = collect_until_exit(&manager, started.id, &rx2);
     assert!(output.contains("hangar-echo-ok"), "Output: {output:?}");
     assert_eq!(code, Some(3));
+}
+
+// --- Secret variables from the keychain, WSL-style working folder argument ---
+
+const SECRET_VALUE: &str = "hangar-secret-marker-7f3a";
+
+#[cfg(windows)]
+fn secret_profile(id: &str) -> Profile {
+    let mut p = profile(
+        id,
+        "cmd",
+        &["/d", "/c", "echo SECRET=[%HANGAR_TEST_SECRET%]"],
+    );
+    p.secret_env = vec!["HANGAR_TEST_SECRET".into()];
+    p
+}
+
+#[cfg(unix)]
+fn secret_profile(id: &str) -> Profile {
+    let mut p = profile(
+        id,
+        "sh",
+        &["-c", "echo \"SECRET=[${HANGAR_TEST_SECRET-unset}]\""],
+    );
+    p.secret_env = vec!["HANGAR_TEST_SECRET".into()];
+    p
+}
+
+#[test]
+fn secret_variables_reach_the_child_on_start_and_restart() {
+    let store = Arc::new(MemoryStore::default());
+    secrets::set(
+        store.as_ref(),
+        "with-secret",
+        "HANGAR_TEST_SECRET",
+        SECRET_VALUE,
+    )
+    .unwrap();
+    let manager = SessionManager::new(
+        vec![secret_profile("with-secret"), secret_profile("no-secret")],
+        Vec::new(),
+        std::env::temp_dir(),
+    )
+    .with_secret_store(store);
+
+    let (tx, rx) = channel();
+    let info = manager
+        .create("with-secret", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains(&format!("SECRET=[{SECRET_VALUE}]")),
+        "Output: {output:?}"
+    );
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains(SECRET_VALUE),
+        "Output after restart: {output:?}"
+    );
+
+    // A profile without a stored value starts without the variable.
+    let (output, _) = {
+        let (tx, rx) = channel();
+        let info = manager
+            .create("no-secret", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+            .unwrap();
+        collect_until_exit(&manager, info.id, &rx)
+    };
+    assert!(!output.contains(SECRET_VALUE), "Output: {output:?}");
+    assert!(output.contains("SECRET=["), "Output: {output:?}");
+}
+
+#[test]
+fn working_folder_argument_follows_the_profile_arguments() {
+    let manager = SessionManager::new(Vec::new(), Vec::new(), std::env::temp_dir());
+    let mut agent = agent_catalog::Agent::from_user(if cfg!(windows) {
+        profile("folder-arg", "cmd", &["/d", "/c", "echo", "ARGS"])
+    } else {
+        profile("folder-arg", "echo", &["ARGS"])
+    });
+    agent.cwd_flag = Some("--cd");
+    agent.source = agent_catalog::Source::Catalog;
+    manager.set_wsl(vec![agent]);
+    let cwd = std::env::temp_dir();
+    let (tx, rx) = channel();
+    let info = manager
+        .create("folder-arg", Some(cwd.clone()), SIZE, move |e| {
+            tx.send(e).unwrap_or(())
+        })
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    let flat: String = output.split_whitespace().collect::<Vec<_>>().join(" ");
+    let expected = format!("ARGS --cd {}", cwd.display());
+    let expected: String = expected.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains(&expected), "Output: {output:?}");
+    // Entries found on this machine are not user profiles.
+    let view = manager
+        .profiles()
+        .into_iter()
+        .find(|p| p.id == "folder-arg")
+        .unwrap();
+    assert!(!view.editable);
+    assert_eq!(manager.user_profile("folder-arg"), None);
 }

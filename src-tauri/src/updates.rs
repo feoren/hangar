@@ -150,6 +150,9 @@ pub fn update_agent(agent: &Agent) -> Result<Agent, CommandError> {
     updater.profile.command.clone_from(&command);
     updater.profile.args = argv.collect();
     updater.profile.resume_args = None;
+    // The update command needs no API keys of the agent.
+    updater.profile.secret_env.clear();
+    updater.cwd_flag = None;
     updater.candidates = vec![command];
     Ok(updater)
 }

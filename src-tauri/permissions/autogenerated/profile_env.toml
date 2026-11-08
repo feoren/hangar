@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-profile-env"
+description = "Enables the profile_env command without any pre-configured scope."
+commands.allow = ["profile_env"]
+
+[[permission]]
+identifier = "deny-profile-env"
+description = "Denies the profile_env command without any pre-configured scope."
+commands.deny = ["profile_env"]

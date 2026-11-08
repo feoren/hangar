@@ -1,6 +1,6 @@
 //! Thin Tauri commands. They only forward to the [`SessionManager`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -10,6 +10,7 @@ use tauri::{Emitter as _, Manager as _, State};
 
 use crate::agent_catalog::ProfileView;
 use crate::desktop;
+use crate::export::{self, ExportError, Format};
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::icon::{self, IconCache};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
@@ -17,7 +18,10 @@ use crate::notes::{FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore};
 use crate::notify::{self, Notifier};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
+use crate::profile_edit::{self, EditError, ProfileInput};
+use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind};
+use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, Item, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
@@ -30,6 +34,9 @@ pub struct ProfileLoad {
     /// Config folder that holds `profiles.toml`.
     pub dir: PathBuf,
     pub path: PathBuf,
+    /// Held while Settings reads, changes and writes the file, so two saves do not lose each
+    /// other's change. Never held together with another lock.
+    pub edit: Mutex<()>,
 }
 
 /// Cache for versions and icons, for the lifetime of the app.
@@ -63,16 +70,21 @@ fn update_sink(app: tauri::AppHandle, channel: Channel<SessionEvent>) -> impl Ev
 /// Async because the PATH search runs on every call and grows with the number of entries times
 /// the number of PATH folders. Synchronous commands run on the main thread and would make the
 /// window stutter.
+/// The first call may also wait for the WSL detection (a few hundred milliseconds), hence on a
+/// blocking thread.
 #[tauri::command]
-pub async fn list_profiles(
-    load: State<'_, ProfileLoad>,
-    manager: Manager<'_>,
-) -> Result<Vec<ProfileView>, String> {
-    let error = crate::lock(&load.error).clone();
-    match error {
-        Some(error) => Err(error),
-        None => Ok(manager.profiles()),
+pub async fn list_profiles(app: tauri::AppHandle) -> Result<Vec<ProfileView>, String> {
+    let error = crate::lock(&app.state::<ProfileLoad>().error).clone();
+    if let Some(error) = error {
+        return Err(error);
     }
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        manager.ensure_wsl();
+        manager.profiles()
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Rereads profiles.toml and returns the new list like [`list_profiles`]. Running sessions
@@ -85,6 +97,8 @@ pub async fn reload_profiles(app: tauri::AppHandle) -> Result<Vec<ProfileView>, 
         let profiles = profile::reload(&load.dir)?;
         let manager = app.state::<SessionManager>();
         manager.set_profiles(profiles);
+        // Detected again per reload: a distribution installed meanwhile shows up.
+        manager.refresh_wsl();
         *crate::lock(&load.error) = None;
         Ok(manager.profiles())
     })
@@ -94,6 +108,126 @@ pub async fn reload_profiles(app: tauri::AppHandle) -> Result<Vec<ProfileView>, 
         line: None,
         column: None,
     })?
+}
+
+/// Reads, changes and writes profiles.toml under the edit lock, then loads the file again like
+/// [`reload_profiles`]: reading the file afterwards (instead of using the edited list) keeps the
+/// app on the newest state even when two edits finish in a different order than they started.
+fn edit_profiles(
+    app: &tauri::AppHandle,
+    change: impl FnOnce(&str) -> Result<profile_edit::Edited, EditError>,
+) -> Result<profile_edit::Edited, EditError> {
+    let load = app.state::<ProfileLoad>();
+    let edited = {
+        let _edit = crate::lock(&load.edit);
+        profile_edit::edit_file(&load.dir, change)?
+    };
+    let profiles = profile::load_or_init(&load.dir)?;
+    app.state::<SessionManager>().set_profiles(profiles);
+    *crate::lock(&load.error) = None;
+    Ok(edited)
+}
+
+/// Keychain entries of names a profile no longer lists; best effort.
+fn drop_secrets(app: &tauri::AppHandle, profile_id: &str, names: &[String]) {
+    if !names.is_empty() {
+        let store = app.state::<SessionManager>().secret_store();
+        secrets::delete_all(store.as_ref(), profile_id, names);
+    }
+}
+
+/// Inserts or replaces a profile in profiles.toml (Settings) and returns the new list.
+#[tauri::command]
+pub async fn save_profile(
+    app: tauri::AppHandle,
+    profile: ProfileInput,
+) -> Result<Vec<ProfileView>, EditError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let edited = edit_profiles(&app, |source| profile_edit::upsert(source, &profile))?;
+        drop_secrets(&app, &profile.id, &edited.dropped_secrets);
+        Ok(app.state::<SessionManager>().profiles())
+    })
+    .await
+    .map_err(|error| EditError::Task(error.to_string()))?
+}
+
+/// Removes a user profile together with its keychain entries; catalog entries cannot be deleted.
+#[tauri::command]
+pub async fn delete_profile(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<ProfileView>, EditError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let edited = edit_profiles(&app, |source| profile_edit::delete(source, &id))?;
+        drop_secrets(&app, &id, &edited.dropped_secrets);
+        Ok(app.state::<SessionManager>().profiles())
+    })
+    .await
+    .map_err(|error| EditError::Task(error.to_string()))?
+}
+
+/// Values of a profile's plain `env`, only for the edit form; empty for catalog entries.
+#[tauri::command]
+pub fn profile_env(
+    manager: Manager<'_>,
+    id: String,
+) -> Result<BTreeMap<String, String>, ManagerError> {
+    if manager.secret_names(&id).is_none() {
+        return Err(ManagerError::UnknownProfile(id));
+    }
+    Ok(manager.user_profile(&id).map(|p| p.env).unwrap_or_default())
+}
+
+/// The keychain may take a moment or ask the user (macOS, Linux), hence on a blocking thread.
+async fn secrets_blocking<T: Send + 'static>(
+    manager: Manager<'_>,
+    work: impl FnOnce(&dyn secrets::SecretStore) -> Result<T, SecretError> + Send + 'static,
+) -> Result<T, SecretError> {
+    let store = manager.secret_store();
+    tauri::async_runtime::spawn_blocking(move || work(store.as_ref()))
+        .await
+        .map_err(|error| SecretError::Task(error.to_string()))?
+}
+
+/// Stores a secret variable of a profile in the OS keychain. The value goes nowhere else.
+#[tauri::command]
+pub async fn set_profile_secret(
+    manager: Manager<'_>,
+    profile_id: String,
+    name: String,
+    value: String,
+) -> Result<(), SecretError> {
+    secrets_blocking(manager, move |store| {
+        secrets::set(store, &profile_id, &name, &value)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_profile_secret(
+    manager: Manager<'_>,
+    profile_id: String,
+    name: String,
+) -> Result<(), SecretError> {
+    secrets_blocking(manager, move |store| {
+        secrets::delete(store, &profile_id, &name)
+    })
+    .await
+}
+
+/// Per `secret_env` name of the profile whether a value is stored; never the value.
+#[tauri::command]
+pub async fn profile_secrets(
+    manager: Manager<'_>,
+    profile_id: String,
+) -> Result<Vec<SecretStatus>, SecretError> {
+    let names = manager
+        .secret_names(&profile_id)
+        .ok_or_else(|| SecretError::InvalidProfile(profile_id.clone()))?;
+    secrets_blocking(manager, move |store| {
+        secrets::statuses(store, &profile_id, &names)
+    })
+    .await
 }
 
 /// Opens exactly this machine's profiles.toml in the default editor; if it is missing, it is
@@ -289,9 +423,16 @@ pub fn rename_session(
     manager.rename(id, &title)
 }
 
+/// Also withdraws the session's desktop notification, off the main thread.
 #[tauri::command]
-pub fn close_session(manager: Manager<'_>, id: SessionId) -> Result<(), ManagerError> {
-    manager.close(id)
+pub fn close_session(
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<(), ManagerError> {
+    manager.close(id)?;
+    tauri::async_runtime::spawn_blocking(move || app.state::<Notifier>().forget(id));
+    Ok(())
 }
 
 // Workspace and scrollback (persist.rs). File access runs on a blocking thread because
@@ -456,12 +597,7 @@ fn notification_app_id(app: &tauri::AppHandle) -> String {
 
 /// Brings the main window to the front and tells the frontend which session was meant.
 fn activate_session(app: &tauri::AppHandle, id: SessionId) {
-    if let Some(window) = app.get_webview_window("main") {
-        // Each step may fail harmlessly (already visible, not minimized).
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    tray::show_main_window(app);
     let _ = app.emit(
         "notification-activated",
         NotificationActivated { session_id: id },
@@ -541,4 +677,49 @@ pub async fn remove_worktree(
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Export (export.rs) and notification area icon (tray.rs).
+
+/// Saves a session's content: the backend opens the save dialog itself, so the window never
+/// chooses a path. `None` when the dialog was cancelled.
+#[tauri::command]
+pub async fn export_session(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    format: Format,
+    content: String,
+    suggested_name: String,
+) -> Result<Option<String>, ExportError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    export::check_size(&content)?;
+    let name = export::file_name(&suggested_name, format);
+    tauri::async_runtime::spawn_blocking(move || {
+        let chosen = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(name)
+            .add_filter(format.filter_name(), &[format.extension()])
+            .blocking_save_file();
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+        export::write(&path, &content)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|error| ExportError::Task(error.to_string()))?
+}
+
+/// Adds, updates or removes the notification area icon. Async so the menu is built while the
+/// main thread is free (Tauri hands that work to it).
+#[tauri::command]
+pub async fn configure_tray(
+    app: tauri::AppHandle,
+    enabled: bool,
+    labels: TrayLabels,
+) -> Result<(), TrayError> {
+    tray::configure(&app, enabled, &labels)
 }

@@ -14,7 +14,9 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 # image-png: the frontend draws the taskbar badge as a PNG (overlay icon on Windows).
-tauri = { version = "2.12", features = ["image-png"] }
+# tray-icon: optional icon in the notification area (tray.rs); adds tauri-apps' tray-icon crate
+# (MIT/Apache-2.0), whose menu code (muda) is already in the build through Tauri's menu support.
+tauri = { version = "2.12", features = ["image-png", "tray-icon"] }
 tauri-plugin-dialog = "2.8"
 # Menu Copy and Paste: navigator.clipboard fails in WebView2. Official Tauri plugin
 # (MIT/Apache-2.0, maintained in plugins-workspace); adds arboard (MIT/Apache-2.0, maintained
@@ -24,6 +26,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 toml = "1.2"
+# Settings edits profiles.toml in place and must keep the user's comments and layout (toml
+# cannot). Same maintainers as toml 1.2 and shares its parser and writer crates (toml_parser,
+# toml_writer, toml_datetime), so only toml_edit itself is new; MIT/Apache-2.0.
+toml_edit = "0.25"
+# Secret profile variables in the OS keychain: Windows Credential Manager, macOS Keychain, Secret
+# Service on Linux (feature v1, the default). The maintained successor of keyring 3 (keyring-core
+# plus one store crate per platform); MIT/Apache-2.0. On Windows the store crate only adds
+# bindings to the Credential Manager; on Linux it adds zbus (pure Rust D-Bus).
+keyring = "4.2"
 portable-pty = "0.9"
 # Signed updates and restart after the update (official Tauri plugins, MIT/Apache-2.0).
 tauri-plugin-updater = "2.14"

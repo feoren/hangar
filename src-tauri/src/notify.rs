@@ -34,12 +34,30 @@ pub fn app_id<'a>(identifier: &'a str, exe_dir: &Path) -> &'a str {
     }
 }
 
+/// Characters that change how the rest of the text is shown without being visible themselves:
+/// bidi embeddings, overrides and isolates and the marks (a terminal title could reorder the
+/// toast so it names another program), zero-width characters and the byte order mark.
+fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
 /// At most [`MAX_CHARS`] characters, without control characters (XML 1.0 does not allow most
-/// of them, and a toast with escape sequences from a terminal title looks broken).
+/// of them, and a toast with escape sequences from a terminal title looks broken), invisible
+/// format characters ([`is_invisible_format`]) and the noncharacters U+FFFE and U+FFFF, which
+/// XML 1.0 does not allow either.
 pub fn clean_text(text: &str) -> String {
     let mut clean: String = text
         .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .filter(|c| !is_invisible_format(*c))
+        .map(|c| match c {
+            '\u{FFFE}' | '\u{FFFF}' => '\u{FFFD}',
+            '\u{2028}' | '\u{2029}' => ' ',
+            c if c.is_control() => ' ',
+            c => c,
+        })
         .collect();
     if let Some((index, _)) = clean.char_indices().nth(MAX_CHARS) {
         clean.truncate(index);
@@ -96,11 +114,12 @@ mod imp {
     /// Group of all session toasts; the tag inside it is the session id.
     const GROUP: &str = "sessions";
 
-    /// Keeps the last toast per session, so its click handler lives as long as the toast can be
-    /// clicked, and drops it once a newer toast replaces it.
+    /// Keeps the last toast per session (with the app id it was shown under), so its click
+    /// handler lives as long as the toast can be clicked, and drops it once a newer toast
+    /// replaces it or the session is closed.
     #[derive(Default)]
     pub struct Notifier {
-        shown: Mutex<HashMap<u64, ToastNotification>>,
+        shown: Mutex<HashMap<u64, (ToastNotification, String)>>,
     }
 
     impl Notifier {
@@ -127,8 +146,37 @@ mod imp {
             let notifier =
                 ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(app_id))?;
             notifier.Show(&toast)?;
-            crate::lock(&self.shown).insert(session_id, toast);
+            crate::lock(&self.shown).insert(session_id, (toast, app_id.to_owned()));
             Ok(true)
+        }
+
+        /// The session is closed: drop its toast and its click handler, and take the toast out of
+        /// the notification center, where a click would point at a session that no longer
+        /// exists. Removing from the history is best effort.
+        pub fn forget(&self, session_id: u64) {
+            let Some((_toast, app_id)) = crate::lock(&self.shown).remove(&session_id) else {
+                return;
+            };
+            let removed = ToastNotificationManager::History().and_then(|history| {
+                history.RemoveGroupedTagWithId(
+                    &HSTRING::from(session_id.to_string()),
+                    &HSTRING::from(GROUP),
+                    &HSTRING::from(app_id),
+                )
+            });
+            if let Err(error) = removed {
+                eprintln!("hangar: notification of session {session_id} not withdrawn: {error}");
+            }
+        }
+
+        #[cfg(test)]
+        pub(crate) fn remember(&self, session_id: u64, toast: ToastNotification, app_id: &str) {
+            crate::lock(&self.shown).insert(session_id, (toast, app_id.to_owned()));
+        }
+
+        #[cfg(test)]
+        pub(crate) fn remembered(&self) -> usize {
+            crate::lock(&self.shown).len()
         }
     }
 }
@@ -152,6 +200,9 @@ mod imp {
         ) -> Result<bool, NotifyError> {
             Ok(false)
         }
+
+        /// Nothing was shown, so nothing to withdraw.
+        pub fn forget(&self, _session_id: u64) {}
     }
 }
 
@@ -191,12 +242,57 @@ mod tests {
     }
 
     #[test]
+    fn invisible_and_reordering_characters_are_removed() {
+        // An override that would show "exe.txt" as "txt.exe", zero-width joiners, BOM, isolates.
+        assert_eq!(
+            clean_text("a\u{202E}txt.exe\u{202C}b\u{200B}c\u{FEFF}d\u{2066}e\u{2069}"),
+            "atxt.exebcde"
+        );
+        assert_eq!(clean_text("\u{200E}x\u{200F}\u{2060}"), "x");
+        assert_eq!(clean_text("x\u{FFFE}y\u{FFFF}"), "x\u{FFFD}y\u{FFFD}");
+        assert_eq!(clean_text("one\u{2028}two\u{2029}three"), "one two three");
+        // Ordinary text outside those ranges stays.
+        assert_eq!(
+            clean_text("Größe \u{1F600} \u{2010}"),
+            "Größe \u{1F600} \u{2010}"
+        );
+    }
+
+    #[test]
     fn xml_cannot_be_injected() {
         let xml = toast_xml(7, "<b>&\"'", "</text><image src='x'/>");
         assert!(xml.contains("<text>&lt;b&gt;&amp;&quot;&apos;</text>"));
         assert!(xml.contains("<text>&lt;/text&gt;&lt;image src=&apos;x&apos;/&gt;</text>"));
         assert!(xml.contains("launch=\"session-7\""));
         assert_eq!(xml.matches("<text>").count(), 2);
+    }
+
+    #[test]
+    fn forgetting_an_unknown_session_is_harmless() {
+        Notifier::default().forget(42);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn closing_a_session_drops_its_toast() {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotification;
+        let document = windows::Data::Xml::Dom::XmlDocument::new().unwrap();
+        document
+            .LoadXml(&HSTRING::from(toast_xml(7, "t", "b")))
+            .unwrap();
+        const TEST_APP_ID: &str = "Hangar.Tests.Unregistered";
+        let toast = ToastNotification::CreateToastNotification(&document).unwrap();
+        let notifier = Notifier::default();
+        notifier.remember(7, toast.clone(), TEST_APP_ID);
+        notifier.remember(8, toast, TEST_APP_ID);
+        // Never shown, so the history has nothing to withdraw; that must not matter. An app id of
+        // its own, so the test cannot withdraw a toast of a Hangar instance running from source.
+        notifier.forget(7);
+        assert_eq!(notifier.remembered(), 1);
+        notifier.forget(8);
+        notifier.forget(8);
+        assert_eq!(notifier.remembered(), 0);
     }
 
     #[cfg(windows)]
