@@ -1,0 +1,4 @@
+# minimatch below 11.0.1 has a denial of service via glob patterns (GHSA, Dependabot alert 1).
+# ESLint still requires ^10 and only uses it for our own config patterns, so lifting it is safe.
+overrides:
+  "minimatch@>=7.0.0 <11.0.1": "^11.0.1"
