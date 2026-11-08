@@ -6,12 +6,12 @@ import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
 import type { SessionView } from "./sessions";
-import { slotRect, type SplitMode } from "./split";
+import { zoneRect, type LayoutId } from "./snapLayouts";
 import type { SessionTerminal } from "./terminal";
 
 /** Header and position of a pane in split view. */
 export interface PaneSplit {
-  mode: Exclude<SplitMode, "single">;
+  layout: Exclude<LayoutId, "single">;
   slot: number;
   session: SessionView;
   look: BadgeLook;
@@ -46,9 +46,13 @@ interface Props {
 const OUTER = 6;
 const INNER = 3;
 
-/** Absolute position of a pane in split view; fractions from split.ts plus the gaps. */
-export function paneStyle(mode: SplitMode, slot: number): React.CSSProperties {
-  const rect = slotRect(mode, slot);
+/**
+ * Absolute position of a pane in split view: its zone (snapLayouts.ts) plus the gaps. Absolute
+ * positions instead of a CSS grid, because hidden panes stay in the DOM (invisible, at the size
+ * of the whole panes area, so the scrollback survives) and must not take part in a grid's flow.
+ */
+export function paneStyle(layout: LayoutId, slot: number): React.CSSProperties {
+  const rect = zoneRect(layout, slot);
   const start = (offset: number) => (offset === 0 ? OUTER : INNER);
   const end = (offset: number, size: number) => (offset + size >= 1 ? OUTER : INNER);
   return {
@@ -106,7 +110,7 @@ export function TerminalPane(props: Props) {
       aria-hidden={!visible}
       role={split !== null && visible ? "group" : undefined}
       aria-label={split !== null && visible ? split.session.title : undefined}
-      style={split !== null && visible ? paneStyle(split.mode, split.slot) : undefined}
+      style={split !== null && visible ? paneStyle(split.layout, split.slot) : undefined}
       onPointerDownCapture={() => {
         if (split !== null && !active) props.onFocusPane(sessionId);
       }}
@@ -153,10 +157,10 @@ export function TerminalPane(props: Props) {
 }
 
 /** Placeholder for a pane without a session: says how to fill it. */
-export function EmptyPane({ mode, slot }: { mode: Exclude<SplitMode, "single">; slot: number }) {
+export function EmptyPane({ layout, slot }: { layout: Exclude<LayoutId, "single">; slot: number }) {
   const t = useT();
   return (
-    <div className="pane-empty" style={paneStyle(mode, slot)}>
+    <div className="pane-empty" style={paneStyle(layout, slot)}>
       <p>{t("split.empty")}</p>
     </div>
   );

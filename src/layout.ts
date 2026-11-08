@@ -11,7 +11,7 @@ export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
 /** Width of the notes panel to the right of the terminal. */
 export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
 
-import { isSplitMode, type SplitMode } from "./split";
+import { migrateLayoutId, type LayoutId } from "./snapLayouts";
 
 const STORAGE_KEY = "hangar.layout";
 
@@ -33,8 +33,8 @@ export interface Layout {
   /** Notes panel visible to the right of the terminal. */
   notesOpen: boolean;
   notesWidth: number;
-  /** One session, two side by side or four in a grid (split.ts). */
-  splitMode: SplitMode;
+  /** Snap layout of the panes area (snapLayouts.ts). */
+  snapLayout: LayoutId;
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -45,7 +45,7 @@ export const DEFAULT_LAYOUT: Layout = {
   fontSize: FONT_SIZE.default,
   notesOpen: false,
   notesWidth: NOTES_WIDTH.default,
-  splitMode: "single",
+  snapLayout: "single",
 };
 
 export function isGroupOpen(layout: Layout, group: SidebarGroup): boolean {
@@ -123,7 +123,10 @@ export function parseLayout(text: string | null): Layout {
   const collapsed: unknown = "collapsed" in raw ? raw.collapsed : undefined;
   const closed: unknown = "closedGroups" in raw ? raw.closedGroups : undefined;
   const notesOpen: unknown = "notesOpen" in raw ? raw.notesOpen : undefined;
-  const splitMode: unknown = "splitMode" in raw ? raw.splitMode : undefined;
+  // Before 0.3 the layout was stored as `splitMode` ("single", "columns", "grid").
+  const snapLayout =
+    migrateLayoutId("snapLayout" in raw ? raw.snapLayout : undefined) ??
+    migrateLayoutId("splitMode" in raw ? raw.splitMode : undefined);
   return {
     sidebarWidth: clampSidebarWidth(number("sidebarWidth", DEFAULT_LAYOUT.sidebarWidth)),
     footerHeight: Math.max(FOOTER_HEIGHT.min, number("footerHeight", DEFAULT_LAYOUT.footerHeight)),
@@ -134,7 +137,7 @@ export function parseLayout(text: string | null): Layout {
     fontSize: clampFontSize(number("fontSize", DEFAULT_LAYOUT.fontSize)),
     notesOpen: typeof notesOpen === "boolean" ? notesOpen : DEFAULT_LAYOUT.notesOpen,
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
-    splitMode: isSplitMode(splitMode) ? splitMode : DEFAULT_LAYOUT.splitMode,
+    snapLayout: snapLayout ?? DEFAULT_LAYOUT.snapLayout,
   };
 }
 

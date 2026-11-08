@@ -1,24 +1,8 @@
-// Split view: one session, two side by side, or four in a grid. Pure logic for which session sits
-// in which pane (slot); the sessions reducer still decides which session is active, and the active
-// session is always the focused pane.
+// Split view: which session sits in which pane (slot) of the snap layout (snapLayouts.ts; one
+// pane per zone). Pure logic; the sessions reducer still decides which session is active, and the
+// active session is always the focused pane.
 
-export const SPLIT_MODES = ["single", "columns", "grid"] as const;
-export type SplitMode = (typeof SPLIT_MODES)[number];
-
-export function isSplitMode(value: unknown): value is SplitMode {
-  return SPLIT_MODES.some((mode) => mode === value);
-}
-
-export function slotCount(mode: SplitMode): number {
-  switch (mode) {
-    case "single":
-      return 1;
-    case "columns":
-      return 2;
-    case "grid":
-      return 4;
-  }
-}
+import { layoutForCount, zoneCount, type LayoutId } from "./snapLayouts";
 
 /** Session ID per pane, `null` for an empty pane; `focus` is the pane with the active session. */
 export interface SplitSlots {
@@ -30,14 +14,14 @@ export const EMPTY_SLOTS: SplitSlots = { slots: [null], focus: 0 };
 
 /**
  * Fills every pane from scratch: the active session first, then the others in sidebar order.
- * Used when the mode changes.
+ * Used when the number of zones changes.
  */
 export function fillSlots(
-  mode: SplitMode,
+  layout: LayoutId,
   sessionIds: readonly number[],
   activeId: number | null,
 ): SplitSlots {
-  const count = slotCount(mode);
+  const count = zoneCount(layout);
   const order =
     activeId !== null && sessionIds.includes(activeId)
       ? [activeId, ...sessionIds.filter((id) => id !== activeId)]
@@ -48,7 +32,8 @@ export function fillSlots(
 
 /**
  * Brings the panes in line with the sessions after any change:
- * - another mode: fill again (`fillSlots`);
+ * - a layout with another number of zones: fill again (`fillSlots`); one with the same number
+ *   keeps every session in its pane;
  * - closed sessions leave their pane;
  * - the active session, if visible, gets the focus; if hidden, it takes the first empty pane or,
  *   without one, replaces the session in the focused pane (like clicking it in the sidebar);
@@ -58,11 +43,11 @@ export function fillSlots(
  */
 export function reconcileSlots(
   current: SplitSlots,
-  mode: SplitMode,
+  layout: LayoutId,
   sessionIds: readonly number[],
   activeId: number | null,
 ): SplitSlots {
-  if (current.slots.length !== slotCount(mode)) return fillSlots(mode, sessionIds, activeId);
+  if (current.slots.length !== zoneCount(layout)) return fillSlots(layout, sessionIds, activeId);
   const alive = new Set(sessionIds);
   const slots = current.slots.map((id) => (id !== null && alive.has(id) ? id : null));
   let focus = Math.min(Math.max(current.focus, 0), slots.length - 1);
@@ -99,35 +84,53 @@ export function slotOf(split: SplitSlots, id: number): number | null {
 }
 
 /**
- * Shows exactly these sessions (after "Send to several"): two side by side, three or four in the
- * grid, at most four. One session keeps the current mode. The first one gets the focus.
+ * Shows exactly these sessions (after "Send to several") in the smallest layout that fits them,
+ * at most four. One session keeps the current layout. The first one gets the focus.
  */
 export function showSessions(
   ids: readonly number[],
-  mode: SplitMode,
-): { mode: SplitMode; split: SplitSlots } {
+  layout: LayoutId,
+): { layout: LayoutId; split: SplitSlots } {
   const unique = ids.filter((id, index) => ids.indexOf(id) === index).slice(0, 4);
-  const next: SplitMode = unique.length <= 1 ? mode : unique.length === 2 ? "columns" : "grid";
-  const count = slotCount(next);
+  const next = unique.length <= 1 ? layout : layoutForCount(unique.length);
+  const count = zoneCount(next);
   const slots = Array.from({ length: count }, (_, index) => unique[index] ?? null);
-  return { mode: next, split: { slots, focus: 0 } };
+  return { layout: next, split: { slots, focus: 0 } };
 }
 
-/** Position of a pane as fractions of the panes area (left, top, width, height). */
-export interface SlotRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export function slotRect(mode: SplitMode, slot: number): SlotRect {
-  switch (mode) {
-    case "single":
-      return { x: 0, y: 0, width: 1, height: 1 };
-    case "columns":
-      return { x: slot === 1 ? 0.5 : 0, y: 0, width: 0.5, height: 1 };
-    case "grid":
-      return { x: slot % 2 === 1 ? 0.5 : 0, y: slot >= 2 ? 0.5 : 0, width: 0.5, height: 0.5 };
+/**
+ * Puts a session into one zone of a layout (drop from the sidebar, layout picker) and focuses it.
+ * - Same number of zones as now: every other session stays in its pane; if the session was
+ *   already visible, it swaps places with the zone's session.
+ * - Another number: the zone gets the session, the other zones take the sessions visible so far
+ *   in their order.
+ * Zones still empty then take hidden sessions in sidebar order, as in `reconcileSlots`.
+ */
+export function placeSession(
+  current: SplitSlots,
+  layout: LayoutId,
+  zone: number,
+  id: number,
+  sessionIds: readonly number[],
+): SplitSlots {
+  const count = zoneCount(layout);
+  const target = Math.min(Math.max(Math.trunc(zone), 0), count - 1);
+  const alive = new Set(sessionIds);
+  const kept = current.slots.map((other) => (other !== null && alive.has(other) ? other : null));
+  let slots: (number | null)[];
+  if (kept.length === count) {
+    slots = [...kept];
+    const from = slots.indexOf(id);
+    if (from >= 0) slots[from] = slots[target] ?? null;
+    slots[target] = id;
+  } else {
+    const visible = kept.filter((other): other is number => other !== null && other !== id);
+    slots = Array.from({ length: count }, (_, index) =>
+      index === target ? id : (visible.shift() ?? null),
+    );
   }
+  const shown = new Set(slots);
+  const hidden = sessionIds.filter((other) => !shown.has(other));
+  slots = slots.map((other) => other ?? hidden.shift() ?? null);
+  return { slots, focus: target };
 }

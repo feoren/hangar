@@ -39,7 +39,8 @@ import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
-import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
+import type { DropLine } from "./sessionDrag";
+import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
 import {
   detailLine,
@@ -127,6 +128,12 @@ interface Props {
   onRename: (id: number, title: string) => void;
   /** Right click or context menu key on a session: the session menu at this point. */
   onSessionMenu: (id: number, x: number, y: number) => void;
+  /** A session row is being dragged: which one, and where the drop line shows. */
+  drag: { id: number; line: DropLine | null } | null;
+  /** Mouse down on a session row: may become a drag (useSessionDrag). */
+  onDragStart: (id: number, event: React.PointerEvent<HTMLElement>) => void;
+  /** Alt+Up or Alt+Down on a row: the session moves to this place in the list. */
+  onMove: (id: number, index: number) => void;
   onInstallUpdate: () => void;
   onDismissUpdate: () => void;
 }
@@ -181,6 +188,31 @@ export function Sidebar(props: Props) {
   const onRename = (id: number) => {
     if (guard.allows()) props.onRenameStart(id);
   };
+  /** Alt+Up / Alt+Down on a row: one place up or down; the focus stays on the moved row. */
+  const onRowKey = (event: React.KeyboardEvent<HTMLElement>, id: number) => {
+    const step = rowMoveStep(event);
+    if (step === null) return;
+    event.preventDefault();
+    const index = sessions.findIndex((s) => s.id === id);
+    const target = index + step;
+    if (index < 0 || target < 0 || target >= sessions.length) return;
+    props.onMove(id, target);
+    // React moves the row's element; moving a focused node in the DOM can drop its focus.
+    requestAnimationFrame(() => {
+      root.current
+        ?.querySelector<HTMLElement>(`[data-session-row="${String(id)}"] button`)
+        ?.focus();
+    });
+  };
+  /** Classes of a row while a session is dragged: the dragged one fades, one shows the line. */
+  const dragClass = (id: number) => {
+    const drag = props.drag;
+    if (drag === null) return "";
+    if (drag.id === id) return "dragging";
+    if (drag.line?.id === id) return `drop-${drag.line.edge}`;
+    return "";
+  };
+  const moveHint = t("session.moveHint");
 
   useEffect(() => {
     if (!refocusToggle.current) return;
@@ -243,7 +275,7 @@ export function Sidebar(props: Props) {
             <ExpandIcon />
           </button>
         </div>
-        <ul className="rail-sessions">
+        <ul className="rail-sessions" data-session-list="">
           {sessions.map((session) => {
             const state = attention.get(session.id) ?? "idle";
             const { status, detail: where } = lines(session);
@@ -254,7 +286,7 @@ export function Sidebar(props: Props) {
               state === "attention" ? "attention" : "",
             ];
             return (
-              <li key={session.id}>
+              <li key={session.id} data-session-row={session.id} className={dragClass(session.id)}>
                 <button
                   type="button"
                   className={className.filter(Boolean).join(" ")}
@@ -270,6 +302,7 @@ export function Sidebar(props: Props) {
                     markerColorText(session.marker, t),
                     detail,
                     programLine(profileById.get(session.profileId), versions),
+                    moveHint,
                   ]
                     .filter(Boolean)
                     .join("\n")}
@@ -284,6 +317,12 @@ export function Sidebar(props: Props) {
                   aria-current={session.id === activeId ? "true" : undefined}
                   onClick={() => {
                     props.onActivate(session.id);
+                  }}
+                  onPointerDown={(event) => {
+                    props.onDragStart(session.id, event);
+                  }}
+                  onKeyDown={(event) => {
+                    onRowKey(event, session.id);
                   }}
                   onContextMenu={(event) => {
                     openSessionMenu(event, session.id, props.onSessionMenu);
@@ -415,7 +454,7 @@ export function Sidebar(props: Props) {
           ) : null
         }
       >
-        <ul className="session-list">
+        <ul className="session-list" data-session-list="">
           {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
           {sessions.map((session) => (
             <SessionItem
@@ -427,11 +466,14 @@ export function Sidebar(props: Props) {
               active={session.id === activeId}
               state={attention.get(session.id) ?? "idle"}
               editing={props.renamingId === session.id}
+              dragClass={dragClass(session.id)}
+              moveHint={moveHint}
               {...props}
               onClose={onClose}
               onKill={onKill}
               onRestart={onRestart}
               onRenameStart={onRename}
+              onRowKey={onRowKey}
             />
           ))}
         </ul>
@@ -973,6 +1015,10 @@ interface ItemProps extends Props {
   active: boolean;
   state: AttentionState;
   editing: boolean;
+  /** "dragging", "drop-before", "drop-after" or empty. */
+  dragClass: string;
+  moveHint: string;
+  onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
 }
 
 function SessionItem({
@@ -983,6 +1029,10 @@ function SessionItem({
   active,
   state,
   editing,
+  dragClass,
+  moveHint,
+  onRowKey,
+  onDragStart,
   onActivate,
   onRestart,
   onKill,
@@ -1003,12 +1053,13 @@ function SessionItem({
     active ? "active" : "",
     exited ? "exited" : "",
     waiting ? "attention" : "",
+    dragClass,
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <li className={className}>
+    <li className={className} data-session-row={session.id}>
       {editing ? (
         <div className="session-main">
           <Badge look={look} />
@@ -1048,6 +1099,7 @@ function SessionItem({
             session.cwd,
             program,
             t("session.renameHint"),
+            moveHint,
           ]
             .filter(Boolean)
             .join("\n")}
@@ -1057,6 +1109,12 @@ function SessionItem({
           }}
           onDoubleClick={() => {
             onRenameStart(session.id);
+          }}
+          onPointerDown={(event) => {
+            onDragStart(session.id, event);
+          }}
+          onKeyDown={(event) => {
+            onRowKey(event, session.id);
           }}
           onContextMenu={(event) => {
             openSessionMenu(event, session.id, onSessionMenu);

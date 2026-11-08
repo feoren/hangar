@@ -7,18 +7,12 @@ import type { ReactNode } from "react";
 import type { NoteFolder, Profile } from "./api";
 import { folderKey, folderName, type FolderPrefs } from "./folders";
 import { shortPath } from "./format";
-import type { MessageKey, Translate } from "./i18n";
+import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
 import type { NoteFolderInfo } from "./notes";
 import type { SessionView } from "./sessions";
 import { snippetLabel, type Snippet } from "./snippets";
-import { SPLIT_MODES, type SplitMode } from "./split";
-
-export const SPLIT_MODE_NAMES: Record<SplitMode, MessageKey> = {
-  single: "menu.viewSingle",
-  columns: "menu.viewColumns",
-  grid: "menu.viewGrid",
-};
+import { LAYOUT_IDS, LAYOUT_NAMES, type LayoutId } from "./snapLayouts";
 
 export interface LauncherContext {
   sessions: readonly SessionView[];
@@ -32,7 +26,7 @@ export interface LauncherContext {
   snippets: readonly Snippet[];
   /** A snippet can go into the visible session (its process runs). */
   canInsert: boolean;
-  splitMode: SplitMode;
+  snapLayout: LayoutId;
   canBroadcast: boolean;
   /** The "Starts in" folder when it lies in a git repository: sessions can get their own worktree. */
   worktreeFolder: string | null;
@@ -46,7 +40,9 @@ export interface LauncherContext {
   toggleChanges: () => void;
   openNotes: (folder: NoteFolder) => void;
   insertSnippet: (snippet: Snippet) => void;
-  setSplitMode: (mode: SplitMode) => void;
+  setSnapLayout: (layout: LayoutId) => void;
+  /** Opens the layout picker for the active session; `null` without sessions. */
+  openSnapPicker: (() => void) | null;
   openBroadcast: () => void;
 }
 
@@ -141,15 +137,27 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       },
     });
   }
-  for (const mode of SPLIT_MODES) {
+  const openSnapPicker = ctx.openSnapPicker;
+  items.push({
+    key: "snap",
+    section: "commands",
+    label: t("snap.choose"),
+    keywords: "layout snap split",
+    primary: true,
+    disabled: openSnapPicker === null,
+    run: () => {
+      openSnapPicker?.();
+    },
+  });
+  for (const layout of LAYOUT_IDS) {
     items.push({
-      key: `view:${mode}`,
+      key: `view:${layout}`,
       section: "commands",
-      label: t("launcher.view", { mode: t(SPLIT_MODE_NAMES[mode]) }),
-      ...(mode === ctx.splitMode ? { detail: t("folders.current") } : {}),
-      primary: true,
+      label: t("launcher.view", { mode: t(LAYOUT_NAMES[layout]) }),
+      ...(layout === ctx.snapLayout ? { detail: t("folders.current") } : {}),
+      keywords: "layout snap split",
       run: () => {
-        ctx.setSplitMode(mode);
+        ctx.setSnapLayout(layout);
       },
     });
   }

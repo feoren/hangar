@@ -17,6 +17,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Verlauf, Terminalverlauf                        | scrollback                        |                                                         |
 | Fortsetzen                                      | resume                            | `resume_args`                                           |
 | Rückfall                                        | fallback                          | `resumeFallback`                                        |
+| Unterhaltungs-ID                                | conversation id                   | the agent CLI's own session id, `cliSessionId`          |
+| Sub-Agent                                       | sub-agent                         | runs inside the agent's process, no terminal of its own |
+| Sub-Agent-Ansicht                               | sub-agent view                    | read-only, `subagents/`                                 |
 | Notiz                                           | note                              |                                                         |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                  |
 | Papierkorb                                      | trash                             |                                                         |
@@ -76,6 +79,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Programmauswahl                                 | program picker                    |                                                         |
 | Drosselung, gedrosselt                          | throttling, throttled             |                                                         |
 | Platz (gemerkte Position einer Session)         | slot                              |                                                         |
+| Snap-Layout                                     | snap layout                       | preset arrangement of the panes, `snapLayouts.ts`       |
+| Zone (Snap-Layout)                              | zone                              | the area of one pane in a snap layout                   |
+| Layout-Auswahl, Snap-Leiste                     | layout picker, snap bar           | `SnapBar.tsx`                                           |
+| Ablagelinie                                     | drop line                         | where a dragged session lands in the sidebar            |
 | Ende (Prozess), Beenden (App)                   | exit, quit                        |                                                         |
 | Oberfläche                                      | UI                                |                                                         |
 | Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                            |

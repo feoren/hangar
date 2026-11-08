@@ -404,7 +404,7 @@ menu paste uses the clipboard plugin.
     `pair`, `triple`, `mainStack` (left 60 %, two stacked right) and `quad`, each a list of zones
     as fractions; one pane per zone. Stored as `snapLayout` in the layout; `splitMode` values
     migrate (`columns` to `pair`, `grid` to `quad`). Panes stay absolutely positioned from the
-    zone rectangles instead of a CSS grid: hidden panes keep their size in the DOM. Switching to a
+    zone rectangles instead of a CSS grid: hidden panes stay in the DOM (invisible, at the size of the whole panes area), so the scrollback survives. Switching to a
     layout with as many zones keeps every session in its pane; otherwise the old fill rule
     applies. `placeSession`: same zone count, the session takes the zone (swapping with its old
     pane when visible); another count, the zone gets the session, the other zones keep the

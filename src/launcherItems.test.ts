@@ -42,7 +42,7 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     noteFolders: [],
     snippets: [{ id: "a", text: "Write tests" }],
     canInsert: false,
-    splitMode: "single",
+    snapLayout: "single",
     canBroadcast: false,
     worktreeFolder: null,
     changesOpen: false,
@@ -55,7 +55,8 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     toggleChanges: vi.fn(),
     openNotes: vi.fn(),
     insertSnippet: vi.fn(),
-    setSplitMode: vi.fn(),
+    setSnapLayout: vi.fn(),
+    openSnapPicker: null,
     openBroadcast: vi.fn(),
     ...patch,
   };
@@ -93,12 +94,32 @@ describe("buildLauncherItems", () => {
   });
 
   it("disables broadcast without candidates and marks the current view", () => {
-    const items = buildLauncherItems(context({ splitMode: "grid" }));
+    const items = buildLauncherItems(context({ snapLayout: "mainStack" }));
     expect(items.find((item) => item.key === "broadcast")?.disabled).toBe(true);
-    expect(items.find((item) => item.key === "view:grid")?.detail).toBe(
+    expect(items.find((item) => item.key === "view:mainStack")?.detail).toBe(
       createTranslator("en")("folders.current"),
     );
     expect(items.find((item) => item.key === "view:single")?.detail).toBeUndefined();
+  });
+
+  it("offers every snap layout and the picker only with a session", () => {
+    const keys = buildLauncherItems(context())
+      .filter((item) => item.key.startsWith("view:"))
+      .map((item) => item.key);
+    expect(keys).toEqual([
+      "view:single",
+      "view:pair",
+      "view:triple",
+      "view:mainStack",
+      "view:quad",
+    ]);
+    expect(buildLauncherItems(context()).find((item) => item.key === "snap")?.disabled).toBe(true);
+    const openSnapPicker = vi.fn();
+    const ctx = context({ openSnapPicker });
+    const snap = buildLauncherItems(ctx).find((item) => item.key === "snap");
+    expect(snap?.disabled).toBe(false);
+    snap?.run();
+    expect(openSnapPicker).toHaveBeenCalledOnce();
   });
 
   it("skips note folders without notes", () => {

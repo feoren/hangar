@@ -57,12 +57,14 @@ import {
 import { formatShortTime, shortPath, statusText } from "./format";
 import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
-import { buildLauncherItems, SPLIT_MODE_NAMES } from "./launcherItems";
+import { buildLauncherItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
-import { SPLIT_MODES } from "./split";
+import { dropLine } from "./sessionDrag";
+import { SnapBar } from "./SnapBar";
+import { LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
 import {
   clampFontSize,
@@ -123,7 +125,7 @@ import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, terminals } from "./terminal";
 import { schemeColors, type TerminalLook } from "./terminalLook";
-import { EmptyPane, TerminalPane } from "./TerminalPane";
+import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import {
   isDue,
   ORPHANS_REFRESH_MIN_MS,
@@ -140,6 +142,7 @@ import {
 import { usePrograms } from "./usePrograms";
 import { useProgramUpdates } from "./useProgramUpdates";
 import { useGitBranches } from "./useGitBranches";
+import { useSessionDrag } from "./useSessionDrag";
 import { useSplitView } from "./useSplitView";
 import { useUpdater } from "./useUpdater";
 import { HANGAR_BUILD } from "./buildInfo";
@@ -334,6 +337,10 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** Layout picker (View, quick access) for the active session; `preview` is its chosen zone. */
+  const [snapPicker, setSnapPicker] = useState<{ preview: SnapTarget | null } | null>(null);
+  /** Screen reader message after a session moved in the sidebar. */
+  const [moveAnnouncement, setMoveAnnouncement] = useState("");
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
   const [flasher] = useState(
     () =>
@@ -722,7 +729,7 @@ export function App() {
   }, []);
 
   const splitView = useSplitView({
-    mode: layout.splitMode,
+    layout: layout.snapLayout,
     sessions: state.sessions,
     activeId: state.activeId,
     setLayout,
@@ -731,6 +738,42 @@ export function App() {
     },
     focusTerminal,
   });
+
+  /** New place of a session in the sidebar (drag or Alt+arrow); the workspace saves the order. */
+  const moveSession = (id: number, index: number) => {
+    const session = state.sessions.find((s) => s.id === id);
+    dispatch({ type: "moved", id, index });
+    if (session) {
+      const count = state.sessions.length;
+      const position = Math.min(Math.max(index, 0), count - 1) + 1;
+      setMoveAnnouncement(t("session.moved", { title: session.title, position, count }));
+    }
+  };
+
+  const {
+    drag: sessionDragView,
+    begin: beginSessionDrag,
+    attachGhost: attachDragGhost,
+  } = useSessionDrag({
+    layout: layout.snapLayout,
+    order: state.sessions.map((s) => s.id),
+    onMove: moveSession,
+    onPlace: splitView.place,
+  });
+  const draggedId = sessionDragView?.id ?? null;
+  const draggedSession =
+    draggedId === null ? undefined : state.sessions.find((s) => s.id === draggedId);
+
+  const openSnapPicker =
+    state.activeId === null
+      ? null
+      : () => {
+          setSnapPicker({ preview: null });
+        };
+  const closeSnapPicker = () => {
+    setSnapPicker(null);
+    focusTerminal();
+  };
 
   /** Connects a terminal to its session ID: exit, attention, visibility. */
   const wire = useCallback(
@@ -2135,14 +2178,22 @@ export function App() {
           run: toggleTheme,
         },
         { type: "separator" },
-        ...SPLIT_MODES.map((mode): MenuItem => ({
+        ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
-          label: t(SPLIT_MODE_NAMES[mode]),
-          ...(mode === layout.splitMode ? { detail: t("folders.current") } : {}),
+          label: t(LAYOUT_NAMES[id]),
+          ...(id === layout.snapLayout ? { detail: t("folders.current") } : {}),
           run: () => {
-            splitView.setSplitMode(mode);
+            splitView.setSnapLayout(id);
           },
         })),
+        {
+          type: "action",
+          label: t("snap.choose"),
+          disabled: openSnapPicker === null,
+          run: () => {
+            openSnapPicker?.();
+          },
+        },
         { type: "separator" },
         {
           type: "action",
@@ -2354,7 +2405,7 @@ export function App() {
       noteFolders,
       snippets,
       canInsert,
-      splitMode: layout.splitMode,
+      snapLayout: layout.snapLayout,
       canBroadcast: broadcastable.length > 0,
       worktreeFolder: worktreePossible ? cwd : null,
       changesOpen,
@@ -2370,7 +2421,8 @@ export function App() {
       toggleChanges,
       openNotes,
       insertSnippet,
-      setSplitMode: splitView.setSplitMode,
+      setSnapLayout: splitView.setSnapLayout,
+      openSnapPicker,
       openBroadcast: () => {
         setDialog("broadcast");
       },
@@ -2464,6 +2516,23 @@ export function App() {
           onSessionMenu={(id, x, y) => {
             setSessionMenu({ id, x, y });
           }}
+          drag={
+            sessionDragView === null
+              ? null
+              : {
+                  id: sessionDragView.id,
+                  line:
+                    sessionDragView.target?.kind === "list"
+                      ? dropLine(
+                          state.sessions.map((s) => s.id),
+                          sessionDragView.id,
+                          sessionDragView.target.index,
+                        )
+                      : null,
+                }
+          }
+          onDragStart={beginSessionDrag}
+          onMove={moveSession}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
             const update = updater.state.update;
@@ -2516,7 +2585,7 @@ export function App() {
           <div
             className={notesPlacement.mode === "overlay" ? "workspace notes-overlaid" : "workspace"}
           >
-            <div className={state.sessions.length > 0 ? "panes filled" : "panes"}>
+            <div className={state.sessions.length > 0 ? "panes filled" : "panes"} data-panes="">
               {state.sessions.map((session) => {
                 const terminal = terminals.get(session.id);
                 if (!terminal) return null;
@@ -2552,10 +2621,68 @@ export function App() {
               })}
               {state.sessions.length > 0 &&
                 splitView.split.slots.map((id, slot) =>
-                  id === null && splitView.mode !== "single" ? (
-                    <EmptyPane key={`empty-${String(slot)}`} mode={splitView.mode} slot={slot} />
+                  id === null && splitView.layout !== "single" ? (
+                    <EmptyPane
+                      key={`empty-${String(slot)}`}
+                      layout={splitView.layout}
+                      slot={slot}
+                    />
                   ) : null,
                 )}
+              {sessionDragView?.overBody === true && (
+                <>
+                  {sessionDragView.target !== null && sessionDragView.target.kind !== "list" && (
+                    <div
+                      className="snap-preview"
+                      style={
+                        sessionDragView.target.kind === "snap"
+                          ? paneStyle(sessionDragView.target.layout, sessionDragView.target.zone)
+                          : paneStyle(splitView.layout, sessionDragView.target.zone)
+                      }
+                      aria-hidden="true"
+                    >
+                      <span className="snap-preview-label">{t("snap.showHere")}</span>
+                    </div>
+                  )}
+                  <SnapBar
+                    mode="drag"
+                    current={splitView.layout}
+                    highlight={
+                      sessionDragView.target?.kind === "snap"
+                        ? {
+                            layout: sessionDragView.target.layout,
+                            zone: sessionDragView.target.zone,
+                          }
+                        : null
+                    }
+                  />
+                </>
+              )}
+              {snapPicker !== null && activeSession && (
+                <>
+                  {snapPicker.preview !== null && (
+                    <div
+                      className="snap-preview"
+                      style={paneStyle(snapPicker.preview.layout, snapPicker.preview.zone)}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <SnapBar
+                    mode="pick"
+                    current={splitView.layout}
+                    initial={{ layout: splitView.layout, zone: splitView.split.focus }}
+                    title={activeSession.title}
+                    onActive={(target) => {
+                      setSnapPicker({ preview: target });
+                    }}
+                    onPick={(target) => {
+                      setSnapPicker(null);
+                      splitView.place(activeSession.id, target.layout, target.zone);
+                    }}
+                    onClose={closeSnapPicker}
+                  />
+                </>
+              )}
               {state.sessions.length === 0 && (
                 <div className="empty">
                   <h1>{t("empty.title")}</h1>
@@ -2806,6 +2933,15 @@ export function App() {
             onSend={sendToSeveral}
             onClose={closeDialog}
           />
+        )}
+        <div className="sr-only" role="status">
+          {moveAnnouncement}
+        </div>
+        {draggedSession && (
+          <div ref={attachDragGhost} className="drag-ghost" aria-hidden="true">
+            <Badge look={badgeFor(draggedSession.profileId)} />
+            <span className="drag-ghost-title">{draggedSession.title}</span>
+          </div>
         )}
         {/* For screen readers: waiting sessions are announced without moving focus. */}
         <div className="sr-only" role="status">

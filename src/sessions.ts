@@ -38,7 +38,9 @@ export type SessionsAction =
   | { type: "activated"; id: number }
   /** New marker; no color and no emoji removes it. */
   | { type: "marked"; id: number; marker: Marker }
-  | { type: "cycled"; step: 1 | -1 };
+  | { type: "cycled"; step: 1 | -1 }
+  /** Dragged or moved by keyboard in the sidebar: the session now sits at `index`. */
+  | { type: "moved"; id: number; index: number };
 
 export const initialSessions: SessionsState = { sessions: [], activeId: null };
 
@@ -129,7 +131,29 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       const next = (((current < 0 ? 0 : current + action.step) % count) + count) % count;
       return { ...state, activeId: state.sessions[next]?.id ?? null };
     }
+    case "moved": {
+      const sessions = moveItem(state.sessions, action.id, action.index);
+      return sessions === null ? state : { ...state, sessions };
+    }
   }
+}
+
+/**
+ * Moves the item with this ID so that it ends up at `index` (clamped to the list). `null` when
+ * nothing moves (unknown ID, same place).
+ */
+export function moveItem<T extends { id: number }>(
+  items: readonly T[],
+  id: number,
+  index: number,
+): T[] | null {
+  const from = items.findIndex((item) => item.id === id);
+  const item = items[from];
+  if (item === undefined) return null;
+  const to = Math.min(Math.max(Math.trunc(index), 0), items.length - 1);
+  if (to === from) return null;
+  const rest = items.filter((other) => other.id !== id);
+  return [...rest.slice(0, to), item, ...rest.slice(to)];
 }
 
 function mark(state: SessionsState, id: number, stoppedByUser: boolean): SessionsState {

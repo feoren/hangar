@@ -1,23 +1,24 @@
-// Split view state for App: which session sits in which pane, mode changes, maximize and
-// "show exactly these". The pure rules live in split.ts; this hook only holds the slots and wires
-// them to the layout.
+// Split view state for App: which session sits in which pane, layout changes, placing a session
+// in a zone, maximize and "show exactly these". The pure rules live in split.ts and
+// snapLayouts.ts; this hook only holds the slots and wires them to the layout.
 
 import { useState, type Dispatch, type SetStateAction } from "react";
 
 import type { Layout } from "./layout";
 import type { SessionView } from "./sessions";
+import type { LayoutId } from "./snapLayouts";
 import {
   EMPTY_SLOTS,
+  placeSession,
   reconcileSlots,
   showSessions,
   slotOf,
-  type SplitMode,
   type SplitSlots,
 } from "./split";
 import type { PaneSplit } from "./TerminalPane";
 
 interface Options {
-  mode: SplitMode;
+  layout: LayoutId;
   sessions: readonly SessionView[];
   activeId: number | null;
   setLayout: Dispatch<SetStateAction<Layout>>;
@@ -26,12 +27,17 @@ interface Options {
 }
 
 /** What a pane header shows besides its position (badge, attention state, status text). */
-export type PaneLook = Omit<PaneSplit, "mode" | "slot" | "session">;
+export type PaneLook = Omit<PaneSplit, "layout" | "slot" | "session">;
 
 export interface SplitView {
-  mode: SplitMode;
+  layout: LayoutId;
   split: SplitSlots;
-  setSplitMode: (mode: SplitMode) => void;
+  setSnapLayout: (layout: LayoutId) => void;
+  /**
+   * Shows this session in one zone of a layout and makes it active (drop from the sidebar,
+   * layout picker); the other panes keep their sessions where they can.
+   */
+  place: (id: number, layout: LayoutId, zone: number) => void;
   /** Double click on a pane header: show only this session (View menu brings the split back). */
   maximize: (id: number) => void;
   /** Shows exactly these sessions (after "Send to several"), the first one focused. */
@@ -41,35 +47,41 @@ export interface SplitView {
 }
 
 export function useSplitView(options: Options): SplitView {
-  const { mode, sessions, activeId, setLayout, activate, focusTerminal } = options;
+  const { layout, sessions, activeId, setLayout, activate, focusTerminal } = options;
   const [slots, setSlots] = useState<SplitSlots>(EMPTY_SLOTS);
+  const sessionIds = sessions.map((session) => session.id);
 
   // Panes follow the sessions: closed ones leave, the active one is always shown and focused.
   // Adjusted during render, so no frame shows a pane without its session.
-  const split = reconcileSlots(
-    slots,
-    mode,
-    sessions.map((session) => session.id),
-    activeId,
-  );
+  const split = reconcileSlots(slots, layout, sessionIds, activeId);
   if (split !== slots) setSlots(split);
 
-  const setSplitMode = (next: SplitMode) => {
+  const setSnapLayout = (next: LayoutId) => {
     setLayout((current) =>
-      current.splitMode === next ? current : { ...current, splitMode: next },
+      current.snapLayout === next ? current : { ...current, snapLayout: next },
     );
     focusTerminal();
   };
 
+  const place = (id: number, next: LayoutId, zone: number) => {
+    if (!sessionIds.includes(id)) return;
+    setLayout((current) =>
+      current.snapLayout === next ? current : { ...current, snapLayout: next },
+    );
+    setSlots(placeSession(split, next, zone, id, sessionIds));
+    activate(id);
+    focusTerminal();
+  };
+
   const maximize = (id: number) => {
-    setLayout((current) => ({ ...current, splitMode: "single" }));
+    setLayout((current) => ({ ...current, snapLayout: "single" }));
     activate(id);
     focusTerminal();
   };
 
   const showOnly = (ids: readonly number[]) => {
-    const next = showSessions(ids, mode);
-    setLayout((current) => ({ ...current, splitMode: next.mode }));
+    const next = showSessions(ids, layout);
+    setLayout((current) => ({ ...current, snapLayout: next.layout }));
     setSlots(next.split);
     const first = ids[0];
     if (first !== undefined) activate(first);
@@ -77,11 +89,11 @@ export function useSplitView(options: Options): SplitView {
   };
 
   const paneSplit = (session: SessionView, look: () => PaneLook): PaneSplit | null => {
-    if (mode === "single") return null;
+    if (layout === "single") return null;
     const slot = slotOf(split, session.id);
     if (slot === null) return null;
-    return { mode, slot, session, ...look() };
+    return { layout, slot, session, ...look() };
   };
 
-  return { mode, split, setSplitMode, maximize, showOnly, paneSplit };
+  return { layout, split, setSnapLayout, place, maximize, showOnly, paneSplit };
 }

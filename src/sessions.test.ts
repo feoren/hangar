@@ -4,6 +4,7 @@ import type { SessionInfo } from "./api";
 import {
   backgroundSessions,
   initialSessions,
+  moveItem,
   nextWaitingId,
   numberedTitle,
   runningUpdateId,
@@ -298,5 +299,45 @@ describe("runningUpdateId", () => {
     };
     expect(runningUpdateId([agent, done, other, running], "codex")).toBe(4);
     expect(runningUpdateId([agent, done, other, running], "claude")).toBe(3);
+  });
+});
+
+describe("moving sessions", () => {
+  const ids = (state: SessionsState) => state.sessions.map((s) => s.id);
+
+  it("moves a session to the new place and keeps the active one", () => {
+    const state = withSessions([1, 2, 3, 4], 2);
+    const down = sessionsReducer(state, { type: "moved", id: 1, index: 2 });
+    expect(ids(down)).toEqual([2, 3, 1, 4]);
+    expect(down.activeId).toBe(2);
+    const up = sessionsReducer(state, { type: "moved", id: 4, index: 0 });
+    expect(ids(up)).toEqual([4, 1, 2, 3]);
+  });
+
+  it("clamps the place to the list", () => {
+    expect(
+      ids(sessionsReducer(withSessions([1, 2, 3], 1), { type: "moved", id: 1, index: 9 })),
+    ).toEqual([2, 3, 1]);
+    expect(
+      ids(sessionsReducer(withSessions([1, 2, 3], 1), { type: "moved", id: 3, index: -2 })),
+    ).toEqual([3, 1, 2]);
+  });
+
+  it("changes nothing for the same place or an unknown session", () => {
+    const state = withSessions([1, 2, 3], 1);
+    expect(sessionsReducer(state, { type: "moved", id: 2, index: 1 })).toBe(state);
+    expect(sessionsReducer(state, { type: "moved", id: 7, index: 0 })).toBe(state);
+  });
+
+  it("switches with Ctrl+Tab in the new order", () => {
+    let state = sessionsReducer(withSessions([1, 2, 3], 1), { type: "moved", id: 3, index: 1 });
+    state = sessionsReducer(state, { type: "cycled", step: 1 });
+    expect(state.activeId).toBe(3);
+  });
+
+  it("moves plain items too", () => {
+    const items = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    expect(moveItem(items, 2, 0)?.map((item) => item.id)).toEqual([2, 1, 3]);
+    expect(moveItem(items, 2, 1)).toBeNull();
   });
 });

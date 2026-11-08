@@ -6,6 +6,7 @@ import {
   ignoresRepeat,
   isReloadKey,
   matchShortcut,
+  rowMoveStep,
   SHORTCUT_LABELS,
 } from "./shortcuts";
 
@@ -150,5 +151,27 @@ describe("isReloadKey", () => {
   it("is never also an app shortcut", () => {
     expect(matchShortcut(key("r", "KeyR"))).toBeNull();
     expect(matchShortcut(key("R", "KeyR", { shift: true }))).toBeNull();
+  });
+});
+
+describe("rowMoveStep", () => {
+  const alt = { ctrl: false, alt: true };
+
+  it("moves a session row with Alt+Up and Alt+Down", () => {
+    expect(rowMoveStep(key("ArrowUp", "ArrowUp", alt))).toBe(-1);
+    expect(rowMoveStep(key("ArrowDown", "ArrowDown", alt))).toBe(1);
+  });
+
+  it("ignores plain arrows and other modifiers", () => {
+    expect(rowMoveStep(key("ArrowUp", "ArrowUp", { ctrl: false }))).toBeNull();
+    expect(rowMoveStep(key("ArrowUp", "ArrowUp", { ctrl: true, alt: true }))).toBeNull();
+    expect(
+      rowMoveStep(key("ArrowDown", "ArrowDown", { ctrl: false, alt: true, shift: true })),
+    ).toBeNull();
+    expect(rowMoveStep(key("ArrowLeft", "ArrowLeft", alt))).toBeNull();
+  });
+
+  it("is never also an app shortcut", () => {
+    expect(matchShortcut(key("ArrowUp", "ArrowUp", alt))).toBeNull();
   });
 });

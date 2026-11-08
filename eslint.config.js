@@ -12,6 +12,8 @@ export default tseslint.config(
       "tools",
       ".claude",
       "output",
+      // Local, git-ignored test harnesses and previews; they are not part of the app.
+      "tests/.tmp",
       "release",
       "eslint.config.js",
     ],

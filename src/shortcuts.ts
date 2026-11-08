@@ -59,6 +59,19 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
 }
 
 /**
+ * Alt+Up and Alt+Down on a focused session row in the sidebar move that session one place. The row
+ * handles this itself instead of going through `matchShortcut`: in the terminal, Alt+arrow
+ * belongs to shells and agent CLIs (history, word motion), so the keys only count while a row has
+ * the focus. Without Alt, the arrows stay with the list.
+ */
+export function rowMoveStep(event: KeyInfo): -1 | 1 | null {
+  if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return null;
+  if (event.key === "ArrowUp") return -1;
+  if (event.key === "ArrowDown") return 1;
+  return null;
+}
+
+/**
  * Keys that make the WebView reload the page (F5, Ctrl+F5, Ctrl+R, Ctrl+Shift+R). A reload
  * disconnects the UI from all running sessions; the app therefore intercepts these keys, but only
  * outside the terminal. Inside the terminal they belong to the program (Ctrl+R is the shell's

@@ -39,6 +39,8 @@
   --diff-del-bg: rgb(244 112 103 / 16%);
   --diff-del-fg: #ffa198;
   --diff-hunk: #a5b4fc;
+  /* Snap layouts: an unlit zone in a thumbnail; follows --muted in both themes. */
+  --snap-zone: color-mix(in srgb, var(--muted) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
@@ -3818,4 +3820,216 @@ body.resizing-horizontal * {
 
 .change-more.files {
   margin-left: 12px;
+}
+
+/* Dragging a session from the sidebar (useSessionDrag.ts) */
+
+body.session-dragging,
+body.session-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.session.dragging,
+.rail-sessions > li.dragging {
+  opacity: 0.45;
+}
+
+/* No hover actions while a session is carried around. */
+body.session-dragging .session-actions {
+  visibility: hidden;
+}
+
+/* The drop line between two rows: where the session lands. */
+.rail-sessions > li {
+  position: relative;
+}
+
+.session.drop-before::before,
+.session.drop-after::after,
+.rail-sessions > li.drop-before::before,
+.rail-sessions > li.drop-after::after {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  z-index: 2;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.session.drop-before::before,
+.rail-sessions > li.drop-before::before {
+  top: -2px;
+}
+
+/* The list scrolls and would clip a line above its first row. */
+.session:first-child.drop-before::before,
+.rail-sessions > li:first-child.drop-before::before {
+  top: 0;
+}
+
+.session.drop-after::after,
+.rail-sessions > li.drop-after::after {
+  bottom: -2px;
+}
+
+/* Follows the pointer; moved by transform only, without a React render. */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 5px 12px 5px 6px;
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px var(--shadow);
+}
+
+.drag-ghost .badge,
+.drag-ghost .badge-icon img {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  border-radius: 4px;
+}
+
+.drag-ghost-title {
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Snap layouts: the bar at the top of the panes area (SnapBar.tsx) */
+
+.snap-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 26;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 8px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px var(--shadow);
+  transform: translateX(-50%);
+  animation: snap-bar-in 140ms ease-out;
+}
+
+.snap-bar.pick {
+  padding: 10px 12px 12px;
+}
+
+@keyframes snap-bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+}
+
+.snap-caption {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.snap-layouts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.snap-thumb {
+  flex: none;
+  width: 62px;
+  height: 42px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.snap-thumb.current {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.snap-zones {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.snap-zone {
+  position: absolute;
+  padding: 0;
+  background: var(--snap-zone);
+  border-radius: 3px;
+  transition: background-color 80ms ease-out;
+}
+
+.snap-zone.lit {
+  background: var(--accent);
+}
+
+.snap-bar.pick .snap-zone:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+/* Where the session will show: the zone's outline in the panes area. */
+.snap-preview {
+  position: absolute;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  transition:
+    left 120ms ease-out,
+    top 120ms ease-out,
+    width 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.snap-preview-label {
+  padding: 6px 12px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snap-bar {
+    animation: none;
+  }
+
+  .snap-zone,
+  .snap-preview {
+    transition: none;
+  }
 }

@@ -91,7 +91,7 @@ describe("parseLayout", () => {
       fontSize: 16,
       notesOpen: false,
       notesWidth: NOTES_WIDTH.default,
-      splitMode: "single",
+      snapLayout: "single",
     });
   });
 
@@ -111,12 +111,25 @@ describe("parseLayout", () => {
     expect(layout.notesWidth).toBe(520);
   });
 
-  it("remembers the split view mode and ignores unknown ones", () => {
-    expect(parseLayout(JSON.stringify({ splitMode: "grid" })).splitMode).toBe("grid");
-    expect(parseLayout(JSON.stringify({ splitMode: "columns" })).splitMode).toBe("columns");
-    expect(parseLayout(JSON.stringify({ splitMode: "quad" })).splitMode).toBe("single");
-    expect(parseLayout(JSON.stringify({ splitMode: 2 })).splitMode).toBe("single");
-    expect(parseLayout(JSON.stringify({})).splitMode).toBe("single");
+  it("remembers the snap layout and ignores unknown ones", () => {
+    expect(parseLayout(JSON.stringify({ snapLayout: "mainStack" })).snapLayout).toBe("mainStack");
+    expect(parseLayout(JSON.stringify({ snapLayout: "triple" })).snapLayout).toBe("triple");
+    expect(parseLayout(JSON.stringify({ snapLayout: "columns3" })).snapLayout).toBe("single");
+    expect(parseLayout(JSON.stringify({ snapLayout: 2 })).snapLayout).toBe("single");
+    expect(parseLayout(JSON.stringify({})).snapLayout).toBe("single");
+  });
+
+  it("migrates the split mode stored before 0.3", () => {
+    expect(parseLayout(JSON.stringify({ splitMode: "single" })).snapLayout).toBe("single");
+    expect(parseLayout(JSON.stringify({ splitMode: "columns" })).snapLayout).toBe("pair");
+    expect(parseLayout(JSON.stringify({ splitMode: "grid" })).snapLayout).toBe("quad");
+    expect(parseLayout(JSON.stringify({ splitMode: "quad" })).snapLayout).toBe("quad");
+    expect(parseLayout(JSON.stringify({ splitMode: "rows" })).snapLayout).toBe("single");
+    // A stored layout wins over the old field.
+    expect(
+      parseLayout(JSON.stringify({ splitMode: "grid", snapLayout: "triple" })).snapLayout,
+    ).toBe("triple");
+    expect("splitMode" in parseLayout(JSON.stringify({ splitMode: "grid" }))).toBe(false);
   });
 });
 
