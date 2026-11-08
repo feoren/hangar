@@ -1,6 +1,10 @@
-# Hangar
+<p align="center">
+  <img src="docs/images/logo.svg" alt="Hangar logo" width="96" height="96">
+</p>
 
-**One window for all your terminal sessions and AI coding agents.**
+<h1 align="center">Hangar</h1>
+
+<p align="center"><strong>One window for all your terminal sessions and AI coding agents.</strong></p>
 
 Hangar is a desktop app that runs Claude Code, Codex CLI, Gemini CLI, Aider and any other command-line
 tool side by side. A sidebar switches between sessions while every session keeps running in the
