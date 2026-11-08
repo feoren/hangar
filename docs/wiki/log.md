@@ -70,3 +70,10 @@ Sub-agent excerpts and descriptions pass a best-effort redaction filter (`src-ta
 and can be switched off; locating a transcript backs off from 2 s to 30 s; `cliSessionId` must be unique in
 the workspace and a live duplicate starts fresh; profiles that pick a conversation in their own args do not
 inherit the id options. Pages changed: [[agent-workflow-features]], [[resume]], [[session-restore]].
+
+## [2026-11-08] query | Acceptance review of one-click updates and the notes backend
+Update plans run only a uv installed for the user's own use (standalone installer folders, cargo, or
+the package `uv` of winget, Scoop, Homebrew, pipx); a uv bundled in another application's folder
+yields `tool-missing` with copy text. The update outcome claims no cause after a successful update
+without versions to compare. Trash records that name anything but a plain `.md` file in `.trash/`
+are ignored. Pages changed: [[program-updates]], [[notes]], index.

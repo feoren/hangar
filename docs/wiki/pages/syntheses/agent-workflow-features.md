@@ -468,3 +468,29 @@ menu paste uses the clipboard plugin.
       256 KiB of a transcript are read at first; lines over 1 MiB are skipped. Polling instead of `notify` (CC0-1.0, outside the license policy).
     - Codex, OpenCode and Gemini: not built; each would be another `SubAgentKind` with its own
       `SubAgentSource` ([[subagent-transcripts]]).
+    As built, frontend (`src/subAgents.ts`, `src/useSubAgents.ts`, `src/SubAgentPanes.tsx`):
+    "Show sub-agents" sits in the session menu (sidebar row, rail, pane header) and in quick
+    access, only when `subAgents` is true (or the view is open, then it reads "Hide sub-agents").
+    Opening it makes the session active; the body then shows the session in the main zone of its
+    own layout and one read-only pane per sub-agent in the other zones: one sub-agent `pair`,
+    two `mainStack`, three `quad`; with four or more, `quad` with the two most relevant (running
+    first, newest first, shown in start order) and a list of all. The layout follows the most
+    sub-agents seen, so it never shrinks while open. The split view's own slots stay untouched
+    and come back when the view closes: by the close button, Escape inside a sub-agent pane,
+    the menu entry, another session becoming active, the session closing, or any arranging of
+    the panes (layout, drop, maximize, "Send to several"). Each pane: description (else type),
+    type, status as text plus a dot whose shape differs (filled, ring, square; the running dot
+    pulses only without reduced motion), run time (`m:ss`, ticking each second), current tool,
+    up to four earlier tool names (kept in memory from snapshot to snapshot) and the excerpt as
+    plain React text with `pre-wrap`. Before the first snapshot, while `located` is `false`,
+    with no sub-agents, when `subAgents` turned `false` and on a refused watch, one notice pane
+    says so. Watch and unwatch run one after the other in call order, so the unwatch of a
+    closing view never ends the watch that replaces it (restart with a new id, excerpts
+    switched). Setting "Show sub-agent text excerpts" (Settings, Sessions, default on) is passed
+    as `excerpts`. Snapshots live only in the hook's state.
+    As built, conversation ids (`src/workspace.ts`, `src/sessions.ts`): `cliSessionId` is saved
+    per entry (lower case, invalid or duplicate ids dropped to `null`, so the backend never
+    refuses the workspace), passed to `create_session` on restore and on restarting a
+    placeholder, and updated from `restart_session` and from `resumeFallback` (reducer action
+    `fellBack`, which also clears `resumed`). A fallback that arrives before `create_session`
+    answers is kept on the terminal and applied after the session is added.
