@@ -55,6 +55,14 @@ describe("matchShortcut", () => {
     expect(formatShortcut(SHORTCUT_LABELS.newSession, de)).toBe("Strg+Umschalt+T");
   });
 
+  it("search with Ctrl+Shift+F, Ctrl+F stays with the shell", () => {
+    expect(matchShortcut(key("F", "KeyF", { shift: true }))).toBe("find");
+    expect(matchShortcut(key("f", "KeyF"))).toBeNull(); // cursor forward
+    expect(matchShortcut(key("F", "KeyF", { shift: true, alt: true }))).toBeNull();
+    expect(ignoresRepeat("find")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.find, createTranslator("de"))).toBe("Strg+Umschalt+F");
+  });
+
   it("repeats held keys only where repeating is wanted", () => {
     expect(ignoresRepeat("newSession")).toBe(true);
     expect(ignoresRepeat("toggleSidebar")).toBe(true);
