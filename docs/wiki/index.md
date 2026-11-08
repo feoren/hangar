@@ -23,6 +23,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Concepts
 
 ## Sources
+- [[webgl-measurement]]: measurement: xterm.js 6 DOM vs WebGL renderer in Edge 157 (WebView2 engine), no gain, 4x slower on color-heavy output; WebGL stays off (updated: 2026-11-08)
 - [[windows-toast-notifications]]: app id rule of tauri-plugin-notification, missing toast tag in tauri-winrt-notification, implicit MTA (sources: 0, updated: 2026-11-08)
 - [[code-signing-research]]: code signing: vendors and costs, Tauri signing options, --config, Get-AuthenticodeSignature (updated: 2026-11-08)
 - [[cmd-launcher-measurement]]: measurement: .cmd launcher scripts via portable-pty, node from the working folder, injection via `&`, `"`, `%` (updated: 2026-11-08)

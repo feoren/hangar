@@ -160,8 +160,9 @@ usual. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
 13. **Session marker**: color and emoji per session (context menu "Marker"), shown in the
     sidebar, pane header and rail; saved in the workspace.
 14. **Taskbar badge**: number of waiting sessions as an overlay icon (Windows) or badge count.
-15. **WebGL**: `@xterm/addon-webgl` only if a measurement under WebView2 shows a clear gain; with
-    a fallback to the DOM renderer on context loss. Result in [[webgl-measurement]].
+15. **WebGL**: measured, not adopted. The DOM renderer was as fast or faster in every scenario
+    and WebGL was about 4x slower on color-heavy output ([[webgl-measurement]]). Revisit only with
+    data from a real WebView2 host and fractional DPI.
 16. **Profile editor**: Settings, Programs: form for name, command, arguments, folder,
     environment and secret variables, saved at once via `save_profile`.
 17. **Secrets**: per secret variable a password field; stored via `set_profile_secret`, shown only as
