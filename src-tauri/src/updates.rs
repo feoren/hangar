@@ -512,6 +512,8 @@ impl UpdateCache {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanView {
     pub kind: PlanKind,
+    /// [`UpdatePlan::fingerprint`].
+    pub id: String,
     pub reason: Option<Reason>,
     pub needs_admin: bool,
     pub command: Option<String>,
@@ -529,6 +531,7 @@ impl PlanView {
         }
         Self {
             kind: plan.kind(),
+            id: plan.fingerprint(),
             reason: plan.reason,
             needs_admin: plan.needs_admin,
             command: plan.command(),
@@ -657,6 +660,8 @@ pub struct UpdateInfo {
     pub warnings: Vec<Warning>,
     /// Every copy of the program found, the started one first.
     pub copies: Vec<PathBuf>,
+    /// Fingerprint of the plan; `create_update_session` refuses if it no longer matches.
+    pub plan_id: String,
 }
 
 pub fn result(item: &Item, entry: &CacheEntry) -> UpdateInfo {
@@ -679,6 +684,7 @@ pub fn result(item: &Item, entry: &CacheEntry) -> UpdateInfo {
         installer: plan.installer,
         warnings: plan.warnings.clone(),
         copies: plan.copies.clone(),
+        plan_id: plan.id.clone(),
     }
 }
 
@@ -955,6 +961,7 @@ mod tests {
             installed: installed.map(str::to_owned),
             plan: PlanView {
                 kind: PlanKind::Run,
+                id: "0011223344556677".into(),
                 reason: None,
                 needs_admin: false,
                 command: Some("hint".into()),

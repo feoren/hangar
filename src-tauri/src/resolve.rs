@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
 
+/// Only absolute PATH entries count: a relative one would depend on Hangar's working folder.
 pub fn resolve_program(
     command: &str,
     path: Option<&OsStr>,
@@ -20,7 +21,7 @@ pub fn resolve_program(
         return find_with_extensions(direct, &candidates);
     }
     std::env::split_paths(path?)
-        .filter(|dir| !dir.as_os_str().is_empty())
+        .filter(|dir| dir.is_absolute())
         .find_map(|dir| find_with_extensions(&dir.join(command), &candidates))
 }
 
@@ -38,7 +39,7 @@ pub fn resolve_all(command: &str, path: Option<&OsStr>, pathext: Option<&OsStr>)
         return Vec::new();
     };
     std::env::split_paths(path)
-        .filter(|dir| !dir.as_os_str().is_empty())
+        .filter(|dir| dir.is_absolute())
         .filter_map(|dir| find_with_extensions(&dir.join(command), &candidates))
         .collect()
 }
@@ -111,6 +112,28 @@ mod tests {
         let path = path_of(&[&dir.0]);
         assert_eq!(resolve_program("does-not-exist", Some(&path), None), None);
         assert_eq!(resolve_program("x", None, None), None);
+    }
+
+    /// A relative PATH entry would resolve against Hangar's own working folder, which nobody
+    /// chose; such entries are skipped.
+    #[test]
+    fn relative_path_entries_are_ignored() {
+        let relative = PathBuf::from(format!("../tests/.tmp/resolve-rel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&relative);
+        std::fs::create_dir_all(&relative).unwrap();
+        let file = if cfg!(windows) {
+            "reltool.exe"
+        } else {
+            "reltool"
+        };
+        std::fs::write(relative.join(file), b"").unwrap();
+        let path = path_of(&[&relative]);
+        assert_eq!(resolve_program("reltool", Some(&path), None), None);
+        assert!(resolve_all("reltool", Some(&path), None).is_empty());
+        let absolute = std::fs::canonicalize(&relative).unwrap();
+        let path = path_of(&[&absolute]);
+        assert!(resolve_program("reltool", Some(&path), None).is_some());
+        std::fs::remove_dir_all(&relative).unwrap();
     }
 
     #[test]

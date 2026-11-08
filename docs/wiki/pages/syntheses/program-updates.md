@@ -29,6 +29,7 @@ type UpdateInfo = {
   installer: Installer | null;    // how the started copy was installed, if known
   warnings: ("second-copy" | "running")[];
   copies: string[];               // every copy found, the started one first
+  planId: string;                 // fingerprint of the plan (16 hex), see create_update_session
   updateHint: string | null;      // = command, kept for older frontends
   canRun: boolean;                // = plan === "run", kept for older frontends
 };
@@ -53,12 +54,25 @@ type Installer = "npm" | "pnpm" | "bun" | "winget" | "registered" | "scoop" | "c
 - `force: true` bypasses the disk cache. Only sensible when the user asks for it (GitHub: 60 requests
   per hour and IP).
 
-`create_update_session({ profileId, size, onEvent })` starts the update as a normal session
-and returns its `SessionInfo` with `kind: "update"` and the title "Update: <Name>". The command
-deliberately takes no working folder and is async (detection reads files and the uninstall keys
-off the main thread). Errors (text, English): unknown profile, no update command known
-(`Missing`), "Hangar cannot run the update itself (<Reason>)" (`NoPlan`), invalid `update_hint`,
-an update of this program is already running, program not found, working folder missing.
+`create_update_session({ profileId, size, onEvent, expectedPlan? })` starts the update as a
+normal session and returns its `SessionInfo` with `kind: "update"` and the title
+"Update: <Name>". The command deliberately takes no working folder and is async (detection reads
+files and the uninstall keys off the main thread). `expectedPlan` is the `planId` the user saw;
+the backend plans again and refuses with "The update of <Name> changed since it was shown; check
+for updates again" (`PlanChanged`) if the fingerprint differs, so nothing runs that was not shown
+(another copy came first on PATH, a profile was edited). Optional for older frontends. Other
+errors (text, English): unknown profile, no update command known (`Missing`), "Hangar cannot run
+the update itself (<Reason>)" (`NoPlan`), invalid `update_hint`, an update of this program is
+already running, program not found, working folder missing.
+
+The first output of every update session (also of a restart) is the exact argv, written by the
+backend before the program starts: `ESC[2m<absolute program> <args…>ESC[0m\r\n` (dimmed, parts
+with spaces in quotes, control characters removed). It passes the same flow control as program
+output.
+
+`planId` covers the kind and every part of the command (SHA-256 over length-prefixed parts, first
+8 bytes as hex); it is no secret and no signature, only a check that the shown and the started
+command are the same.
 
 ### Event `program-update-result`
 After an update session exits (also after a restart of it), the backend clears the version cache,
@@ -93,14 +107,14 @@ Detection uses the resolved path and file existence only, no process ([[update-i
 
 | Installer | Evidence | Command (tool resolved absolutely) |
 |---|---|---|
-| npm | `node_modules/<npm>` next to the shim (Windows), `<prefix>/lib/node_modules/<npm>` (Unix), or the real path inside it | `npm install -g --prefix <prefix> <npm>@latest` |
+| npm | `node_modules/<npm>` next to the shim (Windows), `<prefix>/lib/node_modules/<npm>` next to `<prefix>/bin/<command>` (Unix), or a real path `<prefix>/lib/node_modules/<npm>/...` when `<prefix>/bin/<command>` exists; the prefix keeps the path's own case and separators | `npm install -g --prefix <prefix> <npm>@latest`, npm from the program's own folder, `Program Files\nodejs` or PATH, never from a `bin` folder that is not the program's |
 | pnpm | shim in `PNPM_HOME`, package below `global/` | `pnpm add -g <pnpm or npm>@latest` |
 | winget | path below `WinGet\Packages\<Id>_<source>` or `WinGet\Links` (user or Program Files) | `winget upgrade --id <winget> --exact --source winget`; the folder id must equal the catalog id |
 | registered | uninstall key whose `InstallLocation` contains the path (HKLM = machine), else a folder below Program Files | the same winget command |
 | scoop | below `<scoop>\apps\<app>` or `shims` | `scoop update <scoop>` |
 | uv | real path below the uv tool dir, or `uv-receipt.toml` of the catalog package naming the path | `uv tool upgrade <pypi>` |
 | pipx | real path below `venvs/<pkg>`, or `venvs/<pypi>/pipx_metadata.json` with the shim in the pipx bin dir | `pipx upgrade <pypi>` |
-| brew, brew-cask | `Cellar/<formula>` or `Caskroom/<cask>` in the real path | `<prefix>/bin/brew upgrade [--cask] <name>` |
+| brew, brew-cask | macOS and Linux only: `Cellar/<formula>` or `Caskroom/<cask>` in the real path below `HOMEBREW_PREFIX`, `/opt/homebrew`, `/usr/local` or `/home/linuxbrew/.linuxbrew` | `<prefix>/bin/brew upgrade [--cask] <name>` |
 | bun, choco, cargo | `~/.bun/bin`; `chocolatey\bin` or `\lib`; `~/.cargo/bin` plus `.crates2.json` | none (`unsupported`) |
 | native | Claude Code: `~/.local/bin` plus `~/.local/share/claude`; Codex: `Programs\OpenAI\Codex` | the self-updater |
 
@@ -149,7 +163,8 @@ Detection uses the resolved path and file existence only, no process ([[update-i
   `update_hint` is as trustworthy as `command`: whoever can write the catalog or profiles.toml already
   decides what Hangar launches.
 - Launched like every session through `spawn` in `manager.rs`: `argv[0]` of an `update_hint` via
-  PATH lookup (`resolve_program`, finds `npm.cmd`, `winget.exe`), planned tools already absolute,
+  PATH lookup (`resolve_program`, finds `npm.cmd`, `winget.exe`; only absolute PATH entries count,
+  a relative one would depend on Hangar's working folder), planned tools already absolute,
   the remaining parts as arguments, no shell. `.cmd` tools (npm, pnpm, scoop) go through the
   cmd.exe checks of [[cmd-launcher]]. The profile's environment
   (`env`) applies here too; `TERM`, `COLORTERM` and the removal of inherited session markers work as for agents.

@@ -18,6 +18,7 @@ use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, Term
 use crate::notes::{
     FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
 };
+use crate::notes_window::{self, NotesMessage, NotesWindowError};
 use crate::notify::{self, Notifier};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
@@ -453,19 +454,27 @@ pub fn create_session(
 /// self-updater or its installer's update with the catalog's package name (contract:
 /// docs/wiki/pages/syntheses/program-updates.md). Async so the detection (file checks and the
 /// uninstall keys) does not run on the main thread.
+///
+/// `expected_plan`: the `planId` from `check_program_updates` the user saw; if the plan changed
+/// since, the start is refused ([`ManagerError::PlanChanged`]). Optional for older frontends.
 #[tauri::command]
 pub async fn create_update_session(
     app: tauri::AppHandle,
     profile_id: String,
     size: TermSize,
     on_event: Channel<SessionEvent>,
+    expected_plan: Option<String>,
 ) -> Result<SessionInfo, ManagerError> {
     tauri::async_runtime::spawn_blocking(move || {
         let watch = UpdateWatch::new(&app, &profile_id);
         let session = Arc::clone(&watch.session);
         let manager = app.state::<SessionManager>();
-        let info =
-            manager.create_update(&profile_id, size, update_sink(app.clone(), on_event, watch))?;
+        let info = manager.create_update_checked(
+            &profile_id,
+            expected_plan.as_deref(),
+            size,
+            update_sink(app.clone(), on_event, watch),
+        )?;
         let _ = session.set(info.id);
         Ok(info)
     })
@@ -780,6 +789,76 @@ pub async fn export_note(
     })
     .await
     .map_err(|error| NotesError::Task(error.to_string()))?
+}
+
+// Detached notes window (notes_window.rs).
+
+/// Opens the notes window with its fixed label, URL and size, or brings it to the front if it
+/// is already open. Async: creating a window from a synchronous command deadlocks on Windows.
+#[tauri::command]
+pub async fn open_notes_window(
+    app: tauri::AppHandle,
+    always_on_top: bool,
+) -> Result<(), NotesWindowError> {
+    let focus = |window: tauri::WebviewWindow| -> Result<(), NotesWindowError> {
+        let _ = window.unminimize();
+        window.show()?;
+        window.set_focus()?;
+        Ok(())
+    };
+    if let Some(window) = app.get_webview_window(notes_window::LABEL) {
+        return focus(window);
+    }
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        notes_window::LABEL,
+        tauri::WebviewUrl::App(notes_window::URL.into()),
+    )
+    .title("Hangar")
+    .inner_size(notes_window::WIDTH, notes_window::HEIGHT)
+    .min_inner_size(notes_window::MIN_WIDTH, notes_window::MIN_HEIGHT)
+    .always_on_top(always_on_top)
+    .build();
+    match built {
+        Ok(_) => Ok(()),
+        // Two quick clicks: the other call created it meanwhile.
+        Err(error) => match app.get_webview_window(notes_window::LABEL) {
+            Some(window) => focus(window),
+            None => Err(error.into()),
+        },
+    }
+}
+
+/// Keeps the notes window above other windows or not; `false` if it is not open.
+#[tauri::command]
+pub fn set_notes_on_top(app: tauri::AppHandle, on_top: bool) -> Result<bool, NotesWindowError> {
+    let Some(window) = app.get_webview_window(notes_window::LABEL) else {
+        return Ok(false);
+    };
+    window.set_always_on_top(on_top)?;
+    Ok(true)
+}
+
+/// The only way from the notes window to the main window: a validated [`NotesMessage`],
+/// delivered as event `notes-message` to `main` alone. The notes window may not emit events
+/// itself, so it cannot fake events such as `tray-quit`.
+#[tauri::command]
+pub fn notes_to_main(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    message: NotesMessage,
+) -> Result<(), NotesWindowError> {
+    notes_window::check_sender(window.label())?;
+    message.validate()?;
+    if message == (NotesMessage::ShowMain {}) {
+        tray::show_main_window(&app);
+    }
+    app.emit_to(
+        notes_window::MAIN_LABEL,
+        notes_window::MESSAGE_EVENT,
+        &message,
+    )?;
+    Ok(())
 }
 
 /// Shows the note's file selected in Explorer or Finder (Linux: its folder).

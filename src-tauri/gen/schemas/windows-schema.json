@@ -339,10 +339,22 @@
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Enables the notes_to_main command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notes-to-main",
+          "markdownDescription": "Enables the notes_to_main command without any pre-configured scope."
+        },
+        {
           "description": "Enables the notify_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-notify-session",
           "markdownDescription": "Enables the notify_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_notes_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-notes-window",
+          "markdownDescription": "Enables the open_notes_window command without any pre-configured scope."
         },
         {
           "description": "Enables the open_profile_file command without any pre-configured scope.",
@@ -463,6 +475,12 @@
           "type": "string",
           "const": "allow-search-notes",
           "markdownDescription": "Enables the search_notes command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_notes_on_top command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-notes-on-top",
+          "markdownDescription": "Enables the set_notes_on_top command without any pre-configured scope."
         },
         {
           "description": "Enables the set_profile_secret command without any pre-configured scope.",
@@ -657,10 +675,22 @@
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Denies the notes_to_main command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notes-to-main",
+          "markdownDescription": "Denies the notes_to_main command without any pre-configured scope."
+        },
+        {
           "description": "Denies the notify_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-notify-session",
           "markdownDescription": "Denies the notify_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_notes_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-notes-window",
+          "markdownDescription": "Denies the open_notes_window command without any pre-configured scope."
         },
         {
           "description": "Denies the open_profile_file command without any pre-configured scope.",
@@ -781,6 +811,12 @@
           "type": "string",
           "const": "deny-search-notes",
           "markdownDescription": "Denies the search_notes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_notes_on_top command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-notes-on-top",
+          "markdownDescription": "Denies the set_notes_on_top command without any pre-configured scope."
         },
         {
           "description": "Denies the set_profile_secret command without any pre-configured scope.",

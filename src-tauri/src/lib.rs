@@ -12,6 +12,7 @@ pub mod icon;
 pub mod install_source;
 pub mod manager;
 pub mod notes;
+pub mod notes_window;
 pub mod notify;
 pub mod output;
 pub mod persist;
@@ -133,6 +134,9 @@ pub fn run() -> tauri::Result<()> {
             commands::restore_note,
             commands::export_note,
             commands::reveal_note,
+            commands::open_notes_window,
+            commands::set_notes_on_top,
+            commands::notes_to_main,
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,

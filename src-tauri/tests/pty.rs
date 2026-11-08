@@ -496,14 +496,24 @@ fn planned_update_runs_self_updater_of_resolved_program() {
             || command_text.starts_with('/'),
         "{command_text}"
     );
+    // A plan the user did not see is refused; the one shown starts.
+    assert!(matches!(
+        manager.create_update_checked("selfup", Some("0000000000000000"), SIZE, |_| {}),
+        Err(ManagerError::PlanChanged(_))
+    ));
     let (tx, rx) = channel();
     let info = manager
-        .create_update("selfup", SIZE, move |e| tx.send(e).unwrap_or(()))
+        .create_update_checked("selfup", Some(&plan.fingerprint()), SIZE, move |e| {
+            tx.send(e).unwrap_or(())
+        })
         .unwrap();
     assert_eq!(info.kind, SessionKind::Update);
     let (output, code) = collect_until_exit(&manager, info.id, &rx);
     assert!(output.contains("hangar-self-update"), "Output: {output:?}");
     assert_eq!(code, Some(0));
+    // The exact argv comes first, dimmed, before anything the program writes.
+    let shown = format!("\x1b[2m{command_text}\x1b[0m\r\n");
+    assert!(output.starts_with(&shown), "Output: {output:?}");
 
     match manager.create_update("unknown", SIZE, |_| {}) {
         Err(ManagerError::NoUpdateCommand { reason, .. }) => {

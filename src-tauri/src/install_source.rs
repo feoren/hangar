@@ -798,17 +798,48 @@ fn match_npm(
                     }
                 }
             }
-            // Real path inside the package: .../lib/node_modules/<package>/...
-            let text = key(path);
-            let marker = format!("/node_modules/{}/", key(Path::new(name)));
-            if let Some(at) = text.find(&marker) {
-                let prefix = text[..at].trim_end_matches("/lib");
-                let prefix = PathBuf::from(prefix);
-                return Some(install(Installer::Npm, loc.scope_of(&prefix), prefix, None));
-            }
         }
     }
-    None
+    // Real path inside the package (a link elsewhere pointing into a prefix): only the Unix
+    // layout `<prefix>/lib/node_modules/<package>/...`, and only if `<prefix>/bin/<command>`
+    // exists, so a stray `node_modules` folder never names a prefix.
+    let name = pk.npm.as_ref()?;
+    let command = paths.first()?.file_name()?;
+    paths.iter().find_map(|path| {
+        let prefix = prefix_of_package_path(path, name)?;
+        probe
+            .is_file(&prefix.join("bin").join(command))
+            .then(|| install(Installer::Npm, loc.scope_of(&prefix), prefix, None))
+    })
+}
+
+fn segment_is(component: &Component<'_>, text: &str) -> bool {
+    match component {
+        Component::Normal(name) => name.to_str().is_some_and(|name| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case(text)
+            } else {
+                name == text
+            }
+        }),
+        _ => false,
+    }
+}
+
+/// `<prefix>` of `<prefix>/lib/node_modules/<package>/...`, built from the path's own
+/// components so case and separators stay as they are.
+fn prefix_of_package_path(path: &Path, package: &str) -> Option<PathBuf> {
+    let parts: Vec<Component<'_>> = path.components().collect();
+    let package: Vec<&str> = package.split('/').collect();
+    (1..parts.len()).find_map(|at| {
+        let after = parts.get(at + 1..at + 1 + package.len())?;
+        let matches = segment_is(&parts[at], "node_modules")
+            && segment_is(&parts[at - 1], "lib")
+            && after.iter().zip(&package).all(|(c, p)| segment_is(c, p))
+            // The package folder must contain the path, not be its last component.
+            && parts.len() > at + 1 + package.len();
+        matches.then(|| parts[..at - 1].iter().collect())
+    })
 }
 
 fn match_pnpm(
@@ -973,13 +1004,42 @@ fn match_pipx(
     None
 }
 
-fn match_brew(paths: &[&Path], _: &Packages, _: &dyn Probe, loc: &Locations) -> Option<Install> {
+/// Homebrew prefixes Hangar trusts: the documented defaults and `HOMEBREW_PREFIX`. A `Cellar`
+/// folder anywhere else is not taken for Homebrew, so its `bin/brew` never runs.
+fn brew_prefixes(probe: &dyn Probe) -> Vec<PathBuf> {
+    let mut prefixes: Vec<PathBuf> = probe
+        .var("HOMEBREW_PREFIX")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .into_iter()
+        .collect();
+    prefixes.extend(
+        ["/opt/homebrew", "/usr/local", "/home/linuxbrew/.linuxbrew"]
+            .iter()
+            .map(PathBuf::from),
+    );
+    prefixes
+}
+
+fn match_brew(
+    paths: &[&Path],
+    _: &Packages,
+    probe: &dyn Probe,
+    loc: &Locations,
+) -> Option<Install> {
+    if cfg!(windows) {
+        return None;
+    }
+    let prefixes = brew_prefixes(probe);
     for path in paths {
         for (marker, installer) in [
             ("Cellar", Installer::Brew),
             ("Caskroom", Installer::BrewCask),
         ] {
-            if let Some((root, package)) = split_at_segment(path, marker) {
+            let Some((root, package)) = split_at_segment(path, marker) else {
+                continue;
+            };
+            if prefixes.iter().any(|prefix| same_dir(prefix, &root)) {
                 return Some(install(installer, loc.scope_of(&root), root, Some(package)));
             }
         }
@@ -1300,6 +1360,37 @@ impl UpdatePlan {
         }
     }
 
+    /// Short identifier of what would run (kind, program and every argument). The frontend
+    /// sends it back with `create_update_session`; if the plan changed in between (another
+    /// copy came first on PATH, a profile was edited), the start is refused.
+    pub fn fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        let mut part = |text: &str| {
+            hash.update(text.len().to_le_bytes());
+            hash.update(text.as_bytes());
+        };
+        match &self.action {
+            Action::Run { program, args } => {
+                part("run");
+                part(program);
+                for arg in args {
+                    part(arg);
+                }
+            }
+            Action::Copy(text) => {
+                part("copy");
+                part(text);
+            }
+            Action::None => part("none"),
+        }
+        hash.finalize()
+            .iter()
+            .take(8)
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
     /// Display text: the command that runs, or the text for copying.
     pub fn command(&self) -> Option<String> {
         match &self.action {
@@ -1408,7 +1499,7 @@ pub fn plan(input: &PlanInput<'_>, probe: &dyn Probe) -> UpdatePlan {
             }
         }
         match &detection {
-            Detection::Known(install) => match template(install, &packages, probe) {
+            Detection::Known(install) => match template(install, &packages, probe, program) {
                 Ok(action) => (action, None),
                 Err((reason, Some(text))) => (Action::Copy(text), Some(reason)),
                 Err((reason, None)) => (copy_install(), Some(reason)),
@@ -1433,7 +1524,14 @@ type TemplateError = (Reason, Option<String>);
 
 /// The installer's update command for the catalog package. On a missing tool, the same
 /// command with the bare tool name comes back as copy text.
-fn template(install: &Install, pk: &Packages, probe: &dyn Probe) -> Result<Action, TemplateError> {
+/// `program`: the started copy; npm is looked up in its folder (the Windows prefix), never in a
+/// `bin` folder of the prefix that is not the program's own.
+fn template(
+    install: &Install,
+    pk: &Packages,
+    probe: &dyn Probe,
+    program: &Path,
+) -> Result<Action, TemplateError> {
     let loc = Locations::new(probe);
     let need = |name: &Option<String>, ok: fn(&str) -> bool| -> Result<String, TemplateError> {
         match name {
@@ -1474,7 +1572,14 @@ fn template(install: &Install, pk: &Packages, probe: &dyn Probe) -> Result<Actio
                 prefix,
                 format!("{name}@latest"),
             ];
-            let preferred = [install.root.clone(), install.root.join("bin")];
+            // The program's own folder (npm.cmd sits next to the shims on Windows, npm next to
+            // the command in `<prefix>/bin`), then the Node.js folders of Program Files, then PATH.
+            let mut preferred: Vec<PathBuf> = program
+                .parent()
+                .map(Path::to_path_buf)
+                .into_iter()
+                .collect();
+            preferred.extend(loc.program_files.iter().map(|d| d.join("nodejs")));
             tool("npm", &preferred, &args)
         }
         Installer::Pnpm => {
@@ -1774,6 +1879,57 @@ mod tests {
         // Without the package next to the shim, the npm folder alone decides nothing.
         let other = packages(r#"packages = { npm = "@google/gemini-cli" }"#);
         assert_eq!(detect(&shim, &other, &probe), Detection::Unknown);
+    }
+
+    #[test]
+    fn npm_real_path_needs_lib_and_the_prefix_command() {
+        let t = TempDir::new("source-npm-real");
+        let prefix = t.path().join("Node Prefix");
+        let real = touch(&prefix.join("lib/node_modules/@openai/codex/bin/codex.js"));
+        let pk = packages(r#"packages = { npm = "@openai/codex" }"#);
+        assert_eq!(
+            key(&prefix_of_package_path(&real, "@openai/codex").unwrap()),
+            key(&prefix)
+        );
+        // The prefix keeps the case and separators of the path itself.
+        assert_eq!(
+            prefix_of_package_path(&real, "@openai/codex").unwrap(),
+            prefix
+        );
+        // Without `lib` in front of node_modules: not an npm prefix.
+        let stray = touch(&t.path().join("x/node_modules/@openai/codex/codex.js"));
+        assert_eq!(prefix_of_package_path(&stray, "@openai/codex"), None);
+        // `<prefix>/bin/<command>` must exist for the real-path rule.
+        let probe = TreeProbe::new(t.path());
+        let elsewhere = t.path().join("links").join(exe("codex"));
+        assert_eq!(
+            match_npm(&[&elsewhere, &real], &pk, &probe, &Locations::new(&probe)),
+            None
+        );
+        touch(&prefix.join("bin").join(exe("codex")));
+        let found = match_npm(&[&elsewhere, &real], &pk, &probe, &Locations::new(&probe)).unwrap();
+        assert_eq!(found.root, prefix);
+    }
+
+    #[test]
+    fn npm_is_never_taken_from_a_foreign_bin_folder() {
+        let t = TempDir::new("source-npm-bin");
+        // Windows layout: shim and node_modules in the prefix; a `bin/npm` below it is not
+        // the program folder and must not run.
+        let prefix = t.path().join("prefix");
+        let shim = touch(&prefix.join(exe("codex")));
+        fs::create_dir_all(prefix.join("node_modules/@openai/codex")).unwrap();
+        touch(&prefix.join("bin").join(exe("npm")));
+        let probe = TreeProbe::new(t.path());
+        let pk = packages(r#"packages = { npm = "@openai/codex" }"#);
+        let plan = plan_for(&profile_with(Some(pk.clone()), None), &shim, &probe);
+        assert_eq!(plan.reason, Some(Reason::ToolMissing), "{plan:?}");
+        let npm = touch(&prefix.join(exe("npm")));
+        let plan = plan_for(&profile_with(Some(pk), None), &shim, &probe);
+        let Action::Run { program, .. } = &plan.action else {
+            panic!("{plan:?}")
+        };
+        assert_eq!(key(Path::new(program)), key(&npm));
     }
 
     #[test]
@@ -2114,14 +2270,25 @@ mod tests {
     fn homebrew_cellar_and_caskroom() {
         let t = TempDir::new("source-brew");
         let prefix = t.path().join("homebrew");
-        let probe = TreeProbe::new(t.path());
+        let mut probe = TreeProbe::new(t.path());
         let formula = touch(
             &prefix
                 .join("Cellar/gemini-cli/0.9.0/bin")
                 .join(exe("gemini")),
         );
         let cask = touch(&prefix.join("Caskroom/codex/0.167.0").join(exe("codex")));
+        let brew = touch(&prefix.join("bin/brew"));
         let pk = packages(r#"packages = { brew = "gemini-cli", cask = "codex" }"#);
+        // A Cellar outside the known prefixes is not Homebrew; its bin/brew never runs.
+        assert_eq!(detect(&formula, &pk, &probe), Detection::Unknown);
+        probe
+            .vars
+            .insert("HOMEBREW_PREFIX".into(), prefix.clone().into_os_string());
+        if cfg!(windows) {
+            // Homebrew does not exist on Windows.
+            assert_eq!(detect(&formula, &pk, &probe), Detection::Unknown);
+            return;
+        }
         let found = known(detect(&formula, &pk, &probe));
         assert_eq!(found.installer, Installer::Brew);
         assert_eq!(key(&found.root), key(&prefix));
@@ -2130,18 +2297,17 @@ mod tests {
             known(detect(&cask, &pk, &probe)).installer,
             Installer::BrewCask
         );
-
-        // Without the prefix's own brew there is nothing to run.
-        let plan = plan_for(&profile_with(Some(pk.clone()), None), &formula, &probe);
-        assert_eq!(plan.reason, Some(Reason::ToolMissing));
-        assert_eq!(plan.command().as_deref(), Some("brew upgrade gemini-cli"));
-        let brew = touch(&prefix.join("bin/brew"));
         let plan = plan_for(&profile_with(Some(pk.clone()), None), &cask, &probe);
         let Action::Run { program, args } = &plan.action else {
             panic!("{plan:?}")
         };
         assert_eq!(key(Path::new(program)), key(&brew));
         assert_eq!(args, &["upgrade", "--cask", "codex"]);
+        // Without the prefix's own brew there is nothing to run.
+        fs::remove_file(&brew).unwrap();
+        let plan = plan_for(&profile_with(Some(pk.clone()), None), &formula, &probe);
+        assert_eq!(plan.reason, Some(Reason::ToolMissing));
+        assert_eq!(plan.command().as_deref(), Some("brew upgrade gemini-cli"));
         // A Cellar formula other than the catalog's.
         let other = packages(r#"packages = { brew = "gemini" }"#);
         let plan = plan_for(&profile_with(Some(other), None), &formula, &probe);
@@ -2307,6 +2473,41 @@ mod tests {
         let lone = touch(&t.path().join("other/bin/bash.exe"));
         assert_eq!(git_for_windows(&lone, &probe), None);
         assert_eq!(git_for_windows(&root.join("cmd/git.exe"), &probe), None);
+    }
+
+    #[test]
+    fn fingerprint_follows_every_part_of_the_command() {
+        let plan = |action: Action| UpdatePlan {
+            action,
+            reason: None,
+            needs_admin: false,
+            installer: None,
+            warnings: Vec::new(),
+            copies: Vec::new(),
+        };
+        let run = |program: &str, args: &[&str]| {
+            plan(Action::Run {
+                program: program.into(),
+                args: args.iter().map(|a| (*a).to_owned()).collect(),
+            })
+        };
+        let a = run("/usr/bin/npm", &["install", "x@latest"]).fingerprint();
+        assert_eq!(a.len(), 16);
+        assert!(a.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(
+            a,
+            run("/usr/bin/npm", &["install", "x@latest"]).fingerprint()
+        );
+        for other in [
+            run("/opt/npm", &["install", "x@latest"]),
+            run("/usr/bin/npm", &["install", "y@latest"]),
+            // Splitting differently is a different command, too.
+            run("/usr/bin/npm", &["installx@latest"]),
+            plan(Action::Copy("/usr/bin/npm install x@latest".into())),
+            plan(Action::None),
+        ] {
+            assert_ne!(other.fingerprint(), a);
+        }
     }
 
     #[test]

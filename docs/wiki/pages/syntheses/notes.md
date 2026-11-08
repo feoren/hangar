@@ -55,18 +55,44 @@ All commands run in a blocking thread in the backend; errors arrive as readable 
   adopted again), so an edited `trash.json` cannot move a foreign file into the notes.
 
 ## Detached notes window
-The frontend opens a second window with the label `notes` (`new WebviewWindow("notes", ...)`).
-The backend keeps no window geometry. Capabilities:
+Code: `src-tauri/src/notes_window.rs`. The backend creates the window; the frontend cannot create
+webviews. The backend keeps no window geometry.
 
-- Main window (`capabilities/default.json`): `core:webview:allow-create-webview-window` (open
-  it), `core:window:allow-set-focus` (bring it to the front). The permission cannot be limited to
-  one label; it is accepted because the main window already holds far broader rights (starting
-  sessions), and a window it might create with a foreign URL gets no app commands: the `notes`
-  capability binds to the label `notes`, and no capability lists remote URLs. A backend command
-  that opens the window with a fixed label and URL would be the narrower alternative.
-- `notes` window (`capabilities/notes.json`, `windows: ["notes"]`): the note commands above and
-  nothing else of the app (no sessions, profiles, updates or session export), `core:event:default`
-  (events to and from the main window, such as "send to terminal", which the main window carries
-  out), `core:window:allow-set-always-on-top`, `core:window:allow-close`,
-  `core:window:allow-set-focus`, `clipboard-manager:allow-write-text` (copy; `navigator.clipboard`
-  fails in WebView2). A contract test (`src-tauri/tests/contract.rs`) keeps the list this narrow.
+| Command | Window | Arguments | Result |
+|---|---|---|---|
+| `open_notes_window` | main | `alwaysOnTop: boolean` | `null`; creates the window with label `notes`, URL `index.html?window=notes`, 440 x 640, at least 320 x 360, title "Hangar"; if it exists, only unminimizes, shows and focuses it |
+| `set_notes_on_top` | main | `onTop: boolean` | `boolean`: `false` if the window is not open |
+| `notes_to_main` | notes | `message: NotesMessage` | `null`; delivers the validated message as event `notes-message` to the window `main` only |
+
+```ts
+type NotesMessage =
+  | { kind: "sendToTerminal"; text: string; sessionId?: number | null } // main pastes it (bracketed paste)
+  | { kind: "notesChanged"; folderKey: string }                          // main reloads that scope
+  | { kind: "showMain" };                                                // backend also brings main to the front
+```
+
+- Validation: unknown kinds or extra fields are rejected when the arguments are read.
+  `sendToTerminal.text`: not empty, at most 1 MiB, no control characters except tab, CR and LF
+  (an ESC could end bracketed paste early). `folderKey`: `general` or 32 hex digits.
+  `notes_to_main` called from any window other than `notes` fails ("Only the notes window may
+  send notes messages").
+- The frontend opens the notes view when the URL has `?window=notes`.
+
+Capabilities:
+
+- Main window (`capabilities/default.json`): `allow-open-notes-window`, `allow-set-notes-on-top`,
+  `core:window:allow-set-focus`; no `core:webview:allow-create-webview-window` (a contract test
+  keeps it out).
+- `notes` window (`capabilities/notes.json`, `windows: ["notes"]`): the note commands above,
+  `allow-notes-to-main`, `core:event:allow-listen` and `core:event:allow-unlisten` (listening
+  only, never `allow-emit` or `allow-emit-to`), `core:window:allow-set-always-on-top`,
+  `core:window:allow-close`, `core:window:allow-set-focus`, `clipboard-manager:allow-write-text`
+  (copy; `navigator.clipboard` fails in WebView2). Nothing else of the app (no sessions,
+  profiles, updates, session export). A contract test (`src-tauri/tests/contract.rs`) keeps the
+  list this narrow.
+- Why the notes window may not emit: Tauri events carry no sender. `Event<T>` in
+  `@tauri-apps/api` has only `event`, `id` and `payload`, and `tauri::Event` in Rust (2.12.5) only
+  an id and the payload. The main window therefore cannot tell a `tray-quit` from the backend from
+  one emitted by another webview; the narrowed capability is the protection. The main window
+  should still only act on `tray-quit` and on `notes-message`, whose payload the backend has
+  checked.

@@ -52,6 +52,8 @@ pub const MAX_SEARCH_RESULTS: usize = 50;
 pub const MAX_QUERY_CHARS: usize = 200;
 /// A search reads at most this many note files, so a huge notes folder cannot stall it.
 const MAX_SEARCH_FILES: usize = 5000;
+/// A search reads at most this many bytes of note content in total.
+const MAX_SEARCH_BYTES: usize = 64 * 1024 * 1024;
 /// Characters of context before a hit in the excerpt.
 const EXCERPT_CONTEXT: usize = 60;
 const EXCERPT_MAX_CHARS: usize = 160;
@@ -249,7 +251,7 @@ pub fn folder_key(folder: &NoteFolder) -> Result<String, NotesError> {
     Ok(digest.iter().take(16).map(|b| format!("{b:02x}")).collect())
 }
 
-fn is_folder_key(name: &str) -> bool {
+pub fn is_folder_key(name: &str) -> bool {
     name == GENERAL_KEY || (name.len() == 32 && name.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
@@ -299,6 +301,36 @@ pub fn file_stem(title: &str) -> String {
         stem.insert(0, '_');
     }
     stem
+}
+
+/// A plain `.md` file name: a single path component, no folder, no `..`. Metadata on disk
+/// (`folder.json`, `trash.json`) is a file like any other; an entry naming anything else must
+/// never make the store read, rename or write outside its folder.
+fn plain_markdown_name(name: &str) -> bool {
+    let mut parts = Path::new(name).components();
+    let single = matches!(
+        (parts.next(), parts.next()),
+        (Some(Component::Normal(part)), None) if part == name
+    );
+    single && !name.contains(['/', '\\']) && is_markdown(name)
+}
+
+/// Reads at most `max` bytes from an open file instead of trusting a size read earlier.
+/// `Ok(None)`: the file is larger than `max`. Only regular files: opening a FIFO or device
+/// named like a note could block or never end.
+fn read_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
+    use std::io::Read as _;
+    if !fs::metadata(path)?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let file = fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    file.take(limit).read_to_end(&mut bytes)?;
+    Ok((bytes.len() <= max).then_some(bytes))
 }
 
 fn is_markdown(name: &str) -> bool {
@@ -674,7 +706,14 @@ impl NotesStore {
             }
         };
         match serde_json::from_slice::<FolderMeta>(&bytes) {
-            Ok(meta) if meta.version == META_VERSION => Some(meta),
+            Ok(mut meta) if meta.version == META_VERSION => {
+                // An entry pointing elsewhere is dropped; a plain `.md` file of the folder comes
+                // back on the next sync under a new ID.
+                meta.notes.retain(|n| {
+                    plain_markdown_name(&n.file) && check_id(&n.id).is_ok_and(|id| id == n.id)
+                });
+                Some(meta)
+            }
             Ok(_) => {
                 eprintln!("hangar: {} has an unknown version", path.display());
                 None
@@ -808,15 +847,17 @@ impl NotesStore {
         let _guard = lock(&self.guard);
         let opened = self.opened(folder)?;
         let path = opened.file(opened.entry(id)?);
-        let len = fs::metadata(&path).map_err(io_error(&path))?.len();
-        let len = usize::try_from(len).unwrap_or(usize::MAX);
-        if len > MAX_NOTE_BYTES {
+        let Some(bytes) = read_capped(&path, MAX_NOTE_BYTES).map_err(io_error(&path))? else {
+            // The size only names the problem; the content was never read past the limit.
+            let size = fs::metadata(&path)
+                .ok()
+                .and_then(|m| usize::try_from(m.len()).ok())
+                .unwrap_or(MAX_NOTE_BYTES + 1);
             return Err(NotesError::TooLarge {
-                size: len,
+                size,
                 max: MAX_NOTE_BYTES,
             });
-        }
-        let bytes = fs::read(&path).map_err(io_error(&path))?;
+        };
         String::from_utf8(bytes).map_err(|_| NotesError::NotText)
     }
 
@@ -916,13 +957,7 @@ impl NotesStore {
     /// must never move a foreign file into the notes. A dropped record's file is adopted again
     /// by [`Self::synced_trash`] under a new ID.
     fn trusted_entry(entry: &TrashEntry) -> bool {
-        let mut parts = Path::new(&entry.file).components();
-        let plain = matches!(
-            (parts.next(), parts.next()),
-            (Some(Component::Normal(name)), None) if name == entry.file.as_str()
-        );
-        plain
-            && is_markdown(&entry.file)
+        plain_markdown_name(&entry.file)
             && check_id(&entry.id).is_ok_and(|id| id == entry.id)
             && validate_title(&entry.title).is_ok_and(|title| title == entry.title)
     }
@@ -1078,39 +1113,45 @@ impl NotesStore {
         let Some(query) = validate_query(query)? else {
             return Ok(Vec::new());
         };
-        let _guard = lock(&self.guard);
-        let entries = match fs::read_dir(&self.root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(io_error(&self.root)(error)),
-        };
-        let mut keys: Vec<String> = entries
-            .flatten()
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter(|key| is_folder_key(key))
-            .collect();
-        keys.sort();
-        let mut hits: Vec<(bool, SearchHit)> = Vec::new();
-        let mut read = 0usize;
-        'folders: for key in keys {
-            let dir = self.root.join(&key);
-            let Some(meta) = Self::read_meta(&dir) else {
-                continue;
+        // Only the metadata is read under the lock; the files are read afterwards, so a long
+        // search never blocks saving a note.
+        let scopes = {
+            let _guard = lock(&self.guard);
+            let entries = match fs::read_dir(&self.root) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+                Err(error) => return Err(io_error(&self.root)(error)),
             };
-            let path = if key == GENERAL_KEY { None } else { meta.path };
-            for note in meta.notes {
-                if read >= MAX_SEARCH_FILES {
-                    break 'folders;
+            let mut keys: Vec<String> = entries
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|key| is_folder_key(key))
+                .collect();
+            keys.sort();
+            keys.into_iter()
+                .filter_map(|key| {
+                    let dir = self.root.join(&key);
+                    let meta = Self::read_meta(&dir)?;
+                    let path = if key == GENERAL_KEY { None } else { meta.path };
+                    Some((key, dir, path, meta.notes))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut hits: Vec<(bool, SearchHit)> = Vec::new();
+        let mut files = 0usize;
+        let mut budget = MAX_SEARCH_BYTES;
+        'scopes: for (key, dir, path, notes) in scopes {
+            for note in notes {
+                if files >= MAX_SEARCH_FILES || budget == 0 {
+                    break 'scopes;
                 }
-                read += 1;
+                files += 1;
                 let file = dir.join(&note.file);
-                let Ok(info) = fs::metadata(&file) else {
+                let Ok(Some(bytes)) = read_capped(&file, MAX_NOTE_BYTES.min(budget)) else {
                     continue;
                 };
-                if !info.is_file() || info.len() > MAX_NOTE_BYTES as u64 {
-                    continue;
-                }
-                let Ok(content) = fs::read_to_string(&file) else {
+                budget -= bytes.len();
+                let Ok(content) = String::from_utf8(bytes) else {
                     continue;
                 };
                 let in_title = note.title.to_lowercase().contains(&query);
@@ -1125,7 +1166,7 @@ impl NotesStore {
                         id: note.id,
                         title: note.title,
                         excerpt: excerpt(&content, &query),
-                        updated_at: info.modified().ok().and_then(millis),
+                        updated_at: modified(&file),
                     },
                 ));
             }
@@ -1740,6 +1781,65 @@ mod tests {
         assert_eq!(hits.len(), 1);
         // A search changes nothing on disk.
         assert!(!dir.join(TRASH_DIR).exists());
+    }
+
+    #[test]
+    fn metadata_naming_other_files_is_not_trusted() {
+        let t = TempNotes::new("trusted");
+        let folder = general();
+        let id = t.0.create_note(&folder, "own").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::write(t.0.root().join("outside.md"), "foreign").unwrap();
+        let mut meta: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(META_FILE)).unwrap()).unwrap();
+        let notes = meta["notes"].as_array_mut().unwrap();
+        for (n, file) in ["../outside.md", "sub/x.md", "x.txt", "C:\\x.md"]
+            .iter()
+            .enumerate()
+        {
+            notes.push(serde_json::json!({
+                "id": format!("00000000-0000-4000-8000-00000000000{n}"),
+                "title": "evil",
+                "file": file,
+                "order": 9
+            }));
+        }
+        fs::write(dir.join(META_FILE), meta.to_string()).unwrap();
+        let listed = t.0.list_notes(&folder).unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].id, id);
+        for n in 0..4 {
+            let foreign = format!("00000000-0000-4000-8000-00000000000{n}");
+            assert!(t.0.read_note(&folder, &foreign).is_err());
+        }
+        assert!(t.0.search("foreign").unwrap().is_empty());
+        assert!(plain_markdown_name("a b.md"));
+        assert!(!plain_markdown_name(".."));
+        assert!(!plain_markdown_name("a/b.md"));
+        assert!(!plain_markdown_name("a\\b.md"));
+    }
+
+    #[test]
+    fn capped_read_never_reads_past_the_limit() {
+        let t = TempNotes::new("capped");
+        let id = t.0.create_note(&general(), "big").unwrap();
+        let path = t.0.note_path(&general(), &id).unwrap();
+        fs::write(&path, "x".repeat(MAX_NOTE_BYTES + 1)).unwrap();
+        assert!(matches!(
+            t.0.read_note(&general(), &id),
+            Err(NotesError::TooLarge { .. })
+        ));
+        assert_eq!(read_capped(&path, MAX_NOTE_BYTES).unwrap(), None);
+        // A folder named like a note is never opened for reading.
+        let folder = path.with_file_name("folder.md");
+        fs::create_dir_all(&folder).unwrap();
+        assert!(read_capped(&folder, MAX_NOTE_BYTES).is_err());
+        assert_eq!(
+            read_capped(&path, MAX_NOTE_BYTES + 1)
+                .unwrap()
+                .map(|b| b.len()),
+            Some(MAX_NOTE_BYTES + 1)
+        );
     }
 
     #[test]

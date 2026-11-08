@@ -160,6 +160,8 @@ pub enum ManagerError {
     NoSubAgents(SessionId),
     #[error("The update of {0} is already running")]
     UpdateRunning(String),
+    #[error("The update of {0} changed since it was shown; check for updates again")]
+    PlanChanged(String),
     #[error("{profile} cannot be updated from Hangar: {reason}")]
     NoUpdateCommand {
         profile: String,
@@ -643,7 +645,23 @@ impl SessionManager {
         size: TermSize,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
+        self.create_update_checked(profile_id, None, size, sink)
+    }
+
+    /// [`Self::create_update`] that first compares the plan with the one the user saw
+    /// (`expected`, [`UpdatePlan::fingerprint`]); a different plan is refused with
+    /// [`ManagerError::PlanChanged`] instead of running something that was not shown.
+    pub fn create_update_checked(
+        &self,
+        profile_id: &str,
+        expected: Option<&str>,
+        size: TermSize,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
         let (agent, plan) = self.update_plan(profile_id)?;
+        if expected.is_some_and(|expected| expected != plan.fingerprint()) {
+            return Err(ManagerError::PlanChanged(agent.profile.name.clone()));
+        }
         let updater = updates::update_agent(&agent, &plan).map_err(|reason| {
             ManagerError::NoUpdateCommand {
                 profile: agent.profile.name.clone(),
@@ -1058,6 +1076,11 @@ fn spawn(
     let flow = Arc::new(Flow::new(HIGH_WATER, FLOW_STALL));
     let (tx, rx) = sync_channel(CHANNEL_DEPTH);
     let (input_tx, input_rx) = mpsc::channel();
+    if launch.kind == SessionKind::Update {
+        // The exact argv, dimmed, before any output of the update: the user sees what runs.
+        // Through the batcher like program output, so flow control counts it too.
+        let _ = tx.send(Message::Data(argv_line(&program, &args).into_bytes()));
+    }
 
     let tx_read = tx.clone();
     spawn_thread(format!("pty-read-{id}"), move || {
@@ -1099,6 +1122,14 @@ fn spawn(
         tree,
         flow,
     })
+}
+
+/// `program args…` dimmed, with a line break; control characters are left out so the line can
+/// never carry a terminal sequence of its own.
+fn argv_line(program: &Path, args: &[String]) -> String {
+    let text = install_source::display_command(&program.to_string_lossy(), args);
+    let text: String = text.chars().filter(|c| !c.is_control()).collect();
+    format!("\x1b[2m{text}\x1b[0m\r\n")
 }
 
 fn read_loop(mut reader: Box<dyn Read + Send>, tx: &SyncSender<Message>) {
@@ -1181,6 +1212,15 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn argv_line_is_dimmed_and_plain() {
+        let line = argv_line(
+            Path::new("/usr/bin/npm"),
+            &["install".into(), "a b".into(), "x\x1b[31m".into()],
+        );
+        assert_eq!(line, "\x1b[2m/usr/bin/npm install \"a b\" x[31m\x1b[0m\r\n");
+    }
 
     #[test]
     fn events_serialize_as_in_contract() {
