@@ -32,18 +32,18 @@
         "zh": "按 Ctrl+Shift+F 搜索会话的历史记录，所有匹配项都会高亮显示。"
       },
       {
-        "de": "Der Startordner merkt sich Favoriten und die zuletzt genutzten Ordner. Ein Klick auf „Startet in“ zeigt sie.",
-        "en": "The start folder remembers favorites and recently used folders. Click \"Starts in\" to see them.",
-        "el": "Ο φάκελος εκκίνησης θυμάται αγαπημένους και πρόσφατους φακέλους. Κάνε κλικ στο «Ξεκινά στο» για να τους δεις.",
-        "es": "La carpeta de inicio recuerda favoritas y carpetas recientes. Haz clic en «Empieza en» para verlas.",
-        "fr": "Le dossier de démarrage retient tes favoris et dossiers récents. Clique sur « Démarre dans » pour les voir.",
-        "it": "La cartella di avvio ricorda i preferiti e le cartelle recenti. Fai clic su «Parte in» per vederli.",
-        "ja": "開始フォルダーはお気に入りと最近使ったフォルダーを記憶します。「開始フォルダー」をクリックすると表示されます。",
-        "pl": "Folder startowy pamięta ulubione i ostatnio używane foldery. Kliknij „Startuje w”, aby je zobaczyć.",
-        "pt": "A pasta inicial guarda favoritas e pastas recentes. Clique em \"Começa em\" para vê-las.",
-        "ru": "Папка запуска запоминает избранные и недавние папки. Нажми «Запуск в», чтобы их увидеть.",
-        "tr": "Başlangıç klasörü favorileri ve son kullanılan klasörleri hatırlar. Görmek için \"Başlangıç klasörü\" alanına tıkla.",
-        "zh": "启动位置会记住收藏和最近使用的文件夹，点击“启动位置”即可查看。"
+        "de": "Neue Sessions starten im Projekt der aktiven Session. Das Ordnermenü zeigt laufende Projekte, Favoriten und zuletzt genutzte Ordner.",
+        "en": "New sessions start in the active session's project. The folder menu shows running projects, favorites and recent folders.",
+        "el": "Οι νέες συνεδρίες ξεκινούν στο έργο της ενεργής συνεδρίας. Το μενού φακέλων δείχνει ενεργά έργα, αγαπημένα και πρόσφατα.",
+        "es": "Las sesiones nuevas empiezan en el proyecto de la sesión activa. El menú muestra proyectos en marcha, favoritas y recientes.",
+        "fr": "Les nouvelles sessions démarrent dans le projet de la session active. Le menu montre projets en cours, favoris et récents.",
+        "it": "Le nuove sessioni partono nel progetto della sessione attiva. Il menu mostra progetti in corso, preferiti e recenti.",
+        "ja": "新しいセッションはアクティブなセッションのプロジェクトで開始します。フォルダーメニューには実行中のプロジェクト、お気に入り、最近使ったフォルダーが並びます。",
+        "pl": "Nowe sesje startują w projekcie aktywnej sesji. Menu folderów pokazuje uruchomione projekty, ulubione i ostatnie.",
+        "pt": "Novas sessões começam no projeto da sessão ativa. O menu de pastas mostra projetos em execução, favoritos e recentes.",
+        "ru": "Новые сеансы запускаются в проекте активного сеанса. Меню папок показывает запущенные проекты, избранное и недавние.",
+        "tr": "Yeni oturumlar etkin oturumun projesinde başlar. Klasör menüsü çalışan projeleri, favorileri ve son kullanılanları gösterir.",
+        "zh": "新会话在当前会话的项目中启动。文件夹菜单列出运行中的项目、收藏和最近使用的文件夹。"
       },
       {
         "de": "Zieh Dateien aus dem Explorer auf ein Terminal, um ihre Pfade passend für das Programm einzufügen.",
@@ -228,18 +228,18 @@
         "zh": "设置中新增：关闭窗口后，Hangar 可在通知区域继续运行，会话也会继续。"
       },
       {
-        "de": "Eigener Worktree: Neue Sessions in einem Git-Ordner können einen eigenen Branch und Ordner bekommen. Beim Schließen räumt Hangar ihn wieder auf.",
-        "en": "Own worktree: new sessions in a git folder can get a branch and folder of their own. Hangar cleans it up when you close the session.",
-        "el": "Δικό του worktree: νέες συνεδρίες σε φάκελο git παίρνουν δικό τους branch και φάκελο. Το Hangar τα καθαρίζει όταν κλείσεις τη συνεδρία.",
-        "es": "Worktree propio: las sesiones nuevas en una carpeta git pueden tener su propia rama y carpeta. Hangar la limpia al cerrar la sesión.",
-        "fr": "Worktree dédié : les nouvelles sessions dans un dossier git peuvent avoir leur propre branche et dossier. Hangar le nettoie à la fermeture.",
-        "it": "Worktree dedicato: le nuove sessioni in una cartella git possono avere branch e cartella propri. Hangar li ripulisce alla chiusura.",
-        "ja": "専用の worktree: git フォルダーの新しいセッションに専用のブランチとフォルダーを用意できます。セッションを閉じると Hangar が片付けます。",
-        "pl": "Własny worktree: nowe sesje w folderze git mogą mieć własną gałąź i folder. Hangar sprząta go po zamknięciu sesji.",
-        "pt": "Worktree próprio: novas sessões em uma pasta git podem ter branch e pasta próprios. O Hangar limpa tudo ao fechar a sessão.",
-        "ru": "Свой worktree: новые сеансы в папке git могут получить свою ветку и папку. Hangar убирает их при закрытии сеанса.",
-        "tr": "Ayrı worktree: bir git klasöründeki yeni oturumlar kendi dalını ve klasörünü alabilir. Oturumu kapatınca Hangar onu temizler.",
-        "zh": "独立 worktree：git 文件夹中的新会话可以拥有自己的分支和文件夹，关闭会话时 Hangar 会自动清理。"
+        "de": "Eigener Worktree pro Start: „+ Worktree“ oder Umschalt+Klick gibt der Session Branch und Ordner. Beim Schließen räumt Hangar auf.",
+        "en": "Own worktree per start: \"+ Worktree\" or Shift+click gives the session its own branch and folder. Hangar cleans up on close.",
+        "el": "Δικό του worktree ανά εκκίνηση: «+ Worktree» ή Shift+κλικ δίνει στη συνεδρία κλάδο και φάκελο. Το Hangar καθαρίζει στο κλείσιμο.",
+        "es": "Worktree propio por inicio: «+ Worktree» o Mayús+clic da a la sesión su rama y carpeta. Hangar limpia al cerrar.",
+        "fr": "Worktree dédié par démarrage : « + Worktree » ou Maj+clic donne à la session sa branche et son dossier. Hangar nettoie à la fermeture.",
+        "it": "Worktree dedicato per avvio: «+ Worktree» o Maiusc+clic dà alla sessione branch e cartella propri. Hangar pulisce alla chiusura.",
+        "ja": "開始ごとに専用の worktree: 「+ worktree」または Shift+クリックで、セッションに専用のブランチとフォルダーを用意します。閉じると Hangar が片付けます。",
+        "pl": "Własny worktree przy starcie: „+ Worktree” lub Shift+klik daje sesji własną gałąź i folder. Hangar sprząta po zamknięciu.",
+        "pt": "Worktree próprio por início: \"+ Worktree\" ou Shift+clique dá à sessão branch e pasta próprios. O Hangar limpa ao fechar.",
+        "ru": "Свой worktree при запуске: «+ worktree» или Shift+щелчок дают сеансу свою ветку и папку. Hangar убирает их при закрытии.",
+        "tr": "Başlangıç başına ayrı worktree: \"+ Worktree\" veya Shift+tıklama oturuma kendi dalını ve klasörünü verir. Hangar kapatınca temizler.",
+        "zh": "每次启动可选独立 worktree：点击“+ worktree”或按住 Shift 单击，会话即获得自己的分支和文件夹。关闭时 Hangar 会清理。"
       },
       {
         "de": "Strg+Umschalt+D zeigt die Änderungen im Ordner der Session: geänderte Dateien und ein farbiger Diff, aktuell nach jedem Schritt des Agenten.",
@@ -338,6 +338,20 @@
         "ru": "Эмодзи вроде 🏷️ или ⏱️ в строках состояния агентов теперь занимают полную ширину и больше не сдвигают остаток строки.",
         "tr": "Ajan durum satırlarındaki 🏷️ veya ⏱️ gibi emojiler artık tam genişlikte ve satırın geri kalanını kaydırmıyor.",
         "zh": "代理状态行中的 🏷️、⏱️ 等表情符号现在以全宽显示，不再让行的其余部分错位。"
+      },
+      {
+        "de": "Programm-Updates mit einem Klick: „Aktualisieren“ startet das passende Update. Danach sagt Hangar, ob die neue Version läuft.",
+        "en": "One-click program updates: \"Update\" runs the right update. Afterwards Hangar tells you whether the new version runs.",
+        "el": "Ενημερώσεις με ένα κλικ: το «Ενημέρωση» εκτελεί τη σωστή ενημέρωση. Μετά το Hangar σου λέει αν τρέχει η νέα έκδοση.",
+        "es": "Actualizaciones con un clic: «Actualizar» ejecuta la actualización adecuada. Después Hangar te dice si funciona la versión nueva.",
+        "fr": "Mises à jour en un clic : « Mettre à jour » lance la bonne mise à jour. Ensuite Hangar te dit si la nouvelle version tourne.",
+        "it": "Aggiornamenti con un clic: «Aggiorna» avvia l'aggiornamento giusto. Poi Hangar ti dice se gira la nuova versione.",
+        "ja": "ワンクリックでプログラムを更新:「更新」で適切な更新を実行します。終わると、新しいバージョンが動いているかを Hangar が知らせます。",
+        "pl": "Aktualizacje jednym kliknięciem: „Aktualizuj” uruchamia właściwą aktualizację. Potem Hangar mówi, czy działa nowa wersja.",
+        "pt": "Atualizações com um clique: \"Atualizar\" executa a atualização certa. Depois o Hangar diz se a nova versão está rodando.",
+        "ru": "Обновления в один щелчок: «Обновить» запускает нужное обновление. Потом Hangar сообщает, работает ли новая версия.",
+        "tr": "Tek tıkla güncelleme: \"Güncelle\" doğru güncellemeyi çalıştırır. Ardından Hangar yeni sürümün çalışıp çalışmadığını söyler.",
+        "zh": "一键更新程序：点击“更新”即可运行合适的更新。完成后 Hangar 会告诉你新版本是否已生效。"
       }
     ]
   },

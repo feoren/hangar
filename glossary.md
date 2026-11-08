@@ -49,6 +49,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Versionsquelle                                  | version source                    | `latest`                                                |
 | Update-Hinweis, Update-Befehl                   | update command                    | field `update_hint` keeps its name                      |
 | Programm-Update                                 | program update                    |                                                         |
+| Update-Plan                                     | update plan                       | `run`, `copy` or `none`, with `planId`                  |
+| Weitere Kopie (eines Programms)                 | second copy                       | warning `second-copy`                                   |
+| Update-Ergebnis                                 | update outcome                    | event `program-update-result`                           |
 | Installationsbefehl                             | install command                   |                                                         |
 | Buildnummer                                     | build number                      |                                                         |
 | kommende Version                                | upcoming version                  |                                                         |
@@ -89,6 +92,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                            |
 | Zuletzt genutzte Ordner                         | recent folders                    | at most 8                                               |
 | Startordner-Menü                                | folder menu                       | "Starts in" menu                                        |
+| Startziel                                       | start target                      | where the next session starts, `startTarget.ts`         |
+| Laufende Projekte                               | running projects                  | project folders of running sessions, folder menu        |
 | Suchleiste, Treffer                             | search bar, match                 | `SearchBar.tsx`                                         |
 | Farbschema                                      | color scheme                      | `terminalLook.ts`                                       |
 | Erscheinungsbild des Terminals                  | terminal look                     | scheme, font, cursor                                    |

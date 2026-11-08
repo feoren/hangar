@@ -37,14 +37,15 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     sessions: [],
     programName: () => undefined,
     startable: [profile("claude"), profile("pwsh")],
-    cwd: "C:\\src\\hangar",
-    folders: { favorites: ["C:\\src\\notes", "c:\\src\\hangar\\\\"], recent: ["C:\\src\\notes"] },
+    places: [
+      { path: "C:\\src\\hangar", worktree: false },
+      { path: "C:\\src\\notes", worktree: false },
+    ],
     noteFolders: [],
     snippets: [{ id: "a", text: "Write tests" }],
     canInsert: false,
     snapLayout: "single",
     canBroadcast: false,
-    worktreeFolder: null,
     changesOpen: false,
     t: createTranslator("en"),
     badge: () => null,
@@ -77,7 +78,7 @@ describe("buildLauncherItems", () => {
     expect(busy.find((item) => item.key === "session:1")?.primary).toBe(true);
   });
 
-  it("lists every folder once, ignoring case and trailing separators", () => {
+  it("offers every program in every place", () => {
     const starts = buildLauncherItems(context()).filter((item) => item.section === "start");
     expect(starts).toHaveLength(4);
   });
@@ -137,11 +138,16 @@ describe("buildLauncherItems", () => {
     ]);
   });
 
-  it("offers an own worktree only for a git folder, and never as a primary entry", () => {
+  it("offers an own worktree only for git folders, and never as a primary entry", () => {
     const plain = buildLauncherItems(context());
     expect(plain.some((item) => item.key.startsWith("worktree:"))).toBe(false);
 
-    const ctx = context({ worktreeFolder: "C:\\src\\hangar" });
+    const ctx = context({
+      places: [
+        { path: "C:\\src\\hangar", worktree: true },
+        { path: "C:\\src\\notes", worktree: false },
+      ],
+    });
     const items = buildLauncherItems(ctx).filter((item) => item.key.startsWith("worktree:"));
     expect(items.map((item) => item.key)).toEqual([
       "worktree:claude:C:\\src\\hangar",

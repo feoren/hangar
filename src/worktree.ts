@@ -19,20 +19,6 @@ export function worktreeLabel(programName: string): string {
   return label === "" ? "session" : label;
 }
 
-/**
- * The option "Own worktree" applies only to a folder inside a git repository. The signal is the
- * branch the status line already reads (`git_branches`): a name or short hash inside a repository,
- * `null` outside, missing while the answer is pending.
- */
-export function canUseWorktree(
-  branches: ReadonlyMap<string, string | null>,
-  cwd: string | null,
-): boolean {
-  if (cwd === null || cwd === "") return false;
-  const branch = branches.get(cwd);
-  return typeof branch === "string" && branch !== "";
-}
-
 function text(value: unknown, field: string): string | null {
   if (typeof value !== "object" || value === null) return null;
   const found: unknown = Reflect.get(value, field);
@@ -197,4 +183,15 @@ export function createErrorText(error: unknown, t: Translate): string {
   if (message.includes("not inside a git repository")) return t("worktree.notRepo");
   if (message.includes("network share or device")) return t("worktree.share");
   return t("worktree.createFailed", { error: message });
+}
+
+/**
+ * Title of a session in its own worktree: the program and the branch's random suffix
+ * (`Claude Code · 1a2b3c`), so two agents on one repository read differently at a glance. The
+ * full branch stays in the status line.
+ */
+export function worktreeTitle(programName: string, branch: string): string {
+  const short = shortBranch(branch);
+  const suffix = /-([a-z0-9]{4,12})$/i.exec(short)?.[1] ?? short;
+  return `${programName} · ${suffix}`;
 }

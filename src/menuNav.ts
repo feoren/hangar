@@ -131,3 +131,26 @@ export function fitInViewport(
     y: Math.min(Math.max(point.y, margin), maxY),
   };
 }
+
+/** What a key does to the second button of a menu row (the star of a folder, "+ Worktree"). */
+export type SecondaryCommand = "enter" | "leave" | "run" | null;
+
+/**
+ * Right arrow moves from the row to its second button, Left back; Enter or Space there runs it,
+ * Shift+Enter runs it straight from the row. Everything else is the row's normal navigation.
+ */
+export function secondaryCommand(
+  input: KeyInput & { shiftKey?: boolean },
+  hasSecondary: boolean,
+  onSecondary: boolean,
+): SecondaryCommand {
+  if (!hasSecondary) return null;
+  if (onSecondary) {
+    if (input.key === "ArrowLeft") return "leave";
+    if (input.key === "Enter" || input.key === " ") return "run";
+    return null;
+  }
+  if (input.key === "ArrowRight") return "enter";
+  if (input.key === "Enter" && input.shiftKey === true) return "run";
+  return null;
+}

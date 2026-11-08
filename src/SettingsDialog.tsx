@@ -16,6 +16,7 @@ import { clampFontSize, FONT_SIZE } from "./layout";
 import { profileErrorText } from "./profileFile";
 import type { BadgeLook } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
+import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
 import {
   ATTENTION_PRESETS,
@@ -58,10 +59,8 @@ interface Props {
   /** Version of Hangar, `null` until known. */
   version: string | null;
   programUpdates: ProgramUpdateState;
-  /** Profile IDs with a running session (hint about locked files during an update). */
-  runningPrograms: ReadonlySet<string>;
-  /** Launch a program's update as a session (only with `canRun`). */
-  onRunUpdate: (profileId: string) => void;
+  /** "Update" on a program row (one click, or a question while the program runs). */
+  updateActions: UpdateActions;
   onChange: (patch: Partial<Settings>) => void;
   /** Deletes all saved scrollback; rejects with a readable error. */
   onClearScrollbacks: () => Promise<void>;
@@ -779,8 +778,7 @@ function ProgramsSection(props: Props) {
         profiles={props.profiles}
         versions={props.versions}
         programUpdates={props.programUpdates}
-        runningPrograms={props.runningPrograms}
-        onRunUpdate={props.onRunUpdate}
+        updateActions={props.updateActions}
         badgeFor={props.badgeFor}
         onChange={props.onChange}
         onProfiles={props.onProfiles}

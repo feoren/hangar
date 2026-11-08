@@ -130,12 +130,23 @@ export const api = {
     invoke<SessionInfo>("create_session", { profileId, cwd, size, onEvent, resume, cliSessionId }),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
-   * the profile's `update_hint`; useful only when `ProgramUpdate.canRun` holds. There is
-   * deliberately no working folder: the backend uses the profile's fixed folder or the home folder,
-   * so no foreign project can slip in its own programs for the update.
+   * its update plan; useful only when `ProgramUpdate.plan` is "run". `expectedPlan` is the
+   * `planId` the user saw: the backend refuses if the plan changed since (`isPlanChanged`).
+   * There is deliberately no working folder: the backend uses the profile's fixed folder or the
+   * home folder, so no foreign project can slip in its own programs for the update.
    */
-  createUpdateSession: (profileId: string, size: TermSize, onEvent: Channel<SessionEvent>) =>
-    invoke<SessionInfo>("create_update_session", { profileId, size, onEvent }),
+  createUpdateSession: (
+    profileId: string,
+    size: TermSize,
+    onEvent: Channel<SessionEvent>,
+    expectedPlan: string | null,
+  ) =>
+    invoke<SessionInfo>("create_update_session", {
+      profileId,
+      size,
+      onEvent,
+      ...(expectedPlan === null ? {} : { expectedPlan }),
+    }),
   write: (id: number, data: string) => invoke<null>("write_session", { id, data }),
   resize: (id: number, size: TermSize) => invoke<null>("resize_session", { id, size }),
   ack: (id: number, bytes: number) => invoke<null>("ack_session", { id, bytes }),

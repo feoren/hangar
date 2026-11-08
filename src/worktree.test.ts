@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
-  canUseWorktree,
   createErrorText,
   insideFolder,
   orphanedWorktrees,
@@ -13,6 +12,7 @@ import {
   shortBranch,
   worktreeInUse,
   worktreeLabel,
+  worktreeTitle,
 } from "./worktree";
 
 const en = createTranslator("en");
@@ -34,20 +34,6 @@ describe("shortBranch", () => {
     expect(shortBranch("hangar/claude-code-a1b2c3")).toBe("claude-code-a1b2c3");
     expect(shortBranch("main")).toBe("main");
     expect(shortBranch("hangar/")).toBe("hangar/");
-  });
-});
-
-describe("canUseWorktree", () => {
-  it("needs a branch for the folder: inside a repository", () => {
-    const branches = new Map<string, string | null>([
-      ["C:\\src\\app", "main"],
-      ["C:\\Users\\Ada", null],
-    ]);
-    expect(canUseWorktree(branches, "C:\\src\\app")).toBe(true);
-    expect(canUseWorktree(branches, "C:\\Users\\Ada")).toBe(false);
-    // Answer still pending: off until known.
-    expect(canUseWorktree(branches, "D:\\other")).toBe(false);
-    expect(canUseWorktree(branches, null)).toBe(false);
   });
 });
 
@@ -208,5 +194,12 @@ describe("orphanedWorktrees", () => {
       { ids: [1, 4, 5], worktree: wt("a") },
       { ids: [-3], worktree: wt("c") },
     ]);
+  });
+});
+
+describe("worktreeTitle", () => {
+  it("adds the branch suffix to the program name", () => {
+    expect(worktreeTitle("Claude Code", "hangar/claude-code-1a2b3c")).toBe("Claude Code · 1a2b3c");
+    expect(worktreeTitle("Codex", "hangar/x")).toBe("Codex · x");
   });
 });

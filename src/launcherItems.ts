@@ -5,7 +5,7 @@
 import type { ReactNode } from "react";
 
 import type { NoteFolder, Profile } from "./api";
-import { folderKey, folderName, type FolderPrefs } from "./folders";
+import { folderName } from "./folders";
 import { shortPath } from "./format";
 import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
@@ -19,17 +19,17 @@ export interface LauncherContext {
   /** Program name per profile ID, a search keyword for its sessions. */
   programName: (profileId: string) => string | undefined;
   startable: readonly Profile[];
-  /** "Starts in" folder of new sessions. */
-  cwd: string | null;
-  folders: FolderPrefs;
+  /**
+   * Folders to start in, each once (`startPlaces`): the start target first, then running
+   * projects, favorites and recent folders. `worktree`: the folder lies in a git repository.
+   */
+  places: readonly { path: string; worktree: boolean }[];
   noteFolders: readonly NoteFolderInfo[];
   snippets: readonly Snippet[];
   /** A snippet can go into the visible session (its process runs). */
   canInsert: boolean;
   snapLayout: LayoutId;
   canBroadcast: boolean;
-  /** The "Starts in" folder when it lies in a git repository: sessions can get their own worktree. */
-  worktreeFolder: string | null;
   changesOpen: boolean;
   t: Translate;
   badge: (profileId: string) => ReactNode;
@@ -68,47 +68,40 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       },
     });
   }
-  // Program in folder: the "Starts in" folder first, then favorites and recent folders.
-  const seen = new Set<string>();
-  const places = [ctx.cwd, ...ctx.folders.favorites, ...ctx.folders.recent].filter(
-    (path): path is string => {
-      if (path === null || seen.has(folderKey(path))) return false;
-      seen.add(folderKey(path));
-      return true;
-    },
-  );
-  for (const place of places) {
+  // Program in project: the start target first, then running projects, favorites, recent.
+  const target = ctx.places[0]?.path ?? null;
+  for (const place of ctx.places) {
     for (const profile of ctx.startable) {
       items.push({
-        key: `start:${profile.id}:${place}`,
+        key: `start:${profile.id}:${place.path}`,
         section: "start",
-        label: t("launcher.startIn", { program: profile.name, folder: folderName(place) }),
-        detail: shortPath(place),
-        keywords: place,
-        // Without sessions, the programs in the current folder are the obvious next step.
-        primary: ctx.sessions.length === 0 && place === ctx.cwd,
+        label: t("launcher.startIn", { program: profile.name, folder: folderName(place.path) }),
+        detail: shortPath(place.path),
+        keywords: place.path,
+        // Without sessions, the programs in the target folder are the obvious next step.
+        primary: ctx.sessions.length === 0 && place.path === target,
         icon: ctx.badge(profile.id),
         run: () => {
-          ctx.start(profile, place);
+          ctx.start(profile, place.path);
         },
       });
     }
   }
-  const worktreeFolder = ctx.worktreeFolder;
-  if (worktreeFolder !== null) {
+  for (const place of ctx.places) {
+    if (!place.worktree) continue;
     for (const profile of ctx.startable) {
       items.push({
-        key: `worktree:${profile.id}:${worktreeFolder}`,
+        key: `worktree:${profile.id}:${place.path}`,
         section: "start",
         label: t("launcher.startInWorktree", {
           program: profile.name,
-          folder: folderName(worktreeFolder),
+          folder: folderName(place.path),
         }),
-        detail: shortPath(worktreeFolder),
-        keywords: `${worktreeFolder} worktree git`,
+        detail: shortPath(place.path),
+        keywords: `${place.path} worktree git`,
         icon: ctx.badge(profile.id),
         run: () => {
-          ctx.startInWorktree(profile, worktreeFolder);
+          ctx.startInWorktree(profile, place.path);
         },
       });
     }

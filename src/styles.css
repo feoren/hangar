@@ -697,12 +697,20 @@ h2 .beta-badge {
   }
 }
 
+/* Start target: folder button, plus a reset button while a folder is chosen for the next start. */
+.cwd-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0 8px 4px;
+}
+
 .cwd {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 8px;
-  width: calc(100% - 16px);
-  margin: 0 8px 6px;
+  min-width: 0;
   padding: 7px 8px;
   color: var(--muted);
   border: 1px dashed var(--border);
@@ -766,55 +774,6 @@ h2 .beta-badge {
 .profile:hover svg,
 .profile:focus-visible svg {
   opacity: 1;
-}
-
-/* Update button next to the program: small, with a dot and target version, copies the command. */
-.profile-update-button {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  margin-right: 4px;
-  padding: 2px 7px;
-  font-size: 11.5px;
-  color: var(--accent);
-  white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-radius: 10px;
-}
-
-.profile-update-button:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-/* Copy as a fallback next to "Update": as small as the button beside it. */
-.profile-update-copy {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  margin-right: 4px;
-}
-
-.profile-update-copy.copied {
-  color: var(--ok);
-}
-
-.profile-update-button.copied {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
-}
-
-.profile-update-feedback {
-  flex: 1 0 100%;
-  padding: 0 8px 4px 44px;
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.profile-update-feedback:empty {
-  display: none;
 }
 
 .profile-name {
@@ -1786,7 +1745,7 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
-/* Error texts in the error color everywhere, also together with `.muted` or `.profile-update-feedback`:
+/* Error texts in the error color everywhere, also together with `.muted`:
    same specificity, so this rule has to come after both. */
 .error-text {
   color: var(--error);
@@ -3075,40 +3034,6 @@ body.resizing-horizontal * {
   background: var(--accent);
 }
 
-.profile-update {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--accent);
-}
-
-.program-update {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  /* Flush with the program name: grip, badge and their spacing. */
-  padding: 0 8px 8px 68px;
-}
-
-.program-update-versions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* A row of its own below versions and buttons. */
-.program-update .program-update-warning {
-  flex: 1 0 100%;
-  margin: 0;
-}
-
 .confirm-box {
   margin-top: 14px;
   padding: 12px;
@@ -3500,51 +3425,6 @@ body.resizing-horizontal * {
 }
 
 /* "Own worktree" below "Starts in" in the New session group */
-
-.worktree-option {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 2px 8px 6px;
-  padding: 3px 4px;
-  font-size: 12px;
-  color: var(--muted);
-  border-radius: 5px;
-  cursor: pointer;
-}
-
-.worktree-option:hover {
-  color: var(--text);
-}
-
-.worktree-option input {
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.worktree-option:has(input:checked) {
-  color: var(--text);
-}
-
-.worktree-option:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.worktree-option.disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.worktree-option.disabled:hover {
-  color: var(--muted);
-}
-
-.worktree-option-label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 
 .session-branch.worktree svg {
   color: var(--accent);
@@ -4242,5 +4122,334 @@ body.session-dragging .session-actions {
   .snap-zone,
   .snap-preview {
     transition: none;
+  }
+}
+
+/* Start target chosen for the next start: solid accent edge and its own label, not color alone. */
+.cwd-row.chosen .cwd {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.cwd-row.chosen .cwd-label {
+  color: var(--accent);
+}
+
+.cwd .cwd-path {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+
+.cwd-name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cwd-parent {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+
+.cwd-reset {
+  flex: none;
+  align-self: center;
+}
+
+/* One quiet line below the target: Shift+click for a worktree, or why there is none. */
+.worktree-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 6px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.worktree-hint svg {
+  flex: none;
+}
+
+.worktree-hint.off svg {
+  opacity: 0.6;
+}
+
+.empty .worktree-hint {
+  justify-content: center;
+  margin-top: 2px;
+}
+
+/* "+ Worktree" over the end of a program row while it is hovered or focused, so the name does
+   not reflow. */
+.profile-row {
+  position: relative;
+}
+
+.profile-worktree {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding: 2px 7px;
+  background: var(--hover);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  opacity: 0;
+}
+
+.profile-row:hover .profile-worktree,
+.profile-row:has(.profile:focus-visible) .profile-worktree,
+.profile-worktree:focus-visible {
+  opacity: 1;
+}
+
+.profile-worktree:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.profile-update-dot {
+  flex: none;
+}
+
+/* A program's new version: one line with the action, short notes below. */
+.update-offer {
+  display: flex;
+  flex: 1 0 100%;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.update-offer.in-sidebar {
+  /* Flush with the program name: row padding, badge and gap. */
+  padding: 0 8px 6px 40px;
+}
+
+.update-offer.in-settings {
+  padding: 0 8px 8px 68px;
+}
+
+.update-offer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.update-offer-versions {
+  min-width: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.update-offer-button,
+.update-offer-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 10px;
+}
+
+.update-offer-button:hover,
+.update-offer-copy:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.update-offer-button.busy {
+  font-weight: 400;
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.update-offer-copy {
+  font-weight: 400;
+}
+
+.update-offer-copy.copied {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+.update-offer .update-offer-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.update-offer .update-offer-note.error-text {
+  color: var(--error);
+}
+
+.update-offer-note:empty {
+  display: none;
+}
+
+.update-offer-copies {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.update-offer-copies summary {
+  width: fit-content;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.update-offer-copies summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.update-offer-paths {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.update-offer-confirm {
+  margin-top: 4px;
+  padding: 8px 10px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--warn) 10%, var(--panel-raised));
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  border-radius: 6px;
+}
+
+.update-offer-confirm p {
+  margin: 0 0 6px;
+}
+
+.update-offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+/* Popup menu rows with a second button (favorite star, "+ Worktree"). */
+.menu-entry.with-secondary {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.menu-entry.with-secondary .menu-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.menu-secondary {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+}
+
+.menu-secondary.on {
+  color: var(--warn);
+}
+
+.menu-secondary:hover,
+.menu-secondary:focus-visible {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.menu-secondary.on:hover,
+.menu-secondary.on:focus-visible {
+  color: var(--warn);
+}
+
+.menu-item.current .menu-label {
+  font-weight: 600;
+}
+
+/* Folder menu: long paths stay one line; the detail gives way first. */
+.folder-menu {
+  max-width: min(420px, calc(100vw - 16px));
+}
+
+.folder-menu .menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-note {
+  max-width: 260px;
+  padding: 2px 10px 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: normal;
+}
+
+/* Empty state: "+ Worktree" below a program card, and the chosen target. */
+.empty-programs li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.empty-worktree {
+  font-size: 11.5px;
+}
+
+.empty-cwd-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty .empty-cwd.chosen .empty-cwd-path {
+  color: var(--accent);
+}
+
+/* Short confirmation after Ctrl+Shift+T and update results. */
+.link-notice.start-hint {
+  padding: 8px 14px;
+}
+
+.link-notice.update-problem {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .link-notice.start-hint {
+    animation: start-hint-in 160ms ease-out;
+  }
+
+  .profile-worktree {
+    transition: opacity 120ms ease;
+  }
+}
+
+@keyframes start-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }

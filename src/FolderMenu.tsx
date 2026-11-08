@@ -1,12 +1,16 @@
-import { shortPath } from "./format";
-import { folderName, isFavorite, recentOnly, samePath, type FolderPrefs } from "./folders";
-import { useT } from "./i18n";
-import { ClockIcon, FolderIcon, StarIcon } from "./icons";
+import { useState } from "react";
+
+import { folderMenuSections, type FolderSectionKind } from "./folderSections";
+import { isFavorite, type FolderPrefs } from "./folders";
+import { useT, type MessageKey } from "./i18n";
+import { CheckIcon, FolderIcon, StarIcon } from "./icons";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 
 interface Props {
-  /** Current working folder for new sessions. */
-  cwd: string | null;
+  /** Where the next session starts. */
+  target: string | null;
+  /** Project folders of the running sessions. */
+  running: readonly string[];
   folders: FolderPrefs;
   position: { x: number; y: number };
   /** Top edge of the opening button, so the menu can open above it (PopupMenu). */
@@ -19,65 +23,77 @@ interface Props {
   onClose: (reason: "action" | "dismiss") => void;
 }
 
+const SECTION_TITLES: Record<FolderSectionKind, MessageKey> = {
+  running: "folders.running",
+  favorites: "folders.favorites",
+  recent: "folders.recent",
+};
+
 /**
- * "Starts in" menu: favorites, recently used folders, the folder dialog and adding or removing
- * the current folder as a favorite. Used by the sidebar and the empty state.
+ * Folder menu: running projects, favorites and recent folders, each row with a star to keep or
+ * drop it as a favorite, then the folder dialog. Used by the sidebar, the rail and the empty state.
  */
 export function FolderMenu(props: Props) {
   const t = useT();
-  const { cwd, folders } = props;
+  // The rows stay where they are while the menu is open; a star only changes its own state.
+  const [frozen] = useState(() => ({ running: props.running, prefs: props.folders }));
+  const sections = folderMenuSections({
+    running: frozen.running,
+    prefs: frozen.prefs,
+    target: props.target,
+  });
 
-  const entry = (path: string, kind: "favorite" | "recent"): PopupItem => {
-    const current = cwd !== null && samePath(path, cwd);
-    const parent = path.slice(0, Math.max(0, path.length - folderName(path).length));
-    const detail = current ? t("folders.current") : parent === "" ? undefined : shortPath(parent);
-    return {
-      type: "action",
-      key: `${kind}:${path}`,
-      label: folderName(path),
-      ...(detail === undefined ? {} : { detail }),
-      title: path,
-      icon: kind === "favorite" ? <StarIcon filled /> : <ClockIcon />,
-      run: () => {
-        props.onSelect(path);
-      },
-    };
-  };
-
-  const favorites = folders.favorites.map((path) => entry(path, "favorite"));
-  const recent = recentOnly(folders).map((path) => entry(path, "recent"));
-  const favorite = cwd !== null && isFavorite(folders, cwd);
-  const items: PopupItem[] = [
-    ...favorites,
-    ...(favorites.length > 0 && recent.length > 0
-      ? [{ type: "separator", key: "sep-recent" } as const]
-      : []),
-    ...recent,
-    ...(favorites.length + recent.length > 0 ? [{ type: "separator", key: "sep" } as const] : []),
-    {
-      type: "action",
-      key: "choose",
-      label: t("menu.pickCwd"),
-      icon: <FolderIcon />,
-      run: props.onChoose,
-    },
-    {
-      type: "action",
-      key: "favorite",
-      label: favorite ? t("folders.removeFavorite") : t("folders.addFavorite"),
-      icon: <StarIcon filled={!favorite} />,
-      disabled: cwd === null,
-      run: () => {
-        if (cwd !== null) props.onToggleFavorite(cwd);
-      },
-    },
-  ];
+  const items: PopupItem[] = [];
+  for (const section of sections) {
+    items.push({
+      type: "heading",
+      key: `h:${section.kind}`,
+      label: t(SECTION_TITLES[section.kind]),
+    });
+    for (const entry of section.entries) {
+      const favorite = isFavorite(props.folders, entry.path);
+      const detail = entry.current ? t("folders.current") : entry.detail;
+      items.push({
+        type: "action",
+        key: `${section.kind}:${entry.path}`,
+        label: entry.label,
+        ...(detail === "" ? {} : { detail }),
+        title: entry.path,
+        current: entry.current,
+        icon: entry.current ? <CheckIcon size={14} /> : <FolderIcon size={14} />,
+        secondary: {
+          // The star shows the state: filled is a favorite, the label names what a click does.
+          label: favorite
+            ? t("folders.removeFavoriteNamed", { folder: entry.label })
+            : t("folders.addFavoriteNamed", { folder: entry.label }),
+          icon: <StarIcon filled={favorite} size={14} />,
+          checked: favorite,
+          keepOpen: true,
+          run: () => {
+            props.onToggleFavorite(entry.path);
+          },
+        },
+        run: () => {
+          props.onSelect(entry.path);
+        },
+      });
+    }
+  }
+  if (items.length > 0) items.push({ type: "separator", key: "sep" });
+  items.push({
+    type: "action",
+    key: "choose",
+    label: t("folders.chooseOther"),
+    icon: <FolderIcon size={14} />,
+    run: props.onChoose,
+  });
 
   return (
     <PopupMenu
       items={items}
       label={t("folders.menu")}
       position={props.position}
+      className="folder-menu"
       {...(props.flipAbove === undefined ? {} : { flipAbove: props.flipAbove })}
       {...(props.anchor === undefined ? {} : { anchor: props.anchor })}
       onClose={props.onClose}

@@ -5,8 +5,9 @@ import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { FolderMenu } from "./FolderMenu";
-import type { FolderPrefs } from "./folders";
-import { exitDetail, shortPath } from "./format";
+import { elideMiddle, parentFolder } from "./folderSections";
+import { folderName, type FolderPrefs } from "./folders";
+import { exitDetail } from "./format";
 import { useT } from "./i18n";
 import {
   BranchIcon,
@@ -21,19 +22,19 @@ import {
   MoonIcon,
   NotesIcon,
   PlusIcon,
-  CheckIcon,
-  CopyIcon,
   RestartIcon,
   StopIcon,
   SunIcon,
   WorktreeIcon,
 } from "./icons";
+import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
+import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import { clampFooterHeight, FOOTER_HEIGHT, SIDEBAR_WIDTH, type SidebarGroup } from "./layout";
 import { folderLabel, sameFolder, type NoteFolderInfo } from "./notes";
 import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
-import { availableVersion, type ProgramUpdates } from "./programUpdates";
+import { runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
@@ -86,7 +87,12 @@ interface Props {
   /** Currently visible appearance (the resolved one for "System"). */
   theme: Theme;
   onToggleTheme: () => void;
-  cwd: string | null;
+  /** Where the next session starts (startTarget.ts). */
+  target: StartTarget;
+  /** Project folders of the running sessions, for the folder menu. */
+  runningProjects: readonly string[];
+  /** Whether the target can get an own worktree. */
+  worktree: WorktreeChance;
   collapsed: boolean;
   width: number;
   footerHeight: number;
@@ -108,20 +114,25 @@ interface Props {
   onToggleCollapsed: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
-  onStart: (profile: Profile) => void;
-  /** Profile IDs with a running session (hint about locked files during an update). */
-  runningPrograms: ReadonlySet<string>;
-  /** Runs a program's update as a new session (only with `canRun`). */
-  onRunUpdate: (profileId: string) => void;
-  /** Opens the folder dialog for the working folder of new sessions. */
+  /** Starts a program in the target; `ownWorktree` only when `worktree` is "yes". */
+  onStart: (profile: Profile, ownWorktree: boolean) => void;
+  /** Profile IDs whose update session runs right now. */
+  updatingPrograms: ReadonlySet<string>;
+  /** Program whose update waits for "Update anyway" (it is running), otherwise `null`. */
+  confirmUpdate: string | null;
+  /** "Update" clicked: the app runs it or asks first. */
+  onRequestUpdate: (profileId: string) => void;
+  onConfirmUpdate: (profileId: string) => void;
+  onCancelUpdate: () => void;
+  /** Opens the folder dialog; the folder applies to the next start. */
   onPickCwd: () => void;
-  /** Favorite and recent folders for the "Starts in" menu. */
+  /** Favorite and recent folders for the folder menu. */
   folders: FolderPrefs;
+  /** A folder from the menu: it applies to the next start. */
   onSelectCwd: (path: string) => void;
+  /** Back from a chosen folder to the default target. */
+  onResetTarget: () => void;
   onToggleFavorite: (path: string) => void;
-  /** "Own worktree" for new sessions: chosen, and possible (the folder is in a git repository). */
-  worktree: { on: boolean; possible: boolean };
-  onWorktree: (on: boolean) => void;
   onRestart: (id: number) => void;
   onKill: (id: number) => void;
   onClose: (id: number) => void;
@@ -139,7 +150,7 @@ interface Props {
 }
 
 export function Sidebar(props: Props) {
-  const { sessions, activeId, profiles, versions, badgeFor, cwd, collapsed, update, attention } =
+  const { sessions, activeId, profiles, versions, badgeFor, target, collapsed, update, attention } =
     props;
   const { startable } = props;
   const t = useT();
@@ -220,6 +231,30 @@ export function Sidebar(props: Props) {
     toggleButton.current?.focus();
   }, [collapsed]);
 
+  // The active session stays in sight, also after switching by shortcut or from quick access.
+  useEffect(() => {
+    if (activeId === null) return;
+    root.current
+      ?.querySelector(`[data-session-row="${String(activeId)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeId, collapsed]);
+
+  /** Folder menu of the rail, opened from the program picker's first row. */
+  const [railFolderMenu, setRailFolderMenu] = useState<{ x: number; y: number } | null>(null);
+  const chosen = target.source === "chosen";
+  const targetTitle = targetTooltip(target, t);
+  const targetName = target.path === null ? t("sidebar.pickCwd") : folderName(target.path);
+  const targetParent = target.path === null ? null : parentFolder(target.path);
+  /** Props every folder menu shares; position, anchor and closing differ per place. */
+  const folderMenuProps = {
+    target: target.path,
+    running: props.runningProjects,
+    folders: props.folders,
+    onSelect: props.onSelectCwd,
+    onChoose: props.onPickCwd,
+    onToggleFavorite: props.onToggleFavorite,
+  };
+
   /** Mouse (detail > 0): focus to the terminal. Keyboard (detail 0): focus stays on the button. */
   const onToggleClick = (event: React.MouseEvent) => {
     if (event.detail > 0) {
@@ -236,19 +271,76 @@ export function Sidebar(props: Props) {
   const toggleKeys = formatShortcut(SHORTCUT_LABELS.toggleSidebar, t);
 
   if (collapsed) {
-    const programItems: PopupItem[] = startable.map((profile) => {
-      const version = versions.get(profile.id);
-      return {
+    // First the target (opens the folder menu), then the programs, then runnable updates.
+    const programItems: PopupItem[] = [
+      {
         type: "action",
-        key: profile.id,
-        label: profile.name,
-        ...(version === undefined ? {} : { detail: version }),
-        icon: <Badge look={badgeFor(profile.id)} />,
+        key: "target",
+        label: t("start.inFolder", { folder: targetName }),
+        ...(chosen ? { detail: t("start.sourceChosen") } : {}),
+        title: targetTitle,
+        icon: <FolderIcon size={14} />,
         run: () => {
-          props.onStart(profile);
+          // Opens where the program picker was.
+          setRailFolderMenu(programMenu);
         },
-      };
-    });
+      },
+      ...(props.worktree === "no"
+        ? [{ type: "note", key: "no-worktree", label: t("start.worktreeNoRepo") } as const]
+        : []),
+      { type: "separator", key: "sep-programs" },
+      ...startable.map((profile): PopupItem => {
+        const version = versions.get(profile.id);
+        return {
+          type: "action",
+          key: profile.id,
+          label: profile.name,
+          ...(version === undefined ? {} : { detail: version }),
+          icon: <Badge look={badgeFor(profile.id)} />,
+          ...(props.worktree === "yes"
+            ? {
+                secondary: {
+                  label: t("start.withWorktree", { name: profile.name }),
+                  icon: <WorktreeIcon size={14} />,
+                  run: () => {
+                    props.onStart(profile, true);
+                  },
+                },
+              }
+            : {}),
+          run: () => {
+            props.onStart(profile, false);
+          },
+        };
+      }),
+    ];
+    const updatable = startable.filter((profile) => runnableUpdate(props.updates, profile.id));
+    if (updatable.length > 0) {
+      programItems.push({ type: "separator", key: "sep-updates" });
+      for (const profile of updatable) {
+        const entry = props.updates.get(profile.id);
+        const latest = entry?.latest ?? "";
+        const installed = entry?.installed ?? "?";
+        programItems.push({
+          type: "action",
+          key: `update:${profile.id}`,
+          label: `${t("update.run")}: ${profile.name}`,
+          detail: props.updatingPrograms.has(profile.id)
+            ? t("update.running")
+            : `${installed} → ${latest}`,
+          title: [
+            t("update.runFromTo", { name: profile.name, installed, latest }),
+            entry?.needsAdmin === true ? t("update.needsAdmin") : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          icon: <DownloadIcon size={14} />,
+          run: () => {
+            props.onRequestUpdate(profile.id);
+          },
+        });
+      }
+    }
     const newKeys = formatShortcut(SHORTCUT_LABELS.newSession, t);
     return (
       <aside className="sidebar collapsed" ref={root}>
@@ -378,7 +470,20 @@ export function Sidebar(props: Props) {
             anchor={newButton}
             onClose={() => {
               setProgramMenu(null);
+              // Focus goes to the terminal only if nothing else took it (the folder menu).
               props.onMenuClose();
+            }}
+          />
+        )}
+        {railFolderMenu !== null && (
+          <FolderMenu
+            {...folderMenuProps}
+            position={railFolderMenu}
+            anchor={newButton}
+            onClose={(reason) => {
+              setRailFolderMenu(null);
+              if (reason === "dismiss") newButton.current?.focus();
+              else props.onMenuClose();
             }}
           />
         )}
@@ -557,38 +662,54 @@ export function Sidebar(props: Props) {
         style={newSessionOpen && sessionsOpen ? { height: props.footerHeight } : undefined}
         onToggle={props.onToggleGroup}
       >
-        <button
-          ref={cwdButton}
-          type="button"
-          className="cwd"
-          title={cwd ?? t("sidebar.pickCwdTitle")}
-          aria-haspopup="menu"
-          aria-expanded={folderMenu !== null}
-          onClick={(event) => {
-            if (folderMenu !== null) {
-              setFolderMenu(null);
-              return;
-            }
-            const rect = event.currentTarget.getBoundingClientRect();
-            setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
-          }}
-        >
-          <FolderIcon />
-          <span className="cwd-text">
-            <span className="cwd-label">{t("sidebar.startsIn")}</span>
-            <span className="cwd-path">{cwd ? shortPath(cwd) : t("sidebar.pickCwd")}</span>
-          </span>
-        </button>
+        <div className={chosen ? "cwd-row chosen" : "cwd-row"}>
+          <button
+            ref={cwdButton}
+            type="button"
+            className="cwd"
+            title={targetTitle}
+            aria-haspopup="menu"
+            aria-expanded={folderMenu !== null}
+            onClick={(event) => {
+              if (folderMenu !== null) {
+                setFolderMenu(null);
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
+            }}
+          >
+            <FolderIcon />
+            <span className="cwd-text">
+              <span className="cwd-label">
+                {chosen ? t("start.nextIn") : t("sidebar.startsIn")}
+              </span>
+              <span className="cwd-path">
+                <span className="cwd-name">{targetName}</span>
+                {targetParent !== null && (
+                  <span className="cwd-parent"> {elideMiddle(targetParent, 28)}</span>
+                )}
+              </span>
+            </span>
+          </button>
+          {chosen && (
+            <button
+              type="button"
+              className="icon-button cwd-reset"
+              aria-label={t("start.reset")}
+              title={t("start.reset")}
+              onClick={props.onResetTarget}
+            >
+              <CloseIcon size={12} />
+            </button>
+          )}
+        </div>
         {folderMenu !== null && (
           <FolderMenu
-            cwd={cwd}
-            folders={props.folders}
+            {...folderMenuProps}
             position={folderMenu}
             flipAbove={folderMenu.flipAbove}
             anchor={cwdButton}
-            onSelect={props.onSelectCwd}
-            onChoose={props.onPickCwd}
-            onToggleFavorite={props.onToggleFavorite}
             onClose={(reason) => {
               setFolderMenu(null);
               // Escape returns to the button; a chosen folder returns to the terminal.
@@ -597,26 +718,20 @@ export function Sidebar(props: Props) {
             }}
           />
         )}
-        <WorktreeOption
-          on={props.worktree.on}
-          possible={props.worktree.possible}
-          onChange={props.onWorktree}
-        />
+        <WorktreeHint chance={props.worktree} />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
           {startable.map((profile) => {
             const version = versions.get(profile.id);
-            const latest = availableVersion(props.updates, profile.id);
             const programUpdate = props.updates.get(profile.id);
-            const hint = programUpdate?.updateHint ?? null;
             return (
               <li key={profile.id} className="profile-row">
                 <button
                   type="button"
                   className="profile"
                   title={[profile.command, ...profile.args].join(" ")}
-                  onClick={() => {
-                    props.onStart(profile);
+                  onClick={(event) => {
+                    props.onStart(profile, event.shiftKey && props.worktree === "yes");
                   }}
                 >
                   <Badge look={badgeFor(profile.id)} />
@@ -626,33 +741,38 @@ export function Sidebar(props: Props) {
                       <span aria-hidden="true">·</span> {version}
                     </span>
                   )}
-                  {latest !== null && hint === null && (
-                    <span
-                      className="profile-update"
-                      title={t("update.programAvailable", { version: latest })}
-                    >
-                      <span className="dot update" aria-hidden="true" />
-                      <span aria-hidden="true">→ {latest}</span>
-                      <span className="sr-only">
-                        {t("update.programAvailable", { version: latest })}
-                      </span>
-                    </span>
+                  {programUpdate?.updateAvailable === true && (
+                    <span className="dot update profile-update-dot" aria-hidden="true" />
                   )}
                   <PlusIcon />
                 </button>
-                {latest !== null && hint !== null && (
-                  <UpdateButtons
-                    latest={latest}
-                    command={hint}
-                    canRun={programUpdate?.canRun ?? false}
-                    lockedHint={
-                      props.runningPrograms.has(profile.id)
-                        ? t("update.lockedHint", { name: profile.name })
-                        : null
-                    }
-                    onRun={() => {
-                      props.onRunUpdate(profile.id);
+                {props.worktree === "yes" && (
+                  <button
+                    type="button"
+                    className="profile-worktree"
+                    aria-label={t("start.withWorktree", { name: profile.name })}
+                    title={t("start.withWorktree", { name: profile.name })}
+                    onClick={() => {
+                      props.onStart(profile, true);
                     }}
+                  >
+                    {t("start.worktreeButton")}
+                  </button>
+                )}
+                {programUpdate !== undefined && (
+                  <ProgramUpdateOffer
+                    className="in-sidebar"
+                    name={profile.name}
+                    update={programUpdate}
+                    updating={props.updatingPrograms.has(profile.id)}
+                    confirming={props.confirmUpdate === profile.id}
+                    onRequest={() => {
+                      props.onRequestUpdate(profile.id);
+                    }}
+                    onConfirm={() => {
+                      props.onConfirmUpdate(profile.id);
+                    }}
+                    onCancel={props.onCancelUpdate}
                   />
                 )}
               </li>
@@ -880,113 +1000,6 @@ function UpdateNotice({
         </div>
       );
   }
-}
-
-/**
- * Small "→ 1.2.3" button next to a program with an update. If Hangar can run the update
- * (`canRun`), it starts it as a new session, with a copy icon next to it as a fallback.
- * Otherwise it copies the command (often just the install command). If copying fails, the
- * command appears below in selectable form.
- */
-function UpdateButtons({
-  latest,
-  command,
-  canRun,
-  lockedHint,
-  onRun,
-}: {
-  latest: string;
-  command: string;
-  canRun: boolean;
-  /** Hint that the program is running right now; `null` if not. */
-  lockedHint: string | null;
-  onRun: () => void;
-}) {
-  const t = useT();
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  const label = t("update.copyCommand", { version: latest });
-  const runLabel = t("update.runTo", { version: latest });
-  const copy = () => {
-    navigator.clipboard
-      .writeText(command)
-      .then(() => {
-        setState("copied");
-      })
-      .catch(() => {
-        setState("failed");
-      });
-  };
-  useEffect(() => {
-    if (state !== "copied") return;
-    const timer = window.setTimeout(() => {
-      setState("idle");
-    }, 4000);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [state]);
-  return (
-    <>
-      {canRun ? (
-        <>
-          <button
-            type="button"
-            className="profile-update-button"
-            aria-label={runLabel}
-            title={[runLabel, t("update.runsCommand", { command }), lockedHint]
-              .filter(Boolean)
-              .join("\n")}
-            onClick={onRun}
-          >
-            <span className="dot update" aria-hidden="true" />
-            <span aria-hidden="true">→ {latest}</span>
-          </button>
-          <button
-            type="button"
-            className={
-              state === "copied"
-                ? "icon-button profile-update-copy copied"
-                : "icon-button profile-update-copy"
-            }
-            aria-label={label}
-            title={`${label}\n${command}`}
-            onClick={copy}
-          >
-            {state === "copied" ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className={state === "copied" ? "profile-update-button copied" : "profile-update-button"}
-          aria-label={label}
-          title={`${label}\n${command}`}
-          onClick={copy}
-        >
-          {state === "copied" ? (
-            <CheckIcon size={12} />
-          ) : (
-            <span className="dot update" aria-hidden="true" />
-          )}
-          <span aria-hidden="true">→ {latest}</span>
-        </button>
-      )}
-      <span
-        className={
-          state === "failed"
-            ? "profile-update-feedback error-text selectable"
-            : "profile-update-feedback"
-        }
-        role="status"
-      >
-        {state === "copied"
-          ? t("update.commandCopied")
-          : state === "failed"
-            ? t("settings.copyFailed", { command })
-            : ""}
-      </span>
-    </>
-  );
 }
 
 /** Second status line as one text for tooltips: folder, branch and run time. */
@@ -1219,40 +1232,21 @@ function SessionItem({
 }
 
 /**
- * "Own worktree" below "Starts in": new sessions get a branch and folder of their own, so several
- * agents can work on one repository without getting in each other's way. Off outside git.
+ * One quiet line below the target about worktrees: how to start in an own worktree, or why that
+ * is not possible here. Nothing while the answer is pending, so the line does not flicker.
  */
-function WorktreeOption({
-  on,
-  possible,
-  onChange,
-}: {
-  on: boolean;
-  possible: boolean;
-  onChange: (on: boolean) => void;
-}) {
+export function WorktreeHint({ chance }: { chance: WorktreeChance }) {
   const t = useT();
-  const helpId = useId();
+  if (chance === "unknown") return null;
   return (
-    <label
-      className={possible ? "worktree-option" : "worktree-option disabled"}
-      title={possible ? t("worktree.optionHelp") : t("worktree.optionNoRepo")}
-    >
-      <input
-        type="checkbox"
-        checked={on && possible}
-        disabled={!possible}
-        aria-describedby={helpId}
-        onChange={(event) => {
-          onChange(event.currentTarget.checked);
-        }}
-      />
-      <WorktreeIcon size={14} />
-      <span className="worktree-option-label">{t("worktree.option")}</span>
-      <span id={helpId} className="sr-only">
-        {possible ? t("worktree.optionHelp") : t("worktree.optionNoRepo")}
+    <p className={chance === "yes" ? "worktree-hint" : "worktree-hint off"}>
+      <WorktreeIcon size={12} />
+      <span>
+        {chance === "yes"
+          ? t("start.worktreeHint", { shift: t("key.shift") })
+          : t("start.worktreeNoRepo")}
       </span>
-    </label>
+    </p>
   );
 }
 

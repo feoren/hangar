@@ -5,6 +5,7 @@ import {
   fitInViewport,
   lastIndex,
   menuCommand,
+  secondaryCommand,
   stepIndex,
   typeaheadIndex,
   type NavEntry,
@@ -116,5 +117,24 @@ describe("fitInViewport", () => {
       x: 8,
       y: 8,
     });
+  });
+});
+
+describe("secondaryCommand", () => {
+  it("moves between a row and its second button", () => {
+    expect(secondaryCommand({ key: "ArrowRight" }, true, false)).toBe("enter");
+    expect(secondaryCommand({ key: "ArrowLeft" }, true, true)).toBe("leave");
+    expect(secondaryCommand({ key: "Enter" }, true, true)).toBe("run");
+    expect(secondaryCommand({ key: " " }, true, true)).toBe("run");
+  });
+
+  it("runs it from the row with Shift+Enter only", () => {
+    expect(secondaryCommand({ key: "Enter", shiftKey: true }, true, false)).toBe("run");
+    expect(secondaryCommand({ key: "Enter" }, true, false)).toBeNull();
+  });
+
+  it("leaves rows without a second button alone", () => {
+    expect(secondaryCommand({ key: "ArrowRight" }, false, false)).toBeNull();
+    expect(secondaryCommand({ key: "ArrowDown" }, true, true)).toBeNull();
   });
 });

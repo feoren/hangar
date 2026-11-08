@@ -23,7 +23,7 @@ import {
   type ProgramPrefs,
 } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
-import type { ProgramUpdate } from "./programUpdates";
+import { ProgramUpdateOffer, type UpdateActions } from "./ProgramUpdateOffer";
 import type { Settings } from "./settings";
 import { formatShortTime } from "./format";
 import type { ProgramUpdateState } from "./useProgramUpdates";
@@ -33,10 +33,8 @@ interface Props {
   profiles: Profile[];
   versions: ProgramVersions;
   programUpdates: ProgramUpdateState;
-  /** Profile IDs with a running session (hint about locked files during an update). */
-  runningPrograms: ReadonlySet<string>;
-  /** Launches the update as a session; only offered when the backend reports `canRun`. */
-  onRunUpdate: (profileId: string) => void;
+  /** "Update" on a program row (one click, or a question while the program runs). */
+  updateActions: UpdateActions;
   badgeFor: (profileId: string) => BadgeLook;
   onChange: (patch: Partial<Settings>) => void;
   /** The backend saved or deleted a profile: its new list replaces the current one. */
@@ -350,11 +348,19 @@ export function ProgramsSettings(props: Props) {
                       </span>
                     </div>
                     {programUpdate?.updateAvailable && (
-                      <UpdateLine
-                        profile={profile}
+                      <ProgramUpdateOffer
+                        className="in-settings"
+                        name={profile.name}
                         update={programUpdate}
-                        running={props.runningPrograms.has(profile.id)}
-                        onRun={props.onRunUpdate}
+                        updating={props.updateActions.updating.has(profile.id)}
+                        confirming={props.updateActions.confirming === profile.id}
+                        onRequest={() => {
+                          props.updateActions.request(profile.id);
+                        }}
+                        onConfirm={() => {
+                          props.updateActions.confirm(profile.id);
+                        }}
+                        onCancel={props.updateActions.cancel}
                       />
                     )}
                     {editorOpen && (
@@ -479,91 +485,6 @@ export function ProgramsSettings(props: Props) {
         </p>
       </section>
     </>
-  );
-}
-
-/**
- * "0.166.0 → 0.167.0", plus "Update" (launches the update command as a new session, only with
- * `canRun`) and the command to copy as a fallback.
- */
-function UpdateLine({
-  profile,
-  update,
-  running,
-  onRun,
-}: {
-  profile: Profile;
-  update: ProgramUpdate;
-  running: boolean;
-  onRun: (profileId: string) => void;
-}) {
-  const t = useT();
-  const [feedback, setFeedback] = useState<boolean | null>(null);
-  const command = update.updateHint;
-  const copy = (text: string) => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        setFeedback(true);
-      })
-      .catch(() => {
-        setFeedback(false);
-      });
-  };
-  return (
-    <div className="program-update">
-      <span className="program-update-versions">
-        <span className="dot update" aria-hidden="true" />
-        <span className="sr-only">
-          {t("update.programAvailable", { version: update.latest ?? "" })}
-        </span>
-        <span aria-hidden="true">
-          {update.installed ?? "?"} → {update.latest}
-        </span>
-      </span>
-      {command && update.canRun && (
-        <button
-          type="button"
-          className="primary-button"
-          aria-label={`${t("update.run")}: ${profile.name}`}
-          title={t("update.runsCommand", { command })}
-          onClick={() => {
-            onRun(profile.id);
-          }}
-        >
-          {t("update.run")}
-        </button>
-      )}
-      {command && (
-        <button
-          type="button"
-          className="secondary-button copy-button"
-          aria-label={`${t("settings.copyUpdate")}: ${profile.name}`}
-          title={command}
-          onClick={() => {
-            copy(command);
-          }}
-        >
-          <CopyIcon />
-          {t("settings.copyUpdate")}
-        </button>
-      )}
-      <span
-        className={feedback === false ? "copy-feedback error-text selectable" : "copy-feedback"}
-        role="status"
-      >
-        {feedback === null
-          ? ""
-          : feedback
-            ? t("settings.copied")
-            : t("settings.copyFailed", { command: command ?? "" })}
-      </span>
-      {update.canRun && running && (
-        <p className="muted settings-help program-update-warning">
-          {t("update.lockedHint", { name: profile.name })}
-        </p>
-      )}
-    </div>
   );
 }
 

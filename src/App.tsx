@@ -41,6 +41,7 @@ import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import { FolderMenu } from "./FolderMenu";
 import {
+  folderName,
   loadFolderPrefs,
   recordRecent,
   saveFolderPrefs,
@@ -54,7 +55,7 @@ import {
   setCurrentLanguage,
   type Translate,
 } from "./i18n";
-import { formatShortTime, shortPath, statusText } from "./format";
+import { formatShortTime, statusText } from "./format";
 import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems } from "./launcherItems";
@@ -87,7 +88,24 @@ import { dropText, shellKind } from "./pathQuote";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
 import { arrangedProfiles, resolveBadge, startableProfiles } from "./programPrefs";
-import { availableVersion } from "./programUpdates";
+import {
+  availableVersion,
+  isPlanChanged,
+  outcomeNotice,
+  parseUpdateOutcome,
+  PROGRAM_UPDATE_RESULT,
+  type OutcomeNotice,
+  type UpdateOutcome,
+} from "./programUpdates";
+import type { UpdateActions } from "./ProgramUpdateOffer";
+import {
+  resolveStartTarget,
+  runningProjects,
+  startPlaces,
+  targetTooltip,
+  worktreeChance,
+} from "./startTarget";
+import { WorktreeHint } from "./Sidebar";
 import {
   backgroundSessions,
   initialSessions,
@@ -155,7 +173,6 @@ import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import { revealInvisible } from "./invisible";
 import {
-  canUseWorktree,
   createErrorText,
   parseRemoval,
   parseWorktree,
@@ -164,6 +181,7 @@ import {
   removalNotice,
   worktreeInUse,
   worktreeLabel,
+  worktreeTitle,
   type WorktreeNotice,
 } from "./worktree";
 import {
@@ -179,6 +197,10 @@ import {
 } from "./workspace";
 
 const LAST_CWD_KEY = "hangar.lastCwd";
+/** How long "Claude Code starts in hangar" stays after Ctrl+Shift+T. */
+const START_HINT_MS = 2500;
+/** How long a successful update result stays. */
+const UPDATE_RESULT_MS = 12_000;
 /** Initial size until xterm has measured the real space (a resize follows right after). */
 const INITIAL_SIZE = { cols: 120, rows: 30 };
 const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
@@ -266,19 +288,12 @@ function isPlaceholder(id: number): boolean {
   return id < 0;
 }
 
+/** Start folder of older versions; only a fallback until the first start is recorded as recent. */
 function readLastCwd(): string | null {
   try {
     return localStorage.getItem(LAST_CWD_KEY);
   } catch {
     return null;
-  }
-}
-
-function storeLastCwd(cwd: string): void {
-  try {
-    localStorage.setItem(LAST_CWD_KEY, cwd);
-  } catch {
-    // Without a stored value, the next start suggests the home folder.
   }
 }
 
@@ -290,7 +305,10 @@ function windowWatched(): boolean {
 export function App() {
   const [state, dispatch] = useReducer(sessionsReducer, initialSessions);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [cwd, setCwd] = useState<string | null>(readLastCwd);
+  /** Folder chosen in the folder menu for the next start only (startTarget.ts). */
+  const [chosenCwd, setChosenCwd] = useState<string | null>(null);
+  const [home, setHome] = useState<string | null>(null);
+  const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>(loadLayout);
   const [settings, setSettings] = useState<Settings>(() =>
@@ -389,8 +407,16 @@ export function App() {
   /** Changes panel (Ctrl+Shift+D); shares the right side with the notes, one at a time. */
   const [changesOpen, setChangesOpen] = useState(false);
   const [changesFocusToken, setChangesFocusToken] = useState(0);
-  /** "Own worktree" for new sessions in the "Starts in" folder; per run, so it never surprises. */
-  const [worktreeOn, setWorktreeOn] = useState(false);
+  /** Short confirmation after Ctrl+Shift+T: which program starts where. */
+  const [startHint, setStartHint] = useState<string | null>(null);
+  /** Program whose update waits for "Update anyway" because it is running. */
+  const [confirmUpdate, setConfirmUpdate] = useState<string | null>(null);
+  /** Result of the last update session, until dismissed. */
+  const [updateResult, setUpdateResult] = useState<
+    (OutcomeNotice & { sessionId: number | null; key: number }) | null
+  >(null);
+  /** The update plan changed since it was shown: the program's name, until checked again. */
+  const [planChanged, setPlanChanged] = useState<string | null>(null);
   /** A worktree is being created (checking out can take a while). */
   const [creatingWorktree, setCreatingWorktree] = useState(false);
   /** What stayed after closing a worktree session, with its path to copy. */
@@ -541,12 +567,7 @@ export function App() {
 
   useEffect(() => {
     loadProfiles(showError);
-    api
-      .defaultCwd()
-      .then((home) => {
-        setCwd((current) => current ?? home);
-      })
-      .catch(showError);
+    api.defaultCwd().then(setHome).catch(showError);
     getVersion()
       .then((v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
@@ -693,6 +714,20 @@ export function App() {
   const activeTerminal = () =>
     state.activeId === null ? undefined : terminals.get(state.activeId);
   const activeSession = state.sessions.find((s) => s.id === state.activeId);
+  /** Where the next session starts: the active project, a chosen folder, the last one, home. */
+  const target = resolveStartTarget({
+    chosen: chosenCwd,
+    active: activeSession,
+    lastUsed: folders.recent[0] ?? legacyLastCwd,
+    home,
+  });
+  const targetPath = target.path;
+  /** For callbacks that start sessions; they run after the render that showed this target. */
+  const targetRef = useRef(targetPath);
+  useEffect(() => {
+    targetRef.current = targetPath;
+  });
+  const running = runningProjects(state.sessions);
   const sessionFolder: NoteFolder | null = activeSession ? { path: activeSession.cwd } : null;
   const notesFolder: NoteFolder = noteScope.follow
     ? (sessionFolder ?? { path: null })
@@ -911,12 +946,13 @@ export function App() {
   }, []);
 
   /**
-   * `folder`: start there instead of the "Starts in" folder (quick access). `ownWorktree`: first a
+   * `folder`: start there instead of the start target (quick access). `ownWorktree`: first a
    * git worktree with a branch of its own is created from that folder, and the session runs in it.
+   * A start in the target uses up a chosen folder: the next one follows the active session again.
    */
   const start = useCallback(
     async (profile: Profile, folder?: string, ownWorktree = false) => {
-      const base = folder ?? cwd;
+      const base = folder ?? targetRef.current;
       let worktree: Worktree | undefined;
       if (ownWorktree && base !== null) {
         setCreatingWorktree(true);
@@ -953,8 +989,13 @@ export function App() {
           ...stateRef.current.sessions.map((session) => session.title),
           ...claimedTitles.current.values(),
         ];
-        const title = numberedTitle(info.title, others);
+        // In an own worktree the branch tells sessions apart: "Claude Code · 1a2b3c".
+        const title = numberedTitle(
+          worktree ? worktreeTitle(info.title, worktree.branch) : info.title,
+          others,
+        );
         claimedTitles.current.set(info.id, title);
+        if (folder === undefined) setChosenCwd(null);
         dispatch({
           type: "added",
           session: await withTitle(info, title),
@@ -978,7 +1019,6 @@ export function App() {
       }
     },
     [
-      cwd,
       layout.fontSize,
       attentionConfig,
       theme,
@@ -996,7 +1036,10 @@ export function App() {
    * update dot disappears. The backend cleared its version cache before the exit event.
    */
   const afterUpdateRef = useRef<() => void>(() => undefined);
+  /** Update plans as last shown, for the fingerprint sent with "Update". */
+  const updatesRef = useRef(programUpdates.updates);
   useEffect(() => {
+    updatesRef.current = programUpdates.updates;
     afterUpdateRef.current = () => {
       programs.refreshVersions();
       programUpdates.recheck();
@@ -1032,6 +1075,7 @@ export function App() {
           profileId,
           INITIAL_SIZE,
           terminal.createChannel(),
+          updatesRef.current.get(profileId)?.planId ?? null,
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1056,7 +1100,14 @@ export function App() {
         }
       } catch (e) {
         terminal.dispose();
-        showError(e);
+        if (isPlanChanged(errorText(e))) {
+          // Never run what was not shown: name it and offer a fresh check.
+          const name = profilesRef.current.find((p) => p.id === profileId)?.name ?? profileId;
+          setPlanChanged(name);
+          afterUpdateRef.current();
+        } else {
+          showError(e);
+        }
       } finally {
         pendingUpdates.current.delete(profileId);
       }
@@ -1590,6 +1641,41 @@ export function App() {
       focusTerminal();
     };
   });
+  // The start hint is a short confirmation; a good update result fades on its own, a problem
+  // stays until dismissed.
+  useEffect(() => {
+    if (startHint === null) return;
+    const timer = window.setTimeout(() => {
+      setStartHint(null);
+    }, START_HINT_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [startHint]);
+  useEffect(() => {
+    if (updateResult?.tone !== "ok") return;
+    const timer = window.setTimeout(() => {
+      setUpdateResult(null);
+    }, UPDATE_RESULT_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [updateResult]);
+
+  /** After an update session: a calm notice with the outcome, and fresh versions. */
+  const updateResultRef = useRef<(outcome: UpdateOutcome) => void>(() => undefined);
+  useEffect(() => {
+    updateResultRef.current = (outcome) => {
+      const name =
+        profilesRef.current.find((p) => p.id === outcome.profileId)?.name ?? outcome.profileId;
+      setUpdateResult({
+        ...outcomeNotice(outcome, name, t),
+        sessionId: outcome.sessionId,
+        key: Date.now(),
+      });
+      afterUpdateRef.current();
+    };
+  });
   useEffect(() => {
     const stops: (() => void)[] = [];
     let disposed = false;
@@ -1605,6 +1691,12 @@ export function App() {
         .then(keep)
         .catch(() => undefined);
       listen(TRAY_QUIT, () => void quitRef.current())
+        .then(keep)
+        .catch(() => undefined);
+      listen(PROGRAM_UPDATE_RESULT, (event) => {
+        const outcome = parseUpdateOutcome(event.payload);
+        if (outcome !== null) updateResultRef.current(outcome);
+      })
         .then(keep)
         .catch(() => undefined);
     } catch {
@@ -1682,22 +1774,22 @@ export function App() {
     refreshNoteFolders();
   }, [refreshNoteFolders]);
 
+  /** A folder from the menu or the dialog: it applies to the next start (startTarget.ts). */
   const selectCwd = useCallback((path: string) => {
-    setCwd(path);
-    storeLastCwd(path);
+    setChosenCwd(path);
   }, []);
 
   const pickCwd = useCallback(async () => {
     try {
-      const picked = await open(cwd ? { directory: true, defaultPath: cwd } : { directory: true });
-      if (typeof picked === "string") {
-        setCwd(picked);
-        storeLastCwd(picked);
-      }
+      const current = targetRef.current;
+      const picked = await open(
+        current ? { directory: true, defaultPath: current } : { directory: true },
+      );
+      if (typeof picked === "string") setChosenCwd(picked);
     } catch (e) {
       showError(e);
     }
-  }, [cwd, showError]);
+  }, [showError]);
 
   const changeFont = (delta: number | null) => {
     setLayout((current) => ({
@@ -1911,17 +2003,19 @@ export function App() {
 
   /** Times for the status line; read from the terminals, which collect them outside React. */
   const activityOf = (id: number, now: number) => terminals.get(id)?.activity(now) ?? NO_ACTIVITY;
+  /** Folders to start in: the target, running projects, favorites and recent folders. */
+  const places = startPlaces(targetPath, running, folders.favorites, folders.recent);
   /**
-   * Working folders whose git branch the status line shows, plus the "Starts in" folder: a
-   * branch there means "Own worktree" is possible.
+   * Working folders whose git branch the status line shows (first, so they always fit), then the
+   * places to start in: a branch there means an own worktree is possible.
    */
   const branches = useGitBranches(
-    branchPaths(cwd === null ? state.sessions : [{ cwd }, ...state.sessions]),
+    branchPaths([...state.sessions, ...places.map((path) => ({ cwd: path }))]),
   );
-  const worktreePossible = canUseWorktree(branches, cwd);
-  /** Start in the "Starts in" folder, in an own worktree when that option is on. */
-  const startHere = (profile: Profile) => {
-    void start(profile, undefined, worktreeOn && worktreePossible);
+  const worktree = worktreeChance(branches, targetPath);
+  /** Start in the target; `ownWorktree` only where git allows it. */
+  const startHere = (profile: Profile, ownWorktree = false) => {
+    void start(profile, undefined, ownWorktree && worktree === "yes");
   };
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
@@ -1929,6 +2023,46 @@ export function App() {
       .filter((s) => s.kind !== "update" && s.status !== "exited")
       .map((s) => s.profileId),
   );
+  /** Programs whose update session runs right now. */
+  const updatingPrograms = new Set(
+    state.sessions
+      .filter((s) => s.kind === "update" && s.status !== "exited")
+      .map((s) => s.profileId),
+  );
+  /**
+   * "Update" on a program: one click, unless the program runs; then the row asks first whether
+   * to close its sessions or update anyway (locked files on Windows). From the rail the sidebar
+   * opens so the question is visible where the program is.
+   */
+  const updateActions: UpdateActions = {
+    updating: updatingPrograms,
+    confirming: confirmUpdate,
+    request: (profileId) => {
+      setPlanChanged(null);
+      if (runningPrograms.has(profileId) && !updatingPrograms.has(profileId)) {
+        setConfirmUpdate(profileId);
+        setLayout((current) =>
+          current.collapsed || current.closedGroups.includes("newSession")
+            ? {
+                ...current,
+                collapsed: false,
+                closedGroups: current.closedGroups.filter((group) => group !== "newSession"),
+              }
+            : current,
+        );
+        return;
+      }
+      setConfirmUpdate(null);
+      void startUpdate(profileId);
+    },
+    confirm: (profileId) => {
+      setConfirmUpdate(null);
+      void startUpdate(profileId);
+    },
+    cancel: () => {
+      setConfirmUpdate(null);
+    },
+  };
 
   /** Running sessions that can receive text from "Send to several". */
   const broadcastable = broadcastCandidates(state.sessions);
@@ -1979,7 +2113,16 @@ export function App() {
         break;
       }
       case "newSession":
-        if (nextProgram) startHere(nextProgram);
+        if (nextProgram) {
+          startHere(nextProgram);
+          // The shortcut shows no folder: say briefly where it starts.
+          setStartHint(
+            t("start.started", {
+              name: nextProgram.name,
+              folder: targetPath === null ? "" : folderName(targetPath),
+            }),
+          );
+        }
         break;
       case "find":
         openSearch();
@@ -2481,14 +2624,12 @@ export function App() {
       sessions: state.sessions,
       programName: (profileId) => profileById.get(profileId)?.name,
       startable,
-      cwd,
-      folders,
+      places: places.map((path) => ({ path, worktree: worktreeChance(branches, path) === "yes" })),
       noteFolders,
       snippets,
       canInsert,
       snapLayout: layout.snapLayout,
       canBroadcast: broadcastable.length > 0,
-      worktreeFolder: worktreePossible ? cwd : null,
       changesOpen,
       t,
       badge: (profileId) => <Badge look={badgeFor(profileId)} />,
@@ -2554,7 +2695,9 @@ export function App() {
           version={version}
           theme={theme}
           onToggleTheme={toggleTheme}
-          cwd={cwd}
+          target={target}
+          runningProjects={running}
+          worktree={worktree}
           collapsed={layout.collapsed}
           width={layout.sidebarWidth}
           footerHeight={layout.footerHeight}
@@ -2582,17 +2725,19 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
-          worktree={{ on: worktreeOn, possible: worktreePossible }}
-          onWorktree={setWorktreeOn}
-          runningPrograms={runningPrograms}
-          onRunUpdate={(profileId) => {
-            void startUpdate(profileId);
-          }}
+          updatingPrograms={updatingPrograms}
+          confirmUpdate={confirmUpdate}
+          onRequestUpdate={updateActions.request}
+          onConfirmUpdate={updateActions.confirm}
+          onCancelUpdate={updateActions.cancel}
           onPickCwd={() => {
             void pickCwd();
           }}
           folders={folders}
           onSelectCwd={selectCwd}
+          onResetTarget={() => {
+            setChosenCwd(null);
+          }}
           onToggleFavorite={(path) => {
             setFolders((current) => toggleFavorite(current, path));
           }}
@@ -2806,8 +2951,8 @@ export function App() {
                               type="button"
                               className="empty-program"
                               title={[profile.command, ...profile.args].join(" ")}
-                              onClick={() => {
-                                startHere(profile);
+                              onClick={(event) => {
+                                startHere(profile, event.shiftKey);
                               }}
                             >
                               <Badge look={badgeFor(profile.id)} />
@@ -2816,15 +2961,31 @@ export function App() {
                                 <span className="empty-program-version">{programVersion}</span>
                               )}
                             </button>
+                            {worktree === "yes" && (
+                              <button
+                                type="button"
+                                className="link-button empty-worktree"
+                                aria-label={t("start.withWorktree", { name: profile.name })}
+                                title={t("start.withWorktree", { name: profile.name })}
+                                onClick={() => {
+                                  startHere(profile, true);
+                                }}
+                              >
+                                {t("start.worktreeButton")}
+                              </button>
+                            )}
                           </li>
                         );
                       })}
                     </ul>
                   )}
-                  <p className="empty-cwd">
+                  <p className={target.source === "chosen" ? "empty-cwd chosen" : "empty-cwd"}>
                     <FolderIcon />
-                    <span className="empty-cwd-path" title={cwd ?? undefined}>
-                      {t("empty.startsIn", { folder: cwd ? shortPath(cwd) : "…" })}
+                    <span className="empty-cwd-path" title={targetTooltip(target, t)}>
+                      {target.source === "chosen" ? t("start.nextIn") : t("sidebar.startsIn")}{" "}
+                      <strong className="empty-cwd-name">
+                        {targetPath === null ? "…" : folderName(targetPath)}
+                      </strong>
                     </span>
                     <span aria-hidden="true">·</span>
                     <button
@@ -2849,7 +3010,22 @@ export function App() {
                     >
                       {t("empty.change")}
                     </button>
+                    {target.source === "chosen" && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <button
+                          type="button"
+                          className="link-button empty-change"
+                          onClick={() => {
+                            setChosenCwd(null);
+                          }}
+                        >
+                          {t("start.reset")}
+                        </button>
+                      </>
+                    )}
                   </p>
+                  <WorktreeHint chance={worktree} />
                   <p className="keys">
                     {nextProgram && (
                       <>
@@ -2915,6 +3091,91 @@ export function App() {
             )}
           </div>
           <div className="notices">
+            {startHint !== null && (
+              <div className="link-notice start-hint" role="status" key={startHint}>
+                <span>{startHint}</span>
+              </div>
+            )}
+            {planChanged !== null && (
+              <div className="link-notice" role="alert">
+                <span>{t("update.planChanged", { name: planChanged })}</span>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setPlanChanged(null);
+                      programUpdates.checkNow();
+                      focusActive();
+                    }}
+                  >
+                    {t("update.checkAgain")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setPlanChanged(null);
+                      focusActive();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
+            {updateResult !== null && (
+              <div
+                className={
+                  updateResult.tone === "ok" ? "link-notice" : "link-notice update-problem"
+                }
+                role="status"
+                key={updateResult.key}
+              >
+                <span>{updateResult.message}</span>
+                {updateResult.paths.length > 0 && (
+                  <details className="update-offer-copies">
+                    <summary>{t("updateOutcome.copies")}</summary>
+                    <ol className="update-offer-paths selectable">
+                      {updateResult.paths.map((path) => (
+                        <li key={path}>{path}</li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+                <div className="link-actions">
+                  {updateResult.sessionId !== null &&
+                    state.sessions.some((s) => s.id === updateResult.sessionId) && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          const id = updateResult.sessionId;
+                          setUpdateResult(null);
+                          if (id !== null) dispatch({ type: "activated", id });
+                          focusTerminal();
+                        }}
+                      >
+                        {t("updateOutcome.showSession")}
+                      </button>
+                    )}
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setUpdateResult(null);
+                      focusActive();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
             {creatingWorktree && (
               <div className="link-notice" role="status">
                 <span>{t("worktree.creating")}</span>
@@ -2970,7 +3231,8 @@ export function App() {
         </main>
         {emptyFolderMenu !== null && (
           <FolderMenu
-            cwd={cwd}
+            target={targetPath}
+            running={running}
             folders={folders}
             position={emptyFolderMenu}
             flipAbove={emptyFolderMenu.flipAbove}
@@ -3115,11 +3377,22 @@ export function App() {
             update={updater.state}
             version={version}
             programUpdates={programUpdates}
-            runningPrograms={runningPrograms}
-            onRunUpdate={(profileId) => {
-              // The dialog is modal; the new session should be visible right away.
-              setDialog(null);
-              void startUpdate(profileId);
+            updateActions={{
+              ...updateActions,
+              // The question stays in Settings; a started update closes the dialog, because it
+              // is modal and the new session should be visible right away.
+              request: (profileId) => {
+                if (runningPrograms.has(profileId) && !updatingPrograms.has(profileId)) {
+                  setConfirmUpdate(profileId);
+                  return;
+                }
+                setDialog(null);
+                updateActions.request(profileId);
+              },
+              confirm: (profileId) => {
+                setDialog(null);
+                updateActions.confirm(profileId);
+              },
             }}
             onChange={updateSettings}
             onClearScrollbacks={clearScrollbacks}

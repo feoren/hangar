@@ -1,6 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { firstIndex, fitInViewport, menuCommand, type NavEntry } from "./menuNav";
+import { firstIndex, fitInViewport, menuCommand, secondaryCommand, type NavEntry } from "./menuNav";
+
+/** Second button at the end of a row, e.g. the favorite star or "+ Worktree". */
+export interface PopupSecondary {
+  label: string;
+  icon: React.ReactNode;
+  /** Toggle state (favorite star): announced as a checkbox item. */
+  checked?: boolean;
+  /** The menu stays open (toggles); otherwise it closes like for the row. */
+  keepOpen?: boolean;
+  run: () => void;
+}
 
 export type PopupItem =
   | {
@@ -15,11 +26,17 @@ export type PopupItem =
       /** Tooltip, e.g. the full path behind a shortened label. */
       title?: string;
       disabled?: boolean;
+      /** Marks the row (e.g. the current folder); read out as "checked". */
+      current?: boolean;
+      /** Also reachable with Right arrow, Shift+Enter and Shift+click on the row. */
+      secondary?: PopupSecondary;
       run: () => void;
     }
   | { type: "separator"; key: string }
   /** Small caption above a group of entries; not focusable. */
-  | { type: "heading"; key: string; label: string };
+  | { type: "heading"; key: string; label: string }
+  /** A short sentence in the menu, e.g. why an option is missing; not focusable. */
+  | { type: "note"; key: string; label: string };
 
 interface Props {
   items: readonly PopupItem[];
@@ -43,9 +60,9 @@ interface Props {
 }
 
 /**
- * Floating single-level menu (terminal context menu, program picker of the collapsed sidebar).
- * Same keyboard control as the app menu: focus on the first entry, arrows, Home, End,
- * first letter, Enter, Escape.
+ * Floating single-level menu (terminal context menu, program picker of the collapsed sidebar,
+ * folder menu). Same keyboard control as the app menu: focus on the first entry, arrows, Home,
+ * End, first letter, Enter, Escape; Right and Left reach a row's second button.
  */
 export function PopupMenu({
   items,
@@ -62,9 +79,11 @@ export function PopupMenu({
       : { label: item.label, enabled: item.disabled !== true, submenu: false },
   );
   const [current, setCurrent] = useState(() => firstIndex(entries));
+  const [onSecondary, setOnSecondary] = useState(false);
   const [placed, setPlaced] = useState(position);
   const panel = useRef<HTMLUListElement>(null);
   const buttons = useRef(new Map<number, HTMLButtonElement>());
+  const secondaries = useRef(new Map<number, HTMLButtonElement>());
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
@@ -122,15 +141,37 @@ export function PopupMenu({
     item.run();
   };
 
+  const runSecondary = (index: number) => {
+    const item = items[index];
+    if (!item || item.type !== "action" || item.disabled === true || !item.secondary) return;
+    if (item.secondary.keepOpen !== true) onClose("action");
+    item.secondary.run();
+  };
+
+  const focusRow = (index: number, secondary: boolean) => {
+    setCurrent(index);
+    setOnSecondary(secondary);
+    (secondary ? secondaries.current : buttons.current).get(index)?.focus();
+  };
+
   const onKeyDown = (event: React.KeyboardEvent) => {
     event.stopPropagation();
+    const item = items[current];
+    const hasSecondary = item?.type === "action" && item.secondary !== undefined;
+    const second = secondaryCommand(event, hasSecondary, onSecondary);
+    if (second !== null) {
+      event.preventDefault();
+      if (second === "enter") focusRow(current, true);
+      else if (second === "leave") focusRow(current, false);
+      else runSecondary(current);
+      return;
+    }
     const command = menuCommand(event, entries, current, false);
     switch (command.kind) {
       case "none":
         return;
       case "focus":
-        setCurrent(command.index);
-        buttons.current.get(command.index)?.focus();
+        focusRow(command.index, false);
         break;
       case "activate":
         activate(current);
@@ -169,26 +210,39 @@ export function PopupMenu({
             </li>
           );
         }
+        if (item.type === "note") {
+          return (
+            <li key={item.key} role="presentation" className="menu-note">
+              {item.label}
+            </li>
+          );
+        }
+        const secondary = item.secondary;
         return (
-          <li key={item.key} className="menu-entry" role="none">
+          <li
+            key={item.key}
+            className={secondary ? "menu-entry with-secondary" : "menu-entry"}
+            role="none"
+          >
             <button
               type="button"
-              role="menuitem"
+              role={item.current === undefined ? "menuitem" : "menuitemradio"}
+              aria-checked={item.current}
               ref={(element) => {
                 if (element) buttons.current.set(index, element);
                 else buttons.current.delete(index);
               }}
-              tabIndex={index === current ? 0 : -1}
-              className="menu-item"
+              tabIndex={index === current && !onSecondary ? 0 : -1}
+              className={item.current === true ? "menu-item current" : "menu-item"}
               title={item.title}
               disabled={item.disabled}
               onPointerEnter={() => {
                 if (item.disabled === true) return;
-                setCurrent(index);
-                buttons.current.get(index)?.focus();
+                focusRow(index, false);
               }}
-              onClick={() => {
-                activate(index);
+              onClick={(event) => {
+                if (event.shiftKey && secondary) runSecondary(index);
+                else activate(index);
               }}
             >
               {item.icon}
@@ -203,6 +257,35 @@ export function PopupMenu({
               </span>
               <span className="menu-hint">{item.shortcut ?? ""}</span>
             </button>
+            {secondary && (
+              <button
+                type="button"
+                role={secondary.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                aria-checked={secondary.checked}
+                aria-label={secondary.label}
+                title={secondary.label}
+                ref={(element) => {
+                  if (element) secondaries.current.set(index, element);
+                  else secondaries.current.delete(index);
+                }}
+                tabIndex={index === current && onSecondary ? 0 : -1}
+                className={
+                  secondary.checked === true
+                    ? "menu-secondary icon-button on"
+                    : "menu-secondary icon-button"
+                }
+                disabled={item.disabled}
+                onPointerEnter={() => {
+                  if (item.disabled === true) return;
+                  focusRow(index, true);
+                }}
+                onClick={() => {
+                  runSecondary(index);
+                }}
+              >
+                {secondary.icon}
+              </button>
+            )}
           </li>
         );
       })}
