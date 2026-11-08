@@ -91,6 +91,7 @@ describe("parseLayout", () => {
       fontSize: 16,
       notesOpen: false,
       notesWidth: NOTES_WIDTH.default,
+      splitMode: "single",
     });
   });
 
@@ -108,6 +109,14 @@ describe("parseLayout", () => {
     const layout = parseLayout(JSON.stringify({ notesOpen: true, notesWidth: 520 }));
     expect(layout.notesOpen).toBe(true);
     expect(layout.notesWidth).toBe(520);
+  });
+
+  it("remembers the split view mode and ignores unknown ones", () => {
+    expect(parseLayout(JSON.stringify({ splitMode: "grid" })).splitMode).toBe("grid");
+    expect(parseLayout(JSON.stringify({ splitMode: "columns" })).splitMode).toBe("columns");
+    expect(parseLayout(JSON.stringify({ splitMode: "quad" })).splitMode).toBe("single");
+    expect(parseLayout(JSON.stringify({ splitMode: 2 })).splitMode).toBe("single");
+    expect(parseLayout(JSON.stringify({})).splitMode).toBe("single");
   });
 });
 

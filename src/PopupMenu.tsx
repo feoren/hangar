@@ -17,7 +17,9 @@ export type PopupItem =
       disabled?: boolean;
       run: () => void;
     }
-  | { type: "separator"; key: string };
+  | { type: "separator"; key: string }
+  /** Small caption above a group of entries; not focusable. */
+  | { type: "heading"; key: string; label: string };
 
 interface Props {
   items: readonly PopupItem[];
@@ -55,7 +57,7 @@ export function PopupMenu({
   onClose,
 }: Props) {
   const entries: NavEntry[] = items.map((item) =>
-    item.type === "separator"
+    item.type !== "action"
       ? null
       : { label: item.label, enabled: item.disabled !== true, submenu: false },
   );
@@ -159,6 +161,13 @@ export function PopupMenu({
       {items.map((item, index) => {
         if (item.type === "separator") {
           return <li key={item.key} role="separator" className="menu-separator" />;
+        }
+        if (item.type === "heading") {
+          return (
+            <li key={item.key} role="presentation" className="menu-heading">
+              {item.label}
+            </li>
+          );
         }
         return (
           <li key={item.key} className="menu-entry" role="none">

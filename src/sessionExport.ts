@@ -65,6 +65,11 @@ export function htmlDocument(fragment: string, title: string, background: string
   return `${head}${body}</body>\n</html>\n`;
 }
 
+/** Line ending of a text export: CRLF on Windows, so Notepad and friends show the lines. */
+export function exportEol(userAgent: string): string {
+  return userAgent.includes("Windows") ? "\r\n" : "\n";
+}
+
 /** UTF-8 size, as the backend counts it. */
 export function utf8Bytes(text: string): number {
   return new TextEncoder().encode(text).length;

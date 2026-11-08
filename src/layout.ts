@@ -1,5 +1,5 @@
 // Adjustable layout: sidebar width, height of the profile area, collapsed state, collapsed groups,
-// font size, notes panel.
+// font size, notes panel, split view.
 // Remembered per machine in localStorage; without storage, the defaults apply.
 
 export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
@@ -10,6 +10,8 @@ export const SESSION_LIST_MIN = 140;
 export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
 /** Width of the notes panel to the right of the terminal. */
 export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
+
+import { isSplitMode, type SplitMode } from "./split";
 
 const STORAGE_KEY = "hangar.layout";
 
@@ -31,6 +33,8 @@ export interface Layout {
   /** Notes panel visible to the right of the terminal. */
   notesOpen: boolean;
   notesWidth: number;
+  /** One session, two side by side or four in a grid (split.ts). */
+  splitMode: SplitMode;
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -41,6 +45,7 @@ export const DEFAULT_LAYOUT: Layout = {
   fontSize: FONT_SIZE.default,
   notesOpen: false,
   notesWidth: NOTES_WIDTH.default,
+  splitMode: "single",
 };
 
 export function isGroupOpen(layout: Layout, group: SidebarGroup): boolean {
@@ -118,6 +123,7 @@ export function parseLayout(text: string | null): Layout {
   const collapsed: unknown = "collapsed" in raw ? raw.collapsed : undefined;
   const closed: unknown = "closedGroups" in raw ? raw.closedGroups : undefined;
   const notesOpen: unknown = "notesOpen" in raw ? raw.notesOpen : undefined;
+  const splitMode: unknown = "splitMode" in raw ? raw.splitMode : undefined;
   return {
     sidebarWidth: clampSidebarWidth(number("sidebarWidth", DEFAULT_LAYOUT.sidebarWidth)),
     footerHeight: Math.max(FOOTER_HEIGHT.min, number("footerHeight", DEFAULT_LAYOUT.footerHeight)),
@@ -128,6 +134,7 @@ export function parseLayout(text: string | null): Layout {
     fontSize: clampFontSize(number("fontSize", DEFAULT_LAYOUT.fontSize)),
     notesOpen: typeof notesOpen === "boolean" ? notesOpen : DEFAULT_LAYOUT.notesOpen,
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
+    splitMode: isSplitMode(splitMode) ? splitMode : DEFAULT_LAYOUT.splitMode,
   };
 }
 

@@ -26,6 +26,7 @@ import {
   SCROLLBACK_LINES,
   type Settings,
 } from "./settings";
+import { SnippetsSettings } from "./SnippetsSettings";
 import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import {
   canvasMeasure,
@@ -86,6 +87,7 @@ const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   appearance: "settings.appearance",
   attention: "settings.attention",
   programs: "settings.programs",
+  snippets: "settings.snippets",
   updates: "settings.updates",
 };
 
@@ -247,6 +249,15 @@ function SectionContent(props: Props & { section: SettingsSection }) {
       return <AttentionSection {...props} />;
     case "programs":
       return <ProgramsSection {...props} />;
+    case "snippets":
+      return (
+        <SnippetsSettings
+          snippets={props.settings.snippets}
+          onChange={(snippets) => {
+            props.onChange({ snippets });
+          }}
+        />
+      );
     case "updates":
       return <UpdatesSection {...props} />;
   }

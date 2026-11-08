@@ -63,6 +63,14 @@ describe("matchShortcut", () => {
     expect(formatShortcut(SHORTCUT_LABELS.find, createTranslator("de"))).toBe("Strg+Umschalt+F");
   });
 
+  it("quick access with Ctrl+Shift+P, Ctrl+P stays with the shell", () => {
+    expect(matchShortcut(key("P", "KeyP", { shift: true }))).toBe("launcher");
+    expect(matchShortcut(key("p", "KeyP"))).toBeNull(); // history back
+    expect(matchShortcut(key("P", "KeyP", { shift: true, alt: true }))).toBeNull();
+    expect(ignoresRepeat("launcher")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.launcher, createTranslator("en"))).toBe("Ctrl+Shift+P");
+  });
+
   it("repeats held keys only where repeating is wanted", () => {
     expect(ignoresRepeat("newSession")).toBe(true);
     expect(ignoresRepeat("toggleSidebar")).toBe(true);

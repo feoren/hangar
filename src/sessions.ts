@@ -2,6 +2,7 @@
 // A pure reducer, so the logic can be tested without UI and without backend.
 
 import type { SessionInfo } from "./api";
+import { hasMarker, type Marker } from "./marker";
 
 /** A session as the UI shows it: backend data plus flags of our own. */
 export interface SessionView extends SessionInfo {
@@ -9,6 +10,8 @@ export interface SessionView extends SessionInfo {
   stoppedByUser?: boolean;
   /** Slot in the saved workspace; only set when restoring. */
   restoreOrder?: number;
+  /** Color and emoji chosen by the user; kept across rename and restart. */
+  marker?: Marker;
 }
 
 export interface SessionsState {
@@ -22,7 +25,7 @@ export type SessionsAction =
    * A restored session at its saved slot, even if it finishes sooner or later than the others.
    * Becomes active only if no session is active yet.
    */
-  | { type: "restored"; session: SessionInfo; order: number }
+  | { type: "restored"; session: SessionInfo; order: number; marker?: Marker }
   | { type: "stopRequested"; id: number }
   | { type: "stopFailed"; id: number }
   | { type: "updated"; session: SessionInfo }
@@ -31,6 +34,8 @@ export type SessionsAction =
   | { type: "exited"; id: number; code: number | null }
   | { type: "removed"; id: number }
   | { type: "activated"; id: number }
+  /** New marker; no color and no emoji removes it. */
+  | { type: "marked"; id: number; marker: Marker }
   | { type: "cycled"; step: 1 | -1 };
 
 export const initialSessions: SessionsState = { sessions: [], activeId: null };
@@ -43,7 +48,10 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     }
     case "restored": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
-      const view: SessionView = { ...action.session, restoreOrder: action.order };
+      const view: SessionView = withMarker(
+        { ...action.session, restoreOrder: action.order },
+        action.marker,
+      );
       // In front of the first session with a later slot; newly started ones (no slot) go last.
       const index = state.sessions.findIndex(
         (s) => (s.restoreOrder ?? Number.POSITIVE_INFINITY) > action.order,
@@ -72,7 +80,9 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         // The slot stays, or a session restored later would sort in wrongly; "ended by you"
         // no longer applies to the new process.
         sessions: state.sessions.map((s) =>
-          s.id === action.oldId ? withOrder({ ...action.session }, s.restoreOrder) : s,
+          s.id === action.oldId
+            ? withMarker(withOrder({ ...action.session }, s.restoreOrder), s.marker)
+            : s,
         ),
         activeId: state.activeId === action.oldId ? action.session.id : state.activeId,
       };
@@ -92,6 +102,16 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       // The neighbouring session takes over: the next one, otherwise the previous one.
       const neighbour = sessions[index] ?? sessions[index - 1];
       return { sessions, activeId: neighbour?.id ?? null };
+    }
+    case "marked": {
+      const session = state.sessions.find((s) => s.id === action.id);
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.id === action.id ? withMarker(s, action.marker) : s,
+        ),
+      };
     }
     case "activated":
       if (!state.sessions.some((s) => s.id === action.id)) return state;
@@ -120,9 +140,17 @@ function mark(state: SessionsState, id: number, stoppedByUser: boolean): Session
  * stays exited (rename yes, restart no).
  */
 function keep(previous: SessionView, next: SessionInfo): SessionView {
-  const view = withOrder({ ...next }, previous.restoreOrder);
+  const view = withMarker(withOrder({ ...next }, previous.restoreOrder), previous.marker);
   if (previous.stoppedByUser === true && next.status === "exited") view.stoppedByUser = true;
   return view;
+}
+
+/** Sets or removes the marker; an empty one is not stored. */
+function withMarker(view: SessionView, marker: Marker | undefined): SessionView {
+  const next = { ...view };
+  if (hasMarker(marker)) next.marker = marker;
+  else delete next.marker;
+  return next;
 }
 
 function withOrder(view: SessionView, order: number | undefined): SessionView {

@@ -297,6 +297,36 @@ h2 .beta-badge {
   font-weight: 500;
 }
 
+.session-title-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.session-title-row .session-title {
+  min-width: 0;
+}
+
+/* Session marker: color dot and emoji before the title (sidebar, pane header, dialogs). */
+.session-marker {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.marker-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.marker-emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .session.exited .session-title {
   color: var(--muted);
 }
@@ -715,11 +745,100 @@ h2 .beta-badge {
 .pane {
   position: absolute;
   inset: 8px 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
   visibility: hidden;
 }
 
-.pane.active {
+.pane.visible {
   visibility: visible;
+}
+
+/* The terminal area of a pane; search bar and drop hint are positioned against it. */
+.pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Split view: every pane gets a frame and a slim header; the focused one an accent edge. */
+.pane.split {
+  background: var(--terminal-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.pane.split.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pane.split.attention:not(.active) {
+  border-color: var(--attention-strong);
+}
+
+.pane.split .pane-body {
+  margin: 4px 4px 4px 8px;
+}
+
+.pane-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.pane.split.active .pane-header {
+  color: var(--text);
+  background: var(--panel-raised);
+}
+
+.pane-header .badge,
+.pane-header .badge-icon img {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  border-radius: 4px;
+}
+
+.pane-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pane.split .drop-hint {
+  inset: -4px -4px -4px -8px;
+  border-radius: 0 0 6px 6px;
+}
+
+/* A pane without a session: a calm dashed frame with one line of help. */
+.pane-empty {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+}
+
+.pane-empty p {
+  max-width: 260px;
+  margin: 0;
+  line-height: 1.5;
 }
 
 /* With sessions, the gap around the terminal takes the scheme's background, so no frame shows. */
@@ -759,8 +878,8 @@ h2 .beta-badge {
 /* Search in the scrollback: floats at the top right of the visible terminal. */
 .search-bar {
   position: absolute;
-  top: 10px;
-  right: 24px;
+  top: 2px;
+  right: 20px;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -1089,6 +1208,24 @@ body.resizing-horizontal * {
   background: var(--panel);
   border-width: 1px;
   box-shadow: inset 0 0 0 2.5px var(--attention-strong);
+}
+
+/* Marker in the collapsed sidebar: a color bar left of the badge, the emoji at its top right. */
+.rail-marker {
+  position: absolute;
+  left: 9px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 2px;
+}
+
+.rail-emoji {
+  position: absolute;
+  top: 1px;
+  right: 6px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .rail-new {
@@ -2709,5 +2846,309 @@ body.resizing-horizontal * {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Terminal context menu: small caption above the snippets. */
+.menu-heading {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* Quick access (Ctrl+Shift+P): top centered, one field, a short list. */
+.overlay:has(> .dialog.launcher) {
+  place-items: start center;
+  padding-top: min(14vh, 120px);
+}
+
+.dialog.launcher {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  padding: 8px;
+}
+
+.launcher-input {
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.launcher-input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.launcher-list {
+  max-height: min(420px, 60vh);
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.launcher-section {
+  padding: 8px 8px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.launcher-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.launcher-option.selected {
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.launcher-option.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.launcher-option .badge,
+.launcher-option .badge-icon img {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+  border-radius: 5px;
+}
+
+.launcher-option > svg {
+  flex: none;
+  width: 20px;
+  color: var(--muted);
+}
+
+.launcher-label {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.launcher-label mark {
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+}
+
+.launcher-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.dialog .launcher-none {
+  margin: 0;
+  padding: 14px 8px;
+  color: var(--muted);
+}
+
+.dialog .launcher-hint {
+  margin: 6px 4px 0;
+  padding-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+/* Send to several */
+.dialog.broadcast {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.broadcast-text {
+  width: 100%;
+  min-height: 84px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.broadcast-sessions {
+  margin-top: 12px;
+}
+
+.broadcast-list {
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.broadcast-session {
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.broadcast-session:hover {
+  background: var(--hover);
+}
+
+.broadcast-session .badge,
+.broadcast-session .badge-icon img {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+  border-radius: 5px;
+}
+
+.broadcast-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.broadcast-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+/* Marker dialog */
+.dialog.marker-dialog {
+  width: min(400px, calc(100vw - 32px));
+}
+
+.marker-dialog-session {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.marker-group {
+  margin-top: 14px;
+}
+
+.marker-swatches {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* "None": an empty ring with a slash, so it does not read as a color. */
+.marker-none .swatch-color {
+  background: linear-gradient(
+    135deg,
+    transparent calc(50% - 1px),
+    var(--muted) calc(50% - 1px),
+    var(--muted) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.marker-emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.marker-emoji-input {
+  width: 140px;
+}
+
+.marker-emoji-input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+.marker-emoji-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.marker-emoji-pick {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
+  border-radius: 6px;
+}
+
+.marker-emoji-pick:hover {
+  background: var(--hover);
+}
+
+.marker-emoji-pick.on {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Settings, Snippets */
+.snippet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.snippet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.snippet-text {
+  flex: 1;
+  min-width: 0;
+  min-height: 52px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.snippet-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.snippet-actions .icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.secondary-button.with-icon {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
 }

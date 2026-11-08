@@ -9,6 +9,7 @@ import {
   QUIET_SECONDS,
   SCROLLBACK_LINES,
 } from "./settings";
+import { defaultSnippets } from "./snippets";
 
 describe("parseSettings", () => {
   it("uses defaults without stored content", () => {
@@ -42,6 +43,7 @@ describe("parseSettings", () => {
       terminalFont: "JetBrains Mono",
       cursorStyle: "bar",
       cursorBlink: false,
+      snippets: [{ id: "mine", text: "Fix the build" }],
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
@@ -119,6 +121,15 @@ describe("parseSettings", () => {
     const old = parseSettings(JSON.stringify({ language: "en", autoUpdate: false }), "de");
     expect(old.showVersions).toBe(true);
     expect(old.showIcons).toBe(true);
+  });
+
+  it("seeds snippets in the stored language and keeps the user's list", () => {
+    const old = parseSettings(JSON.stringify({ language: "en" }), "de");
+    expect(old.snippets).toEqual(defaultSnippets("en"));
+    const none = parseSettings(JSON.stringify({ snippets: [] }), "de");
+    expect(none.snippets).toEqual([]);
+    const own = parseSettings(JSON.stringify({ snippets: [{ id: "a", text: "Hi" }] }), "de");
+    expect(own.snippets).toEqual([{ id: "a", text: "Hi" }]);
   });
 
   it("replaces invalid values for versions and icons", () => {

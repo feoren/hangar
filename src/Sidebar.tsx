@@ -33,6 +33,7 @@ import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { availableVersion, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
+import { markerColorText, SessionMarker } from "./SessionMarker";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
 import type { Theme } from "./theme";
@@ -102,6 +103,8 @@ interface Props {
   onKill: (id: number) => void;
   onClose: (id: number) => void;
   onRename: (id: number, title: string) => void;
+  /** Right click or context menu key on a session: the session menu at this point. */
+  onSessionMenu: (id: number, x: number, y: number) => void;
   onInstallUpdate: () => void;
   onDismissUpdate: () => void;
 }
@@ -220,18 +223,41 @@ export function Sidebar(props: Props) {
                   className={className.filter(Boolean).join(" ")}
                   title={[
                     `${session.title} · ${status} · ${session.cwd}`,
+                    markerColorText(session.marker, t),
                     detail,
                     programLine(profileById.get(session.profileId), versions),
                   ]
                     .filter(Boolean)
                     .join("\n")}
-                  aria-label={`${session.title}, ${status}`}
+                  aria-label={[
+                    session.marker?.emoji,
+                    session.title,
+                    status,
+                    markerColorText(session.marker, t),
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
                   aria-current={session.id === activeId ? "true" : undefined}
                   onClick={() => {
                     props.onActivate(session.id);
                   }}
+                  onContextMenu={(event) => {
+                    openSessionMenu(event, session.id, props.onSessionMenu);
+                  }}
                 >
                   <Badge look={badgeFor(session.profileId)} />
+                  {session.marker?.color != null && (
+                    <span
+                      className="rail-marker"
+                      style={{ background: session.marker.color }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  {session.marker?.emoji != null && (
+                    <span className="rail-emoji" aria-hidden="true">
+                      {session.marker.emoji}
+                    </span>
+                  )}
                   <span
                     className={`rail-dot dot ${state === "attention" ? "attention" : session.status}`}
                   />
@@ -901,6 +927,7 @@ function SessionItem({
   onRename,
   onRenameStart,
   onRenameEnd,
+  onSessionMenu,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -963,10 +990,16 @@ function SessionItem({
           onDoubleClick={() => {
             onRenameStart(session.id);
           }}
+          onContextMenu={(event) => {
+            openSessionMenu(event, session.id, onSessionMenu);
+          }}
         >
           <Badge look={look} />
           <span className="session-text">
-            <span className="session-title">{session.title}</span>
+            <span className="session-title-row">
+              <SessionMarker marker={session.marker} />
+              <span className="session-title">{session.title}</span>
+            </span>
             <span className="session-meta">
               <span className={`dot ${waiting ? "attention" : session.status}`} />
               <span className={waiting ? "session-status attention-text" : "session-status"}>
@@ -1019,6 +1052,23 @@ function SessionItem({
       </div>
     </li>
   );
+}
+
+/**
+ * Session menu at the mouse; via the context menu key (no mouse position) below the row.
+ */
+function openSessionMenu(
+  event: React.MouseEvent<HTMLElement>,
+  id: number,
+  open: (id: number, x: number, y: number) => void,
+) {
+  event.preventDefault();
+  if (event.button === 2 || event.clientX !== 0 || event.clientY !== 0) {
+    open(id, event.clientX, event.clientY);
+    return;
+  }
+  const rect = event.currentTarget.getBoundingClientRect();
+  open(id, rect.left + 24, rect.bottom);
 }
 
 function IconButton({

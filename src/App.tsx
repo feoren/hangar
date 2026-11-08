@@ -21,14 +21,18 @@ import {
   type Profile,
   type SessionInfo,
 } from "./api";
-import type { MenuGroup } from "./AppMenu";
+import type { MenuGroup, MenuItem } from "./AppMenu";
 import type { AttentionConfig, AttentionState } from "./attention";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { Badge } from "./Badge";
+import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
+import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import { FolderMenu } from "./FolderMenu";
 import {
+  folderKey,
+  folderName,
   loadFolderPrefs,
   recordRecent,
   saveFolderPrefs,
@@ -40,10 +44,24 @@ import {
   detectLanguage,
   I18nContext,
   setCurrentLanguage,
+  type MessageKey,
   type Translate,
 } from "./i18n";
-import { formatShortTime, shortPath } from "./format";
-import { CloseIcon, FolderIcon } from "./icons";
+import { formatShortTime, shortPath, statusText } from "./format";
+import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
+import { LauncherDialog, type LauncherItem } from "./LauncherDialog";
+import type { Marker } from "./marker";
+import { MarkerDialog } from "./MarkerDialog";
+import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
+import {
+  EMPTY_SLOTS,
+  reconcileSlots,
+  showSessions,
+  SPLIT_MODES,
+  slotOf,
+  type SplitMode,
+  type SplitSlots,
+} from "./split";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
 import {
   clampFontSize,
@@ -74,10 +92,17 @@ import {
   numberedTitle,
   runningUpdateId,
   sessionsReducer,
+  type SessionView,
 } from "./sessions";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { SearchBar } from "./SearchBar";
-import { exportFileName, MAX_EXPORT_BYTES, utf8Bytes, type ExportFormat } from "./sessionExport";
+import {
+  exportEol,
+  exportFileName,
+  MAX_EXPORT_BYTES,
+  utf8Bytes,
+  type ExportFormat,
+} from "./sessionExport";
 import { hasStoredSettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
 import {
@@ -95,7 +120,7 @@ import { Splitter } from "./Splitter";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { SessionTerminal, terminals } from "./terminal";
 import { schemeColors, type TerminalLook } from "./terminalLook";
-import { TerminalPane } from "./TerminalPane";
+import { EmptyPane, TerminalPane } from "./TerminalPane";
 import {
   isDue,
   ORPHANS_REFRESH_MIN_MS,
@@ -134,7 +159,18 @@ const INITIAL_SIZE = { cols: 120, rows: 30 };
 const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
-type OpenDialog = "about" | "settings" | "whatsNew" | null;
+type OpenDialog = "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | null;
+
+const SPLIT_MODE_NAMES: Record<SplitMode, MessageKey> = {
+  single: "menu.viewSingle",
+  columns: "menu.viewColumns",
+  grid: "menu.viewGrid",
+};
+
+/** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
+const BROADCAST_ENTER_DELAY_MS = 80;
+/** Snippets listed directly in the terminal context menu; more are in quick access. */
+const MENU_SNIPPETS = 5;
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
 const WORKSPACE_SAVE_DELAY_MS = 400;
@@ -279,6 +315,12 @@ export function App() {
   const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
   /** Pane under files dragged from the file manager. */
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  /** Which session sits in which pane of the split view (split.ts). */
+  const [splitSlots, setSplitSlots] = useState<SplitSlots>(EMPTY_SLOTS);
+  /** Session whose marker is being edited. */
+  const [markerId, setMarkerId] = useState<number | null>(null);
+  /** Session menu (right click on a session), open at this position. */
+  const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
   const [flasher] = useState(
     () =>
@@ -506,8 +548,8 @@ export function App() {
   }, [folders]);
 
   useEffect(() => {
-    modalRef.current = dialog !== null || closingId !== null;
-  }, [dialog, closingId]);
+    modalRef.current = dialog !== null || closingId !== null || markerId !== null;
+  }, [dialog, closingId, markerId]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -597,6 +639,22 @@ export function App() {
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
+  // Panes follow the sessions: closed ones leave, the active one is always shown and focused.
+  // Adjusted during render, so no frame shows a pane without its session.
+  const split = reconcileSlots(
+    splitSlots,
+    layout.splitMode,
+    state.sessions.map((session) => session.id),
+    state.activeId,
+  );
+  if (split !== splitSlots) setSplitSlots(split);
+  // The marker dialog or session menu of a session that is gone (closed, or replaced by a restart
+  // with a new ID) closes, or the modal flag would keep blocking the shortcuts.
+  if (markerId !== null && !state.sessions.some((s) => s.id === markerId)) setMarkerId(null);
+  if (sessionMenu !== null && !state.sessions.some((s) => s.id === sessionMenu.id)) {
+    setSessionMenu(null);
+  }
+
   // New active session: the notes follow its working folder again (adjusted during render,
   // not in an effect, so no intermediate state with the old folder becomes visible).
   const [scopeSession, setScopeSession] = useState(state.activeId);
@@ -673,8 +731,9 @@ export function App() {
     }
   }, []);
 
+  /** `folder`: start there instead of the "Starts in" folder (quick access). */
   const start = useCallback(
-    async (profile: Profile) => {
+    async (profile: Profile, folder?: string) => {
       const terminal = new SessionTerminal({
         fontSize: layout.fontSize,
         attention: attentionConfig,
@@ -685,7 +744,7 @@ export function App() {
       try {
         const info = await api.createSession(
           profile.id,
-          cwd,
+          folder ?? cwd,
           INITIAL_SIZE,
           terminal.createChannel(),
         );
@@ -819,6 +878,7 @@ export function App() {
       dispatch({
         type: "restored",
         order: saved.order,
+        marker: { color: saved.color, emoji: saved.emoji },
         session: {
           id,
           profileId: saved.profileId,
@@ -885,6 +945,7 @@ export function App() {
         dispatch({
           type: "restored",
           order: saved.order,
+          marker: { color: saved.color, emoji: saved.emoji },
           session: await withTitle(info, saved.title),
         });
         if (terminal.exitCode !== undefined) {
@@ -1028,6 +1089,8 @@ export function App() {
               cwd: session.cwd,
               title: session.title,
               kind: session.kind,
+              color: session.marker?.color ?? null,
+              emoji: session.marker?.emoji ?? null,
             },
           ]
         : [];
@@ -1431,9 +1494,10 @@ export function App() {
     const session = activeSession;
     const terminal = activeTerminal();
     if (!session || !terminal) return;
-    const eol = navigator.userAgent.includes("Windows") ? "\r\n" : "\n";
     const content =
-      format === "html" ? terminal.exportHtml(session.title) : terminal.exportText(eol);
+      format === "html"
+        ? terminal.exportHtml(session.title)
+        : terminal.exportText(exportEol(navigator.userAgent));
     if (utf8Bytes(content) > MAX_EXPORT_BYTES) {
       setError(t("export.tooLarge"));
       return;
@@ -1444,6 +1508,57 @@ export function App() {
       .catch(showError)
       .finally(focusActive);
   };
+  const setSplitMode = (mode: SplitMode) => {
+    setLayout((current) =>
+      current.splitMode === mode ? current : { ...current, splitMode: mode },
+    );
+    focusTerminal();
+  };
+
+  /** Double click on a pane header: show only this session (View menu brings the split back). */
+  const maximize = (id: number) => {
+    setLayout((current) => ({ ...current, splitMode: "single" }));
+    dispatch({ type: "activated", id });
+    focusTerminal();
+  };
+
+  /** Snippet into the visible session, like pasting: bracketed paste, no Enter. */
+  const insertSnippet = (snippet: Snippet) => {
+    const session = activeSession;
+    const terminal = activeTerminal();
+    if (!session || session.status === "exited" || !terminal) return;
+    terminal.pasteText(snippet.text);
+    focusTerminal();
+  };
+
+  /**
+   * Text to several sessions: each gets it as a bracketed paste, then Enter as a separate write.
+   * Afterwards the split view shows up to four of them.
+   */
+  const sendToSeveral = (text: string, ids: number[]) => {
+    setDialog(null);
+    const targets = ids.flatMap((id) => {
+      const terminal = terminals.get(id);
+      return terminal ? [terminal] : [];
+    });
+    void sendToTargets(targets, text, () => delay(BROADCAST_ENTER_DELAY_MS));
+    const next = showSessions(ids, layout.splitMode);
+    setLayout((current) => ({ ...current, splitMode: next.mode }));
+    setSplitSlots(next.split);
+    const first = ids[0];
+    if (first !== undefined) dispatch({ type: "activated", id: first });
+    focusTerminal();
+  };
+
+  const setMarker = (id: number, marker: Marker) => {
+    dispatch({ type: "marked", id, marker });
+  };
+
+  const closeMarker = () => {
+    setMarkerId(null);
+    focusActive();
+  };
+
   const noActive = activeSession === undefined;
   const startable = startableProfiles(profiles, settings.programs);
   const allHidden =
@@ -1456,6 +1571,12 @@ export function App() {
       .filter((s) => s.kind !== "update" && s.status !== "exited")
       .map((s) => s.profileId),
   );
+
+  /** Running sessions that can receive text from "Send to several". */
+  const broadcastable = broadcastCandidates(state.sessions);
+  const snippets = usableSnippets(settings.snippets);
+  /** Snippets can go into the visible session while its process runs. */
+  const canInsert = activeSession !== undefined && activeSession.status !== "exited";
 
   const perform = (action: AppAction) => {
     switch (action) {
@@ -1501,6 +1622,9 @@ export function App() {
         break;
       case "find":
         openSearch();
+        break;
+      case "launcher":
+        setDialog("launcher");
         break;
     }
   };
@@ -1609,6 +1733,22 @@ export function App() {
           },
         },
         { type: "action", label: t("menu.pickCwd"), run: () => void pickCwd() },
+        {
+          type: "action",
+          label: t("menu.launcher"),
+          shortcut: keys("launcher"),
+          run: () => {
+            perform("launcher");
+          },
+        },
+        {
+          type: "action",
+          label: t("menu.broadcast"),
+          disabled: broadcastable.length === 0,
+          run: () => {
+            setDialog("broadcast");
+          },
+        },
         { type: "separator" },
         {
           type: "action",
@@ -1616,6 +1756,14 @@ export function App() {
           disabled: noActive,
           run: () => {
             if (activeSession) startRename(activeSession.id);
+          },
+        },
+        {
+          type: "action",
+          label: t("menu.marker"),
+          disabled: noActive,
+          run: () => {
+            if (activeSession) setMarkerId(activeSession.id);
           },
         },
         {
@@ -1736,6 +1884,15 @@ export function App() {
           label: theme === "dark" ? t("sidebar.toLight") : t("sidebar.toDark"),
           run: toggleTheme,
         },
+        { type: "separator" },
+        ...SPLIT_MODES.map((mode): MenuItem => ({
+          type: "action",
+          label: t(SPLIT_MODE_NAMES[mode]),
+          ...(mode === layout.splitMode ? { detail: t("folders.current") } : {}),
+          run: () => {
+            setSplitMode(mode);
+          },
+        })),
         { type: "separator" },
         {
           type: "action",
@@ -1867,7 +2024,198 @@ export function App() {
       label: t("menu.clear"),
       run: () => activeTerminal()?.clear(),
     },
+    ...(snippets.length > 0 && canInsert
+      ? [
+          { type: "separator", key: "sep-snippets" } as const,
+          { type: "heading", key: "snippets", label: t("snippets.insert") } as const,
+          ...snippets.slice(0, MENU_SNIPPETS).map((snippet): PopupItem => ({
+            type: "action",
+            key: `snippet:${snippet.id}`,
+            label: snippetLabel(snippet),
+            title: snippet.text,
+            run: () => {
+              insertSnippet(snippet);
+            },
+          })),
+          ...(snippets.length > MENU_SNIPPETS
+            ? [
+                {
+                  type: "action",
+                  key: "snippets-more",
+                  label: t("snippets.more"),
+                  shortcut: keys("launcher"),
+                  run: () => {
+                    setDialog("launcher");
+                  },
+                } as const,
+              ]
+            : []),
+        ]
+      : []),
   ];
+
+  const menuSession =
+    sessionMenu === null ? undefined : state.sessions.find((s) => s.id === sessionMenu.id);
+  const sessionItems: PopupItem[] =
+    menuSession === undefined
+      ? []
+      : [
+          {
+            type: "action",
+            key: "rename",
+            label: t("session.rename"),
+            run: () => {
+              startRename(menuSession.id);
+            },
+          },
+          {
+            type: "action",
+            key: "marker",
+            label: t("menu.marker"),
+            run: () => {
+              setMarkerId(menuSession.id);
+            },
+          },
+          { type: "separator", key: "sep" },
+          menuSession.status === "exited"
+            ? {
+                type: "action",
+                key: "restart",
+                label: t("session.restart"),
+                run: () => void restart(menuSession.id),
+              }
+            : {
+                type: "action",
+                key: "kill",
+                label: t("session.kill"),
+                run: () => {
+                  kill(menuSession.id);
+                },
+              },
+          {
+            type: "action",
+            key: "close",
+            label: menuSession.status === "exited" ? t("session.close") : t("session.killAndClose"),
+            run: () => {
+              requestClose(menuSession.id);
+            },
+          },
+        ];
+
+  const markerSession =
+    markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
+
+  /** Entries of quick access; built only while it is open. */
+  const launcherItems = (): LauncherItem[] => {
+    const items: LauncherItem[] = [];
+    for (const session of state.sessions) {
+      const profile = profileById.get(session.profileId);
+      items.push({
+        key: `session:${String(session.id)}`,
+        section: "sessions",
+        label: [session.marker?.emoji, session.title].filter(Boolean).join(" "),
+        detail: shortPath(session.cwd),
+        keywords: [profile?.name ?? "", session.cwd].join(" "),
+        primary: true,
+        icon: <Badge look={badgeFor(session.profileId)} />,
+        run: () => {
+          dispatch({ type: "activated", id: session.id });
+          focusTerminal();
+        },
+      });
+    }
+    // Program in folder: the "Starts in" folder first, then favorites and recent folders.
+    const seen = new Set<string>();
+    const places = [cwd, ...folders.favorites, ...folders.recent].filter((path): path is string => {
+      if (path === null || seen.has(folderKey(path))) return false;
+      seen.add(folderKey(path));
+      return true;
+    });
+    for (const place of places) {
+      for (const profile of startable) {
+        items.push({
+          key: `start:${profile.id}:${place}`,
+          section: "start",
+          label: t("launcher.startIn", { program: profile.name, folder: folderName(place) }),
+          detail: shortPath(place),
+          keywords: place,
+          // Without sessions, the programs in the current folder are the obvious next step.
+          primary: state.sessions.length === 0 && place === cwd,
+          icon: <Badge look={badgeFor(profile.id)} />,
+          run: () => void start(profile, place),
+        });
+      }
+    }
+    for (const info of noteFolders) {
+      if (info.noteCount === 0) continue;
+      const folder: NoteFolder = { path: info.path };
+      const label = info.path === null ? t("notes.general") : folderName(info.path);
+      items.push({
+        key: `notes:${info.folderKey}`,
+        section: "notes",
+        label: t("launcher.notesIn", { folder: label }),
+        ...(info.path === null ? {} : { detail: shortPath(info.path) }),
+        icon: <NotesIcon size={14} />,
+        run: () => {
+          openNotes(folder);
+        },
+      });
+    }
+    for (const snippet of snippets) {
+      items.push({
+        key: `snippet:${snippet.id}`,
+        section: "snippets",
+        label: snippetLabel(snippet),
+        keywords: snippet.text.slice(0, 200),
+        primary: true,
+        disabled: !canInsert,
+        ...(canInsert ? {} : { detail: t("launcher.noSession") }),
+        run: () => {
+          insertSnippet(snippet);
+        },
+      });
+    }
+    for (const mode of SPLIT_MODES) {
+      items.push({
+        key: `view:${mode}`,
+        section: "commands",
+        label: t("launcher.view", { mode: t(SPLIT_MODE_NAMES[mode]) }),
+        ...(mode === layout.splitMode ? { detail: t("folders.current") } : {}),
+        primary: true,
+        run: () => {
+          setSplitMode(mode);
+        },
+      });
+    }
+    items.push({
+      key: "broadcast",
+      section: "commands",
+      label: t("menu.broadcast"),
+      primary: true,
+      disabled: broadcastable.length === 0,
+      run: () => {
+        setDialog("broadcast");
+      },
+    });
+    return items;
+  };
+
+  /** Header and position of each visible pane in split view. */
+  const paneSplit = (session: SessionView) => {
+    const mode = layout.splitMode;
+    if (mode === "single") return null;
+    const slot = slotOf(split, session.id);
+    if (slot === null) return null;
+    const paneState = attention.get(session.id) ?? "idle";
+    return {
+      mode,
+      slot,
+      session,
+      look: badgeFor(session.profileId),
+      state: paneState,
+      status: statusText(session, t, paneState),
+    };
+  };
 
   return (
     <I18nContext.Provider value={t}>
@@ -1941,6 +2289,9 @@ export function App() {
           onRename={(id, title) => {
             void rename(id, title);
           }}
+          onSessionMenu={(id, x, y) => {
+            setSessionMenu({ id, x, y });
+          }}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
             const update = updater.state.update;
@@ -1996,24 +2347,44 @@ export function App() {
             <div className={state.sessions.length > 0 ? "panes filled" : "panes"}>
               {state.sessions.map((session) => {
                 const terminal = terminals.get(session.id);
-                return terminal ? (
+                if (!terminal) return null;
+                const active = session.id === state.activeId;
+                const paneInfo = paneSplit(session);
+                return (
                   <TerminalPane
                     key={session.id}
                     terminal={terminal}
                     sessionId={session.id}
-                    active={session.id === state.activeId}
+                    active={active}
+                    visible={active || paneInfo !== null}
+                    split={paneInfo}
                     dropping={dropTarget === session.id}
-                  />
-                ) : null;
+                    onFocusPane={(id) => {
+                      dispatch({ type: "activated", id });
+                    }}
+                    onMaximize={maximize}
+                    onHeaderMenu={(id, x, y) => {
+                      setSessionMenu({ id, x, y });
+                    }}
+                  >
+                    {searchTerminal === terminal && search !== null && (
+                      <SearchBar
+                        key={search.sessionId}
+                        terminal={searchTerminal}
+                        focusToken={search.token}
+                        onClose={closeSearch}
+                      />
+                    )}
+                  </TerminalPane>
+                );
               })}
-              {searchTerminal && search !== null && (
-                <SearchBar
-                  key={search.sessionId}
-                  terminal={searchTerminal}
-                  focusToken={search.token}
-                  onClose={closeSearch}
-                />
-              )}
+              {layout.splitMode !== "single" &&
+                state.sessions.length > 0 &&
+                split.slots.map((id, slot) =>
+                  id === null && layout.splitMode !== "single" ? (
+                    <EmptyPane key={`empty-${String(slot)}`} mode={layout.splitMode} slot={slot} />
+                  ) : null,
+                )}
               {state.sessions.length === 0 && (
                 <div className="empty">
                   <h1>{t("empty.title")}</h1>
@@ -2078,6 +2449,8 @@ export function App() {
                         <br />
                       </>
                     )}
+                    <Keys shortcut={SHORTCUT_LABELS.launcher} t={t} /> {t("empty.launcherHint")}
+                    <br />
                     <Keys shortcut={SHORTCUT_LABELS.toggleNotes} t={t} /> {t("empty.notesHint")}
                     <br />
                     <Keys shortcut={SHORTCUT_LABELS.toggleSidebar} t={t} /> {t("empty.sidebarHint")}
@@ -2177,6 +2550,49 @@ export function App() {
               setTerminalMenu(null);
               focusTerminal();
             }}
+          />
+        )}
+        {sessionMenu !== null && menuSession !== undefined && (
+          <PopupMenu
+            items={sessionItems}
+            label={t("session.menu")}
+            position={sessionMenu}
+            onClose={() => {
+              setSessionMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {markerSession && (
+          <MarkerDialog
+            title={markerSession.title}
+            marker={markerSession.marker}
+            onChange={(marker) => {
+              setMarker(markerSession.id, marker);
+            }}
+            onClose={closeMarker}
+          />
+        )}
+        {dialog === "launcher" && (
+          <LauncherDialog
+            buildItems={launcherItems}
+            onClose={closeDialog}
+            onRun={(item) => {
+              closeDialog();
+              item.run();
+            }}
+          />
+        )}
+        {dialog === "broadcast" && (
+          <BroadcastDialog
+            candidates={broadcastable}
+            initial={defaultTargets(
+              broadcastable,
+              (profileId) => profileById.get(profileId)?.command,
+            )}
+            badgeFor={badgeFor}
+            onSend={sendToSeveral}
+            onClose={closeDialog}
           />
         )}
         {/* For screen readers: waiting sessions are announced without moving focus. */}

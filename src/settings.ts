@@ -5,6 +5,7 @@
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
+import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
   DEFAULT_TERMINAL_LOOK,
   isColorScheme,
@@ -76,6 +77,8 @@ export interface Settings {
   terminalFont: TerminalFont;
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
+  /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
+  snippets: Snippet[];
 }
 
 type Flag =
@@ -107,6 +110,7 @@ export function defaultSettings(language: Language): Settings {
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
     cursorStyle: DEFAULT_TERMINAL_LOOK.cursorStyle,
     cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
+    snippets: defaultSnippets(language),
   };
 }
 
@@ -154,8 +158,9 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const scheme = get("terminalScheme");
   const font = get("terminalFont");
   const cursorStyle = get("cursorStyle");
+  const chosenLanguage = isLanguage(language) ? language : defaults.language;
   return {
-    language: isLanguage(language) ? language : defaults.language,
+    language: chosenLanguage,
     theme: isThemeSetting(theme) ? theme : defaults.theme,
     attentionEnabled: flag("attentionEnabled"),
     attentionColor: migrateAttentionColor(
@@ -180,6 +185,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
     cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
     cursorBlink: flag("cursorBlink"),
+    snippets: parseSnippets(get("snippets"), chosenLanguage),
   };
 }
 

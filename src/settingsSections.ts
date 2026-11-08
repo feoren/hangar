@@ -5,6 +5,7 @@ export const SETTINGS_SECTIONS = [
   "appearance",
   "attention",
   "programs",
+  "snippets",
   "updates",
 ] as const;
 

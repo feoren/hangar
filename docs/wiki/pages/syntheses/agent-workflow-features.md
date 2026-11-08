@@ -47,9 +47,12 @@ on `navigator.clipboard` and fail in WebView2.
   the event `notification-activated` with `{ sessionId: number }`.
 - `close_session` also withdraws the session's toast from the notification center
   (`ToastNotificationHistory.RemoveGroupedTagWithId`) and drops its click handler.
-- Titles and bodies lose control characters, bidi controls (U+200E, U+200F, U+202A to U+202E,
-  U+2066 to U+2069), zero-width characters (U+200B to U+200D, U+2060, U+FEFF); U+FFFE and U+FFFF
-  become U+FFFD.
+- Titles and bodies lose control characters and invisible characters; U+FFFE and U+FFFF become
+  U+FFFD, U+2028 and U+2029 a space. "Invisible" is one table shared with Export
+  (`src-tauri/src/text.rs`): every character of Unicode category Cf (bidi controls, zero-width
+  characters, U+FEFF, U+00AD, U+061C, U+180E, U+0600 to U+0605, U+FFF9 to U+FFFB, tags U+E0000 to
+  U+E007F, ...) plus the default-ignorable characters of other categories (U+034F, variation
+  selectors U+FE00 to U+FE0F and U+E0100 to U+E01EF, Hangul fillers, U+17B4, U+17B5).
 
 ### Git
 All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
@@ -60,6 +63,15 @@ the repository's filters: Hangar first reads `git config -z --get-regexp
 "^filter\..*\.(clean|smudge|process)$"` and passes `-c filter.<name>.clean= -c
 filter.<name>.smudge= -c filter.<name>.process= -c filter.<name>.required=false` per driver
 (a driver name with `=` or more than 64 drivers refuse the call), plus `--ignore-submodules=all`.
+A process that ends before it could join the Job Object is not an error (its output is used).
+Before git runs at all (`git_diff`, `create_worktree`, `remove_worktree`), the folder must be
+absolute and existing, and the `.git` file found walking up from it (and the `commondir` file of
+the git folder it names) must not lead from a local folder to a UNC share, `\\?\UNC\`, `\\.\` or
+another `\\?\` namespace (same rule as `git_branches`); otherwise the call fails with "The
+repository's git folder lies on another network share or device". Only the paths are compared.
+Not covered, because git reads them itself: `[include]` and `[includeIf]` paths,
+`objects/info/alternates`, `core.worktree`, `core.excludesFile`, `core.attributesFile` and other
+paths in the repository's config, and `.git` entries that are symlinks or junctions to a share.
 - `git_branches(paths: string[]) -> Record<string, string | null>`: branch per folder. Reads
   `HEAD` from the `.git` directory or follows a `.git` file (`gitdir: ...`, worktrees,
   submodules) walking up from the folder; no process. `ref: refs/heads/x` gives `x`, a detached
@@ -84,7 +96,12 @@ filter.<name>.smudge= -c filter.<name>.process= -c filter.<name>.required=false`
   with ignored files (`!!`) nothing is removed and `reason` is "The worktree contains ignored
   files: a, b, c and N more", because `git worktree remove` deletes ignored files even without
   `--force`. Otherwise `git worktree remove <path>` without `--force` (a worktree with changes
-  stays, `reason` says why); `removed` is true only when the folder is gone afterwards. Then
+  stays, `reason` says why); `removed` is true only when the folder is gone afterwards.
+  `worktree remove` starts a `git status` of its own, which would run clean filters on files
+  whose stat data changed: it gets the same filter overrides (read in the worktree, so a
+  `config.worktree` filter counts too), which reach that child through `GIT_CONFIG_PARAMETERS`.
+  A worktree with populated submodules is refused by git without `--force` (measured, git
+  2.56.0.windows.4), so submodule filters do not come into play. Then
   `git branch -d <branch>` (an unmerged branch stays). `worktree remove`, `worktree prune` and
   `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
   folder), so no repository hook runs; `worktree add` keeps the hooks. Refuses any path outside
@@ -111,8 +128,12 @@ Tauri feature `image-png`; capabilities `core:window:allow-set-overlay-icon` (Wi
   the entry. Validates like loading, writes atomically, reloads and returns the new list.
   `ProfileInput`:
   `{ id, name, command, args: string[], cwd: string | null, env: Record<string, string>, secretEnv: string[] }`.
-  The id must not be empty or contain whitespace or `/`. A catalog or WSL id creates a user
-  profile that replaces that entry. Names dropped from `secretEnv` lose their keychain entries.
+  The id must not be empty or contain whitespace or `/`, and must not differ only in case from
+  another entry (profile, catalog, WSL): the Windows Credential Manager ignores case, so `Work`
+  and `work` would share and delete each other's secrets. Loading refuses two such ids in
+  `profiles.toml` too. `cwd` must be an absolute path (empty or `null` means none). A catalog or
+  WSL id in the same spelling creates a user profile that replaces that entry. Names dropped from
+  `secretEnv` lose their keychain entries.
 - `delete_profile(id: string) -> Profile[]`: only user profiles (error otherwise; the catalog
   entry of the same id shows up again); the last `[[profile]]` of the file cannot be deleted.
   The profile's keychain entries are deleted too.
@@ -134,16 +155,28 @@ Crate `keyring` (Windows Credential Manager, macOS Keychain, Linux Secret Servic
   profile's `secret_env` is read from the keychain and set as an environment variable of the
   child process. A missing secret is skipped; a failing keychain is logged with the name only.
   Update sessions get no secrets.
-- `set_profile_secret` rejects an empty value and values over 1280 UTF-16 units (Windows
-  Credential Manager stores at most 2560 bytes). Profile id and name follow the rules above.
-  `profile_secrets` lists the names of the profile's `secret_env`; an unknown id is an error.
+- `set_profile_secret` only accepts a name listed in the `secret_env` of an existing profile
+  (save the profile first; otherwise "Invalid profile id" or "Invalid variable name"). It rejects
+  an empty value, a value with NUL and values over 1280 UTF-16 units (Windows Credential Manager
+  stores at most 2560 bytes); errors never contain the value. Profile id and name follow the
+  rules above. `profile_secrets` lists the names of the profile's `secret_env`; an unknown id is
+  an error. It asks the keychain whether an entry exists without reading the value (Windows:
+  attributes; Linux: item attributes); macOS has no attributes, so there the value is read and
+  wiped at once.
+- Windows stores credentials with local persistence (`CRED_PERSIST_LOCAL_MACHINE`), not the
+  roaming Enterprise default; an entry written before keeps its persistence until written again.
+- Values Hangar holds (incoming value, values read for a start) are `Zeroizing<String>` and wiped
+  after use. Copies outside Hangar's control are not: the IPC message, the keychain library's
+  buffers, the child's environment block.
+- Session start: a working folder (profile `cwd` or the one passed in) must be absolute.
 
 ### Export
 `export_session(format: "text" | "html", content: string, suggestedName: string) -> string | null`:
 the backend opens the save dialog itself (the frontend never picks a path, the dialog is modal to
 the window, filter "Text" `*.txt` or "HTML" `*.html`) and writes the file atomically; returns the
 path or `null` when cancelled. At most 32 MiB (checked before the dialog opens). The suggested
-name is cleaned: `< > : " / \ | ? *` become `_`, control and invisible format characters go,
+name is cleaned: `< > : " / \ | ? *` become `_`, control and invisible characters (the table under
+Notifications) go,
 leading and trailing dots and spaces go, Windows device names (`CON`, `NUL`, `COM1`, ...) get a
 leading `_`, at most 100 characters, empty becomes `session`; the extension is added once.
 
@@ -151,7 +184,8 @@ leading `_`, at most 100 characters, empty becomes `session`; the extension is a
 Windows only: the profile list gains one terminal per installed WSL distribution
 (`%SystemRoot%\System32\wsl.exe --list --quiet`, UTF-16LE output, `WSL_UTF8` removed from its
 environment, `CREATE_NO_WINDOW`, Job Object, 5 s limit), id `wsl-<distro lowercase>`, command
-`wsl.exe -d <distro>`, the session's working folder appended as `--cd <folder>`. Docker Desktop's
+`%SystemRoot%\System32\wsl.exe -d <distro>` (the same absolute program as detection, never one
+from PATH; the profile list shows that path as `command`), the session's working folder appended as `--cd <folder>`. Docker Desktop's
 internal distributions (`docker-desktop*`) and names outside `[A-Za-z0-9._-]` are left out. The
 entries have `source: "catalog"` (no new source value), `editable: false`, icon `WSL` and no
 version query (`version_args = []`). They come after the catalog; a user profile or catalog entry
@@ -162,11 +196,18 @@ with the same id wins. Detection runs on a thread at startup, again on `reload_p
 ### Tray
 Tauri feature `tray-icon`. `configure_tray(enabled: boolean, labels: { open, quit, tooltip }) -> null`.
 Calling it again updates menu texts and tooltip; `enabled: false` removes the icon. Labels are cut
-to one line of at most 64 characters (empty ones fall back to English). With tray enabled,
-closing the window hides it (the frontend's close handler calls `hide()`); the tray icon (left
-click) and the menu item Open show, unminimize and focus it again; the menu item Quit emits
-`tray-quit` (payload `null`), and the frontend saves and quits as usual. Right click opens the
-menu. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
+to one line of at most 64 characters (empty ones fall back to English). While the icon exists,
+the backend hides the main window on a close request (`on_window_event`, `CloseRequested`:
+`prevent_close` plus `hide`); without the icon it does nothing. Tauri 2.12 emits the close
+request to the frontend in both cases (its own handler runs first, then the app's), so the
+frontend's `onCloseRequested` handler always runs: it calls `preventDefault()` and quits only
+when the tray is not active, where "active" means the last `configure_tray(true, ...)` resolved
+without error and no `configure_tray(false, ...)` followed. A failed `configure_tray(true)`
+leaves no icon, and closing then quits as before. The tray icon (left click) and the menu item
+Open show, unminimize and focus the window again; the menu item Quit emits `tray-quit` (payload
+`null`), and the frontend saves and quits as usual (`exit`, which does not pass through the close
+request). Right click opens the menu. No window capability is needed for hiding;
+`core:window:allow-show` stays granted but the frontend does not need it either.
 
 ## Frontend features
 
@@ -183,9 +224,19 @@ menu. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
    Clicking a session shows it in the focused pane (or focuses it when visible). In split modes
    each pane gets a slim header (badge, title, attention dot); the focused pane has an accent
    edge. Empty slots say how to fill them. Mode persists in the layout.
+   As built (`src/split.ts`): the active session is always the focused pane; a hidden session
+   that becomes active takes the first empty pane, otherwise the focused one; empty panes take
+   hidden sessions in sidebar order, so a pane stays empty only while there are fewer sessions
+   than panes. Switching modes fills again: active session first, then sidebar order. Ctrl+Tab
+   activates the next session in sidebar order, which follows the same rules as a click. Double
+   click on a pane header shows only that session. No extra shortcut.
 4. **Launcher** (Ctrl+Shift+P): one field, fuzzy search over: running sessions (switch),
    "program in folder" for favorites and recent folders (start), notes folders (open notes),
    snippets (insert), view and broadcast commands. Own scorer, no dependency.
+   As built (`src/fuzzy.ts`, `src/launcher.ts`): every word of the query must match as a
+   subsequence; word starts and consecutive letters score higher. At most 8 results in sections.
+   Without a query: sessions, snippets and commands (programs in the current folder only while
+   no session runs). The UI calls it "quick access".
 5. **Folders**: favorites and the last 8 used folders; the "Starts in" button opens a menu with
    favorites, recent folders, "Choose folder…" and "Add to favorites"/"Remove from favorites".
    Comparison ignores case for Windows paths and trailing separators.
@@ -195,12 +246,20 @@ menu. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
 7. **Broadcast**: dialog "Send to several": text, checkboxes for running sessions (or start new
    ones with chosen programs in the current folder), then each gets the text as bracketed paste
    plus Enter; afterwards split view shows them side by side.
+   As built (`src/broadcast.ts`): starting new sessions from the dialog is left out to keep it
+   light. Checked at the start: running sessions whose command is not a known shell
+   (`shellKind`), update sessions never. Enter is a separate write about 80 ms after the paste
+   has reached the backend, so TUIs do not take it as part of the paste. Two targets show side by
+   side, three or four in the grid.
 8. **Worktree**: option "Own worktree" in New session (only for git folders): `create_worktree`,
    then start in it. Sidebar marks such sessions. Closing removes the worktree
    (`remove_worktree`); if it stays, a notice says why.
 9. **Snippets**: stored texts (Settings section, defaults "Review the changes", "Write tests",
    "Explain this"), inserted into the active session as bracketed paste via `term.paste` after
    `sanitizePaste`; from the launcher and the terminal context menu.
+   As built (`src/snippets.ts`): stored in the settings as `{ id, text }`, seeded in the UI
+   language of the first start; an empty list stays empty. The label is the first line. The
+   context menu lists up to five, more are in quick access. No Enter is appended.
 10. **Changes**: panel "Changes" (Ctrl+Shift+D) at the right like the notes panel: file list with
     status and +/-, unified diff with colors, refresh, auto refresh when the session's attention
     changes.
@@ -214,6 +273,10 @@ menu. Capabilities `core:window:allow-hide`, `core:window:allow-show`.
     WebView does not offer).
 13. **Session marker**: color and emoji per session (context menu "Marker"), shown in the
     sidebar, pane header and rail; saved in the workspace.
+    As built (`src/marker.ts`): a fixed palette of eight colors plus none, stored lowercase; emoji
+    is free text of 1 to 16 bytes without control characters, with eight quick picks. Opened from
+    the session menu (right click or context menu key on a session or pane header) and File,
+    Marker. Invalid stored values are dropped, the session is kept.
 14. **Taskbar badge**: number of waiting sessions as an overlay icon (Windows) or badge count.
 15. **WebGL**: measured, not adopted. The DOM renderer was as fast or faster in every scenario
     and WebGL was about 4x slower on color-heavy output ([[webgl-measurement]]). Revisit only with

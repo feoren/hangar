@@ -157,6 +157,43 @@ describe("sessionsReducer", () => {
   });
 });
 
+describe("session marker", () => {
+  const marker = { color: "#e5534b", emoji: "\u{1F680}" };
+
+  it("is set, kept across rename and restart, and removed when empty", () => {
+    let state = sessionsReducer(withSessions([1, 2], 1), { type: "marked", id: 2, marker });
+    expect(state.sessions[1]?.marker).toEqual(marker);
+    state = sessionsReducer(state, {
+      type: "updated",
+      session: { ...session(2), title: "Renamed" },
+    });
+    expect(state.sessions[1]?.marker).toEqual(marker);
+    state = sessionsReducer(state, {
+      type: "marked",
+      id: 2,
+      marker: { color: null, emoji: null },
+    });
+    expect(state.sessions[1]).not.toHaveProperty("marker");
+  });
+
+  it("ignores unknown sessions", () => {
+    const state = withSessions([1], 1);
+    expect(sessionsReducer(state, { type: "marked", id: 9, marker })).toBe(state);
+  });
+
+  it("comes back with a restored session and survives a placeholder replacement", () => {
+    let state = sessionsReducer(initialSessions, {
+      type: "restored",
+      session: session(-1),
+      order: 0,
+      marker,
+    });
+    expect(state.sessions[0]?.marker).toEqual(marker);
+    state = sessionsReducer(state, { type: "replaced", oldId: -1, session: session(5) });
+    expect(state.sessions[0]?.marker).toEqual(marker);
+  });
+});
+
 describe("nextWaitingId", () => {
   const list = [session(1), session(2), session(3), session(4)];
 

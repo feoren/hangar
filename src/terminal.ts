@@ -96,6 +96,8 @@ export class SessionTerminal {
    * stay empty.
    */
   private pendingInput = "";
+  /** Last write to the backend; broadcast waits for it before sending Enter. */
+  private lastWrite: Promise<unknown> = Promise.resolve();
   private opened = false;
   private disposed = false;
   /** `undefined`: still running. Set as soon as the exit event arrives. */
@@ -157,11 +159,7 @@ export class SessionTerminal {
     this.term.unicode.activeVersion = "11";
 
     this.term.onData((data) => {
-      if (this.id === null) {
-        this.pendingInput += data;
-        return;
-      }
-      api.write(this.id, data).catch(ignore);
+      this.send(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
@@ -354,6 +352,29 @@ export class SessionTerminal {
     if (clean === "") return;
     this.attention.typed();
     this.term.paste(clean);
+  }
+
+  /**
+   * Like `pasteText`, but resolves once the backend has the text. Used by "Send to several",
+   * which sends Enter afterwards as a separate write.
+   */
+  pasteAndWait(text: string): Promise<void> {
+    this.pasteText(text);
+    return this.lastWrite.then(ignore, ignore);
+  }
+
+  /** Enter, as if typed: runs what was pasted before. */
+  submit(): void {
+    this.attention.typed();
+    this.send("\r");
+  }
+
+  private send(data: string): void {
+    if (this.id === null) {
+      this.pendingInput += data;
+      return;
+    }
+    this.lastWrite = api.write(this.id, data).catch(ignore);
   }
 
   private handlePaste(event: ClipboardEvent): void {

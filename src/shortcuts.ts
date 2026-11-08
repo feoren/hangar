@@ -23,7 +23,8 @@ export type AppAction =
   | "openSettings"
   | "nextWaiting"
   | "newSession"
-  | "find";
+  | "find"
+  | "launcher";
 
 type KeyInfo = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">;
 
@@ -40,6 +41,9 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   if (event.shiftKey && event.code === "KeyT") return "newSession";
   // Search in the scrollback, as in Windows Terminal. Ctrl+F alone moves the cursor (Readline).
   if (event.shiftKey && event.code === "KeyF") return "find";
+  // Quick access to sessions, programs, folders and snippets, as the command palette in VS Code
+  // and Windows Terminal. Ctrl+P alone is history back in Readline and PSReadLine.
+  if (event.shiftKey && event.code === "KeyP") return "launcher";
   // By character instead of key position: on a German keyboard "+" sits elsewhere than on US.
   if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") return "fontBigger";
   if (!event.shiftKey && (event.key === "-" || event.code === "NumpadSubtract")) {
@@ -74,7 +78,8 @@ export function ignoresRepeat(action: AppAction): boolean {
     action === "toggleSidebar" ||
     action === "toggleNotes" ||
     action === "openSettings" ||
-    action === "find"
+    action === "find" ||
+    action === "launcher"
   );
 }
 
@@ -99,6 +104,7 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   nextWaiting: { mods: ["ctrl", "shift"], key: "A" },
   newSession: { mods: ["ctrl", "shift"], key: "T" },
   find: { mods: ["ctrl", "shift"], key: "F" },
+  launcher: { mods: ["ctrl", "shift"], key: "P" },
 };
 
 /** Keys of the shortcut in display order, modifiers in the UI language. */

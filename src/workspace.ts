@@ -3,6 +3,7 @@
 // Pure logic without backend; contract: docs/wiki/pages/syntheses/session-restore.md.
 
 import type { SessionKind } from "./api";
+import { normalizeMarkerColor, storedEmoji } from "./marker";
 
 export const WORKSPACE_VERSION = 1;
 /** Backend limit for one scrollback (UTF-8). Leaves some room for the separator line on load. */
@@ -18,6 +19,10 @@ export interface SavedSession {
   title: string;
   /** Position in the sidebar, starting at 0. */
   order: number;
+  /** Session marker (marker.ts): `#rrggbb` lowercase, or `null`. */
+  color: string | null;
+  /** Session marker: 1 to 16 bytes UTF-8, or `null` (never an empty string). */
+  emoji: string | null;
 }
 
 export interface Workspace {
@@ -49,6 +54,8 @@ export interface SessionEntry {
   title: string;
   /** Update sessions (`kind: "update"`) never go into the workspace. */
   kind?: SessionKind | undefined;
+  color?: string | null | undefined;
+  emoji?: string | null | undefined;
 }
 
 /** Started again on restore. An update after a restart would come as a surprise. */
@@ -81,6 +88,8 @@ export function buildWorkspace(
       cwd: entry.cwd,
       title: entry.title,
       order: sessions.length,
+      color: normalizeMarkerColor(entry.color),
+      emoji: storedEmoji(entry.emoji),
     });
   }
   const active = activeKey?.toLowerCase() ?? null;
@@ -103,7 +112,10 @@ function savedSession(value: unknown): SavedSession | null {
   if (typeof profileId !== "string" || profileId.trim() === "") return null;
   if (typeof cwd !== "string" || typeof title !== "string") return null;
   if (typeof order !== "number" || !Number.isInteger(order) || order < 0) return null;
-  return { key: key.toLowerCase(), profileId, cwd, title, order };
+  // Older files have no marker; invalid values are dropped instead of losing the session.
+  const color = normalizeMarkerColor(field("color"));
+  const emoji = storedEmoji(field("emoji"));
+  return { key: key.toLowerCase(), profileId, cwd, title, order, color, emoji };
 }
 
 /**

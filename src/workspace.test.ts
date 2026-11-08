@@ -41,8 +41,8 @@ describe("buildWorkspace", () => {
     expect(workspace).toEqual({
       version: 1,
       sessions: [
-        { ...entry(B, "b"), order: 0 },
-        { ...entry(A, "a"), order: 1 },
+        { ...entry(B, "b"), order: 0, color: null, emoji: null },
+        { ...entry(A, "a"), order: 1, color: null, emoji: null },
       ],
       activeKey: A,
     });
@@ -62,7 +62,9 @@ describe("buildWorkspace", () => {
     expect(workspace.activeKey).toBeNull();
     // Only what the backend knows is saved: no `kind` field.
     expect(Object.keys(workspace.sessions[0] ?? {}).sort()).toEqual([
+      "color",
       "cwd",
+      "emoji",
       "key",
       "order",
       "profileId",
@@ -96,6 +98,41 @@ describe("buildWorkspace", () => {
     const workspace = buildWorkspace([entry(A.toUpperCase())], A.toUpperCase());
     expect(workspace.sessions[0]?.key).toBe(A);
     expect(workspace.activeKey).toBe(A);
+  });
+});
+
+describe("session marker", () => {
+  it("is saved with color in lowercase and a valid emoji", () => {
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), color: "#E5534B", emoji: "\u{1F680}" },
+        { ...entry(B), color: "red", emoji: "" },
+        { ...entry(C), color: null, emoji: "\u{1F600}".repeat(5) },
+      ],
+      null,
+    );
+    expect(workspace.sessions.map((s) => [s.color, s.emoji])).toEqual([
+      ["#e5534b", "\u{1F680}"],
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  it("is restored, and older files without it still load", () => {
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, color: "#46A758", emoji: "\u{2B50}", worktree: null },
+        { ...entry(B), order: 1 },
+        { ...entry(C), order: 2, color: 5, emoji: "a\nb" },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => [s.key, s.color, s.emoji])).toEqual([
+      [A, "#46a758", "\u{2B50}"],
+      [B, null, null],
+      [C, null, null],
+    ]);
   });
 });
 
