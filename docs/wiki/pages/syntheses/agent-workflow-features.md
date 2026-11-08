@@ -494,3 +494,12 @@ menu paste uses the clipboard plugin.
     placeholder, and updated from `restart_session` and from `resumeFallback` (reducer action
     `fellBack`, which also clears `resumed`). A fallback that arrives before `create_session`
     answers is kept on the terminal and applied after the session is added.
+
+24. **Clearer attention in the sidebar** (owner's request): the left bar marks only the active
+    session; a waiting session gets a status chip at the right ("done", bell icon when the program
+    rang) and a clearly visible, soft breathing tint of the whole row; distinct shapes per state
+    (working: three animated dots, waiting: check or bell, crashed: red exclamation) so color is
+    never the only signal; collapsed rail: pulsing ring around the badge plus a count dot; a short
+    synthesized two-tone sound (Web Audio, no asset) when a session starts waiting while it is not
+    visible, a lower tone on a crash, with a setting (on by default, quiet), volume and a preview
+    button; reduced motion replaces pulsing with a strong static highlight.
