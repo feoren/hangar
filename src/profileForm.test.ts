@@ -198,3 +198,46 @@ describe("backend answers", () => {
     expect(parseSecretStatuses({}).size).toBe(0);
   });
 });
+
+describe("variables named like Object members", () => {
+  it("stay ordinary entries and never touch the prototype", () => {
+    const env = parseProfileEnv(JSON.parse('{"__proto__":"x","constructor":"y","A":"1"}'));
+    expect(Object.getPrototypeOf(env)).toBe(Object.prototype);
+    expect(Object.hasOwn(env, "__proto__")).toBe(true);
+    expect(Object.keys(env).sort()).toEqual(["A", "__proto__", "constructor"]);
+
+    const loaded = formFromProfile({ ...profile, env: ["constructor", "toString"] }, env);
+    const values = Object.fromEntries(loaded.env.map((row) => [row.name, row.value]));
+    // "toString" is not in the answer: empty, not Object.prototype.toString.
+    expect(values).toMatchObject({ constructor: "y", toString: "", __proto__: "x", A: "1" });
+
+    const input = toInput(
+      form({
+        env: [
+          { key: "a", name: "__proto__", value: "p" },
+          { key: "b", name: "constructor", value: "c" },
+        ],
+      }),
+    );
+    expect(Object.getPrototypeOf(input.env)).toBe(Object.prototype);
+    expect(JSON.parse(JSON.stringify(input.env))).toEqual(
+      JSON.parse('{"__proto__":"p","constructor":"c"}'),
+    );
+  });
+});
+
+describe("customizing a built-in entry", () => {
+  it("does not write variables whose value the user never filled", () => {
+    const catalog = { ...profile, editable: false, env: ["REGION", "MODE"], secretEnv: [] };
+    const loaded = formFromProfile(catalog, {});
+    expect(loaded.env.every((row) => row.unknownValue === true)).toBe(true);
+    const typed = {
+      ...loaded,
+      env: loaded.env.map((row) =>
+        row.name === "MODE" ? { ...row, value: "fast", unknownValue: false } : row,
+      ),
+    };
+    expect(toInput(typed).env).toEqual({ MODE: "fast" });
+    expect(validateForm(loaded)).toEqual([]);
+  });
+});

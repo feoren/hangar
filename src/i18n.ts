@@ -565,6 +565,19 @@ const de = {
   "profile.duplicateName": "Dieser Name kommt doppelt vor.",
   "profile.alsoSecret": "Dieser Name ist auch eine geheime Variable.",
   "profile.secretName": "Nur Buchstaben, Ziffern und _, nicht mit einer Ziffer am Anfang.",
+  "worktree.keptOpen": "Der Worktree bleibt, weil sich die Session nicht schließen ließ.",
+  "worktree.keptInUse": "Der Worktree bleibt, weil eine andere Session noch darin arbeitet.",
+  "changes.hiddenChars":
+    "Enthält unsichtbare oder richtungsändernde Zeichen, als <U+…> angezeigt. Der Text kann anders wirken, als er ist.",
+  "changes.hiddenShort": "Versteckte Zeichen",
+  "changes.moreFiles": "Weitere Dateien zeigen (+{count})",
+  "profile.movedNotSaved":
+    "{name} ist noch nicht gespeichert: Es ist keine normale Variable mehr, und der Schlüsselbund hat den Wert nicht angenommen ({error}). Speichere erneut, sonst geht der Wert verloren.",
+  "profile.valueBuiltIn": "Wert des eingebauten Eintrags",
+  "profile.showValue": "Wert von {name} zeigen",
+  "profile.unsavedClose": "Eingegebene geheime Werte sind noch nicht gespeichert.",
+  "profile.closeAnyway": "Trotzdem schließen",
+  "profile.keepEditing": "Weiter bearbeiten",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -1082,6 +1095,19 @@ const en: Record<MessageKey, string> = {
   "profile.duplicateName": "This name is used twice.",
   "profile.alsoSecret": "This name is also a secret variable.",
   "profile.secretName": "Letters, digits and _ only, not starting with a digit.",
+  "worktree.keptOpen": "The worktree stays because the session could not be closed.",
+  "worktree.keptInUse": "The worktree stays because another session still works in it.",
+  "changes.hiddenChars":
+    "Contains invisible or direction changing characters, shown as <U+…>. The text may read differently than it runs.",
+  "changes.hiddenShort": "Hidden characters",
+  "changes.moreFiles": "Show more files (+{count})",
+  "profile.movedNotSaved":
+    "{name} is not saved yet: it is no longer a plain variable, and the keychain did not take the value ({error}). Save again, or the value is lost.",
+  "profile.valueBuiltIn": "Value of the built-in entry",
+  "profile.showValue": "Show the value of {name}",
+  "profile.unsavedClose": "Secret values you typed are not saved yet.",
+  "profile.closeAnyway": "Close anyway",
+  "profile.keepEditing": "Keep editing",
 };
 
 const el: Record<MessageKey, string> = {
@@ -1616,6 +1642,19 @@ const el: Record<MessageKey, string> = {
   "profile.duplicateName": "Αυτό το όνομα υπάρχει δύο φορές.",
   "profile.alsoSecret": "Αυτό το όνομα είναι και μυστική μεταβλητή.",
   "profile.secretName": "Μόνο γράμματα, ψηφία και _, όχι με ψηφίο στην αρχή.",
+  "worktree.keptOpen": "Το worktree παραμένει, γιατί η συνεδρία δεν έκλεισε.",
+  "worktree.keptInUse": "Το worktree παραμένει, γιατί μια άλλη συνεδρία δουλεύει ακόμα σε αυτό.",
+  "changes.hiddenChars":
+    "Περιέχει αόρατους χαρακτήρες ή χαρακτήρες αλλαγής κατεύθυνσης, εμφανίζονται ως <U+…>. Το κείμενο μπορεί να διαβάζεται αλλιώς από ό,τι είναι.",
+  "changes.hiddenShort": "Κρυφοί χαρακτήρες",
+  "changes.moreFiles": "Περισσότερα αρχεία (+{count})",
+  "profile.movedNotSaved":
+    "Το {name} δεν αποθηκεύτηκε ακόμα: δεν είναι πια απλή μεταβλητή και η θήκη κλειδιών δεν δέχτηκε την τιμή ({error}). Αποθήκευσε ξανά, αλλιώς η τιμή χάνεται.",
+  "profile.valueBuiltIn": "Τιμή της ενσωματωμένης καταχώρισης",
+  "profile.showValue": "Εμφάνιση τιμής του {name}",
+  "profile.unsavedClose": "Οι μυστικές τιμές που έγραψες δεν αποθηκεύτηκαν ακόμα.",
+  "profile.closeAnyway": "Κλείσιμο ούτως ή άλλως",
+  "profile.keepEditing": "Συνέχεια επεξεργασίας",
 };
 
 const es: Record<MessageKey, string> = {
@@ -2142,6 +2181,19 @@ const es: Record<MessageKey, string> = {
   "profile.duplicateName": "Este nombre aparece dos veces.",
   "profile.alsoSecret": "Este nombre también es una variable secreta.",
   "profile.secretName": "Solo letras, cifras y _, sin empezar por una cifra.",
+  "worktree.keptOpen": "El worktree se queda porque no se pudo cerrar la sesión.",
+  "worktree.keptInUse": "El worktree se queda porque otra sesión aún trabaja en él.",
+  "changes.hiddenChars":
+    "Contiene caracteres invisibles o que cambian la dirección, mostrados como <U+…>. El texto puede leerse distinto de lo que es.",
+  "changes.hiddenShort": "Caracteres ocultos",
+  "changes.moreFiles": "Mostrar más archivos (+{count})",
+  "profile.movedNotSaved":
+    "{name} aún no está guardada: ya no es una variable normal y el llavero no aceptó el valor ({error}). Guarda de nuevo o el valor se perderá.",
+  "profile.valueBuiltIn": "Valor de la entrada incluida",
+  "profile.showValue": "Mostrar el valor de {name}",
+  "profile.unsavedClose": "Los valores secretos que escribiste aún no están guardados.",
+  "profile.closeAnyway": "Cerrar de todos modos",
+  "profile.keepEditing": "Seguir editando",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -2675,6 +2727,19 @@ const fr: Record<MessageKey, string> = {
   "profile.duplicateName": "Ce nom apparaît deux fois.",
   "profile.alsoSecret": "Ce nom est aussi une variable secrète.",
   "profile.secretName": "Uniquement lettres, chiffres et _, sans chiffre au début.",
+  "worktree.keptOpen": "Le worktree reste, car la session n'a pas pu être fermée.",
+  "worktree.keptInUse": "Le worktree reste, car une autre session y travaille encore.",
+  "changes.hiddenChars":
+    "Contient des caractères invisibles ou qui changent le sens d'écriture, affichés comme <U+…>. Le texte peut se lire autrement qu'il n'est.",
+  "changes.hiddenShort": "Caractères cachés",
+  "changes.moreFiles": "Afficher plus de fichiers (+{count})",
+  "profile.movedNotSaved":
+    "{name} n'est pas encore enregistrée : ce n'est plus une variable ordinaire et le trousseau n'a pas accepté la valeur ({error}). Enregistre à nouveau, sinon la valeur sera perdue.",
+  "profile.valueBuiltIn": "Valeur de l'entrée intégrée",
+  "profile.showValue": "Afficher la valeur de {name}",
+  "profile.unsavedClose": "Les valeurs secrètes saisies ne sont pas encore enregistrées.",
+  "profile.closeAnyway": "Fermer quand même",
+  "profile.keepEditing": "Continuer",
 };
 
 const it: Record<MessageKey, string> = {
@@ -3202,6 +3267,19 @@ const it: Record<MessageKey, string> = {
   "profile.duplicateName": "Questo nome compare due volte.",
   "profile.alsoSecret": "Questo nome è anche una variabile segreta.",
   "profile.secretName": "Solo lettere, cifre e _, senza iniziare con una cifra.",
+  "worktree.keptOpen": "Il worktree resta perché non è stato possibile chiudere la sessione.",
+  "worktree.keptInUse": "Il worktree resta perché un'altra sessione ci sta ancora lavorando.",
+  "changes.hiddenChars":
+    "Contiene caratteri invisibili o che cambiano direzione, mostrati come <U+…>. Il testo può sembrare diverso da com'è.",
+  "changes.hiddenShort": "Caratteri nascosti",
+  "changes.moreFiles": "Mostra altri file (+{count})",
+  "profile.movedNotSaved":
+    "{name} non è ancora salvata: non è più una variabile normale e il portachiavi non ha accettato il valore ({error}). Salva di nuovo, altrimenti il valore va perso.",
+  "profile.valueBuiltIn": "Valore della voce integrata",
+  "profile.showValue": "Mostra il valore di {name}",
+  "profile.unsavedClose": "I valori segreti inseriti non sono ancora salvati.",
+  "profile.closeAnyway": "Chiudi comunque",
+  "profile.keepEditing": "Continua a modificare",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -3728,6 +3806,19 @@ const ja: Record<MessageKey, string> = {
   "profile.duplicateName": "この名前が重複しています。",
   "profile.alsoSecret": "この名前はシークレット変数にもあります。",
   "profile.secretName": "英字、数字、_ のみ。数字で始めることはできません。",
+  "worktree.keptOpen": "セッションを閉じられなかったため、worktree は残しています。",
+  "worktree.keptInUse": "別のセッションがまだ作業中のため、worktree は残しています。",
+  "changes.hiddenChars":
+    "不可視文字または文字方向を変える文字を含みます（<U+…> と表示）。見た目と実際の内容が異なる可能性があります。",
+  "changes.hiddenShort": "隠し文字",
+  "changes.moreFiles": "さらにファイルを表示 (+{count})",
+  "profile.movedNotSaved":
+    "{name} はまだ保存されていません。通常の変数ではなくなり、キーチェーンも値を受け付けませんでした（{error}）。もう一度保存しないと値は失われます。",
+  "profile.valueBuiltIn": "組み込み項目の値",
+  "profile.showValue": "{name} の値を表示",
+  "profile.unsavedClose": "入力したシークレット値はまだ保存されていません。",
+  "profile.closeAnyway": "閉じる",
+  "profile.keepEditing": "編集を続ける",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -4249,6 +4340,19 @@ const pl: Record<MessageKey, string> = {
   "profile.duplicateName": "Ta nazwa występuje dwa razy.",
   "profile.alsoSecret": "Ta nazwa jest też zmienną tajną.",
   "profile.secretName": "Tylko litery, cyfry i _, bez cyfry na początku.",
+  "worktree.keptOpen": "Worktree zostaje, bo nie udało się zamknąć sesji.",
+  "worktree.keptInUse": "Worktree zostaje, bo inna sesja wciąż w nim pracuje.",
+  "changes.hiddenChars":
+    "Zawiera niewidoczne znaki lub znaki zmieniające kierunek, pokazane jako <U+…>. Tekst może wyglądać inaczej, niż działa.",
+  "changes.hiddenShort": "Ukryte znaki",
+  "changes.moreFiles": "Pokaż więcej plików (+{count})",
+  "profile.movedNotSaved":
+    "{name} nie jest jeszcze zapisana: nie jest już zwykłą zmienną, a pęk kluczy nie przyjął wartości ({error}). Zapisz ponownie, inaczej wartość przepadnie.",
+  "profile.valueBuiltIn": "Wartość wbudowanego wpisu",
+  "profile.showValue": "Pokaż wartość {name}",
+  "profile.unsavedClose": "Wpisane tajne wartości nie są jeszcze zapisane.",
+  "profile.closeAnyway": "Zamknij mimo to",
+  "profile.keepEditing": "Edytuj dalej",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -4775,6 +4879,19 @@ const pt: Record<MessageKey, string> = {
   "profile.duplicateName": "Este nome aparece duas vezes.",
   "profile.alsoSecret": "Este nome também é uma variável secreta.",
   "profile.secretName": "Só letras, dígitos e _, sem começar com dígito.",
+  "worktree.keptOpen": "O worktree continua porque não foi possível fechar a sessão.",
+  "worktree.keptInUse": "O worktree continua porque outra sessão ainda trabalha nele.",
+  "changes.hiddenChars":
+    "Contém caracteres invisíveis ou que mudam a direção, mostrados como <U+…>. O texto pode parecer diferente do que é.",
+  "changes.hiddenShort": "Caracteres ocultos",
+  "changes.moreFiles": "Mostrar mais arquivos (+{count})",
+  "profile.movedNotSaved":
+    "{name} ainda não foi salva: não é mais uma variável comum e o chaveiro não aceitou o valor ({error}). Salve de novo, senão o valor se perde.",
+  "profile.valueBuiltIn": "Valor da entrada embutida",
+  "profile.showValue": "Mostrar o valor de {name}",
+  "profile.unsavedClose": "Os valores secretos digitados ainda não foram salvos.",
+  "profile.closeAnyway": "Fechar mesmo assim",
+  "profile.keepEditing": "Continuar editando",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -5294,6 +5411,19 @@ const ru: Record<MessageKey, string> = {
   "profile.duplicateName": "Это имя встречается дважды.",
   "profile.alsoSecret": "Это имя уже есть среди секретных переменных.",
   "profile.secretName": "Только буквы, цифры и _, не начиная с цифры.",
+  "worktree.keptOpen": "Worktree остаётся: сеанс не удалось закрыть.",
+  "worktree.keptInUse": "Worktree остаётся: в нём ещё работает другой сеанс.",
+  "changes.hiddenChars":
+    "Содержит невидимые символы или символы смены направления, показанные как <U+…>. Текст может выглядеть не так, как работает.",
+  "changes.hiddenShort": "Скрытые символы",
+  "changes.moreFiles": "Показать ещё файлы (+{count})",
+  "profile.movedNotSaved":
+    "{name} ещё не сохранена: это уже не обычная переменная, а связка ключей не приняла значение ({error}). Сохрани ещё раз, иначе значение пропадёт.",
+  "profile.valueBuiltIn": "Значение встроенной записи",
+  "profile.showValue": "Показать значение {name}",
+  "profile.unsavedClose": "Введённые секретные значения ещё не сохранены.",
+  "profile.closeAnyway": "Всё равно закрыть",
+  "profile.keepEditing": "Продолжить",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -5814,6 +5944,19 @@ const tr: Record<MessageKey, string> = {
   "profile.duplicateName": "Bu ad iki kez kullanılmış.",
   "profile.alsoSecret": "Bu ad aynı zamanda gizli bir değişken.",
   "profile.secretName": "Yalnızca harf, rakam ve _, rakamla başlamadan.",
+  "worktree.keptOpen": "Oturum kapatılamadığı için worktree duruyor.",
+  "worktree.keptInUse": "Başka bir oturum hâlâ içinde çalıştığı için worktree duruyor.",
+  "changes.hiddenChars":
+    "Görünmez ya da yön değiştiren karakterler içeriyor, <U+…> olarak gösteriliyor. Metin olduğundan farklı görünebilir.",
+  "changes.hiddenShort": "Gizli karakterler",
+  "changes.moreFiles": "Daha fazla dosya göster (+{count})",
+  "profile.movedNotSaved":
+    "{name} henüz kaydedilmedi: artık normal bir değişken değil ve anahtar zinciri değeri almadı ({error}). Yeniden kaydet, yoksa değer kaybolur.",
+  "profile.valueBuiltIn": "Yerleşik girdinin değeri",
+  "profile.showValue": "{name} değerini göster",
+  "profile.unsavedClose": "Yazdığın gizli değerler henüz kaydedilmedi.",
+  "profile.closeAnyway": "Yine de kapat",
+  "profile.keepEditing": "Düzenlemeye devam et",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -6312,6 +6455,19 @@ const zh: Record<MessageKey, string> = {
   "profile.duplicateName": "此名称重复。",
   "profile.alsoSecret": "此名称也是机密变量。",
   "profile.secretName": "仅限字母、数字和 _，且不能以数字开头。",
+  "worktree.keptOpen": "会话无法关闭，因此 worktree 仍保留。",
+  "worktree.keptInUse": "另一个会话仍在其中工作，因此 worktree 仍保留。",
+  "changes.hiddenChars":
+    "包含不可见字符或改变文字方向的字符，显示为 <U+…>。文本的显示可能与实际内容不同。",
+  "changes.hiddenShort": "隐藏字符",
+  "changes.moreFiles": "显示更多文件 (+{count})",
+  "profile.movedNotSaved":
+    "{name} 尚未保存：它已不再是普通变量，而钥匙串也未接受该值（{error}）。请再次保存，否则该值会丢失。",
+  "profile.valueBuiltIn": "内置条目的值",
+  "profile.showValue": "显示 {name} 的值",
+  "profile.unsavedClose": "你输入的机密值尚未保存。",
+  "profile.closeAnyway": "仍然关闭",
+  "profile.keepEditing": "继续编辑",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

@@ -4,11 +4,14 @@ import { createTranslator } from "./i18n";
 import {
   canUseWorktree,
   createErrorText,
+  insideFolder,
+  orphanedWorktrees,
   parseRemoval,
   parseWorktree,
   removalErrorNotice,
   removalNotice,
   shortBranch,
+  worktreeInUse,
   worktreeLabel,
 } from "./worktree";
 
@@ -150,5 +153,60 @@ describe("createErrorText", () => {
     expect(createErrorText("fatal: invalid reference: HEAD", en)).toBe(
       en("worktree.createFailed", { error: "fatal: invalid reference: HEAD" }),
     );
+  });
+});
+
+describe("parseWorktree and hidden characters", () => {
+  it("refuses bidi, zero-width and control characters in any field", () => {
+    expect(parseWorktree({ ...worktree, branch: "hangar/x\u202e" })).toBeNull();
+    expect(parseWorktree({ ...worktree, path: `${worktree.path}\u200b` })).toBeNull();
+    expect(parseWorktree({ ...worktree, repoRoot: "C:/src\u0007" })).toBeNull();
+  });
+});
+
+describe("insideFolder and worktreeInUse", () => {
+  const wt = {
+    path: "C:/Data/worktrees/app-1/claude-1",
+    branch: "hangar/claude-1",
+    repoRoot: "C:/src/app",
+  };
+  const session = (id: number, cwd: string, status = "running") => ({ id, cwd, status });
+
+  it("compares like the platform: case and separators on Windows", () => {
+    expect(insideFolder("c:\\data\\worktrees\\app-1\\claude-1\\src", wt.path)).toBe(true);
+    expect(insideFolder("C:/Data/worktrees/app-1/claude-1", wt.path)).toBe(true);
+    expect(insideFolder("C:/Data/worktrees/app-1/claude-10", wt.path)).toBe(false);
+    expect(insideFolder("/home/a/wt/x", "/home/a/wt")).toBe(true);
+    expect(insideFolder("/home/a/wtx", "/home/a/wt")).toBe(false);
+  });
+
+  it("sees another running session inside the worktree, never the closing one", () => {
+    expect(worktreeInUse(wt, [session(1, wt.path)], 1)).toBe(false);
+    expect(worktreeInUse(wt, [session(1, wt.path), session(2, `${wt.path}/sub`)], 1)).toBe(true);
+    expect(worktreeInUse(wt, [session(1, wt.path), session(2, wt.path, "exited")], 1)).toBe(false);
+    expect(worktreeInUse(wt, [session(2, "C:/src/app")], 1)).toBe(false);
+  });
+});
+
+describe("orphanedWorktrees", () => {
+  const wt = (name: string) => ({
+    path: `/data/worktrees/app-1/${name}`,
+    branch: `hangar/${name}`,
+    repoRoot: "/src/app",
+  });
+
+  it("lists each worktree once, only when sessions are not remembered", () => {
+    const sessions = [
+      { id: 1, cwd: "/a", status: "running", worktree: wt("a") },
+      { id: 2, cwd: "/b", status: "running" },
+      { id: -3, cwd: "/c", status: "exited", worktree: wt("c") },
+      { id: 4, cwd: "/a", status: "running", worktree: wt("a") },
+      { id: 5, cwd: "/data/worktrees/app-1/a/src", status: "running" },
+    ];
+    expect(orphanedWorktrees(sessions, true)).toEqual([]);
+    expect(orphanedWorktrees(sessions, false)).toEqual([
+      { ids: [1, 4, 5], worktree: wt("a") },
+      { ids: [-3], worktree: wt("c") },
+    ]);
   });
 });

@@ -6,6 +6,7 @@ import {
   CHANGE_LABELS,
   changeEntries,
   DIFF_PAGE_LINES,
+  FILE_PAGE,
   initiallyOpen,
   lineKind,
   parseGitDiff,
@@ -15,6 +16,8 @@ import {
 } from "./gitDiff";
 import { useT } from "./i18n";
 import { ChevronIcon, CloseIcon, RestartIcon } from "./icons";
+import { hasInvisible, revealInvisible } from "./invisible";
+import { Revealed } from "./Revealed";
 
 interface Props {
   /** Working folder of the active session; `null` without a session. */
@@ -112,8 +115,8 @@ export function ChangesPanel(props: Props) {
         <h2 className="changes-title">
           {t("changes.title")}
           {cwd !== null && (
-            <span className="changes-folder" title={cwd}>
-              {folderName(cwd)}
+            <span className="changes-folder" title={revealInvisible(cwd)}>
+              <Revealed text={folderName(cwd)} />
             </span>
           )}
         </h2>
@@ -184,6 +187,9 @@ function ChangeList({ result }: { result: GitDiff }) {
     const fresh = initiallyOpen(entries.filter((entry) => !known.has(entry.path)));
     setOpen((current) => new Set([...current, ...fresh]));
   }
+  // Thousands of files (a generated folder) would make the panel slow; the totals count them all.
+  const [listed, setListed] = useState(FILE_PAGE);
+  const restFiles = entries.length - listed;
   const additions = entries.reduce((sum, entry) => sum + entry.additions, 0);
   const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
   return (
@@ -195,7 +201,7 @@ function ChangeList({ result }: { result: GitDiff }) {
       </p>
       {result.truncated && <p className="changes-hint">{t("changes.truncated")}</p>}
       <ul className="changes-files">
-        {entries.map((entry) => (
+        {entries.slice(0, listed).map((entry) => (
           <FileItem
             key={entry.path}
             entry={entry}
@@ -212,6 +218,17 @@ function ChangeList({ result }: { result: GitDiff }) {
           />
         ))}
       </ul>
+      {restFiles > 0 && (
+        <button
+          type="button"
+          className="link-button change-more files"
+          onClick={() => {
+            setListed((value) => value + FILE_PAGE);
+          }}
+        >
+          {t("changes.moreFiles", { count: restFiles })}
+        </button>
+      )}
     </div>
   );
 }
@@ -237,7 +254,9 @@ function FileItem({
         type="button"
         className="change-head"
         aria-expanded={open}
-        title={`${entry.path}\n${kindName}`}
+        title={[revealInvisible(entry.path), kindName, entry.hidden ? t("changes.hiddenChars") : ""]
+          .filter(Boolean)
+          .join("\n")}
         onClick={onToggle}
       >
         <ChevronIcon size={12} />
@@ -245,8 +264,19 @@ function FileItem({
           {label.letter}
         </span>
         <span className="sr-only">{kindName}</span>
-        <span className="change-name">{name}</span>
-        {folder !== "" && <span className="change-folder">{folder}</span>}
+        <span className="change-name">
+          <Revealed text={name} />
+        </span>
+        {folder !== "" && (
+          <span className="change-folder">
+            <Revealed text={folder} />
+          </span>
+        )}
+        {entry.hidden && (
+          <span className="change-warning" title={t("changes.hiddenChars")}>
+            {t("changes.hiddenShort")}
+          </span>
+        )}
         <span className="change-counts">
           {entry.additions > 0 && <span className="changes-plus">+{entry.additions}</span>}
           {entry.deletions > 0 && <span className="changes-minus">−{entry.deletions}</span>}
@@ -278,8 +308,16 @@ function FileDiffView({ entry, truncated }: { entry: ChangeEntry; truncated: boo
       <div className="diff">
         {diff.lines.slice(0, shown).map((line, index) => (
           // Lines have no identity of their own; the list only grows at the end.
-          <div key={index} className={`diff-line ${lineKind(line)}`}>
-            {line === "" ? " " : line}
+          <div
+            key={index}
+            className={
+              hasInvisible(line)
+                ? `diff-line ${lineKind(line)} hidden-chars`
+                : `diff-line ${lineKind(line)}`
+            }
+            title={hasInvisible(line) ? t("changes.hiddenChars") : undefined}
+          >
+            {line === "" ? " " : <Revealed text={line} />}
           </div>
         ))}
       </div>

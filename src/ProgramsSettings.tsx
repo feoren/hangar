@@ -79,6 +79,13 @@ export function ProgramsSettings(props: Props) {
   const [openForm, setOpenForm] = useState<string | null>(null);
   const newButton = useRef<HTMLButtonElement>(null);
   const formButtons = useRef(new Map<string, HTMLButtonElement>());
+  /** Set by the open editor: asks before unsaved secret values would be dropped. */
+  const closeGuard = useRef<(() => boolean) | null>(null);
+  /** Opens another form (or none) unless the open editor still holds unsaved secret values. */
+  const switchForm = (next: string | null) => {
+    if (closeGuard.current !== null && !closeGuard.current()) return;
+    setOpenForm(next);
+  };
   const [drag, setDrag] = useState<{ id: string; index: number } | null>(null);
   const rows = useRef(new Map<string, HTMLLIElement>());
   const buttons = useRef(new Map<string, HTMLButtonElement>());
@@ -187,7 +194,7 @@ export function ProgramsSettings(props: Props) {
         aria-label={label}
         title={label}
         onClick={() => {
-          setOpenForm(formOpen ? null : profile.id);
+          switchForm(formOpen ? null : profile.id);
         }}
       >
         {profile.editable === true ? t("profile.edit") : t("profile.customize")}
@@ -202,6 +209,7 @@ export function ProgramsSettings(props: Props) {
         takenIds={takenIds}
         onProfiles={props.onProfiles}
         onClose={closeForm}
+        closeGuardRef={closeGuard}
       />
     );
 
@@ -396,7 +404,7 @@ export function ProgramsSettings(props: Props) {
             className="secondary-button with-icon"
             aria-expanded={openForm === "new"}
             onClick={() => {
-              setOpenForm(openForm === "new" ? null : "new");
+              switchForm(openForm === "new" ? null : "new");
             }}
           >
             <PlusIcon size={12} />
@@ -410,6 +418,7 @@ export function ProgramsSettings(props: Props) {
               takenIds={takenIds}
               onProfiles={props.onProfiles}
               onClose={closeForm}
+              closeGuardRef={closeGuard}
             />
           </div>
         )}

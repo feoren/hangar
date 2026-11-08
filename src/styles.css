@@ -3777,3 +3777,45 @@ body.resizing-horizontal * {
 .profile-saved:empty {
   display: none;
 }
+
+/* Invisible and bidi characters from git, shown as <U+202E> (invisible.ts). Isolated, so they can
+   never reorder the text around them. */
+.invisible-char {
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  font-style: normal;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-radius: 3px;
+  unicode-bidi: isolate;
+}
+
+.change-name,
+.change-folder,
+.changes-folder,
+.session-branch-name,
+.link-url {
+  unicode-bidi: isolate;
+}
+
+.diff-line {
+  unicode-bidi: plaintext;
+}
+
+.diff-line.hidden-chars {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.change-warning {
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--warn);
+  border: 1px solid currentcolor;
+  border-radius: 8px;
+}
+
+.change-more.files {
+  margin-left: 12px;
+}

@@ -147,13 +147,16 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
+import { revealInvisible } from "./invisible";
 import {
   canUseWorktree,
   createErrorText,
   parseRemoval,
   parseWorktree,
   removalErrorNotice,
+  orphanedWorktrees,
   removalNotice,
+  worktreeInUse,
   worktreeLabel,
   type WorktreeNotice,
 } from "./worktree";
@@ -1131,10 +1134,12 @@ export function App() {
   const close = useCallback(
     async (id: number) => {
       const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
+      let closed = true;
       if (!isPlaceholder(id)) {
         try {
           await api.close(id);
         } catch (e) {
+          closed = false;
           showError(e);
         }
       }
@@ -1149,7 +1154,26 @@ export function App() {
       dispatch({ type: "removed", id });
       forgetAttention(id);
       setRenamingId((current) => (current === id ? null : current));
-      if (worktree) removeSessionWorktree(worktree);
+      if (worktree) {
+        // The process may still run in it (close failed), or another session works there: git
+        // would delete files under a running program, so the worktree stays.
+        const tr = createTranslator(settingsRef.current.language);
+        if (!closed) {
+          setWorktreeNotice({
+            message: tr("worktree.keptOpen"),
+            path: worktree.path,
+            copied: false,
+          });
+        } else if (worktreeInUse(worktree, stateRef.current.sessions, id)) {
+          setWorktreeNotice({
+            message: tr("worktree.keptInUse"),
+            path: worktree.path,
+            copied: false,
+          });
+        } else {
+          removeSessionWorktree(worktree);
+        }
+      }
     },
     [showError, forgetAttention, removeSessionWorktree],
   );
@@ -1273,11 +1297,30 @@ export function App() {
     ]);
   }, [saveWorkspaceNow, saveScrollbacks]);
 
+  /**
+   * Without "Remember sessions" nothing brings worktree sessions back, so their worktrees would be
+   * left behind: end those sessions, then remove each worktree (never forced; changes stay).
+   */
+  const removeOrphanedWorktrees = useCallback(async () => {
+    const orphaned = orphanedWorktrees(
+      stateRef.current.sessions,
+      settingsRef.current.restoreSessions,
+    );
+    await Promise.allSettled(
+      orphaned.map(async ({ ids, worktree }) => {
+        // A failed close rejects here, so the worktree of a still running program stays.
+        await Promise.all(ids.filter((id) => !isPlaceholder(id)).map((id) => api.close(id)));
+        await api.removeWorktree(worktree);
+      }),
+    );
+  }, []);
+
   const quit = useCallback(async () => {
     if (quitting.current) return;
     quitting.current = true;
     try {
       await persistAll();
+      await Promise.race([removeOrphanedWorktrees(), delay(QUIT_SAVE_TIMEOUT_MS)]);
     } finally {
       // The waiting count must not stay on a Dock or launcher icon; bounded, quitting comes first.
       await Promise.race([badge.clear(), delay(BADGE_CLEAR_TIMEOUT_MS)]);
@@ -1289,7 +1332,7 @@ export function App() {
         showError(e);
       }
     }
-  }, [persistAll, showError, badge]);
+  }, [persistAll, removeOrphanedWorktrees, showError, badge]);
 
   /** Setting "Remember sessions" off: discard what was saved so nothing comes back. */
   const forgetWorkspace = useCallback(() => {
@@ -2644,7 +2687,7 @@ export function App() {
             {worktreeNotice !== null && (
               <div className="link-notice" role="status">
                 <span>{worktreeNotice.message}</span>
-                <span className="link-url selectable">{worktreeNotice.path}</span>
+                <span className="link-url selectable">{revealInvisible(worktreeNotice.path)}</span>
                 <div className="link-actions">
                   <button type="button" className="secondary-button" onClick={copyWorktreePath}>
                     {worktreeNotice.copied ? t("link.copied") : t("menu.copy")}
@@ -2774,7 +2817,7 @@ export function App() {
             <p className="muted">{t("close.confirmBody")}</p>
             {closingSession.worktree && (
               <p className="muted">
-                {t("close.worktree", { branch: closingSession.worktree.branch })}
+                {t("close.worktree", { branch: revealInvisible(closingSession.worktree.branch) })}
               </p>
             )}
             <div className="dialog-actions">

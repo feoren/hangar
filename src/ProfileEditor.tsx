@@ -1,9 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
 import { api, errorText, type Profile } from "./api";
 import { useT } from "./i18n";
-import { CloseIcon, FolderIcon, PlusIcon } from "./icons";
+import { CloseIcon, EyeIcon, FolderIcon, PlusIcon } from "./icons";
 import {
   emptyForm,
   formFromProfile,
@@ -28,6 +28,11 @@ interface Props {
   /** The backend saved or deleted: apply its new list. */
   onProfiles: (profiles: Profile[]) => void;
   onClose: () => void;
+  /**
+   * Filled by the editor: the parent calls it before it closes the editor by other means (another
+   * entry's button). `false`: unsaved secret values; the editor asks first and stays open.
+   */
+  closeGuardRef?: RefObject<(() => boolean) | null>;
 }
 
 type Status = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: string };
@@ -39,7 +44,7 @@ type Status = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: s
  * values never live in React state: they stay in the password fields until saved, then the fields
  * are cleared.
  */
-export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props) {
+export function ProfileEditor({ profile, takenIds, onProfiles, onClose, closeGuardRef }: Props) {
   const t = useT();
   const id = useId();
   const [form, setForm] = useState<ProfileForm | null>(() =>
@@ -56,6 +61,12 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
   const [stored, setStored] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [secretErrors, setSecretErrors] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Closing would drop typed secret values that are not stored yet: ask first. */
+  const [confirmClose, setConfirmClose] = useState(false);
+  /** Plain values that look secret are hidden like passwords; these rows are shown. */
+  const [shownValues, setShownValues] = useState<ReadonlySet<string>>(() => new Set());
+  /** Secret rows whose value came from a plain variable ("Make it secret"). */
+  const movedRows = useRef(new Set<string>());
   /** Password fields by row key; read on save, never copied into state. */
   const secretInputs = useRef(new Map<string, HTMLInputElement>());
   /** Values moved from a plain variable, put into the new password field once it exists. */
@@ -63,6 +74,18 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
   const root = useRef<HTMLDivElement>(null);
   /** Set at once, unlike `saving`, so a second Enter before the next render saves nothing. */
   const busy = useRef(false);
+
+  useEffect(() => {
+    if (closeGuardRef === undefined) return;
+    closeGuardRef.current = () => {
+      const unsaved = [...secretInputs.current.values()].some((input) => input.value !== "");
+      if (unsaved) setConfirmClose(true);
+      return !unsaved;
+    };
+    return () => {
+      closeGuardRef.current = null;
+    };
+  }, [closeGuardRef]);
 
   // Values of the plain variables and the secret state are read only when the form opens.
   useEffect(() => {
@@ -125,6 +148,13 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
     setForm((current) => (current === null ? current : { ...current, ...patch }));
     setStatus({ kind: "idle" });
   };
+  /** Secret values typed or moved but not in the keychain yet. */
+  const unsavedSecrets = () =>
+    [...secretInputs.current.values()].some((input) => input.value !== "");
+  const requestClose = () => {
+    if (unsavedSecrets()) setConfirmClose(true);
+    else onClose();
+  };
   const setEnv = (key: string, patch: Partial<EnvRow>) => {
     change({ env: form.env.map((row) => (row.key === key ? { ...row, ...patch } : row)) });
   };
@@ -135,6 +165,7 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
   const moveToSecrets = (row: EnvRow) => {
     const key = rowKey();
     if (row.value !== "") pendingSecrets.current.set(key, row.value);
+    movedRows.current.add(key);
     change({
       env: form.env.filter((other) => other.key !== row.key),
       secrets: [...form.secrets, { key, name: row.name.trim() }],
@@ -186,8 +217,15 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
       try {
         await api.setProfileSecret(profileId, name, field.value);
         field.value = "";
+        movedRows.current.delete(row.key);
       } catch (e) {
-        errors.set(row.key, errorText(e));
+        // A moved value is no longer a plain variable either: say plainly that it is not saved.
+        errors.set(
+          row.key,
+          movedRows.current.has(row.key)
+            ? t("profile.movedNotSaved", { name, error: errorText(e) })
+            : errorText(e),
+        );
       }
     }
     setSecretErrors(errors);
@@ -364,14 +402,39 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
                 />
                 <input
                   className="text-input mono profile-var-value"
+                  type={secretHint && !shownValues.has(row.key) ? "password" : "text"}
+                  autoComplete="off"
                   value={row.value}
                   spellCheck={false}
-                  placeholder={t("profile.varValue")}
+                  placeholder={
+                    row.unknownValue === true ? t("profile.valueBuiltIn") : t("profile.varValue")
+                  }
                   aria-label={t("profile.varValueFor", { name: row.name || "…" })}
                   onChange={(event) => {
-                    setEnv(row.key, { value: event.currentTarget.value });
+                    setEnv(row.key, { value: event.currentTarget.value, unknownValue: false });
                   }}
                 />
+                {secretHint && (
+                  <button
+                    type="button"
+                    className={
+                      shownValues.has(row.key) ? "icon-button toggle on" : "icon-button toggle"
+                    }
+                    aria-pressed={shownValues.has(row.key)}
+                    aria-label={t("profile.showValue", { name: row.name })}
+                    title={t("profile.showValue", { name: row.name })}
+                    onClick={() => {
+                      setShownValues((current) => {
+                        const next = new Set(current);
+                        if (next.has(row.key)) next.delete(row.key);
+                        else next.add(row.key);
+                        return next;
+                      });
+                    }}
+                  >
+                    <EyeIcon />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="icon-button"
@@ -457,7 +520,7 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
                     }
                   }}
                   type="password"
-                  autoComplete="new-password"
+                  autoComplete="off"
                   className="text-input mono profile-var-value"
                   placeholder={isStored ? t("profile.secretReplace") : t("profile.secretValue")}
                   aria-label={t("profile.secretValueFor", { name: name || "…" })}
@@ -559,7 +622,24 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose }: Props)
         <span className="profile-saved muted" role="status">
           {status.kind === "saved" ? t("profile.saved") : ""}
         </span>
-        <button type="button" className="secondary-button" onClick={onClose}>
+        {confirmClose && (
+          <span className="profile-delete" role="alert">
+            <span>{t("profile.unsavedClose")}</span>
+            <button type="button" className="primary-button danger" onClick={onClose}>
+              {t("profile.closeAnyway")}
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setConfirmClose(false);
+              }}
+            >
+              {t("profile.keepEditing")}
+            </button>
+          </span>
+        )}
+        <button type="button" className="secondary-button" onClick={requestClose}>
           {status.kind === "saved" ? t("common.close") : t("common.cancel")}
         </button>
         <button

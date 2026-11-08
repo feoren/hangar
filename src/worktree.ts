@@ -3,7 +3,9 @@
 // `hangar/<slug>` and the folder, and never removes anything by force.
 
 import { errorText, type Worktree } from "./api";
+import { folderKey } from "./folders";
 import type { Translate } from "./i18n";
+import { hasInvisible } from "./invisible";
 
 /** Prefix of every branch Hangar creates; the backend refuses others. */
 export const WORKTREE_BRANCH_PREFIX = "hangar/";
@@ -51,7 +53,73 @@ export function parseWorktree(value: unknown): Worktree | null {
   const repoRoot = text(value, "repoRoot");
   if (path === null || branch === null || repoRoot === null) return null;
   if (!branch.startsWith(WORKTREE_BRANCH_PREFIX) || branch === WORKTREE_BRANCH_PREFIX) return null;
+  // Hangar never creates such names; a record with bidi or control characters is not its own.
+  if ([path, branch, repoRoot].some(hasInvisible)) return null;
   return { path, branch, repoRoot };
+}
+
+/** `child` is `parent` or lies inside it (case and separators as the platform compares them). */
+export function insideFolder(child: string, parent: string): boolean {
+  const c = folderKey(child);
+  const p = folderKey(parent);
+  if (c === p) return true;
+  const separator = p.includes("\\") ? "\\" : "/";
+  return c.startsWith(p.endsWith(separator) ? p : p + separator);
+}
+
+interface SessionPlace {
+  id: number;
+  cwd: string;
+  status: string;
+  worktree?: Worktree | undefined;
+}
+
+/**
+ * Another running session still works in this worktree (started there by hand, or a second
+ * session in the same folder): then it stays, or git would delete files under that session.
+ */
+export function worktreeInUse(
+  worktree: Worktree,
+  sessions: readonly SessionPlace[],
+  closingId: number,
+): boolean {
+  return sessions.some(
+    (session) =>
+      session.id !== closingId &&
+      session.status !== "exited" &&
+      insideFolder(session.cwd, worktree.path),
+  );
+}
+
+/**
+ * Worktrees to clean up on quit when sessions are not remembered: nothing would bring those
+ * sessions back, so their worktrees would be left behind. Each once, with every session that
+ * works inside it (all of them end first, or git would delete files under a running program);
+ * never while sessions are remembered.
+ */
+export function orphanedWorktrees(
+  sessions: readonly SessionPlace[],
+  restoreSessions: boolean,
+): { ids: number[]; worktree: Worktree }[] {
+  if (restoreSessions) return [];
+  const seen = new Set<string>();
+  const result: { ids: number[]; worktree: Worktree }[] = [];
+  for (const session of sessions) {
+    const worktree = session.worktree;
+    if (!worktree) continue;
+    const key = folderKey(worktree.path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const ids = sessions
+      .filter(
+        (other) =>
+          (other.worktree !== undefined && folderKey(other.worktree.path) === key) ||
+          insideFolder(other.cwd, worktree.path),
+      )
+      .map((other) => other.id);
+    result.push({ ids, worktree });
+  }
+  return result;
 }
 
 export interface Removal {

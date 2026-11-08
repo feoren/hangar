@@ -189,3 +189,30 @@ describe("splitPath", () => {
     expect(splitPath("README.md")).toEqual({ folder: "", name: "README.md" });
   });
 });
+
+describe("hidden characters", () => {
+  it("flags files whose path or lines hold bidi or invisible characters", () => {
+    const entries = changeEntries({
+      isRepo: true,
+      files: [
+        { path: "ok.ts", status: " M", additions: 1, deletions: 0 },
+        { path: "evil.ts", status: " M", additions: 1, deletions: 0 },
+        { path: "name\u202e.ts", status: "??", additions: 0, deletions: 0 },
+      ],
+      diff: [
+        "diff --git a/ok.ts b/ok.ts",
+        "@@ -0,0 +1 @@",
+        "+fine",
+        "diff --git a/evil.ts b/evil.ts",
+        "@@ -0,0 +1 @@",
+        "+/* \u202e } \u2066if (isAdmin)\u2069 \u2066 { */",
+      ].join("\n"),
+      truncated: false,
+    });
+    expect(entries.map((entry) => [entry.path, entry.hidden])).toEqual([
+      ["ok.ts", false],
+      ["evil.ts", true],
+      ["name\u202e.ts", true],
+    ]);
+  });
+});

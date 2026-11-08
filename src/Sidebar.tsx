@@ -37,6 +37,8 @@ import { availableVersion, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
+import { revealInvisible } from "./invisible";
+import { Revealed } from "./Revealed";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
 import {
@@ -260,7 +262,9 @@ export function Sidebar(props: Props) {
                     `${session.title} · ${status}`,
                     detailText(where, t),
                     session.worktree
-                      ? t("worktree.sessionHint", { branch: session.worktree.branch })
+                      ? t("worktree.sessionHint", {
+                          branch: revealInvisible(session.worktree.branch),
+                        })
                       : "",
                     session.cwd,
                     markerColorText(session.marker, t),
@@ -947,7 +951,7 @@ function UpdateButtons({
 function detailText(line: DetailLine, t: ReturnType<typeof useT>): string {
   return [
     line.folder,
-    line.branch === null ? "" : t("session.branch", { branch: line.branch }),
+    line.branch === null ? "" : t("session.branch", { branch: revealInvisible(line.branch) }),
     line.runtime === null ? "" : t("session.runtime", { duration: line.runtime }),
   ]
     .filter(Boolean)
@@ -1038,7 +1042,9 @@ function SessionItem({
           title={[
             waiting ? `${session.title} · ${status}` : "",
             detail,
-            session.worktree ? t("worktree.sessionHint", { branch: session.worktree.branch }) : "",
+            session.worktree
+              ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
+              : "",
             session.cwd,
             program,
             t("session.renameHint"),
@@ -1075,11 +1081,13 @@ function SessionItem({
                   <span aria-hidden="true">·</span>
                   <WorktreeIcon size={11} />
                   <span className="sr-only">
-                    {t("worktree.sessionHint", { branch: where.branch ?? session.worktree.branch })}
+                    {t("worktree.sessionHint", {
+                      branch: revealInvisible(where.branch ?? session.worktree.branch),
+                    })}
                   </span>
                   {/* The icon already says "own worktree"; the "hangar/" prefix would only repeat it. */}
                   <span className="session-branch-name" aria-hidden="true">
-                    {shortBranch(where.branch ?? session.worktree.branch)}
+                    <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
                   </span>
                 </span>
               ) : (
@@ -1087,9 +1095,11 @@ function SessionItem({
                   <span className="session-branch">
                     <span aria-hidden="true">·</span>
                     <BranchIcon size={11} />
-                    <span className="sr-only">{t("session.branch", { branch: where.branch })}</span>
+                    <span className="sr-only">
+                      {t("session.branch", { branch: revealInvisible(where.branch) })}
+                    </span>
                     <span className="session-branch-name" aria-hidden="true">
-                      {where.branch}
+                      <Revealed text={where.branch} />
                     </span>
                   </span>
                 )

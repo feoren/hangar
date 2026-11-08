@@ -3,6 +3,7 @@
 // shows the text as text nodes only, never as HTML.
 
 import type { MessageKey } from "./i18n";
+import { hasInvisible } from "./invisible";
 
 export interface FileChange {
   path: string;
@@ -22,6 +23,8 @@ export interface GitDiff {
 
 /** Lines of a file shown at first and per "Show more". */
 export const DIFF_PAGE_LINES = 300;
+/** Files listed at first and per "Show more"; the totals above the list count all of them. */
+export const FILE_PAGE = 500;
 /** Files up to this many lines open by themselves ... */
 const AUTO_OPEN_FILE_LINES = 200;
 /** ... as long as the open files together stay below this. */
@@ -213,6 +216,12 @@ export interface ChangeEntry extends FileChange {
   kind: ChangeKind;
   /** `null`: no content to show (untracked, or cut off by the 2 MiB limit). */
   diff: FileDiff | null;
+  /** Path or changed lines hold invisible or bidi characters (shown as placeholders). */
+  hidden: boolean;
+}
+
+function hiddenIn(path: string, diff: FileDiff | null): boolean {
+  return hasInvisible(path) || (diff?.lines.some(hasInvisible) ?? false);
 }
 
 /**
@@ -224,7 +233,7 @@ export function changeEntries(result: GitDiff): ChangeEntry[] {
   const entries: ChangeEntry[] = result.files.map((file) => {
     const diff = byPath.get(file.path) ?? null;
     byPath.delete(file.path);
-    return { ...file, kind: changeKind(file.status), diff };
+    return { ...file, kind: changeKind(file.status), diff, hidden: hiddenIn(file.path, diff) };
   });
   for (const diff of byPath.values()) {
     let additions = 0;
@@ -234,7 +243,15 @@ export function changeEntries(result: GitDiff): ChangeEntry[] {
       if (kind === "add") additions += 1;
       else if (kind === "del") deletions += 1;
     }
-    entries.push({ path: diff.path, status: " M", additions, deletions, kind: "modified", diff });
+    entries.push({
+      path: diff.path,
+      status: " M",
+      additions,
+      deletions,
+      kind: "modified",
+      diff,
+      hidden: hiddenIn(diff.path, diff),
+    });
   }
   return entries;
 }

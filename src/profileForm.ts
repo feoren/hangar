@@ -10,6 +10,12 @@ export interface EnvRow {
   key: string;
   name: string;
   value: string;
+  /**
+   * The value is not known (a built-in entry's values never reach the frontend). Such a row is
+   * saved only once the user types a value; otherwise "Customize" would write `NAME = ""` and
+   * blank the variable for the program.
+   */
+  unknownValue?: boolean;
 }
 
 export interface SecretRow {
@@ -153,11 +159,15 @@ export function formFromProfile(
     command: profile.command,
     args: joinArgs(profile.args),
     cwd: profile.cwd ?? "",
-    env: [...names, ...extra].map((name) => ({
-      key: rowKey(),
-      name,
-      value: envValues[name] ?? "",
-    })),
+    env: [...names, ...extra].map((name) => {
+      const known = Object.hasOwn(envValues, name);
+      return {
+        key: rowKey(),
+        name,
+        value: known ? (envValues[name] ?? "") : "",
+        ...(known || profile.editable === true ? {} : { unknownValue: true }),
+      };
+    }),
     secrets: (profile.secretEnv ?? []).map((name) => ({ key: rowKey(), name })),
   };
 }
@@ -171,7 +181,11 @@ export interface FormProblem {
 
 /** Rows the user left completely empty are not saved and not checked. */
 function filledEnv(form: ProfileForm): EnvRow[] {
-  return form.env.filter((row) => row.name.trim() !== "" || row.value !== "");
+  return form.env.filter(
+    (row) =>
+      !(row.unknownValue === true && row.value === "") &&
+      (row.name.trim() !== "" || row.value !== ""),
+  );
 }
 
 function filledSecrets(form: ProfileForm): SecretRow[] {
@@ -227,7 +241,9 @@ export function toInput(form: ProfileForm): ProfileInput {
     command: form.command.trim(),
     args: split.ok ? split.args : [],
     cwd: cwd === "" ? null : cwd,
-    env: Object.fromEntries(filledEnv(form).map((row) => [row.name.trim(), row.value])),
+    // Through a Map: `Object.fromEntries` defines own properties, so a variable named
+    // `__proto__` or `constructor` stays an ordinary entry and never touches the prototype.
+    env: Object.fromEntries(new Map(filledEnv(form).map((row) => [row.name.trim(), row.value]))),
     secretEnv: filledSecrets(form).map((row) => row.name.trim()),
   };
 }
@@ -235,11 +251,12 @@ export function toInput(form: ProfileForm): ProfileInput {
 /** Answer of `profile_env`: name to value; anything that is not text is left out. */
 export function parseProfileEnv(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  const env: Record<string, string> = {};
+  const env = new Map<string, string>();
   for (const [name, text] of Object.entries(value)) {
-    if (typeof text === "string") env[name] = text;
+    if (typeof text === "string") env.set(name, text);
   }
-  return env;
+  // Own properties only (no assignment), so `__proto__` cannot change the prototype.
+  return Object.fromEntries(env);
 }
 
 /** Answer of `profile_secrets`: per name whether a value is stored. */
