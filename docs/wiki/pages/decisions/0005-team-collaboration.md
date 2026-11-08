@@ -52,6 +52,33 @@ interview with the owner on 2026-11-08; the answers are recorded below.
 | Business model | Free for small teams, paid per person above that; self-hosting is always free. |
 | Version 1 scope | Core first: account and team, task list with reservation, automatic file claims with warning and pause, live status of all agents, shared memory. Merge queue, issue import, transcripts, phone and chat follow. |
 
+## Licensing and editions (owner's decision, 2026-11-08)
+| Use | Account | Price | Where enforced |
+| --- | --- | --- | --- |
+| Alone, all local features | none | free | nothing to enforce |
+| Team of up to 3 people | Hangar account | free | team server counts members |
+| Team of 4 or more | Hangar account | paid package per seat | team server counts members |
+| Self-hosted server, up to 3 people | none at Hangar | free | self-hosted server |
+| Self-hosted server, 4 or more | none at Hangar | license key | self-hosted server checks a signed key |
+
+- **Desktop app: MIT**, unchanged. Anyone may fork it, including removing account code; that is
+  accepted. The app is never trusted to enforce limits and holds no service secrets.
+- **Team server: separate repository under the Elastic License 2.0** (source available). Use,
+  modification and self-hosting are allowed; offering it to third parties as a hosted or managed
+  service and moving, changing, disabling or circumventing the license key functionality are not.
+- **Enforcement on the server only:** joining a team is a server operation, so the seat limit holds
+  for every client, including forks. End-to-end encryption does not conflict: the member list is
+  metadata the server needs for key distribution anyway.
+- **License keys for self-hosting:** an Ed25519-signed document (team id, seats, expiry) the server
+  verifies offline with an embedded public key; issued by the website after purchase.
+- **Brand:** "Hangar" and the logo are the protection for the official product; a trademark
+  search and registration and a `TRADEMARKS.md` policy (forks must rename) follow.
+- **Contributions:** CLA for the server repository (keeps relicensing and commercial licensing
+  possible), DCO sign-off for the MIT app.
+- **Residual risk:** someone can write their own compatible server from scratch; the protocol is
+  not protected. The official service, the brand and the self-hosting license are the moat.
+- Not legal advice: terms, license texts and trademark need review by an IT lawyer before sales.
+
 ## Options (to be decided after research)
 1. **Coordination state in Git only** (files or a dedicated ref such as `refs/hangar/*`): no server,
    works offline, but not live and visible to everyone with repository access in plain text.
