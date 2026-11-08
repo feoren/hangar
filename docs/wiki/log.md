@@ -55,3 +55,6 @@ The repository starts on GitHub with a fresh history. ADR 0002: the build number
 
 ## [2026-11-08] ingest | WSL distribution list and keyring
 Processed our own measurement raw/2026-11-08-wsl-list-measurement.md (Windows 11, WSL 2.7.14.0, keyring 4.2.0) as the source pages/sources/wsl-list-measurement.md. Created the component page pages/components/keyring.md. pages/syntheses/agent-workflow-features.md: backend contracts for profiles in Settings, secrets, export, WSL and tray, and the hardened git, worktree and notification rules. Index updated.
+
+## [2026-11-08] ingest | keyring store internals
+Read the sources of windows-native-keyring-store 1.1.0, zbus-secret-service-keyring-store 1.0.1 and keyring-core 1.0.1: target names ignore case, `persistence` modifier (Local) applies on write, `get_attributes` tells "stored" without exposing the value (macOS: default implementation reads the value). Measured Local persistence with the ignored keychain test. Updated pages/components/keyring.md and pages/syntheses/agent-workflow-features.md.

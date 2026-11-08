@@ -280,25 +280,28 @@ pub fn merge(user: Vec<Profile>, catalog: Vec<CatalogAgent>) -> Vec<Agent> {
 
 /// [`merge`] plus terminals found on this machine (WSL), which behave like catalog entries.
 pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agent>) -> Vec<Agent> {
+    // Ids are compared without case, as the keychain compares them: a hand-written `Claude`
+    // replaces the catalog's `claude` instead of sharing its secrets as a second entry.
+    let fold = crate::profile::fold_id;
     let taken: HashSet<String> = user
         .iter()
-        .map(|p| p.id.clone())
-        .chain(catalog.iter().map(|a| a.id.clone()))
+        .map(|p| fold(&p.id))
+        .chain(catalog.iter().map(|a| fold(&a.id)))
         .collect();
     let found: Vec<Agent> = found
         .into_iter()
-        .filter(|agent| !taken.contains(agent.id()))
+        .filter(|agent| !taken.contains(&fold(agent.id())))
         .collect();
-    let taken: HashSet<String> = user.iter().map(|p| p.id.clone()).collect();
+    let taken: HashSet<String> = user.iter().map(|p| fold(&p.id)).collect();
     let metadata: std::collections::HashMap<String, Agent> = catalog
         .iter()
-        .filter(|a| taken.contains(&a.id))
-        .map(|a| (a.id.clone(), Agent::from_catalog(a.clone())))
+        .filter(|a| taken.contains(&fold(&a.id)))
+        .map(|a| (fold(&a.id), Agent::from_catalog(a.clone())))
         .collect();
     user.into_iter()
         .map(|profile| {
             let mut agent = Agent::from_user(profile);
-            if let Some(from_catalog) = metadata.get(agent.id()) {
+            if let Some(from_catalog) = metadata.get(&fold(agent.id())) {
                 agent.homepage.clone_from(&from_catalog.homepage);
                 agent.install_hint.clone_from(&from_catalog.install_hint);
                 let same_program = from_catalog.candidates.contains(&agent.profile.command);
@@ -327,7 +330,7 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
         .chain(
             catalog
                 .into_iter()
-                .filter(|a| !taken.contains(&a.id))
+                .filter(|a| !taken.contains(&fold(&a.id)))
                 .map(Agent::from_catalog),
         )
         .chain(found)
@@ -683,6 +686,20 @@ mod tests {
         assert_eq!(merged[1].profile.command, "my-debian");
         assert!(merged[1].view(None, None).editable);
         assert_eq!(merged[4].cwd_flag, Some("--cd"));
+    }
+
+    #[test]
+    fn ids_differing_only_in_case_are_one_entry() {
+        // The keychain ignores case: a hand-written `Claude` must not stand beside `claude`.
+        let merged = merge_all(
+            vec![user("Claude", "my-claude"), user("WSL-Debian", "my-debian")],
+            vec![catalog("claude", &["claude"])],
+            vec![crate::wsl::agent("Debian")],
+        );
+        let ids: Vec<&str> = merged.iter().map(Agent::id).collect();
+        assert_eq!(ids, ["Claude", "WSL-Debian"]);
+        assert_eq!(merged[0].source, Source::User);
+        assert!(merged[0].homepage.is_some(), "catalog hints still apply");
     }
 
     #[test]

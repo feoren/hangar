@@ -28,6 +28,33 @@ operating system through `keyring` 4.2.0 (`src-tauri/src/secrets.rs`).
   stored bytes and `Ambiguous` debug-prints entries, so Hangar maps every variant to its own text
   and never shows or logs the library's `Display` output for those.
 
+## Windows store details (read from `windows-native-keyring-store` 1.1.0 sources)
+- Target name `<account>.<service>`, so Hangar's entries are `<profile id>/<VARIABLE>.hangar`.
+  Credential Manager target names ignore case, hence Hangar refuses profile ids that differ
+  only in case.
+- Default persistence is Enterprise (roams with the user profile in a domain). The entry
+  modifier `persistence` (`Session`, `Local`, `Enterprise`) applies when a value is written;
+  `keyring`'s v1 `Entry` cannot pass modifiers, so Hangar calls
+  `keyring_core::Entry::new_with_modifiers` after `keyring::Entry::store_status()` has set the
+  default store. Measured: the ignored test `secrets::tests::keychain_round_trip` reads back
+  `persistence = Local` (Windows 11 Pro 10.0.26300, 2026-11-08).
+- `get_attributes` reads the credential with `CredReadW`, copies only target, user name, alias,
+  comment and persistence, wipes the blob and frees it; a missing credential gives `NoEntry`.
+  Hangar uses it to tell "stored" without reading the value. The Secret Service store does the
+  same with item attributes. The macOS store has no attributes: `keyring-core`'s default
+  `get_attributes` calls `get_secret` (so a missing entry gives `NoEntry`) and drops the value
+  without wiping it, so on macOS Hangar calls `get_secret` itself and zeroizes the bytes.
+
+## No per-app access control on Windows
+The Credential Manager has no access list per application: every process running as the same
+user can enumerate and read generic credentials, including `*.hangar`. The keychain protects the
+values at rest and from other users, not from other programs of the same user. (General Windows
+behavior of `CredReadW` for the caller's own logon session.)
+
+> [!question] Unverified
+> No measurement with a second program reading a `*.hangar` credential; the statement follows
+> from the Credential Manager API, which checks only the user, not the calling program.
+
 ## Build cost
 - Windows: `keyring-core`, `windows-native-keyring-store`, `byteorder`, `zeroize`; `regex` and
   `windows-sys` 0.61 were in the build already.

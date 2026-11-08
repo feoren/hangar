@@ -1659,6 +1659,7 @@ name = "hangar"
 version = "0.3.0"
 dependencies = [
  "keyring",
+ "keyring-core",
  "libc",
  "png",
  "portable-pty",
@@ -1679,6 +1680,7 @@ dependencies = [
  "uuid",
  "windows",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]

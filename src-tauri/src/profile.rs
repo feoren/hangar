@@ -81,6 +81,10 @@ pub enum ProfileError {
     Parse(#[from] toml::de::Error),
     #[error("Profile ID '{0}' appears more than once")]
     DuplicateId(String),
+    /// The Windows Credential Manager ignores case in its target names, so both profiles would
+    /// share (and delete) each other's secrets.
+    #[error("Profile IDs '{0}' and '{1}' differ only in case; give one of them another ID")]
+    IdCase(String, String),
     #[error("Profile '{profile}': field '{field}' must not be empty")]
     Empty {
         profile: String,
@@ -101,6 +105,7 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
         return Err(ProfileError::NoProfiles);
     }
     let mut seen = HashSet::new();
+    let mut folded: BTreeMap<String, &str> = BTreeMap::new();
     for profile in &file.profiles {
         let label = if profile.id.is_empty() {
             &profile.name
@@ -122,6 +127,9 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
         if !seen.insert(profile.id.as_str()) {
             return Err(ProfileError::DuplicateId(profile.id.clone()));
         }
+        if let Some(other) = folded.insert(fold_id(&profile.id), &profile.id) {
+            return Err(ProfileError::IdCase(other.to_owned(), profile.id.clone()));
+        }
         if let Some(Err(problem)) = profile.latest.as_ref().map(Latest::validate) {
             return Err(ProfileError::Invalid {
                 profile: label.clone(),
@@ -136,6 +144,11 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
         }
     }
     Ok(file.profiles)
+}
+
+/// Profile id as the keychain compares it: without case (Windows Credential Manager).
+pub fn fold_id(id: &str) -> String {
+    id.to_lowercase()
 }
 
 /// `env` names a process can carry, and `secret_env` names that are valid variables, appear
@@ -343,6 +356,18 @@ mod tests {
     fn duplicate_id() {
         let src = "[[profile]]\nid='a'\nname='A'\ncommand='a'\n[[profile]]\nid='a'\nname='B'\ncommand='b'\n";
         assert!(matches!(parse(src), Err(ProfileError::DuplicateId(id)) if id == "a"));
+    }
+
+    #[test]
+    fn ids_differing_only_in_case_are_refused() {
+        let src = "[[profile]]\nid='Work'\nname='A'\ncommand='a'\n[[profile]]\nid='work'\nname='B'\ncommand='b'\n";
+        assert!(
+            matches!(parse(src), Err(ProfileError::IdCase(a, b)) if a == "Work" && b == "work")
+        );
+        let umlaut = "[[profile]]\nid='Ärger'\nname='A'\ncommand='a'\n[[profile]]\nid='ärger'\nname='B'\ncommand='b'\n";
+        assert!(matches!(parse(umlaut), Err(ProfileError::IdCase(..))));
+        let distinct = "[[profile]]\nid='work'\nname='A'\ncommand='a'\n[[profile]]\nid='work2'\nname='B'\ncommand='b'\n";
+        assert_eq!(parse(distinct).unwrap().len(), 2);
     }
 
     #[test]

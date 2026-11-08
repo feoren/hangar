@@ -34,24 +34,14 @@ pub fn app_id<'a>(identifier: &'a str, exe_dir: &Path) -> &'a str {
     }
 }
 
-/// Characters that change how the rest of the text is shown without being visible themselves:
-/// bidi embeddings, overrides and isolates and the marks (a terminal title could reorder the
-/// toast so it names another program), zero-width characters and the byte order mark.
-fn is_invisible_format(c: char) -> bool {
-    matches!(
-        c,
-        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
-    )
-}
-
 /// At most [`MAX_CHARS`] characters, without control characters (XML 1.0 does not allow most
 /// of them, and a toast with escape sequences from a terminal title looks broken), invisible
-/// format characters ([`is_invisible_format`]) and the noncharacters U+FFFE and U+FFFF, which
+/// characters ([`crate::text::is_invisible`]) and the noncharacters U+FFFE and U+FFFF, which
 /// XML 1.0 does not allow either.
 pub fn clean_text(text: &str) -> String {
     let mut clean: String = text
         .chars()
-        .filter(|c| !is_invisible_format(*c))
+        .filter(|c| !crate::text::is_invisible(*c))
         .map(|c| match c {
             '\u{FFFE}' | '\u{FFFF}' => '\u{FFFD}',
             '\u{2028}' | '\u{2029}' => ' ',
@@ -249,6 +239,12 @@ mod tests {
             "atxt.exebcde"
         );
         assert_eq!(clean_text("\u{200E}x\u{200F}\u{2060}"), "x");
+        // Arabic letter mark, soft hyphen, Mongolian vowel separator, grapheme joiner, tags,
+        // variation selectors.
+        assert_eq!(
+            clean_text("a\u{061C}b\u{00AD}c\u{180E}d\u{034F}e\u{E0041}\u{E007F}f\u{FE0F}g"),
+            "abcdefg"
+        );
         assert_eq!(clean_text("x\u{FFFE}y\u{FFFF}"), "x\u{FFFD}y\u{FFFD}");
         assert_eq!(clean_text("one\u{2028}two\u{2029}three"), "one two three");
         // Ordinary text outside those ranges stays.

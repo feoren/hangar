@@ -35,6 +35,10 @@ pub struct ProfileInput {
 pub enum EditError {
     #[error("Invalid profile id '{0}': it must not be empty or contain spaces or '/'")]
     InvalidId(String),
+    #[error("Profile id '{0}' differs from the existing '{1}' only in case; use the same spelling or another id")]
+    IdCase(String, String),
+    #[error("The working folder must be a full path, for example C:\\Users\\you\\project or /home/you/project")]
+    RelativeCwd,
     #[error("profiles.toml cannot be read as TOML, fix it first: {0}")]
     Syntax(String),
     #[error("profiles.toml uses a layout Settings cannot edit: 'profile' must be a list of [[profile]] tables")]
@@ -115,10 +119,31 @@ pub fn edit_file(
 }
 
 /// Inserts or replaces the profile `input.id`. An id from the catalog becomes a user profile that
-/// replaces the catalog entry (see [`crate::agent_catalog::merge`]).
-pub fn upsert(source: &str, input: &ProfileInput) -> Result<Edited, EditError> {
+/// replaces the catalog entry (see [`crate::agent_catalog::merge`]). `known_ids` are the ids of
+/// all other entries (catalog, WSL): one that differs from `input.id` only in case is refused,
+/// because the keychain would mix up their secrets. The file's own ids are checked by loading.
+pub fn upsert(
+    source: &str,
+    input: &ProfileInput,
+    known_ids: &[String],
+) -> Result<Edited, EditError> {
     if !crate::secrets::is_valid_profile_id(&input.id) {
         return Err(EditError::InvalidId(input.id.clone()));
+    }
+    let folded = profile::fold_id(&input.id);
+    if let Some(other) = known_ids
+        .iter()
+        .find(|known| **known != input.id && profile::fold_id(known) == folded)
+    {
+        return Err(EditError::IdCase(input.id.clone(), other.clone()));
+    }
+    // Relative would be resolved against Hangar's own working folder.
+    if input
+        .cwd
+        .as_ref()
+        .is_some_and(|cwd| !cwd.as_os_str().is_empty() && !cwd.is_absolute())
+    {
+        return Err(EditError::RelativeCwd);
     }
     let mut doc = document(source)?;
     let profiles = profiles_mut(&mut doc)?;
@@ -302,6 +327,11 @@ name = \"Command Prompt\"
 command = \"cmd\"
 ";
 
+    #[cfg(windows)]
+    const ABSOLUTE_CWD: &str = "C:\\Users\\Test User\\work";
+    #[cfg(not(windows))]
+    const ABSOLUTE_CWD: &str = "/home/test user/work";
+
     fn input(id: &str) -> ProfileInput {
         ProfileInput {
             id: id.into(),
@@ -320,7 +350,7 @@ command = \"cmd\"
         change.name = "PowerShell Seven".into();
         change.command = "pwsh".into();
         change.args = vec!["-NoLogo".into()];
-        let edited = upsert(FILE, &change).unwrap();
+        let edited = upsert(FILE, &change, &[]).unwrap();
         let expected = FILE.replace("PowerShell 7\"", "PowerShell Seven\"");
         assert_eq!(edited.source, expected);
         assert_eq!(edited.profiles[0].name, "PowerShell Seven");
@@ -341,7 +371,7 @@ command = \"cmd\"
             env: [("REGION".to_owned(), "eu".to_owned())].into(),
             secret_env: vec!["OWN_KEY".into(), "OLD_KEY".into()],
         };
-        assert_eq!(upsert(FILE, &same).unwrap().source, FILE);
+        assert_eq!(upsert(FILE, &same, &[]).unwrap().source, FILE);
     }
 
     #[test]
@@ -353,17 +383,14 @@ command = \"cmd\"
         ]
         .into();
         change.secret_env = vec!["OWN_KEY".into()];
-        change.cwd = Some(PathBuf::from("C:\\Users\\Test User\\work"));
-        let edited = upsert(FILE, &change).unwrap();
+        change.cwd = Some(PathBuf::from(ABSOLUTE_CWD));
+        let edited = upsert(FILE, &change, &[]).unwrap();
         assert_eq!(edited.dropped_secrets, ["OLD_KEY"]);
         let own = edited.profiles.iter().find(|p| p.id == "own").unwrap();
         assert_eq!(own.secret_env, ["OWN_KEY"]);
         assert_eq!(own.env.get("MODE").map(String::as_str), Some("x y"));
         assert_eq!(own.args, ["--fast", "two words"]);
-        assert_eq!(
-            own.cwd.as_deref(),
-            Some(std::path::Path::new("C:\\Users\\Test User\\work"))
-        );
+        assert_eq!(own.cwd.as_deref(), Some(std::path::Path::new(ABSOLUTE_CWD)));
         assert!(edited
             .source
             .starts_with("# My profiles, keep this comment.\n"));
@@ -377,7 +404,7 @@ command = \"cmd\"
         assert_eq!(ids, ["pwsh", "own", "cmd"]);
 
         // Empty optional fields disappear from the file.
-        let edited = upsert(&edited.source, &input("own")).unwrap();
+        let edited = upsert(&edited.source, &input("own"), &[]).unwrap();
         let own = edited.profiles.iter().find(|p| p.id == "own").unwrap();
         assert!(own.env.is_empty() && own.secret_env.is_empty() && own.cwd.is_none());
         assert!(!edited.source.contains("[profile.env]"));
@@ -390,7 +417,7 @@ command = \"cmd\"
         let file = "[[profile]]\nid = \"a\"\nname = \"A\"\ncommand = \"a\"\nenv = { X = \"1\" }\n";
         let mut change = input("a");
         change.env = [("X".to_owned(), "2".to_owned())].into();
-        let edited = upsert(file, &change).unwrap();
+        let edited = upsert(file, &change, &[]).unwrap();
         assert!(
             edited.source.contains("env = { X = \"2\" }"),
             "{}",
@@ -403,7 +430,7 @@ command = \"cmd\"
         let mut change = input("claude");
         change.secret_env = vec!["ANTHROPIC_API_KEY".into()];
         change.env = [("DISABLE_TELEMETRY".to_owned(), "1".to_owned())].into();
-        let edited = upsert(FILE, &change).unwrap();
+        let edited = upsert(FILE, &change, &[]).unwrap();
         assert!(edited.source.starts_with(FILE));
         let ids: Vec<&str> = edited.profiles.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids, ["pwsh", "own", "cmd", "claude"]);
@@ -411,14 +438,14 @@ command = \"cmd\"
         assert_eq!(claude.secret_env, ["ANTHROPIC_API_KEY"]);
         // Reads back like a hand-written profile, and a second save changes nothing.
         assert_eq!(
-            upsert(&edited.source, &change).unwrap().source,
+            upsert(&edited.source, &change, &[]).unwrap().source,
             edited.source
         );
     }
 
     #[test]
     fn a_missing_file_section_is_created() {
-        let edited = upsert("# only a comment\n", &input("x")).unwrap();
+        let edited = upsert("# only a comment\n", &input("x"), &[]).unwrap();
         assert!(
             edited.source.contains("# only a comment\n"),
             "{:?}",
@@ -431,28 +458,52 @@ command = \"cmd\"
     fn invalid_input_is_rejected_like_loading() {
         for id in ["", "a b", "a/b"] {
             assert!(matches!(
-                upsert(FILE, &input(id)),
+                upsert(FILE, &input(id), &[]),
                 Err(EditError::InvalidId(_))
             ));
         }
+        // Ids that differ only in case from another entry: in the file or in the catalog.
+        assert!(matches!(
+            upsert(FILE, &input("PWSH"), &[]),
+            Err(EditError::Invalid(ProfileError::IdCase(..)))
+        ));
+        let catalog = ["claude".to_owned(), "wsl-ubuntu".to_owned()];
+        assert!(matches!(
+            upsert(FILE, &input("Claude"), &catalog),
+            Err(EditError::IdCase(..))
+        ));
+        // The same spelling overrides the catalog entry.
+        upsert(FILE, &input("claude"), &catalog).unwrap();
+        // A working folder must be absolute; empty means none.
+        for relative in ["work", "./work", "..\\work"] {
+            let mut change = input("x");
+            change.cwd = Some(PathBuf::from(relative));
+            assert!(
+                matches!(upsert(FILE, &change, &[]), Err(EditError::RelativeCwd)),
+                "{relative}"
+            );
+        }
+        let mut change = input("x");
+        change.cwd = Some(PathBuf::new());
+        upsert(FILE, &change, &[]).unwrap();
         let mut change = input("x");
         change.command = " ".into();
         assert!(matches!(
-            upsert(FILE, &change),
+            upsert(FILE, &change, &[]),
             Err(EditError::Invalid(ProfileError::Empty { .. }))
         ));
         let mut change = input("x");
         change.secret_env = vec!["NOT VALID".into()];
         assert!(matches!(
-            upsert(FILE, &change),
+            upsert(FILE, &change, &[]),
             Err(EditError::Invalid(ProfileError::Invalid { .. }))
         ));
         assert!(matches!(
-            upsert("[[profile]\nid=", &input("x")),
+            upsert("[[profile]\nid=", &input("x"), &[]),
             Err(EditError::Syntax(_))
         ));
         assert!(matches!(
-            upsert("profile = 3\n", &input("x")),
+            upsert("profile = 3\n", &input("x"), &[]),
             Err(EditError::Layout)
         ));
     }
@@ -481,7 +532,7 @@ command = \"cmd\"
         let tmp = crate::test_support::TempDir::new("profile-edit");
         let dir = tmp.path().join("config");
         // A missing file is created from the template first, then changed.
-        let edited = edit_file(&dir, |source| upsert(source, &input("added"))).unwrap();
+        let edited = edit_file(&dir, |source| upsert(source, &input("added"), &[])).unwrap();
         let written = std::fs::read_to_string(dir.join(profile::FILE_NAME)).unwrap();
         assert_eq!(written, edited.source);
         assert!(written.starts_with('#'), "template comments are kept");
@@ -490,7 +541,7 @@ command = \"cmd\"
 
         let mut broken = input("other");
         broken.command = String::new();
-        assert!(edit_file(&dir, |source| upsert(source, &broken)).is_err());
+        assert!(edit_file(&dir, |source| upsert(source, &broken, &[])).is_err());
         assert_eq!(
             std::fs::read_to_string(dir.join(profile::FILE_NAME)).unwrap(),
             written

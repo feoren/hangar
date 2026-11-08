@@ -61,8 +61,23 @@ fn is_internal(name: &str) -> bool {
     name.to_ascii_lowercase().starts_with("docker-desktop")
 }
 
+/// `%SystemRoot%\System32\wsl.exe`, for detection and for starting: a folder on PATH could hold
+/// another `wsl.exe`. Without `SystemRoot` (not a normal Windows environment) the usual folder.
+#[cfg(windows)]
+pub fn program() -> std::path::PathBuf {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    std::path::PathBuf::from(root)
+        .join("System32")
+        .join("wsl.exe")
+}
+
 /// The terminal entry for one distribution.
 pub fn agent(distro: &str) -> Agent {
+    // Absolute on Windows, so the start resolves exactly the program detection ran. Other
+    // platforms never detect a distribution; the plain name only serves tests there.
+    #[cfg(windows)]
+    let command = program().to_string_lossy().into_owned();
+    #[cfg(not(windows))]
     let command = "wsl.exe".to_owned();
     Agent {
         profile: Profile {
@@ -114,17 +129,11 @@ mod imp {
     const MAX_OUTPUT: u64 = 64 * 1024;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    /// wsl.exe from the system folder, not from PATH: a folder on PATH could hold another one.
-    fn program() -> Option<PathBuf> {
-        let root = std::env::var_os("SystemRoot")?;
-        let path = PathBuf::from(root).join("System32").join("wsl.exe");
-        path.is_file().then_some(path)
-    }
-
     pub fn list() -> Vec<String> {
-        let Some(program) = program() else {
+        let program = super::program();
+        if !program.is_file() {
             return Vec::new();
-        };
+        }
         match run(&program) {
             Ok(Some(output)) => super::parse_list(&output),
             Ok(None) => Vec::new(),
@@ -147,16 +156,25 @@ mod imp {
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()?;
         let tree = match ProcTree::attach(child.id()) {
-            Ok(tree) => tree,
+            Ok(tree) => Some(tree),
+            // Ended before it could join the job: nothing left to kill, the output is still in
+            // the pipe.
+            Err(_) if matches!(child.try_wait(), Ok(Some(_))) => None,
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error);
             }
         };
-        let Some(stdout) = child.stdout.take() else {
-            let _ = tree.terminate();
+        let terminate = |child: &mut std::process::Child| {
+            if let Some(tree) = &tree {
+                let _ = tree.terminate();
+            }
+            let _ = child.kill();
             let _ = child.wait();
+        };
+        let Some(stdout) = child.stdout.take() else {
+            terminate(&mut child);
             return Ok(None);
         };
         let (tx, rx) = mpsc::channel();
@@ -182,9 +200,7 @@ mod imp {
         }
         if status.is_none() {
             // Hung or too slow: the whole tree goes, then it is reaped.
-            let _ = tree.terminate();
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate(&mut child);
         }
         match (output, status) {
             (Ok(data), Some(status)) if status.success() => Ok(Some(data)),
@@ -262,6 +278,17 @@ mod tests {
     fn entries_start_the_distribution() {
         let agent = agent("Ubuntu-24.04");
         assert_eq!(agent.id(), "wsl-ubuntu-24.04");
+        #[cfg(windows)]
+        {
+            let command = std::path::Path::new(&agent.profile.command);
+            assert!(command.is_absolute(), "{command:?}");
+            assert!(command.ends_with(r"System32\wsl.exe"), "{command:?}");
+            assert_eq!(
+                agent.candidates,
+                std::slice::from_ref(&agent.profile.command)
+            );
+        }
+        #[cfg(not(windows))]
         assert_eq!(agent.profile.command, "wsl.exe");
         assert_eq!(agent.profile.args, ["-d", "Ubuntu-24.04"]);
         assert_eq!(agent.cwd_flag, Some("--cd"));

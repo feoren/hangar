@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::manager::{ManagerError, SessionEvent, SessionManager, TermSize};
 use hangar_lib::profile::Profile;
-use hangar_lib::secrets::{self, MemoryStore};
+use hangar_lib::secrets::{self, SecretError, SecretStore};
 use hangar_lib::session::{SessionInfo, SessionKind, Status};
 use hangar_lib::updates::{CommandError, PlatformHint};
+use zeroize::Zeroizing;
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 const SIZE: TermSize = TermSize { cols: 97, rows: 31 };
@@ -273,6 +274,19 @@ fn errors_are_reported_clearly() {
     let bad_cwd = std::env::temp_dir().join("hangar-folder-does-not-exist");
     assert!(matches!(
         manager.create("echo", Some(bad_cwd), SIZE, |_| {}),
+        Err(ManagerError::BadCwd(_))
+    ));
+    // `src` exists relative to the test's working folder; relative is refused all the same.
+    assert!(std::path::Path::new("src").is_dir());
+    assert!(matches!(
+        manager.create("echo", Some("src".into()), SIZE, |_| {}),
+        Err(ManagerError::BadCwd(_))
+    ));
+    let mut relative = profile("relative", "hangar-does-not-exist", &[]);
+    relative.cwd = Some("src".into());
+    let manager = SessionManager::new(vec![relative], Vec::new(), std::env::temp_dir());
+    assert!(matches!(
+        manager.create("relative", None, SIZE, |_| {}),
         Err(ManagerError::BadCwd(_))
     ));
     assert!(manager.list().is_empty());
@@ -885,6 +899,38 @@ fn reloaded_profiles_leave_running_sessions_untouched() {
 // --- Secret variables from the keychain, WSL-style working folder argument ---
 
 const SECRET_VALUE: &str = "hangar-secret-marker-7f3a";
+
+/// In-memory secrets; the app's store is the OS keychain, which a test must not touch.
+#[derive(Default)]
+struct MemoryStore(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+impl MemoryStore {
+    fn values(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, String>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl SecretStore for MemoryStore {
+    fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, SecretError> {
+        Ok(self.values().get(account).cloned().map(Zeroizing::new))
+    }
+
+    fn exists(&self, account: &str) -> Result<bool, SecretError> {
+        Ok(self.values().contains_key(account))
+    }
+
+    fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
+        self.values().insert(account.to_owned(), value.to_owned());
+        Ok(())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.values().remove(account);
+        Ok(())
+    }
+}
 
 #[cfg(windows)]
 fn secret_profile(id: &str) -> Profile {

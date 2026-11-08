@@ -1,18 +1,20 @@
 //! Icon in the notification area (contract: docs/wiki/pages/syntheses/agent-workflow-features.md,
 //! "Tray").
 //!
-//! Off by default. When the window enables it, closing the window only hides it (the window
-//! decides that in its close handler); the tray icon brings it back. A left click and the menu
-//! item Open show the window, the menu item Quit emits `tray-quit` so the window saves and quits
-//! the usual way. The texts come from the window, which owns all translations.
+//! Off by default. While the icon exists, closing the main window only hides it
+//! ([`on_window_event`], in the backend so the window cannot end up closed without an icon to
+//! bring it back); the tray icon brings it back. A left click and the menu item Open show the
+//! window, the menu item Quit emits `tray-quit` so the window saves and quits the usual way. The
+//! texts come from the window, which owns all translations.
 
 use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
+use tauri::{AppHandle, Emitter as _, Manager as _, Runtime, Window, WindowEvent};
 
 pub const TRAY_ID: &str = "main";
 pub const QUIT_EVENT: &str = "tray-quit";
+const MAIN_WINDOW: &str = "main";
 const OPEN_ITEM: &str = "open";
 const QUIT_ITEM: &str = "quit";
 /// Menu texts and tooltip are UI texts; a longer one is a mistake, not a translation.
@@ -65,11 +67,31 @@ impl serde::Serialize for TrayError {
 
 /// Shows, unminimizes and focuses the main window.
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         // Each step may fail harmlessly (already visible, not minimized).
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+/// Whether closing should only hide the window: the main window, while the icon exists.
+pub fn hides_on_close(label: &str, tray_present: bool) -> bool {
+    label == MAIN_WINDOW && tray_present
+}
+
+/// Close request of a window: hidden instead of closed while the icon exists. The window's own
+/// close handler still receives the request afterwards (Tauri emits it to the frontend in any
+/// case) and must then neither close nor quit.
+pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        let tray_present = window.app_handle().tray_by_id(TRAY_ID).is_some();
+        if hides_on_close(window.label(), tray_present) {
+            api.prevent_close();
+            if let Err(error) = window.hide() {
+                eprintln!("hangar: window not hidden: {error}");
+            }
+        }
     }
 }
 
@@ -151,6 +173,13 @@ mod tests {
             ),
             ("Open Hangar", "Quit", "Hangar")
         );
+    }
+
+    #[test]
+    fn only_the_main_window_hides_and_only_with_an_icon() {
+        assert!(hides_on_close("main", true));
+        assert!(!hides_on_close("main", false));
+        assert!(!hides_on_close("other", true));
     }
 
     #[test]

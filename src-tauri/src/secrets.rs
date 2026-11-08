@@ -7,13 +7,12 @@
 //! into the child's environment. No value is ever logged, put into an error text or sent to the
 //! window; errors name the variable at most.
 //!
-//! The store sits behind [`SecretStore`] so tests run against [`MemoryStore`] and never touch the
-//! user's keychain.
-
-use std::collections::HashMap;
-use std::sync::Mutex;
+//! The store sits behind [`SecretStore`] so tests run against an in-memory store and never touch
+//! the user's keychain. Values Hangar holds are [`Zeroizing`], so they are wiped once used; the
+//! copies the IPC layer, the keychain library and the child's environment block make are not.
 
 use serde::{Serialize, Serializer};
+use zeroize::Zeroizing;
 
 pub const SERVICE: &str = "hangar";
 /// Profile ids and variable names are part of the account name; both stay short.
@@ -36,6 +35,8 @@ pub enum SecretError {
     NotText,
     #[error("The value must not be empty")]
     Empty,
+    #[error("The value must not contain a NUL character")]
+    Nul,
     #[error("Invalid variable name '{0}': letters, digits and _ only, not starting with a digit")]
     InvalidName(String),
     #[error("Invalid profile id '{0}'")]
@@ -53,7 +54,10 @@ impl Serialize for SecretError {
 /// Storage of secret values by account name.
 pub trait SecretStore: Send + Sync {
     /// `Ok(None)` when nothing is stored under `account`.
-    fn get(&self, account: &str) -> Result<Option<String>, SecretError>;
+    fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, SecretError>;
+    /// Whether something is stored under `account`, without reading the value where the store
+    /// allows that.
+    fn exists(&self, account: &str) -> Result<bool, SecretError>;
     fn set(&self, account: &str, value: &str) -> Result<(), SecretError>;
     /// Deleting what is not there is not an error.
     fn delete(&self, account: &str) -> Result<(), SecretError>;
@@ -100,10 +104,30 @@ pub fn set(
     if value.is_empty() {
         return Err(SecretError::Empty);
     }
+    // An environment variable cannot carry NUL; the session would start without the value.
+    if value.contains('\0') {
+        return Err(SecretError::Nul);
+    }
     if value.encode_utf16().count() > MAX_VALUE_UNITS {
         return Err(SecretError::TooLong);
     }
     store.set(&account, value)
+}
+
+/// A value may only be stored for a name the profile lists in `secret_env`: anything else would
+/// never be read, and on Windows could share a credential with another profile. `listed` is the
+/// profile's `secret_env`, `None` for an unknown profile.
+pub fn check_listed(
+    listed: Option<&[String]>,
+    profile_id: &str,
+    name: &str,
+) -> Result<(), SecretError> {
+    let listed = listed.ok_or_else(|| SecretError::InvalidProfile(profile_id.to_owned()))?;
+    if listed.iter().any(|listed| listed == name) {
+        Ok(())
+    } else {
+        Err(SecretError::InvalidName(name.to_owned()))
+    }
 }
 
 pub fn delete(store: &dyn SecretStore, profile_id: &str, name: &str) -> Result<(), SecretError> {
@@ -125,7 +149,7 @@ pub fn statuses(
     names
         .iter()
         .map(|name| {
-            let stored = store.get(&account(profile_id, name)?)?.is_some();
+            let stored = store.exists(&account(profile_id, name)?)?;
             Ok(SecretStatus {
                 name: name.clone(),
                 stored,
@@ -141,7 +165,7 @@ pub fn for_launch(
     store: &dyn SecretStore,
     profile_id: &str,
     names: &[String],
-) -> Vec<(String, String)> {
+) -> Vec<(String, Zeroizing<String>)> {
     names
         .iter()
         .filter_map(|name| {
@@ -185,16 +209,62 @@ impl KeyringStore {
         Self { service }
     }
 
-    fn entry(&self, account: &str) -> Result<keyring::Entry, SecretError> {
-        keyring::Entry::new(self.service, account).map_err(map_error)
+    /// On Windows with local persistence: the default, Enterprise, roams with the user's
+    /// profile to other machines of a domain. A credential written before keeps its persistence
+    /// until it is written again (reading and deleting go by target name only).
+    #[cfg(windows)]
+    fn entry(&self, account: &str) -> Result<keyring_core::Entry, SecretError> {
+        // keyring's v1 API sets the platform store on first use; keyring_core needs it set.
+        if keyring::Entry::store_status().is_err() {
+            return Err(SecretError::Unavailable);
+        }
+        let local = std::collections::HashMap::from([("persistence", "Local")]);
+        keyring_core::Entry::new_with_modifiers(self.service, account, &local).map_err(map_error)
+    }
+
+    #[cfg(not(windows))]
+    fn entry(&self, account: &str) -> Result<keyring_core::Entry, SecretError> {
+        keyring::Entry::new(self.service, account)
+            .map(|entry| entry.inner)
+            .map_err(map_error)
+    }
+
+    /// Persistence of a stored credential (`Local`, `Enterprise`, `Session`); for tests.
+    #[cfg(all(windows, test))]
+    fn persistence(&self, account: &str) -> Option<String> {
+        self.entry(account)
+            .ok()?
+            .get_attributes()
+            .ok()?
+            .remove("persistence")
     }
 }
 
 impl SecretStore for KeyringStore {
-    fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
+    fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, SecretError> {
         match self.entry(account)?.get_password() {
-            Ok(value) => Ok(Some(value)),
+            Ok(value) => Ok(Some(Zeroizing::new(value))),
             Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(map_error(error)),
+        }
+    }
+
+    fn exists(&self, account: &str) -> Result<bool, SecretError> {
+        let entry = self.entry(account)?;
+        // Windows (CredReadW, the store wipes the blob before freeing it) and the Secret Service
+        // (item attributes, no unlock) report the attributes of a stored credential and `NoEntry`
+        // otherwise. The macOS store has no attributes; keyring-core's default `get_attributes`
+        // reads the value and drops it unwiped, so there the value is read here and wiped at once.
+        #[cfg(not(target_os = "macos"))]
+        let found = entry.get_attributes().map(drop);
+        #[cfg(target_os = "macos")]
+        let found = entry.get_secret().map(|mut value| {
+            use zeroize::Zeroize as _;
+            value.zeroize();
+        });
+        match found {
+            Ok(()) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
             Err(error) => Err(map_error(error)),
         }
     }
@@ -235,31 +305,47 @@ fn map_error(error: keyring::Error) -> SecretError {
     }
 }
 
-/// In-memory store for tests (unit and integration); never used by the app.
-#[derive(Debug, Default)]
-pub struct MemoryStore {
-    values: Mutex<HashMap<String, String>>,
-}
-
-impl SecretStore for MemoryStore {
-    fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
-        Ok(crate::lock(&self.values).get(account).cloned())
-    }
-
-    fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
-        crate::lock(&self.values).insert(account.to_owned(), value.to_owned());
-        Ok(())
-    }
-
-    fn delete(&self, account: &str) -> Result<(), SecretError> {
-        crate::lock(&self.values).remove(account);
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
     use super::*;
+
+    /// In-memory store for unit tests. Debug shows the accounts, never the values.
+    #[derive(Default)]
+    struct MemoryStore {
+        values: Mutex<HashMap<String, Zeroizing<String>>>,
+    }
+
+    impl std::fmt::Debug for MemoryStore {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let accounts: Vec<String> = crate::lock(&self.values).keys().cloned().collect();
+            f.debug_struct("MemoryStore")
+                .field("accounts", &accounts)
+                .finish_non_exhaustive()
+        }
+    }
+
+    impl SecretStore for MemoryStore {
+        fn get(&self, account: &str) -> Result<Option<Zeroizing<String>>, SecretError> {
+            Ok(crate::lock(&self.values).get(account).cloned())
+        }
+
+        fn exists(&self, account: &str) -> Result<bool, SecretError> {
+            Ok(crate::lock(&self.values).contains_key(account))
+        }
+
+        fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
+            crate::lock(&self.values).insert(account.to_owned(), Zeroizing::new(value.to_owned()));
+            Ok(())
+        }
+
+        fn delete(&self, account: &str) -> Result<(), SecretError> {
+            crate::lock(&self.values).remove(account);
+            Ok(())
+        }
+    }
 
     const SECRET: &str = "sk-test-value-123";
 
@@ -318,10 +404,12 @@ mod tests {
         );
         set(&store, "p", "API_KEY", SECRET).unwrap();
         assert!(statuses(&store, "p", &names).unwrap()[0].stored);
-        assert_eq!(
-            for_launch(&store, "p", &names),
-            [("API_KEY".to_owned(), SECRET.to_owned())]
-        );
+        let launch = for_launch(&store, "p", &names);
+        let plain: Vec<(&str, &str)> = launch
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        assert_eq!(plain, [("API_KEY", SECRET)]);
         // Another profile does not see it.
         assert!(for_launch(&store, "q", &names).is_empty());
         delete(&store, "p", "API_KEY").unwrap();
@@ -341,29 +429,64 @@ mod tests {
     fn keychain_round_trip() {
         let store = KeyringStore::with_service("hangar-tests");
         let account = format!("test-{}/HANGAR_TEST_SECRET", std::process::id());
+        let read = |store: &KeyringStore| store.get(&account).unwrap().map(|v| v.to_string());
         store.delete(&account).unwrap();
-        assert_eq!(store.get(&account).unwrap(), None);
+        assert_eq!(read(&store), None);
+        assert!(!store.exists(&account).unwrap());
         store.set(&account, "äöü value 123").unwrap();
-        assert_eq!(
-            store.get(&account).unwrap().as_deref(),
-            Some("äöü value 123")
-        );
+        assert!(store.exists(&account).unwrap());
+        assert_eq!(read(&store).as_deref(), Some("äöü value 123"));
+        #[cfg(windows)]
+        assert_eq!(store.persistence(&account).as_deref(), Some("Local"));
         store.set(&account, "second").unwrap();
-        assert_eq!(store.get(&account).unwrap().as_deref(), Some("second"));
+        assert_eq!(read(&store).as_deref(), Some("second"));
         store.delete(&account).unwrap();
         store.delete(&account).unwrap();
-        assert_eq!(store.get(&account).unwrap(), None);
+        assert_eq!(read(&store), None);
+        assert!(!store.exists(&account).unwrap());
         // The longest value Hangar accepts fits.
         let long = "x".repeat(MAX_VALUE_UNITS);
         store.set(&account, &long).unwrap();
-        assert_eq!(store.get(&account).unwrap().as_deref(), Some(long.as_str()));
+        assert_eq!(read(&store).as_deref(), Some(long.as_str()));
         store.delete(&account).unwrap();
+        assert!(!store.exists(&account).unwrap());
+    }
+
+    #[test]
+    fn only_listed_names_take_a_value() {
+        let listed = vec!["API_KEY".to_owned()];
+        check_listed(Some(&listed), "p", "API_KEY").unwrap();
+        assert!(matches!(
+            check_listed(Some(&listed), "p", "OTHER"),
+            Err(SecretError::InvalidName(_))
+        ));
+        assert!(matches!(
+            check_listed(Some(&listed), "p", "api_key"),
+            Err(SecretError::InvalidName(_))
+        ));
+        assert!(matches!(
+            check_listed(None, "gone", "API_KEY"),
+            Err(SecretError::InvalidProfile(_))
+        ));
+    }
+
+    #[test]
+    fn debug_output_shows_no_values() {
+        let store = MemoryStore::default();
+        set(&store, "p", "API_KEY", SECRET).unwrap();
+        let debug = format!("{store:?}");
+        assert!(debug.contains("p/API_KEY"), "{debug}");
+        assert!(!debug.contains(SECRET), "{debug}");
     }
 
     #[test]
     fn values_are_checked_and_never_in_errors() {
         let store = MemoryStore::default();
         assert!(matches!(set(&store, "p", "K", ""), Err(SecretError::Empty)));
+        let error = set(&store, "p", "K", &format!("{SECRET}\0rest")).unwrap_err();
+        assert!(matches!(error, SecretError::Nul));
+        assert!(!error.to_string().contains(SECRET));
+        assert!(!store.exists("p/K").unwrap());
         let long = format!("{SECRET}{}", "x".repeat(MAX_VALUE_UNITS));
         let error = set(&store, "p", "K", &long).unwrap_err();
         assert!(matches!(error, SecretError::TooLong));

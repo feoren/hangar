@@ -272,8 +272,13 @@ pub fn ignored_reason(ignored: &[String]) -> Option<String> {
 }
 
 /// Ignored files and folders in the worktree (`!!` entries of `git status --ignored=matching`).
-fn ignored_files(git: &Git, path: &Path, deadline: Instant) -> Result<Vec<String>, String> {
-    let neutral = git::filter_overrides(git, path, deadline).map_err(|e| e.to_string())?;
+/// `neutral` are the filter overrides ([`git::filter_overrides`]).
+fn ignored_files(
+    git: &Git,
+    path: &Path,
+    neutral: &[String],
+    deadline: Instant,
+) -> Result<Vec<String>, String> {
     let status = git
         .run(
             path,
@@ -305,6 +310,7 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
     check_shape(worktree)?;
     check_managed(base, &worktree.path, &worktree.repo_root)?;
     git::check_folder(&worktree.repo_root)?;
+    git::check_git_links(&worktree.path)?;
     let deadline = Instant::now() + TIMEOUT;
     let root = &worktree.repo_root;
     let hooks = format!("core.hooksPath={}", empty_hooks_dir(base)?.display());
@@ -315,20 +321,33 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
     };
 
     if worktree.path.exists() {
-        let ignored = match ignored_files(git, &worktree.path, deadline) {
+        // Read in the worktree, so a filter set only in its own config.worktree counts too.
+        let neutral = match git::filter_overrides(git, &worktree.path, deadline) {
+            Ok(neutral) => neutral,
+            Err(error) => return Ok(kept(error.to_string())),
+        };
+        let ignored = match ignored_files(git, &worktree.path, &neutral, deadline) {
             Ok(ignored) => ignored,
             Err(reason) => return Ok(kept(reason)),
         };
         if let Some(reason) = ignored_reason(&ignored) {
             return Ok(kept(reason));
         }
-        let args = [
-            OsStr::new("-c"),
-            OsStr::new(&hooks),
-            OsStr::new("worktree"),
-            OsStr::new("remove"),
-            worktree.path.as_os_str(),
-        ];
+        // `worktree remove` checks the worktree with a `git status` of its own, which runs clean
+        // filters on files whose stat data changed. `-c` reaches that child process through
+        // GIT_CONFIG_PARAMETERS. A worktree with populated submodules is refused without
+        // `--force` (measured with git 2.56), so their filters do not come into play.
+        let args = neutral
+            .iter()
+            .map(OsStr::new)
+            .chain([
+                OsStr::new("-c"),
+                OsStr::new(&hooks),
+                OsStr::new("worktree"),
+                OsStr::new("remove"),
+                worktree.path.as_os_str(),
+            ])
+            .collect::<Vec<_>>();
         let output = git.run(root, args, deadline, 64 * 1024)?;
         if !output.success {
             return Ok(kept(git::message(&output.stderr)));
@@ -616,6 +635,45 @@ mod tests {
             }
         );
         assert!(!marker.exists(), "a repository hook ran during removal");
+
+        // No clean filter of the repository runs during removal, also not in the `git status`
+        // that `worktree remove` starts itself for a tracked file whose stat data changed.
+        fs::write(repo.join(".gitattributes"), "*.txt filter=marker\n").unwrap();
+        git_ok(&git, &repo, &["add", ".gitattributes"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "attributes"]);
+        let filtered = create(&git, &base, &repo, "filtered").unwrap();
+        let filter_marker = tmp.path().join("filter-ran");
+        let filter = crate::git::tests::marker_filter(&filter_marker);
+        git_ok(&git, &repo, &["config", "filter.marker.clean", &filter]);
+        let touch = |age: u64| {
+            let file = fs::File::options()
+                .write(true)
+                .open(filtered.path.join("readme.txt"))
+                .unwrap();
+            let when = std::time::SystemTime::now() - Duration::from_secs(age);
+            file.set_modified(when).unwrap();
+        };
+        touch(3600);
+        git_ok(&git, &filtered.path, &["status", "--porcelain"]);
+        assert!(
+            filter_marker.exists(),
+            "git did not run the filter; test is void"
+        );
+        fs::remove_file(&filter_marker).unwrap();
+        touch(7200);
+        let removal = remove(&git, &base, &filtered).unwrap();
+        assert!(
+            !filter_marker.exists(),
+            "a repository filter ran during removal"
+        );
+        assert_eq!(
+            removal,
+            Removal {
+                removed: true,
+                branch_deleted: true,
+                reason: None
+            }
+        );
 
         // Foreign paths and branches are refused before git runs.
         let mut foreign = worktree.clone();

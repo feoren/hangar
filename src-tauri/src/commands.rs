@@ -143,7 +143,12 @@ pub async fn save_profile(
     profile: ProfileInput,
 ) -> Result<Vec<ProfileView>, EditError> {
     tauri::async_runtime::spawn_blocking(move || {
-        let edited = edit_profiles(&app, |source| profile_edit::upsert(source, &profile))?;
+        let manager = app.state::<SessionManager>();
+        manager.ensure_wsl();
+        let known = manager.ids();
+        let edited = edit_profiles(&app, |source| {
+            profile_edit::upsert(source, &profile, &known)
+        })?;
         drop_secrets(&app, &profile.id, &edited.dropped_secrets);
         Ok(app.state::<SessionManager>().profiles())
     })
@@ -189,7 +194,8 @@ async fn secrets_blocking<T: Send + 'static>(
         .map_err(|error| SecretError::Task(error.to_string()))?
 }
 
-/// Stores a secret variable of a profile in the OS keychain. The value goes nowhere else.
+/// Stores a secret variable of a profile in the OS keychain. The value goes nowhere else. Only
+/// for a name in the profile's `secret_env`, so the profile must be saved first.
 #[tauri::command]
 pub async fn set_profile_secret(
     manager: Manager<'_>,
@@ -197,7 +203,10 @@ pub async fn set_profile_secret(
     name: String,
     value: String,
 ) -> Result<(), SecretError> {
+    let value = zeroize::Zeroizing::new(value);
+    let listed = manager.secret_names(&profile_id);
     secrets_blocking(manager, move |store| {
+        secrets::check_listed(listed.as_deref(), &profile_id, &name)?;
         secrets::set(store, &profile_id, &name, &value)
     })
     .await

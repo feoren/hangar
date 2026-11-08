@@ -68,6 +68,8 @@ pub enum GitError {
     Watch(#[source] io::Error),
     #[error("The repository configures filters Hangar cannot switch off safely")]
     UnsafeFilters,
+    #[error("The repository's git folder lies on another network share or device; Hangar does not run git there")]
+    RemoteGitDir,
 }
 
 impl Serialize for GitError {
@@ -295,7 +297,10 @@ impl Git {
         // Without the tree a timeout could only kill git itself, not a helper it started; such a
         // call is not started at all.
         let tree = match ProcTree::attach(child.id()) {
-            Ok(tree) => tree,
+            Ok(tree) => Some(tree),
+            // git that ended before it could join the job has nothing left to kill; its output
+            // is still in the pipes.
+            Err(_) if matches!(child.try_wait(), Ok(Some(_))) => None,
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -323,7 +328,7 @@ impl Git {
                         data.truncate(limit);
                         truncated = true;
                         // Nobody reads the rest; git would block on a full pipe.
-                        terminate(&tree, &mut child);
+                        terminate(tree.as_ref(), &mut child);
                     }
                     if let Some(slot) = outputs.get_mut(index) {
                         *slot = data;
@@ -345,7 +350,7 @@ impl Git {
             timed_out = true;
         }
         // Always reap; after a regular exit this returns at once.
-        terminate(&tree, &mut child);
+        terminate(tree.as_ref(), &mut child);
         if timed_out {
             return Err(GitError::Timeout);
         }
@@ -405,12 +410,14 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Option<ExitStatus> {
     }
 }
 
-fn terminate(tree: &ProcTree, child: &mut Child) {
+fn terminate(tree: Option<&ProcTree>, child: &mut Child) {
     if let Ok(Some(_)) = child.try_wait() {
         return;
     }
     // Failure usually means everything has already ended.
-    let _ = tree.terminate();
+    if let Some(tree) = tree {
+        let _ = tree.terminate();
+    }
     let _ = child.kill();
     // Reap it so no zombie remains on Unix. After kill, wait returns immediately.
     let _ = child.wait();
@@ -436,13 +443,55 @@ pub fn toplevel(git: &Git, cwd: &Path, deadline: Instant) -> Result<Option<PathB
     Ok(Some(native_path(&text)))
 }
 
-/// Folder argument from the frontend: absolute and an existing folder.
+/// Folder argument from the frontend: absolute, an existing folder, and a repository whose git
+/// folder git may open ([`check_git_links`]).
 pub fn check_folder(path: &Path) -> Result<(), GitError> {
     if !path.is_absolute() {
         return Err(GitError::InvalidPath("not an absolute path"));
     }
     if !path.is_dir() {
         return Err(GitError::InvalidPath("not a folder"));
+    }
+    check_git_links(path)
+}
+
+/// The rule of [`gitdir_allowed`], applied before git runs: the `.git` file of a linked
+/// worktree or submodule, and the `commondir` file of the git folder it names, must not lead
+/// from a local folder to a network share or a device, where git would hand the user's
+/// credentials to another host. Only the paths are compared; nothing on a share is touched.
+/// A folder outside any repository passes (git then finds none). Includes, alternates and other
+/// paths inside the repository's config are not followed (contract: agent-workflow-features.md,
+/// "Git").
+pub fn check_git_links(start: &Path) -> Result<(), GitError> {
+    for dir in start.ancestors() {
+        let dot_git = dir.join(".git");
+        let git_dir = match fs::metadata(&dot_git) {
+            Ok(meta) if meta.is_dir() => dot_git,
+            Ok(meta) if meta.is_file() => {
+                // Unreadable, too large or no `gitdir:` line: git cannot use it either.
+                let Ok(Some(content)) = read_limited(&dot_git, MAX_HEAD_BYTES) else {
+                    return Ok(());
+                };
+                let Some(target) = parse_gitdir_file(&String::from_utf8_lossy(&content)) else {
+                    return Ok(());
+                };
+                let git_dir = dir.join(target);
+                if !gitdir_allowed(start, &git_dir) {
+                    return Err(GitError::RemoteGitDir);
+                }
+                git_dir
+            }
+            _ => continue,
+        };
+        // A linked worktree's git folder names the main one in `commondir`, relative to itself.
+        if let Ok(Some(content)) = read_limited(&git_dir.join("commondir"), MAX_HEAD_BYTES) {
+            let common = String::from_utf8_lossy(&content);
+            let common = common.trim();
+            if !common.is_empty() && !gitdir_allowed(start, &git_dir.join(common)) {
+                return Err(GitError::RemoteGitDir);
+            }
+        }
+        return Ok(());
     }
     Ok(())
 }
@@ -1012,11 +1061,58 @@ pub(crate) mod tests {
         let repo = tmp.path().join("cloned");
         write(&repo.join(".git"), "gitdir: \\\\192.0.2.1\\share\\.git\n");
         assert_eq!(branch_of(&repo, Some(tmp.path())), None);
+
+        // git itself never starts there: the check runs before any process.
+        assert!(matches!(check_folder(&repo), Err(GitError::RemoteGitDir)));
+        if let Some(git) = git() {
+            assert!(matches!(diff(&git, &repo), Err(GitError::RemoteGitDir)));
+            assert!(matches!(
+                crate::worktree::create(&git, &tmp.path().join("wt"), &repo, "x"),
+                Err(crate::worktree::WorktreeError::Git(GitError::RemoteGitDir))
+            ));
+        }
+        // A linked worktree whose local git folder names a share as its common folder.
+        let linked = tmp.path().join("linked");
+        let gitdir = tmp.path().join("main/.git/worktrees/linked");
+        write(&gitdir.join("commondir"), "\\\\192.0.2.1\\share\\.git\n");
+        write(
+            &linked.join(".git"),
+            &format!("gitdir: {}\n", gitdir.display()),
+        );
+        assert!(matches!(
+            check_git_links(&linked),
+            Err(GitError::RemoteGitDir)
+        ));
+        // The usual relative commondir is fine.
+        write(&gitdir.join("commondir"), "../..\n");
+        check_git_links(&linked).unwrap();
+    }
+
+    #[test]
+    fn local_git_links_pass() {
+        let tmp = TempDir::new("git-links");
+        let plain = tmp.path().join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        check_git_links(&plain).unwrap();
+        let repo = tmp.path().join("repo");
+        write(&repo.join(".git/HEAD"), "ref: refs/heads/main\n");
+        check_git_links(&repo.join(".git")).unwrap();
+        let linked = tmp.path().join("linked");
+        write(
+            &linked.join(".git"),
+            "gitdir: ../repo/.git/worktrees/linked\n",
+        );
+        write(&repo.join(".git/worktrees/linked/commondir"), "../..\n");
+        check_git_links(&linked).unwrap();
+        assert!(matches!(
+            check_folder(Path::new("relative")),
+            Err(GitError::InvalidPath(_))
+        ));
     }
 
     /// git config value that runs `touch <marker>` before passing the content through. git runs
     /// filter commands through its shell (Git for Windows brings its own `sh`).
-    fn marker_filter(marker: &Path) -> String {
+    pub(crate) fn marker_filter(marker: &Path) -> String {
         let marker = marker.to_string_lossy().replace('\\', "/");
         format!("touch '{marker}' && cat")
     }

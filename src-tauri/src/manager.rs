@@ -486,6 +486,14 @@ impl SessionManager {
             .map(|agent| agent.profile.clone())
     }
 
+    /// Ids of all entries (profiles, catalog, WSL).
+    pub fn ids(&self) -> Vec<String> {
+        self.agents()
+            .iter()
+            .map(|agent| agent.id().to_owned())
+            .collect()
+    }
+
     /// `secret_env` of any entry; `None` for an unknown id.
     pub fn secret_names(&self, id: &str) -> Option<Vec<String>> {
         self.agents()
@@ -595,7 +603,9 @@ impl SessionManager {
             .clone()
             .or(cwd)
             .unwrap_or_else(|| self.home.clone());
-        if !cwd.is_dir() {
+        // A relative folder would be resolved against Hangar's own working folder, which is
+        // nothing the user chose.
+        if !cwd.is_absolute() || !cwd.is_dir() {
             return Err(ManagerError::BadCwd(cwd));
         }
 
@@ -868,7 +878,7 @@ fn spawn(
     for (name, value) in
         secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)
     {
-        command.env(name, value);
+        command.env(name, value.as_str());
     }
     let started = Instant::now();
     let mut child = pair.slave.spawn_command(command).map_err(pty_error)?;

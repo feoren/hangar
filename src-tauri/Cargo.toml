@@ -35,6 +35,13 @@ toml_edit = "0.25"
 # plus one store crate per platform); MIT/Apache-2.0. On Windows the store crate only adds
 # bindings to the Credential Manager; on Linux it adds zbus (pure Rust D-Bus).
 keyring = "4.2"
+# keyring's own API, used directly for the one thing keyring's v1 `Entry` cannot pass: the
+# Windows store's `persistence` modifier (Local instead of the roaming Enterprise default).
+# Already in the tree through keyring (same maintainers, MIT/Apache-2.0); adds no code.
+keyring-core = "1"
+# Secret values are wiped from memory once used (`Zeroizing<String>`). Already in the tree on
+# every platform (rustls, the keyring store crates); RustCrypto, MIT/Apache-2.0; adds no code.
+zeroize = "1"
 portable-pty = "0.9"
 # Signed updates and restart after the update (official Tauri plugins, MIT/Apache-2.0).
 tauri-plugin-updater = "2.14"

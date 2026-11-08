@@ -110,7 +110,7 @@ pub fn file_name(suggested: &str, format: Format) -> String {
             c if c.is_control() => ' ',
             c => c,
         })
-        .filter(|c| !matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'))
+        .filter(|c| !crate::text::is_invisible(*c))
         .collect();
     // The extension is added below; a suggestion that already has it does not get it twice.
     let suffix = format!(".{extension}");
@@ -176,6 +176,13 @@ mod tests {
             "line break [31m.txt"
         );
         assert_eq!(file_name("a\u{202E}txt.exe", text), "atxt.exe.txt");
+        assert_eq!(
+            file_name(
+                "a\u{061C}b\u{00AD}c\u{180E}d\u{034F}e\u{E0041}f\u{FE0F}g",
+                text
+            ),
+            "abcdefg.txt"
+        );
         assert_eq!(file_name("", text), "session.txt");
         assert_eq!(file_name("...", text), "session.txt");
         assert_eq!(file_name("log.TXT", text), "log.txt");

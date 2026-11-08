@@ -21,6 +21,7 @@ pub mod secrets;
 pub mod session;
 #[cfg(test)]
 mod test_support;
+pub mod text;
 pub mod tray;
 pub mod updates;
 pub mod version;
@@ -46,6 +47,7 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .on_window_event(tray::on_window_event)
         .setup(|app| {
             let home = app.path().home_dir()?;
             let config_dir = app.path().app_config_dir()?;
