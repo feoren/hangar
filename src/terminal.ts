@@ -11,6 +11,7 @@ import {
   AttentionTracker,
   systemClock,
   type AttentionConfig,
+  type AttentionReason,
   type AttentionState,
 } from "./attention";
 import { readClipboard, writeClipboard } from "./clipboard";
@@ -117,7 +118,8 @@ export class SessionTerminal {
   readonly attention: AttentionTracker;
   /** Start of the current working phase (Date.now) for the status line; `null` otherwise. */
   private workingSince: number | null = null;
-  private attentionListener: ((state: AttentionState) => void) | null = null;
+  private attentionListener:
+    ((state: AttentionState, reason: AttentionReason | null) => void) | null = null;
 
   constructor(options: TerminalOptions = {}) {
     const {
@@ -135,11 +137,11 @@ export class SessionTerminal {
       systemClock,
       attention,
       () => this.isWatched(),
-      (state) => {
+      (state, reason) => {
         // Only state changes arrive here, so this costs nothing per output chunk.
         if (state !== "working") this.workingSince = null;
         else this.workingSince ??= Date.now();
-        this.attentionListener?.(state);
+        this.attentionListener?.(state, reason);
       },
     );
     this.term = new Terminal({
@@ -207,9 +209,11 @@ export class SessionTerminal {
   }
 
   /** Reports state changes only; calls the listener right away with the current state. */
-  setAttentionListener(listener: (state: AttentionState) => void): void {
+  setAttentionListener(
+    listener: (state: AttentionState, reason: AttentionReason | null) => void,
+  ): void {
     this.attentionListener = listener;
-    listener(this.attention.state);
+    listener(this.attention.state, this.attention.reason);
   }
 
   setId(id: number): void {

@@ -15,8 +15,16 @@
   --attention: #f2e3c6;
   /* Edge and dot; darkened in light mode so cream stays visible too. */
   --attention-strong: var(--attention);
-  --attention-pulse-low: 6%;
-  --attention-pulse-high: 17%;
+  --attention-pulse-low: 7%;
+  --attention-pulse-high: 24%;
+  /* Thin ring around a waiting row; the status chip in the attention color. */
+  --attention-ring: color-mix(in srgb, var(--attention) 55%, transparent);
+  /* Readable text on the attention color; the app sets it from the chosen color. */
+  --on-attention: #1a1d21;
+  --attention-chip-bg: var(--attention);
+  --attention-chip-fg: var(--on-attention);
+  /* Text of the "failed" chip; darker in light mode to keep 4.5 : 1 on its pink background. */
+  --chip-failed-fg: var(--error);
   --brand-mark: #f2e3c6;
   --on-badge: #ffffff;
   --primary: #2f6fb3;
@@ -70,8 +78,13 @@
   --warn: #9a6700;
   --error: #cf222e;
   --attention-strong: color-mix(in srgb, var(--attention) 45%, #000000);
-  --attention-pulse-low: 25%;
-  --attention-pulse-high: 60%;
+  --attention-pulse-low: 28%;
+  --attention-pulse-high: 72%;
+  --attention-ring: color-mix(in srgb, var(--attention-strong) 70%, transparent);
+  /* A light attention color on a light sidebar: the chip takes the darkened edge color. */
+  --attention-chip-bg: var(--attention-strong);
+  --attention-chip-fg: #ffffff;
+  --chip-failed-fg: color-mix(in srgb, var(--error) 80%, #000000);
   --brand-mark: #b8892e;
   --primary: #0969da;
   --primary-hover: #0860ca;
@@ -446,31 +459,40 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 2px var(--attention-strong);
 }
 
-/* Attention: a gentle pulse plus a wider left edge (shape, not just color). */
+/* Attention: the whole row breathes softly in the attention color and gets a thin ring; the
+   status chip at its right end names the state. The left bar belongs to the active session only.
+   The tint is mixed onto the sidebar color, so the actions overlay can breathe along without a
+   seam. */
 
-@keyframes attention-pulse {
+@keyframes attention-breathe {
   0%,
   100% {
-    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-low), transparent);
+    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-low), var(--panel));
   }
 
   50% {
-    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-high), transparent);
+    background-color: color-mix(
+      in srgb,
+      var(--attention) var(--attention-pulse-high),
+      var(--panel)
+    );
   }
+}
+
+/* In the rail, the ring sits around the badge instead (below). */
+.session.attention {
+  box-shadow: inset 0 0 0 1px var(--attention-ring);
 }
 
 .session.attention,
 .rail-session.attention {
-  box-shadow: inset 3px 0 0 var(--attention-strong);
-  animation: attention-pulse 2.4s ease-in-out infinite;
+  animation: attention-breathe 2.8s ease-in-out infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .session.attention,
-  .rail-session.attention {
-    animation: none;
-    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-high), transparent);
-  }
+.session.active.attention {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 0 0 1px var(--attention-ring);
 }
 
 /* The actions lie over the right end of the row and fade in on hover or keyboard focus, so the
@@ -498,31 +520,122 @@ h2 .beta-badge {
   pointer-events: auto;
 }
 
-/* A waiting row pulses; its actions pulse along on the same sidebar color, so they blend in. */
-@keyframes attention-pulse-solid {
+.session.attention .session-actions {
+  animation: attention-breathe 2.8s ease-in-out infinite;
+}
+
+/* Status chip: one shape per state. The actions take its place on hover and keyboard focus, so
+   the two never overlap. */
+.status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-right: 8px;
+  padding: 0 7px 0 5px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+.session:hover > .status-chip,
+.session:has(.session-actions:focus-within) > .status-chip {
+  opacity: 0;
+}
+
+.status-chip.done,
+.status-chip.asks {
+  color: var(--attention-chip-fg);
+  background: var(--attention-chip-bg);
+  border-color: var(--attention-strong);
+}
+
+.status-chip.failed {
+  color: var(--chip-failed-fg);
+  background: color-mix(in srgb, var(--error) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+}
+
+.status-chip.working,
+.status-chip.ended {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.status-chip.working {
+  color: var(--ok);
+}
+
+.status-chip-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.status-chip-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: chip-dot 1.2s ease-in-out infinite;
+}
+
+.status-chip-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.status-chip-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes chip-dot {
   0%,
+  60%,
   100% {
-    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-low), var(--panel));
+    opacity: 0.3;
   }
 
-  50% {
-    background-color: color-mix(
-      in srgb,
-      var(--attention) var(--attention-pulse-high),
-      var(--panel)
-    );
+  30% {
+    opacity: 1;
   }
 }
 
-.session.attention .session-actions {
-  animation: attention-pulse-solid 2.4s ease-in-out infinite;
+.status-chip-square {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentcolor;
+  border-radius: 2px;
+}
+
+/* Collapsed rail: the chip shrinks to its shape in a small circle at the badge's corner. */
+.status-chip.compact {
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.status-chip.compact svg {
+  width: 10px;
+  height: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-actions {
+  .session-actions,
+  .status-chip {
     transition: none;
   }
 
+  /* No breathing: a strong, still highlight with a firmer ring instead. */
+  .session.attention,
+  .rail-session.attention,
   .session.attention .session-actions {
     animation: none;
     background-color: color-mix(
@@ -530,6 +643,28 @@ h2 .beta-badge {
       var(--attention) var(--attention-pulse-high),
       var(--panel)
     );
+  }
+
+  .session.attention {
+    box-shadow: inset 0 0 0 1.5px var(--attention-strong);
+  }
+
+  .session.active.attention {
+    box-shadow:
+      inset 2px 0 0 var(--accent),
+      inset 0 0 0 1.5px var(--attention-strong);
+  }
+
+  .status-chip-dots span {
+    animation: none;
+  }
+
+  .status-chip-dots span:nth-child(1) {
+    opacity: 0.4;
+  }
+
+  .status-chip-dots span:nth-child(2) {
+    opacity: 0.7;
   }
 }
 
@@ -1502,6 +1637,62 @@ body.resizing-horizontal * {
   box-shadow: inset 0 0 0 2.5px var(--attention-strong);
 }
 
+.rail-chip {
+  position: absolute;
+  right: 7px;
+  bottom: 2px;
+  display: flex;
+}
+
+/* A waiting session in the rail: a ring breathes around its badge. */
+.rail-session.attention .badge {
+  outline: 2px solid var(--attention-strong);
+  outline-offset: 2px;
+  animation: rail-ring 2.8s ease-in-out infinite;
+}
+
+@keyframes rail-ring {
+  0%,
+  100% {
+    outline-color: color-mix(in srgb, var(--attention-strong) 45%, transparent);
+    outline-offset: 1px;
+  }
+
+  50% {
+    outline-color: var(--attention-strong);
+    outline-offset: 3px;
+  }
+}
+
+/* Number of waiting sessions on the expand button, also when the list scrolls. */
+.rail-expand {
+  position: relative;
+}
+
+.rail-count {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  color: var(--attention-chip-fg);
+  background: var(--attention-chip-bg);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-session.attention .badge {
+    animation: none;
+    outline-width: 2.5px;
+  }
+}
+
 /* Marker in the collapsed sidebar: a color bar left of the badge, the emoji at its top right. */
 .rail-marker {
   position: absolute;
@@ -2058,6 +2249,24 @@ body.resizing-horizontal * {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+/* Chime volume with its preview button at the end of the slider's line. */
+.chime-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 2px 0 0 26px;
+}
+
+.chime-row .range-field {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* Label and value fade with the slider, like the disabled preview button next to it. */
+.range-field:has(input:disabled) {
+  opacity: 0.55;
 }
 
 /* Font size sits between fields in the terminal section and needs their spacing below it. */

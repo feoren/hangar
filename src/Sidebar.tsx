@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import type { NoteFolder, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
-import type { AttentionState } from "./attention";
+import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { FolderMenu } from "./FolderMenu";
 import { elideMiddle, parentFolder } from "./folderSections";
@@ -34,7 +34,7 @@ import { folderLabel, sameFolder, type NoteFolderInfo } from "./notes";
 import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
-import { runnableUpdate, type ProgramUpdates } from "./programUpdates";
+import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
@@ -51,6 +51,8 @@ import {
   type DetailLine,
 } from "./statusLine";
 import type { Theme } from "./theme";
+import { sessionChip, type ChipKind } from "./sessionChip";
+import { StatusChip } from "./StatusChip";
 import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
@@ -99,6 +101,8 @@ interface Props {
   menu: MenuGroup[];
   update: UpdateState;
   attention: ReadonlyMap<number, AttentionState>;
+  /** Why a waiting session waits; only waiting sessions have an entry. */
+  reasons: ReadonlyMap<number, AttentionReason>;
   /** Times of a session for its status line, sampled at `now` (outside React, cheap). */
   activityOf: (id: number, now: number) => Activity;
   /** Git branch per working folder; missing or `null`: none shown. */
@@ -159,7 +163,15 @@ export function Sidebar(props: Props) {
   const lines = (session: SessionView) => {
     const state = attention.get(session.id) ?? "idle";
     return {
-      status: statusLine(session, state, props.activityOf(session.id, now), now, t, props.language),
+      status: statusLine(
+        session,
+        state,
+        props.activityOf(session.id, now),
+        now,
+        t,
+        props.language,
+        props.reasons.get(session.id) ?? null,
+      ),
       // A worktree's folder name repeats its branch; the repository's name says more.
       detail: detailLine(
         session.worktree ? { ...session, cwd: session.worktree.repoRoot } : session,
@@ -173,6 +185,7 @@ export function Sidebar(props: Props) {
   const toggleButton = useRef<HTMLButtonElement>(null);
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
   const refocusToggle = useRef(false);
+  const railWaitingId = useId();
   const profileById = new Map(profiles.map((p) => [p.id, p]));
   const [guard] = useState(() => new SessionActionGuard());
   const newButton = useRef<HTMLButtonElement>(null);
@@ -269,6 +282,13 @@ export function Sidebar(props: Props) {
   const waitingCount = sessions.filter((s) => attention.get(s.id) === "attention").length;
   const appVersion = props.version === null ? "" : displayVersion(props.version, t("version.beta"));
   const toggleKeys = formatShortcut(SHORTCUT_LABELS.toggleSidebar, t);
+  const waitingText = t("sidebar.waitingCount", { count: waitingCount });
+  const chipOf = (session: SessionView) =>
+    sessionChip(
+      session,
+      attention.get(session.id) ?? "idle",
+      props.reasons.get(session.id) ?? null,
+    );
 
   if (collapsed) {
     // First the target (opens the folder menu), then the programs, then runnable updates.
@@ -286,7 +306,14 @@ export function Sidebar(props: Props) {
         },
       },
       ...(props.worktree === "no"
-        ? [{ type: "note", key: "no-worktree", label: t("start.worktreeNoRepo") } as const]
+        ? [
+            {
+              type: "note",
+              key: "no-worktree",
+              label: t("start.worktreeNoRepo"),
+              describes: "target",
+            } as const,
+          ]
         : []),
       { type: "separator", key: "sep-programs" },
       ...startable.map((profile): PopupItem => {
@@ -324,7 +351,7 @@ export function Sidebar(props: Props) {
         programItems.push({
           type: "action",
           key: `update:${profile.id}`,
-          label: `${t("update.run")}: ${profile.name}`,
+          label: t("update.runFor", { name: profile.name }),
           detail: props.updatingPrograms.has(profile.id)
             ? t("update.running")
             : `${installed} → ${latest}`,
@@ -359,19 +386,31 @@ export function Sidebar(props: Props) {
           <button
             ref={toggleButton}
             type="button"
-            className="icon-button"
+            className="icon-button rail-expand"
             aria-label={t("sidebar.expand")}
-            title={`${t("sidebar.expand")} (${toggleKeys})`}
+            aria-describedby={waitingCount > 0 ? railWaitingId : undefined}
+            title={[`${t("sidebar.expand")} (${toggleKeys})`, waitingCount > 0 ? waitingText : ""]
+              .filter(Boolean)
+              .join("\n")}
             onClick={onToggleClick}
           >
             <ExpandIcon />
+            {waitingCount > 0 && (
+              <span className="rail-count" aria-hidden="true">
+                {waitingCount > 9 ? "9+" : waitingCount}
+              </span>
+            )}
           </button>
+          <span id={railWaitingId} className="sr-only">
+            {waitingCount > 0 ? waitingText : ""}
+          </span>
         </div>
         <ul className="rail-sessions" data-session-list="">
           {sessions.map((session) => {
             const state = attention.get(session.id) ?? "idle";
             const { status, detail: where } = lines(session);
             const detail = exitDetail(session, t);
+            const chip = chipOf(session);
             const className = [
               "rail-session",
               session.id === activeId ? "active" : "",
@@ -433,9 +472,15 @@ export function Sidebar(props: Props) {
                       {session.marker.emoji}
                     </span>
                   )}
-                  <span
-                    className={`rail-dot dot ${state === "attention" ? "attention" : session.status}`}
-                  />
+                  {railShowsChip(chip) ? (
+                    <span className="rail-chip">
+                      <StatusChip kind={chip} compact />
+                    </span>
+                  ) : (
+                    <span
+                      className={`rail-dot dot ${state === "attention" ? "attention" : session.status}`}
+                    />
+                  )}
                 </button>
               </li>
             );
@@ -513,7 +558,6 @@ export function Sidebar(props: Props) {
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
     : t("sidebar.sessionsCount", { count: sessions.length });
-  const waitingText = t("sidebar.waitingCount", { count: waitingCount });
 
   return (
     <aside className="sidebar" ref={root}>
@@ -570,6 +614,7 @@ export function Sidebar(props: Props) {
               program={programLine(profileById.get(session.profileId), versions)}
               active={session.id === activeId}
               state={attention.get(session.id) ?? "idle"}
+              chip={chipOf(session)}
               editing={props.renamingId === session.id}
               dragClass={dragClass(session.id)}
               moveHint={moveHint}
@@ -736,7 +781,7 @@ export function Sidebar(props: Props) {
                 >
                   <Badge look={badgeFor(profile.id)} />
                   <span className="profile-name">{profile.name}</span>
-                  {version && (
+                  {version && !offerShowsInstalled(programUpdate) && (
                     <span className="profile-version">
                       <span aria-hidden="true">·</span> {version}
                     </span>
@@ -1027,6 +1072,7 @@ interface ItemProps extends Props {
   program: string;
   active: boolean;
   state: AttentionState;
+  chip: ChipKind | null;
   editing: boolean;
   /** "dragging", "drop-before", "drop-after" or empty. */
   dragClass: string;
@@ -1041,6 +1087,7 @@ function SessionItem({
   program,
   active,
   state,
+  chip,
   editing,
   dragClass,
   moveHint,
@@ -1188,6 +1235,7 @@ function SessionItem({
           </span>
         </button>
       )}
+      {!editing && chip !== null && <StatusChip kind={chip} />}
       <div className="session-actions">
         {!editing && (
           <IconButton
@@ -1229,6 +1277,11 @@ function SessionItem({
       </div>
     </li>
   );
+}
+
+/** The rail is narrow: only waiting and failed sessions trade their dot for the chip's shape. */
+function railShowsChip(chip: ChipKind | null): chip is "done" | "asks" | "failed" {
+  return chip === "done" || chip === "asks" || chip === "failed";
 }
 
 /**

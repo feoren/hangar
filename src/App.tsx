@@ -28,7 +28,15 @@ import {
   type Worktree,
 } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
-import type { AttentionConfig, AttentionState } from "./attention";
+import {
+  systemClock,
+  type AttentionConfig,
+  type AttentionReason,
+  type AttentionState,
+} from "./attention";
+import { attentionTint, textOnColor } from "./attentionLook";
+import { chimeFor, ChimeScheduler } from "./chime";
+import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
 import { notificationText, shouldNotify } from "./desktopNotify";
@@ -297,6 +305,19 @@ function readLastCwd(): string | null {
   }
 }
 
+/**
+ * How a session ended, for the chime: the exit code may reach the terminal before the reducer
+ * has stored it, so the terminal's own code counts too.
+ */
+function sessionExit(
+  session: SessionView,
+  terminal: SessionTerminal,
+): Pick<SessionView, "status" | "exitCode" | "stoppedByUser"> {
+  const code = terminal.exitCode;
+  if (code === undefined) return session;
+  return { status: "exited", exitCode: code, stoppedByUser: session.stoppedByUser === true };
+}
+
 /** Is the user looking at the window? Visible and with keyboard focus. */
 function windowWatched(): boolean {
   return document.visibilityState === "visible" && document.hasFocus();
@@ -323,6 +344,8 @@ export function App() {
   const [knownUser] = useState(hasStoredSettings);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [attention, setAttention] = useState<ReadonlyMap<number, AttentionState>>(() => new Map());
+  /** Why a waiting session waits (attention.ts); only sessions in "attention" have an entry. */
+  const [reasons, setReasons] = useState<ReadonlyMap<number, AttentionReason>>(() => new Map());
   /** Profile list loaded once (or failed): only then does the restore run. */
   const [profilesReady, setProfilesReady] = useState(false);
   /** Restore finished; nothing is saved before that, otherwise an empty start would overwrite the saved state. */
@@ -452,12 +475,16 @@ export function App() {
   // For callbacks outside React (terminal timers, window events).
   const activeIdRef = useRef(state.activeId);
   const stateRef = useRef(state);
+  /** Sessions visible in a pane (kept in sync below), read by the attention listener. */
+  const shownRef = useRef<ReadonlySet<number>>(new Set());
   /**
    * Titles of just started sessions that are not in the state yet. Started in quick succession
    * (double click, Ctrl+Shift+T), both would otherwise get the same number.
    */
   const claimedTitles = useRef(new Map<number, string>());
   const settingsRef = useRef(settings);
+  /** One soft sound for sessions that start waiting out of sight (chime.ts). */
+  const [chimes] = useState(() => new ChimeScheduler(systemClock, playChime));
   const profilesRef = useRef(profiles);
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({
@@ -642,8 +669,13 @@ export function App() {
   }, [settings.scrollbackLines]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--attention", settings.attentionColor);
-  }, [settings.attentionColor]);
+    const style = document.documentElement.style;
+    const tint = attentionTint(settings.attentionColor, theme);
+    style.setProperty("--attention", settings.attentionColor);
+    style.setProperty("--on-attention", textOnColor(settings.attentionColor));
+    style.setProperty("--attention-pulse-low", `${String(tint.low)}%`);
+    style.setProperty("--attention-pulse-high", `${String(tint.high)}%`);
+  }, [settings.attentionColor, theme]);
 
   useEffect(() => {
     for (const terminal of terminals.values()) terminal.attention.setConfig(attentionConfig);
@@ -822,6 +854,18 @@ export function App() {
             !subAgentsAvailable ||
             subAgentWatch.view.located !== true,
         );
+  // Sessions shown in a pane right now; the chime stays silent for them while the window has focus.
+  const shown = new Set<number>(state.activeId === null ? [] : [state.activeId]);
+  if (subAgentPlan === null) {
+    for (const id of splitView.split.slots) if (id !== null) shown.add(id);
+  }
+  const shownKey = [...shown].sort((a, b) => a - b).join(",");
+  useEffect(() => {
+    shownRef.current = new Set(
+      shownKey === "" ? [] : shownKey.split(",").map((part) => Number(part)),
+    );
+  }, [shownKey]);
+
   /** Opens or closes the sub-agent view of a session; opening makes the session active. */
   const toggleSubAgents = (id: number) => {
     if (subAgentsOf === id) {
@@ -886,8 +930,32 @@ export function App() {
       terminal.onLink = (url) => {
         setLink({ url, copied: false });
       };
-      // Only state changes arrive here, never individual output chunks.
-      terminal.setAttentionListener((next) => {
+      // Only state changes arrive here, never individual output chunks. A change of the reason
+      // alone (a bell or an exit while already waiting) does not flash or notify again.
+      let previous: AttentionState = "idle";
+      let previousReason: AttentionReason | null = null;
+      terminal.setAttentionListener((next, reason) => {
+        const entered = previous !== "attention" || next !== "attention";
+        const session = stateRef.current.sessions.find((s) => s.id === id);
+        const chime =
+          session === undefined || isPlaceholder(id)
+            ? null
+            : chimeFor({ previous, previousReason, next, reason }, sessionExit(session, terminal), {
+                enabled: settingsRef.current.chime && settingsRef.current.attentionEnabled,
+                windowFocused: windowWatched(),
+                shown: shownRef.current.has(id),
+              });
+        previous = next;
+        previousReason = reason;
+        if (chime !== null) chimes.request(chime, settingsRef.current.chimeVolume);
+        setReasons((current) => {
+          if ((current.get(id) ?? null) === reason) return current;
+          const map = new Map(current);
+          if (reason === null) map.delete(id);
+          else map.set(id, reason);
+          return map;
+        });
+        if (!entered) return;
         flasher.attentionChanged(next, {
           enabled: settingsRef.current.taskbarFlash,
           windowFocused: document.hasFocus(),
@@ -896,7 +964,6 @@ export function App() {
           enabled: settingsRef.current.notifyDesktop,
           windowFocused: document.hasFocus(),
         });
-        const session = stateRef.current.sessions.find((s) => s.id === id);
         if (notify && session && !isPlaceholder(id)) {
           const text = notificationText(
             session,
@@ -914,7 +981,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher],
+    [flasher, chimes],
   );
 
   /**
@@ -928,6 +995,12 @@ export function App() {
 
   const forgetAttention = useCallback((id: number) => {
     setAttention((current) => {
+      if (!current.has(id)) return current;
+      const map = new Map(current);
+      map.delete(id);
+      return map;
+    });
+    setReasons((current) => {
       if (!current.has(id)) return current;
       const map = new Map(current);
       map.delete(id);
@@ -2666,7 +2739,7 @@ export function App() {
     return {
       look: badgeFor(session.profileId),
       state: paneState,
-      status: statusText(session, t, paneState),
+      status: statusText(session, t, paneState, reasons.get(session.id) ?? null),
     };
   };
 
@@ -2704,6 +2777,7 @@ export function App() {
           menu={menu}
           update={updater.state}
           attention={attention}
+          reasons={reasons}
           activityOf={activityOf}
           branches={branches}
           language={settings.language}

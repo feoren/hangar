@@ -26,6 +26,9 @@ export const QUIET_SECONDS = { min: 1, max: 30, default: 3 } as const;
  */
 export const SCROLLBACK_LINES = { min: 500, max: 10_000, step: 500, default: 5000 } as const;
 
+/** Chime volume in percent; quiet by default, a hint and not an alarm. */
+export const CHIME_VOLUME = { min: 5, max: 100, step: 5, default: 40 } as const;
+
 export const ATTENTION_PRESETS = [
   { id: "cream", color: "#f2e3c6" },
   { id: "amber", color: "#f0b429" },
@@ -60,6 +63,10 @@ export interface Settings {
   taskbarFlash: boolean;
   /** Desktop notification when a session starts waiting in the background (desktopNotify.ts). */
   notifyDesktop: boolean;
+  /** A soft chime when a session starts waiting out of sight (chime.ts). */
+  chime: boolean;
+  /** Chime volume in percent (CHIME_VOLUME). */
+  chimeVolume: number;
   /**
    * Closing the window only hides it; an icon in the notification area brings it back or quits
    * (tray.ts). Off: closing quits, as before.
@@ -97,6 +104,7 @@ type Flag =
   | "attentionEnabled"
   | "taskbarFlash"
   | "notifyDesktop"
+  | "chime"
   | "keepInTray"
   | "showVersions"
   | "showIcons"
@@ -115,6 +123,8 @@ export function defaultSettings(language: Language): Settings {
     quietSeconds: QUIET_SECONDS.default,
     taskbarFlash: true,
     notifyDesktop: true,
+    chime: true,
+    chimeVolume: CHIME_VOLUME.default,
     keepInTray: false,
     showVersions: true,
     showIcons: true,
@@ -141,6 +151,12 @@ export function normalizeColor(value: unknown): string | null {
     return `#${doubled.join("")}`.toLowerCase();
   }
   return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : null;
+}
+
+/** Rounded to the step size and clamped. */
+export function clampChimeVolume(value: number): number {
+  const stepped = Math.round(value / CHIME_VOLUME.step) * CHIME_VOLUME.step;
+  return clamp(stepped, CHIME_VOLUME.min, CHIME_VOLUME.max);
 }
 
 export function clampQuietSeconds(value: number): number {
@@ -173,6 +189,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const theme = get("theme");
   const quiet = get("quietSeconds");
   const lines = get("scrollbackLines");
+  const volume = get("chimeVolume");
   const scheme = get("terminalScheme");
   const font = get("terminalFont");
   const cursorStyle = get("cursorStyle");
@@ -190,6 +207,11 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         : defaults.quietSeconds,
     taskbarFlash: flag("taskbarFlash"),
     notifyDesktop: flag("notifyDesktop"),
+    chime: flag("chime"),
+    chimeVolume:
+      typeof volume === "number" && Number.isFinite(volume)
+        ? clampChimeVolume(volume)
+        : defaults.chimeVolume,
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),

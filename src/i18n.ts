@@ -667,6 +667,19 @@ const de = {
   "updateOutcome.unchanged": "Update beendet, {name} bleibt auf {version}.",
   "updateOutcome.copies": "Gefundene Kopien",
   "updateOutcome.showSession": "Session zeigen",
+  "status.asks": "fragt dich etwas",
+  "status.failed": "mit Fehler beendet",
+  "chip.done": "fertig",
+  "chip.asks": "fragt",
+  "chip.failed": "Fehler",
+  "settings.chime": "Ton abspielen",
+  "settings.chimeHelp":
+    "Ein leiser Zweiklang, wenn eine Session wartet, die du gerade nicht siehst. Endet ein Programm mit Fehler, klingt er tiefer.",
+  "settings.chimeVolume": "Lautstärke",
+  "settings.percent": "{count} %",
+  "settings.chimePreview": "Anhören",
+  "update.runFor": "Aktualisieren: {name}",
+  "update.copyFor": "Befehl kopieren: {name}",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -1283,6 +1296,19 @@ const en: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Update finished, {name} stays at {version}.",
   "updateOutcome.copies": "Copies found",
   "updateOutcome.showSession": "Show session",
+  "status.asks": "asks you something",
+  "status.failed": "exited with an error",
+  "chip.done": "done",
+  "chip.asks": "asks",
+  "chip.failed": "error",
+  "settings.chime": "Play a sound",
+  "settings.chimeHelp":
+    "A soft two-tone chime when a session is waiting that you cannot see right now. If a program ends with an error, it sounds lower.",
+  "settings.chimeVolume": "Volume",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "Preview",
+  "update.runFor": "Update: {name}",
+  "update.copyFor": "Copy command: {name}",
 };
 
 const el: Record<MessageKey, string> = {
@@ -1920,6 +1946,19 @@ const el: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Η ενημέρωση ολοκληρώθηκε, το {name} μένει στην {version}.",
   "updateOutcome.copies": "Αντίγραφα που βρέθηκαν",
   "updateOutcome.showSession": "Εμφάνιση συνεδρίας",
+  "status.asks": "σε ρωτά κάτι",
+  "status.failed": "τερματίστηκε με σφάλμα",
+  "chip.done": "έτοιμο",
+  "chip.asks": "ρωτά",
+  "chip.failed": "σφάλμα",
+  "settings.chime": "Αναπαραγωγή ήχου",
+  "settings.chimeHelp":
+    "Ένας απαλός διπλός ήχος όταν περιμένει μια συνεδρία που δεν βλέπεις τώρα. Αν ένα πρόγραμμα τερματιστεί με σφάλμα, ακούγεται πιο χαμηλά.",
+  "settings.chimeVolume": "Ένταση",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "Δοκιμή",
+  "update.runFor": "Ενημέρωση: {name}",
+  "update.copyFor": "Αντιγραφή εντολής: {name}",
 };
 
 const es: Record<MessageKey, string> = {
@@ -2547,6 +2586,19 @@ const es: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Actualización terminada, {name} sigue en {version}.",
   "updateOutcome.copies": "Copias encontradas",
   "updateOutcome.showSession": "Mostrar sesión",
+  "status.asks": "te pregunta algo",
+  "status.failed": "terminó con un error",
+  "chip.done": "listo",
+  "chip.asks": "pregunta",
+  "chip.failed": "error",
+  "settings.chime": "Reproducir un sonido",
+  "settings.chimeHelp":
+    "Un suave sonido de dos tonos cuando espera una sesión que ahora no ves. Si un programa termina con un error, suena más grave.",
+  "settings.chimeVolume": "Volumen",
+  "settings.percent": "{count} %",
+  "settings.chimePreview": "Escuchar",
+  "update.runFor": "Actualizar: {name}",
+  "update.copyFor": "Copiar comando: {name}",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -3182,6 +3234,19 @@ const fr: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Mise à jour terminée, {name} reste en {version}.",
   "updateOutcome.copies": "Copies trouvées",
   "updateOutcome.showSession": "Afficher la session",
+  "status.asks": "te pose une question",
+  "status.failed": "terminé avec une erreur",
+  "chip.done": "fini",
+  "chip.asks": "demande",
+  "chip.failed": "erreur",
+  "settings.chime": "Jouer un son",
+  "settings.chimeHelp":
+    "Un doux carillon à deux notes quand une session que tu ne vois pas attend. Si un programme se termine par une erreur, il sonne plus grave.",
+  "settings.chimeVolume": "Volume",
+  "settings.percent": "{count} %",
+  "settings.chimePreview": "Écouter",
+  "update.runFor": "Mettre à jour : {name}",
+  "update.copyFor": "Copier la commande : {name}",
 };
 
 const it: Record<MessageKey, string> = {
@@ -3810,6 +3875,19 @@ const it: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Aggiornamento terminato, {name} resta alla {version}.",
   "updateOutcome.copies": "Copie trovate",
   "updateOutcome.showSession": "Mostra sessione",
+  "status.asks": "ti chiede qualcosa",
+  "status.failed": "terminato con un errore",
+  "chip.done": "finito",
+  "chip.asks": "chiede",
+  "chip.failed": "errore",
+  "settings.chime": "Riproduci un suono",
+  "settings.chimeHelp":
+    "Un leggero suono a due toni quando aspetta una sessione che ora non vedi. Se un programma termina con un errore, suona più grave.",
+  "settings.chimeVolume": "Volume",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "Ascolta",
+  "update.runFor": "Aggiorna: {name}",
+  "update.copyFor": "Copia comando: {name}",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -4438,6 +4516,19 @@ const ja: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "更新は終わりましたが、{name} は {version} のままです。",
   "updateOutcome.copies": "見つかったコピー",
   "updateOutcome.showSession": "セッションを表示",
+  "status.asks": "質問しています",
+  "status.failed": "エラーで終了",
+  "chip.done": "完了",
+  "chip.asks": "質問",
+  "chip.failed": "エラー",
+  "settings.chime": "サウンドを再生",
+  "settings.chimeHelp":
+    "今は見えていないセッションが入力待ちになると、控えめな 2 音のチャイムが鳴ります。プログラムがエラーで終了したときは低い音になります。",
+  "settings.chimeVolume": "音量",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "試聴",
+  "update.runFor": "更新: {name}",
+  "update.copyFor": "コマンドをコピー: {name}",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -5061,6 +5152,19 @@ const pl: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Aktualizacja zakończona, {name} pozostaje w wersji {version}.",
   "updateOutcome.copies": "Znalezione kopie",
   "updateOutcome.showSession": "Pokaż sesję",
+  "status.asks": "o coś pyta",
+  "status.failed": "zakończono z błędem",
+  "chip.done": "gotowe",
+  "chip.asks": "pyta",
+  "chip.failed": "błąd",
+  "settings.chime": "Odtwarzaj dźwięk",
+  "settings.chimeHelp":
+    "Cichy dwutonowy sygnał, gdy czeka sesja, której teraz nie widzisz. Gdy program kończy się błędem, brzmi niżej.",
+  "settings.chimeVolume": "Głośność",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "Odsłuchaj",
+  "update.runFor": "Aktualizuj: {name}",
+  "update.copyFor": "Kopiuj polecenie: {name}",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -5690,6 +5794,19 @@ const pt: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Atualização concluída, {name} continua na {version}.",
   "updateOutcome.copies": "Cópias encontradas",
   "updateOutcome.showSession": "Mostrar sessão",
+  "status.asks": "está perguntando algo",
+  "status.failed": "encerrado com erro",
+  "chip.done": "pronto",
+  "chip.asks": "pergunta",
+  "chip.failed": "erro",
+  "settings.chime": "Tocar um som",
+  "settings.chimeHelp":
+    "Um som suave de dois tons quando espera uma sessão que você não está vendo. Se um programa termina com erro, ele soa mais grave.",
+  "settings.chimeVolume": "Volume",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "Ouvir",
+  "update.runFor": "Atualizar: {name}",
+  "update.copyFor": "Copiar comando: {name}",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -6308,6 +6425,19 @@ const ru: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Обновление завершено, {name} остаётся версии {version}.",
   "updateOutcome.copies": "Найденные копии",
   "updateOutcome.showSession": "Показать сеанс",
+  "status.asks": "что-то спрашивает",
+  "status.failed": "завершён с ошибкой",
+  "chip.done": "готово",
+  "chip.asks": "вопрос",
+  "chip.failed": "ошибка",
+  "settings.chime": "Воспроизводить звук",
+  "settings.chimeHelp":
+    "Тихий двухтоновый сигнал, когда ждёт сеанс, которого ты сейчас не видишь. Если программа завершилась с ошибкой, он звучит ниже.",
+  "settings.chimeVolume": "Громкость",
+  "settings.percent": "{count} %",
+  "settings.chimePreview": "Прослушать",
+  "update.runFor": "Обновить: {name}",
+  "update.copyFor": "Скопировать команду: {name}",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -6926,6 +7056,19 @@ const tr: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "Güncelleme bitti, {name} {version} sürümünde kalıyor.",
   "updateOutcome.copies": "Bulunan kopyalar",
   "updateOutcome.showSession": "Oturumu göster",
+  "status.asks": "sana bir şey soruyor",
+  "status.failed": "hatayla sona erdi",
+  "chip.done": "bitti",
+  "chip.asks": "soruyor",
+  "chip.failed": "hata",
+  "settings.chime": "Ses çal",
+  "settings.chimeHelp":
+    "Şu an görmediğin bir oturum beklediğinde yumuşak, iki tonlu bir ses. Bir program hatayla biterse daha pes çalar.",
+  "settings.chimeVolume": "Ses düzeyi",
+  "settings.percent": "%{count}",
+  "settings.chimePreview": "Dinle",
+  "update.runFor": "Güncelle: {name}",
+  "update.copyFor": "Komutu kopyala: {name}",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -7518,6 +7661,19 @@ const zh: Record<MessageKey, string> = {
   "updateOutcome.unchanged": "更新已结束，{name} 仍为 {version}。",
   "updateOutcome.copies": "找到的副本",
   "updateOutcome.showSession": "显示会话",
+  "status.asks": "在向你提问",
+  "status.failed": "出错退出",
+  "chip.done": "完成",
+  "chip.asks": "提问",
+  "chip.failed": "错误",
+  "settings.chime": "播放提示音",
+  "settings.chimeHelp":
+    "你当前看不到的会话在等待时，播放一声轻柔的双音提示。程序出错退出时音调更低。",
+  "settings.chimeVolume": "音量",
+  "settings.percent": "{count}%",
+  "settings.chimePreview": "试听",
+  "update.runFor": "更新：{name}",
+  "update.copyFor": "复制命令：{name}",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

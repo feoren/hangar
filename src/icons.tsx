@@ -266,3 +266,24 @@ export function WorktreeIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** The program rang the bell: it probably asks something (status chip). */
+export function BellIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.2 11V7.4a3.8 3.8 0 0 1 7.6 0V11l1.2 1.4H3z" />
+      <path d="M6.6 13.6a1.5 1.5 0 0 0 2.8 0" />
+    </Svg>
+  );
+}
+
+/** A process failed (status chip): an exclamation mark in a circle. */
+export function AlertIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.8v3.6" />
+      <path d="M8 11.1v.1" />
+    </Svg>
+  );
+}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { firstIndex, fitInViewport, menuCommand, secondaryCommand, type NavEntry } from "./menuNav";
 
@@ -35,8 +35,11 @@ export type PopupItem =
   | { type: "separator"; key: string }
   /** Small caption above a group of entries; not focusable. */
   | { type: "heading"; key: string; label: string }
-  /** A short sentence in the menu, e.g. why an option is missing; not focusable. */
-  | { type: "note"; key: string; label: string };
+  /**
+   * A short sentence in the menu, e.g. why an option is missing; not focusable. `describes`
+   * names the key of the entry it explains: screen readers read it along with that entry.
+   */
+  | { type: "note"; key: string; label: string; describes?: string };
 
 interface Props {
   items: readonly PopupItem[];
@@ -85,6 +88,15 @@ export function PopupMenu({
   const buttons = useRef(new Map<number, HTMLButtonElement>());
   const secondaries = useRef(new Map<number, HTMLButtonElement>());
   const closeRef = useRef(onClose);
+  const noteId = useId();
+  /** Note ids per described entry key. */
+  const notesFor = new Map<string, string[]>();
+  items.forEach((item, index) => {
+    if (item.type !== "note" || item.describes === undefined) return;
+    const ids = notesFor.get(item.describes) ?? [];
+    ids.push(`${noteId}-${String(index)}`);
+    notesFor.set(item.describes, ids);
+  });
   useEffect(() => {
     closeRef.current = onClose;
   });
@@ -212,7 +224,12 @@ export function PopupMenu({
         }
         if (item.type === "note") {
           return (
-            <li key={item.key} role="presentation" className="menu-note">
+            <li
+              key={item.key}
+              id={`${noteId}-${String(index)}`}
+              role="presentation"
+              className="menu-note"
+            >
               {item.label}
             </li>
           );
@@ -228,6 +245,7 @@ export function PopupMenu({
               type="button"
               role={item.current === undefined ? "menuitem" : "menuitemradio"}
               aria-checked={item.current}
+              aria-describedby={notesFor.get(item.key)?.join(" ")}
               ref={(element) => {
                 if (element) buttons.current.set(index, element);
                 else buttons.current.delete(index);

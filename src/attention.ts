@@ -8,6 +8,12 @@
 
 export type AttentionState = "idle" | "working" | "attention";
 
+/**
+ * Why a session waits: it went quiet after working, the program rang the bell (BEL, often a
+ * question), or its process exited. Only set while the state is "attention".
+ */
+export type AttentionReason = "quiet" | "bell" | "exit";
+
 export interface AttentionConfig {
   enabled: boolean;
   quietMs: number;
@@ -38,6 +44,7 @@ export const systemClock: Clock = {
 
 export class AttentionTracker {
   private current: AttentionState = "idle";
+  private why: AttentionReason | null = null;
   private burstBytes = 0;
   private lastOutput = 0;
   private ignoreUntil = Number.NEGATIVE_INFINITY;
@@ -50,11 +57,16 @@ export class AttentionTracker {
     private config: AttentionConfig,
     /** Active session in a focused window. Only queried at the moment of reporting. */
     private readonly isWatched: () => boolean,
-    private readonly onChange: (state: AttentionState) => void,
+    /** State or reason changed; the reason is `null` unless the state is "attention". */
+    private readonly onChange: (state: AttentionState, reason: AttentionReason | null) => void,
   ) {}
 
   get state(): AttentionState {
     return this.current;
+  }
+
+  get reason(): AttentionReason | null {
+    return this.why;
   }
 
   output(bytes: number): void {
@@ -90,7 +102,9 @@ export class AttentionTracker {
   }
 
   bell(): void {
-    this.alert();
+    // An exit says more than a bell that follows it.
+    if (this.why === "exit") return;
+    this.alert("bell");
   }
 
   exited(): void {
@@ -99,7 +113,7 @@ export class AttentionTracker {
       this.set("idle");
       return;
     }
-    this.alert();
+    this.alert("exit");
   }
 
   /**
@@ -137,10 +151,11 @@ export class AttentionTracker {
     this.cancel();
   }
 
-  private alert(): void {
+  private alert(reason: AttentionReason): void {
     if (!this.config.enabled) return;
     this.cancel();
-    this.set(this.isWatched() ? "idle" : "attention");
+    if (this.isWatched()) this.set("idle");
+    else this.set("attention", reason);
   }
 
   private ignoreFor(ms: number): void {
@@ -162,7 +177,9 @@ export class AttentionTracker {
       return;
     }
     this.burstBytes = 0;
-    if (this.current === "working") this.set(this.isWatched() ? "idle" : "attention");
+    if (this.current !== "working") return;
+    if (this.isWatched()) this.set("idle");
+    else this.set("attention", "quiet");
   }
 
   private cancel(): void {
@@ -171,9 +188,11 @@ export class AttentionTracker {
     this.burstBytes = 0;
   }
 
-  private set(state: AttentionState): void {
-    if (state === this.current) return;
+  private set(state: AttentionState, reason: AttentionReason | null = null): void {
+    const why = state === "attention" ? reason : null;
+    if (state === this.current && why === this.why) return;
     this.current = state;
-    this.onChange(state);
+    this.why = why;
+    this.onChange(state, why);
   }
 }

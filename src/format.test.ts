@@ -43,11 +43,17 @@ describe("statusText", () => {
   const de = createTranslator("de");
   const en = createTranslator("en");
 
-  it("shows the status without an exit code", () => {
-    expect(statusText({ status: "exited", exitCode: 3 }, de)).toBe("beendet");
+  it("shows the status without an exit code, a failure as such", () => {
+    expect(statusText({ status: "exited", exitCode: 3 }, de)).toBe("mit Fehler beendet");
+    expect(statusText({ status: "exited", exitCode: 0 }, de)).toBe("beendet");
     expect(statusText({ status: "exited", exitCode: null }, de)).toBe("beendet");
     expect(statusText({ status: "running", exitCode: null }, de)).toBe("läuft");
-    expect(statusText({ status: "exited", exitCode: 3 }, en)).toBe("exited");
+    expect(statusText({ status: "exited", exitCode: 3 }, en)).toBe("exited with an error");
+  });
+
+  it("does not call a failure that waits to be seen done", () => {
+    const failed = { status: "exited", exitCode: 1 } as const;
+    expect(statusText(failed, de, "attention", "exit")).toBe("mit Fehler beendet");
   });
 
   it("distinguishes sessions ended by the user", () => {
@@ -70,6 +76,15 @@ describe("statusText", () => {
     expect(statusText(running, de, "attention")).toBe("fertig, wartet auf dich");
     expect(statusText({ status: "exited", exitCode: 0 }, en, "attention")).toBe(
       "done, waiting for you",
+    );
+  });
+
+  it("says a running program asks when it rang the bell", () => {
+    const running = { status: "running", exitCode: null } as const;
+    expect(statusText(running, de, "attention", "bell")).toBe("fragt dich etwas");
+    expect(statusText(running, de, "attention", "quiet")).toBe("fertig, wartet auf dich");
+    expect(statusText({ status: "exited", exitCode: 0 }, de, "attention", "bell")).toBe(
+      "fertig, wartet auf dich",
     );
   });
 });

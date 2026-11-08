@@ -18,8 +18,11 @@ import type { BadgeLook } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
 import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
+import { playChime } from "./chimeAudio";
 import {
   ATTENTION_PRESETS,
+  CHIME_VOLUME,
+  clampChimeVolume,
   clampQuietSeconds,
   clampScrollbackLines,
   normalizeColor,
@@ -28,6 +31,7 @@ import {
   type Settings,
 } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
+import { StatusChip } from "./StatusChip";
 import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import {
   canvasMeasure,
@@ -751,6 +755,46 @@ function AttentionSection({ settings, onChange }: Props) {
           {t("settings.notifyDesktopHelp")}
         </p>
 
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.chime}
+            aria-describedby="chime-help"
+            onChange={(event) => {
+              onChange({ chime: event.currentTarget.checked });
+            }}
+          />
+          <span>{t("settings.chime")}</span>
+        </label>
+        <p id="chime-help" className="muted settings-help">
+          {t("settings.chimeHelp")}
+        </p>
+        <div className="chime-row">
+          <RangeField
+            id="chime-volume"
+            label={t("settings.chimeVolume")}
+            value={settings.chimeVolume}
+            min={CHIME_VOLUME.min}
+            max={CHIME_VOLUME.max}
+            step={CHIME_VOLUME.step}
+            disabled={!settings.chime}
+            display={t("settings.percent", { count: settings.chimeVolume })}
+            onChange={(value) => {
+              onChange({ chimeVolume: clampChimeVolume(value) });
+            }}
+          />
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!settings.chime}
+            onClick={() => {
+              playChime("waiting", settings.chimeVolume);
+            }}
+          >
+            {t("settings.chimePreview")}
+          </button>
+        </div>
+
         <div className="attention-preview" aria-hidden="true">
           <span className="session attention">
             <span className="session-main">
@@ -763,6 +807,7 @@ function AttentionSection({ settings, onChange }: Props) {
                 </span>
               </span>
             </span>
+            <StatusChip kind="done" />
           </span>
         </div>
       </fieldset>
@@ -899,6 +944,7 @@ function RangeField({
   min,
   max,
   step = 1,
+  disabled = false,
   display,
   onChange,
 }: {
@@ -908,6 +954,7 @@ function RangeField({
   min: number;
   max: number;
   step?: number;
+  disabled?: boolean;
   display: string;
   onChange: (value: number) => void;
 }) {
@@ -921,6 +968,7 @@ function RangeField({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         aria-valuetext={display}
         onChange={(event) => {
           onChange(Number(event.currentTarget.value));

@@ -287,3 +287,66 @@ describe("disabled", () => {
     expect(clock.pending).toBe(0);
   });
 });
+
+describe("reason", () => {
+  let reasons: (string | null)[];
+
+  beforeEach(() => {
+    reasons = [];
+    tracker = new AttentionTracker(
+      clock,
+      { enabled: true, quietMs: QUIET },
+      () => watched,
+      (state, reason) => {
+        changes.push(state);
+        reasons.push(reason);
+      },
+    );
+  });
+
+  it("names a quiet period after work", () => {
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.reason).toBe("quiet");
+    expect(reasons).toEqual([null, "quiet"]);
+  });
+
+  it("names the bell and the exit", () => {
+    tracker.bell();
+    expect(tracker.reason).toBe("bell");
+    tracker.seen();
+    expect(tracker.reason).toBeNull();
+    tracker.exited();
+    expect(tracker.reason).toBe("exit");
+  });
+
+  it("a bell while waiting quietly upgrades the reason without a new state", () => {
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    tracker.bell();
+    expect(changes).toEqual(["working", "attention", "attention"]);
+    expect(reasons).toEqual([null, "quiet", "bell"]);
+  });
+
+  it("a bell after the exit keeps the exit", () => {
+    tracker.exited();
+    tracker.bell();
+    expect(tracker.reason).toBe("exit");
+    expect(reasons).toEqual(["exit"]);
+  });
+
+  it("an exit while waiting reports the exit", () => {
+    tracker.bell();
+    tracker.exited();
+    expect(reasons).toEqual(["bell", "exit"]);
+  });
+
+  it("is null when nothing waits", () => {
+    tracker.output(BIG);
+    expect(tracker.reason).toBeNull();
+    watched = true;
+    tracker.bell();
+    expect(tracker.state).toBe("idle");
+    expect(tracker.reason).toBeNull();
+  });
+});

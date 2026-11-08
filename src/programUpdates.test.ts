@@ -4,6 +4,7 @@ import { createTranslator } from "./i18n";
 import {
   availableVersion,
   isPlanChanged,
+  offerShowsInstalled,
   outcomeNotice,
   parseProgramUpdates,
   parseUpdateOutcome,
@@ -215,5 +216,22 @@ describe("isPlanChanged", () => {
       isPlanChanged("The update of Codex changed since it was shown; check for updates again"),
     ).toBe(true);
     expect(isPlanChanged("program not found")).toBe(false);
+  });
+});
+
+describe("offerShowsInstalled", () => {
+  const update = parseProgramUpdates({ codex }).get("codex");
+
+  it("is true when the offer shows installed and new version", () => {
+    expect(update).toBeDefined();
+    expect(offerShowsInstalled(update)).toBe(true);
+  });
+
+  it("is false without an offer or when the offer only names the new version", () => {
+    expect(offerShowsInstalled(undefined)).toBe(false);
+    if (update === undefined) return;
+    expect(offerShowsInstalled({ ...update, updateAvailable: false })).toBe(false);
+    expect(offerShowsInstalled({ ...update, latest: null })).toBe(false);
+    expect(offerShowsInstalled({ ...update, plan: "copy" })).toBe(false);
   });
 });

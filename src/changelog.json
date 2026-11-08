@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Wartende Sessions fallen auf: Die Zeile atmet in deiner Farbe, ein Chip zeigt „fertig“, „fragt“ oder Fehler. Dazu ein leiser Ton, wenn du sie nicht siehst.",
+        "en": "Waiting sessions stand out: the row breathes in your color, a chip shows done, asks or an error, and a quiet chime plays when it is out of sight.",
+        "el": "Οι συνεδρίες σε αναμονή ξεχωρίζουν: η γραμμή αναπνέει στο χρώμα σου, μια ετικέτα δείχνει έτοιμο, ρωτά ή σφάλμα και ένας απαλός ήχος σε ειδοποιεί.",
+        "es": "Las sesiones en espera destacan: la fila respira en tu color, una etiqueta muestra listo, pregunta o error, y suena un tono suave si no la ves.",
+        "fr": "Les sessions en attente se remarquent : la ligne respire dans ta couleur, une pastille indique fini, demande ou erreur, et un son discret t'avertit.",
+        "it": "Le sessioni in attesa risaltano: la riga respira nel tuo colore, un'etichetta mostra finito, chiede o errore e un suono leggero ti avvisa.",
+        "ja": "入力待ちのセッションがはっきり分かります。行が選んだ色でゆっくり明滅し、チップに完了、質問、エラーを表示。見えていないときは控えめなチャイムが鳴ります。",
+        "pl": "Czekające sesje są wyraźne: wiersz pulsuje w twoim kolorze, etykieta pokazuje gotowe, pyta lub błąd, a gdy ich nie widzisz, słychać cichy dźwięk.",
+        "pt": "Sessões aguardando se destacam: a linha pulsa na sua cor, uma etiqueta mostra pronto, pergunta ou erro, e um som discreto avisa você.",
+        "ru": "Ожидающие сеансы заметны: строка дышит твоим цветом, метка показывает «готово», «вопрос» или ошибку, а тихий сигнал зовёт тебя.",
+        "tr": "Bekleyen oturumlar göze çarpar: satır senin renginde nefes alır, etiket bitti, soruyor ya da hata gösterir, görünmüyorsa hafif bir ses çalar.",
+        "zh": "等待中的会话一目了然：该行以你选的颜色柔和呼吸，标签显示完成、提问或错误；会话不在视野内时会响起轻柔的提示音。"
+      },
+      {
         "de": "Strg+V fügt im Terminal wieder ein.",
         "en": "Ctrl+V pastes into the terminal again.",
         "el": "Το Ctrl+V κάνει ξανά επικόλληση στο τερματικό.",

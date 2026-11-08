@@ -2,7 +2,7 @@
 // you", "active 5 min ago") and where it runs (folder, git branch, run time). Pure, with the time
 // passed in, so it can be tested; the sidebar samples it on a shared clock tick.
 
-import type { AttentionState } from "./attention";
+import type { AttentionReason, AttentionState } from "./attention";
 import { folderName } from "./folders";
 import { statusText } from "./format";
 import type { Translate } from "./i18n";
@@ -53,8 +53,9 @@ export function statusLine(
   now: number,
   t: Translate,
   language: string,
+  reason: AttentionReason | null = null,
 ): string {
-  const plain = statusText(session, t, attention);
+  const plain = statusText(session, t, attention, reason);
   if (attention === "attention" || session.status !== "running") return plain;
   if (attention === "working") {
     const since = activity.workingSince;

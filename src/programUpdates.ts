@@ -158,6 +158,19 @@ export function runnableUpdate(updates: ProgramUpdates, profileId: string): bool
   return entry !== undefined && entry.updateAvailable && entry.plan === "run";
 }
 
+/**
+ * The update offer below a program row already names the installed version ("1.2 → 1.3"), so
+ * the row itself leaves it out then.
+ */
+export function offerShowsInstalled(update: ProgramUpdate | undefined): boolean {
+  return (
+    update !== undefined &&
+    update.updateAvailable &&
+    update.latest !== null &&
+    update.plan === "run"
+  );
+}
+
 /** New version if an update is available, otherwise `null`. */
 export function availableVersion(updates: ProgramUpdates, profileId: string): string | null {
   const entry = updates.get(profileId);

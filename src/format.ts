@@ -1,8 +1,9 @@
 // Pure display helpers for the sidebar.
 
 import type { Profile } from "./api";
-import type { AttentionState } from "./attention";
+import type { AttentionReason, AttentionState } from "./attention";
 import type { Translate } from "./i18n";
+import { exitedWithError } from "./sessionChip";
 import type { SessionView } from "./sessions";
 
 /** First color of the palette; the fallback where no other one is chosen. */
@@ -24,13 +25,23 @@ export function shortPath(path: string): string {
   return parts.slice(-2).join("/");
 }
 
-/** Status for the sidebar. The attention state refines "running" and "exited". */
+/**
+ * Status for the sidebar. The attention state refines "running" and "exited"; a bell while
+ * running says the program asks something. The exit code itself lives in the tooltip.
+ */
 export function statusText(
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
   t: Translate,
   attention: AttentionState = "idle",
+  reason: AttentionReason | null = null,
 ): string {
-  if (attention === "attention") return t("status.attention");
+  // A failure stays a failure, also while it waits to be seen: "done" would contradict it.
+  if (exitedWithError(session)) return t("status.failed");
+  if (attention === "attention") {
+    return reason === "bell" && session.status === "running"
+      ? t("status.asks")
+      : t("status.attention");
+  }
   switch (session.status) {
     case "starting":
       return t("status.starting");

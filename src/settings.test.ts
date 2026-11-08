@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ATTENTION_PRESETS,
+  CHIME_VOLUME,
   DEFAULT_ATTENTION_COLOR,
   defaultSettings,
   normalizeColor,
@@ -33,6 +34,8 @@ describe("parseSettings", () => {
       quietSeconds: 10,
       taskbarFlash: false,
       notifyDesktop: false,
+      chime: false,
+      chimeVolume: 70,
       keepInTray: true,
       showVersions: false,
       showIcons: false,
@@ -237,5 +240,22 @@ describe("mint preset", () => {
     expect(mint).toBe("#9ee8dc");
     expect(parseSettings('{"attentionColor":"#7ee0b5"}', "de").attentionColor).toBe(mint);
     expect(parseSettings('{"attentionColor":"#123456"}', "de").attentionColor).toBe("#123456");
+  });
+});
+
+describe("chime", () => {
+  it("is on and quiet by default", () => {
+    const settings = defaultSettings("de");
+    expect(settings.chime).toBe(true);
+    expect(settings.chimeVolume).toBe(CHIME_VOLUME.default);
+  });
+
+  it("takes a stored choice, rounds the volume to its step and clamps it", () => {
+    const parsed = parseSettings('{"chime":false,"chimeVolume":62}', "de");
+    expect(parsed.chime).toBe(false);
+    expect(parsed.chimeVolume).toBe(60);
+    expect(parseSettings('{"chimeVolume":0}', "de").chimeVolume).toBe(CHIME_VOLUME.min);
+    expect(parseSettings('{"chimeVolume":900}', "de").chimeVolume).toBe(CHIME_VOLUME.max);
+    expect(parseSettings('{"chimeVolume":"loud"}', "de").chimeVolume).toBe(CHIME_VOLUME.default);
   });
 });

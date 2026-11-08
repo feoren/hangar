@@ -99,7 +99,7 @@ export function ProgramUpdateOffer(props: Props) {
           <button
             type="button"
             className={copied === true ? "update-offer-copy copied" : "update-offer-copy"}
-            aria-label={`${t("update.copyShort")}: ${name}`}
+            aria-label={t("update.copyFor", { name })}
             title={command}
             onClick={copy}
           >

@@ -503,3 +503,22 @@ menu paste uses the clipboard plugin.
     synthesized two-tone sound (Web Audio, no asset) when a session starts waiting while it is not
     visible, a lower tone on a crash, with a setting (on by default, quiet), volume and a preview
     button; reduced motion replaces pulsing with a strong static highlight.
+    As built (`src/attention.ts`, `src/sessionChip.ts`, `src/StatusChip.tsx`, `src/chime.ts`,
+    `src/chimeAudio.ts`, `src/attentionLook.ts`): the tracker reports a reason with every state
+    (`quiet`, `bell`, `exit`; a bell after an exit keeps the exit), and a reason change alone does
+    not flash or notify again. Chip per row: working three dots (static with reduced motion),
+    "done" check, "asks" bell (status line "asks you something"), failed red exclamation (status
+    line "exited with an error", also after it was seen), ordinary exit a quiet square. The chip is
+    decorative (`aria-hidden`); the status line carries the words. On hover or keyboard focus in
+    the actions, the actions replace the chip (it fades out). A waiting row breathes (2.8 s) on
+    the sidebar color with a thin ring; the actions breathe along on the same keyframes. The
+    peak tint is computed per color and theme so the row's text keeps 4.5 : 1 and its muted text
+    3 : 1; the chip text color (ink or white) follows the attention color, in the light theme the
+    chip uses the darkened edge color with white text. Rail: breathing outline around the badge,
+    the chip's shape in a small circle for waiting and failed sessions, and the waiting count on
+    the expand button (also in its description). Chime: setting "Play a sound" (on), volume
+    5 to 100 % (default 40, squared to a gain of at most 0.32), "Preview"; it plays when a session
+    enters "attention" while the window is unfocused or the session is in no pane, or when a
+    waiting session then fails; requests within 150 ms merge (failure wins), then 2 s of silence.
+    No chime before the first click or key press in the window (the engine keeps audio suspended
+    until then), and none whose audio resume takes longer than 500 ms, so a chime never sounds late.

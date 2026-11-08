@@ -26,6 +26,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Papierkorb                                      | trash                             |                                                         |
 | Aufmerksamkeit, Aufmerksamkeits-Puls            | attention, attention pulse        |                                                         |
 | wartet (auf dich)                               | waiting (for you)                 |                                                         |
+| Status-Chip                                     | status chip                       | state shape at the right end of a session row           |
+| fragt (Glocke, BEL)                             | asks (bell)                       | waiting reason after BEL, `AttentionReason`             |
+| Hinweiston                                      | chime                             | synthesized two-tone sound, `chime.ts`                  |
 | Taskleiste blinken                              | taskbar flash                     |                                                         |
 | Hintergrund-Session                             | background session                |                                                         |
 | Neu bei Hangar                                  | What's New                        | dialog title                                            |

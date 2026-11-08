@@ -85,3 +85,12 @@ star per row, worktree decided per start, target shown in sidebar, rail, empty s
 hint and quick access) and for one-click program updates (plan, reason and outcome texts, admin
 note, second copies, `expectedPlan`, inline question while the program runs). Glossary: start
 target, running projects, update plan, second copy, update outcome.
+
+## [2026-11-09] query | Acceptance review of clearer attention states and the chime
+Measured in headless Edge: an AudioContext created before the first click or key press in the page
+stays suspended, and its pending `resume()` settles only when a later one succeeds, so the queued
+chime sounds late, together with the next one. `chimeAudio.ts` therefore plays nothing before
+`navigator.userActivation.hasBeenActive` and drops a chime whose resume takes longer than 500 ms.
+Contrast at the peak of the breathing tint (default and custom colors, both themes): row text at
+least 4.5 : 1, muted text at least 3 : 1; the light theme's "failed" chip text is darkened to
+reach 5.5 : 1. Pages changed: [[agent-workflow-features]].
