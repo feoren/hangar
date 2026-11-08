@@ -147,7 +147,22 @@ export const api = {
   reorderNotes: (folder: NoteFolder, ids: string[]) =>
     invoke<null>("reorder_notes", { folder, ids }),
   revealNotesFolder: (folder: NoteFolder) => invoke<null>("reveal_notes_folder", { folder }),
+
+  /**
+   * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
+   * frontend never chooses a path) and writes at most 32 MiB. Check with `parseExportResult`:
+   * the saved path, or `null` when the dialog was cancelled.
+   */
+  exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
+    invoke<unknown>("export_session", { format, content, suggestedName }),
 };
+
+/** Result of `export_session`: the path written, `null` when cancelled. */
+export function parseExportResult(value: unknown): string | null {
+  if (typeof value === "string" && value !== "") return value;
+  if (value === null || value === undefined) return null;
+  throw new Error(t("error.unknown"));
+}
 
 /** Errors from `invoke` arrive from the backend as strings (ManagerError serialized as text). */
 export function errorText(error: unknown): string {
