@@ -54,9 +54,13 @@ export function exitDetail(
   return t("status.exitCode", { code: session.exitCode });
 }
 
-/** One or two characters: the profile icon, otherwise the first letter of the name. */
+/**
+ * One or two characters: the profile icon, otherwise the first letter of the name. A short ASCII
+ * abbreviation such as "WSL" (WSL distributions) keeps three letters, smaller.
+ */
 export function badgeText(profile: Profile | undefined, fallbackId: string): string {
   const icon = profile?.icon?.trim();
+  if (icon && /^[A-Za-z0-9]{3}$/.test(icon)) return icon;
   if (icon) return Array.from(icon).slice(0, 2).join("");
   const source = profile?.name ?? fallbackId;
   return (Array.from(source)[0] ?? "?").toUpperCase();

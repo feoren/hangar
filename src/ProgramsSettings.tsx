@@ -5,7 +5,8 @@ import { Badge } from "./Badge";
 import { BADGE_COLORS, badgeColor, badgeText, DEFAULT_BADGE_COLOR } from "./format";
 import { agentDescriptionKey, useT, type MessageKey, type Translate } from "./i18n";
 import { IconFileError, fileToIcon } from "./iconImage";
-import { ArrowDownIcon, ArrowUpIcon, CopyIcon, GripIcon } from "./icons";
+import { ArrowDownIcon, ArrowUpIcon, CopyIcon, GripIcon, PlusIcon } from "./icons";
+import { ProfileEditor } from "./ProfileEditor";
 import {
   arrangedProfiles,
   availableProfiles,
@@ -38,6 +39,8 @@ interface Props {
   onRunUpdate: (profileId: string) => void;
   badgeFor: (profileId: string) => BadgeLook;
   onChange: (patch: Partial<Settings>) => void;
+  /** The backend saved or deleted a profile: its new list replaces the current one. */
+  onProfiles: (profiles: Profile[]) => void;
 }
 
 /** Color names of the letter palette, in the order of BADGE_COLORS. */
@@ -72,6 +75,10 @@ export function ProgramsSettings(props: Props) {
   const [announcement, setAnnouncement] = useState("");
   const [resetDone, setResetDone] = useState(false);
   const [openEditor, setOpenEditor] = useState<string | null>(null);
+  /** Profile form: an entry's id, "new" for a new program, or `null`. */
+  const [openForm, setOpenForm] = useState<string | null>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
+  const formButtons = useRef(new Map<string, HTMLButtonElement>());
   const [drag, setDrag] = useState<{ id: string; index: number } | null>(null);
   const rows = useRef(new Map<string, HTMLLIElement>());
   const buttons = useRef(new Map<string, HTMLButtonElement>());
@@ -150,6 +157,53 @@ export function ProgramsSettings(props: Props) {
     ? moveTo(shownIds, [], drag.id, drag.index).flatMap((id) => arranged.filter((p) => p.id === id))
     : arranged;
   const available = availableProfiles(profiles);
+  /** The user's own entries whose program is not found: editable here, or they would vanish. */
+  const missing = profiles.filter((profile) => profile.editable === true && !profile.installed);
+  const takenIds = profiles.map((profile) => profile.id);
+  /** Closing the form returns the focus to the button that opened it. */
+  const closeForm = () => {
+    const key = openForm;
+    setOpenForm(null);
+    requestAnimationFrame(() => {
+      const button = key === "new" ? newButton.current : formButtons.current.get(key ?? "");
+      (button ?? newButton.current)?.focus();
+    });
+  };
+  const formButton = (profile: Profile) => {
+    const formOpen = openForm === profile.id;
+    const label =
+      profile.editable === true
+        ? t("profile.editFor", { name: profile.name })
+        : t("profile.customizeFor", { name: profile.name });
+    return (
+      <button
+        type="button"
+        className={formOpen ? "chip-button open" : "chip-button"}
+        ref={(element) => {
+          if (element) formButtons.current.set(profile.id, element);
+          else formButtons.current.delete(profile.id);
+        }}
+        aria-expanded={formOpen}
+        aria-label={label}
+        title={label}
+        onClick={() => {
+          setOpenForm(formOpen ? null : profile.id);
+        }}
+      >
+        {profile.editable === true ? t("profile.edit") : t("profile.customize")}
+      </button>
+    );
+  };
+  const formFor = (profile: Profile) =>
+    openForm === profile.id && (
+      <ProfileEditor
+        key={profile.id}
+        profile={profile}
+        takenIds={takenIds}
+        onProfiles={props.onProfiles}
+        onClose={closeForm}
+      />
+    );
 
   return (
     <>
@@ -271,6 +325,7 @@ export function ProgramsSettings(props: Props) {
                         >
                           {t("settings.editIcon")}
                         </button>
+                        {formButton(profile)}
                       </span>
                       <span className="program-visible">
                         <input
@@ -297,6 +352,7 @@ export function ProgramsSettings(props: Props) {
                     {editorOpen && (
                       <IconEditor id={editorId} profile={profile} prefs={prefs} onChange={update} />
                     )}
+                    {formFor(profile)}
                   </li>
                 );
               })}
@@ -306,6 +362,57 @@ export function ProgramsSettings(props: Props) {
         <div className="sr-only" role="status">
           {announcement}
         </div>
+        {missing.length > 0 && (
+          <>
+            <h5 className="settings-minor">{t("profile.missingTitle")}</h5>
+            <ul className="program-list">
+              {missing.map((profile) => (
+                <li key={profile.id} className="program-item is-hidden">
+                  <div className="program-row">
+                    <Badge look={badgeFor(profile.id)} />
+                    <span className="program-name">
+                      <span className="program-title-line">
+                        <span className="program-title" title={profile.name}>
+                          {profile.name}
+                        </span>
+                        <span className="program-tag">{t("profile.notFound")}</span>
+                      </span>
+                      <span className="program-version mono" title={profile.command}>
+                        {profile.command}
+                      </span>
+                    </span>
+                    <span className="program-actions">{formButton(profile)}</span>
+                  </div>
+                  {formFor(profile)}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <div className="settings-row">
+          <button
+            ref={newButton}
+            type="button"
+            className="secondary-button with-icon"
+            aria-expanded={openForm === "new"}
+            onClick={() => {
+              setOpenForm(openForm === "new" ? null : "new");
+            }}
+          >
+            <PlusIcon size={12} />
+            {t("profile.new")}
+          </button>
+        </div>
+        {openForm === "new" && (
+          <div className="program-new">
+            <ProfileEditor
+              profile={null}
+              takenIds={takenIds}
+              onProfiles={props.onProfiles}
+              onClose={closeForm}
+            />
+          </div>
+        )}
         <div className="settings-row">
           <button
             type="button"

@@ -44,6 +44,16 @@ describe("matchShortcut", () => {
     );
   });
 
+  it("changes with Ctrl+Shift+D, Ctrl+D (end of input) stays with the shell", () => {
+    expect(matchShortcut(key("D", "KeyD", { shift: true }))).toBe("toggleChanges");
+    expect(matchShortcut(key("d", "KeyD"))).toBeNull();
+    expect(matchShortcut(key("D", "KeyD", { shift: true, alt: true }))).toBeNull();
+    expect(ignoresRepeat("toggleChanges")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.toggleChanges, createTranslator("en"))).toBe(
+      "Ctrl+Shift+D",
+    );
+  });
+
   it("waiting session and new session only with Shift", () => {
     expect(matchShortcut(key("A", "KeyA", { shift: true }))).toBe("nextWaiting");
     expect(matchShortcut(key("T", "KeyT", { shift: true }))).toBe("newSession");

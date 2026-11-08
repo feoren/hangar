@@ -69,6 +69,8 @@ interface Props {
   onOpenProfileFile: () => Promise<void>;
   /** Rereads profiles.toml; rejects with the backend's error (profileFile.ts). */
   onReloadProfiles: () => Promise<void>;
+  /** A profile was saved or deleted in the editor: apply the backend's new list. */
+  onProfiles: (profiles: Profile[]) => void;
   onFontSize: (size: number) => void;
   onResetLayout: () => void;
   onCheckUpdates: () => void;
@@ -767,6 +769,7 @@ function ProgramsSection(props: Props) {
         onRunUpdate={props.onRunUpdate}
         badgeFor={props.badgeFor}
         onChange={props.onChange}
+        onProfiles={props.onProfiles}
       />
       <ProfileFileField onOpen={props.onOpenProfileFile} onReload={props.onReloadProfiles} />
     </>

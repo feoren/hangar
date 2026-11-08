@@ -34,11 +34,16 @@ export interface LauncherContext {
   canInsert: boolean;
   splitMode: SplitMode;
   canBroadcast: boolean;
+  /** The "Starts in" folder when it lies in a git repository: sessions can get their own worktree. */
+  worktreeFolder: string | null;
+  changesOpen: boolean;
   t: Translate;
   badge: (profileId: string) => ReactNode;
   notesIcon: ReactNode;
   activate: (id: number) => void;
   start: (profile: Profile, folder: string) => void;
+  startInWorktree: (profile: Profile, folder: string) => void;
+  toggleChanges: () => void;
   openNotes: (folder: NoteFolder) => void;
   insertSnippet: (snippet: Snippet) => void;
   setSplitMode: (mode: SplitMode) => void;
@@ -88,6 +93,25 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       });
     }
   }
+  const worktreeFolder = ctx.worktreeFolder;
+  if (worktreeFolder !== null) {
+    for (const profile of ctx.startable) {
+      items.push({
+        key: `worktree:${profile.id}:${worktreeFolder}`,
+        section: "start",
+        label: t("launcher.startInWorktree", {
+          program: profile.name,
+          folder: folderName(worktreeFolder),
+        }),
+        detail: shortPath(worktreeFolder),
+        keywords: `${worktreeFolder} worktree git`,
+        icon: ctx.badge(profile.id),
+        run: () => {
+          ctx.startInWorktree(profile, worktreeFolder);
+        },
+      });
+    }
+  }
   for (const info of ctx.noteFolders) {
     if (info.noteCount === 0) continue;
     const folder: NoteFolder = { path: info.path };
@@ -129,6 +153,13 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       },
     });
   }
+  items.push({
+    key: "changes",
+    section: "commands",
+    label: ctx.changesOpen ? t("changes.hide") : t("changes.show"),
+    keywords: "git diff",
+    run: ctx.toggleChanges,
+  });
   items.push({
     key: "broadcast",
     section: "commands",

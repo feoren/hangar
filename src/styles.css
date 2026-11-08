@@ -33,6 +33,12 @@
   --md-code: #e0b4ff;
   --md-code-bg: #1c222b;
   --md-selection: rgb(90 169 255 / 28%);
+  /* Changes panel: added and removed lines */
+  --diff-add-bg: rgb(87 171 90 / 16%);
+  --diff-add-fg: #8ddb8c;
+  --diff-del-bg: rgb(244 112 103 / 16%);
+  --diff-del-fg: #ffa198;
+  --diff-hunk: #a5b4fc;
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
@@ -77,6 +83,11 @@
   --md-code: #8250df;
   --md-code-bg: #eef1f5;
   --md-selection: rgb(9 105 218 / 20%);
+  --diff-add-bg: rgb(26 127 55 / 12%);
+  --diff-add-fg: #116329;
+  --diff-del-bg: rgb(207 34 46 / 10%);
+  --diff-del-fg: #a40e26;
+  --diff-hunk: #5a32a3;
   color-scheme: light;
 }
 
@@ -250,7 +261,9 @@ h2 .beta-badge {
   color: var(--muted);
 }
 
+/* --row-bg: the row's own background, so the actions can lie on top of the text without a seam. */
 .session {
+  --row-bg: var(--panel);
   position: relative;
   display: flex;
   align-items: center;
@@ -259,10 +272,12 @@ h2 .beta-badge {
 }
 
 .session:hover {
+  --row-bg: var(--hover);
   background: var(--hover);
 }
 
 .session.active {
+  --row-bg: var(--panel-raised);
   background: var(--panel-raised);
   box-shadow: inset 2px 0 0 var(--accent);
 }
@@ -456,24 +471,64 @@ h2 .beta-badge {
   }
 }
 
-/* Hidden actions take no width, so the status line keeps the whole row; they stay in the tab
-   order (zero width, not display: none) and open up on hover, for the active row and on focus. */
+/* The actions lie over the right end of the row and fade in on hover or keyboard focus, so the
+   status line keeps its width and nothing moves. They stay in the tab order (opacity, not
+   display: none); the soft left edge comes from a mask over the row's background. */
 .session-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
   display: flex;
-  flex: none;
+  align-items: center;
   gap: 2px;
-  max-width: 0;
-  overflow: hidden;
+  padding: 0 6px 0 22px;
+  background-color: var(--row-bg);
+  border-radius: 0 6px 6px 0;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms ease;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 20px);
+  mask-image: linear-gradient(to right, transparent, #000 20px);
 }
 
 .session:hover .session-actions,
-.session.active .session-actions,
 .session-actions:focus-within {
-  max-width: 100px;
-  padding-right: 6px;
   opacity: 1;
+  pointer-events: auto;
+}
+
+/* A waiting row pulses; its actions pulse along on the same sidebar color, so they blend in. */
+@keyframes attention-pulse-solid {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-low), var(--panel));
+  }
+
+  50% {
+    background-color: color-mix(
+      in srgb,
+      var(--attention) var(--attention-pulse-high),
+      var(--panel)
+    );
+  }
+}
+
+.session.attention .session-actions {
+  animation: attention-pulse-solid 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-actions {
+    transition: none;
+  }
+
+  .session.attention .session-actions {
+    animation: none;
+    background-color: color-mix(
+      in srgb,
+      var(--attention) var(--attention-pulse-high),
+      var(--panel)
+    );
+  }
 }
 
 .icon-button {
@@ -511,6 +566,16 @@ h2 .beta-badge {
   font-size: 11px;
   font-weight: 700;
   color: var(--on-badge);
+}
+
+/* Three letters (WSL) fit in the same square, slightly smaller. */
+.badge.wide {
+  font-size: 9px;
+  letter-spacing: -0.02em;
+}
+
+.pane-header .badge.wide {
+  font-size: 7px;
 }
 
 /* Program icon instead of a letter, same size as the badge. */
@@ -2418,7 +2483,8 @@ body.resizing-horizontal * {
  * keeps at least 320 px beside it. If both do not fit side by side, the notes float above the
  * terminal (.floating). max-width covers the moment until the next render.
  */
-.notes {
+.notes,
+.changes {
   display: flex;
   flex: none;
   flex-direction: column;
@@ -2847,7 +2913,8 @@ body.resizing-horizontal * {
 }
 
 /* Not ".overlay": that class belongs to the dialog backdrop (place-items: center). */
-.notes.floating {
+.notes.floating,
+.changes.floating {
   position: absolute;
   inset: 0 0 0 auto;
   z-index: 20;
@@ -2875,15 +2942,26 @@ body.resizing-horizontal * {
 
 /* Notice for a clicked terminal link; floats so the terminal keeps its size. */
 
-.link-notice {
+/* Floating notices (worktree, link) stack at the bottom right; the stack itself lets clicks through. */
+.notices {
   position: absolute;
   right: 16px;
   bottom: 16px;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 8px;
   width: min(440px, calc(100% - 32px));
+  pointer-events: none;
+}
+
+.link-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  pointer-events: auto;
   padding: 10px 10px 10px 14px;
   background: var(--panel-raised);
   border: 1px solid var(--border);
@@ -3206,4 +3284,496 @@ body.resizing-horizontal * {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* "Own worktree" below "Starts in" in the New session group */
+
+.worktree-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 8px 6px;
+  padding: 3px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.worktree-option:hover {
+  color: var(--text);
+}
+
+.worktree-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.worktree-option:has(input:checked) {
+  color: var(--text);
+}
+
+.worktree-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.worktree-option.disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.worktree-option.disabled:hover {
+  color: var(--muted);
+}
+
+.worktree-option-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-branch.worktree svg {
+  color: var(--accent);
+}
+
+/* Changes panel (Ctrl+Shift+D), in the place of the notes */
+
+.changes {
+  border-left: 1px solid var(--border);
+}
+
+.changes:focus {
+  outline: none;
+}
+
+.changes-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changes-title {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.changes-folder {
+  overflow: hidden;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@keyframes changes-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.changes-refresh.spinning svg {
+  animation: changes-spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .changes-refresh.spinning svg {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.changes-message {
+  margin: 0;
+  padding: 16px 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.changes-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.changes-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 14px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.changes-hint {
+  margin: 4px 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 5px;
+}
+
+.changes-plus {
+  font-variant-numeric: tabular-nums;
+  color: var(--diff-add-fg);
+}
+
+.changes-minus {
+  font-variant-numeric: tabular-nums;
+  color: var(--diff-del-fg);
+}
+
+.changes-files {
+  margin: 0;
+  padding: 4px 6px 12px;
+  list-style: none;
+}
+
+.change-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  text-align: left;
+  border-radius: 5px;
+}
+
+.change-head:hover {
+  background: var(--hover);
+}
+
+.change-head svg {
+  flex: none;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.change-head[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-head svg {
+    transition: none;
+  }
+}
+
+/* Letter in a small box: the kind of change is readable without its color. */
+.change-kind {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  border: 1px solid currentcolor;
+  border-radius: 4px;
+}
+
+.change-kind.added,
+.change-kind.untracked {
+  color: var(--diff-add-fg);
+}
+
+.change-kind.deleted,
+.change-kind.conflict {
+  color: var(--diff-del-fg);
+}
+
+.change-kind.renamed {
+  color: var(--diff-hunk);
+}
+
+.change-kind.modified {
+  color: var(--warn);
+}
+
+.change-name {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.change-folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.change-counts {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 11.5px;
+}
+
+.change-note {
+  margin: 2px 6px 8px 28px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Unified diff: one line per row, never wrapped; the block scrolls sideways on its own. */
+/* One grid column as wide as the longest line: every line's background reaches the right edge. */
+.diff {
+  display: grid;
+  grid-template-columns: minmax(100%, max-content);
+  margin: 2px 0 6px 6px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.diff-line {
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.diff-line.add {
+  color: var(--diff-add-fg);
+  background: var(--diff-add-bg);
+}
+
+.diff-line.del {
+  color: var(--diff-del-fg);
+  background: var(--diff-del-bg);
+}
+
+.diff-line.hunk {
+  margin-top: 2px;
+  color: var(--diff-hunk);
+  background: color-mix(in srgb, var(--diff-hunk) 8%, transparent);
+}
+
+.diff-line.note {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.change-more {
+  margin: 0 0 8px 6px;
+  font-size: 12px;
+}
+
+/* Profile editor in Settings, Programs */
+
+.program-new {
+  margin-top: 4px;
+}
+
+.settings-minor {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 4px 8px 10px 32px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dialog .profile-editor p {
+  margin: 0;
+}
+
+.profile-intro {
+  line-height: 1.45;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+}
+
+.profile-grid > label {
+  padding-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.profile-field .text-input,
+.profile-inline .text-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.text-input.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.text-input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+.profile-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-help {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.profile-problem {
+  font-size: 11.5px;
+}
+
+.profile-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.profile-vars legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.profile-var {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.profile-var-name {
+  flex: 0 1 40%;
+}
+
+.profile-var-value {
+  flex: 1 1 60%;
+}
+
+.profile-secret-hint,
+.profile-secret-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.profile-secret-hint {
+  color: var(--warn);
+}
+
+.profile-secret-hint .link-button,
+.profile-secret-state .link-button {
+  padding: 0 2px;
+  font-size: 11.5px;
+  text-decoration: underline;
+}
+
+/* Stored: a filled dot; not stored: a ring. Shape and text, not color alone. */
+.secret-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.secret-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.secret-state.stored {
+  color: var(--ok);
+}
+
+.secret-state.stored .secret-mark {
+  background: var(--ok);
+  box-shadow: none;
+}
+
+.profile-add {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.profile-delete {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 12px;
+}
+
+.danger-link:hover {
+  color: var(--error);
+}
+
+.profile-saved:empty {
+  display: none;
 }

@@ -44,11 +44,15 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     canInsert: false,
     splitMode: "single",
     canBroadcast: false,
+    worktreeFolder: null,
+    changesOpen: false,
     t: createTranslator("en"),
     badge: () => null,
     notesIcon: null,
     activate: vi.fn(),
     start: vi.fn(),
+    startInWorktree: vi.fn(),
+    toggleChanges: vi.fn(),
     openNotes: vi.fn(),
     insertSnippet: vi.fn(),
     setSplitMode: vi.fn(),
@@ -109,6 +113,34 @@ describe("buildLauncherItems", () => {
     expect(items.filter((item) => item.section === "notes").map((item) => item.key)).toEqual([
       "notes:h",
     ]);
+  });
+
+  it("offers an own worktree only for a git folder, and never as a primary entry", () => {
+    const plain = buildLauncherItems(context());
+    expect(plain.some((item) => item.key.startsWith("worktree:"))).toBe(false);
+
+    const ctx = context({ worktreeFolder: "C:\\src\\hangar" });
+    const items = buildLauncherItems(ctx).filter((item) => item.key.startsWith("worktree:"));
+    expect(items.map((item) => item.key)).toEqual([
+      "worktree:claude:C:\\src\\hangar",
+      "worktree:pwsh:C:\\src\\hangar",
+    ]);
+    expect(items.every((item) => item.primary !== true)).toBe(true);
+    items[0]?.run();
+    expect(ctx.startInWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "claude" }),
+      "C:\\src\\hangar",
+    );
+  });
+
+  it("names the changes command after the panel state", () => {
+    const en = createTranslator("en");
+    const closed = buildLauncherItems(context()).find((item) => item.key === "changes");
+    expect(closed?.label).toBe(en("changes.show"));
+    const open = buildLauncherItems(context({ changesOpen: true })).find(
+      (item) => item.key === "changes",
+    );
+    expect(open?.label).toBe(en("changes.hide"));
   });
 
   it("runs the matching action", () => {

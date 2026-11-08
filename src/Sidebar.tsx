@@ -26,6 +26,7 @@ import {
   RestartIcon,
   StopIcon,
   SunIcon,
+  WorktreeIcon,
 } from "./icons";
 import { clampFooterHeight, FOOTER_HEIGHT, SIDEBAR_WIDTH, type SidebarGroup } from "./layout";
 import { folderLabel, sameFolder, type NoteFolderInfo } from "./notes";
@@ -35,6 +36,7 @@ import { labelWithVersion, type ProgramVersions } from "./programs";
 import { availableVersion, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
+import { shortBranch } from "./worktree";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
 import {
@@ -114,6 +116,9 @@ interface Props {
   folders: FolderPrefs;
   onSelectCwd: (path: string) => void;
   onToggleFavorite: (path: string) => void;
+  /** "Own worktree" for new sessions: chosen, and possible (the folder is in a git repository). */
+  worktree: { on: boolean; possible: boolean };
+  onWorktree: (on: boolean) => void;
   onRestart: (id: number) => void;
   onKill: (id: number) => void;
   onClose: (id: number) => void;
@@ -135,7 +140,13 @@ export function Sidebar(props: Props) {
     const state = attention.get(session.id) ?? "idle";
     return {
       status: statusLine(session, state, props.activityOf(session.id, now), now, t, props.language),
-      detail: detailLine(session, props.branches.get(session.cwd) ?? null, now, props.language),
+      // A worktree's folder name repeats its branch; the repository's name says more.
+      detail: detailLine(
+        session.worktree ? { ...session, cwd: session.worktree.repoRoot } : session,
+        props.branches.get(session.cwd) ?? null,
+        now,
+        props.language,
+      ),
     };
   };
   const root = useRef<HTMLElement>(null);
@@ -248,6 +259,9 @@ export function Sidebar(props: Props) {
                   title={[
                     `${session.title} · ${status}`,
                     detailText(where, t),
+                    session.worktree
+                      ? t("worktree.sessionHint", { branch: session.worktree.branch })
+                      : "",
                     session.cwd,
                     markerColorText(session.marker, t),
                     detail,
@@ -537,6 +551,11 @@ export function Sidebar(props: Props) {
             }}
           />
         )}
+        <WorktreeOption
+          on={props.worktree.on}
+          possible={props.worktree.possible}
+          onChange={props.onWorktree}
+        />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
           {startable.map((profile) => {
@@ -1019,6 +1038,7 @@ function SessionItem({
           title={[
             waiting ? `${session.title} · ${status}` : "",
             detail,
+            session.worktree ? t("worktree.sessionHint", { branch: session.worktree.branch }) : "",
             session.cwd,
             program,
             t("session.renameHint"),
@@ -1050,15 +1070,29 @@ function SessionItem({
             </span>
             <span className="session-detail">
               <span className="session-path">{where.folder}</span>
-              {where.branch !== null && (
-                <span className="session-branch">
+              {session.worktree ? (
+                <span className="session-branch worktree">
                   <span aria-hidden="true">·</span>
-                  <BranchIcon size={11} />
-                  <span className="sr-only">{t("session.branch", { branch: where.branch })}</span>
+                  <WorktreeIcon size={11} />
+                  <span className="sr-only">
+                    {t("worktree.sessionHint", { branch: where.branch ?? session.worktree.branch })}
+                  </span>
+                  {/* The icon already says "own worktree"; the "hangar/" prefix would only repeat it. */}
                   <span className="session-branch-name" aria-hidden="true">
-                    {where.branch}
+                    {shortBranch(where.branch ?? session.worktree.branch)}
                   </span>
                 </span>
+              ) : (
+                where.branch !== null && (
+                  <span className="session-branch">
+                    <span aria-hidden="true">·</span>
+                    <BranchIcon size={11} />
+                    <span className="sr-only">{t("session.branch", { branch: where.branch })}</span>
+                    <span className="session-branch-name" aria-hidden="true">
+                      {where.branch}
+                    </span>
+                  </span>
+                )
               )}
               {where.runtime !== null && (
                 <span className="session-runtime">
@@ -1113,6 +1147,44 @@ function SessionItem({
         </IconButton>
       </div>
     </li>
+  );
+}
+
+/**
+ * "Own worktree" below "Starts in": new sessions get a branch and folder of their own, so several
+ * agents can work on one repository without getting in each other's way. Off outside git.
+ */
+function WorktreeOption({
+  on,
+  possible,
+  onChange,
+}: {
+  on: boolean;
+  possible: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const t = useT();
+  const helpId = useId();
+  return (
+    <label
+      className={possible ? "worktree-option" : "worktree-option disabled"}
+      title={possible ? t("worktree.optionHelp") : t("worktree.optionNoRepo")}
+    >
+      <input
+        type="checkbox"
+        checked={on && possible}
+        disabled={!possible}
+        aria-describedby={helpId}
+        onChange={(event) => {
+          onChange(event.currentTarget.checked);
+        }}
+      />
+      <WorktreeIcon size={14} />
+      <span className="worktree-option-label">{t("worktree.option")}</span>
+      <span id={helpId} className="sr-only">
+        {possible ? t("worktree.optionHelp") : t("worktree.optionNoRepo")}
+      </span>
+    </label>
   );
 }
 

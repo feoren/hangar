@@ -194,6 +194,35 @@ describe("session marker", () => {
   });
 });
 
+describe("worktree", () => {
+  const worktree = {
+    path: "/data/worktrees/app-1a2b3c4d/claude-a1b2c3",
+    branch: "hangar/claude-a1b2c3",
+    repoRoot: "/src/app",
+  };
+
+  it("stays with the session across rename, restart and a placeholder replacement", () => {
+    let state = sessionsReducer(initialSessions, { type: "added", session: session(1), worktree });
+    expect(state.sessions[0]?.worktree).toEqual(worktree);
+    state = sessionsReducer(state, { type: "updated", session: { ...session(1), title: "New" } });
+    expect(state.sessions[0]?.worktree).toEqual(worktree);
+
+    let restored = sessionsReducer(initialSessions, {
+      type: "restored",
+      session: session(-1),
+      order: 0,
+      worktree,
+    });
+    restored = sessionsReducer(restored, { type: "replaced", oldId: -1, session: session(5) });
+    expect(restored.sessions[0]?.worktree).toEqual(worktree);
+  });
+
+  it("is absent for ordinary sessions", () => {
+    const state = sessionsReducer(initialSessions, { type: "added", session: session(1) });
+    expect("worktree" in (state.sessions[0] ?? {})).toBe(false);
+  });
+});
+
 describe("nextWaitingId", () => {
   const list = [session(1), session(2), session(3), session(4)];
 

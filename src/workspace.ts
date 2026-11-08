@@ -2,8 +2,9 @@
 // one was active, plus trimming the saved scrollback.
 // Pure logic without backend; contract: docs/wiki/pages/syntheses/session-restore.md.
 
-import type { SessionKind } from "./api";
+import type { SessionKind, Worktree } from "./api";
 import { normalizeMarkerColor, storedEmoji } from "./marker";
+import { parseWorktree } from "./worktree";
 
 export const WORKSPACE_VERSION = 1;
 /** Backend limit for one scrollback (UTF-8). Leaves some room for the separator line on load. */
@@ -23,6 +24,8 @@ export interface SavedSession {
   color: string | null;
   /** Session marker: 1 to 16 bytes UTF-8, or `null` (never an empty string). */
   emoji: string | null;
+  /** The session's own git worktree, or `null`. */
+  worktree: Worktree | null;
 }
 
 export interface Workspace {
@@ -56,6 +59,7 @@ export interface SessionEntry {
   kind?: SessionKind | undefined;
   color?: string | null | undefined;
   emoji?: string | null | undefined;
+  worktree?: Worktree | null | undefined;
 }
 
 /** Started again on restore. An update after a restart would come as a surprise. */
@@ -90,6 +94,7 @@ export function buildWorkspace(
       order: sessions.length,
       color: normalizeMarkerColor(entry.color),
       emoji: storedEmoji(entry.emoji),
+      worktree: parseWorktree(entry.worktree ?? null),
     });
   }
   const active = activeKey?.toLowerCase() ?? null;
@@ -115,7 +120,8 @@ function savedSession(value: unknown): SavedSession | null {
   // Older files have no marker; invalid values are dropped instead of losing the session.
   const color = normalizeMarkerColor(field("color"));
   const emoji = storedEmoji(field("emoji"));
-  return { key: key.toLowerCase(), profileId, cwd, title, order, color, emoji };
+  const worktree = parseWorktree(field("worktree"));
+  return { key: key.toLowerCase(), profileId, cwd, title, order, color, emoji, worktree };
 }
 
 /**

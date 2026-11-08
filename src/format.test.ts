@@ -81,6 +81,11 @@ describe("badgeText", () => {
     expect(badgeText(undefined, "pwsh")).toBe("P");
   });
 
+  it("keeps a three letter abbreviation such as WSL", () => {
+    expect(badgeText({ ...profile, icon: "WSL" }, "wsl-ubuntu")).toBe("WSL");
+    expect(badgeText({ ...profile, icon: "Wsl!" }, "x")).toBe("Ws");
+  });
+
   it("does not cut an emoji in half", () => {
     expect(badgeText({ ...profile, icon: "🚀🚀🚀" }, "x")).toBe("🚀🚀");
   });

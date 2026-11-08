@@ -30,6 +30,30 @@ export interface Profile {
   installHint: string | null;
   /** Arguments to resume the last conversation; `null`: resume is not possible. */
   resumeArgs?: string[] | null;
+  /** A profile from profiles.toml, which Settings can change and delete. */
+  editable?: boolean;
+  /** Names of the plain environment variables, never their values (`profileEnv` has those). */
+  env?: string[];
+  /** Names of the variables whose values live in the OS keychain. */
+  secretEnv?: string[];
+}
+
+/** What Settings saves with `saveProfile` (Rust: `ProfileInput` in profile_edit.rs). */
+export interface ProfileInput {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string | null;
+  env: Record<string, string>;
+  secretEnv: string[];
+}
+
+/** A session's own git worktree (Rust: `Worktree` in worktree.rs). */
+export interface Worktree {
+  path: string;
+  branch: string;
+  repoRoot: string;
 }
 
 export interface SessionInfo {
@@ -167,6 +191,32 @@ export const api = {
    * a detached HEAD, or `null` outside a repository. Check with `parseBranches`.
    */
   gitBranches: (paths: string[]) => invoke<unknown>("git_branches", { paths }),
+  /**
+   * Changes of a working folder against HEAD (at most 2 MiB of diff text). Check with
+   * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
+   */
+  gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
+  /** New branch `hangar/<slug>` and worktree for a session; check with `parseWorktree`. */
+  createWorktree: (cwd: string, label: string) =>
+    invoke<unknown>("create_worktree", { cwd, label }),
+  /** Never forces; what stays is named in `reason`. Check with `parseRemoval`. */
+  removeWorktree: (worktree: Worktree) => invoke<unknown>("remove_worktree", { worktree }),
+
+  // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
+  /** Inserts or replaces a profile in profiles.toml; returns the new list. */
+  saveProfile: (profile: ProfileInput) => invoke<Profile[]>("save_profile", { profile }),
+  /** Only the user's own profiles; returns the new list. */
+  deleteProfile: (id: string) => invoke<Profile[]>("delete_profile", { id }),
+  /** Values of a profile's plain variables, only for the edit form. Check with `parseProfileEnv`. */
+  profileEnv: (id: string) => invoke<unknown>("profile_env", { id }),
+  /** Per secret variable whether a value is stored, never the value. `parseSecretStatuses`. */
+  profileSecrets: (profileId: string) => invoke<unknown>("profile_secrets", { profileId }),
+  /** The value goes to the keychain only; the name must be listed in the saved profile. */
+  setProfileSecret: (profileId: string, name: string, value: string) =>
+    invoke<null>("set_profile_secret", { profileId, name, value }),
+  deleteProfileSecret: (profileId: string, name: string) =>
+    invoke<null>("delete_profile_secret", { profileId, name }),
+
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),

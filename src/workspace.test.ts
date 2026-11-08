@@ -41,8 +41,8 @@ describe("buildWorkspace", () => {
     expect(workspace).toEqual({
       version: 1,
       sessions: [
-        { ...entry(B, "b"), order: 0, color: null, emoji: null },
-        { ...entry(A, "a"), order: 1, color: null, emoji: null },
+        { ...entry(B, "b"), order: 0, color: null, emoji: null, worktree: null },
+        { ...entry(A, "a"), order: 1, color: null, emoji: null, worktree: null },
       ],
       activeKey: A,
     });
@@ -69,6 +69,7 @@ describe("buildWorkspace", () => {
       "order",
       "profileId",
       "title",
+      "worktree",
     ]);
     expect(restorable({ kind: "update" })).toBe(false);
     expect(restorable({ kind: "agent" })).toBe(true);
@@ -132,6 +133,36 @@ describe("session marker", () => {
       [A, "#46a758", "\u{2B50}"],
       [B, null, null],
       [C, null, null],
+    ]);
+  });
+});
+
+describe("worktree", () => {
+  const worktree = {
+    path: "/home/x/.local/share/hangar/worktrees/project-1a2b3c4d/claude-code-a1b2c3",
+    branch: "hangar/claude-code-a1b2c3",
+    repoRoot: "/home/x/project",
+  };
+
+  it("is saved with the session and comes back on restore", () => {
+    const workspace = buildWorkspace([{ ...entry(A), worktree }, entry(B)], null);
+    expect(workspace.sessions.map((s) => s.worktree)).toEqual([worktree, null]);
+    const parsed = parseWorkspace(JSON.parse(JSON.stringify(workspace)));
+    expect(parsed?.sessions[0]?.worktree).toEqual(worktree);
+  });
+
+  it("drops a malformed worktree but keeps the session", () => {
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, worktree: { ...worktree, branch: "main" } },
+        { ...entry(B), order: 1, worktree: { path: 5 } },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => [s.key, s.worktree])).toEqual([
+      [A, null],
+      [B, null],
     ]);
   });
 });

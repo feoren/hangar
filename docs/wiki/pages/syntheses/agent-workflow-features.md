@@ -257,8 +257,9 @@ request). Right click opens the menu. No window capability is needed for hiding;
    name, the first to be cut) and the run time since `createdAt` (not for ended sessions). One
    clock tick of 30 s in the sidebar re-renders only the sidebar. Branch paths: the sessions'
    `cwd` strings, each once, at most 64; refreshed at once on focus and visibility return. The
-   collapsed rail shows both lines in its tooltip. Session actions in the sidebar row take no width
-   while hidden, so the status line can use the whole row.
+   collapsed rail shows both lines in its tooltip. Session actions lie over the right end of the
+   row on its own background with a soft left edge (mask) and fade in on hover or keyboard focus,
+   the active row included, so the status line keeps the whole row and nothing moves.
 7. **Broadcast**: dialog "Send to several": text, checkboxes for running sessions (or start new
    ones with chosen programs in the current folder), then each gets the text as bracketed paste
    plus Enter; afterwards split view shows them side by side.
@@ -270,6 +271,21 @@ request). Right click opens the menu. No window capability is needed for hiding;
 8. **Worktree**: option "Own worktree" in New session (only for git folders): `create_worktree`,
    then start in it. Sidebar marks such sessions. Closing removes the worktree
    (`remove_worktree`); if it stays, a notice says why.
+   As built (`src/worktree.ts`): the option is a checkbox below "Starts in", enabled only while
+   `git_branches` reports a branch for that folder (the folder is added to the status line's branch
+   paths). It is not saved: it applies for the current run to every start in the "Starts in"
+   folder (sidebar, File, New session, Ctrl+Shift+T, empty state). Quick access lists separate
+   entries "program in folder, own worktree" for that folder instead of following the checkbox. The
+   label is the program name. While git checks out, a calm "Creating worktree" notice shows; create
+   errors for missing git, no repository and network shares get translated sentences, others keep
+   git's words. If the session then fails to start, the new worktree is removed again. Recent
+   folders record the repository folder, not the worktree. The sidebar shows a worktree icon (accent
+   color) with the branch in line 2, and the tooltip names the branch. The close confirmation says
+   the worktree goes too unless it holds changes; exited sessions close without confirmation, as
+   removal never forces. After closing, a notice appears only when something stayed: the folder
+   with the reason (remaining changes and ignored files as a translated sentence, anything else in
+   git's words), or (folder gone, branch kept) the branch name, each copyable. Placeholders
+   from a failed restore keep their worktree and remove it when closed.
 9. **Snippets**: stored texts (Settings section, defaults "Review the changes", "Write tests",
    "Explain this"), inserted into the active session as bracketed paste via `term.paste` after
    `sanitizePaste`; from the launcher and the terminal context menu.
@@ -279,6 +295,16 @@ request). Right click opens the menu. No window capability is needed for hiding;
 10. **Changes**: panel "Changes" (Ctrl+Shift+D) at the right like the notes panel: file list with
     status and +/-, unified diff with colors, refresh, auto refresh when the session's attention
     changes.
+    As built (`src/gitDiff.ts`, `src/ChangesPanel.tsx`): notes and changes share the right side,
+    its width and the docked or overlay placement; opening one closes the other (opening the changes
+    also saves the notes as closed in the layout). The changes panel is not remembered
+    across restarts. It reads `git_diff` on open, on a new active session, on Refresh and on every
+    attention state change of the active session; the previous list stays visible while reading.
+    Each file shows a status letter in a box (A, D, R, U, !, M, with its name for screen readers),
+    name, folder and +/-. Files open by themselves while each has at most 200 diff lines and
+    together at most 800; each open file renders 300 lines per page ("Show more"). Diff text goes
+    into text nodes only. Quoted paths (`core.quotePath`) are decoded, CRLF is tolerated. Escape
+    returns the focus to the terminal. Also in View and quick access.
 11. **Drag and drop**: files from Explorer onto a pane insert their quoted paths as bracketed paste
     (`onDragDropEvent`, pane under the cursor). Quoting per program: PowerShell `'...'` with `''`,
     cmd `"..."`, POSIX shells and WSL `'...'` with `'\''`, agent CLIs `"..."` when needed.
@@ -311,11 +337,30 @@ request). Right click opens the menu. No window capability is needed for hiding;
     data from a real WebView2 host and fractional DPI.
 16. **Profile editor**: Settings, Programs: form for name, command, arguments, folder,
     environment and secret variables, saved at once via `save_profile`.
+    As built (`src/profileForm.ts`, `src/ProfileEditor.tsx`): each installed row has "Edit" (own
+    profiles) or "Customize" (catalog and WSL entries: saving creates a user profile with the same
+    id; deleting it brings the built-in entry back). "New program" opens an empty form; its id comes
+    from the name (lowercase ASCII, unique without regard to case) and is never shown. Own profiles
+    whose command is not found get a list "Not found on this computer", so they can be fixed or
+    deleted. Arguments are one line: spaces separate, `'...'` is literal, `"..."` knows only `\"`
+    and `\`, so Windows paths can be typed as they are; `joinArgs` quotes only where needed.
+    `profile_env` is read once when the form opens. Problems found before saving and backend errors
+    are shown at the field or below the form. The new list from `save_profile` and
+    `delete_profile` replaces the app's list at once. Delete asks inline.
 17. **Secrets**: per secret variable a password field; stored via `set_profile_secret`, shown only as
     "stored".
+    As built: password fields are uncontrolled, so values never enter React state; they are read
+    on Save after `save_profile` succeeded, sent, and the field is cleared. The state "Stored" (filled
+    dot) or "Not stored" (ring) comes from `profile_secrets`, with "Remove value"
+    (`delete_profile_secret`). A plain variable whose name looks like a credential (KEY, TOKEN,
+    SECRET, PASSWORD, CREDENTIAL) shows a hint with "Make it secret", which moves the name and puts
+    its value into the new password field.
 18. **Export**: menu "Export session as text / HTML" (SerializeAddon `serializeAsHTML`), via
     `export_session`.
 19. **WSL**: no frontend work beyond badges.
+    As built: a three letter ASCII icon such as `WSL` stays whole in the letter badge (smaller
+    type); a program icon from `program_icons` still wins in "Automatic". WSL entries count as
+    shells for drag and drop and broadcast (`shellKind`).
 20. **Tray**: setting "Keep running in the notification area" (default off); `configure_tray`;
     `tray-quit` runs the normal quit.
     As built (`src/tray.ts`): the setting is the first one under General, Sessions. `TrayState`

@@ -1,7 +1,7 @@
 // Sidebar state: which sessions exist and which one is visible.
 // A pure reducer, so the logic can be tested without UI and without backend.
 
-import type { SessionInfo } from "./api";
+import type { SessionInfo, Worktree } from "./api";
 import { hasMarker, type Marker } from "./marker";
 
 /** A session as the UI shows it: backend data plus flags of our own. */
@@ -12,6 +12,8 @@ export interface SessionView extends SessionInfo {
   restoreOrder?: number;
   /** Color and emoji chosen by the user; kept across rename and restart. */
   marker?: Marker;
+  /** The session's own git worktree; removed when the session is closed. */
+  worktree?: Worktree;
 }
 
 export interface SessionsState {
@@ -20,12 +22,12 @@ export interface SessionsState {
 }
 
 export type SessionsAction =
-  | { type: "added"; session: SessionInfo }
+  | { type: "added"; session: SessionInfo; worktree?: Worktree }
   /**
    * A restored session at its saved slot, even if it finishes sooner or later than the others.
    * Becomes active only if no session is active yet.
    */
-  | { type: "restored"; session: SessionInfo; order: number; marker?: Marker }
+  | { type: "restored"; session: SessionInfo; order: number; marker?: Marker; worktree?: Worktree }
   | { type: "stopRequested"; id: number }
   | { type: "stopFailed"; id: number }
   | { type: "updated"; session: SessionInfo }
@@ -44,13 +46,14 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
   switch (action.type) {
     case "added": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
-      return { sessions: [...state.sessions, action.session], activeId: action.session.id };
+      const view = withWorktree({ ...action.session }, action.worktree);
+      return { sessions: [...state.sessions, view], activeId: action.session.id };
     }
     case "restored": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
-      const view: SessionView = withMarker(
-        { ...action.session, restoreOrder: action.order },
-        action.marker,
+      const view: SessionView = withWorktree(
+        withMarker({ ...action.session, restoreOrder: action.order }, action.marker),
+        action.worktree,
       );
       // In front of the first session with a later slot; newly started ones (no slot) go last.
       const index = state.sessions.findIndex(
@@ -81,7 +84,10 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         // no longer applies to the new process.
         sessions: state.sessions.map((s) =>
           s.id === action.oldId
-            ? withMarker(withOrder({ ...action.session }, s.restoreOrder), s.marker)
+            ? withWorktree(
+                withMarker(withOrder({ ...action.session }, s.restoreOrder), s.marker),
+                s.worktree,
+              )
             : s,
         ),
         activeId: state.activeId === action.oldId ? action.session.id : state.activeId,
@@ -140,7 +146,10 @@ function mark(state: SessionsState, id: number, stoppedByUser: boolean): Session
  * stays exited (rename yes, restart no).
  */
 function keep(previous: SessionView, next: SessionInfo): SessionView {
-  const view = withMarker(withOrder({ ...next }, previous.restoreOrder), previous.marker);
+  const view = withWorktree(
+    withMarker(withOrder({ ...next }, previous.restoreOrder), previous.marker),
+    previous.worktree,
+  );
   if (previous.stoppedByUser === true && next.status === "exited") view.stoppedByUser = true;
   return view;
 }
@@ -151,6 +160,11 @@ function withMarker(view: SessionView, marker: Marker | undefined): SessionView 
   if (hasMarker(marker)) next.marker = marker;
   else delete next.marker;
   return next;
+}
+
+function withWorktree(view: SessionView, worktree: Worktree | undefined): SessionView {
+  if (worktree !== undefined) view.worktree = worktree;
+  return view;
 }
 
 function withOrder(view: SessionView, order: number | undefined): SessionView {

@@ -25,6 +25,7 @@ import {
   type NoteFolder,
   type Profile,
   type SessionInfo,
+  type Worktree,
 } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
 import type { AttentionConfig, AttentionState } from "./attention";
@@ -145,6 +146,17 @@ import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
+import { ChangesPanel } from "./ChangesPanel";
+import {
+  canUseWorktree,
+  createErrorText,
+  parseRemoval,
+  parseWorktree,
+  removalErrorNotice,
+  removalNotice,
+  worktreeLabel,
+  type WorktreeNotice,
+} from "./worktree";
 import {
   buildWorkspace,
   EMPTY_WORKSPACE,
@@ -356,6 +368,17 @@ export function App() {
   const [tray] = useState(() => new TrayState(api.configureTray));
   const [noteScope, setNoteScope] = useState<NoteScope>({ follow: true });
   const [notesFocusToken, setNotesFocusToken] = useState(0);
+  /** Changes panel (Ctrl+Shift+D); shares the right side with the notes, one at a time. */
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [changesFocusToken, setChangesFocusToken] = useState(0);
+  /** "Own worktree" for new sessions in the "Starts in" folder; per run, so it never surprises. */
+  const [worktreeOn, setWorktreeOn] = useState(false);
+  /** A worktree is being created (checking out can take a while). */
+  const [creatingWorktree, setCreatingWorktree] = useState(false);
+  /** What stayed after closing a worktree session, with its path to copy. */
+  const [worktreeNotice, setWorktreeNotice] = useState<
+    (WorktreeNotice & { copied: boolean }) | null
+  >(null);
   const updater = useUpdater(version, settings.autoUpdate);
   const installed = installedKey(profiles);
   const programs = usePrograms(installed, settings.showVersions, settings.showIcons, startupDone);
@@ -766,9 +789,27 @@ export function App() {
     }
   }, []);
 
-  /** `folder`: start there instead of the "Starts in" folder (quick access). */
+  /**
+   * `folder`: start there instead of the "Starts in" folder (quick access). `ownWorktree`: first a
+   * git worktree with a branch of its own is created from that folder, and the session runs in it.
+   */
   const start = useCallback(
-    async (profile: Profile, folder?: string) => {
+    async (profile: Profile, folder?: string, ownWorktree = false) => {
+      const base = folder ?? cwd;
+      let worktree: Worktree | undefined;
+      if (ownWorktree && base !== null) {
+        setCreatingWorktree(true);
+        try {
+          const made = parseWorktree(await api.createWorktree(base, worktreeLabel(profile.name)));
+          if (made === null) throw new Error(t("error.unknown"));
+          worktree = made;
+        } catch (e) {
+          setError(createErrorText(e, t));
+          return;
+        } finally {
+          setCreatingWorktree(false);
+        }
+      }
       const terminal = new SessionTerminal({
         fontSize: layout.fontSize,
         attention: attentionConfig,
@@ -779,7 +820,7 @@ export function App() {
       try {
         const info = await api.createSession(
           profile.id,
-          folder ?? cwd,
+          worktree?.path ?? base,
           INITIAL_SIZE,
           terminal.createChannel(),
         );
@@ -793,11 +834,17 @@ export function App() {
         ];
         const title = numberedTitle(info.title, others);
         claimedTitles.current.set(info.id, title);
-        dispatch({ type: "added", session: await withTitle(info, title) });
+        dispatch({
+          type: "added",
+          session: await withTitle(info, title),
+          ...(worktree ? { worktree } : {}),
+        });
         saveLastProgram(profile.id);
         setLastProgramId(profile.id);
-        // The folder the session really runs in (the backend may fall back to the home folder).
-        setFolders((current) => recordRecent(current, info.cwd));
+        // The folder the session really runs in (the backend may fall back to the home folder);
+        // for a worktree the repository's folder, so recent folders do not fill with worktrees.
+        const used = worktree === undefined ? info.cwd : base;
+        if (used !== null) setFolders((current) => recordRecent(current, used));
         // Very short processes may already have exited before the response arrives.
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
@@ -805,6 +852,8 @@ export function App() {
       } catch (e) {
         terminal.dispose();
         showError(e);
+        // Nothing runs in the new worktree yet: take it away again (never forced).
+        if (worktree) api.removeWorktree(worktree).catch(() => undefined);
       }
     },
     [
@@ -817,6 +866,7 @@ export function App() {
       showError,
       wire,
       withTitle,
+      t,
     ],
   );
 
@@ -914,6 +964,7 @@ export function App() {
         type: "restored",
         order: saved.order,
         marker: { color: saved.color, emoji: saved.emoji },
+        ...(saved.worktree ? { worktree: saved.worktree } : {}),
         session: {
           id,
           profileId: saved.profileId,
@@ -981,6 +1032,7 @@ export function App() {
           type: "restored",
           order: saved.order,
           marker: { color: saved.color, emoji: saved.emoji },
+          ...(saved.worktree ? { worktree: saved.worktree } : {}),
           session: await withTitle(info, saved.title),
         });
         if (terminal.exitCode !== undefined) {
@@ -1055,8 +1107,30 @@ export function App() {
     [showError, wire, forgetAttention, withTitle, t],
   );
 
+  /**
+   * After a worktree session closed: remove its worktree. git never forces, so changes stay; the
+   * notice then says what stayed and where.
+   */
+  const removeSessionWorktree = useCallback((worktree: Worktree) => {
+    const tr = createTranslator(settingsRef.current.language);
+    api
+      .removeWorktree(worktree)
+      .then((value) => {
+        const removal = parseRemoval(value);
+        const notice =
+          removal === null
+            ? removalErrorNotice(new Error(tr("error.unknown")), worktree, tr)
+            : removalNotice(removal, worktree, tr);
+        if (notice) setWorktreeNotice({ ...notice, copied: false });
+      })
+      .catch((e: unknown) => {
+        setWorktreeNotice({ ...removalErrorNotice(e, worktree, tr), copied: false });
+      });
+  }, []);
+
   const close = useCallback(
     async (id: number) => {
+      const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
       if (!isPlaceholder(id)) {
         try {
           await api.close(id);
@@ -1075,8 +1149,9 @@ export function App() {
       dispatch({ type: "removed", id });
       forgetAttention(id);
       setRenamingId((current) => (current === id ? null : current));
+      if (worktree) removeSessionWorktree(worktree);
     },
-    [showError, forgetAttention],
+    [showError, forgetAttention, removeSessionWorktree],
   );
 
   /**
@@ -1126,6 +1201,7 @@ export function App() {
               kind: session.kind,
               color: session.marker?.color ?? null,
               emoji: session.marker?.emoji ?? null,
+              worktree: session.worktree ?? null,
             },
           ]
         : [];
@@ -1472,20 +1548,36 @@ export function App() {
     setLayout((current) => ({ ...current, collapsed: !current.collapsed }));
   };
 
-  /** Opening gives focus to the editor, closing gives it to the terminal. */
+  /**
+   * Opening gives focus to the editor, closing gives it to the terminal. Notes and changes share
+   * the right side: opening one closes the other.
+   */
   const toggleNotes = () => {
     if (layout.notesOpen) {
       setLayout((current) => ({ ...current, notesOpen: false }));
       focusTerminal();
     } else {
+      setChangesOpen(false);
       setLayout((current) => ({ ...current, notesOpen: true }));
       setNotesFocusToken((token) => token + 1);
+    }
+  };
+
+  const toggleChanges = () => {
+    if (changesOpen) {
+      setChangesOpen(false);
+      focusTerminal();
+    } else {
+      setLayout((current) => (current.notesOpen ? { ...current, notesOpen: false } : current));
+      setChangesOpen(true);
+      setChangesFocusToken((token) => token + 1);
     }
   };
 
   /** Click on a notes scope in the sidebar. */
   const openNotes = (folder: NoteFolder) => {
     const follow = sessionFolder !== null && folderId(sessionFolder) === folderId(folder);
+    setChangesOpen(false);
     setNoteScope(follow ? { follow: true } : { follow: false, folder });
     setLayout((current) => (current.notesOpen ? current : { ...current, notesOpen: true }));
     setNotesFocusToken((token) => token + 1);
@@ -1533,6 +1625,23 @@ export function App() {
         setLink((current) => (current?.url === url ? { url, copied: true } : current));
       })
       .catch(showError);
+  };
+
+  const copyWorktreePath = () => {
+    if (worktreeNotice === null) return;
+    const path = worktreeNotice.path;
+    writeClipboard(path)
+      .then(() => {
+        setWorktreeNotice((current) =>
+          current?.path === path ? { ...current, copied: true } : current,
+        );
+      })
+      .catch(showError);
+  };
+
+  /** A profile was saved or deleted in Settings: the backend's new list applies at once. */
+  const applyProfiles = (next: Profile[]) => {
+    setProfiles((current) => (sameProfiles(current, next) ? current : next));
   };
 
   const updateSettings = (patch: Partial<Settings>) => {
@@ -1640,8 +1749,18 @@ export function App() {
 
   /** Times for the status line; read from the terminals, which collect them outside React. */
   const activityOf = (id: number, now: number) => terminals.get(id)?.activity(now) ?? NO_ACTIVITY;
-  /** Working folders whose git branch the status line shows. */
-  const branches = useGitBranches(branchPaths(state.sessions));
+  /**
+   * Working folders whose git branch the status line shows, plus the "Starts in" folder: a
+   * branch there means "Own worktree" is possible.
+   */
+  const branches = useGitBranches(
+    branchPaths(cwd === null ? state.sessions : [{ cwd }, ...state.sessions]),
+  );
+  const worktreePossible = canUseWorktree(branches, cwd);
+  /** Start in the "Starts in" folder, in an own worktree when that option is on. */
+  const startHere = (profile: Profile) => {
+    void start(profile, undefined, worktreeOn && worktreePossible);
+  };
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
     state.sessions
@@ -1669,6 +1788,9 @@ export function App() {
       case "toggleNotes":
         toggleNotes();
         break;
+      case "toggleChanges":
+        toggleChanges();
+        break;
       case "closeSession":
         if (state.activeId !== null) requestClose(state.activeId);
         break;
@@ -1695,7 +1817,7 @@ export function App() {
         break;
       }
       case "newSession":
-        if (nextProgram) void start(nextProgram);
+        if (nextProgram) startHere(nextProgram);
         break;
       case "find":
         openSearch();
@@ -1794,7 +1916,9 @@ export function App() {
               type: "action",
               label: profile.name,
               ...(detail === undefined ? {} : { detail }),
-              run: () => void start(profile),
+              run: () => {
+                startHere(profile);
+              },
             };
           }),
         },
@@ -1955,6 +2079,12 @@ export function App() {
           label: layout.notesOpen ? t("notes.hide") : t("notes.show"),
           shortcut: keys("toggleNotes"),
           run: toggleNotes,
+        },
+        {
+          type: "action",
+          label: changesOpen ? t("changes.hide") : t("changes.show"),
+          shortcut: keys("toggleChanges"),
+          run: toggleChanges,
         },
         {
           type: "action",
@@ -2183,6 +2313,8 @@ export function App() {
       canInsert,
       splitMode: layout.splitMode,
       canBroadcast: broadcastable.length > 0,
+      worktreeFolder: worktreePossible ? cwd : null,
+      changesOpen,
       t,
       badge: (profileId) => <Badge look={badgeFor(profileId)} />,
       notesIcon: <NotesIcon size={14} />,
@@ -2191,6 +2323,8 @@ export function App() {
         focusTerminal();
       },
       start: (profile, folder) => void start(profile, folder),
+      startInWorktree: (profile, folder) => void start(profile, folder, true),
+      toggleChanges,
       openNotes,
       insertSnippet,
       setSplitMode: splitView.setSplitMode,
@@ -2261,9 +2395,9 @@ export function App() {
           onActivate={(id) => {
             dispatch({ type: "activated", id });
           }}
-          onStart={(profile) => {
-            void start(profile);
-          }}
+          onStart={startHere}
+          worktree={{ on: worktreeOn, possible: worktreePossible }}
+          onWorktree={setWorktreeOn}
           runningPrograms={runningPrograms}
           onRunUpdate={(profileId) => {
             void startUpdate(profileId);
@@ -2393,7 +2527,9 @@ export function App() {
                               type="button"
                               className="empty-program"
                               title={[profile.command, ...profile.args].join(" ")}
-                              onClick={() => void start(profile)}
+                              onClick={() => {
+                                startHere(profile);
+                              }}
                             >
                               <Badge look={badgeFor(profile.id)} />
                               <span className="empty-program-name">{profile.name}</span>
@@ -2454,65 +2590,104 @@ export function App() {
                 </div>
               )}
             </div>
-            {layout.notesOpen && (
-              <>
-                {notesPlacement.mode === "docked" && (
-                  <Splitter
-                    orientation="vertical"
-                    className="notes-edge"
-                    value={layout.notesWidth}
-                    direction={-1}
-                    label={t("notes.width")}
-                    onChange={(width) => {
-                      setLayout((current) => ({
-                        ...current,
-                        notesWidth: clampNotesWidth(width, workspaceWidth),
-                      }));
-                    }}
-                    onReset={() => {
-                      setLayout((current) => ({ ...current, notesWidth: NOTES_WIDTH.default }));
-                    }}
-                  />
-                )}
-                <NotesPanel
-                  folder={notesFolder}
-                  following={noteScope.follow}
-                  sessionFolder={sessionFolder}
-                  folders={noteFolders}
-                  width={notesPlacement.width}
-                  overlay={notesPlacement.mode === "overlay"}
-                  focusToken={notesFocusToken}
-                  onScope={setNoteScope}
-                  onChanged={refreshNoteFolders}
-                  onClose={toggleNotes}
-                  onFocusTerminal={focusTerminal}
-                />
-              </>
+            {(layout.notesOpen || changesOpen) && notesPlacement.mode === "docked" && (
+              <Splitter
+                orientation="vertical"
+                className="notes-edge"
+                value={layout.notesWidth}
+                direction={-1}
+                label={changesOpen ? t("changes.width") : t("notes.width")}
+                onChange={(width) => {
+                  setLayout((current) => ({
+                    ...current,
+                    notesWidth: clampNotesWidth(width, workspaceWidth),
+                  }));
+                }}
+                onReset={() => {
+                  setLayout((current) => ({ ...current, notesWidth: NOTES_WIDTH.default }));
+                }}
+              />
+            )}
+            {changesOpen && (
+              <ChangesPanel
+                cwd={activeSession?.cwd ?? null}
+                trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
+                width={notesPlacement.width}
+                overlay={notesPlacement.mode === "overlay"}
+                focusToken={changesFocusToken}
+                onClose={toggleChanges}
+                onFocusTerminal={focusTerminal}
+              />
+            )}
+            {layout.notesOpen && !changesOpen && (
+              <NotesPanel
+                folder={notesFolder}
+                following={noteScope.follow}
+                sessionFolder={sessionFolder}
+                folders={noteFolders}
+                width={notesPlacement.width}
+                overlay={notesPlacement.mode === "overlay"}
+                focusToken={notesFocusToken}
+                onScope={setNoteScope}
+                onChanged={refreshNoteFolders}
+                onClose={toggleNotes}
+                onFocusTerminal={focusTerminal}
+              />
             )}
           </div>
-          {link !== null && (
-            <div className="link-notice" role="status">
-              <span>{t("link.notice")}</span>
-              <span className="link-url selectable">{link.url}</span>
-              <div className="link-actions">
-                <button type="button" className="secondary-button" onClick={copyLink}>
-                  {link.copied ? t("link.copied") : t("menu.copy")}
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={t("error.dismiss")}
-                  title={t("error.dismiss")}
-                  onClick={() => {
-                    setLink(null);
-                    focusTerminal();
-                  }}
-                >
-                  <CloseIcon />
-                </button>
+          <div className="notices">
+            {creatingWorktree && (
+              <div className="link-notice" role="status">
+                <span>{t("worktree.creating")}</span>
               </div>
-            </div>
-          )}
+            )}
+            {worktreeNotice !== null && (
+              <div className="link-notice" role="status">
+                <span>{worktreeNotice.message}</span>
+                <span className="link-url selectable">{worktreeNotice.path}</span>
+                <div className="link-actions">
+                  <button type="button" className="secondary-button" onClick={copyWorktreePath}>
+                    {worktreeNotice.copied ? t("link.copied") : t("menu.copy")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setWorktreeNotice(null);
+                      focusActive();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
+            {link !== null && (
+              <div className="link-notice" role="status">
+                <span>{t("link.notice")}</span>
+                <span className="link-url selectable">{link.url}</span>
+                <div className="link-actions">
+                  <button type="button" className="secondary-button" onClick={copyLink}>
+                    {link.copied ? t("link.copied") : t("menu.copy")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setLink(null);
+                      focusTerminal();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </main>
         {emptyFolderMenu !== null && (
           <FolderMenu
@@ -2597,6 +2772,11 @@ export function App() {
           <Dialog labelledBy="close-title" onClose={cancelClose}>
             <h2 id="close-title">{t("close.confirm", { name: closingSession.title })}</h2>
             <p className="muted">{t("close.confirmBody")}</p>
+            {closingSession.worktree && (
+              <p className="muted">
+                {t("close.worktree", { branch: closingSession.worktree.branch })}
+              </p>
+            )}
             <div className="dialog-actions">
               <button
                 type="button"
@@ -2657,6 +2837,7 @@ export function App() {
             onClearScrollbacks={clearScrollbacks}
             onOpenProfileFile={openProfileFile}
             onReloadProfiles={reloadProfilesFromSettings}
+            onProfiles={applyProfiles}
             onFontSize={(fontSize) => {
               setLayout((current) => ({ ...current, fontSize }));
             }}

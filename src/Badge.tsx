@@ -10,7 +10,10 @@ export function Badge({ look }: { look: BadgeLook }) {
     );
   }
   return (
-    <span className="badge" style={{ background: look.color }}>
+    <span
+      className={Array.from(look.text).length > 2 ? "badge wide" : "badge"}
+      style={{ background: look.color }}
+    >
       {look.text}
     </span>
   );

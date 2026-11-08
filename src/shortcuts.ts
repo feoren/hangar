@@ -16,6 +16,7 @@ export type AppAction =
   | "prevSession"
   | "toggleSidebar"
   | "toggleNotes"
+  | "toggleChanges"
   | "closeSession"
   | "fontBigger"
   | "fontSmaller"
@@ -35,6 +36,8 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   if (event.shiftKey && event.code === "KeyW") return "closeSession";
   // Notes: Ctrl+Shift+N. Ctrl+N alone stays with shell and agent (e.g. history forward).
   if (event.shiftKey && event.code === "KeyN") return "toggleNotes";
+  // Changes of the session's folder (D for diff). Ctrl+D alone is end of input in every shell.
+  if (event.shiftKey && event.code === "KeyD") return "toggleChanges";
   // To the next session waiting for you (A for attention).
   if (event.shiftKey && event.code === "KeyA") return "nextWaiting";
   // New session with the most recently used program, like a new tab in Windows Terminal.
@@ -77,6 +80,7 @@ export function ignoresRepeat(action: AppAction): boolean {
     action === "closeSession" ||
     action === "toggleSidebar" ||
     action === "toggleNotes" ||
+    action === "toggleChanges" ||
     action === "openSettings" ||
     action === "find" ||
     action === "launcher"
@@ -96,6 +100,7 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   prevSession: { mods: ["ctrl", "shift"], key: "Tab" },
   toggleSidebar: { mods: ["ctrl", "shift"], key: "B" },
   toggleNotes: { mods: ["ctrl", "shift"], key: "N" },
+  toggleChanges: { mods: ["ctrl", "shift"], key: "D" },
   closeSession: { mods: ["ctrl", "shift"], key: "W" },
   fontBigger: { mods: ["ctrl"], key: "Plus" },
   fontSmaller: { mods: ["ctrl"], key: "Minus" },
