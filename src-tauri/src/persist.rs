@@ -131,6 +131,7 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
         return invalid("too many sessions");
     }
     let mut keys = std::collections::HashSet::new();
+    let mut cli_ids = std::collections::HashSet::new();
     for session in &workspace.sessions {
         let key = normalize_key(&session.key)
             .or(Err(PersistError::InvalidWorkspace("key is not a UUID")))?;
@@ -151,12 +152,14 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
                 return invalid("emoji must be 1 to 16 bytes without control characters");
             }
         }
-        if session
-            .cli_session_id
-            .as_deref()
-            .is_some_and(|id| normalize_key(id).is_err())
-        {
-            return invalid("cliSessionId is not a UUID");
+        if let Some(id) = &session.cli_session_id {
+            let Ok(id) = normalize_key(id) else {
+                return invalid("cliSessionId is not a UUID");
+            };
+            // Two entries would resume one conversation in two processes.
+            if !cli_ids.insert(id) {
+                return invalid("cliSessionId appears more than once");
+            }
         }
         if let Some(worktree) = &session.worktree {
             if crate::worktree::check_shape(worktree).is_err() {
@@ -555,6 +558,10 @@ mod tests {
             w.sessions[0].cli_session_id = Some(id.into());
             cases.push(w);
         }
+        let mut w = workspace();
+        w.sessions[0].cli_session_id = Some(KEY.into());
+        w.sessions[1].cli_session_id = Some(KEY.to_uppercase());
+        cases.push(w);
         for w in cases {
             assert!(
                 matches!(

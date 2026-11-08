@@ -64,3 +64,9 @@ pages/syntheses/agent-workflow-features.md: "As built" notes for items 21 (reord
 
 ## [2026-11-08] ingest | Conversation ids and the sub-agent view
 Processed our own measurement raw/2026-11-08-resume-id-measurement.md (Windows 11, Claude Code 2.1.319, without a terminal and in ConPTY) and the follow-up check raw/2026-11-08-session-id-in-use-check.md (strings of the 2.1.319 executable) as the source pages/sources/resume-id-measurement.md. pages/agents/resume.md: `session_id_args` and `resume_id_args`, why the fallback reuses the id, why a restart starts a new conversation. pages/syntheses/session-restore.md: `cliSessionId` in the workspace, `create_session` and the `resumeFallback` event (`cliSessionId`, `subAgents`). pages/syntheses/agent-workflow-features.md: item 23 as built (backend contract of `watch_sub_agents` and `unwatch_sub_agents`, polling instead of `notify`, path rules). Index updated.
+
+## [2026-11-08] query | Sub-agent excerpt redaction and conversation id rules
+Sub-agent excerpts and descriptions pass a best-effort redaction filter (`src-tauri/src/subagents/redact.rs`)
+and can be switched off; locating a transcript backs off from 2 s to 30 s; `cliSessionId` must be unique in
+the workspace and a live duplicate starts fresh; profiles that pick a conversation in their own args do not
+inherit the id options. Pages changed: [[agent-workflow-features]], [[resume]], [[session-restore]].

@@ -648,25 +648,30 @@ impl SessionManager {
             return Err(ManagerError::BadCwd(cwd));
         }
 
-        let launch = Launch {
-            args: &plan.args,
-            resume: plan.resume,
-            kind,
-        };
-
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let mut info = SessionInfo::new(id, profile.id.clone(), title, cwd.clone(), now_millis());
-        info.resumed = launch.resume;
-        info.kind = kind;
-        set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
         // Register first, then start: if the process exits at once, the threads find their session.
         // Check and register under the same lock so two quick clicks do not both
-        // start an update.
-        {
+        // start an update, and two restores of one id do not both resume that conversation.
+        let plan = {
             let mut sessions = lock(&self.shared.sessions);
             if kind == SessionKind::Update && update_running(&sessions, &profile.id, None) {
                 return Err(ManagerError::UpdateRunning(agent.profile.name.clone()));
             }
+            // Two processes writing one conversation would corrupt it: the second starts fresh.
+            let taken = plan
+                .cli_session_id
+                .as_deref()
+                .is_some_and(|cli| cli_session_in_use(&sessions, cli));
+            let plan = if taken {
+                Plan::normal(profile, None)
+            } else {
+                plan
+            };
+            let mut info =
+                SessionInfo::new(id, profile.id.clone(), title, cwd.clone(), now_millis());
+            info.resumed = plan.resume;
+            info.kind = kind;
+            set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
             sessions.insert(
                 id,
                 Entry {
@@ -678,7 +683,13 @@ impl SessionManager {
                     kill_requested: false,
                 },
             );
-        }
+            plan
+        };
+        let launch = Launch {
+            args: &plan.args,
+            resume: plan.resume,
+            kind,
+        };
 
         match spawn(
             &self.shared,
@@ -874,6 +885,13 @@ impl SessionManager {
 fn set_cli_session(info: &mut SessionInfo, agent: &Agent, cli_session_id: Option<String>) {
     info.sub_agents = agent.profile.sub_agents.is_some() && cli_session_id.is_some();
     info.cli_session_id = cli_session_id;
+}
+
+/// A session that has not exited runs (or is about to run) under this conversation id.
+fn cli_session_in_use(sessions: &HashMap<SessionId, Entry>, cli_session_id: &str) -> bool {
+    sessions.values().any(|e| {
+        e.info.status != Status::Exited && e.info.cli_session_id.as_deref() == Some(cli_session_id)
+    })
 }
 
 fn running(sessions: &HashMap<SessionId, Entry>, id: SessionId) -> Result<&Runtime, ManagerError> {

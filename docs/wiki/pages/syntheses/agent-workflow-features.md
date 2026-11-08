@@ -425,8 +425,10 @@ menu paste uses the clipboard plugin.
     session gets a conversation id ([[resume]]); `SessionInfo.subAgents` is `true` when the
     program has a sub-agent source (`sub_agents = "claude"` in the catalog) and the session an
     id, which is when the menu entry applies.
-    - `watch_sub_agents(sessionId: number, onEvent: Channel)`: `null`, or an error text (unknown
-      session, no sub-agents for it). A second call for the same session replaces the first watch.
+    - `watch_sub_agents(sessionId: number, onEvent: Channel, excerpts?: boolean)`: `null`, or an
+      error text (unknown session, no sub-agents for it). A second call for the same session
+      replaces the first watch. `excerpts` comes from the frontend setting; `false` means no
+      assistant text is read at all and every `excerpt` is `null`; missing means `true`.
     - `unwatch_sub_agents(sessionId: number)`: `true` if a watch was running. `close_session` and
       app exit end the watch too, as does a channel the window dropped (noticed at the next
       change; a reload that calls `watch_sub_agents` again replaces the old watch).
@@ -443,12 +445,26 @@ menu paste uses the clipboard plugin.
       string | null, "excerpt": string | null }] }`. `located: false` until claude wrote the
       session's transcript (after the first prompt). Times are Unix milliseconds; agents are
       ordered oldest first; `stale` = not finished and no write for 60 s; `tool` = newest tool
-      call name; `excerpt` = newest assistant text, at most 400 characters, control characters
-      removed. Prompts, tool inputs, tool results and every other record type are never read.
+      call name; `excerpt` = newest assistant text, at most 400 characters. Prompts, tool inputs,
+      tool results and every other record type are never read.
+    - Excerpt privacy (`src-tauri/src/subagents/redact.rs`): before the text is cut, values of
+      names ending in key, token, secret, password, passwd or pwd (`API_KEY=...`,
+      `"client_secret": "..."`, `password: ...`, `x-api-key: ...`; a bare `key:` stays), the
+      token after `Bearer `, URL passwords (`https://user:...@host`) and long URL user names,
+      words starting with a known token prefix (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`,
+      `glpat-`, `xox?-`, `xapp-`, `AKIA`, `AIza`, `npm_`, `hf_`, `eyJ` and others, with enough
+      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks become
+      `[redacted]`; control and invisible format characters
+      (`src-tauri/src/text.rs`) are removed. The description is masked the same way. A
+      best-effort filter, not a guarantee. The excerpt lives only in the watcher's memory and the
+      window's view state: it is never persisted (workspace, scrollback, notes), exported, logged
+      or put into notifications, and the frontend must keep it that way.
     - Files: `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<id>.jsonl` (the encoded working
-      folder first, then a search every 2 s), then `<id>/subagents/agent-<agentId>.jsonl` and
+      folder first; while nothing is found the search repeats after 2, 4, 8, 16, then every 30 s,
+      and goes through all project folders only when the projects folder's modification time
+      changed or at the 30 s delay), then `<id>/subagents/agent-<agentId>.jsonl` and
       `.meta.json`; links and junctions out of the projects folder are not followed; the newest
-      256 sub-agents at most; only the last 256 KiB of a transcript are read at first; lines over
-      1 MiB are skipped. Polling instead of `notify` (CC0-1.0, outside the license policy).
+      256 sub-agents at most (at most 1024 directory entries read per poll); only the last
+      256 KiB of a transcript are read at first; lines over 1 MiB are skipped. Polling instead of `notify` (CC0-1.0, outside the license policy).
     - Codex, OpenCode and Gemini: not built; each would be another `SubAgentKind` with its own
       `SubAgentSource` ([[subagent-transcripts]]).

@@ -81,7 +81,7 @@ fn watcher_follows_a_session_from_first_prompt_to_finished_sub_agent() {
     let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = std::sync::Arc::clone(&sent);
     watchers
-        .start(1, subagents::source_for(&target), move |event| {
+        .start(1, subagents::source_for(&target, true), move |event| {
             counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tx.send(event).is_ok()
         })

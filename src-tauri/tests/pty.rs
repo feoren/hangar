@@ -1148,6 +1148,34 @@ fn restore_resumes_the_stored_id_and_falls_back_under_the_same_id() {
 }
 
 #[test]
+fn a_conversation_id_in_use_is_not_resumed_twice() {
+    let mut long = id_profile();
+    long.id = "ids-long".into();
+    long.resume_id_args = Some(if cfg!(windows) {
+        vec![
+            "/d".into(),
+            "/c".into(),
+            "echo hangar-resume-id {id} & ping -n 30 127.0.0.1 >nul".into(),
+        ]
+    } else {
+        vec!["-c".into(), "echo hangar-resume-id {id}; sleep 30".into()]
+    });
+    let manager = SessionManager::new(vec![long], Vec::new(), std::env::temp_dir());
+    let first = manager
+        .create_resuming("ids-long", None, SIZE, true, Some(STORED_ID), |_| {})
+        .unwrap();
+    assert_eq!(first.cli_session_id.as_deref(), Some(STORED_ID));
+    let second = manager
+        .create_resuming("ids-long", None, SIZE, true, Some(STORED_ID), |_| {})
+        .unwrap();
+    assert!(!second.resumed);
+    let other = second.cli_session_id.clone().unwrap();
+    assert_ne!(other, STORED_ID);
+    manager.close(first.id).unwrap();
+    manager.close(second.id).unwrap();
+}
+
+#[test]
 fn invalid_conversation_id_is_refused_before_anything_starts() {
     let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
     for bad in ["", "../x", "0f8fad5b-d9cb-469f-a165-70867728950e x"] {

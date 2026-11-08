@@ -38,7 +38,9 @@ impl Tail {
             _ => {
                 self.partial.clear();
                 let start = len.saturating_sub(INITIAL_TAIL);
-                self.skipping = start > 0;
+                // Only a cut line is skipped: if the byte before `start` ends a line, the read
+                // starts exactly at a line start.
+                self.skipping = start > 0 && byte_at(&mut file, start - 1)? != b'\n';
                 start
             }
         };
@@ -84,6 +86,13 @@ impl Tail {
         }
         lines
     }
+}
+
+fn byte_at(file: &mut File, at: u64) -> io::Result<u8> {
+    let mut byte = [0u8; 1];
+    file.seek(SeekFrom::Start(at))?;
+    file.read_exact(&mut byte)?;
+    Ok(byte[0])
 }
 
 /// Read-only, shared with writers and deleters; never follows the file beyond this call.
@@ -150,6 +159,17 @@ mod tests {
         // No cut-off first line, and not the whole file.
         assert!(lines[..lines.len() - 1].iter().all(|l| l.len() == 1023));
         assert!((lines.len() as u64) < INITIAL_TAIL / 1024 + 2);
+    }
+
+    #[test]
+    fn first_read_exactly_at_a_line_start_keeps_that_line() {
+        let dir = TempDir::new("tail-boundary");
+        let path = dir.path().join("a.jsonl");
+        let head = "h".repeat(99);
+        let body = "b".repeat(usize::try_from(INITIAL_TAIL).unwrap() - 1);
+        append(&path, format!("{head}\n{body}\n").as_bytes());
+        // The tail window starts right after the first newline.
+        assert_eq!(text(Tail::default().read_new(&path).unwrap()), [body]);
     }
 
     #[test]

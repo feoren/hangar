@@ -15,6 +15,7 @@
 //! [`SubAgentKind`] with its own source; see docs/wiki/pages/sources/subagent-transcripts.md.
 
 pub mod claude;
+pub mod redact;
 pub mod tail;
 
 use std::collections::{BTreeMap, HashMap};
@@ -112,9 +113,10 @@ pub trait SubAgentSource: Send {
     fn poll(&mut self, now: SystemTime) -> Snapshot;
 }
 
-pub fn source_for(target: &Target) -> Box<dyn SubAgentSource> {
+/// `excerpts: false` reads no assistant text at all; every `excerpt` is then `null`.
+pub fn source_for(target: &Target, excerpts: bool) -> Box<dyn SubAgentSource> {
     match target.kind {
-        SubAgentKind::Claude => Box::new(claude::ClaudeSource::new(target)),
+        SubAgentKind::Claude => Box::new(claude::ClaudeSource::new(target, excerpts)),
     }
 }
 

@@ -22,6 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
+use super::redact::redact;
 use super::tail::{open_shared, Tail};
 use super::{AgentStatus, Snapshot, SubAgent, SubAgentSource, Target};
 
@@ -29,9 +30,11 @@ use super::{AgentStatus, Snapshot, SubAgent, SubAgentSource, Target};
 pub const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
 /// No writes for this long and not finished: shown as stale (crashed, cancelled or waiting).
 pub const STALE_AFTER: Duration = Duration::from_secs(60);
-/// While the transcript is not found yet (it appears with the first prompt), the project
-/// folders are searched again at this interval.
+/// While the transcript is not found yet (it appears with the first prompt), the search is
+/// repeated after this delay, doubled after every miss up to [`MAX_LOCATE_DELAY`]: 2, 4, 8, 16,
+/// 30, 30, ... seconds.
 pub const LOCATE_INTERVAL: Duration = Duration::from_secs(2);
+pub const MAX_LOCATE_DELAY: Duration = Duration::from_secs(30);
 pub const MAX_EXCERPT_CHARS: usize = 400;
 const MAX_DESCRIPTION_CHARS: usize = 200;
 const MAX_TYPE_CHARS: usize = 64;
@@ -127,12 +130,18 @@ pub struct ClaudeSource {
     /// The projects folder after resolving links, for the containment check on every poll.
     root: Option<PathBuf>,
     next_locate: Option<Instant>,
+    locate_delay: Duration,
+    /// Modification time of the projects folder at the last full search (outer `None`: none yet).
+    /// A new project folder changes it; until then only the guessed folder is checked.
+    scanned: Option<Option<SystemTime>>,
+    /// `false`: assistant text is never read, `excerpt` stays `null`.
+    excerpts: bool,
     agents: BTreeMap<String, AgentState>,
 }
 
 impl ClaudeSource {
     /// `target.session` must already be a validated UUID ([`crate::cli_session::validate`]).
-    pub fn new(target: &Target) -> Self {
+    pub fn new(target: &Target, excerpts: bool) -> Self {
         Self {
             projects: config_dir(target).join("projects"),
             session: target.session.clone(),
@@ -140,14 +149,18 @@ impl ClaudeSource {
             subagents: None,
             root: None,
             next_locate: None,
+            locate_delay: LOCATE_INTERVAL,
+            scanned: None,
+            excerpts,
             agents: BTreeMap::new(),
         }
     }
 
     /// The project folder that holds this session, searched first under the encoded working
-    /// folder, then in every project folder. Only real folders inside `projects` count; symbolic
-    /// links and junctions are skipped, so nothing outside the projects folder is ever read.
-    fn locate(&self) -> Option<PathBuf> {
+    /// folder, then (with `full`) in every project folder. Only real folders inside `projects`
+    /// count; symbolic links and junctions are skipped, so nothing outside the projects folder is
+    /// ever read.
+    fn locate(&self, full: bool) -> Option<PathBuf> {
         let root = fs::canonicalize(&self.projects).ok()?;
         let holds_session = |dir: &Path| {
             is_real_dir(dir)
@@ -164,6 +177,9 @@ impl ClaudeSource {
         if holds_session(&guess) {
             return inside(guess);
         }
+        if !full {
+            return None;
+        }
         fs::read_dir(&self.projects)
             .ok()?
             .take(MAX_PROJECT_DIRS)
@@ -176,11 +192,22 @@ impl ClaudeSource {
 
     fn subagents_dir(&mut self, now: Instant) -> Option<PathBuf> {
         if self.subagents.is_none() && self.next_locate.is_none_or(|at| now >= at) {
-            self.next_locate = Some(now + LOCATE_INTERVAL);
+            // A transcript in an already existing, not guessed project folder (a working folder
+            // Claude encodes differently) changes no mtime of the projects folder; the full search
+            // at the longest delay still finds it.
+            let mtime = fs::metadata(&self.projects).and_then(|m| m.modified()).ok();
+            let full = self.scanned != Some(mtime) || self.locate_delay >= MAX_LOCATE_DELAY;
+            if full {
+                self.scanned = Some(mtime);
+            }
             self.subagents = self
-                .locate()
+                .locate(full)
                 .map(|project| project.join(&self.session).join("subagents"));
             self.root = fs::canonicalize(&self.projects).ok();
+            if self.subagents.is_none() {
+                self.next_locate = Some(now + self.locate_delay);
+                self.locate_delay = (self.locate_delay * 2).min(MAX_LOCATE_DELAY);
+            }
         }
         self.subagents.clone()
     }
@@ -204,7 +231,8 @@ impl ClaudeSource {
         let Ok(entries) = fs::read_dir(dir) else {
             return found;
         };
-        for entry in entries.filter_map(Result::ok) {
+        // Two files per agent; the bound keeps a folder flooded with other files cheap.
+        for entry in entries.take(4 * MAX_AGENTS).filter_map(Result::ok) {
             if !entry.file_type().is_ok_and(|t| t.is_file()) {
                 continue;
             }
@@ -246,6 +274,7 @@ impl ClaudeSource {
         id: &str,
         state: &mut AgentState,
         files: (Option<Stamp>, Option<Stamp>),
+        excerpts: bool,
     ) {
         let (transcript, meta) = files;
         if let Some((_, modified)) = transcript {
@@ -267,7 +296,7 @@ impl ClaudeSource {
                 if let Ok(lines) = state.tail.read_new(&path) {
                     state.transcript_stamp = transcript;
                     for line in lines {
-                        apply_record(state, &line);
+                        apply_record(state, &line, excerpts);
                     }
                 }
             }
@@ -297,7 +326,7 @@ impl SubAgentSource for ClaudeSource {
         self.agents.retain(|id, _| found.contains_key(id));
         for (id, files) in found {
             let state = self.agents.entry(id.clone()).or_default();
-            Self::update_agent(&dir, &id, state, files);
+            Self::update_agent(&dir, &id, state, files, self.excerpts);
         }
         let mut agents: Vec<SubAgent> = self
             .agents
@@ -330,7 +359,7 @@ fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
             .meta
             .description
             .as_deref()
-            .and_then(|d| clean(d, MAX_DESCRIPTION_CHARS)),
+            .and_then(|d| clean(&redact(d), MAX_DESCRIPTION_CHARS)),
         agent_type: state
             .meta
             .agent_type
@@ -379,7 +408,7 @@ struct Block {
 }
 
 /// Unparsable lines (a CLI mid-write, a future format) are skipped.
-fn apply_record(state: &mut AgentState, line: &[u8]) {
+fn apply_record(state: &mut AgentState, line: &[u8], excerpts: bool) {
     let Ok(head) = serde_json::from_slice::<Head>(line) else {
         return;
     };
@@ -393,11 +422,12 @@ fn apply_record(state: &mut AgentState, line: &[u8]) {
         return;
     };
     match content {
-        Content::Text(text) => set_excerpt(state, &text),
+        Content::Text(text) if excerpts => set_excerpt(state, &text),
+        Content::Text(_) => {}
         Content::Blocks(blocks) => {
             for block in blocks {
                 match block.kind.as_deref() {
-                    Some("text") => {
+                    Some("text") if excerpts => {
                         if let Some(text) = block.text {
                             set_excerpt(state, &text);
                         }
@@ -416,21 +446,23 @@ fn apply_record(state: &mut AgentState, line: &[u8]) {
     }
 }
 
+/// Secrets are masked on the whole text, before it is cut, so a cut cannot hide a key's start.
 fn set_excerpt(state: &mut AgentState, text: &str) {
-    if let Some(excerpt) = clean(text, MAX_EXCERPT_CHARS) {
+    if let Some(excerpt) = clean(&redact(text), MAX_EXCERPT_CHARS) {
         state.excerpt = Some(excerpt);
     }
 }
 
-/// Trimmed, without control characters except newline and tab, at most `max` characters
-/// (the last one an ellipsis when cut). `None` when nothing is left.
+/// Trimmed, without control characters except newline and tab and without invisible format
+/// characters ([`crate::text::is_invisible`]: bidi overrides, zero-width characters), at most
+/// `max` characters (the last one an ellipsis when cut). `None` when nothing is left.
 pub fn clean(text: &str, max: usize) -> Option<String> {
     let text = text.trim();
     let mut out = String::new();
     let mut count = 0;
     let mut chars = text
         .chars()
-        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+        .filter(|c| (!c.is_control() || *c == '\n' || *c == '\t') && !crate::text::is_invisible(*c))
         .peekable();
     while let Some(c) = chars.next() {
         if count + 1 == max && chars.peek().is_some() {
@@ -570,7 +602,7 @@ mod tests {
         // Files that are not agent files are ignored.
         fs::write(sub.join("notes.jsonl"), "").unwrap();
 
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         let snapshot = source.poll(SystemTime::now());
         assert!(snapshot.located);
         assert_eq!(snapshot.agents.len(), 1, "{snapshot:?}");
@@ -611,7 +643,7 @@ mod tests {
             &assistant("{\"type\":\"text\",\"text\":\"two\"}"),
         );
         fs::write(sub.join("agent-a2.meta.json"), "{\"finished\":true}").unwrap();
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         let now = SystemTime::now();
         let status = |s: &Snapshot, id: &str| s.agents.iter().find(|a| a.id == id).unwrap().status;
         let snapshot = source.poll(now);
@@ -633,7 +665,7 @@ mod tests {
         let path = sub.join("agent-a1.jsonl");
         append(&path, &assistant("{\"type\":\"text\",\"text\":\"one\"}"));
         fs::write(sub.join("agent-a1.meta.json"), "{\"finished\":true}").unwrap();
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         assert_eq!(
             source.poll(SystemTime::now()).agents[0].excerpt.as_deref(),
             Some("one")
@@ -657,7 +689,7 @@ mod tests {
     #[test]
     fn not_located_until_the_transcript_appears() {
         let fx = Fixture::new("locate");
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         assert_eq!(source.poll(SystemTime::now()), Snapshot::default());
         // The encoded folder is found at once on the next search.
         let project = fx.project(&encode_project(&fx.cwd));
@@ -678,7 +710,7 @@ mod tests {
         append(&path, &assistant(&format!(
             "{{\"type\":\"thinking\",\"thinking\":\"hidden\"}},{{\"type\":\"text\",\"text\":\"  \\u001b[31m{long}\"}}"
         )));
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         let excerpt = source.poll(SystemTime::now()).agents[0]
             .excerpt
             .clone()
@@ -695,6 +727,66 @@ mod tests {
             source.poll(SystemTime::now()).agents[0].excerpt.as_deref(),
             Some("plain")
         );
+    }
+
+    #[test]
+    fn excerpt_is_redacted_and_can_be_switched_off() {
+        let fx = Fixture::new("redact");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &assistant(
+            "{\"type\":\"text\",\"text\":\"Found API_KEY=FAKEVALUE0123456789 in .env and \\u202eevil\\u200b\"}",
+        ));
+        fs::write(
+            sub.join("agent-a1.meta.json"),
+            "{\"description\":\"Check token=FAKEVALUE0123456789\"}",
+        )
+        .unwrap();
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        let agent = source.poll(SystemTime::now()).agents.remove(0);
+        assert_eq!(
+            agent.excerpt.as_deref(),
+            Some("Found API_KEY=[redacted] in .env and evil")
+        );
+        assert_eq!(agent.description.as_deref(), Some("Check token=[redacted]"));
+        let mut quiet = ClaudeSource::new(&fx.target(), false);
+        let agent = quiet.poll(SystemTime::now()).agents.remove(0);
+        assert_eq!(agent.excerpt, None);
+        assert!(agent.description.is_some());
+    }
+
+    #[test]
+    fn locate_backs_off_and_searches_all_folders_only_on_change() {
+        let fx = Fixture::new("backoff");
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        let mut delays = Vec::new();
+        for _ in 0..6 {
+            source.next_locate = None;
+            assert!(!source.poll(SystemTime::now()).located);
+            delays.push(source.next_locate.unwrap() - Instant::now());
+        }
+        let seconds: Vec<u64> = delays
+            .iter()
+            .map(|d| (d.as_millis() as u64 + 500) / 1000)
+            .collect();
+        assert_eq!(seconds, [2, 4, 8, 16, 30, 30]);
+
+        // A project folder under another name while the projects mtime is unchanged: only the
+        // guess is checked, until the longest delay forces a full search.
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        fs::write(fx.project("other").join(format!("{SESSION}.jsonl")), "").unwrap();
+        let mtime = fs::metadata(fx.config().join("projects"))
+            .and_then(|m| m.modified())
+            .ok();
+        source.scanned = Some(mtime);
+        assert!(!source.poll(SystemTime::now()).located);
+        source.next_locate = None;
+        source.locate_delay = MAX_LOCATE_DELAY;
+        assert!(source.poll(SystemTime::now()).located);
+        // A changed mtime searches all folders at once.
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        source.scanned = Some(None);
+        assert!(source.poll(SystemTime::now()).located);
     }
 
     #[test]
@@ -773,13 +865,14 @@ mod tests {
         // The project folder itself is a link, under the guessed name and under another one.
         link_dir(&outside, &projects.join(encode_project(&fx.cwd)));
         link_dir(&outside, &projects.join("other"));
-        let mut source = ClaudeSource::new(&fx.target());
+        let mut source = ClaudeSource::new(&fx.target(), true);
         assert!(!source.poll(SystemTime::now()).located);
         // A real project folder whose session folder links elsewhere: found, nothing read.
         let project = fx.project("real");
         fs::write(project.join(format!("{SESSION}.jsonl")), "").unwrap();
         link_dir(&outside.join(SESSION), &project.join(SESSION));
         source.next_locate = None;
+        source.scanned = None;
         let snapshot = source.poll(SystemTime::now());
         assert!(snapshot.located);
         assert!(snapshot.agents.is_empty(), "{snapshot:?}");

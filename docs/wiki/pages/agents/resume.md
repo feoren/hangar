@@ -33,6 +33,12 @@ Since 0.3.0 Hangar gives every session of an agent that accepts one a conversati
 - Restore without a stored id (workspace from before 0.3.0): `resume_args` (`--continue`) as before;
   its fallback starts with a new id. While `--continue` runs, Hangar does not know the id, so the
   sub-agent view is unavailable for that session until it is restarted.
+- One conversation id never runs twice: `save_workspace` refuses a workspace in which two
+  entries carry the same `cliSessionId`, and a restore whose id a session that has not exited
+  already uses starts fresh under a new id instead of resuming.
+- A user profile with the catalog's id and program inherits `session_id_args` and
+  `resume_id_args` only if its own `args` contain none of `--session-id`, `--resume`,
+  `--continue`, `-c`, `-r` (also as `--option=value`); `session_id_args = []` turns the ids off.
 - Restart (`restart_session`) starts a fresh conversation with a new id; the old id may already name
   a conversation.
 - `{id}` must appear in every non-empty list (checked when the catalog and profiles.toml load).

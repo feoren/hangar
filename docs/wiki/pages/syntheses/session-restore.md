@@ -59,7 +59,8 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
 
 - `key`: UUID 8-4-4-4-12 (case-insensitive, stored in lower case), unique.
   `activeKey`: `null` or one of the `key` values. `version` must be 1. Unknown fields are an error.
-- `cliSessionId` (optional, since 0.3.0): conversation id of the agent CLI, a UUID like `key`
+- `cliSessionId` (optional, since 0.3.0, unique across entries): conversation id of the agent
+  CLI, a UUID like `key`
   ([[resume]]). Missing or `null` for older files and programs without `session_id_args`.
 - Event on the session channel:
   `{ "type": "resumeFallback", "code": number | null, "cliSessionId": string | null, "subAgents": bool }`. Sent when the

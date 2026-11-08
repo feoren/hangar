@@ -29,7 +29,9 @@
 #                    normally with args. Only add with evidence (docs/wiki/pages/agents/resume.md).
 #   session_id_args  Optional. Arguments that give a fresh start a conversation id chosen by
 #                    Hangar; {id} is replaced by a new UUID. APPENDED to args. Hangar stores the id
-#                    with the session.
+#                    with the session. A user profile with the same id and program inherits it
+#                    (and resume_id_args) unless its args already contain --session-id, --resume,
+#                    --continue, -c or -r; `session_id_args = []` in the profile turns it off.
 #   resume_id_args   Optional. Arguments that resume exactly the conversation with the stored id
 #                    ({id}). They REPLACE args; sessions without a stored id use resume_args. If
 #                    this resume ends within 5 s with a nonzero exit code, Hangar starts once

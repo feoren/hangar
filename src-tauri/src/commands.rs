@@ -459,16 +459,19 @@ pub fn close_session(
 
 /// Streams snapshots of the session's sub-agents on `on_event` until [`unwatch_sub_agents`], the
 /// session closes or the window drops the channel. A second call for the same session replaces
-/// the first watch.
+/// the first watch. `excerpts: false` (the frontend setting) sends no assistant text at all;
+/// missing means `true`.
 #[tauri::command]
 pub fn watch_sub_agents(
     manager: Manager<'_>,
     watchers: State<'_, Watchers>,
     session_id: SessionId,
     on_event: Channel<SubAgentEvent>,
+    excerpts: Option<bool>,
 ) -> Result<(), SubAgentError> {
     let target = manager.sub_agent_target(session_id)?;
-    watchers.start(session_id, subagents::source_for(&target), move |event| {
+    let source = subagents::source_for(&target, excerpts.unwrap_or(true));
+    watchers.start(session_id, source, move |event| {
         on_event.send(event).is_ok()
     })
 }

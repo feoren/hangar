@@ -352,16 +352,31 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
         .collect()
 }
 
+/// Options in a profile's own `args` that already pick a conversation; the catalog's id
+/// options must not be added to them (claude refuses `--session-id` with `--resume` or
+/// `--continue` unless `--fork-session` is given).
+const CONVERSATION_OPTIONS: &[&str] = &["--session-id", "--resume", "--continue", "-c", "-r"];
+
+fn picks_conversation(args: &[String]) -> bool {
+    args.iter().any(|arg| {
+        CONVERSATION_OPTIONS.iter().any(|option| {
+            arg == option || arg.strip_prefix(option).is_some_and(|r| r.starts_with('='))
+        })
+    })
+}
+
 /// Resume, conversation id and sub-agent options belong to the program, so a user profile that
-/// starts the catalog's program takes each one it does not set itself.
+/// starts the catalog's program takes each one it does not set itself. `session_id_args = []`
+/// in the profile turns the conversation ids off.
 fn inherit_session_options(profile: &mut Profile, catalog: &Profile) {
     if profile.resume_args.is_none() {
         profile.resume_args.clone_from(&catalog.resume_args);
     }
-    if profile.session_id_args.is_none() {
+    let own_choice = picks_conversation(&profile.args);
+    if profile.session_id_args.is_none() && !own_choice {
         profile.session_id_args.clone_from(&catalog.session_id_args);
     }
-    if profile.resume_id_args.is_none() {
+    if profile.resume_id_args.is_none() && !own_choice {
         profile.resume_id_args.clone_from(&catalog.resume_id_args);
     }
     if profile.sub_agents.is_none() {
@@ -552,9 +567,32 @@ mod tests {
         );
         assert!(merged[0].profile.session_id_args().is_some());
         assert!(merged[0].profile.sub_agents.is_some());
-        let merged = merge(vec![user("claude", "my-claude")], agents);
+        let merged = merge(vec![user("claude", "my-claude")], agents.clone());
         assert!(merged[0].profile.session_id_args().is_none());
         assert!(merged[0].profile.sub_agents.is_none());
+        // Own arguments that already pick a conversation, and the explicit opt-out.
+        for args in [
+            &["--continue"][..],
+            &["-c"],
+            &["--resume", "x"],
+            &["-r"],
+            &["--session-id=x"],
+        ] {
+            let mut own = user("claude", "claude");
+            own.args = strings(args);
+            let merged = merge(vec![own], agents.clone());
+            assert!(merged[0].profile.session_id_args.is_none(), "{args:?}");
+            assert!(merged[0].profile.resume_id_args.is_none(), "{args:?}");
+        }
+        let mut opted_out = user("claude", "claude");
+        opted_out.session_id_args = Some(Vec::new());
+        let merged = merge(vec![opted_out], agents.clone());
+        assert_eq!(merged[0].profile.session_id_args(), None);
+        // Similar looking arguments do not count.
+        let mut other = user("claude", "claude");
+        other.args = strings(&["--resume-fast", "-cx"]);
+        let merged = merge(vec![other], agents);
+        assert!(merged[0].profile.session_id_args().is_some());
         let bad = "[[agent]]\nid='a'\nname='A'\ncommands=['a']\nresume_id_args=['--resume']\n";
         assert!(matches!(parse(bad), Err(CatalogError::Invalid { .. })));
     }
