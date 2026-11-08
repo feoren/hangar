@@ -25,6 +25,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Concepts
 
 ## Sources
+- [[subagent-transcripts]]: research and measurement: where Claude Code, Codex, OpenCode and Gemini keep sub-agent transcripts, session id flags, hooks, tailing rules (updated: 2026-11-08)
 - [[wsl-list-measurement]]: measurement: `wsl.exe --list --quiet` writes UTF-16LE into a pipe, Docker Desktop distribution, keychain round trip through keyring 4.2 (updated: 2026-11-08)
 - [[webgl-measurement]]: measurement: xterm.js 6 DOM vs WebGL renderer in Edge 157 (WebView2 engine), no gain, 4x slower on color-heavy output; WebGL stays off (updated: 2026-11-08)
 - [[windows-toast-notifications]]: app id rule of tauri-plugin-notification, missing toast tag in tauri-winrt-notification, implicit MTA (sources: 0, updated: 2026-11-08)
