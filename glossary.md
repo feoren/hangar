@@ -78,3 +78,13 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Platz (gemerkte Position einer Session)         | slot                              |                                                 |
 | Ende (Prozess), Beenden (App)                   | exit, quit                        |                                                 |
 | Oberfläche                                      | UI                                |                                                 |
+| Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                    |
+| Zuletzt genutzte Ordner                         | recent folders                    | at most 8                                       |
+| Startordner-Menü                                | folder menu                       | "Starts in" menu                                |
+| Suchleiste, Treffer                             | search bar, match                 | `SearchBar.tsx`                                 |
+| Farbschema                                      | color scheme                      | `terminalLook.ts`                               |
+| Erscheinungsbild des Terminals                  | terminal look                     | scheme, font, cursor                            |
+| Ziehen und Ablegen                              | drag and drop                     | files onto a pane                               |
+| Bereich (Terminal-Fläche einer Session)         | pane                              | `TerminalPane.tsx`                              |
+| Maskieren (Pfade für eine Shell)                | quoting                           | `pathQuote.ts`                                  |
+| Exportieren (Session)                           | export                            | `sessionExport.ts`                              |

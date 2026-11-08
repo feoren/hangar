@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exit } from "@tauri-apps/plugin-process";
@@ -12,12 +13,28 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { api, errorText, type NoteFolder, type Profile, type SessionInfo } from "./api";
+import {
+  api,
+  errorText,
+  parseExportResult,
+  type NoteFolder,
+  type Profile,
+  type SessionInfo,
+} from "./api";
 import type { MenuGroup } from "./AppMenu";
 import type { AttentionConfig, AttentionState } from "./attention";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { Badge } from "./Badge";
+import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
+import { FolderMenu } from "./FolderMenu";
+import {
+  loadFolderPrefs,
+  recordRecent,
+  saveFolderPrefs,
+  toggleFavorite,
+  type FolderPrefs,
+} from "./folders";
 import {
   createTranslator,
   detectLanguage,
@@ -45,6 +62,7 @@ import {
 } from "./layout";
 import { folderId, parseNoteFolders, type NoteFolderInfo } from "./notes";
 import { flushNotes, NotesPanel, type NoteScope } from "./NotesPanel";
+import { dropText, shellKind } from "./pathQuote";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
 import { arrangedProfiles, resolveBadge, startableProfiles } from "./programPrefs";
@@ -58,6 +76,8 @@ import {
   sessionsReducer,
 } from "./sessions";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
+import { SearchBar } from "./SearchBar";
+import { exportFileName, MAX_EXPORT_BYTES, utf8Bytes, type ExportFormat } from "./sessionExport";
 import { hasStoredSettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
 import {
@@ -74,6 +94,7 @@ import { Sidebar } from "./Sidebar";
 import { Splitter } from "./Splitter";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { SessionTerminal, terminals } from "./terminal";
+import { schemeColors, type TerminalLook } from "./terminalLook";
 import { TerminalPane } from "./TerminalPane";
 import {
   isDue,
@@ -169,6 +190,13 @@ function editable(target: EventTarget | null): boolean {
   );
 }
 
+/** Session ID of the terminal pane at this point (CSS pixels), if one is there. */
+function paneAt(x: number, y: number): number | null {
+  const pane = document.elementFromPoint(x, y)?.closest<HTMLElement>(".pane[data-session]");
+  const id = Number(pane?.dataset.session);
+  return Number.isInteger(id) ? id : null;
+}
+
 /**
  * Restore once per page load. Lives outside React because StrictMode runs effects
  * twice.
@@ -238,6 +266,19 @@ export function App() {
   const [link, setLink] = useState<{ url: string; copied: boolean } | null>(null);
   const viewportWidth = useSyncExternalStore(subscribeWindowWidth, windowWidth);
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
+  /** Favorite and recent working folders ("Starts in" menu). */
+  const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
+  /** "Starts in" menu of the empty state, open at this position. */
+  const [emptyFolderMenu, setEmptyFolderMenu] = useState<{
+    x: number;
+    y: number;
+    flipAbove: number;
+  } | null>(null);
+  const emptyChangeButton = useRef<HTMLButtonElement>(null);
+  /** Search bar of a session; `token` changes on every Ctrl+Shift+F to refocus the field. */
+  const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
+  /** Pane under files dragged from the file manager. */
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
   const [flasher] = useState(
     () =>
@@ -263,6 +304,15 @@ export function App() {
   );
   const systemDark = useSyncExternalStore(subscribeSystemTheme, systemPrefersDark);
   const theme = resolveTheme(settings.theme, systemDark);
+  const terminalLook = useMemo<TerminalLook>(
+    () => ({
+      scheme: settings.terminalScheme,
+      font: settings.terminalFont,
+      cursorStyle: settings.cursorStyle,
+      cursorBlink: settings.cursorBlink,
+    }),
+    [settings.terminalScheme, settings.terminalFont, settings.cursorStyle, settings.cursorBlink],
+  );
 
   const t = useMemo(() => createTranslator(settings.language), [settings.language]);
   const attentionConfig = useMemo<AttentionConfig>(
@@ -285,6 +335,7 @@ export function App() {
     fontSize: layout.fontSize,
     attentionConfig,
     theme,
+    look: terminalLook,
     scrollback: settings.scrollbackLines,
   });
   const lastSavedWorkspace = useRef<Workspace | null>(null);
@@ -425,6 +476,7 @@ export function App() {
       fontSize: layout.fontSize,
       attentionConfig,
       theme,
+      look: terminalLook,
       scrollback: settings.scrollbackLines,
     };
   });
@@ -440,9 +492,18 @@ export function App() {
 
   useEffect(() => {
     applyDocumentTheme(theme);
+    // The area around the terminals takes the scheme's background, so no frame shows.
+    document.documentElement.style.setProperty(
+      "--terminal-bg",
+      schemeColors(terminalLook.scheme, theme).background,
+    );
     // Change options only: xterm repaints, content and scrollback stay.
-    for (const terminal of terminals.values()) terminal.setTheme(theme);
-  }, [theme]);
+    for (const terminal of terminals.values()) terminal.setLook(terminalLook, theme);
+  }, [theme, terminalLook]);
+
+  useEffect(() => {
+    saveFolderPrefs(folders);
+  }, [folders]);
 
   useEffect(() => {
     modalRef.current = dialog !== null || closingId !== null;
@@ -534,6 +595,8 @@ export function App() {
     ? (sessionFolder ?? { path: null })
     : noteScope.folder;
 
+  if (search !== null && search.sessionId !== state.activeId) setSearch(null);
+
   // New active session: the notes follow its working folder again (adjusted during render,
   // not in an effect, so no intermediate state with the old folder becomes visible).
   const [scopeSession, setScopeSession] = useState(state.activeId);
@@ -616,6 +679,7 @@ export function App() {
         fontSize: layout.fontSize,
         attention: attentionConfig,
         theme,
+        look: terminalLook,
         scrollback: settings.scrollbackLines,
       });
       try {
@@ -638,6 +702,8 @@ export function App() {
         dispatch({ type: "added", session: await withTitle(info, title) });
         saveLastProgram(profile.id);
         setLastProgramId(profile.id);
+        // The folder the session really runs in (the backend may fall back to the home folder).
+        setFolders((current) => recordRecent(current, info.cwd));
         // Very short processes may already have exited before the response arrives.
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
@@ -652,6 +718,7 @@ export function App() {
       layout.fontSize,
       attentionConfig,
       theme,
+      terminalLook,
       settings.scrollbackLines,
       showError,
       wire,
@@ -691,6 +758,7 @@ export function App() {
         fontSize: layout.fontSize,
         attention: attentionConfig,
         theme,
+        look: terminalLook,
         scrollback: settings.scrollbackLines,
       });
       try {
@@ -732,6 +800,7 @@ export function App() {
       layout.fontSize,
       attentionConfig,
       theme,
+      terminalLook,
       settings.scrollbackLines,
       showError,
       wire,
@@ -777,6 +846,7 @@ export function App() {
         fontSize: config.fontSize,
         attention: config.attentionConfig,
         theme: config.theme,
+        look: config.look,
         scrollback: config.scrollback,
         key: saved.key,
       });
@@ -1169,6 +1239,58 @@ export function App() {
     };
   }, []);
 
+  // Files dragged from the file manager onto a pane: their quoted paths go into that session.
+  const dragRef = useRef<(event: DragDropEvent) => void>(() => undefined);
+  useEffect(() => {
+    dragRef.current = (event) => {
+      if (event.type === "leave") {
+        setDropTarget(null);
+        return;
+      }
+      // Tauri reports physical pixels relative to the webview; the DOM works in CSS pixels.
+      const ratio = window.devicePixelRatio || 1;
+      const id = modalRef.current
+        ? null
+        : paneAt(event.position.x / ratio, event.position.y / ratio);
+      const session = id === null ? undefined : stateRef.current.sessions.find((s) => s.id === id);
+      const target = session && session.status !== "exited" ? session : undefined;
+      if (event.type !== "drop") {
+        setDropTarget(target?.id ?? null);
+        return;
+      }
+      setDropTarget(null);
+      const terminal = target ? terminals.get(target.id) : undefined;
+      if (!target || !terminal) return;
+      const profile = profilesRef.current.find((p) => p.id === target.profileId);
+      const text = dropText(event.paths, shellKind(profile?.command ?? ""));
+      if (text === "") return;
+      terminal.pasteText(text);
+      if (target.id !== activeIdRef.current) dispatch({ type: "activated", id: target.id });
+      focusTerminal();
+    };
+  });
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    try {
+      getCurrentWebview()
+        .onDragDropEvent((event) => {
+          dragRef.current(event.payload);
+        })
+        .then((stop) => {
+          if (disposed) stop();
+          else unlisten = stop;
+        })
+        .catch(() => undefined);
+    } catch {
+      // Outside Tauri (browser preview) there are no drag and drop events.
+    }
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   // Notes: scopes for the sidebar.
   const refreshNoteFolders = useCallback(() => {
     api
@@ -1182,6 +1304,11 @@ export function App() {
   useEffect(() => {
     refreshNoteFolders();
   }, [refreshNoteFolders]);
+
+  const selectCwd = useCallback((path: string) => {
+    setCwd(path);
+    storeLastCwd(path);
+  }, []);
 
   const pickCwd = useCallback(async () => {
     try {
@@ -1262,8 +1389,7 @@ export function App() {
   const copyLink = () => {
     if (link === null) return;
     const url = link.url;
-    navigator.clipboard
-      .writeText(url)
+    writeClipboard(url)
       .then(() => {
         setLink((current) => (current?.url === url ? { url, copied: true } : current));
       })
@@ -1281,6 +1407,43 @@ export function App() {
   };
 
   const keys = (action: AppAction) => formatShortcut(SHORTCUT_LABELS[action], t);
+
+  /** Opens the search of the visible session, or focuses its field again. */
+  const openSearch = () => {
+    const id = state.activeId;
+    if (id === null || !terminals.has(id)) return;
+    setSearch((current) => ({
+      sessionId: id,
+      token: current?.sessionId === id ? current.token + 1 : 0,
+    }));
+  };
+
+  const closeSearch = () => {
+    setSearch(null);
+    focusTerminal();
+  };
+
+  /**
+   * Saves the visible session as text or HTML. The backend asks for the place in its save dialog;
+   * a cancelled dialog is no error.
+   */
+  const exportSession = (format: ExportFormat) => {
+    const session = activeSession;
+    const terminal = activeTerminal();
+    if (!session || !terminal) return;
+    const eol = navigator.userAgent.includes("Windows") ? "\r\n" : "\n";
+    const content =
+      format === "html" ? terminal.exportHtml(session.title) : terminal.exportText(eol);
+    if (utf8Bytes(content) > MAX_EXPORT_BYTES) {
+      setError(t("export.tooLarge"));
+      return;
+    }
+    api
+      .exportSession(format, content, exportFileName(session.title, new Date(), format))
+      .then(parseExportResult)
+      .catch(showError)
+      .finally(focusActive);
+  };
   const noActive = activeSession === undefined;
   const startable = startableProfiles(profiles, settings.programs);
   const allHidden =
@@ -1335,6 +1498,9 @@ export function App() {
       }
       case "newSession":
         if (nextProgram) void start(nextProgram);
+        break;
+      case "find":
+        openSearch();
         break;
     }
   };
@@ -1461,6 +1627,27 @@ export function App() {
           },
         },
         {
+          type: "submenu",
+          label: t("menu.exportSession"),
+          disabled: noActive,
+          items: [
+            {
+              type: "action",
+              label: t("menu.exportText"),
+              run: () => {
+                exportSession("text");
+              },
+            },
+            {
+              type: "action",
+              label: t("menu.exportHtml"),
+              run: () => {
+                exportSession("html");
+              },
+            },
+          ],
+        },
+        {
           type: "action",
           label: t("menu.killProcess"),
           disabled: noActive || activeSession.status === "exited",
@@ -1514,6 +1701,13 @@ export function App() {
           run: () => activeTerminal()?.selectAll(),
         },
         { type: "separator" },
+        {
+          type: "action",
+          label: t("menu.find"),
+          shortcut: keys("find"),
+          disabled: noActive,
+          run: openSearch,
+        },
         {
           type: "action",
           label: t("menu.clear"),
@@ -1636,6 +1830,7 @@ export function App() {
   const closingSession =
     closingId === null ? undefined : state.sessions.find((s) => s.id === closingId);
   const quick = quickPrograms(startable);
+  const searchTerminal = search === null ? undefined : terminals.get(search.sessionId);
   const terminalItems: PopupItem[] = [
     {
       type: "action",
@@ -1659,6 +1854,13 @@ export function App() {
       run: () => activeTerminal()?.selectAll(),
     },
     { type: "separator", key: "sep" },
+    {
+      type: "action",
+      key: "find",
+      label: t("menu.find"),
+      shortcut: keys("find"),
+      run: openSearch,
+    },
     {
       type: "action",
       key: "clear",
@@ -1726,6 +1928,11 @@ export function App() {
           onPickCwd={() => {
             void pickCwd();
           }}
+          folders={folders}
+          onSelectCwd={selectCwd}
+          onToggleFavorite={(path) => {
+            setFolders((current) => toggleFavorite(current, path));
+          }}
           onRestart={(id) => {
             void restart(id);
           }}
@@ -1786,17 +1993,27 @@ export function App() {
           <div
             className={notesPlacement.mode === "overlay" ? "workspace notes-overlaid" : "workspace"}
           >
-            <div className="panes">
+            <div className={state.sessions.length > 0 ? "panes filled" : "panes"}>
               {state.sessions.map((session) => {
                 const terminal = terminals.get(session.id);
                 return terminal ? (
                   <TerminalPane
                     key={session.id}
                     terminal={terminal}
+                    sessionId={session.id}
                     active={session.id === state.activeId}
+                    dropping={dropTarget === session.id}
                   />
                 ) : null;
               })}
+              {searchTerminal && search !== null && (
+                <SearchBar
+                  key={search.sessionId}
+                  terminal={searchTerminal}
+                  focusToken={search.token}
+                  onClose={closeSearch}
+                />
+              )}
               {state.sessions.length === 0 && (
                 <div className="empty">
                   <h1>{t("empty.title")}</h1>
@@ -1831,10 +2048,24 @@ export function App() {
                     </span>
                     <span aria-hidden="true">·</span>
                     <button
+                      ref={emptyChangeButton}
                       type="button"
                       className="link-button empty-change"
                       aria-label={t("empty.changeLabel")}
-                      onClick={() => void pickCwd()}
+                      aria-haspopup="menu"
+                      aria-expanded={emptyFolderMenu !== null}
+                      onClick={(event) => {
+                        if (emptyFolderMenu !== null) {
+                          setEmptyFolderMenu(null);
+                          return;
+                        }
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setEmptyFolderMenu({
+                          x: rect.left,
+                          y: rect.bottom + 4,
+                          flipAbove: rect.top - 4,
+                        });
+                      }}
                     >
                       {t("empty.change")}
                     </button>
@@ -1916,6 +2147,27 @@ export function App() {
             </div>
           )}
         </main>
+        {emptyFolderMenu !== null && (
+          <FolderMenu
+            cwd={cwd}
+            folders={folders}
+            position={emptyFolderMenu}
+            flipAbove={emptyFolderMenu.flipAbove}
+            anchor={emptyChangeButton}
+            onSelect={selectCwd}
+            onChoose={() => void pickCwd()}
+            onToggleFavorite={(path) => {
+              setFolders((current) => toggleFavorite(current, path));
+            }}
+            onClose={(reason) => {
+              setEmptyFolderMenu(null);
+              // No terminal to return to: the keyboard stays at the button.
+              if (reason === "dismiss" || state.sessions.length === 0) {
+                emptyChangeButton.current?.focus();
+              }
+            }}
+          />
+        )}
         {terminalMenu !== null && (
           <PopupMenu
             items={terminalItems}
@@ -1981,6 +2233,7 @@ export function App() {
             versions={programs.versions}
             badgeFor={badgeFor}
             fontSize={layout.fontSize}
+            theme={theme}
             update={updater.state}
             version={version}
             programUpdates={programUpdates}

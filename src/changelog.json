@@ -2,7 +2,92 @@
   {
     "version": "0.3.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Strg+V fügt im Terminal wieder ein.",
+        "en": "Ctrl+V pastes into the terminal again.",
+        "el": "Το Ctrl+V κάνει ξανά επικόλληση στο τερματικό.",
+        "es": "Ctrl+V vuelve a pegar en la terminal.",
+        "fr": "Ctrl+V colle de nouveau dans le terminal.",
+        "it": "Ctrl+V incolla di nuovo nel terminale.",
+        "ja": "ターミナルで Ctrl+V による貼り付けが再び使えます。",
+        "pl": "Ctrl+V znowu wkleja w terminalu.",
+        "pt": "Ctrl+V volta a colar no terminal.",
+        "ru": "Ctrl+V снова вставляет текст в терминал.",
+        "tr": "Ctrl+V terminale yeniden yapıştırıyor.",
+        "zh": "Ctrl+V 又可以在终端中粘贴了。"
+      },
+      {
+        "de": "Durchsuche den Verlauf einer Session mit Strg+Umschalt+F. Alle Treffer werden markiert.",
+        "en": "Search a session's scrollback with Ctrl+Shift+F. Every match is highlighted.",
+        "el": "Αναζήτησε στο ιστορικό μιας συνεδρίας με Ctrl+Shift+F. Όλα τα αποτελέσματα επισημαίνονται.",
+        "es": "Busca en el historial de una sesión con Ctrl+Shift+F. Se resaltan todas las coincidencias.",
+        "fr": "Recherche dans l'historique d'une session avec Ctrl+Shift+F. Tous les résultats sont surlignés.",
+        "it": "Cerca nella cronologia di una sessione con Ctrl+Shift+F. Tutti i risultati vengono evidenziati.",
+        "ja": "Ctrl+Shift+F でセッションの履歴を検索できます。一致する箇所はすべて強調表示されます。",
+        "pl": "Przeszukuj historię sesji skrótem Ctrl+Shift+F. Wszystkie wyniki są wyróżnione.",
+        "pt": "Pesquise o histórico de uma sessão com Ctrl+Shift+F. Todos os resultados ficam destacados.",
+        "ru": "Ищи в истории сеанса по Ctrl+Shift+F. Все совпадения подсвечиваются.",
+        "tr": "Bir oturumun geçmişinde Ctrl+Shift+F ile ara. Tüm eşleşmeler vurgulanır.",
+        "zh": "按 Ctrl+Shift+F 搜索会话的历史记录，所有匹配项都会高亮显示。"
+      },
+      {
+        "de": "Der Startordner merkt sich Favoriten und die zuletzt genutzten Ordner. Ein Klick auf „Startet in“ zeigt sie.",
+        "en": "The start folder remembers favorites and recently used folders. Click \"Starts in\" to see them.",
+        "el": "Ο φάκελος εκκίνησης θυμάται αγαπημένους και πρόσφατους φακέλους. Κάνε κλικ στο «Ξεκινά στο» για να τους δεις.",
+        "es": "La carpeta de inicio recuerda favoritas y carpetas recientes. Haz clic en «Empieza en» para verlas.",
+        "fr": "Le dossier de démarrage retient tes favoris et dossiers récents. Clique sur « Démarre dans » pour les voir.",
+        "it": "La cartella di avvio ricorda i preferiti e le cartelle recenti. Fai clic su «Parte in» per vederli.",
+        "ja": "開始フォルダーはお気に入りと最近使ったフォルダーを記憶します。「開始フォルダー」をクリックすると表示されます。",
+        "pl": "Folder startowy pamięta ulubione i ostatnio używane foldery. Kliknij „Startuje w”, aby je zobaczyć.",
+        "pt": "A pasta inicial guarda favoritas e pastas recentes. Clique em \"Começa em\" para vê-las.",
+        "ru": "Папка запуска запоминает избранные и недавние папки. Нажми «Запуск в», чтобы их увидеть.",
+        "tr": "Başlangıç klasörü favorileri ve son kullanılan klasörleri hatırlar. Görmek için \"Başlangıç klasörü\" alanına tıkla.",
+        "zh": "启动位置会记住收藏和最近使用的文件夹，点击“启动位置”即可查看。"
+      },
+      {
+        "de": "Zieh Dateien aus dem Explorer auf ein Terminal, um ihre Pfade passend für das Programm einzufügen.",
+        "en": "Drag files from your file manager onto a terminal to insert their paths, quoted for the program.",
+        "el": "Σύρε αρχεία από τη διαχείριση αρχείων σε ένα τερματικό για να εισαχθούν οι διαδρομές τους σωστά για το πρόγραμμα.",
+        "es": "Arrastra archivos desde el explorador a una terminal para insertar sus rutas con el formato adecuado.",
+        "fr": "Glisse des fichiers depuis l'explorateur sur un terminal pour insérer leurs chemins, au bon format.",
+        "it": "Trascina i file dal gestore file su un terminale per inserirne i percorsi nel formato giusto.",
+        "ja": "ファイルをエクスプローラーからターミナルへドラッグすると、プログラムに合わせた形式でパスを挿入します。",
+        "pl": "Przeciągnij pliki z menedżera plików na terminal, aby wstawić ich ścieżki w formacie dla programu.",
+        "pt": "Arraste arquivos do gerenciador de arquivos para um terminal para inserir os caminhos no formato certo.",
+        "ru": "Перетащи файлы из проводника в терминал, чтобы вставить их пути в нужном для программы виде.",
+        "tr": "Dosyaları dosya yöneticisinden bir terminale sürükle, yolları programa uygun biçimde eklensin.",
+        "zh": "把文件从资源管理器拖到终端上，即可按程序所需的格式插入路径。"
+      },
+      {
+        "de": "Neue Farbschemas für das Terminal (Catppuccin, Solarized), dazu Schriftart und Cursor in den Einstellungen.",
+        "en": "New terminal color schemes (Catppuccin, Solarized), plus font and cursor choices in the settings.",
+        "el": "Νέα χρωματικά σχήματα τερματικού (Catppuccin, Solarized), καθώς και επιλογή γραμματοσειράς και δρομέα στις ρυθμίσεις.",
+        "es": "Nuevos esquemas de colores para la terminal (Catppuccin, Solarized), además de fuente y cursor en la configuración.",
+        "fr": "Nouveaux jeux de couleurs pour le terminal (Catppuccin, Solarized), ainsi que police et curseur dans les paramètres.",
+        "it": "Nuovi schemi colori per il terminale (Catppuccin, Solarized), più carattere e cursore nelle impostazioni.",
+        "ja": "ターミナルに新しい配色 (Catppuccin、Solarized) を追加し、設定でフォントとカーソルも選べるようにしました。",
+        "pl": "Nowe schematy kolorów terminala (Catppuccin, Solarized) oraz wybór czcionki i kursora w ustawieniach.",
+        "pt": "Novos esquemas de cores para o terminal (Catppuccin, Solarized), além de fonte e cursor nas configurações.",
+        "ru": "Новые цветовые схемы терминала (Catppuccin, Solarized), а также выбор шрифта и курсора в настройках.",
+        "tr": "Terminal için yeni renk şemaları (Catppuccin, Solarized), ayrıca ayarlarda yazı tipi ve imleç seçimi.",
+        "zh": "终端新增配色方案（Catppuccin、Solarized），还可在设置中选择字体和光标。"
+      },
+      {
+        "de": "Speichere den Verlauf einer Session als Text oder HTML: Datei, Session exportieren.",
+        "en": "Save a session's scrollback as text or HTML: File, Export session.",
+        "el": "Αποθήκευσε το ιστορικό μιας συνεδρίας ως κείμενο ή HTML: Αρχείο, Εξαγωγή συνεδρίας.",
+        "es": "Guarda el historial de una sesión como texto o HTML: Archivo, Exportar la sesión.",
+        "fr": "Enregistre l'historique d'une session en texte ou en HTML : Fichier, Exporter la session.",
+        "it": "Salva la cronologia di una sessione come testo o HTML: File, Esporta sessione.",
+        "ja": "セッションの履歴をテキストまたは HTML で保存できます: ファイル、セッションをエクスポート。",
+        "pl": "Zapisz historię sesji jako tekst lub HTML: Plik, Eksportuj sesję.",
+        "pt": "Salve o histórico de uma sessão como texto ou HTML: Arquivo, Exportar sessão.",
+        "ru": "Сохрани историю сеанса как текст или HTML: Файл, Экспорт сеанса.",
+        "tr": "Bir oturumun geçmişini metin veya HTML olarak kaydet: Dosya, Oturumu dışa aktar.",
+        "zh": "可将会话的历史记录保存为文本或 HTML：文件，导出会话。"
+      }
+    ]
   },
   {
     "version": "0.2.0",

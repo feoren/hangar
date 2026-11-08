@@ -2,6 +2,7 @@
 // switching in the sidebar; React only attaches it to the DOM.
 
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
@@ -13,12 +14,22 @@ import {
   type AttentionConfig,
   type AttentionState,
 } from "./attention";
+import { readClipboard, writeClipboard } from "./clipboard";
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
-import { matchShortcut } from "./shortcuts";
 import { SCROLLBACK_LINES } from "./settings";
+import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
+import { terminalKeyAction } from "./terminalKeys";
+import {
+  DEFAULT_TERMINAL_LOOK,
+  fontStack,
+  sameLook,
+  schemeColors,
+  searchColors,
+  type TerminalLook,
+} from "./terminalLook";
 import { safeLinkUrl, sanitizePaste } from "./termSafety";
-import { MINIMUM_CONTRAST, TERMINAL_THEMES, type Theme } from "./theme";
+import { MINIMUM_CONTRAST, type Theme } from "./theme";
 import { newSessionKey, trimScrollback } from "./workspace";
 
 /**
@@ -33,11 +44,33 @@ export interface TerminalOptions {
   fontSize?: number;
   attention?: AttentionConfig;
   theme?: Theme;
+  /** Color scheme, font and cursor (Settings); defaults to the previous look. */
+  look?: TerminalLook;
   /** Lines of scrollback in xterm; the same number that is saved (Settings). */
   scrollback?: number;
   /** Stable key; if missing, a new one is created (new session). */
   key?: string;
 }
+
+/** Result of a search: `index` is 0 based, -1 when there are too many hits to number them. */
+export interface SearchResults {
+  index: number;
+  count: number;
+}
+
+export interface FindOptions {
+  caseSensitive: boolean;
+  /** Towards older output (up). */
+  backwards: boolean;
+  /**
+   * While typing: start again from the newest output instead of moving on from the current hit,
+   * so a longer term still finds the hit the shorter one had.
+   */
+  incremental: boolean;
+}
+
+/** More hits than this are counted but not highlighted (cost per redraw). */
+const SEARCH_HIGHLIGHT_LIMIT = 2000;
 
 export class SessionTerminal {
   readonly term: Terminal;
@@ -45,6 +78,10 @@ export class SessionTerminal {
   readonly key: string;
   private readonly fitAddon = new FitAddon();
   private readonly serializeAddon = new SerializeAddon();
+  private readonly searchAddon = new SearchAddon({ highlightLimit: SEARCH_HIGHLIGHT_LIMIT });
+  private searchListener: ((results: SearchResults) => void) | null = null;
+  private theme: Theme;
+  private look: TerminalLook;
   /** New output since the scrollback was last saved. */
   dirty = false;
   /** Time of the last output (performance.now), so saving waits until things are quiet. */
@@ -76,10 +113,13 @@ export class SessionTerminal {
       fontSize = FONT_SIZE.default,
       attention = { enabled: false, quietMs: 3000 },
       theme = "dark",
+      look = DEFAULT_TERMINAL_LOOK,
       scrollback = SCROLLBACK_LINES.default,
       key = newSessionKey(),
     } = options;
     this.key = key;
+    this.theme = theme;
+    this.look = look;
     this.attention = new AttentionTracker(
       systemClock,
       attention,
@@ -88,12 +128,13 @@ export class SessionTerminal {
     );
     this.term = new Terminal({
       allowProposedApi: true, // for the Unicode 11 addon (emoji widths)
-      cursorBlink: true,
-      fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace',
+      cursorBlink: look.cursorBlink,
+      cursorStyle: look.cursorStyle,
+      fontFamily: fontStack(look.font),
       fontSize,
       lineHeight: 1.15,
       scrollback,
-      theme: TERMINAL_THEMES[theme],
+      theme: schemeColors(look.scheme, theme),
       minimumContrastRatio: MINIMUM_CONTRAST[theme],
       // Replaces xterm's default, which asks via confirm() and opened the address in the WebView
       // via window.open. xterm does not even let schemes other than http and https through here.
@@ -109,6 +150,10 @@ export class SessionTerminal {
     this.term.loadAddon(this.fitAddon);
     this.term.loadAddon(new Unicode11Addon());
     this.term.loadAddon(this.serializeAddon);
+    this.term.loadAddon(this.searchAddon);
+    this.searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+      this.searchListener?.({ index: resultIndex, count: resultCount });
+    });
     this.term.unicode.activeVersion = "11";
 
     this.term.onData((data) => {
@@ -207,11 +252,71 @@ export class SessionTerminal {
     this.fit();
   }
 
-  /** Switch between light and dark. xterm only redraws; content and scrollback stay. */
-  setTheme(theme: Theme): void {
-    if (this.term.options.theme === TERMINAL_THEMES[theme]) return;
-    this.term.options.theme = TERMINAL_THEMES[theme];
-    this.term.options.minimumContrastRatio = MINIMUM_CONTRAST[theme];
+  /**
+   * Light or dark, color scheme, font and cursor. xterm only redraws; content and scrollback
+   * stay. A new font changes the cell size, so the terminal fits itself again.
+   */
+  setLook(look: TerminalLook, theme: Theme): void {
+    if (theme === this.theme && sameLook(look, this.look)) return;
+    const fontChanged = look.font !== this.look.font;
+    this.theme = theme;
+    this.look = look;
+    const options = this.term.options;
+    options.theme = schemeColors(look.scheme, theme);
+    options.minimumContrastRatio = MINIMUM_CONTRAST[theme];
+    options.cursorStyle = look.cursorStyle;
+    options.cursorBlink = look.cursorBlink;
+    if (fontChanged) {
+      options.fontFamily = fontStack(look.font);
+      this.fit();
+    }
+  }
+
+  /** Background of the current scheme, for the HTML export. */
+  background(): string {
+    return schemeColors(this.look.scheme, this.theme).background;
+  }
+
+  /** Reports hit counts of the running search; `null` stops the reports. */
+  setSearchListener(listener: ((results: SearchResults) => void) | null): void {
+    this.searchListener = listener;
+  }
+
+  /** Highlights all hits and selects the next one; an empty term clears the search. */
+  find(term: string, options: FindOptions): void {
+    if (term === "") {
+      this.clearSearch();
+      this.searchListener?.({ index: -1, count: 0 });
+      return;
+    }
+    const colors = searchColors(this.look.scheme, this.theme);
+    const search: ISearchOptions = {
+      caseSensitive: options.caseSensitive,
+      incremental: options.incremental,
+      decorations: {
+        matchBackground: colors.match,
+        matchOverviewRuler: colors.match,
+        activeMatchBackground: colors.active,
+        activeMatchColorOverviewRuler: colors.active,
+      },
+    };
+    if (!options.backwards) {
+      this.searchAddon.findNext(term, search);
+      return;
+    }
+    // Without a selection, the search starts at the bottom (newest output).
+    if (options.incremental) this.term.clearSelection();
+    this.searchAddon.findPrevious(term, search);
+  }
+
+  /** Start term for a new search: the selected text, if it is short and on one line. */
+  searchSeed(): string {
+    const text = this.term.getSelection();
+    return text.length > 0 && text.length <= 200 && !/[\r\n]/.test(text) ? text : "";
+  }
+
+  clearSearch(): void {
+    this.searchAddon.clearDecorations();
   }
 
   clear(): void {
@@ -228,7 +333,7 @@ export class SessionTerminal {
 
   copySelection(): void {
     const text = this.term.getSelection();
-    if (text) navigator.clipboard.writeText(text).catch(ignore);
+    if (text) writeClipboard(text).catch(ignore);
   }
 
   /**
@@ -236,15 +341,15 @@ export class SessionTerminal {
    * Control characters are stripped first (sanitizePaste), or the text could end bracketed paste.
    */
   pasteClipboard(): void {
-    navigator.clipboard
-      .readText()
+    readClipboard()
       .then((text) => {
         this.pasteText(text);
       })
       .catch(ignore);
   }
 
-  private pasteText(text: string): void {
+  /** Text from the app (dropped paths): the same path as pasting, with bracketed paste. */
+  pasteText(text: string): void {
     const clean = sanitizePaste(text);
     if (clean === "") return;
     this.attention.typed();
@@ -270,6 +375,26 @@ export class SessionTerminal {
         excludeAltBuffer: true,
       }),
     );
+  }
+
+  /** Whole scrollback as plain text, soft wrapped rows joined into their lines. */
+  exportText(eol: string): string {
+    const buffer = this.term.buffer.normal;
+    const rows: BufferRow[] = [];
+    for (let index = 0; index < buffer.length; index += 1) {
+      const line = buffer.getLine(index);
+      if (!line) continue;
+      // Keep trailing spaces of a row that continues on the next one: they belong to the text.
+      const continues = buffer.getLine(index + 1)?.isWrapped === true;
+      rows.push({ text: line.translateToString(!continues), wrapped: line.isWrapped });
+    }
+    return bufferText(rows, eol);
+  }
+
+  /** Whole scrollback with colors as a standalone HTML file. */
+  exportHtml(title: string): string {
+    const fragment = this.serializeAddon.serializeAsHTML({ includeGlobalBackground: true });
+    return htmlDocument(fragment, title, this.background());
   }
 
   /**
@@ -320,6 +445,7 @@ export class SessionTerminal {
     this.onExit = null;
     this.onLink = null;
     this.attentionListener = null;
+    this.searchListener = null;
     this.attention.dispose();
     this.term.dispose();
   }
@@ -367,23 +493,23 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
-    if (matchShortcut(event)) return false;
-    if (event.type !== "keydown" || !event.ctrlKey || event.altKey || event.metaKey) return true;
-
-    const copy = event.code === "KeyC" && (event.shiftKey || this.term.hasSelection());
-    if (copy) {
-      this.copySelection();
-      if (!event.shiftKey) this.term.clearSelection();
-      event.preventDefault();
-      return false;
+    const action = terminalKeyAction(event, this.term.hasSelection());
+    switch (action.kind) {
+      case "app":
+        // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
+        return false;
+      case "copy":
+        this.copySelection();
+        if (action.clearSelection) this.term.clearSelection();
+        event.preventDefault();
+        return false;
+      case "paste":
+        // No preventDefault: the native paste event reaches handlePaste. Reading the clipboard
+        // from script here failed silently in WebView2, so Ctrl+V pasted nothing.
+        return false;
+      case "terminal":
+        return true;
     }
-    if (event.code === "KeyV") {
-      this.pasteClipboard();
-      event.preventDefault();
-      return false;
-    }
-    return true;
   }
 }
 
