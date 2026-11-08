@@ -242,3 +242,15 @@ export function ClockIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Git branch (status line). */
+export function BranchIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="5" cy="3.8" r="1.6" />
+      <circle cx="5" cy="12.2" r="1.6" />
+      <circle cx="11" cy="5.8" r="1.6" />
+      <path d="M5 5.4v5.2M11 7.4c0 2.4-2.2 3-6 3.4" />
+    </Svg>
+  );
+}

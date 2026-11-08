@@ -98,3 +98,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Textbaustein                                    | snippet                           | `snippets.ts`                                       |
 | An mehrere senden                               | broadcast                         | `broadcast.ts`                                      |
 | Markierung (Session)                            | session marker                    | `marker.ts`; color and emoji                        |
+| Desktop-Benachrichtigung                        | desktop notification              | `desktopNotify.ts`; `notify_session`                |
+| Statuszeile (Session)                           | status line                       | `statusLine.ts`; status, folder, branch, run time   |
+| Laufzeit (Session)                              | run time                          | since the process started                           |
+| Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows          |

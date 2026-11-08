@@ -341,10 +341,59 @@ h2 .beta-badge {
 }
 
 .session-status {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Second status line: folder, git branch and run time, quieter than the status above it. */
+.session-detail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.session-branch,
+.session-runtime {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
+   an ellipsis, the folder keeps up to half of the line and yields after it, the run time stays
+   whole. */
+.session-branch {
+  flex: 0 1 auto;
+  min-width: 30px;
+  overflow: hidden;
+}
+
+.session-detail .session-path {
+  flex: 0 1 auto;
+  max-width: 50%;
+}
+
+.session-branch svg {
   flex: none;
 }
 
+.session-branch-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .session-path {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -407,10 +456,14 @@ h2 .beta-badge {
   }
 }
 
+/* Hidden actions take no width, so the status line keeps the whole row; they stay in the tab
+   order (zero width, not display: none) and open up on hover, for the active row and on focus. */
 .session-actions {
   display: flex;
+  flex: none;
   gap: 2px;
-  padding-right: 6px;
+  max-width: 0;
+  overflow: hidden;
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -418,6 +471,8 @@ h2 .beta-badge {
 .session:hover .session-actions,
 .session.active .session-actions,
 .session-actions:focus-within {
+  max-width: 100px;
+  padding-right: 6px;
   opacity: 1;
 }
 

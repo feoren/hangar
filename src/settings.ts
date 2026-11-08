@@ -58,6 +58,13 @@ export interface Settings {
   quietSeconds: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
+  /** Desktop notification when a session starts waiting in the background (desktopNotify.ts). */
+  notifyDesktop: boolean;
+  /**
+   * Closing the window only hides it; an icon in the notification area brings it back or quits
+   * (tray.ts). Off: closing quits, as before.
+   */
+  keepInTray: boolean;
   /** Off: Hangar launches no programs to read their version. */
   showVersions: boolean;
   /** Off: Hangar reads no program icons and shows letter badges. */
@@ -84,6 +91,8 @@ export interface Settings {
 type Flag =
   | "attentionEnabled"
   | "taskbarFlash"
+  | "notifyDesktop"
+  | "keepInTray"
   | "showVersions"
   | "showIcons"
   | "autoUpdate"
@@ -99,6 +108,8 @@ export function defaultSettings(language: Language): Settings {
     attentionColor: DEFAULT_ATTENTION_COLOR,
     quietSeconds: QUIET_SECONDS.default,
     taskbarFlash: true,
+    notifyDesktop: true,
+    keepInTray: false,
     showVersions: true,
     showIcons: true,
     autoUpdate: true,
@@ -171,6 +182,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampQuietSeconds(quiet)
         : defaults.quietSeconds,
     taskbarFlash: flag("taskbarFlash"),
+    notifyDesktop: flag("notifyDesktop"),
+    keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),
     autoUpdate: flag("autoUpdate"),

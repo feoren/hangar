@@ -1,4 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
+import { Image } from "@tauri-apps/api/image";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -16,13 +18,20 @@ import {
 import {
   api,
   errorText,
+  NOTIFICATION_ACTIVATED,
+  parseActivatedSession,
   parseExportResult,
+  TRAY_QUIT,
   type NoteFolder,
   type Profile,
   type SessionInfo,
 } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
 import type { AttentionConfig, AttentionState } from "./attention";
+import { drawBadgePng } from "./badgeImage";
+import { NO_ACTIVITY } from "./statusLine";
+import { notificationText, shouldNotify } from "./desktopNotify";
+import { branchPaths } from "./gitBranches";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { Badge } from "./Badge";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
@@ -31,8 +40,6 @@ import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import { FolderMenu } from "./FolderMenu";
 import {
-  folderKey,
-  folderName,
   loadFolderPrefs,
   recordRecent,
   saveFolderPrefs,
@@ -44,24 +51,17 @@ import {
   detectLanguage,
   I18nContext,
   setCurrentLanguage,
-  type MessageKey,
   type Translate,
 } from "./i18n";
 import { formatShortTime, shortPath, statusText } from "./format";
 import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
-import { LauncherDialog, type LauncherItem } from "./LauncherDialog";
+import { LauncherDialog } from "./LauncherDialog";
+import { buildLauncherItems, SPLIT_MODE_NAMES } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
+import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
-import {
-  EMPTY_SLOTS,
-  reconcileSlots,
-  showSessions,
-  SPLIT_MODES,
-  slotOf,
-  type SplitMode,
-  type SplitSlots,
-} from "./split";
+import { SPLIT_MODES } from "./split";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
 import {
   clampFontSize,
@@ -117,7 +117,9 @@ import {
 } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
 import { Splitter } from "./Splitter";
+import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
+import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, terminals } from "./terminal";
 import { schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, TerminalPane } from "./TerminalPane";
@@ -136,6 +138,8 @@ import {
 } from "./theme";
 import { usePrograms } from "./usePrograms";
 import { useProgramUpdates } from "./useProgramUpdates";
+import { useGitBranches } from "./useGitBranches";
+import { useSplitView } from "./useSplitView";
 import { useUpdater } from "./useUpdater";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
@@ -161,12 +165,6 @@ const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog = "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | null;
 
-const SPLIT_MODE_NAMES: Record<SplitMode, MessageKey> = {
-  single: "menu.viewSingle",
-  columns: "menu.viewColumns",
-  grid: "menu.viewGrid",
-};
-
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
 /** Snippets listed directly in the terminal context menu; more are in quick access. */
@@ -178,6 +176,8 @@ const WORKSPACE_SAVE_DELAY_MS = 400;
 const SCROLLBACK_SAVE_INTERVAL_MS = 30_000;
 /** Quitting waits no longer than this for the save. */
 const QUIT_SAVE_TIMEOUT_MS = 3000;
+/** Quit waits at most this long for the taskbar badge to be removed. */
+const BADGE_CLEAR_TIMEOUT_MS = 300;
 /** Restore: delay between the starts of the remaining sessions after the active one. */
 const RESTORE_STAGGER_MS = 150;
 
@@ -315,8 +315,6 @@ export function App() {
   const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
   /** Pane under files dragged from the file manager. */
   const [dropTarget, setDropTarget] = useState<number | null>(null);
-  /** Which session sits in which pane of the split view (split.ts). */
-  const [splitSlots, setSplitSlots] = useState<SplitSlots>(EMPTY_SLOTS);
   /** Session whose marker is being edited. */
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
@@ -334,6 +332,28 @@ export function App() {
         await getCurrentWindow().requestUserAttention(type);
       }),
   );
+  const [badge] = useState(() => {
+    const kind = badgeKind(navigator.userAgent);
+    return new TaskbarBadge(kind, async (count, text, color) => {
+      const appWindow = getCurrentWindow();
+      if (kind === "count") {
+        await appWindow.setBadgeCount(text === null ? undefined : count);
+        return;
+      }
+      if (text === null) {
+        await appWindow.setOverlayIcon(undefined);
+        return;
+      }
+      const png = await drawBadgePng(text, color);
+      const image = await Image.fromBytes(png);
+      try {
+        await appWindow.setOverlayIcon(image);
+      } finally {
+        await image.close();
+      }
+    });
+  });
+  const [tray] = useState(() => new TrayState(api.configureTray));
   const [noteScope, setNoteScope] = useState<NoteScope>({ follow: true });
   const [notesFocusToken, setNotesFocusToken] = useState(0);
   const updater = useUpdater(version, settings.autoUpdate);
@@ -639,15 +659,6 @@ export function App() {
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
-  // Panes follow the sessions: closed ones leave, the active one is always shown and focused.
-  // Adjusted during render, so no frame shows a pane without its session.
-  const split = reconcileSlots(
-    splitSlots,
-    layout.splitMode,
-    state.sessions.map((session) => session.id),
-    state.activeId,
-  );
-  if (split !== splitSlots) setSplitSlots(split);
   // The marker dialog or session menu of a session that is gone (closed, or replaced by a restart
   // with a new ID) closes, or the modal flag would keep blocking the shortcuts.
   if (markerId !== null && !state.sessions.some((s) => s.id === markerId)) setMarkerId(null);
@@ -684,6 +695,17 @@ export function App() {
     });
   }, []);
 
+  const splitView = useSplitView({
+    mode: layout.splitMode,
+    sessions: state.sessions,
+    activeId: state.activeId,
+    setLayout,
+    activate: (id) => {
+      dispatch({ type: "activated", id });
+    },
+    focusTerminal,
+  });
+
   /** Connects a terminal to its session ID: exit, attention, visibility. */
   const wire = useCallback(
     (terminal: SessionTerminal, id: number) => {
@@ -700,6 +722,19 @@ export function App() {
           enabled: settingsRef.current.taskbarFlash,
           windowFocused: document.hasFocus(),
         });
+        const notify = shouldNotify(next, {
+          enabled: settingsRef.current.notifyDesktop,
+          windowFocused: document.hasFocus(),
+        });
+        const session = stateRef.current.sessions.find((s) => s.id === id);
+        if (notify && session && !isPlaceholder(id)) {
+          const text = notificationText(
+            session,
+            terminal.exitCode !== undefined,
+            createTranslator(settingsRef.current.language),
+          );
+          api.notifySession(id, text.title, text.body).catch(() => undefined);
+        }
         setAttention((current) => {
           if ((current.get(id) ?? "idle") === next) return current;
           const map = new Map(current);
@@ -1168,6 +1203,8 @@ export function App() {
     try {
       await persistAll();
     } finally {
+      // The waiting count must not stay on a Dock or launcher icon; bounded, quitting comes first.
+      await Promise.race([badge.clear(), delay(BADGE_CLEAR_TIMEOUT_MS)]);
       try {
         await exit(0);
       } catch (e) {
@@ -1176,7 +1213,7 @@ export function App() {
         showError(e);
       }
     }
-  }, [persistAll, showError]);
+  }, [persistAll, showError, badge]);
 
   /** Setting "Remember sessions" off: discard what was saved so nothing comes back. */
   const forgetWorkspace = useCallback(() => {
@@ -1275,6 +1312,7 @@ export function App() {
 
   // Closing the window: save first, then quit. Without preventDefault the API would destroy the
   // window itself; quitting is handled here by `exit`, which also shuts down all sessions cleanly.
+  // With the notification area icon, the backend hides the window instead and nothing quits.
   const quitRef = useRef(quit);
   useEffect(() => {
     quitRef.current = quit;
@@ -1286,6 +1324,7 @@ export function App() {
       getCurrentWindow()
         .onCloseRequested(async (event) => {
           event.preventDefault();
+          if (tray.active) return;
           await quitRef.current();
         })
         .then((stop) => {
@@ -1299,6 +1338,43 @@ export function App() {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, [tray]);
+
+  // Events from the backend: a click on a desktop notification brings its session to the front
+  // (the backend has already shown and focused the window); the notification area's Quit quits
+  // the usual way.
+  const activateRef = useRef<(id: number) => void>(() => undefined);
+  useEffect(() => {
+    activateRef.current = (id) => {
+      if (!stateRef.current.sessions.some((s) => s.id === id)) return;
+      dispatch({ type: "activated", id });
+      focusTerminal();
+    };
+  });
+  useEffect(() => {
+    const stops: (() => void)[] = [];
+    let disposed = false;
+    const keep = (stop: () => void) => {
+      if (disposed) stop();
+      else stops.push(stop);
+    };
+    try {
+      listen(NOTIFICATION_ACTIVATED, (event) => {
+        const id = parseActivatedSession(event.payload);
+        if (id !== null) activateRef.current(id);
+      })
+        .then(keep)
+        .catch(() => undefined);
+      listen(TRAY_QUIT, () => void quitRef.current())
+        .then(keep)
+        .catch(() => undefined);
+    } catch {
+      // Outside Tauri (browser preview) there are no backend events.
+    }
+    return () => {
+      disposed = true;
+      for (const stop of stops) stop();
     };
   }, []);
 
@@ -1508,20 +1584,6 @@ export function App() {
       .catch(showError)
       .finally(focusActive);
   };
-  const setSplitMode = (mode: SplitMode) => {
-    setLayout((current) =>
-      current.splitMode === mode ? current : { ...current, splitMode: mode },
-    );
-    focusTerminal();
-  };
-
-  /** Double click on a pane header: show only this session (View menu brings the split back). */
-  const maximize = (id: number) => {
-    setLayout((current) => ({ ...current, splitMode: "single" }));
-    dispatch({ type: "activated", id });
-    focusTerminal();
-  };
-
   /** Snippet into the visible session, like pasting: bracketed paste, no Enter. */
   const insertSnippet = (snippet: Snippet) => {
     const session = activeSession;
@@ -1542,12 +1604,7 @@ export function App() {
       return terminal ? [terminal] : [];
     });
     void sendToTargets(targets, text, () => delay(BROADCAST_ENTER_DELAY_MS));
-    const next = showSessions(ids, layout.splitMode);
-    setLayout((current) => ({ ...current, splitMode: next.mode }));
-    setSplitSlots(next.split);
-    const first = ids[0];
-    if (first !== undefined) dispatch({ type: "activated", id: first });
-    focusTerminal();
+    splitView.showOnly(ids);
   };
 
   const setMarker = (id: number, marker: Marker) => {
@@ -1565,6 +1622,26 @@ export function App() {
     startable.length === 0 && arrangedProfiles(profiles, settings.programs).length > 0;
   const nextProgram = pickProgram(startable, lastProgramId);
   const waiting = state.sessions.filter((s) => attention.get(s.id) === "attention");
+  const waitingCount = waiting.length;
+
+  // Taskbar badge with the number of waiting sessions, in the attention color.
+  useEffect(() => {
+    badge.update(waitingCount, settings.attentionColor);
+  }, [badge, waitingCount, settings.attentionColor]);
+
+  // Notification area icon: added, relabeled (language, waiting count) or removed. Nothing is
+  // sent while the setting was never on.
+  const trayUsed = useRef(false);
+  useEffect(() => {
+    if (!settings.keepInTray && !trayUsed.current) return;
+    trayUsed.current = settings.keepInTray;
+    void tray.configure(settings.keepInTray, trayLabels(t, waitingCount));
+  }, [tray, settings.keepInTray, t, waitingCount]);
+
+  /** Times for the status line; read from the terminals, which collect them outside React. */
+  const activityOf = (id: number, now: number) => terminals.get(id)?.activity(now) ?? NO_ACTIVITY;
+  /** Working folders whose git branch the status line shows. */
+  const branches = useGitBranches(branchPaths(state.sessions));
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
     state.sessions
@@ -1890,7 +1967,7 @@ export function App() {
           label: t(SPLIT_MODE_NAMES[mode]),
           ...(mode === layout.splitMode ? { detail: t("folders.current") } : {}),
           run: () => {
-            setSplitMode(mode);
+            splitView.setSplitMode(mode);
           },
         })),
         { type: "separator" },
@@ -2056,161 +2133,76 @@ export function App() {
 
   const menuSession =
     sessionMenu === null ? undefined : state.sessions.find((s) => s.id === sessionMenu.id);
+  const runSessionAction = (action: SessionAction, id: number) => {
+    switch (action) {
+      case "rename":
+        startRename(id);
+        break;
+      case "marker":
+        setMarkerId(id);
+        break;
+      case "restart":
+        void restart(id);
+        break;
+      case "kill":
+        kill(id);
+        break;
+      case "close":
+        requestClose(id);
+        break;
+    }
+  };
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : [
-          {
-            type: "action",
-            key: "rename",
-            label: t("session.rename"),
+      : sessionMenuEntries(menuSession, t).map((entry): PopupItem => {
+          if (entry.type === "separator") return entry;
+          const action = entry.key;
+          const id = menuSession.id;
+          return {
+            ...entry,
             run: () => {
-              startRename(menuSession.id);
+              runSessionAction(action, id);
             },
-          },
-          {
-            type: "action",
-            key: "marker",
-            label: t("menu.marker"),
-            run: () => {
-              setMarkerId(menuSession.id);
-            },
-          },
-          { type: "separator", key: "sep" },
-          menuSession.status === "exited"
-            ? {
-                type: "action",
-                key: "restart",
-                label: t("session.restart"),
-                run: () => void restart(menuSession.id),
-              }
-            : {
-                type: "action",
-                key: "kill",
-                label: t("session.kill"),
-                run: () => {
-                  kill(menuSession.id);
-                },
-              },
-          {
-            type: "action",
-            key: "close",
-            label: menuSession.status === "exited" ? t("session.close") : t("session.killAndClose"),
-            run: () => {
-              requestClose(menuSession.id);
-            },
-          },
-        ];
+          };
+        });
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
 
   /** Entries of quick access; built only while it is open. */
-  const launcherItems = (): LauncherItem[] => {
-    const items: LauncherItem[] = [];
-    for (const session of state.sessions) {
-      const profile = profileById.get(session.profileId);
-      items.push({
-        key: `session:${String(session.id)}`,
-        section: "sessions",
-        label: [session.marker?.emoji, session.title].filter(Boolean).join(" "),
-        detail: shortPath(session.cwd),
-        keywords: [profile?.name ?? "", session.cwd].join(" "),
-        primary: true,
-        icon: <Badge look={badgeFor(session.profileId)} />,
-        run: () => {
-          dispatch({ type: "activated", id: session.id });
-          focusTerminal();
-        },
-      });
-    }
-    // Program in folder: the "Starts in" folder first, then favorites and recent folders.
-    const seen = new Set<string>();
-    const places = [cwd, ...folders.favorites, ...folders.recent].filter((path): path is string => {
-      if (path === null || seen.has(folderKey(path))) return false;
-      seen.add(folderKey(path));
-      return true;
-    });
-    for (const place of places) {
-      for (const profile of startable) {
-        items.push({
-          key: `start:${profile.id}:${place}`,
-          section: "start",
-          label: t("launcher.startIn", { program: profile.name, folder: folderName(place) }),
-          detail: shortPath(place),
-          keywords: place,
-          // Without sessions, the programs in the current folder are the obvious next step.
-          primary: state.sessions.length === 0 && place === cwd,
-          icon: <Badge look={badgeFor(profile.id)} />,
-          run: () => void start(profile, place),
-        });
-      }
-    }
-    for (const info of noteFolders) {
-      if (info.noteCount === 0) continue;
-      const folder: NoteFolder = { path: info.path };
-      const label = info.path === null ? t("notes.general") : folderName(info.path);
-      items.push({
-        key: `notes:${info.folderKey}`,
-        section: "notes",
-        label: t("launcher.notesIn", { folder: label }),
-        ...(info.path === null ? {} : { detail: shortPath(info.path) }),
-        icon: <NotesIcon size={14} />,
-        run: () => {
-          openNotes(folder);
-        },
-      });
-    }
-    for (const snippet of snippets) {
-      items.push({
-        key: `snippet:${snippet.id}`,
-        section: "snippets",
-        label: snippetLabel(snippet),
-        keywords: snippet.text.slice(0, 200),
-        primary: true,
-        disabled: !canInsert,
-        ...(canInsert ? {} : { detail: t("launcher.noSession") }),
-        run: () => {
-          insertSnippet(snippet);
-        },
-      });
-    }
-    for (const mode of SPLIT_MODES) {
-      items.push({
-        key: `view:${mode}`,
-        section: "commands",
-        label: t("launcher.view", { mode: t(SPLIT_MODE_NAMES[mode]) }),
-        ...(mode === layout.splitMode ? { detail: t("folders.current") } : {}),
-        primary: true,
-        run: () => {
-          setSplitMode(mode);
-        },
-      });
-    }
-    items.push({
-      key: "broadcast",
-      section: "commands",
-      label: t("menu.broadcast"),
-      primary: true,
-      disabled: broadcastable.length === 0,
-      run: () => {
+  const launcherItems = () =>
+    buildLauncherItems({
+      sessions: state.sessions,
+      programName: (profileId) => profileById.get(profileId)?.name,
+      startable,
+      cwd,
+      folders,
+      noteFolders,
+      snippets,
+      canInsert,
+      splitMode: layout.splitMode,
+      canBroadcast: broadcastable.length > 0,
+      t,
+      badge: (profileId) => <Badge look={badgeFor(profileId)} />,
+      notesIcon: <NotesIcon size={14} />,
+      activate: (id) => {
+        dispatch({ type: "activated", id });
+        focusTerminal();
+      },
+      start: (profile, folder) => void start(profile, folder),
+      openNotes,
+      insertSnippet,
+      setSplitMode: splitView.setSplitMode,
+      openBroadcast: () => {
         setDialog("broadcast");
       },
     });
-    return items;
-  };
 
-  /** Header and position of each visible pane in split view. */
-  const paneSplit = (session: SessionView) => {
-    const mode = layout.splitMode;
-    if (mode === "single") return null;
-    const slot = slotOf(split, session.id);
-    if (slot === null) return null;
+  /** Pane header contents in split view: badge, attention state and status text. */
+  const paneLook = (session: SessionView) => () => {
     const paneState = attention.get(session.id) ?? "idle";
     return {
-      mode,
-      slot,
-      session,
       look: badgeFor(session.profileId),
       state: paneState,
       status: statusText(session, t, paneState),
@@ -2249,6 +2241,9 @@ export function App() {
           menu={menu}
           update={updater.state}
           attention={attention}
+          activityOf={activityOf}
+          branches={branches}
+          language={settings.language}
           renamingId={renamingId}
           onRenameStart={startRename}
           onRenameEnd={() => {
@@ -2349,7 +2344,7 @@ export function App() {
                 const terminal = terminals.get(session.id);
                 if (!terminal) return null;
                 const active = session.id === state.activeId;
-                const paneInfo = paneSplit(session);
+                const paneInfo = splitView.paneSplit(session, paneLook(session));
                 return (
                   <TerminalPane
                     key={session.id}
@@ -2362,7 +2357,7 @@ export function App() {
                     onFocusPane={(id) => {
                       dispatch({ type: "activated", id });
                     }}
-                    onMaximize={maximize}
+                    onMaximize={splitView.maximize}
                     onHeaderMenu={(id, x, y) => {
                       setSessionMenu({ id, x, y });
                     }}
@@ -2378,11 +2373,10 @@ export function App() {
                   </TerminalPane>
                 );
               })}
-              {layout.splitMode !== "single" &&
-                state.sessions.length > 0 &&
-                split.slots.map((id, slot) =>
-                  id === null && layout.splitMode !== "single" ? (
-                    <EmptyPane key={`empty-${String(slot)}`} mode={layout.splitMode} slot={slot} />
+              {state.sessions.length > 0 &&
+                splitView.split.slots.map((id, slot) =>
+                  id === null && splitView.mode !== "single" ? (
+                    <EmptyPane key={`empty-${String(slot)}`} mode={splitView.mode} slot={slot} />
                   ) : null,
                 )}
               {state.sessions.length === 0 && (

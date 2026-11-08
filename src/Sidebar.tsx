@@ -6,9 +6,10 @@ import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { FolderMenu } from "./FolderMenu";
 import type { FolderPrefs } from "./folders";
-import { exitDetail, shortPath, statusText } from "./format";
+import { exitDetail, shortPath } from "./format";
 import { useT } from "./i18n";
 import {
+  BranchIcon,
   ChevronIcon,
   CloseIcon,
   CollapseIcon,
@@ -36,8 +37,16 @@ import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
+import {
+  detailLine,
+  statusLine,
+  STATUS_TICK_MS,
+  type Activity,
+  type DetailLine,
+} from "./statusLine";
 import type { Theme } from "./theme";
 import { SessionActionGuard } from "./timing";
+import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
@@ -79,6 +88,12 @@ interface Props {
   menu: MenuGroup[];
   update: UpdateState;
   attention: ReadonlyMap<number, AttentionState>;
+  /** Times of a session for its status line, sampled at `now` (outside React, cheap). */
+  activityOf: (id: number, now: number) => Activity;
+  /** Git branch per working folder; missing or `null`: none shown. */
+  branches: ReadonlyMap<string, string | null>;
+  /** UI language, for the compact durations. */
+  language: string;
   /** Session whose name is being edited in the sidebar right now. */
   renamingId: number | null;
   onRenameStart: (id: number) => void;
@@ -114,6 +129,15 @@ export function Sidebar(props: Props) {
     props;
   const { startable } = props;
   const t = useT();
+  const now = useClock(STATUS_TICK_MS);
+  /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
+  const lines = (session: SessionView) => {
+    const state = attention.get(session.id) ?? "idle";
+    return {
+      status: statusLine(session, state, props.activityOf(session.id, now), now, t, props.language),
+      detail: detailLine(session, props.branches.get(session.cwd) ?? null, now, props.language),
+    };
+  };
   const root = useRef<HTMLElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
@@ -209,7 +233,7 @@ export function Sidebar(props: Props) {
         <ul className="rail-sessions">
           {sessions.map((session) => {
             const state = attention.get(session.id) ?? "idle";
-            const status = statusText(session, t, state);
+            const { status, detail: where } = lines(session);
             const detail = exitDetail(session, t);
             const className = [
               "rail-session",
@@ -222,7 +246,9 @@ export function Sidebar(props: Props) {
                   type="button"
                   className={className.filter(Boolean).join(" ")}
                   title={[
-                    `${session.title} · ${status} · ${session.cwd}`,
+                    `${session.title} · ${status}`,
+                    detailText(where, t),
+                    session.cwd,
                     markerColorText(session.marker, t),
                     detail,
                     programLine(profileById.get(session.profileId), versions),
@@ -376,6 +402,7 @@ export function Sidebar(props: Props) {
           {sessions.map((session) => (
             <SessionItem
               key={session.id}
+              lines={lines(session)}
               session={session}
               look={badgeFor(session.profileId)}
               program={programLine(profileById.get(session.profileId), versions)}
@@ -897,6 +924,17 @@ function UpdateButtons({
   );
 }
 
+/** Second status line as one text for tooltips: folder, branch and run time. */
+function detailText(line: DetailLine, t: ReturnType<typeof useT>): string {
+  return [
+    line.folder,
+    line.branch === null ? "" : t("session.branch", { branch: line.branch }),
+    line.runtime === null ? "" : t("session.runtime", { duration: line.runtime }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /** Line "PowerShell 7 · 7.6.9" for tooltips; nothing without a known version. */
 function programLine(profile: Profile | undefined, versions: ProgramVersions): string {
   const version = profile ? versions.get(profile.id) : undefined;
@@ -905,6 +943,7 @@ function programLine(profile: Profile | undefined, versions: ProgramVersions): s
 
 interface ItemProps extends Props {
   session: SessionView;
+  lines: { status: string; detail: DetailLine };
   look: BadgeLook;
   /** Program and version for the tooltip, empty without a known version. */
   program: string;
@@ -915,6 +954,7 @@ interface ItemProps extends Props {
 
 function SessionItem({
   session,
+  lines,
   look,
   program,
   active,
@@ -932,7 +972,8 @@ function SessionItem({
   const t = useT();
   const exited = session.status === "exited";
   const waiting = state === "attention";
-  const status = statusText(session, t, state);
+  const status = lines.status;
+  const where = lines.detail;
   const detail = exitDetail(session, t);
   const className = [
     "session",
@@ -978,6 +1019,7 @@ function SessionItem({
           title={[
             waiting ? `${session.title} · ${status}` : "",
             detail,
+            session.cwd,
             program,
             t("session.renameHint"),
           ]
@@ -1005,8 +1047,28 @@ function SessionItem({
               <span className={waiting ? "session-status attention-text" : "session-status"}>
                 {status}
               </span>
-              <span aria-hidden="true">·</span>
-              <span className="session-path">{shortPath(session.cwd)}</span>
+            </span>
+            <span className="session-detail">
+              <span className="session-path">{where.folder}</span>
+              {where.branch !== null && (
+                <span className="session-branch">
+                  <span aria-hidden="true">·</span>
+                  <BranchIcon size={11} />
+                  <span className="sr-only">{t("session.branch", { branch: where.branch })}</span>
+                  <span className="session-branch-name" aria-hidden="true">
+                    {where.branch}
+                  </span>
+                </span>
+              )}
+              {where.runtime !== null && (
+                <span className="session-runtime">
+                  <span aria-hidden="true">·</span>
+                  <span className="sr-only">
+                    {t("session.runtime", { duration: where.runtime })}
+                  </span>
+                  <span aria-hidden="true">{where.runtime}</span>
+                </span>
+              )}
             </span>
           </span>
         </button>

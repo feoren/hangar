@@ -155,7 +155,41 @@ export const api = {
    */
   exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
     invoke<unknown>("export_session", { format, content, suggestedName }),
+
+  /**
+   * Desktop notification for a session; `false` when the platform has no support. A click on it
+   * brings the window to the front and emits `notification-activated` (`parseActivatedSession`).
+   */
+  notifySession: (id: number, title: string, body: string) =>
+    invoke<unknown>("notify_session", { id, title, body }),
+  /**
+   * Branch per folder (at most 64, read from `.git`, no process): branch name, the short hash of
+   * a detached HEAD, or `null` outside a repository. Check with `parseBranches`.
+   */
+  gitBranches: (paths: string[]) => invoke<unknown>("git_branches", { paths }),
+  /** Adds, updates (texts) or removes the notification area icon. */
+  configureTray: (enabled: boolean, labels: TrayLabels) =>
+    invoke<null>("configure_tray", { enabled, labels }),
 };
+
+/** Menu texts and tooltip of the notification area icon (Rust: `TrayLabels` in tray.rs). */
+export interface TrayLabels {
+  open: string;
+  quit: string;
+  tooltip: string;
+}
+
+/** Event sent when the user clicks a session's desktop notification. */
+export const NOTIFICATION_ACTIVATED = "notification-activated";
+/** Event sent by the notification area menu item Quit. */
+export const TRAY_QUIT = "tray-quit";
+
+/** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
+export function parseActivatedSession(payload: unknown): number | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const id: unknown = Reflect.get(payload, "sessionId");
+  return typeof id === "number" && Number.isInteger(id) ? id : null;
+}
 
 /** Result of `export_session`: the path written, `null` when cancelled. */
 export function parseExportResult(value: unknown): string | null {

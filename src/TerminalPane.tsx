@@ -115,6 +115,12 @@ export function TerminalPane(props: Props) {
         <div
           className="pane-header"
           title={`${split.session.title} · ${split.status}\n${t("split.maximize")}`}
+          // A click on the header must not take the focus from the terminal: every key, Ctrl+C
+          // included, keeps going to the program. The session menu is reached by keyboard from
+          // the sidebar row (context menu key, Shift+F10).
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
           onDoubleClick={() => {
             props.onMaximize(sessionId);
           }}

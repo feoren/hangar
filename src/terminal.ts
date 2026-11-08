@@ -18,6 +18,7 @@ import { readClipboard, writeClipboard } from "./clipboard";
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import { SCROLLBACK_LINES } from "./settings";
+import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import { terminalKeyAction } from "./terminalKeys";
 import {
@@ -108,6 +109,8 @@ export class SessionTerminal {
   /** Active session in a focused window; the app sets it as soon as the ID is known. */
   isWatched: () => boolean = () => false;
   readonly attention: AttentionTracker;
+  /** Start of the current working phase (Date.now) for the status line; `null` otherwise. */
+  private workingSince: number | null = null;
   private attentionListener: ((state: AttentionState) => void) | null = null;
 
   constructor(options: TerminalOptions = {}) {
@@ -126,7 +129,12 @@ export class SessionTerminal {
       systemClock,
       attention,
       () => this.isWatched(),
-      (state) => this.attentionListener?.(state),
+      (state) => {
+        // Only state changes arrive here, so this costs nothing per output chunk.
+        if (state !== "working") this.workingSince = null;
+        else this.workingSince ??= Date.now();
+        this.attentionListener?.(state);
+      },
     );
     this.term = new Terminal({
       allowProposedApi: true, // for the Unicode 11 addon (emoji widths)
@@ -182,6 +190,15 @@ export class SessionTerminal {
       this.handleEvent(event);
     };
     return channel;
+  }
+
+  /** Times for the status line, sampled by the sidebar on its clock tick. */
+  activity(now: number = Date.now()): Activity {
+    return {
+      workingSince: this.workingSince,
+      // lastOutputAt is on the performance clock; the status line works with wall clock times.
+      lastOutput: this.lastOutputAt > 0 ? now - (performance.now() - this.lastOutputAt) : null,
+    };
   }
 
   /** Reports state changes only; calls the listener right away with the current state. */

@@ -32,6 +32,8 @@ describe("parseSettings", () => {
       attentionColor: "#7EC0B5",
       quietSeconds: 10,
       taskbarFlash: false,
+      notifyDesktop: false,
+      keepInTray: true,
       showVersions: false,
       showIcons: false,
       autoUpdate: false,
@@ -59,6 +61,8 @@ describe("parseSettings", () => {
       attentionColor: 123,
       quietSeconds: "5",
       taskbarFlash: "yes",
+      notifyDesktop: "no",
+      keepInTray: 1,
       showVersions: "no",
       showIcons: null,
       autoUpdate: 1,
@@ -153,6 +157,14 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").taskbarFlash).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").taskbarFlash).toBe(true);
     expect(parseSettings(JSON.stringify({ taskbarFlash: false }), "de").taskbarFlash).toBe(false);
+  });
+
+  it("notifies by default and keeps running in the notification area only when chosen", () => {
+    const old = parseSettings(JSON.stringify({ language: "en" }), "de");
+    expect(old.notifyDesktop).toBe(true);
+    expect(old.keepInTray).toBe(false);
+    expect(defaultSettings("de").notifyDesktop).toBe(true);
+    expect(defaultSettings("de").keepInTray).toBe(false);
   });
 
   it("remembers sessions and checks for program updates by default", () => {

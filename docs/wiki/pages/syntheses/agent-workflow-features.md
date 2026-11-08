@@ -215,6 +215,11 @@ request). Right click opens the menu. No window capability is needed for hiding;
    `notifyDesktop` is on (default on): `notify_session`. Text: "{title} is waiting for you"
    or "{title} has finished" after an exit. `notification-activated` activates the session and
    focuses its terminal.
+   As built (`src/desktopNotify.ts`): the setting sits under Attention and only acts while
+   attention is on (without attention nothing switches to `attention`). "Has finished" is chosen
+   when the terminal has received its exit event. The body is the short working folder, so two
+   sessions of the same program can be told apart. Placeholders (negative IDs) never notify.
+   Unknown session IDs in `notification-activated` are ignored.
 2. **Search** (Ctrl+Shift+F): `@xterm/addon-search` with match decorations; a small bar at the top
    right of the focused pane: field, "3 of 17", previous, next, case toggle, close. Enter goes to
    the next older match (up, since new output arrives at the bottom), Shift+Enter to the next
@@ -243,6 +248,17 @@ request). Right click opens the menu. No window capability is needed for hiding;
 6. **Status line**: per session in the sidebar: second line with folder, git branch and run time;
    first line status "working for 3 min", "waiting for you", "active 5 min ago", exit text.
    Branches via `git_branches`, refreshed every 15 s while the window is visible.
+   As built (`src/statusLine.ts`, `src/gitBranches.ts`): durations are one whole unit (minutes,
+   hours, days) through `Intl.NumberFormat` unit style, so no unit is translated; below one
+   minute the plain status stays ("working", "running"). The working phase starts at the switch to
+   `working` (kept in `SessionTerminal`, set on state changes only); "active N ago" uses the last
+   output, which includes echo and redraws. Waiting and ended sessions keep their plain status
+   text; the exit code stays in the tooltip. Line 2 shows the folder name, the branch (icon plus
+   name, the first to be cut) and the run time since `createdAt` (not for ended sessions). One
+   clock tick of 30 s in the sidebar re-renders only the sidebar. Branch paths: the sessions'
+   `cwd` strings, each once, at most 64; refreshed at once on focus and visibility return. The
+   collapsed rail shows both lines in its tooltip. Session actions in the sidebar row take no width
+   while hidden, so the status line can use the whole row.
 7. **Broadcast**: dialog "Send to several": text, checkboxes for running sessions (or start new
    ones with chosen programs in the current folder), then each gets the text as bracketed paste
    plus Enter; afterwards split view shows them side by side.
@@ -275,9 +291,21 @@ request). Right click opens the menu. No window capability is needed for hiding;
     sidebar, pane header and rail; saved in the workspace.
     As built (`src/marker.ts`): a fixed palette of eight colors plus none, stored lowercase; emoji
     is free text of 1 to 16 bytes without control characters, with eight quick picks. Opened from
-    the session menu (right click or context menu key on a session or pane header) and File,
-    Marker. Invalid stored values are dropped, the session is kept.
+    the session menu (right click or context menu key on a session, right click on a pane
+    header) and File, Marker. Invalid stored values are dropped, the session is kept. The pane
+    header never takes the focus (mouse down is prevented), so every key after a click on it,
+    Ctrl+C included, still reaches the program; by keyboard the session menu opens from the
+    sidebar row.
 14. **Taskbar badge**: number of waiting sessions as an overlay icon (Windows) or badge count.
+    As built (`src/taskbarBadge.ts`, `src/badgeImage.ts`): no setting of its own; it follows the
+    attention setting (without attention the count is 0). Windows draws a 32 px disc in the
+    attention color with a dark ring, "1" to "9", then "9+", passed through `Image.fromBytes`
+    (permission `core:image:allow-from-bytes` comes with `core:default`) and closed after
+    `setOverlayIcon`. macOS and Linux get `setBadgeCount` with the real number. The platform comes
+    from the user agent. A call is sent only when the label or color changes; errors are swallowed
+    and retried on the next change.
+    Quitting clears a shown badge first (at most 300 ms), so no count stays on a Dock or launcher
+    icon.
 15. **WebGL**: measured, not adopted. The DOM renderer was as fast or faster in every scenario
     and WebGL was about 4x slower on color-heavy output ([[webgl-measurement]]). Revisit only with
     data from a real WebView2 host and fractional DPI.
@@ -290,6 +318,11 @@ request). Right click opens the menu. No window capability is needed for hiding;
 19. **WSL**: no frontend work beyond badges.
 20. **Tray**: setting "Keep running in the notification area" (default off); `configure_tray`;
     `tray-quit` runs the normal quit.
+    As built (`src/tray.ts`): the setting is the first one under General, Sessions. `TrayState`
+    tracks "active" as the contract says; overlapping calls are ordered, an answer older than one
+    already settled is ignored, and turning off counts at once. Nothing is sent while the setting
+    was never on. The labels are re-sent when the language or the number of waiting sessions
+    changes; the tooltip reads "Hangar · waiting: N" when sessions wait.
 
 Paste fix: Ctrl+V in the terminal lets the native paste event happen (handled in `handlePaste`);
 menu paste uses the clipboard plugin.

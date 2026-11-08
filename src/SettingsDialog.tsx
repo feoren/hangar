@@ -336,6 +336,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <label className="check">
         <input
           type="checkbox"
+          checked={settings.keepInTray}
+          aria-describedby="keep-in-tray-help"
+          onChange={(event) => {
+            onChange({ keepInTray: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.keepInTray")}</span>
+      </label>
+      <p id="keep-in-tray-help" className="muted settings-help">
+        {t("settings.keepInTrayHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={settings.restoreSessions}
           aria-describedby="restore-sessions-help"
           onChange={(event) => {
@@ -705,6 +719,21 @@ function AttentionSection({ settings, onChange }: Props) {
         </label>
         <p id="taskbar-flash-help" className="muted settings-help">
           {t("settings.taskbarFlashHelp")}
+        </p>
+
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.notifyDesktop}
+            aria-describedby="notify-desktop-help"
+            onChange={(event) => {
+              onChange({ notifyDesktop: event.currentTarget.checked });
+            }}
+          />
+          <span>{t("settings.notifyDesktop")}</span>
+        </label>
+        <p id="notify-desktop-help" className="muted settings-help">
+          {t("settings.notifyDesktopHelp")}
         </p>
 
         <div className="attention-preview" aria-hidden="true">

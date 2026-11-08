@@ -156,6 +156,62 @@
         "ru": "Отмечай сеансы цветом и эмодзи: правый щелчок по сеансу, Метка. Она сохраняется после перезапуска.",
         "tr": "Oturumları renk ve emoji ile işaretle: oturuma sağ tıkla, İşaret. Yeniden başlatmadan sonra da kalır.",
         "zh": "可以用颜色和表情标记会话：右键点击会话，选择“标记”。重启后依然保留。"
+      },
+      {
+        "de": "Wartet eine Session, während Hangar im Hintergrund ist, meldet sich eine Benachrichtigung. Ein Klick darauf öffnet die Session.",
+        "en": "When a session is waiting while Hangar is in the background, a notification lets you know. Click it to open the session.",
+        "el": "Όταν μια συνεδρία περιμένει ενώ το Hangar είναι στο παρασκήνιο, σε ειδοποιεί μια ειδοποίηση. Κάνε κλικ σε αυτήν για να ανοίξεις τη συνεδρία.",
+        "es": "Si una sesión espera mientras Hangar está en segundo plano, te avisa una notificación. Haz clic en ella para abrir la sesión.",
+        "fr": "Quand une session attend alors que Hangar est en arrière-plan, une notification te prévient. Clique dessus pour ouvrir la session.",
+        "it": "Quando una sessione è in attesa mentre Hangar è in background, te lo dice una notifica. Fai clic per aprire la sessione.",
+        "ja": "Hangar がバックグラウンドのときにセッションが待機すると、通知でお知らせします。クリックするとそのセッションを開きます。",
+        "pl": "Gdy sesja czeka, a Hangar działa w tle, informuje o tym powiadomienie. Kliknij je, aby otworzyć sesję.",
+        "pt": "Quando uma sessão está esperando com o Hangar em segundo plano, uma notificação avisa. Clique nela para abrir a sessão.",
+        "ru": "Если сессия ждёт, пока Hangar в фоне, об этом сообщит уведомление. Нажми на него, чтобы открыть сессию.",
+        "tr": "Hangar arka plandayken bir oturum beklerse bir bildirim seni uyarır. Oturumu açmak için bildirime tıkla.",
+        "zh": "Hangar 在后台时如有会话在等待，会弹出通知提醒你。点击通知即可打开该会话。"
+      },
+      {
+        "de": "Jede Session zeigt in der Sidebar, was sie gerade tut, etwa „arbeitet seit 3 Min.“, dazu Ordner, Git-Branch und Laufzeit.",
+        "en": "Each session in the sidebar shows what it is doing, like \"working for 3 min\", plus its folder, git branch and run time.",
+        "el": "Κάθε συνεδρία στην πλαϊνή στήλη δείχνει τι κάνει τώρα, π.χ. «εργάζεται εδώ και 3 λ.», μαζί με φάκελο, κλάδο Git και χρόνο εκτέλεσης.",
+        "es": "Cada sesión de la barra lateral muestra qué está haciendo, como «trabajando desde hace 3 min», además de su carpeta, rama de Git y tiempo de ejecución.",
+        "fr": "Chaque session de la barre latérale montre ce qu’elle fait, par exemple « travaille depuis 3 min », avec son dossier, sa branche Git et sa durée.",
+        "it": "Ogni sessione nella barra laterale mostra cosa sta facendo, ad esempio «lavora da 3 min», insieme a cartella, branch Git e durata.",
+        "ja": "サイドバーの各セッションに「作業中 (3 分)」のような今の状態と、フォルダー、Git ブランチ、実行時間が表示されます。",
+        "pl": "Każda sesja na pasku bocznym pokazuje, co robi, np. „pracuje od 3 min”, a do tego folder, gałąź Git i czas działania.",
+        "pt": "Cada sessão na barra lateral mostra o que está fazendo, como \"trabalhando há 3 min\", além da pasta, do branch do Git e do tempo de execução.",
+        "ru": "Каждая сессия в боковой панели показывает, чем занята, например «работает 3 мин», а также папку, ветку Git и время работы.",
+        "tr": "Kenar çubuğundaki her oturum ne yaptığını gösterir, örneğin \"3 dk. süredir çalışıyor\"; ayrıca klasörünü, Git dalını ve çalışma süresini.",
+        "zh": "侧边栏中的每个会话都会显示当前状态，例如“已工作 3分钟”，以及文件夹、Git 分支和运行时长。"
+      },
+      {
+        "de": "Die Taskleiste zeigt, wie viele Sessions auf dich warten.",
+        "en": "The taskbar shows how many sessions are waiting for you.",
+        "el": "Η γραμμή εργασιών δείχνει πόσες συνεδρίες σε περιμένουν.",
+        "es": "La barra de tareas muestra cuántas sesiones te están esperando.",
+        "fr": "La barre des tâches indique combien de sessions t’attendent.",
+        "it": "La barra delle applicazioni mostra quante sessioni ti stanno aspettando.",
+        "ja": "待機中のセッション数がタスクバーに表示されます。",
+        "pl": "Pasek zadań pokazuje, ile sesji na ciebie czeka.",
+        "pt": "A barra de tarefas mostra quantas sessões estão esperando por você.",
+        "ru": "Панель задач показывает, сколько сессий тебя ждёт.",
+        "tr": "Görev çubuğu seni bekleyen oturum sayısını gösterir.",
+        "zh": "任务栏会显示有多少会话在等你。"
+      },
+      {
+        "de": "Neu in den Einstellungen: Hangar läuft auf Wunsch im Infobereich weiter, wenn du das Fenster schließt. Deine Sessions laufen dann weiter.",
+        "en": "New in Settings: Hangar can keep running in the notification area when you close the window, so your sessions keep going.",
+        "el": "Νέο στις Ρυθμίσεις: το Hangar μπορεί να συνεχίζει στην περιοχή ειδοποιήσεων όταν κλείνεις το παράθυρο, ώστε οι συνεδρίες σου να συνεχίζουν.",
+        "es": "Nuevo en Configuración: Hangar puede seguir en el área de notificación al cerrar la ventana, así tus sesiones siguen en marcha.",
+        "fr": "Nouveau dans les paramètres : Hangar peut rester dans la zone de notification quand tu fermes la fenêtre, et tes sessions continuent.",
+        "it": "Novità nelle impostazioni: Hangar può restare nell’area di notifica quando chiudi la finestra, così le sessioni continuano.",
+        "ja": "設定に追加: ウィンドウを閉じても Hangar を通知領域で実行し続け、セッションをそのまま動かせます。",
+        "pl": "Nowość w ustawieniach: po zamknięciu okna Hangar może działać dalej w obszarze powiadomień, a twoje sesje pracują dalej.",
+        "pt": "Novo nas configurações: o Hangar pode continuar na área de notificação ao fechar a janela, e suas sessões seguem rodando.",
+        "ru": "Новое в настройках: после закрытия окна Hangar может работать в области уведомлений, и твои сессии продолжат работу.",
+        "tr": "Ayarlarda yeni: Pencereyi kapattığında Hangar bildirim alanında çalışmaya devam edebilir, oturumların sürer.",
+        "zh": "设置中新增：关闭窗口后，Hangar 可在通知区域继续运行，会话也会继续。"
       }
     ]
   },
