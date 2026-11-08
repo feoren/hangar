@@ -267,6 +267,12 @@
           "markdownDescription": "Enables the detect_versions command without any pre-configured scope."
         },
         {
+          "description": "Enables the export_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-note",
+          "markdownDescription": "Enables the export_note command without any pre-configured scope."
+        },
+        {
           "description": "Enables the export_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-export-session",
@@ -313,6 +319,12 @@
           "type": "string",
           "const": "allow-list-sessions",
           "markdownDescription": "Enables the list_sessions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_trash command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-trash",
+          "markdownDescription": "Enables the list_trash command without any pre-configured scope."
         },
         {
           "description": "Enables the load_scrollback command without any pre-configured scope.",
@@ -411,6 +423,18 @@
           "markdownDescription": "Enables the restart_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the restore_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restore-note",
+          "markdownDescription": "Enables the restore_note command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reveal_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reveal-note",
+          "markdownDescription": "Enables the reveal_note command without any pre-configured scope."
+        },
+        {
           "description": "Enables the reveal_notes_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-reveal-notes-folder",
@@ -433,6 +457,12 @@
           "type": "string",
           "const": "allow-save-workspace",
           "markdownDescription": "Enables the save_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the search_notes command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-search-notes",
+          "markdownDescription": "Enables the search_notes command without any pre-configured scope."
         },
         {
           "description": "Enables the set_profile_secret command without any pre-configured scope.",
@@ -555,6 +585,12 @@
           "markdownDescription": "Denies the detect_versions command without any pre-configured scope."
         },
         {
+          "description": "Denies the export_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-note",
+          "markdownDescription": "Denies the export_note command without any pre-configured scope."
+        },
+        {
           "description": "Denies the export_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-export-session",
@@ -601,6 +637,12 @@
           "type": "string",
           "const": "deny-list-sessions",
           "markdownDescription": "Denies the list_sessions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_trash command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-trash",
+          "markdownDescription": "Denies the list_trash command without any pre-configured scope."
         },
         {
           "description": "Denies the load_scrollback command without any pre-configured scope.",
@@ -699,6 +741,18 @@
           "markdownDescription": "Denies the restart_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the restore_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restore-note",
+          "markdownDescription": "Denies the restore_note command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reveal_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reveal-note",
+          "markdownDescription": "Denies the reveal_note command without any pre-configured scope."
+        },
+        {
           "description": "Denies the reveal_notes_folder command without any pre-configured scope.",
           "type": "string",
           "const": "deny-reveal-notes-folder",
@@ -721,6 +775,12 @@
           "type": "string",
           "const": "deny-save-workspace",
           "markdownDescription": "Denies the save_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the search_notes command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-search-notes",
+          "markdownDescription": "Denies the search_notes command without any pre-configured scope."
         },
         {
           "description": "Denies the set_profile_secret command without any pre-configured scope.",

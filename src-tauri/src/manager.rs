@@ -10,7 +10,7 @@
 //! within [`RESUME_WINDOW`], the batch thread of the failed process (without holding the
 //! session lock) restarts it once normally and hands its event receiver over.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source};
 use crate::batch;
 use crate::cli_session::{self, Plan};
+use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
 use crate::lock;
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::ProcTree;
@@ -171,6 +172,8 @@ pub enum ManagerError {
     },
     #[error("PTY error: {0}")]
     Pty(String),
+    #[error("Background task aborted: {0}")]
+    Task(String),
     #[error(
         "The process tree of the session cannot be watched, so the program was not started: {0}"
     )]
@@ -442,17 +445,56 @@ impl SessionManager {
     }
 
     /// Installed entries with their resolved program path, for version and icon queries.
-    /// The search runs on every call, as in [`Self::profiles`].
+    /// The search runs on every call, as in [`Self::profiles`]. Entries without a version source
+    /// of their own get the built-in one for their program ([`updates::enrich`], Git Bash).
     pub fn installed(&self) -> Vec<(Agent, PathBuf)> {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
         self.agents()
             .iter()
-            .filter_map(|agent| {
-                let program = agent.resolve(path.as_deref(), pathext.as_deref())?.program;
-                Some((agent.clone(), program))
-            })
+            .filter_map(|agent| installed_entry(agent, path.as_deref(), pathext.as_deref()))
             .collect()
+    }
+
+    /// [`Self::installed`] for one entry; `None` if unknown or not installed.
+    pub fn installed_one(&self, profile_id: &str) -> Option<(Agent, PathBuf)> {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        let agent = self.agent(profile_id).ok()?;
+        installed_entry(&agent, path.as_deref(), pathext.as_deref())
+    }
+
+    /// Profiles that run in an agent session right now (not exited), for the warning that an
+    /// update may fail on locked files.
+    pub fn running_profiles(&self) -> HashSet<String> {
+        lock(&self.shared.sessions)
+            .values()
+            .filter(|e| e.info.kind == SessionKind::Agent && e.info.status != Status::Exited)
+            .map(|e| e.info.profile_id.clone())
+            .collect()
+    }
+
+    /// How the update of the entry would run on this machine ([`install_source::plan`]).
+    pub fn update_plan(&self, profile_id: &str) -> Result<(Agent, UpdatePlan), ManagerError> {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        let mut agent = self.agent(profile_id)?;
+        let program = agent
+            .resolve(path.as_deref(), pathext.as_deref())
+            .map(|r| r.program);
+        if let Some(program) = &program {
+            updates::enrich(&mut agent, program, &SystemProbe);
+        }
+        let plan = install_source::plan(
+            &PlanInput {
+                profile: &agent.profile,
+                install_hint: agent.install_hint.as_deref(),
+                program: program.as_deref(),
+                candidates: &agent.candidates,
+            },
+            &SystemProbe,
+        );
+        Ok((agent, plan))
     }
 
     /// Replaces the user profiles (freshly read profiles.toml) and merges in the catalog as at
@@ -586,10 +628,11 @@ impl SessionManager {
     }
 
     /// Starts a program update as a normal session (`kind: update`, title
-    /// "Update: <name>"). Only the platform's `update_hint` runs, as argv without a shell
-    /// ([`updates::update_agent`]); the command text never comes from the frontend. Restarting the
-    /// session repeats the update. If an update is already running for the profile, the result is
-    /// [`ManagerError::UpdateRunning`].
+    /// "Update: <name>"). Only the plan's command runs ([`Self::update_plan`]: the profile's
+    /// `update_hint`, the program's self-updater or its installer's update), as argv without a
+    /// shell ([`updates::update_agent`]); the command text never comes from the frontend.
+    /// Restarting the session repeats the update. If an update is already running for the
+    /// profile, the result is [`ManagerError::UpdateRunning`].
     ///
     /// The working folder is the profile's fixed folder, otherwise the user's home folder, never one
     /// chosen by the frontend: on Windows `npm.cmd` looks for `node` in the current folder first, and
@@ -600,12 +643,13 @@ impl SessionManager {
         size: TermSize,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
-        let agent = self.agent(profile_id)?;
-        let updater =
-            updates::update_agent(&agent).map_err(|reason| ManagerError::NoUpdateCommand {
+        let (agent, plan) = self.update_plan(profile_id)?;
+        let updater = updates::update_agent(&agent, &plan).map_err(|reason| {
+            ManagerError::NoUpdateCommand {
                 profile: agent.profile.name.clone(),
                 reason,
-            })?;
+            }
+        })?;
         let title = format!("Update: {}", agent.profile.name);
         let plan = Plan::normal(&updater.profile, None);
         self.start(updater, None, size, plan, SessionKind::Update, title, sink)
@@ -879,6 +923,17 @@ impl SessionManager {
             let _ = runtime.kill();
         }
     }
+}
+
+fn installed_entry(
+    agent: &Agent,
+    path: Option<&std::ffi::OsStr>,
+    pathext: Option<&std::ffi::OsStr>,
+) -> Option<(Agent, PathBuf)> {
+    let program = agent.resolve(path, pathext)?.program;
+    let mut agent = agent.clone();
+    updates::enrich(&mut agent, &program, &SystemProbe);
+    Some((agent, program))
 }
 
 /// The conversation id of the process that starts now, and whether sub-agents can be shown.

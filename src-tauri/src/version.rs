@@ -33,8 +33,17 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// `version_args` get separate entries.
 pub type VersionCache = FileCache<(FileStamp, Vec<String>), Option<String>>;
 
-/// First match of the pattern `\d+(\.\d+){1,3}`, greedy like a regex match.
+/// Git for Windows writes its build number behind `.windows.` (`git version 2.56.0.windows.4`,
+/// tag `v2.56.0.windows.4`); winget lists the same version as `2.56.0.4`.
+pub fn normalize_windows_suffix(text: &str) -> String {
+    text.replace(".windows.", ".")
+}
+
+/// First match of the pattern `\d+(\.\d+){1,3}`, greedy like a regex match, after
+/// [`normalize_windows_suffix`].
 pub fn parse_version(text: &str) -> Option<String> {
+    let text = normalize_windows_suffix(text);
+    let text = text.as_str();
     let bytes = text.as_bytes();
     let digits_end = |mut at: usize| {
         while bytes.get(at).is_some_and(u8::is_ascii_digit) {
@@ -190,19 +199,43 @@ fn terminate(tree: Option<&ProcTree>, child: &mut Child) {
     let _ = child.wait();
 }
 
-/// Version of an entry, from the cache or by querying.
-fn cached_version(agent: &Agent, program: &Path, cache: &VersionCache) -> Option<String> {
-    let args = version_args(agent.profile.version_args.as_deref(), program);
+/// The program whose version is queried: for Git Bash the `git.exe` of the same Git for Windows
+/// install, because `bash --version` reports bash, not the install.
+fn version_program(agent: &Agent, program: &Path) -> PathBuf {
+    if cfg!(windows) && agent.profile.version_args.is_none() {
+        if let Some(git) =
+            crate::install_source::git_for_windows(program, &crate::install_source::SystemProbe)
+        {
+            return git;
+        }
+    }
+    program.to_path_buf()
+}
+
+fn cache_key(agent: &Agent, program: &Path) -> Option<((FileStamp, Vec<String>), PathBuf)> {
+    let program = version_program(agent, program);
+    let args = version_args(agent.profile.version_args.as_deref(), &program);
     if args.is_empty() {
         return None;
     }
-    let key = (FileStamp::of(program)?, args);
+    Some(((FileStamp::of(&program)?, args), program))
+}
+
+/// Version of an entry, from the cache or by querying.
+fn cached_version(agent: &Agent, program: &Path, cache: &VersionCache) -> Option<String> {
+    let (key, program) = cache_key(agent, program)?;
     if let Some(version) = cache.get(&key) {
         return version;
     }
-    let version = probe(program, &key.1, &agent.profile.env, TIMEOUT);
+    let version = probe(&program, &key.1, &agent.profile.env, TIMEOUT);
     cache.insert(key, version.clone());
     version
+}
+
+/// The remembered version without starting anything: `None` if nothing is cached yet.
+pub fn remembered(agent: &Agent, program: &Path, cache: &VersionCache) -> Option<Option<String>> {
+    let (key, _) = cache_key(agent, program)?;
+    cache.get(&key)
 }
 
 /// Queries all entries in parallel: profileId → version or `None`.
@@ -248,6 +281,10 @@ mod tests {
         assert_eq!(v("codex-cli 0.46.0").as_deref(), Some("0.46.0"));
         assert_eq!(v("aider 0.86.1.dev42").as_deref(), Some("0.86.1"));
         assert_eq!(v("v1.2").as_deref(), Some("1.2"));
+        assert_eq!(
+            v("git version 2.56.0.windows.4").as_deref(),
+            Some("2.56.0.4")
+        );
     }
 
     #[test]

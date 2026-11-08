@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reveal-note"
+description = "Enables the reveal_note command without any pre-configured scope."
+commands.allow = ["reveal_note"]
+
+[[permission]]
+identifier = "deny-reveal-note"
+description = "Denies the reveal_note command without any pre-configured scope."
+commands.deny = ["reveal_note"]

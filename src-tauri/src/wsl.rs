@@ -97,6 +97,8 @@ pub fn agent(distro: &str) -> Agent {
             sub_agents: None,
             latest: None,
             update_hint: None,
+            packages: None,
+            self_update: None,
         },
         source: Source::Catalog,
         candidates: vec![command],

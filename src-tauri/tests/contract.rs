@@ -60,3 +60,60 @@ fn commands_are_registered_allowed_and_wired() {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
     }
 }
+
+/// The detached notes window gets the note commands and a few window permissions, nothing else:
+/// no sessions, no profiles, no updates, no file dialogs of its own.
+#[test]
+fn notes_window_capability_is_narrow() {
+    let commands = build_commands();
+    let notes: serde_json::Value = serde_json::from_str(&read("capabilities/notes.json")).unwrap();
+    assert_eq!(notes["windows"], serde_json::json!(["notes"]));
+    let permissions: Vec<&str> = notes["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.as_str())
+        .collect();
+    let allowed_core = [
+        "core:event:default",
+        "core:window:allow-set-always-on-top",
+        "core:window:allow-close",
+        "core:window:allow-set-focus",
+        "clipboard-manager:allow-write-text",
+    ];
+    for permission in &permissions {
+        if allowed_core.contains(permission) {
+            continue;
+        }
+        let command = permission
+            .strip_prefix("allow-")
+            .unwrap_or_else(|| panic!("unexpected permission {permission}"))
+            .replace('-', "_");
+        assert!(
+            commands.contains(&command),
+            "{permission} names no registered command"
+        );
+        assert!(
+            command.contains("note") || command == "list_trash",
+            "{permission} is not a note command"
+        );
+    }
+    for needed in [
+        "allow-search-notes",
+        "allow-list-trash",
+        "allow-restore-note",
+        "allow-export-note",
+        "allow-reveal-note",
+        "allow-read-note",
+        "allow-write-note",
+    ] {
+        assert!(permissions.contains(&needed), "{needed} missing");
+    }
+    // The main window opens the notes window.
+    let main: serde_json::Value = serde_json::from_str(&read("capabilities/default.json")).unwrap();
+    assert!(main["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p == "core:webview:allow-create-webview-window"));
+}

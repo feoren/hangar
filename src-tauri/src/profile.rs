@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::install_source::{Packages, SelfUpdate};
 use crate::updates::{Latest, PlatformHint};
 
 pub const FILE_NAME: &str = "profiles.toml";
@@ -64,6 +65,12 @@ pub struct Profile {
     /// ([`crate::updates::update_command`]).
     #[serde(default, rename = "update_hint")]
     pub update_hint: Option<PlatformHint>,
+    /// Package name per installer, for the one-click update ([`crate::install_source`]).
+    #[serde(default)]
+    pub packages: Option<Packages>,
+    /// The program's own update command ([`crate::install_source::SelfUpdate`]).
+    #[serde(default, rename = "self_update")]
+    pub self_update: Option<SelfUpdate>,
 }
 
 impl Profile {
@@ -175,7 +182,12 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
         if let Some(other) = folded.insert(fold_id(&profile.id), &profile.id) {
             return Err(ProfileError::IdCase(other.to_owned(), profile.id.clone()));
         }
-        if let Some(Err(problem)) = profile.latest.as_ref().map(Latest::validate) {
+        let update_fields = [
+            profile.latest.as_ref().map(Latest::validate),
+            profile.packages.as_ref().map(Packages::validate),
+            profile.self_update.as_ref().map(SelfUpdate::validate),
+        ];
+        if let Some(Err(problem)) = update_fields.into_iter().flatten().find(Result::is_err) {
             return Err(ProfileError::Invalid {
                 profile: label.clone(),
                 problem,
@@ -434,6 +446,31 @@ mod tests {
         assert!(matches!(parse(bad), Err(ProfileError::Invalid { .. })));
         let typo = "[[profile]]\nid='p'\nname='P'\ncommand='x'\nupdate_hint={ win='x' }\n";
         assert!(matches!(parse(typo), Err(ProfileError::Parse(_))));
+    }
+
+    #[test]
+    fn packages_and_self_update() {
+        let src = "[[profile]]\nid='p'\nname='P'\ncommand='x'\n\
+                   packages={ npm='@scope/x', winget='Vendor.X' }\n\
+                   self_update={ args=['update'], aware=true }\n";
+        let p = &parse(src).unwrap()[0];
+        assert_eq!(
+            p.packages.as_ref().unwrap().winget.as_deref(),
+            Some("Vendor.X")
+        );
+        assert!(p.self_update.as_ref().unwrap().aware);
+        for bad in [
+            "packages={ winget='x & y' }",
+            "packages={ npm='../x' }",
+            "self_update={ args=[] }",
+            "self_update={ args=['a|b'] }",
+        ] {
+            let src = format!("[[profile]]\nid='p'\nname='P'\ncommand='x'\n{bad}\n");
+            assert!(
+                matches!(parse(&src), Err(ProfileError::Invalid { .. })),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

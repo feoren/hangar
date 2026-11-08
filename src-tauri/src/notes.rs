@@ -11,6 +11,7 @@
 //!     folder.json              original path, title, order and stable IDs
 //!     <title>.md               the notes, readable in Explorer as well
 //!     .trash/                  deleted notes (moved, not deleted)
+//!       trash.json             ID, title and time of each deleted note, for restoring
 //! ```
 //!
 //! A note's ID is stored only in `folder.json`, so the file name can follow the title.
@@ -44,6 +45,16 @@ pub const MAX_TITLE_CHARS: usize = 200;
 /// Short enough that even deep profile paths on Windows stay below 260 characters.
 const MAX_STEM_CHARS: usize = 80;
 const FALLBACK_STEM: &str = "Note";
+const TRASH_META_FILE: &str = "trash.json";
+const TRASH_META_VERSION: u32 = 1;
+/// At most this many hits per search; title hits first, then the newest notes.
+pub const MAX_SEARCH_RESULTS: usize = 50;
+pub const MAX_QUERY_CHARS: usize = 200;
+/// A search reads at most this many note files, so a huge notes folder cannot stall it.
+const MAX_SEARCH_FILES: usize = 5000;
+/// Characters of context before a hit in the excerpt.
+const EXCERPT_CONTEXT: usize = 60;
+const EXCERPT_MAX_CHARS: usize = 160;
 /// Not usable as a file name on Windows, not even with an extension (`CON.md`).
 const RESERVED_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
@@ -81,6 +92,48 @@ pub struct NoteInfo {
     pub order: u32,
 }
 
+/// A hit of [`NotesStore::search`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub folder_key: String,
+    /// The scope's working folder, `null` for the General area.
+    pub path: Option<PathBuf>,
+    pub id: String,
+    pub title: String,
+    /// Text around the first hit in the content (whitespace collapsed), or the start of the
+    /// content when only the title matches.
+    pub excerpt: String,
+    pub updated_at: Option<u64>,
+}
+
+/// A deleted note in the scope's trash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashInfo {
+    pub id: String,
+    pub title: String,
+    /// Unix time in milliseconds of the deletion.
+    pub deleted_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TrashMeta {
+    version: u32,
+    items: Vec<TrashEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TrashEntry {
+    id: String,
+    title: String,
+    /// File name inside `.trash/`.
+    file: String,
+    deleted_at: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FolderMeta {
@@ -113,6 +166,10 @@ pub enum NotesError {
     TooLarge { size: usize, max: usize },
     #[error("The note file is not UTF-8 text")]
     NotText,
+    #[error("Invalid search: {0}")]
+    InvalidQuery(&'static str),
+    #[error(transparent)]
+    Export(#[from] crate::export::ExportError),
     #[error("File {path} cannot be read or written: {source}")]
     Io {
         path: PathBuf,
@@ -511,6 +568,88 @@ fn migrate_general(old: &Path, new: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Search text: trimmed, not longer than [`MAX_QUERY_CHARS`], no control characters. `None`
+/// for an empty query, which finds nothing.
+pub fn validate_query(query: &str) -> Result<Option<String>, NotesError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(None);
+    }
+    if query.chars().count() > MAX_QUERY_CHARS {
+        return Err(NotesError::InvalidQuery("too long"));
+    }
+    if query.chars().any(char::is_control) {
+        return Err(NotesError::InvalidQuery("contains control characters"));
+    }
+    Ok(Some(query.to_lowercase()))
+}
+
+/// Byte offset in `text` of the character at which `lower_pos` (an offset in
+/// `text.to_lowercase()`) starts. Lowercasing can change byte lengths, so offsets differ.
+fn original_offset(text: &str, lower_pos: usize) -> usize {
+    let mut lowered = 0;
+    for (index, c) in text.char_indices() {
+        if lowered >= lower_pos {
+            return index;
+        }
+        lowered += c.to_lowercase().map(char::len_utf8).sum::<usize>();
+    }
+    text.len()
+}
+
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Up to [`EXCERPT_MAX_CHARS`] characters around the first match of `query_lower` in
+/// `content`, whitespace collapsed; `…` marks a cut. Without a match the start of the content.
+pub fn excerpt(content: &str, query_lower: &str) -> String {
+    let lower = content.to_lowercase();
+    let start = lower.find(query_lower).map_or(0, |pos| {
+        let at = original_offset(content, pos);
+        content[..at]
+            .char_indices()
+            .rev()
+            .nth(EXCERPT_CONTEXT.saturating_sub(1))
+            .map_or(0, |(index, _)| index)
+    });
+    let window: String = content[start..]
+        .chars()
+        .take(EXCERPT_MAX_CHARS * 2)
+        .collect();
+    let mut text: String = collapse_whitespace(&window)
+        .chars()
+        .take(EXCERPT_MAX_CHARS)
+        .collect();
+    let cut_end = content[start..].chars().count() > EXCERPT_MAX_CHARS
+        && collapse_whitespace(&content[start..]).chars().count() > EXCERPT_MAX_CHARS;
+    if cut_end {
+        text.push('…');
+    }
+    if start > 0 && !content[..start].trim().is_empty() {
+        text.insert(0, '…');
+    }
+    text
+}
+
+/// Title of a trash file without a record: `<millis>-<file>.md` back to `<file>`.
+fn trash_title(file: &str) -> (String, Option<u64>) {
+    let stem = Path::new(file)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (stamp, rest) = match stem.split_once('-') {
+        Some((digits, rest))
+            if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            (digits.parse().ok(), rest.to_owned())
+        }
+        _ => (None, stem.clone()),
+    };
+    let title = validate_title(&rest).unwrap_or_else(|_| FALLBACK_STEM.to_owned());
+    (title, stamp)
+}
+
 impl NotesStore {
     /// `root` is the app data folder; the notes live below it in `notes/`.
     pub fn new(app_dir: &Path) -> Self {
@@ -753,10 +892,254 @@ impl NotesStore {
         create_private_dir(&trash).map_err(io_error(&trash))?;
         let stamp = millis(SystemTime::now()).unwrap_or(0);
         let from = opened.file(&entry);
-        let to = trash.join(format!("{stamp}-{}", entry.file));
+        let file = free_name(&trash, &format!("{stamp}-{}", entry.file));
+        let to = trash.join(&file);
         fs::rename(&from, &to).map_err(io_error(&from))?;
         opened.meta.notes.retain(|n| n.id != entry.id);
-        opened.save()
+        opened.save()?;
+        // Without the record the file is still adopted by `list_trash`, only under a new ID.
+        let mut items = Self::read_trash(&trash);
+        items.push(TrashEntry {
+            id: entry.id,
+            title: entry.title,
+            file,
+            deleted_at: Some(stamp),
+        });
+        if let Err(error) = Self::save_trash(&trash, items) {
+            eprintln!("hangar: trash record not saved: {error}");
+        }
+        Ok(())
+    }
+
+    /// A record names a plain `.md` file inside `.trash/` and carries a valid ID and title.
+    /// `trash.json` is a file on disk like any other: a record pointing elsewhere (`../x.md`)
+    /// must never move a foreign file into the notes. A dropped record's file is adopted again
+    /// by [`Self::synced_trash`] under a new ID.
+    fn trusted_entry(entry: &TrashEntry) -> bool {
+        let mut parts = Path::new(&entry.file).components();
+        let plain = matches!(
+            (parts.next(), parts.next()),
+            (Some(Component::Normal(name)), None) if name == entry.file.as_str()
+        );
+        plain
+            && is_markdown(&entry.file)
+            && check_id(&entry.id).is_ok_and(|id| id == entry.id)
+            && validate_title(&entry.title).is_ok_and(|title| title == entry.title)
+    }
+
+    fn read_trash(trash: &Path) -> Vec<TrashEntry> {
+        let path = trash.join(TRASH_META_FILE);
+        match read_limited(&path, MAX_META_BYTES) {
+            Ok(Some(bytes)) => match serde_json::from_slice::<TrashMeta>(&bytes) {
+                Ok(meta) if meta.version == TRASH_META_VERSION => {
+                    meta.items.into_iter().filter(Self::trusted_entry).collect()
+                }
+                _ => {
+                    eprintln!("hangar: ignoring unreadable {}", path.display());
+                    Vec::new()
+                }
+            },
+            Ok(None) => Vec::new(),
+            Err(reason) => {
+                eprintln!("hangar: ignoring {}: {reason}", path.display());
+                Vec::new()
+            }
+        }
+    }
+
+    fn save_trash(trash: &Path, items: Vec<TrashEntry>) -> Result<(), NotesError> {
+        let path = trash.join(TRASH_META_FILE);
+        let meta = TrashMeta {
+            version: TRASH_META_VERSION,
+            items,
+        };
+        let json = serde_json::to_vec_pretty(&meta)
+            .map_err(|e| io_error(&path)(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+        write_atomic(&path, &json).map_err(io_error(&path))
+    }
+
+    /// The trash records matched with the files: records without a file are dropped, `.md`
+    /// files without a record (deleted before records existed) are adopted with a new ID.
+    fn synced_trash(trash: &Path) -> Result<Vec<TrashEntry>, NotesError> {
+        let mut items = Self::read_trash(trash);
+        let before = items.clone();
+        items.retain(|item| trash.join(&item.file).is_file());
+        let known: HashSet<String> = items.iter().map(|i| i.file.to_lowercase()).collect();
+        let mut found: Vec<String> = fs::read_dir(trash)
+            .map_err(io_error(trash))?
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|name| is_markdown(name) && !known.contains(&name.to_lowercase()))
+            .collect();
+        found.sort();
+        for file in found {
+            let (title, stamp) = trash_title(&file);
+            let deleted_at = stamp.or_else(|| modified(&trash.join(&file)));
+            items.push(TrashEntry {
+                id: new_id(),
+                title,
+                file,
+                deleted_at,
+            });
+        }
+        if items != before {
+            Self::save_trash(trash, items.clone())?;
+        }
+        Ok(items)
+    }
+
+    /// Deleted notes of the scope, the most recently deleted first; `[]` without a trash.
+    pub fn list_trash(&self, folder: &NoteFolder) -> Result<Vec<TrashInfo>, NotesError> {
+        let trash = self.root.join(folder_key(folder)?).join(TRASH_DIR);
+        let _guard = lock(&self.guard);
+        if !trash.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut list: Vec<TrashInfo> = Self::synced_trash(&trash)?
+            .into_iter()
+            .map(|item| TrashInfo {
+                id: item.id,
+                title: item.title,
+                deleted_at: item.deleted_at,
+            })
+            .collect();
+        list.sort_by_key(|item| std::cmp::Reverse(item.deleted_at));
+        Ok(list)
+    }
+
+    /// Moves a deleted note back to the end of the scope's list and returns its ID: the old
+    /// one, unless a note with that ID exists again.
+    pub fn restore_note(&self, folder: &NoteFolder, id: &str) -> Result<String, NotesError> {
+        let id = check_id(id)?;
+        let _guard = lock(&self.guard);
+        let mut opened = self.opened(folder)?;
+        let trash = opened.dir.join(TRASH_DIR);
+        if !trash.is_dir() {
+            return Err(NotesError::UnknownNote);
+        }
+        let mut items = Self::synced_trash(&trash)?;
+        let index = items
+            .iter()
+            .position(|item| item.id == id)
+            .ok_or(NotesError::UnknownNote)?;
+        let item = items.remove(index);
+        let file = opened.free_file_name(&item.title, None);
+        let from = trash.join(&item.file);
+        fs::rename(&from, opened.dir.join(&file)).map_err(io_error(&from))?;
+        let restored = if opened.meta.notes.iter().any(|n| n.id == item.id) {
+            new_id()
+        } else {
+            item.id
+        };
+        let order = opened.next_order();
+        opened.meta.notes.push(NoteEntry {
+            id: restored.clone(),
+            title: item.title,
+            file,
+            order,
+        });
+        opened.save()?;
+        Self::save_trash(&trash, items)?;
+        Ok(restored)
+    }
+
+    /// Title and content of a note, for exporting it.
+    pub fn note_for_export(
+        &self,
+        folder: &NoteFolder,
+        id: &str,
+    ) -> Result<(String, String), NotesError> {
+        let content = self.read_note(folder, id)?;
+        let _guard = lock(&self.guard);
+        let opened = self.opened(folder)?;
+        let title = opened.entry(id)?.title.clone();
+        Ok((title, content))
+    }
+
+    /// Full path of the note's file, for showing it in the file manager.
+    pub fn note_path(&self, folder: &NoteFolder, id: &str) -> Result<PathBuf, NotesError> {
+        let _guard = lock(&self.guard);
+        let opened = self.opened(folder)?;
+        Ok(opened.file(opened.entry(id)?))
+    }
+
+    /// Selects the note's file in Explorer or Finder (Linux: opens its folder). The path comes
+    /// from our own storage only; it starts as argv without a shell.
+    pub fn reveal_note(&self, folder: &NoteFolder, id: &str) -> Result<(), NotesError> {
+        let path = self.note_path(folder, id)?;
+        crate::desktop::reveal(&path).map_err(io_error(&path))
+    }
+
+    /// Case-insensitive substring search in titles and contents of all scopes, read only (no
+    /// folder is synced or rewritten). Files above [`MAX_NOTE_BYTES`] or not UTF-8 are skipped.
+    /// Title hits come first, then by modification time, newest first.
+    pub fn search(&self, query: &str) -> Result<Vec<SearchHit>, NotesError> {
+        let Some(query) = validate_query(query)? else {
+            return Ok(Vec::new());
+        };
+        let _guard = lock(&self.guard);
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(io_error(&self.root)(error)),
+        };
+        let mut keys: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|key| is_folder_key(key))
+            .collect();
+        keys.sort();
+        let mut hits: Vec<(bool, SearchHit)> = Vec::new();
+        let mut read = 0usize;
+        'folders: for key in keys {
+            let dir = self.root.join(&key);
+            let Some(meta) = Self::read_meta(&dir) else {
+                continue;
+            };
+            let path = if key == GENERAL_KEY { None } else { meta.path };
+            for note in meta.notes {
+                if read >= MAX_SEARCH_FILES {
+                    break 'folders;
+                }
+                read += 1;
+                let file = dir.join(&note.file);
+                let Ok(info) = fs::metadata(&file) else {
+                    continue;
+                };
+                if !info.is_file() || info.len() > MAX_NOTE_BYTES as u64 {
+                    continue;
+                }
+                let Ok(content) = fs::read_to_string(&file) else {
+                    continue;
+                };
+                let in_title = note.title.to_lowercase().contains(&query);
+                if !in_title && !content.to_lowercase().contains(&query) {
+                    continue;
+                }
+                hits.push((
+                    in_title,
+                    SearchHit {
+                        folder_key: key.clone(),
+                        path: path.clone(),
+                        id: note.id,
+                        title: note.title,
+                        excerpt: excerpt(&content, &query),
+                        updated_at: info.modified().ok().and_then(millis),
+                    },
+                ));
+            }
+        }
+        hits.sort_by(|(a_title, a), (b_title, b)| {
+            b_title
+                .cmp(a_title)
+                .then_with(|| b.updated_at.cmp(&a.updated_at))
+        });
+        Ok(hits
+            .into_iter()
+            .take(MAX_SEARCH_RESULTS)
+            .map(|(_, hit)| hit)
+            .collect())
     }
 
     /// The given IDs move to the front in this order, all others keep their
@@ -996,6 +1379,7 @@ mod tests {
         let trash: Vec<_> = fs::read_dir(dir.join(TRASH_DIR))
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name != TRASH_META_FILE)
             .collect();
         assert_eq!(trash.len(), 1);
         assert!(trash[0].ends_with("-Plan_ Q4_2026.md"));
@@ -1201,7 +1585,11 @@ mod tests {
         assert_eq!(t.0.read_note(&general(), &id).unwrap(), "content");
         for key in [GENERAL_KEY, project_key.as_str()] {
             let dir = t.0.root().join(key);
-            assert_eq!(names(&dir.join(TRASH_DIR)).len(), 1, "{key}");
+            let notes: Vec<String> = names(&dir.join(TRASH_DIR))
+                .into_iter()
+                .filter(|name| is_markdown(name))
+                .collect();
+            assert_eq!(notes.len(), 1, "{key}");
             assert!(!dir.join(LEGACY_TRASH_DIR).exists(), "{key}");
         }
         assert_eq!(t.0.list_notes(&project()).unwrap()[0].id, project_id);
@@ -1290,6 +1678,209 @@ mod tests {
         assert_eq!(first[0].id, id);
         assert_eq!(names(t.0.root()), [GENERAL_KEY]);
         assert_eq!(names(&t.0.root().join(GENERAL_KEY).join(TRASH_DIR)), trash);
+    }
+
+    #[test]
+    fn search_across_folders() {
+        let t = TempNotes::new("search");
+        let a = t.0.create_note(&project(), "Deploy plan").unwrap();
+        t.0.write_note(&project(), &a, "Steps:\n\n1. Build\n2. Ship it")
+            .unwrap();
+        let b = t.0.create_note(&general(), "Groceries").unwrap();
+        t.0.write_note(&general(), &b, "Milk, bread\nand the DEPLOY checklist")
+            .unwrap();
+        let c = t.0.create_note(&general(), "Other").unwrap();
+        t.0.write_note(&general(), &c, "nothing here").unwrap();
+
+        let hits = t.0.search("deploy").unwrap();
+        assert_eq!(hits.len(), 2, "{hits:?}");
+        // The title hit comes first.
+        assert_eq!(hits[0].id, a);
+        assert_eq!(hits[0].path, project().path);
+        assert_eq!(hits[0].folder_key, folder_key(&project()).unwrap());
+        assert!(
+            hits[0].excerpt.starts_with("Steps: 1. Build"),
+            "{:?}",
+            hits[0].excerpt
+        );
+        assert_eq!(hits[1].id, b);
+        assert_eq!(hits[1].path, None);
+        assert_eq!(hits[1].folder_key, GENERAL_KEY);
+        assert!(hits[1].excerpt.contains("the DEPLOY checklist"));
+        assert!(hits[1].updated_at.is_some());
+        let json = serde_json::to_value(&hits[1]).unwrap();
+        for field in ["folderKey", "path", "id", "title", "excerpt", "updatedAt"] {
+            assert!(json.get(field).is_some(), "{field}");
+        }
+
+        // Case-insensitive beyond ASCII; regex characters are plain text.
+        t.0.write_note(&general(), &c, "Größe ÄRGER (a+b)*")
+            .unwrap();
+        assert_eq!(t.0.search("ärger").unwrap()[0].id, c);
+        assert_eq!(t.0.search("(a+b)*").unwrap()[0].id, c);
+        assert!(t.0.search(".*").unwrap().is_empty());
+        // Empty finds nothing; too long or with control characters is an error.
+        assert!(t.0.search("   ").unwrap().is_empty());
+        assert!(matches!(
+            t.0.search(&"x".repeat(MAX_QUERY_CHARS + 1)),
+            Err(NotesError::InvalidQuery(_))
+        ));
+        assert!(matches!(
+            t.0.search("a\nb"),
+            Err(NotesError::InvalidQuery(_))
+        ));
+        // A file above the size limit is skipped, not an error.
+        let dir = t.0.root().join(GENERAL_KEY);
+        fs::write(
+            dir.join("Groceries.md"),
+            "deploy ".repeat(MAX_NOTE_BYTES / 6),
+        )
+        .unwrap();
+        let hits = t.0.search("deploy").unwrap();
+        assert_eq!(hits.len(), 1);
+        // A search changes nothing on disk.
+        assert!(!dir.join(TRASH_DIR).exists());
+    }
+
+    #[test]
+    fn search_limits_results() {
+        let t = TempNotes::new("search-limit");
+        for n in 0..(MAX_SEARCH_RESULTS + 5) {
+            t.0.create_note(&general(), &format!("hit {n}")).unwrap();
+        }
+        assert_eq!(t.0.search("HIT").unwrap().len(), MAX_SEARCH_RESULTS);
+        assert!(t.0.search("hit").is_ok());
+        assert!(NotesStore::new(&t.1.join("missing"))
+            .search("x")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn excerpts_cut_on_characters() {
+        let long = format!("{}needle{}", "ä ".repeat(100), "ö".repeat(400));
+        let text = excerpt(&long, "needle");
+        assert!(text.starts_with('…'));
+        assert!(text.ends_with('…'));
+        assert!(text.contains("needle"));
+        assert!(text.chars().count() <= EXCERPT_MAX_CHARS + 2);
+        // Lowercasing that changes byte lengths does not shift the cut (İ lowercases to two chars).
+        let tricky = format!("{}Needle", "İ".repeat(80));
+        assert!(excerpt(&tricky, "needle").contains("Needle"));
+        assert_eq!(excerpt("short\n\ttext", "zzz"), "short text");
+    }
+
+    #[test]
+    fn trash_lists_and_restores() {
+        let t = TempNotes::new("trash");
+        let folder = project();
+        assert!(t.0.list_trash(&folder).unwrap().is_empty());
+        let id = t.0.create_note(&folder, "Plan: Q4/2026").unwrap();
+        t.0.write_note(&folder, &id, "content").unwrap();
+        let other = t.0.create_note(&folder, "stays").unwrap();
+        t.0.delete_note(&folder, &id).unwrap();
+
+        let trash = t.0.list_trash(&folder).unwrap();
+        assert_eq!(trash.len(), 1);
+        assert_eq!(trash[0].id, id);
+        assert_eq!(trash[0].title, "Plan: Q4/2026");
+        assert!(trash[0].deleted_at.is_some());
+        let json = serde_json::to_value(&trash[0]).unwrap();
+        assert!(json.get("deletedAt").is_some());
+
+        // A new note took the file name meanwhile: the restored one gets its own.
+        let squatter = t.0.create_note(&folder, "Plan: Q4/2026").unwrap();
+        let restored = t.0.restore_note(&folder, &id).unwrap();
+        assert_eq!(restored, id);
+        assert_eq!(t.0.read_note(&folder, &id).unwrap(), "content");
+        let notes = t.0.list_notes(&folder).unwrap();
+        let ids: Vec<&str> = notes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, [other.as_str(), squatter.as_str(), id.as_str()]);
+        assert!(t.0.list_trash(&folder).unwrap().is_empty());
+        assert!(matches!(
+            t.0.restore_note(&folder, &id),
+            Err(NotesError::UnknownNote)
+        ));
+        assert!(matches!(
+            t.0.restore_note(&folder, "../x"),
+            Err(NotesError::InvalidId)
+        ));
+    }
+
+    #[test]
+    fn trash_adopts_files_without_record() {
+        let t = TempNotes::new("trash-adopt");
+        let folder = general();
+        t.0.create_note(&folder, "keep").unwrap();
+        let trash = t.0.root().join(GENERAL_KEY).join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        // As written before trash.json existed.
+        fs::write(trash.join("1700000000000-Old idea.md"), "old").unwrap();
+        fs::write(trash.join("not a note.txt"), "x").unwrap();
+        let list = t.0.list_trash(&folder).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].title, "Old idea");
+        assert_eq!(list[0].deleted_at, Some(1_700_000_000_000));
+        // The adopted ID stays stable and can be restored.
+        assert_eq!(t.0.list_trash(&folder).unwrap()[0].id, list[0].id);
+        let id = t.0.restore_note(&folder, &list[0].id).unwrap();
+        assert_eq!(t.0.read_note(&folder, &id).unwrap(), "old");
+        assert!(t.0.root().join(GENERAL_KEY).join("Old idea.md").is_file());
+        // A broken record does not hide the files.
+        let gone = t.0.create_note(&folder, "gone").unwrap();
+        t.0.delete_note(&folder, &gone).unwrap();
+        fs::write(trash.join(TRASH_META_FILE), "{ broken").unwrap();
+        assert_eq!(t.0.list_trash(&folder).unwrap()[0].title, "gone");
+    }
+
+    #[test]
+    fn trash_records_pointing_elsewhere_are_ignored() {
+        let t = TempNotes::new("trash-outside");
+        let folder = general();
+        t.0.create_note(&folder, "keep").unwrap();
+        let dir = t.0.root().join(GENERAL_KEY);
+        let trash = dir.join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        // A file next to the scope that a forged record tries to pull into the notes.
+        fs::write(t.0.root().join("outside.md"), "foreign").unwrap();
+        let forged = new_id();
+        let sep = std::path::MAIN_SEPARATOR;
+        let record = serde_json::json!({
+            "version": TRASH_META_VERSION,
+            "items": [
+                { "id": forged, "title": "x", "file": format!("..{sep}..{sep}outside.md"), "deletedAt": 1 },
+                { "id": "not-an-id", "title": "y", "file": "y.md", "deletedAt": 2 },
+            ]
+        });
+        fs::write(trash.join(TRASH_META_FILE), record.to_string()).unwrap();
+        fs::write(trash.join("y.md"), "kept").unwrap();
+        let list = t.0.list_trash(&folder).unwrap();
+        // Only the real file in the trash remains, adopted under a fresh ID.
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_ne!(list[0].id, "not-an-id");
+        assert!(matches!(
+            t.0.restore_note(&folder, &forged),
+            Err(NotesError::UnknownNote)
+        ));
+        assert!(t.0.root().join("outside.md").is_file());
+    }
+
+    #[test]
+    fn export_and_path_of_a_note() {
+        let t = TempNotes::new("export");
+        let id = t.0.create_note(&general(), "a/b").unwrap();
+        t.0.write_note(&general(), &id, "text").unwrap();
+        assert_eq!(
+            t.0.note_for_export(&general(), &id).unwrap(),
+            ("a/b".to_owned(), "text".to_owned())
+        );
+        let path = t.0.note_path(&general(), &id).unwrap();
+        assert!(path.is_file());
+        assert!(path.starts_with(t.0.root()));
+        assert!(matches!(
+            t.0.note_path(&general(), &new_id()),
+            Err(NotesError::UnknownNote)
+        ));
     }
 
     #[cfg(unix)]

@@ -11,7 +11,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::install_source::{is_foreign_launcher, Packages, SelfUpdate};
 use crate::profile::Profile;
+use crate::resolve::resolve_all;
 use crate::resolve::resolve_program;
 use crate::updates::{builtin_for_command, Latest, PlatformHint};
 
@@ -53,9 +55,15 @@ pub struct CatalogAgent {
     /// Source of the newest version (see [`Latest`]).
     #[serde(default)]
     pub latest: Option<Latest>,
-    /// Update command per platform; if it is missing, the install command applies.
+    /// Update command per platform; an override of the detected update (see [`crate::install_source::plan`]).
     #[serde(default)]
     pub update_hint: Option<PlatformHint>,
+    /// Package name per installer (see [`Packages`]).
+    #[serde(default)]
+    pub packages: Option<Packages>,
+    /// The program's own update command (see [`SelfUpdate`]).
+    #[serde(default)]
+    pub self_update: Option<SelfUpdate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,7 +120,12 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         if !seen.insert(agent.id.as_str()) {
             return Err(CatalogError::DuplicateId(agent.id.clone()));
         }
-        if let Some(Err(problem)) = agent.latest.as_ref().map(Latest::validate) {
+        let update_fields = [
+            agent.latest.as_ref().map(Latest::validate),
+            agent.packages.as_ref().map(Packages::validate),
+            agent.self_update.as_ref().map(SelfUpdate::validate),
+        ];
+        if let Some(Err(problem)) = update_fields.into_iter().flatten().find(Result::is_err) {
             return Err(invalid(problem));
         }
         if let Err(problem) = crate::profile::check_id_args(
@@ -157,9 +170,9 @@ impl Agent {
         // Existing profiles.toml files do not know `latest` yet; known shells get the source
         // anyway (see updates::builtin_for_command).
         if profile.latest.is_none() {
-            if let Some((latest, hint)) = builtin_for_command(&profile.command) {
+            if let Some((latest, packages)) = builtin_for_command(&profile.command) {
                 profile.latest = Some(latest);
-                profile.update_hint.get_or_insert(hint);
+                profile.packages.get_or_insert(packages);
             }
         }
         Self {
@@ -197,6 +210,8 @@ impl Agent {
                 sub_agents: agent.sub_agents,
                 latest: agent.latest,
                 update_hint: agent.update_hint,
+                packages: agent.packages,
+                self_update: agent.self_update,
             },
             source: Source::Catalog,
             candidates: agent.commands,
@@ -210,10 +225,19 @@ impl Agent {
         &self.profile.id
     }
 
-    /// First candidate that is found as a program, along with its resolved path.
+    /// First candidate that is found as a program, along with its resolved path. For catalog
+    /// entries a launcher of another program (the VS Code `copilot` shim) does not count; the
+    /// search goes on behind it.
     pub fn resolve(&self, path: Option<&OsStr>, pathext: Option<&OsStr>) -> Option<Resolved<'_>> {
         self.candidates.iter().find_map(|command| {
-            resolve_program(command, path, pathext).map(|program| Resolved { command, program })
+            let program = if self.source == Source::Catalog {
+                resolve_all(command, path, pathext)
+                    .into_iter()
+                    .find(|program| !is_foreign_launcher(program))
+            } else {
+                resolve_program(command, path, pathext)
+            };
+            program.map(|program| Resolved { command, program })
         })
     }
 
@@ -326,6 +350,21 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                 if same_program {
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
                 }
+                // Same program, same packages and self-updater.
+                if same_program {
+                    if agent.profile.packages.is_none() {
+                        agent
+                            .profile
+                            .packages
+                            .clone_from(&from_catalog.profile.packages);
+                    }
+                    if agent.profile.self_update.is_none() {
+                        agent
+                            .profile
+                            .self_update
+                            .clone_from(&from_catalog.profile.self_update);
+                    }
+                }
                 // Same program, same version source; the update command belongs with it.
                 if agent.profile.latest.is_none() && same_program {
                     agent
@@ -407,6 +446,8 @@ mod tests {
             sub_agents: None,
             latest: None,
             update_hint: None,
+            packages: None,
+            self_update: None,
         }
     }
 
@@ -427,6 +468,8 @@ mod tests {
             sub_agents: None,
             latest: None,
             update_hint: None,
+            packages: None,
+            self_update: None,
         }
     }
 
@@ -496,7 +539,7 @@ mod tests {
             ("codex", "npm:@openai/codex"),
             ("gemini", "npm:@google/gemini-cli"),
             ("copilot", "npm:@github/copilot"),
-            ("kimi", "pypi:kimi-cli"),
+            ("kimi", "npm:@moonshot-ai/kimi-code"),
             ("qwen", "npm:@qwen-code/qwen-code"),
             ("opencode", "github:anomalyco/opencode:v"),
             ("aider", "pypi:aider-chat"),
@@ -531,15 +574,128 @@ mod tests {
             .profile
             .latest
             .is_none());
-        // Without update_hint the install command applies.
-        let codex = Agent::from_catalog(agents.iter().find(|a| a.id == "codex").unwrap().clone());
-        let item = crate::updates::Item::of(&codex, Some("0.156.1".into())).unwrap();
-        assert_eq!(item.hint, codex.install_hint);
-        // A user profile with a catalog ID and the same program inherits the source.
+        // Old profiles.toml files get the winget package of pwsh as well.
+        assert_eq!(
+            old.profile.packages.and_then(|p| p.winget).as_deref(),
+            Some("Microsoft.PowerShell")
+        );
+        // A user profile with a catalog ID and the same program inherits the source, the
+        // packages and the self-updater.
         let merged = merge(vec![user("claude", "claude")], agents.clone());
         assert!(merged[0].profile.latest.is_some());
+        assert!(merged[0].profile.packages.is_some());
+        assert!(merged[0].profile.self_update.is_some());
         let merged = merge(vec![user("claude", "my-claude")], agents);
         assert!(merged[0].profile.latest.is_none());
+    }
+
+    #[test]
+    fn packages_and_self_updaters_in_builtin_catalog() {
+        // Evidence: docs/wiki/pages/sources/update-installers.md
+        let agents = builtin().unwrap();
+        let by_id = |id: &str| {
+            agents
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{id} missing"))
+        };
+        let npm = |id: &str| by_id(id).packages.as_ref().and_then(|p| p.npm.clone());
+        let winget = |id: &str| by_id(id).packages.as_ref().and_then(|p| p.winget.clone());
+        for (id, package) in [
+            ("claude", "@anthropic-ai/claude-code"),
+            ("codex", "@openai/codex"),
+            ("gemini", "@google/gemini-cli"),
+            ("copilot", "@github/copilot"),
+            ("kimi", "@moonshot-ai/kimi-code"),
+            ("qwen", "@qwen-code/qwen-code"),
+            ("opencode", "opencode-ai"),
+            ("crush", "@charmland/crush"),
+            ("pi", "@earendil-works/pi-coding-agent"),
+            ("omp", "@oh-my-pi/pi-coding-agent"),
+            ("kode", "@shareai-lab/kode"),
+            ("codebuff", "codebuff"),
+            ("cline", "cline"),
+            ("amp", "@sourcegraph/amp"),
+        ] {
+            assert_eq!(npm(id).as_deref(), Some(package), "{id}");
+        }
+        for (id, package) in [
+            ("claude", "Anthropic.ClaudeCode"),
+            ("codex", "OpenAI.Codex"),
+            ("copilot", "GitHub.Copilot"),
+            ("kimi", "MoonshotAI.KimiCodeCLI"),
+            ("crush", "charmbracelet.crush"),
+            ("amp", "Sourcegraph.Amp"),
+        ] {
+            assert_eq!(winget(id).as_deref(), Some(package), "{id}");
+        }
+        for id in ["aider", "vibe"] {
+            let pypi = by_id(id).packages.as_ref().and_then(|p| p.pypi.clone());
+            assert!(pypi.is_some(), "{id}");
+        }
+        // Look-alikes stay out: Pressly.Goose is a database tool, Google.Antigravity and
+        // Anysphere.Cursor are IDEs, npm cursor-agent is not Cursor's.
+        for id in ["goose", "antigravity", "cursor", "kiro", "droid", "forge"] {
+            assert!(by_id(id).packages.is_none(), "{id}");
+        }
+        for (id, args) in [
+            ("claude", "update"),
+            ("codex", "update"),
+            ("opencode", "upgrade"),
+            ("pi", "update"),
+            ("goose", "update"),
+        ] {
+            let update = by_id(id).self_update.as_ref().unwrap();
+            assert_eq!(update.args, [args], "{id}");
+            assert!(update.aware, "{id}");
+        }
+        // Fixed update commands would run the wrong installer for a copy installed another way.
+        assert!(agents.iter().all(|a| a.update_hint.is_none()));
+        let windows = crate::profile::parse(include_str!("default_profiles_windows.toml")).unwrap();
+        let pwsh = windows.iter().find(|p| p.id == "pwsh").unwrap();
+        assert_eq!(
+            pwsh.packages.as_ref().and_then(|p| p.winget.as_deref()),
+            Some("Microsoft.PowerShell")
+        );
+        assert!(pwsh.update_hint.is_none());
+        let bad = "[[agent]]
+id='a'
+name='A'
+commands=['a']
+packages={ winget='x y' }
+";
+        assert!(matches!(parse(bad), Err(CatalogError::Invalid { .. })));
+    }
+
+    #[test]
+    fn copilot_shim_of_vs_code_does_not_count_as_installed() {
+        let dir = TempDir::new("shim");
+        let shim_dir = dir
+            .0
+            .join("Microsoft VS Code")
+            .join("bin")
+            .join("copilot-shim");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        let file = if cfg!(windows) {
+            "copilot.exe"
+        } else {
+            "copilot"
+        };
+        std::fs::write(shim_dir.join(file), b"").unwrap();
+        let real = dir.program("copilot");
+        let catalog_entry = Agent::from_catalog(catalog("copilot", &["copilot"]));
+        let only_shim = std::env::join_paths([&shim_dir]).unwrap();
+        assert_eq!(catalog_entry.resolve(Some(&only_shim), None), None);
+        assert!(!catalog_entry.view(Some(&only_shim), None).installed);
+        // A real copy later on the PATH is found behind the shim.
+        let both = std::env::join_paths([&shim_dir, &dir.0]).unwrap();
+        assert_eq!(
+            catalog_entry.resolve(Some(&both), None).unwrap().program,
+            real
+        );
+        // A user profile starts what it names.
+        let own = Agent::from_user(user("mine", "copilot"));
+        assert!(own.resolve(Some(&only_shim), None).is_some());
     }
 
     #[test]

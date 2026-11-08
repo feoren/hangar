@@ -6,15 +6,18 @@
 //! address, only the user agent `Hangar/<version>` is sent, nothing that identifies the user.
 //! Results stay in the disk cache for 24 h; errors silently count as "unknown", for one hour.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_catalog::Agent;
+use crate::install_source::{
+    self, Action, Installer, Packages, PlanKind, Probe, Reason, UpdatePlan, Warning,
+};
 use crate::persist::{read_limited, write_atomic};
-use crate::version::parse_version;
+use crate::version::{normalize_windows_suffix, parse_version};
 
 pub const CACHE_FILE: &str = "update-cache.json";
 const CACHE_VERSION: u32 = 1;
@@ -91,10 +94,18 @@ const SHELL_SYNTAX: &[char] = &[
     '}', '#', '~',
 ];
 
+/// The first character a shell would interpret, or a control character other than tab.
+pub(crate) fn has_shell_syntax(text: &str) -> Option<char> {
+    text.chars()
+        .find(|c| SHELL_SYNTAX.contains(c) || (c.is_control() && !matches!(c, ' ' | '\t')))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CommandError {
-    #[error("No update command (update_hint) is configured for this platform")]
+    #[error("No update command is known for this program on this platform")]
     Missing,
+    #[error("Hangar cannot run the update itself ({0:?})")]
+    NoPlan(Reason),
     #[error("The update command is empty")]
     Empty,
     #[error(
@@ -110,10 +121,7 @@ pub enum CommandError {
 /// (`argv[0]`) is a bare name (PATH search) or an absolute path; a relative path would depend
 /// on the working folder.
 pub fn split_command(command: &str) -> Result<Vec<String>, CommandError> {
-    if let Some(bad) = command
-        .chars()
-        .find(|c| SHELL_SYNTAX.contains(c) || (c.is_control() && !matches!(c, ' ' | '\t')))
-    {
+    if let Some(bad) = has_shell_syntax(command) {
         return Err(CommandError::ShellSyntax(bad));
     }
     let argv: Vec<String> = command.split_whitespace().map(str::to_owned).collect();
@@ -127,28 +135,40 @@ pub fn split_command(command: &str) -> Result<Vec<String>, CommandError> {
     Ok(argv)
 }
 
-/// argv of the update for this platform, from `update_hint` only. The install command deliberately
-/// does not apply here: it is often a shell pipeline (`irm … | iex`) and meant for reading only.
-pub fn update_command(agent: &Agent) -> Result<Vec<String>, CommandError> {
-    let hint = agent
-        .profile
-        .update_hint
-        .as_ref()
-        .and_then(PlatformHint::for_platform)
-        .ok_or(CommandError::Missing)?;
-    split_command(hint)
+/// Why a plan without a run action cannot start: the exact splitting error of an invalid
+/// `update_hint`, `Missing` for a program that is not installed, otherwise the plan's reason.
+fn not_runnable(agent: &Agent, plan: &UpdatePlan) -> CommandError {
+    match plan.reason {
+        Some(Reason::InvalidHint) => agent
+            .profile
+            .update_hint
+            .as_ref()
+            .and_then(PlatformHint::for_platform)
+            .map_or(CommandError::Missing, |hint| {
+                split_command(hint).err().unwrap_or(CommandError::Missing)
+            }),
+        None | Some(Reason::NotInstalled) => CommandError::Missing,
+        Some(reason) => CommandError::NoPlan(reason),
+    }
 }
 
-/// Entry that starts the program's update instead of the program: `argv[0]` is looked up on
-/// the PATH, the remaining parts are the arguments. The profile's environment and fixed working
-/// folder stay, so that a custom npm prefix from `env`, for example, also applies to the update.
-pub fn update_agent(agent: &Agent) -> Result<Agent, CommandError> {
-    let mut argv = update_command(agent)?.into_iter();
-    // `split_command` never returns an empty list; the fallback only keeps the types honest.
-    let command = argv.next().ok_or(CommandError::Empty)?;
+/// Entry that starts the program's update instead of the program, from the plan
+/// ([`crate::install_source::plan`]): the install command never runs, it is often a shell
+/// pipeline (`irm … | iex`) and meant for reading only. A bare program name (from an
+/// `update_hint`) is looked up on the PATH; planned tools are already absolute. The profile's
+/// environment and fixed working folder stay, so that a custom npm prefix from `env`, for
+/// example, also applies to the update.
+pub fn update_agent(agent: &Agent, plan: &UpdatePlan) -> Result<Agent, CommandError> {
+    let Action::Run { program, args } = &plan.action else {
+        return Err(not_runnable(agent, plan));
+    };
+    if program.trim().is_empty() {
+        return Err(CommandError::Empty);
+    }
+    let command = program.clone();
     let mut updater = agent.clone();
     updater.profile.command.clone_from(&command);
-    updater.profile.args = argv.collect();
+    updater.profile.args.clone_from(args);
     updater.profile.resume_args = None;
     updater.profile.session_id_args = None;
     updater.profile.resume_id_args = None;
@@ -167,7 +187,7 @@ pub enum Source {
     Github { repo: String, tag_prefix: String },
 }
 
-fn npm_name_ok(name: &str) -> bool {
+pub(crate) fn npm_name_ok(name: &str) -> bool {
     let part = |p: &str| {
         !p.is_empty()
             && p.bytes().all(|b| {
@@ -184,7 +204,7 @@ fn npm_name_ok(name: &str) -> bool {
     }
 }
 
-fn plain_name_ok(name: &str) -> bool {
+pub(crate) fn plain_name_ok(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -278,6 +298,8 @@ impl Source {
                     .to_owned()
             }
         };
+        // Git for Windows tags `2.56.0.windows.1`; shown and compared as `2.56.0.1`.
+        let raw = normalize_windows_suffix(&raw);
         parse_version(&raw).map(|_| raw)
     }
 }
@@ -304,28 +326,119 @@ pub fn update_available(installed: &str, latest: &str, compare: Compare) -> bool
     }
 }
 
+fn github_latest(repo: &str) -> Latest {
+    Latest {
+        npm: None,
+        pypi: None,
+        github: Some(repo.into()),
+        tag_prefix: Some("v".into()),
+        compare: Compare::Newer,
+    }
+}
+
+fn winget_package(id: &str) -> Packages {
+    Packages {
+        winget: Some(id.into()),
+        ..Packages::default()
+    }
+}
+
 /// Built-in source for known shells from user profiles that were created before this field
 /// and therefore have no `latest` (the default profiles are only written on first start).
-pub fn builtin_for_command(command: &str) -> Option<(Latest, PlatformHint)> {
+pub fn builtin_for_command(command: &str) -> Option<(Latest, Packages)> {
     let stem = Path::new(command)
         .file_stem()?
         .to_str()?
         .to_ascii_lowercase();
     match stem.as_str() {
         "pwsh" => Some((
-            Latest {
-                npm: None,
-                pypi: None,
-                github: Some("PowerShell/PowerShell".into()),
-                tag_prefix: Some("v".into()),
-                compare: Compare::Newer,
-            },
-            PlatformHint {
-                windows: Some("winget upgrade Microsoft.PowerShell".into()),
-                unix: None,
-            },
+            github_latest("PowerShell/PowerShell"),
+            winget_package("Microsoft.PowerShell"),
         )),
         _ => None,
+    }
+}
+
+/// Built-in source that needs the resolved program: Git Bash belongs to Git for Windows, whose
+/// version and update are those of Git (`git --version`, winget `Git.Git`).
+pub fn builtin_for_program(program: &Path, probe: &dyn Probe) -> Option<(Latest, Packages)> {
+    if !cfg!(windows) {
+        return None;
+    }
+    install_source::git_for_windows(program, probe)?;
+    Some((
+        github_latest("git-for-windows/git"),
+        winget_package("Git.Git"),
+    ))
+}
+
+/// Adds the built-in source of [`builtin_for_program`] to an entry that has none of its own.
+pub fn enrich(agent: &mut Agent, program: &Path, probe: &dyn Probe) {
+    if agent.profile.latest.is_some() {
+        return;
+    }
+    if let Some((latest, packages)) = builtin_for_program(program, probe) {
+        agent.profile.latest = Some(latest);
+        agent.profile.packages.get_or_insert(packages);
+    }
+}
+
+/// Why the version did not change after an update session, for the frontend to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutcomeReason {
+    /// The program still runs in a session; on Windows its files stay locked.
+    Running,
+    /// The update ended with a nonzero exit code.
+    Failed,
+    /// Another copy exists; the update went to one that is not the started copy.
+    Shadowed,
+    /// The update reported success but the started copy has the same version.
+    Unchanged,
+}
+
+/// Event `program-update-result` after an update session ended and the version was read again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOutcome {
+    pub profile_id: String,
+    pub session_id: Option<u64>,
+    pub code: Option<u32>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    /// `null` if one of the two versions is unknown.
+    pub changed: Option<bool>,
+    pub reason: Option<OutcomeReason>,
+    pub copies: Vec<PathBuf>,
+}
+
+/// `None` when the version changed, and when a successful update has no version to compare
+/// (nothing is known to be wrong). A program still running explains an unchanged version or a
+/// failure best, then a failed update, then a second copy.
+pub fn outcome_reason(
+    before: Option<&str>,
+    after: Option<&str>,
+    code: Option<u32>,
+    running: bool,
+    second_copy: bool,
+) -> Option<OutcomeReason> {
+    let changed = match (before, after) {
+        (Some(b), Some(a)) => Some(b != a),
+        _ => None,
+    };
+    if changed == Some(true) || (changed.is_none() && code == Some(0)) {
+        return None;
+    }
+    if running {
+        Some(OutcomeReason::Running)
+    } else if code != Some(0) {
+        Some(OutcomeReason::Failed)
+    } else if second_copy {
+        Some(OutcomeReason::Shadowed)
+    } else if changed == Some(false) {
+        Some(OutcomeReason::Unchanged)
+    } else {
+        None
     }
 }
 
@@ -395,6 +508,37 @@ impl UpdateCache {
 
 // --- Query ---
 
+/// How the update of an entry would run, as the frontend sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanView {
+    pub kind: PlanKind,
+    pub reason: Option<Reason>,
+    pub needs_admin: bool,
+    pub command: Option<String>,
+    pub installer: Option<Installer>,
+    pub warnings: Vec<Warning>,
+    pub copies: Vec<PathBuf>,
+}
+
+impl PlanView {
+    /// `running`: the program runs in a session right now.
+    pub fn of(plan: &UpdatePlan, running: bool) -> Self {
+        let mut warnings = plan.warnings.clone();
+        if running {
+            warnings.push(Warning::Running);
+        }
+        Self {
+            kind: plan.kind(),
+            reason: plan.reason,
+            needs_admin: plan.needs_admin,
+            command: plan.command(),
+            installer: plan.installer,
+            warnings,
+            copies: plan.copies.clone(),
+        }
+    }
+}
+
 /// An installed entry with `latest`.
 #[derive(Debug, Clone)]
 pub struct Item {
@@ -402,32 +546,81 @@ pub struct Item {
     pub source: Source,
     pub compare: Compare,
     pub installed: Option<String>,
-    pub hint: Option<String>,
-    /// The platform's `update_hint` can run as a session ([`update_command`]).
-    pub can_run: bool,
+    pub plan: PlanView,
 }
 
 impl Item {
-    /// `None` without a valid `latest`. The command shown is the platform's `update_hint`, otherwise
-    /// the install command.
-    pub fn of(agent: &Agent, installed: Option<String>) -> Option<Self> {
-        let can_run = update_command(agent).is_ok();
+    /// `None` without a valid `latest`.
+    pub fn of(agent: &Agent, installed: Option<String>, plan: PlanView) -> Option<Self> {
         let latest = agent.profile.latest.as_ref()?;
-        let hint = agent
-            .profile
-            .update_hint
-            .as_ref()
-            .and_then(PlatformHint::for_platform)
-            .or(agent.install_hint.as_ref())
-            .cloned();
         Some(Self {
             id: agent.id().to_owned(),
             source: latest.source().ok()?,
             compare: latest.compare,
             installed,
-            hint,
-            can_run,
+            plan,
         })
+    }
+}
+
+/// One item per installed entry with `latest`, each with its update plan. `running`: profiles
+/// that run in a session right now.
+pub fn items(
+    installed: &[(Agent, PathBuf)],
+    versions: &HashMap<String, Option<String>>,
+    running: &HashSet<String>,
+    probe: &dyn Probe,
+) -> Vec<Item> {
+    installed
+        .iter()
+        .filter(|(agent, _)| agent.profile.latest.is_some())
+        .filter_map(|(agent, program)| {
+            let plan = install_source::plan(
+                &install_source::PlanInput {
+                    profile: &agent.profile,
+                    install_hint: agent.install_hint.as_deref(),
+                    program: Some(program),
+                    candidates: &agent.candidates,
+                },
+                probe,
+            );
+            let view = PlanView::of(&plan, running.contains(agent.id()));
+            Item::of(agent, versions.get(agent.id()).cloned().flatten(), view)
+        })
+        .collect()
+}
+
+/// The event after an update session: versions before and after, and why nothing changed.
+#[allow(clippy::too_many_arguments)] // All values describe exactly this one update.
+pub fn outcome(
+    profile_id: &str,
+    session_id: Option<u64>,
+    code: Option<u32>,
+    before: Option<String>,
+    after: Option<String>,
+    running: bool,
+    copies: Vec<PathBuf>,
+) -> UpdateOutcome {
+    let reason = outcome_reason(
+        before.as_deref(),
+        after.as_deref(),
+        code,
+        running,
+        copies.len() > 1,
+    );
+    let changed = match (&before, &after) {
+        (Some(b), Some(a)) => Some(b != a),
+        _ => None,
+    };
+    UpdateOutcome {
+        profile_id: profile_id.to_owned(),
+        session_id,
+        code,
+        before,
+        after,
+        changed,
+        reason,
+        copies,
     }
 }
 
@@ -444,12 +637,26 @@ pub struct UpdateInfo {
     pub installed: Option<String>,
     pub latest: Option<String>,
     pub update_available: bool,
+    /// Same as `command`; kept for older frontends.
     pub update_hint: Option<String>,
-    /// `create_update_session` can start the update (valid `update_hint` for the platform).
-    /// Otherwise `update_hint` is only there to be copied.
+    /// `plan == "run"`; kept for older frontends.
     pub can_run: bool,
     /// Unix time in milliseconds of the query that `latest` comes from.
     pub checked_at: u64,
+    /// `run`: `create_update_session` starts `command`. `copy`: `command` is for copying only.
+    /// `none`: nothing to offer.
+    pub plan: PlanKind,
+    /// Why there is no `run` plan (stable code), otherwise `null`.
+    pub reason: Option<Reason>,
+    /// The install is machine-wide; the update asks for administrator rights.
+    pub needs_admin: bool,
+    /// Display text of the command (never run from this text).
+    pub command: Option<String>,
+    /// How the started copy was installed, if known.
+    pub installer: Option<Installer>,
+    pub warnings: Vec<Warning>,
+    /// Every copy of the program found, the started one first.
+    pub copies: Vec<PathBuf>,
 }
 
 pub fn result(item: &Item, entry: &CacheEntry) -> UpdateInfo {
@@ -457,13 +664,21 @@ pub fn result(item: &Item, entry: &CacheEntry) -> UpdateInfo {
         (Some(installed), Some(latest)) => update_available(installed, latest, item.compare),
         _ => false,
     };
+    let plan = &item.plan;
     UpdateInfo {
         installed: item.installed.clone(),
         latest: entry.latest.clone(),
         update_available,
-        update_hint: item.hint.clone(),
-        can_run: item.can_run,
+        update_hint: plan.command.clone(),
+        can_run: plan.kind == PlanKind::Run,
         checked_at: entry.checked_at,
+        plan: plan.kind,
+        reason: plan.reason,
+        needs_admin: plan.needs_admin,
+        command: plan.command.clone(),
+        installer: plan.installer,
+        warnings: plan.warnings.clone(),
+        copies: plan.copies.clone(),
     }
 }
 
@@ -716,12 +931,13 @@ mod tests {
 
     #[test]
     fn builtin_source_for_pwsh() {
-        let (latest, hint) = builtin_for_command("pwsh").unwrap();
+        let (latest, packages) = builtin_for_command("pwsh").unwrap();
         assert_eq!(
             latest.source().unwrap().cache_key(),
             "github:PowerShell/PowerShell:v"
         );
-        assert!(hint.windows.is_some());
+        assert_eq!(packages.winget.as_deref(), Some("Microsoft.PowerShell"));
+        assert!(packages.validate().is_ok());
         assert!(builtin_for_command("PWSH.EXE").is_some());
         assert!(builtin_for_command("/opt/microsoft/powershell/7/pwsh").is_some());
         // Backslash paths only split into folder and file name on Windows.
@@ -737,8 +953,15 @@ mod tests {
             source,
             compare: Compare::Newer,
             installed: installed.map(str::to_owned),
-            hint: Some("hint".into()),
-            can_run: true,
+            plan: PlanView {
+                kind: PlanKind::Run,
+                reason: None,
+                needs_admin: false,
+                command: Some("hint".into()),
+                installer: Some(Installer::Npm),
+                warnings: Vec::new(),
+                copies: Vec::new(),
+            },
         }
     }
 
@@ -831,6 +1054,8 @@ mod tests {
             sub_agents: Some(crate::subagents::SubAgentKind::Claude),
             latest: None,
             update_hint,
+            packages: None,
+            self_update: None,
         });
         agent
             .profile
@@ -846,10 +1071,23 @@ mod tests {
         }
     }
 
+    fn plan_of(agent: &Agent) -> UpdatePlan {
+        // A program that does not exist: only the update_hint can make a run plan.
+        install_source::plan(
+            &install_source::PlanInput {
+                profile: &agent.profile,
+                install_hint: agent.install_hint.as_deref(),
+                program: None,
+                candidates: &agent.candidates,
+            },
+            &install_source::SystemProbe,
+        )
+    }
+
     #[test]
-    fn update_agent_uses_only_update_hint() {
+    fn update_agent_runs_only_the_plan() {
         let agent = agent_with(Some(both("npm install -g x@latest")), "npm install -g x");
-        let updater = update_agent(&agent).unwrap();
+        let updater = update_agent(&agent, &plan_of(&agent)).unwrap();
         assert_eq!(updater.profile.command, "npm");
         assert_eq!(updater.profile.args, ["install", "-g", "x@latest"]);
         assert_eq!(updater.candidates, ["npm"]);
@@ -860,10 +1098,16 @@ mod tests {
         // The profile's environment applies to the update as well.
         assert_eq!(updater.profile.env, agent.profile.env);
 
-        // Without update_hint the install command is never run, not even a harmless one.
+        // Without update_hint and without an install the install command is never run, not
+        // even a harmless one.
         let without = agent_with(None, "npm install -g x");
-        assert_eq!(update_command(&without), Err(CommandError::Missing));
-        assert!(update_agent(&without).is_err());
+        let plan = plan_of(&without);
+        assert_eq!(plan.kind(), PlanKind::Copy);
+        assert_eq!(plan.command().as_deref(), Some("npm install -g x"));
+        assert_eq!(
+            update_agent(&without, &plan).err(),
+            Some(CommandError::Missing)
+        );
         // Only the other platform has a command: none here.
         let other = if cfg!(windows) {
             PlatformHint {
@@ -876,18 +1120,27 @@ mod tests {
                 unix: None,
             }
         };
+        let other = agent_with(Some(other), "y");
         assert_eq!(
-            update_command(&agent_with(Some(other), "y")),
-            Err(CommandError::Missing)
+            update_agent(&other, &plan_of(&other)).err(),
+            Some(CommandError::Missing)
         );
+        let pipeline = agent_with(Some(both("irm a | iex")), "y");
         assert_eq!(
-            update_command(&agent_with(Some(both("irm a | iex")), "y")),
-            Err(CommandError::ShellSyntax('|'))
+            update_agent(&pipeline, &plan_of(&pipeline)).err(),
+            Some(CommandError::ShellSyntax('|'))
+        );
+        // Any other reason reaches the frontend as such.
+        let mut ambiguous = plan_of(&without);
+        ambiguous.reason = Some(Reason::Ambiguous);
+        assert_eq!(
+            update_agent(&without, &ambiguous).err(),
+            Some(CommandError::NoPlan(Reason::Ambiguous))
         );
     }
 
     #[test]
-    fn can_run_follows_update_hint() {
+    fn info_follows_the_plan() {
         let latest = Some(Latest {
             npm: Some("x".into()),
             pypi: None,
@@ -897,16 +1150,16 @@ mod tests {
         });
         let mut runnable = agent_with(Some(both("x upgrade")), "irm x | iex");
         runnable.profile.latest.clone_from(&latest);
-        let item = Item::of(&runnable, Some("1.0".into())).unwrap();
-        assert!(item.can_run);
-        assert_eq!(item.hint.as_deref(), Some("x upgrade"));
+        let view = PlanView::of(&plan_of(&runnable), true);
+        let item = Item::of(&runnable, Some("1.0".into()), view).unwrap();
+        assert_eq!(item.plan.kind, PlanKind::Run);
+        assert_eq!(item.plan.command.as_deref(), Some("x upgrade"));
+        assert_eq!(item.plan.warnings, [Warning::Running]);
 
         let mut copy_only = agent_with(None, "irm x | iex");
         copy_only.profile.latest = latest;
-        let item = Item::of(&copy_only, Some("1.0".into())).unwrap();
-        assert!(!item.can_run);
-        // The install command is still shown, for copying.
-        assert_eq!(item.hint.as_deref(), Some("irm x | iex"));
+        let view = PlanView::of(&plan_of(&copy_only), false);
+        let item = Item::of(&copy_only, Some("1.0".into()), view).unwrap();
         let info = result(
             &item,
             &CacheEntry {
@@ -914,7 +1167,83 @@ mod tests {
                 checked_at: 1,
             },
         );
-        assert_eq!(serde_json::to_value(info).unwrap()["canRun"], false);
+        let json = serde_json::to_value(info).unwrap();
+        assert_eq!(json["canRun"], false);
+        assert_eq!(json["plan"], "copy");
+        // The install command is still shown, for copying.
+        assert_eq!(json["command"], "irm x | iex");
+        assert_eq!(json["updateHint"], "irm x | iex");
+        assert_eq!(json["reason"], "not-installed");
+        assert_eq!(json["needsAdmin"], false);
+        assert!(json["installer"].is_null());
+        assert_eq!(json["warnings"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn outcome_reasons() {
+        let r = outcome_reason;
+        assert_eq!(r(Some("1.0"), Some("1.1"), Some(0), true, true), None);
+        assert_eq!(
+            r(Some("1.0"), Some("1.0"), Some(0), true, true),
+            Some(OutcomeReason::Running)
+        );
+        assert_eq!(
+            r(Some("1.0"), Some("1.0"), Some(1), false, true),
+            Some(OutcomeReason::Failed)
+        );
+        assert_eq!(
+            r(Some("1.0"), Some("1.0"), Some(0), false, true),
+            Some(OutcomeReason::Shadowed)
+        );
+        assert_eq!(
+            r(Some("1.0"), Some("1.0"), Some(0), false, false),
+            Some(OutcomeReason::Unchanged)
+        );
+        assert_eq!(r(None, Some("1.0"), Some(0), false, false), None);
+        // A successful update without a version to compare claims no cause.
+        assert_eq!(r(None, Some("1.0"), Some(0), true, true), None);
+        assert_eq!(
+            r(None, Some("1.0"), Some(1), false, true),
+            Some(OutcomeReason::Failed)
+        );
+        assert_eq!(
+            r(None, None, None, false, false),
+            Some(OutcomeReason::Failed)
+        );
+        let json = serde_json::to_value(UpdateOutcome {
+            profile_id: "x".into(),
+            session_id: Some(3),
+            code: Some(0),
+            before: Some("1.0".into()),
+            after: Some("1.0".into()),
+            changed: Some(false),
+            reason: Some(OutcomeReason::Shadowed),
+            copies: vec![PathBuf::from("a")],
+        })
+        .unwrap();
+        assert_eq!(json["reason"], "shadowed");
+        assert_eq!(json["profileId"], "x");
+        assert_eq!(json["sessionId"], 3);
+    }
+
+    #[test]
+    fn git_for_windows_tags_compare_with_build_number() {
+        let gh = Source::Github {
+            repo: "git-for-windows/git".into(),
+            tag_prefix: "v".into(),
+        };
+        assert_eq!(
+            gh.parse(br#"{"tag_name":"v2.56.0.windows.1"}"#).as_deref(),
+            Some("2.56.0.1")
+        );
+        let newer = |i: &str, l: &str| update_available(i, l, Compare::Newer);
+        // `git --version` prints `git version 2.56.0.windows.4`; winget lists 2.56.0.4.
+        let installed = parse_version("git version 2.56.0.windows.4").unwrap();
+        assert_eq!(installed, "2.56.0.4");
+        assert!(newer(&installed, "2.56.0.5"));
+        assert!(!newer(&installed, "2.56.0.4"));
+        assert!(newer(&installed, "2.57.0.1"));
+        assert!(!newer("2.56.0.4", "2.56.0.windows.4"));
     }
 
     #[test]
@@ -977,6 +1306,13 @@ mod tests {
             "updateHint",
             "canRun",
             "checkedAt",
+            "plan",
+            "reason",
+            "needsAdmin",
+            "command",
+            "installer",
+            "warnings",
+            "copies",
         ] {
             assert!(json.get(key).is_some(), "{key}");
         }

@@ -9,6 +9,7 @@ pub mod export;
 pub mod filecache;
 pub mod git;
 pub mod icon;
+pub mod install_source;
 pub mod manager;
 pub mod notes;
 pub mod notify;
@@ -127,6 +128,11 @@ pub fn run() -> tauri::Result<()> {
             commands::delete_note,
             commands::reorder_notes,
             commands::reveal_notes_folder,
+            commands::search_notes,
+            commands::list_trash,
+            commands::restore_note,
+            commands::export_note,
+            commands::reveal_note,
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,

@@ -24,6 +24,25 @@ pub fn resolve_program(
         .find_map(|dir| find_with_extensions(&dir.join(command), &candidates))
 }
 
+/// Every hit of `command` in PATH order (one per folder), as [`resolve_program`] would find them
+/// one after another. A path in `command` yields at most that one file.
+pub fn resolve_all(command: &str, path: Option<&OsStr>, pathext: Option<&OsStr>) -> Vec<PathBuf> {
+    let candidates = extension_candidates(command, pathext);
+    let direct = Path::new(command);
+    if direct.is_absolute() || command.contains('/') || command.contains('\\') {
+        return find_with_extensions(direct, &candidates)
+            .into_iter()
+            .collect();
+    }
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    std::env::split_paths(path)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .filter_map(|dir| find_with_extensions(&dir.join(command), &candidates))
+        .collect()
+}
+
 fn find_with_extensions(base: &Path, extensions: &[OsString]) -> Option<PathBuf> {
     extensions.iter().find_map(|ext| {
         let mut candidate = base.as_os_str().to_os_string();
@@ -106,6 +125,11 @@ mod tests {
             resolve_program("tool", Some(&path), None),
             Some(a.0.join(file))
         );
+        assert_eq!(
+            resolve_all("tool", Some(&path), None),
+            [a.0.join(file), b.0.join(file)]
+        );
+        assert!(resolve_all("tool", None, None).is_empty());
     }
 
     #[cfg(windows)]

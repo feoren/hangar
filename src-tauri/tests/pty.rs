@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
+use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
 use hangar_lib::manager::{ManagerError, SessionEvent, SessionManager, TermSize};
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
@@ -33,6 +34,8 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         sub_agents: None,
         latest: None,
         update_hint: None,
+        packages: None,
+        self_update: None,
     }
 }
 
@@ -461,6 +464,53 @@ fn update_session_runs_update_hint_and_restart_repeats_it() {
     assert_eq!(normal.kind, SessionKind::Agent);
     manager.close(normal.id).unwrap();
     assert_eq!(manager.list().len(), 1);
+}
+
+/// Without `update_hint` the plan decides: an installation-aware self-updater runs as the resolved
+/// absolute program with its arguments; a program whose installer is unknown gets no run plan.
+#[test]
+fn planned_update_runs_self_updater_of_resolved_program() {
+    let (command, args): (&str, &[&str]) = if cfg!(windows) {
+        ("cmd", &["/d", "/c", "echo", "hangar-self-update"])
+    } else {
+        ("echo", &["hangar-self-update"])
+    };
+    let mut prog = profile("selfup", command, &["--never-started"]);
+    prog.self_update = Some(SelfUpdate {
+        args: args.iter().map(|a| (*a).to_owned()).collect(),
+        aware: true,
+        only: None,
+    });
+    let mut unknown = profile("unknown", command, &[]);
+    unknown.packages = Some(Packages {
+        npm: Some("some-cli".into()),
+        ..Packages::default()
+    });
+    let manager = SessionManager::new(vec![prog, unknown], Vec::new(), std::env::temp_dir());
+
+    let (_, plan) = manager.update_plan("selfup").unwrap();
+    let command_text = plan.command().unwrap();
+    assert!(
+        std::path::Path::new(command_text.trim_matches('"').split(".exe").next().unwrap())
+            .is_absolute()
+            || command_text.starts_with('/'),
+        "{command_text}"
+    );
+    let (tx, rx) = channel();
+    let info = manager
+        .create_update("selfup", SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(info.kind, SessionKind::Update);
+    let (output, code) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("hangar-self-update"), "Output: {output:?}");
+    assert_eq!(code, Some(0));
+
+    match manager.create_update("unknown", SIZE, |_| {}) {
+        Err(ManagerError::NoUpdateCommand { reason, .. }) => {
+            assert_eq!(reason, CommandError::NoPlan(Reason::UnknownInstaller));
+        }
+        other => panic!("expected NoUpdateCommand, got {other:?}"),
+    }
 }
 
 #[test]

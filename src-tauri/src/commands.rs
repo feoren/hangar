@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -13,8 +13,11 @@ use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::icon::{self, IconCache};
+use crate::install_source::{self, SystemProbe};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
-use crate::notes::{FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore};
+use crate::notes::{
+    FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
+};
 use crate::notify::{self, Notifier};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
@@ -23,7 +26,7 @@ use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::tray::{self, TrayError, TrayLabels};
-use crate::updates::{self, Item, UpdateCache, UpdateInfo};
+use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
 
@@ -56,15 +59,94 @@ fn channel_sink(channel: Channel<SessionEvent>) -> impl EventSink {
     }
 }
 
+/// Event with the result of an update session ([`updates::UpdateOutcome`]).
+pub const UPDATE_RESULT_EVENT: &str = "program-update-result";
+
+/// What an update session needs to report its result: the program, the version before the
+/// update (if already known) and the session id once the start returned.
+#[derive(Clone)]
+struct UpdateWatch {
+    profile_id: String,
+    before: Option<String>,
+    session: Arc<OnceLock<SessionId>>,
+}
+
+impl UpdateWatch {
+    /// The remembered version only; nothing is started on the calling (main) thread.
+    fn new(app: &tauri::AppHandle, profile_id: &str) -> Self {
+        let before = app
+            .state::<SessionManager>()
+            .installed_one(profile_id)
+            .and_then(|(agent, program)| {
+                version::remembered(&agent, &program, &app.state::<ProbeCaches>().versions)
+            })
+            .flatten();
+        Self {
+            profile_id: profile_id.to_owned(),
+            before,
+            session: Arc::default(),
+        }
+    }
+}
+
+/// Reads the version again after an update session and emits [`UPDATE_RESULT_EVENT`]. On a
+/// thread of its own: the version query may take seconds and must not hold up the session's
+/// batch thread.
+fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
+    let spawned = std::thread::Builder::new()
+        .name("update-result".to_owned())
+        .spawn(move || {
+            let manager = app.state::<SessionManager>();
+            let found = manager.installed_one(&watch.profile_id);
+            let after = found.as_ref().and_then(|(agent, program)| {
+                version::detect(
+                    &[(agent.clone(), program.clone())],
+                    &app.state::<ProbeCaches>().versions,
+                )
+                .remove(agent.id())
+                .flatten()
+            });
+            let copies = found.map_or_else(Vec::new, |(agent, _)| {
+                install_source::copies(&agent.candidates, &SystemProbe)
+            });
+            let running = manager.running_profiles().contains(&watch.profile_id);
+            let outcome = updates::outcome(
+                &watch.profile_id,
+                watch.session.get().copied(),
+                code,
+                watch.before,
+                after,
+                running,
+                copies,
+            );
+            let _ = app.emit(UPDATE_RESULT_EVENT, outcome);
+        });
+    if let Err(error) = spawned {
+        eprintln!("hangar: update result not checked: {error}");
+    }
+}
+
 /// For update sessions: forget the remembered versions before sending `exit` to the window. The
 /// frontend checks again once the session ends and should then see the new version, even if the
-/// launcher script's file stamp stayed the same (npm swaps the package, not `gemini.cmd`).
-fn update_sink(app: tauri::AppHandle, channel: Channel<SessionEvent>) -> impl EventSink {
+/// launcher script's file stamp stayed the same (npm swaps the package, not `gemini.cmd`). Then
+/// the version is read once more and the result goes out as [`UPDATE_RESULT_EVENT`].
+fn update_sink(
+    app: tauri::AppHandle,
+    channel: Channel<SessionEvent>,
+    watch: UpdateWatch,
+) -> impl EventSink {
     move |event| {
-        if matches!(event, SessionEvent::Exit { .. }) {
+        let exit = match event {
+            SessionEvent::Exit { code } => Some(code),
+            _ => None,
+        };
+        if exit.is_some() {
             app.state::<ProbeCaches>().versions.clear();
         }
         let _ = channel.send(event);
+        if let Some(code) = exit {
+            report_update(app.clone(), watch.clone(), code);
+        }
     }
 }
 
@@ -293,17 +375,15 @@ pub async fn check_program_updates(
 ) -> Result<HashMap<String, UpdateInfo>, String> {
     let handle = app.clone();
     let (items, mut cache, dir) = tauri::async_runtime::spawn_blocking(move || {
-        let installed: Vec<_> = handle
-            .state::<SessionManager>()
+        let manager = handle.state::<SessionManager>();
+        let installed: Vec<_> = manager
             .installed()
             .into_iter()
             .filter(|(agent, _)| agent.profile.latest.is_some())
             .collect();
         let versions = version::detect(&installed, &handle.state::<ProbeCaches>().versions);
-        let items: Vec<Item> = installed
-            .iter()
-            .filter_map(|(agent, _)| Item::of(agent, versions.get(agent.id()).cloned().flatten()))
-            .collect();
+        let running = manager.running_profiles();
+        let items = updates::items(&installed, &versions, &running, &SystemProbe);
         let dir = handle.state::<Store>().dir().to_path_buf();
         let cache = UpdateCache::load(&dir);
         (items, cache, dir)
@@ -369,17 +449,28 @@ pub fn create_session(
 }
 
 /// Starts a program update as a session of its own. The frontend only names the profile; the
-/// command comes solely from its `update_hint` (contract:
-/// docs/wiki/pages/syntheses/program-updates.md).
+/// command comes solely from the update plan: the profile's `update_hint`, the program's
+/// self-updater or its installer's update with the catalog's package name (contract:
+/// docs/wiki/pages/syntheses/program-updates.md). Async so the detection (file checks and the
+/// uninstall keys) does not run on the main thread.
 #[tauri::command]
-pub fn create_update_session(
+pub async fn create_update_session(
     app: tauri::AppHandle,
-    manager: Manager<'_>,
     profile_id: String,
     size: TermSize,
     on_event: Channel<SessionEvent>,
 ) -> Result<SessionInfo, ManagerError> {
-    manager.create_update(&profile_id, size, update_sink(app, on_event))
+    tauri::async_runtime::spawn_blocking(move || {
+        let watch = UpdateWatch::new(&app, &profile_id);
+        let session = Arc::clone(&watch.session);
+        let manager = app.state::<SessionManager>();
+        let info =
+            manager.create_update(&profile_id, size, update_sink(app.clone(), on_event, watch))?;
+        let _ = session.set(info.id);
+        Ok(info)
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
 #[tauri::command]
@@ -420,8 +511,15 @@ pub fn restart_session(
     on_event: Channel<SessionEvent>,
 ) -> Result<SessionInfo, ManagerError> {
     // Restarting an update session repeats the update; after that it behaves like a start.
-    let info = if manager.kind(id) == Some(SessionKind::Update) {
-        manager.restart(id, size, update_sink(app, on_event))
+    let update_profile = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id && info.kind == SessionKind::Update)
+        .map(|info| info.profile_id);
+    let info = if let Some(profile_id) = update_profile {
+        let watch = UpdateWatch::new(&app, &profile_id);
+        let _ = watch.session.set(id);
+        manager.restart(id, size, update_sink(app, on_event, watch))
     } else {
         manager.restart(id, size, channel_sink(on_event))
     }?;
@@ -622,6 +720,76 @@ pub async fn reveal_notes_folder(
     folder: NoteFolder,
 ) -> Result<(), NotesError> {
     notes_blocking(store, move |s| s.reveal(&folder)).await
+}
+
+/// Case-insensitive substring search across all scopes (no regex), at most
+/// [`crate::notes::MAX_SEARCH_RESULTS`] hits.
+#[tauri::command]
+pub async fn search_notes(
+    store: State<'_, NotesStore>,
+    query: String,
+) -> Result<Vec<SearchHit>, NotesError> {
+    notes_blocking(store, move |s| s.search(&query)).await
+}
+
+#[tauri::command]
+pub async fn list_trash(
+    store: State<'_, NotesStore>,
+    folder: NoteFolder,
+) -> Result<Vec<TrashInfo>, NotesError> {
+    notes_blocking(store, move |s| s.list_trash(&folder)).await
+}
+
+/// Returns the restored note's ID (the old one unless it is taken again).
+#[tauri::command]
+pub async fn restore_note(
+    store: State<'_, NotesStore>,
+    folder: NoteFolder,
+    id: String,
+) -> Result<String, NotesError> {
+    notes_blocking(store, move |s| s.restore_note(&folder, &id)).await
+}
+
+/// Saves a note as `.md`: the backend opens the save dialog, so the window never chooses a path.
+/// `None` when the dialog was cancelled, otherwise the path written.
+#[tauri::command]
+pub async fn export_note(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    store: State<'_, NotesStore>,
+    folder: NoteFolder,
+    id: String,
+) -> Result<Option<String>, NotesError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (title, content) = store.note_for_export(&folder, &id)?;
+        let chosen = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(export::note_file_name(&title))
+            .add_filter(export::NOTE_FILTER, &[export::NOTE_EXTENSION])
+            .blocking_save_file();
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+        export::write(&path, &content)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|error| NotesError::Task(error.to_string()))?
+}
+
+/// Shows the note's file selected in Explorer or Finder (Linux: its folder).
+#[tauri::command]
+pub async fn reveal_note(
+    store: State<'_, NotesStore>,
+    folder: NoteFolder,
+    id: String,
+) -> Result<(), NotesError> {
+    notes_blocking(store, move |s| s.reveal_note(&folder, &id)).await
 }
 
 // Desktop notifications (notify.rs).

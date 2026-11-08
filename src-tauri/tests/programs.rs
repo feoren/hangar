@@ -139,6 +139,8 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
         sub_agents: None,
         latest: None,
         update_hint: None,
+        packages: None,
+        self_update: None,
     }
 }
 

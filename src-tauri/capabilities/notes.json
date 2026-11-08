@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notes",
+  "description": "Detached notes window: the note commands, events to and from the main window, copying text, keeping the window on top, focusing and closing it",
+  "windows": ["notes"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "clipboard-manager:allow-write-text",
+    "allow-list-note-folders",
+    "allow-list-notes",
+    "allow-read-note",
+    "allow-write-note",
+    "allow-create-note",
+    "allow-rename-note",
+    "allow-delete-note",
+    "allow-reorder-notes",
+    "allow-reveal-notes-folder",
+    "allow-search-notes",
+    "allow-list-trash",
+    "allow-restore-note",
+    "allow-export-note",
+    "allow-reveal-note"
+  ]
+}

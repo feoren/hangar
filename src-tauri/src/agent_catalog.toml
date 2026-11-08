@@ -43,15 +43,30 @@
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
 #                    is queried. compare = "equal" reports an update on any difference instead of
 #                    only on a higher version (for versions that cannot be ordered, as with amp).
-#   update_hint      Optional. { windows = "...", unix = "..." }: update command. Hangar
-#                    shows it and, on click, runs it as a session of its own, split at whitespace into
-#                    argv, without a shell. So only a simple command without shell syntax
-#                    (no | & ; < > $ ` ( ) " ' % ^ ! * ? [ ] { } # ~), program as a bare name
-#                    or absolute path, otherwise Hangar rejects it. The block prevents wrong
-#                    splitting and interpretation by cmd.exe; it is not a sandbox: update_hint is as
-#                    trustworthy as command.
-#                    If it is missing for the platform, Hangar shows install_* for copying only.
-#                    Values and evidence: docs/wiki/pages/agents/updates.md.
+#   packages         Optional. Package name per installer, for the one-click update:
+#                    { npm, pnpm, winget, pypi, brew, cask, scoop }. Hangar detects from the
+#                    resolved path how the started copy was installed and runs that installer's
+#                    update with this name (npm install -g --prefix <prefix> <npm>@latest,
+#                    winget upgrade --id <winget> --exact, uv tool upgrade <pypi>, pipx upgrade
+#                    <pypi>, brew upgrade [--cask] <brew|cask>, scoop update <scoop>). pnpm
+#                    defaults to the npm name. Only names verified in the vendor docs; no
+#                    look-alikes (winget Pressly.Goose, Google.Antigravity, npm cursor-agent).
+#   self_update      Optional. { args = ["update"], aware = true, only = "windows" | "unix" }:
+#                    the program updates itself with these arguments. aware = true: it knows how
+#                    it was installed and handles every channel, so it wins over the installer
+#                    command. aware = false: only for the vendor's native install.
+#   update_hint      Optional. { windows = "...", unix = "..." }: an update command that overrides
+#                    the detected one. Hangar shows it and, on click, runs it as a session of its
+#                    own, split at whitespace into argv, without a shell. So only a simple command
+#                    without shell syntax (no | & ; < > $ ` ( ) " ' % ^ ! * ? [ ] { } # ~),
+#                    program as a bare name or absolute path, otherwise Hangar rejects it. The
+#                    block prevents wrong splitting and interpretation by cmd.exe; it is not a
+#                    sandbox: update_hint is as trustworthy as command. Prefer packages and
+#                    self_update; a fixed command runs the wrong installer for a copy installed
+#                    another way.
+#                    Without a plan Hangar shows install_* for copying only.
+#                    Values and evidence: docs/wiki/pages/agents/updates.md,
+#                    docs/wiki/pages/sources/update-installers.md.
 #
 # Source of all entries: official vendor docs, as of 2026-11-07
 # (docs/wiki/raw/2026-11-07-agent-clis-research.md, rules in docs/wiki/pages/agents/catalog.md).
@@ -72,7 +87,8 @@ homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
 install_unix = "curl -fsSL https://claude.ai/install.sh | bash"
 latest = { npm = "@anthropic-ai/claude-code" }
-update_hint = { windows = "claude update", unix = "claude update" }
+packages = { npm = "@anthropic-ai/claude-code", winget = "Anthropic.ClaudeCode" }
+self_update = { args = ["update"], aware = true }
 
 [[agent]]
 id = "codex"
@@ -84,6 +100,8 @@ homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
 install_unix = "curl -fsSL https://chatgpt.com/codex/install.sh | sh"
 latest = { npm = "@openai/codex" }
+packages = { npm = "@openai/codex", winget = "OpenAI.Codex" }
+self_update = { args = ["update"], aware = true }
 
 [[agent]]
 id = "gemini"
@@ -95,7 +113,7 @@ homepage = "https://github.com/google-gemini/gemini-cli"
 install_windows = "npm install -g @google/gemini-cli"
 install_unix = "npm install -g @google/gemini-cli"
 latest = { npm = "@google/gemini-cli" }
-update_hint = { windows = "npm install -g @google/gemini-cli@latest", unix = "npm install -g @google/gemini-cli@latest" }
+packages = { npm = "@google/gemini-cli" }
 
 [[agent]]
 id = "antigravity"
@@ -117,7 +135,7 @@ homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
 install_unix = "curl -fsSL https://gh.io/copilot-install | bash"
 latest = { npm = "@github/copilot" }
-update_hint = { windows = "winget upgrade GitHub.Copilot" }
+packages = { npm = "@github/copilot", winget = "GitHub.Copilot" }
 
 # The current Cursor docs name `agent`. That is generic, so `cursor-agent` is searched first.
 [[agent]]
@@ -139,7 +157,9 @@ icon = "K"
 homepage = "https://github.com/MoonshotAI/kimi-cli"
 install_windows = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
 install_unix = "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"
-latest = { pypi = "kimi-cli" }
+# The PyPI package kimi-cli is archived; the current CLI ships on npm and winget.
+latest = { npm = "@moonshot-ai/kimi-code" }
+packages = { npm = "@moonshot-ai/kimi-code", winget = "MoonshotAI.KimiCodeCLI" }
 
 [[agent]]
 id = "qwen"
@@ -150,6 +170,7 @@ homepage = "https://github.com/QwenLM/qwen-code"
 install_windows = "irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex"
 install_unix = "curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash"
 latest = { npm = "@qwen-code/qwen-code" }
+packages = { npm = "@qwen-code/qwen-code" }
 
 # Successor of the Amazon Q Developer CLI. For Windows the docs give no install command.
 [[agent]]
@@ -175,7 +196,9 @@ homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"
 install_unix = "curl -fsSL https://opencode.ai/v2/install | bash"
 latest = { github = "anomalyco/opencode", tag_prefix = "v" }
-update_hint = { windows = "opencode upgrade", unix = "opencode upgrade" }
+# winget lists SST.opencode and Anomaly.OpenCode; which belongs to this line is open, so neither.
+packages = { npm = "opencode-ai" }
+self_update = { args = ["upgrade"], aware = true }
 
 [[agent]]
 id = "aider"
@@ -187,6 +210,9 @@ homepage = "https://github.com/Aider-AI/aider"
 install_windows = "python -m pip install aider-install && aider-install"
 install_unix = "python -m pip install aider-install && aider-install"
 latest = { pypi = "aider-chat" }
+# aider --upgrade runs pip inside its own environment; uv and pipx installs are updated with their
+# own upgrade instead, which keeps their receipt right, so there is no self_update here.
+packages = { pypi = "aider-chat" }
 
 # According to the docs, Goose starts the interactive session with `goose session`.
 [[agent]]
@@ -200,6 +226,7 @@ homepage = "https://github.com/aaif-goose/goose"
 install_windows = "Invoke-WebRequest -Uri \"https://raw.githubusercontent.com/aaif-goose/goose/main/download_cli.ps1\" -OutFile \"download_cli.ps1\"; .\\download_cli.ps1"
 install_unix = "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash"
 latest = { github = "aaif-goose/goose", tag_prefix = "v" }
+self_update = { args = ["update"], aware = true }
 
 [[agent]]
 id = "crush"
@@ -210,7 +237,7 @@ homepage = "https://github.com/charmbracelet/crush"
 install_windows = "winget install charmbracelet.crush"
 install_unix = "npm install -g @charmland/crush"
 latest = { npm = "@charmland/crush" }
-update_hint = { windows = "winget upgrade charmbracelet.crush", unix = "npm install -g @charmland/crush@latest" }
+packages = { npm = "@charmland/crush", winget = "charmbracelet.crush" }
 
 [[agent]]
 id = "pi"
@@ -222,7 +249,8 @@ homepage = "https://github.com/earendil-works/pi"
 install_windows = "powershell -c \"irm https://pi.dev/install.ps1 | iex\""
 install_unix = "curl -fsSL https://pi.dev/install.sh | sh"
 latest = { npm = "@earendil-works/pi-coding-agent" }
-update_hint = { windows = "pi update", unix = "pi update" }
+packages = { npm = "@earendil-works/pi-coding-agent" }
+self_update = { args = ["update"], aware = true }
 
 [[agent]]
 id = "omp"
@@ -233,6 +261,7 @@ homepage = "https://github.com/can1357/oh-my-pi"
 install_windows = "irm https://omp.sh/install.ps1 | iex"
 install_unix = "curl -fsSL https://omp.sh/install | sh"
 latest = { npm = "@oh-my-pi/pi-coding-agent" }
+packages = { npm = "@oh-my-pi/pi-coding-agent" }
 
 [[agent]]
 id = "forge"
@@ -251,7 +280,7 @@ homepage = "https://github.com/shareAI-lab/Kode-CLI"
 install_windows = "npm install -g @shareai-lab/kode"
 install_unix = "npm install -g @shareai-lab/kode"
 latest = { npm = "@shareai-lab/kode" }
-update_hint = { windows = "npm install -g @shareai-lab/kode@latest", unix = "npm install -g @shareai-lab/kode@latest" }
+packages = { npm = "@shareai-lab/kode" }
 
 [[agent]]
 id = "codebuff"
@@ -262,7 +291,7 @@ homepage = "https://codebuff.com"
 install_windows = "npm install -g codebuff"
 install_unix = "npm install -g codebuff"
 latest = { npm = "codebuff" }
-update_hint = { windows = "npm install -g codebuff@latest", unix = "npm install -g codebuff@latest" }
+packages = { npm = "codebuff" }
 
 [[agent]]
 id = "cline"
@@ -273,7 +302,7 @@ homepage = "https://docs.cline.bot/cline-cli/overview"
 install_windows = "npm i -g cline"
 install_unix = "npm i -g cline"
 latest = { npm = "cline" }
-update_hint = { windows = "npm install -g cline@latest", unix = "npm install -g cline@latest" }
+packages = { npm = "cline" }
 
 [[agent]]
 id = "vibe"
@@ -285,7 +314,7 @@ homepage = "https://github.com/mistralai/mistral-vibe"
 install_windows = "uv tool install mistral-vibe"
 install_unix = "curl -LsSf https://mistral.ai/vibe/install.sh | bash"
 latest = { pypi = "mistral-vibe" }
-update_hint = { windows = "uv tool upgrade mistral-vibe" }
+packages = { pypi = "mistral-vibe" }
 
 # Install commands could not be read from the vendor docs.
 [[agent]]
@@ -303,5 +332,5 @@ commands = ["amp"]
 icon = "Am"
 homepage = "https://ampcode.com/manual"
 latest = { npm = "@sourcegraph/amp", compare = "equal" }
-update_hint = { windows = "npm install -g @sourcegraph/amp@latest", unix = "npm install -g @sourcegraph/amp@latest" }
+packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
 

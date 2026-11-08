@@ -102,7 +102,19 @@ fn is_reserved_on_windows(stem: &str) -> bool {
 /// spaces, no reserved device name, at most [`MAX_STEM_CHARS`], plus the format's extension.
 /// The suggestion usually is the session title, which a program may have set itself.
 pub fn file_name(suggested: &str, format: Format) -> String {
-    let extension = format.extension();
+    file_name_with(suggested, format.extension())
+}
+
+/// Extension and dialog filter name of an exported note.
+pub const NOTE_EXTENSION: &str = "md";
+pub const NOTE_FILTER: &str = "Markdown";
+
+/// [`file_name`] for a note title, with `.md`.
+pub fn note_file_name(title: &str) -> String {
+    file_name_with(title, NOTE_EXTENSION)
+}
+
+fn file_name_with(suggested: &str, extension: &str) -> String {
     let mut stem: String = suggested
         .chars()
         .map(|c| match c {
@@ -192,6 +204,8 @@ mod tests {
             assert!(name.starts_with('_'), "{reserved} -> {name}");
         }
         assert_eq!(file_name("CONSOLE", text), "CONSOLE.txt");
+        assert_eq!(note_file_name("Plan: Q4/2026"), "Plan_ Q4_2026.md");
+        assert_eq!(note_file_name("notes.MD"), "notes.md");
         assert_eq!(file_name("COM10", text), "COM10.txt");
         let long = file_name(&"x".repeat(500), text);
         assert_eq!(long.chars().count(), MAX_STEM_CHARS + 4);

@@ -15,8 +15,13 @@
 #   resume_args   optional: arguments to resume the last conversation; they replace args
 #   latest        optional: where the newest version is published, { npm = "..." },
 #            { pypi = "..." } or { github = "owner/repo", tag_prefix = "v" }
-#   update_hint   optional: { windows = "...", unix = "..." }, the update command; Hangar
-#                 runs it on click without a shell, so no shell syntax such as | & ; > $ "
+#   packages      optional: package name per installer for the one-click update, e.g.
+#                 { npm = "...", winget = "...", pypi = "...", brew = "..." }; Hangar detects
+#                 how the program was installed and runs that installer's update
+#   self_update   optional: { args = ["update"], aware = true }, the program's own update
+#   update_hint   optional: { windows = "...", unix = "..." }, an update command that overrides
+#                 the detected one; Hangar runs it on click without a shell, so no shell syntax
+#                 such as | & ; > $ "
 #   [profile.env]  optional environment variables. Do NOT put secrets here.
 #   secret_env    optional: names of variables whose values Hangar keeps in the keychain of the
 #                 operating system, e.g. ["ANTHROPIC_API_KEY"]; enter the values in Hangar's
