@@ -58,8 +58,30 @@ struct MockState {
     access_valid: HashSet<String>,
     issued: u32,
     projects_failure: Option<(u16, String)>,
+    /// The last rotation, for the server's 30 s grace.
+    rotation: Option<Rotation>,
+    /// A just-rotated refresh token was presented again and got a fresh pair (grace).
+    grace_used: u32,
+    /// The next refreshes rotate on the server but their answer never arrives.
+    lose_refresh_answers: u32,
+    /// Bodies of `POST /oauth/revoke`.
+    revocations: Vec<serde_json::Value>,
+    /// The OAuth error `/oauth/revoke` answers with instead of 200.
+    revoke_failure: Option<&'static str>,
 }
 
+struct Rotation {
+    from: String,
+    at: Instant,
+    successor: String,
+    grace_spent: bool,
+}
+
+/// Grace of the official service: a just-rotated refresh token presented again within this time,
+/// while its successor is unused, gets a fresh pair once.
+const GRACE: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
 struct Mock {
     origin: String,
     state: Arc<Mutex<MockState>>,
@@ -138,8 +160,15 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
         }
         data.extend_from_slice(&buffer[..read]);
     }
-    let body = serde_json::from_slice(&data[head_end..head_end + length])
-        .unwrap_or(serde_json::Value::Null);
+    let raw = &data[head_end..head_end + length];
+    let form = headers
+        .get("content-type")
+        .is_some_and(|v| v.starts_with("application/x-www-form-urlencoded"));
+    let body = if form {
+        form_body(raw)
+    } else {
+        serde_json::from_slice(raw).unwrap_or(serde_json::Value::Null)
+    };
     let bearer = headers
         .get("authorization")
         .and_then(|v| v.strip_prefix("Bearer "))
@@ -150,6 +179,36 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
         bearer,
         body,
     })
+}
+
+/// `a=b&c=d` (percent-encoded, `+` for space) as a JSON object of strings.
+fn form_body(raw: &[u8]) -> serde_json::Value {
+    let decode = |text: &str| {
+        let bytes = text.replace('+', " ").into_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap();
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).unwrap()
+    };
+    let text = String::from_utf8_lossy(raw);
+    let object = text
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (decode(key), serde_json::Value::String(decode(value)))
+        })
+        .collect();
+    serde_json::Value::Object(object)
 }
 
 fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &str) {
@@ -216,6 +275,47 @@ fn issue(state: &mut MockState) -> serde_json::Value {
         "refresh_token": refresh,
         "scope": "team",
     })
+}
+
+/// The refresh grant: rotation, the 30 s grace for a just-rotated token whose successor is unused,
+/// and revocation of the whole device on any other reuse. `None` answers `invalid_grant`.
+fn redeem(state: &mut MockState, token: String) -> Option<serde_json::Value> {
+    if state.revoked {
+        return None;
+    }
+    if state.refresh_valid.as_deref() == Some(token.as_str()) {
+        state.refresh_used.insert(token.clone());
+        let value = issue(state);
+        state.rotation = Some(Rotation {
+            from: token,
+            at: Instant::now(),
+            successor: value["refresh_token"].as_str().unwrap().to_owned(),
+            grace_spent: false,
+        });
+        return Some(value);
+    }
+    let graced = state.rotation.as_ref().is_some_and(|rotation| {
+        rotation.from == token
+            && rotation.at.elapsed() < GRACE
+            && !rotation.grace_spent
+            && state.refresh_valid.as_deref() == Some(rotation.successor.as_str())
+    });
+    if graced {
+        state.grace_used += 1;
+        let value = issue(state);
+        if let Some(rotation) = state.rotation.as_mut() {
+            rotation.successor = value["refresh_token"].as_str().unwrap().to_owned();
+            rotation.grace_spent = true;
+        }
+        return Some(value);
+    }
+    if state.refresh_used.contains(&token) {
+        // Reuse: the whole device is revoked.
+        state.revoked = true;
+        state.refresh_valid = None;
+        state.access_valid.clear();
+    }
+    None
 }
 
 fn authorized(state: &MockState, request: &Request) -> bool {
@@ -289,29 +389,61 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
                 };
                 std::thread::sleep(delay);
                 let mut state = guard(shared);
-                if state.refresh_valid.as_deref() == Some(token.as_str()) && !state.revoked {
-                    state.refresh_used.insert(token);
-                    let value = issue(&mut state);
-                    drop(state);
-                    json(&mut stream, 200, &value);
-                } else {
-                    if state.refresh_used.contains(&token) {
-                        // Reuse: the whole device is revoked.
-                        state.revoked = true;
-                        state.refresh_valid = None;
-                        state.access_valid.clear();
+                match redeem(&mut state, token) {
+                    Some(value) => {
+                        let lose = state.lose_refresh_answers > 0;
+                        state.lose_refresh_answers = state.lose_refresh_answers.saturating_sub(1);
+                        drop(state);
+                        if lose {
+                            // Rotated on the server, but the answer is lost on the way.
+                            let _ = stream.shutdown(std::net::Shutdown::Both);
+                        } else {
+                            json(&mut stream, 200, &value);
+                        }
                     }
-                    drop(state);
-                    oauth_error(&mut stream, "invalid_grant");
+                    None => {
+                        drop(state);
+                        oauth_error(&mut stream, "invalid_grant");
+                    }
                 }
             } else {
                 oauth_error(&mut stream, "unsupported_grant_type");
+            }
+        }
+        ("POST", "/api/v1/oauth/revoke") => {
+            let mut state = guard(shared);
+            state.revocations.push(request.body.clone());
+            let hint = request.body["token_type_hint"].as_str();
+            let known_hint = matches!(hint, None | Some("refresh_token" | "access_token"));
+            if let Some(code) = state.revoke_failure {
+                drop(state);
+                oauth_error(&mut stream, code);
+            } else if request.body["client_id"] != "hangar-desktop" {
+                drop(state);
+                oauth_error(&mut stream, "invalid_client");
+            } else if !known_hint || request.body["token"].as_str().is_none() {
+                // An unknown hint counts as invalid_request, like a missing token.
+                drop(state);
+                oauth_error(&mut stream, "invalid_request");
+            } else {
+                let token = request.body["token"].as_str().unwrap_or("");
+                let known = state.refresh_valid.as_deref() == Some(token)
+                    || state.refresh_used.contains(token);
+                if known {
+                    // Revoking a refresh token removes the whole device grant.
+                    state.refresh_valid = None;
+                    state.access_valid.clear();
+                    state.rotation = None;
+                }
+                drop(state);
+                respond(&mut stream, 200, "application/json", "");
             }
         }
         ("GET", "/api/v1/me") => {
             let state = guard(shared);
             if authorized(&state, &request) {
                 drop(state);
+                // `seats_account_used` counts members only, the owner included.
                 let value = serde_json::json!({
                     "id": "7", "email": "ada@example.test", "name": "Ada", "locale": "de",
                     "seats_account_total": 3, "seats_account_used": 2,
@@ -417,6 +549,14 @@ impl Harness {
     }
 
     fn with(mock: Mock, store: Arc<MemoryStore>) -> Self {
+        Self::configured(mock, store, None)
+    }
+
+    fn configured(
+        mock: Mock,
+        store: Arc<MemoryStore>,
+        config_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         let opened = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(Vec::new()));
         let record = Arc::clone(&opened);
@@ -433,7 +573,7 @@ impl Harness {
             }),
             Options {
                 unit: UNIT,
-                config_dir: None,
+                config_dir,
                 device_name: "Test machine".to_owned(),
                 platform: "test".to_owned(),
             },
@@ -865,7 +1005,7 @@ fn relay_tickets_and_reserved_endpoints() {
             value["access_token"].as_str().unwrap().to_owned()
         };
         let ticket = api.relay_ticket(&tokens, "317").await.unwrap();
-        assert_eq!(ticket.relay_url, "wss://relay.example.test");
+        assert_eq!(ticket.relay_url.as_str(), "wss://relay.example.test/");
         assert_eq!(ticket.expires_at, 1_794_225_660);
         let missing = api.relay_ticket(&tokens, "999").await.unwrap_err();
         assert!(matches!(
@@ -886,4 +1026,170 @@ fn plain_http_is_refused_for_other_hosts() {
     // The client for an https base never talks plain http.
     let base = BaseUrl::parse("https://127.0.0.1:9/api/v1").unwrap();
     assert!(base.is_https());
+}
+
+/// A fresh folder under `tests/.tmp` for one test's `account.json` and lock file.
+fn temp_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/.tmp")
+        .join(format!("{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn two_hangar_processes_share_one_sign_in_without_reuse() {
+    // Two Hangar processes (say, the installed app and a dev build) on one keychain entry and one
+    // config folder: each has its own service, refresh gate and memory.
+    let dir = temp_dir("account-two-processes");
+    let mock = Mock::start();
+    let store = Arc::new(MemoryStore::default());
+    let first = Harness::configured(mock.clone(), Arc::clone(&store), Some(dir.clone()));
+    let second = Harness::configured(mock.clone(), Arc::clone(&store), Some(dir.clone()));
+    first.stored_sign_in();
+    mock.state().refresh_delay = Duration::from_millis(150);
+    run(async {
+        for harness in [&first, &second] {
+            assert!(matches!(
+                harness.service.status().await.state,
+                AccountState::SignedIn { .. }
+            ));
+        }
+        // Both find no access token and refresh at the same time.
+        let a = first.service.clone();
+        let b = second.service.clone();
+        let a = tauri::async_runtime::spawn(async move { a.projects().await });
+        let b = tauri::async_runtime::spawn(async move { b.projects().await });
+        assert_eq!(a.await.unwrap().unwrap().len(), 2);
+        assert_eq!(b.await.unwrap().unwrap().len(), 2);
+        // Later the first one refreshes again, holding a token the second already spent.
+        mock.state().access_valid.clear();
+        mock.state().refresh_delay = Duration::ZERO;
+        assert_eq!(first.service.projects().await.unwrap().len(), 2);
+    });
+    let state = mock.state();
+    assert!(!state.revoked, "no refresh token was presented twice");
+    assert_eq!(
+        state.grace_used, 0,
+        "no refresh relied on the server's grace"
+    );
+    let latest = state.refresh_valid.clone();
+    drop(state);
+    assert_eq!(store.value(&first.account()), latest);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_lost_refresh_answer_is_retried_within_the_grace() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    // The server rotates, the answer is lost (timeout, dropped connection).
+    harness.mock.state().lose_refresh_answers = 1;
+    run(async {
+        let projects = harness.service.projects().await.unwrap();
+        assert_eq!(projects.len(), 2);
+    });
+    let state = harness.mock.state();
+    assert_eq!(state.refreshes, 2, "one retry with the same token");
+    assert_eq!(state.grace_used, 1);
+    assert!(!state.revoked);
+    let latest = state.refresh_valid.clone();
+    drop(state);
+    // The pair of the grace is the one stored.
+    assert_eq!(harness.store.value(&harness.account()), latest);
+}
+
+#[test]
+fn sign_out_revokes_the_device_on_the_server() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    run(async {
+        harness.service.projects().await.unwrap();
+        let view = harness.service.sign_out().await.unwrap();
+        assert_eq!(
+            view.state,
+            AccountState::Idle {
+                notice: Some(IdleNotice::SignedOut)
+            }
+        );
+    });
+    let state = harness.mock.state();
+    assert_eq!(state.revocations.len(), 1);
+    let body = &state.revocations[0];
+    assert_eq!(body["token"], "hgrt_mock_refresh_1");
+    assert_eq!(body["token_type_hint"], "refresh_token");
+    assert_eq!(body["client_id"], "hangar-desktop");
+    assert!(state.refresh_valid.is_none(), "the device grant is gone");
+    drop(state);
+    assert!(harness.store.value(&harness.account()).is_none());
+    harness.assert_events_clean();
+}
+
+#[test]
+fn sign_out_signs_out_locally_when_the_server_refuses_the_revoke() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    harness.mock.state().revoke_failure = Some("invalid_client");
+    run(async {
+        let view = harness.service.sign_out().await.unwrap();
+        assert_eq!(
+            view.state,
+            AccountState::Idle {
+                notice: Some(IdleNotice::SignedOutLocally)
+            }
+        );
+    });
+    assert_eq!(harness.mock.state().revocations.len(), 1);
+    assert!(harness.store.value(&harness.account()).is_none());
+}
+
+#[test]
+fn sign_out_names_the_sign_ins_kept_for_other_servers() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    let own = harness.account();
+    run(async {
+        harness.service.status().await;
+        let other = harness
+            .service
+            .set_base_url(Some("https://team.example.test/api/v1".into()))
+            .await
+            .unwrap();
+        assert_eq!(other.other_sign_ins, std::slice::from_ref(&own));
+        let back = harness
+            .service
+            .set_base_url(Some(own.clone()))
+            .await
+            .unwrap();
+        assert!(back.other_sign_ins.is_empty());
+        let out = harness.service.sign_out().await.unwrap();
+        assert!(out.other_sign_ins.is_empty());
+        let official = harness.service.set_base_url(None).await.unwrap();
+        assert!(official.other_sign_ins.is_empty(), "signed out everywhere");
+    });
+}
+
+#[test]
+fn the_window_gets_the_checked_verification_page() {
+    let harness = Harness::new();
+    // Same origin, but not in normal form.
+    harness.mock.state().page_origin = Some(format!("{}/x/..", harness.mock.origin));
+    run(async {
+        let view = harness.service.sign_in().await.unwrap();
+        let AccountState::WaitingForUser {
+            verification_uri,
+            verification_uri_complete,
+            ..
+        } = view.state
+        else {
+            panic!("{:?}", view.state);
+        };
+        assert_eq!(verification_uri, format!("{}/device", harness.mock.origin));
+        assert_eq!(
+            verification_uri_complete,
+            format!("{}/device?user_code=BCDF-GHJK", harness.mock.origin)
+        );
+        harness.service.cancel_sign_in();
+    });
 }

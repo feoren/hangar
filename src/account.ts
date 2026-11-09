@@ -22,7 +22,11 @@ export interface FailReason {
   detail: string | null;
 }
 
-export type IdleNotice = "signedOut" | "sessionEnded";
+/**
+ * `signedOut`: signed out and removed from the account on the server; `signedOutLocally`: signed
+ * out here, but the server could not be told; `sessionEnded`: the server refused the sign-in.
+ */
+export type IdleNotice = "signedOut" | "signedOutLocally" | "sessionEnded";
 
 /** The signed-in person (Rust: `Me`). Seats are those of the person's own account. */
 export interface Me {
@@ -55,6 +59,8 @@ export interface AccountView {
   /** The account page listing connected devices. */
   devicesUrl: string;
   state: AccountState;
+  /** Other servers whose sign-in stays stored on this device (base addresses). */
+  otherSignIns: string[];
 }
 
 export type Role = "owner" | "admin" | "member" | "other";
@@ -155,7 +161,9 @@ function parseState(value: unknown): AccountState | null {
     case "idle": {
       const notice = field(value, "notice");
       if (notice === null || notice === undefined) return { kind: "idle", notice: null };
-      return notice === "signedOut" || notice === "sessionEnded" ? { kind: "idle", notice } : null;
+      return notice === "signedOut" || notice === "signedOutLocally" || notice === "sessionEnded"
+        ? { kind: "idle", notice }
+        : null;
     }
     case "waitingForUser": {
       const userCode = text(field(value, "userCode"));
@@ -200,10 +208,12 @@ export function parseAccountView(value: unknown): AccountView | null {
   const official = field(value, "official");
   const devicesUrl = text(field(value, "devicesUrl"));
   const state = parseState(field(value, "state"));
+  const otherSignIns = list(field(value, "otherSignIns"), text);
   if (baseUrl === null || devicesUrl === null || typeof official !== "boolean" || state === null) {
     return null;
   }
-  return { baseUrl, official, devicesUrl, state };
+  if (otherSignIns === null) return null;
+  return { baseUrl, official, devicesUrl, state, otherSignIns };
 }
 
 function parseProject(value: unknown): Project | null {
@@ -265,6 +275,38 @@ export function projectsAction(
   if (!is && was) return "clear";
   if (!is && previous !== null && previous.baseUrl !== next.baseUrl) return "clear";
   return "keep";
+}
+
+/** The main button of each state's block, which takes the focus when the state changes. */
+export type FocusTarget = "signIn" | "copyCode" | "signOut" | "tryAgain";
+
+const FOCUS_TARGETS: Record<AccountState["kind"], FocusTarget> = {
+  idle: "signIn",
+  waitingForUser: "copyCode",
+  signedIn: "signOut",
+  failed: "tryAgain",
+};
+
+/**
+ * Where the focus goes after the state changed from `previous` to `next`: the main button of the
+ * new block, so a keyboard user is not left on a button that disappeared. Nothing on the first
+ * render or when the kind stayed the same.
+ */
+export function focusAfterChange(
+  previous: AccountState["kind"] | null,
+  next: AccountState["kind"],
+): FocusTarget | null {
+  if (previous === null || previous === next) return null;
+  return FOCUS_TARGETS[next];
+}
+
+/** After a sign-out: which other servers keep a stored sign-in, or `null` when none do. */
+export function otherSignInsText(view: AccountView, t: Translate): string | null {
+  const { state } = view;
+  const signedOut =
+    state.kind === "idle" && (state.notice === "signedOut" || state.notice === "signedOutLocally");
+  if (!signedOut || view.otherSignIns.length === 0) return null;
+  return t("account.otherSignIns", { hosts: view.otherSignIns.map(serverHost).join(", ") });
 }
 
 /** Whole minutes left for the code, at least 1 while it still works. */

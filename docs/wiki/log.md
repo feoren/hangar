@@ -178,3 +178,10 @@ Built the app side of the Hangar account: device flow sign-in with polling rules
 token in the OS keychain, single-flight refresh with rotation, problem documents, origin checks
 for opened pages, Settings section Account and the sidebar's Team group. Filed the API and the
 client's behavior. Pages changed: [[hangar-account-api]] (new), [[team-service-v1]].
+
+## [2026-11-09] ingest | Step F part 1 rework after reviews
+Filed the website's revoke endpoint (RFC 7009), the 30 s refresh grace and the new seat counting.
+The client now holds a cross-process lock and rereads the keychain before a refresh, retries a
+lost refresh answer once, keeps a separate keychain entry in debug builds, revokes on sign-out,
+lists other servers' stored sign-ins, bypasses proxies for loopback servers, sends normalized
+pages to the window and checks relay addresses. Pages changed: [[hangar-account-api]].

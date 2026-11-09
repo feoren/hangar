@@ -23,10 +23,18 @@ pub const SCOPE: &str = "team";
 /// Event to the main window with every new [`AccountView`].
 pub const EVENT: &str = "account-changed";
 /// Keychain service of the refresh token; the account name is the server address. Separate from
-/// the profile secrets (`secrets::SERVICE`), so no profile variable can share its entry.
+/// the profile secrets (`secrets::SERVICE`), so no profile variable can share its entry. Debug
+/// builds keep their own entry: a dev build next to the installed app would otherwise redeem the
+/// same rotating refresh token.
+#[cfg(not(debug_assertions))]
 pub const KEYCHAIN_SERVICE: &str = "hangar-account";
-/// The chosen server address, in the config folder.
+#[cfg(debug_assertions)]
+pub const KEYCHAIN_SERVICE: &str = "hangar-account-dev";
+/// The chosen server address and the servers with a stored sign-in, in the config folder.
 pub const CONFIG_FILE: &str = "account.json";
+/// Held by one Hangar process at a time across reading, refreshing and writing the refresh
+/// token, in the config folder.
+pub const LOCK_FILE: &str = "account.lock";
 
 const MAX_BASE_CHARS: usize = 512;
 /// Tokens go into an `Authorization` header and the refresh token into the keychain, whose
@@ -116,6 +124,11 @@ impl BaseUrl {
         self.url.scheme() == "https"
     }
 
+    /// `localhost`, `127.0.0.1` or `[::1]`: a development server, never reached through a proxy.
+    pub fn is_loopback(&self) -> bool {
+        is_loopback(&self.url)
+    }
+
     /// `<base>/<path>`, for example `oauth/token`.
     pub fn endpoint(&self, path: &str) -> Url {
         let mut url = self.url.clone();
@@ -159,30 +172,60 @@ fn is_loopback(url: &Url) -> bool {
     matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
 }
 
+/// What `account.json` holds: the chosen server and the servers whose sign-in is in the keychain
+/// (the keychain cannot list its entries; Settings names them after a sign-out).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AccountConfig {
+    pub base: BaseUrl,
+    pub signed_in: Vec<BaseUrl>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAccountConfig {
+    base_url: String,
+    #[serde(default)]
+    signed_in: Vec<String>,
+}
+
+/// The stored settings; the official server and no sign-ins when the file is missing or broken.
+/// An entry that is no longer a valid address is dropped.
+pub fn load_config(config_dir: &Path) -> AccountConfig {
+    let Ok(text) = std::fs::read_to_string(config_dir.join(CONFIG_FILE)) else {
+        return AccountConfig::default();
+    };
+    let Ok(raw) = serde_json::from_str::<RawAccountConfig>(&text) else {
+        return AccountConfig::default();
+    };
+    let mut signed_in: Vec<BaseUrl> = Vec::new();
+    for base in raw.signed_in.iter().filter_map(|t| BaseUrl::parse(t).ok()) {
+        if !signed_in.contains(&base) {
+            signed_in.push(base);
+        }
+    }
+    AccountConfig {
+        base: BaseUrl::parse(&raw.base_url).unwrap_or_default(),
+        signed_in,
+    }
+}
+
 /// The stored server address; the official one when the file is missing or broken.
 pub fn load_base(config_dir: &Path) -> BaseUrl {
-    let Ok(text) = std::fs::read_to_string(config_dir.join(CONFIG_FILE)) else {
-        return BaseUrl::official();
-    };
-    serde_json::from_str::<AccountConfig>(&text)
-        .ok()
-        .and_then(|config| BaseUrl::parse(&config.base_url).ok())
-        .unwrap_or_default()
+    load_config(config_dir).base
 }
 
-pub fn save_base(config_dir: &Path, base: &BaseUrl) -> std::io::Result<()> {
+pub fn save_config(config_dir: &Path, config: &AccountConfig) -> std::io::Result<()> {
     std::fs::create_dir_all(config_dir)?;
-    let config = AccountConfig {
-        base_url: base.as_str().to_owned(),
+    let raw = RawAccountConfig {
+        base_url: config.base.as_str().to_owned(),
+        signed_in: config
+            .signed_in
+            .iter()
+            .map(|base| base.as_str().to_owned())
+            .collect(),
     };
-    let text = serde_json::to_vec_pretty(&config).map_err(std::io::Error::other)?;
+    let text = serde_json::to_vec_pretty(&raw).map_err(std::io::Error::other)?;
     crate::persist::write_atomic(&config_dir.join(CONFIG_FILE), &text)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountConfig {
-    base_url: String,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -480,7 +523,8 @@ impl Project {
 pub struct RelayTicket {
     pub ticket: Zeroizing<String>,
     pub expires_at: u64,
-    pub relay_url: String,
+    /// Checked by [`relay_url`]: the ticket travels there.
+    pub relay_url: Url,
 }
 
 impl fmt::Debug for RelayTicket {
@@ -500,15 +544,37 @@ struct RawRelayTicket {
 }
 
 impl RelayTicket {
+    /// `None` when the ticket is no token or the relay address is not one Hangar connects to.
     pub fn parse(body: &[u8]) -> Option<Self> {
         let raw: RawRelayTicket = serde_json::from_slice(body).ok()?;
         let ticket = Zeroizing::new(raw.ticket);
+        let relay_url = relay_url(&raw.relay_url)?;
         is_token_text(&ticket).then(|| Self {
             ticket,
             expires_at: raw.expires_at,
-            relay_url: raw.relay_url,
+            relay_url,
         })
     }
+}
+
+/// The relay address of a ticket when Hangar may send the ticket there: `wss`, or plain `ws`
+/// only on the loopback for development; no user info or fragment.
+pub fn relay_url(text: &str) -> Option<Url> {
+    if text.chars().count() > MAX_BASE_CHARS {
+        return None;
+    }
+    let url = Url::parse(text.trim()).ok()?;
+    let scheme = match url.scheme() {
+        "wss" => true,
+        "ws" => is_loopback(&url),
+        _ => false,
+    };
+    let fine = scheme
+        && url.host_str().is_some_and(|host| !host.is_empty())
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none();
+    fine.then_some(url)
 }
 
 /// Ids are opaque strings (decimal numbers as text); a number is accepted too.
@@ -658,8 +724,11 @@ pub struct FailReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum IdleNotice {
-    /// The person signed out on this device.
+    /// The person signed out, and the server removed this device from the account.
     SignedOut,
+    /// The person signed out on this device, but the server could not be told; the device stays
+    /// listed on the account page until it is removed there.
+    SignedOutLocally,
     /// The server no longer accepts the refresh token (revoked device, reuse, expiry).
     SessionEnded,
 }
@@ -706,15 +775,22 @@ pub struct AccountView {
     /// Where connected devices are listed and revoked.
     pub devices_url: String,
     pub state: AccountState,
+    /// Other servers whose sign-in stays stored on this device (base addresses).
+    pub other_sign_ins: Vec<String>,
 }
 
 impl AccountView {
-    pub fn new(base: &BaseUrl, state: AccountState) -> Self {
+    pub fn new(base: &BaseUrl, state: AccountState, signed_in: &[BaseUrl]) -> Self {
         Self {
             base_url: base.as_str().to_owned(),
             official: base.is_official(),
             devices_url: base.devices_page().to_string(),
             state,
+            other_sign_ins: signed_in
+                .iter()
+                .filter(|other| *other != base)
+                .map(|other| other.as_str().to_owned())
+                .collect(),
         }
     }
 }
@@ -917,13 +993,44 @@ mod tests {
     }
 
     #[test]
+    fn debug_builds_keep_their_own_keychain_entry() {
+        assert_eq!(
+            KEYCHAIN_SERVICE.ends_with("-dev"),
+            cfg!(debug_assertions),
+            "{KEYCHAIN_SERVICE}"
+        );
+    }
+
+    #[test]
     fn config_round_trip_and_fallback() {
         let temp = crate::test_support::TempDir::new("account-config");
         let dir = temp.path();
         assert_eq!(load_base(dir), BaseUrl::official());
         let custom = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
-        save_base(dir, &custom).unwrap();
+        let config = AccountConfig {
+            base: custom.clone(),
+            signed_in: vec![custom.clone(), BaseUrl::official()],
+        };
+        save_config(dir, &config).unwrap();
+        assert_eq!(load_config(dir), config);
         assert_eq!(load_base(dir), custom);
+        // The file of the first version has no list; broken and repeated entries are dropped.
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"baseUrl":"https://team.example.test/api/v1",
+                "signedIn":["http://example.test","https://a.example.test","https://a.example.test/"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            load_config(dir).signed_in,
+            [BaseUrl::parse("https://a.example.test").unwrap()]
+        );
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"baseUrl":"https://team.example.test/api/v1"}"#,
+        )
+        .unwrap();
+        assert!(load_config(dir).signed_in.is_empty());
         std::fs::write(
             dir.join(CONFIG_FILE),
             "{\"baseUrl\":\"http://example.test\"}",
@@ -1091,7 +1198,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ticket.expires_at, 1_794_225_660);
+        assert_eq!(ticket.relay_url.as_str(), "wss://relay.example.test/");
         assert!(!format!("{ticket:?}").contains("eyJ2"));
+        let foreign =
+            br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"ws://relay.example.test"}"#;
+        assert!(RelayTicket::parse(foreign).is_none());
+    }
+
+    #[test]
+    fn relay_addresses_need_wss_except_on_loopback() {
+        for good in [
+            "wss://relay.example.test",
+            "wss://relay.example.test:8443/v1/socket",
+            "ws://127.0.0.1:9000/relay",
+            "ws://localhost:9000",
+            "ws://[::1]:9000",
+        ] {
+            assert!(relay_url(good).is_some(), "{good}");
+        }
+        for bad in [
+            "ws://relay.example.test",
+            "https://relay.example.test",
+            "http://127.0.0.1:9000",
+            "wss://user:pw@relay.example.test",
+            "wss://relay.example.test/#x",
+            "ws://localhost.example.test",
+            "wss://",
+            "not a url",
+            "",
+        ] {
+            assert!(relay_url(bad).is_none(), "{bad}");
+        }
+        let long = format!("wss://relay.example.test/{}", "a".repeat(MAX_BASE_CHARS));
+        assert!(relay_url(&long).is_none());
     }
 
     #[test]
@@ -1186,8 +1325,13 @@ mod tests {
                 expires_at: 1,
                 interval: 5,
             },
+            &[base(), BaseUrl::official()],
         );
         let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(
+            json["otherSignIns"],
+            serde_json::json!(["https://hangar.feoren.com/api/v1"])
+        );
         assert_eq!(json["state"]["kind"], "waitingForUser");
         assert_eq!(json["state"]["userCode"], "BCDF-GHJK");
         assert_eq!(json["devicesUrl"], "https://example.test/account/devices");

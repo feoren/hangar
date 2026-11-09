@@ -4,28 +4,66 @@ import {
   accountErrorText,
   displayName,
   failText,
+  focusAfterChange,
   minutesLeft,
+  otherSignInsText,
   seatsText,
   serverHost,
   type AccountProblem,
   type AccountState,
   type AccountView,
+  type FocusTarget,
 } from "./account";
 import { writeClipboard } from "./clipboard";
 import { useT } from "./i18n";
 import { account, useAccount } from "./useAccount";
 import { useClock } from "./useClock";
 
+/** Callback refs of the main buttons, by the block they belong to. */
+type Register = (target: FocusTarget) => (element: HTMLButtonElement | null) => void;
+
 /**
  * Settings, Account: sign in with the device flow (a code to confirm in the browser), the
  * signed-in person, sign out, and the server address for self-hosting. Everything else (tokens,
  * requests, opening pages) happens in the backend.
  */
+
 export function AccountSettings() {
   const t = useT();
-  const { view } = useAccount();
+  const { view, unavailable } = useAccount();
   const [problem, setProblem] = useState<AccountProblem | null>(null);
   const [busy, setBusy] = useState(false);
+  const buttons = useRef(new Map<FocusTarget, HTMLButtonElement>());
+  const previousKind = useRef<AccountState["kind"] | null>(null);
+  const pendingFocus = useRef<FocusTarget | null>(null);
+  const section = useRef<HTMLElement>(null);
+  const kind = view?.state.kind ?? null;
+
+  // A new block replaces the button that had the focus: move it to the new block's main button,
+  // once that button is enabled again (it is disabled while the command that changed the state
+  // still runs). A change from the backend while the focus is elsewhere (say, in the server
+  // field) leaves it there.
+  useEffect(() => {
+    if (kind === null) return;
+    const target = focusAfterChange(previousKind.current, kind);
+    previousKind.current = kind;
+    const active = document.activeElement;
+    const focusLost = active === null || active === document.body;
+    if (target !== null && (focusLost || section.current?.contains(active) === true)) {
+      pendingFocus.current = target;
+    }
+    const element =
+      pendingFocus.current === null ? undefined : buttons.current.get(pendingFocus.current);
+    if (element !== undefined && !element.disabled) {
+      element.focus();
+      pendingFocus.current = null;
+    }
+  }, [kind, busy]);
+
+  const register: Register = (target) => (element) => {
+    if (element === null) buttons.current.delete(target);
+    else buttons.current.set(target, element);
+  };
 
   const run = (action: () => Promise<AccountProblem | null>) => {
     setBusy(true);
@@ -41,13 +79,14 @@ export function AccountSettings() {
     <>
       <p className="muted settings-intro">{t("account.intro")}</p>
       {view === null ? (
-        <p className="muted">{t("account.unavailable")}</p>
+        // Nothing while the first status loads; a text only when it failed.
+        unavailable && <p className="muted">{t("account.unavailable")}</p>
       ) : (
-        <section className="settings-section" aria-labelledby="account-state">
+        <section ref={section} className="settings-section" aria-labelledby="account-state">
           <h4 id="account-state" className="settings-subtitle">
             {t("account.title")}
           </h4>
-          <StateBlock view={view} busy={busy} run={run} />
+          <StateBlock view={view} busy={busy} run={run} register={register} />
           {problem !== null && (
             <p className="muted error-text" role="alert">
               {accountErrorText(problem, t)}
@@ -65,10 +104,12 @@ function StateBlock({
   view,
   busy,
   run,
+  register,
 }: {
   view: AccountView;
   busy: boolean;
   run: (action: () => Promise<AccountProblem | null>) => void;
+  register: Register;
 }) {
   const t = useT();
   const state = view.state;
@@ -94,11 +135,20 @@ function StateBlock({
           )}
           {state.notice === "signedOut" && (
             <p className="muted" role="status">
-              {t("account.signedOut")} {devices}
+              {t("account.signedOut")}
             </p>
+          )}
+          {state.notice === "signedOutLocally" && (
+            <p className="muted" role="status">
+              {t("account.signedOutLocally")} {devices}
+            </p>
+          )}
+          {otherSignInsText(view, t) !== null && (
+            <p className="muted">{otherSignInsText(view, t)}</p>
           )}
           <div className="settings-row">
             <button
+              ref={register("signIn")}
               type="button"
               className="primary-button"
               disabled={busy}
@@ -117,7 +167,7 @@ function StateBlock({
         </>
       );
     case "waitingForUser":
-      return <WaitingBlock state={state} run={run} />;
+      return <WaitingBlock state={state} run={run} register={register} />;
     case "signedIn":
       return (
         <>
@@ -140,6 +190,7 @@ function StateBlock({
           )}
           <div className="settings-row">
             <button
+              ref={register("signOut")}
               type="button"
               className="secondary-button"
               disabled={busy}
@@ -166,6 +217,7 @@ function StateBlock({
           </p>
           <div className="settings-row">
             <button
+              ref={register("tryAgain")}
               type="button"
               className="primary-button"
               disabled={busy}
@@ -195,19 +247,15 @@ function StateBlock({
 function WaitingBlock({
   state,
   run,
+  register,
 }: {
   state: Extract<AccountState, { kind: "waitingForUser" }>;
   run: (action: () => Promise<AccountProblem | null>) => void;
+  register: Register;
 }) {
   const t = useT();
   const now = useClock(15_000);
   const [copied, setCopied] = useState(false);
-  const copyButton = useRef<HTMLButtonElement>(null);
-
-  // The code just appeared: the copy button is the next likely step.
-  useEffect(() => {
-    copyButton.current?.focus();
-  }, [state.userCode]);
 
   return (
     <div className="account-waiting">
@@ -220,7 +268,7 @@ function WaitingBlock({
       </p>
       <div className="settings-row">
         <button
-          ref={copyButton}
+          ref={register("copyCode")}
           type="button"
           className="secondary-button"
           onClick={() => {
@@ -265,6 +313,12 @@ function WaitingBlock({
 function ServerField({ view }: { view: AccountView }) {
   const t = useT();
   const [text, setText] = useState(view.official ? "" : view.baseUrl);
+  // The server can change while the dialog is open (here, or from the backend): show the new one.
+  const [shownBase, setShownBase] = useState(view.baseUrl);
+  if (shownBase !== view.baseUrl) {
+    setShownBase(view.baseUrl);
+    setText(view.official ? "" : view.baseUrl);
+  }
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 

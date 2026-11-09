@@ -4,8 +4,10 @@ import {
   accountErrorText,
   displayName,
   failText,
+  focusAfterChange,
   isSignedIn,
   minutesLeft,
+  otherSignInsText,
   parseAccountError,
   parseAccountView,
   parseProjects,
@@ -21,10 +23,13 @@ import { createTranslator } from "./i18n";
 
 const t = createTranslator("en");
 
+const NO_OTHERS: string[] = [];
+
 const BASE = {
   baseUrl: "https://hangar.example.test/api/v1",
   official: false,
   devicesUrl: "https://hangar.example.test/account/devices",
+  otherSignIns: NO_OTHERS,
 };
 
 function view(state: unknown, base: Partial<typeof BASE> = {}): unknown {
@@ -61,6 +66,15 @@ describe("parseAccountView", () => {
       kind: "idle",
       notice: "sessionEnded",
     });
+    expect(parseAccountView(view({ kind: "idle", notice: "signedOutLocally" }))?.state).toEqual({
+      kind: "idle",
+      notice: "signedOutLocally",
+    });
+    expect(
+      parseAccountView(
+        view({ kind: "idle", notice: null }, { otherSignIns: ["https://a.example.test/api/v1"] }),
+      )?.otherSignIns,
+    ).toEqual(["https://a.example.test/api/v1"]);
     const waiting = parseAccountView(
       view({
         kind: "waitingForUser",
@@ -103,6 +117,15 @@ describe("parseAccountView", () => {
       parseAccountView(view({ kind: "waitingForUser", userCode: "X", expiresAt: -1 })),
     ).toBeNull();
     expect(parseAccountView({ ...BASE, official: "no", state: { kind: "idle" } })).toBeNull();
+    expect(parseAccountView({ ...BASE, otherSignIns: [1], state: { kind: "idle" } })).toBeNull();
+    expect(
+      parseAccountView({
+        baseUrl: BASE.baseUrl,
+        official: false,
+        devicesUrl: BASE.devicesUrl,
+        state: { kind: "idle" },
+      }),
+    ).toBeNull();
   });
 });
 
@@ -208,5 +231,43 @@ describe("texts", () => {
     expect(failText({ kind: "foreignPage", detail: null }, t)).toContain("another site");
     expect(accountErrorText({ kind: "baseUrl", detail: null }, t)).toContain("https://");
     expect(accountErrorText({ kind: "unknown", detail: null }, t)).not.toBe("");
+  });
+});
+
+describe("focusAfterChange", () => {
+  it("moves the focus to the main button of the new block", () => {
+    expect(focusAfterChange("waitingForUser", "signedIn")).toBe("signOut");
+    expect(focusAfterChange("signedIn", "idle")).toBe("signIn");
+    expect(focusAfterChange("idle", "waitingForUser")).toBe("copyCode");
+    expect(focusAfterChange("waitingForUser", "failed")).toBe("tryAgain");
+  });
+
+  it("leaves the focus alone on the first render and without a change", () => {
+    expect(focusAfterChange(null, "signedIn")).toBeNull();
+    expect(focusAfterChange("signedIn", "signedIn")).toBeNull();
+  });
+});
+
+describe("otherSignInsText", () => {
+  const others = ["https://a.example.test/api/v1", "http://127.0.0.1:8080/api/v1"];
+
+  it("names the other servers after a sign-out", () => {
+    for (const notice of ["signedOut", "signedOutLocally"] as const) {
+      const parsed = parseAccountView(view({ kind: "idle", notice }, { otherSignIns: others }));
+      expect(parsed).not.toBeNull();
+      if (parsed === null) continue;
+      expect(otherSignInsText(parsed, t)).toBe(
+        "Sign-ins for other servers stay stored on this device: a.example.test, 127.0.0.1:8080. Switch to a server to sign out there.",
+      );
+    }
+  });
+
+  it("says nothing otherwise", () => {
+    const signedIn = parseAccountView(
+      view({ kind: "signedIn", user: null }, { otherSignIns: others }),
+    );
+    const alone = parseAccountView(view({ kind: "idle", notice: "signedOut" }));
+    expect(signedIn !== null && otherSignInsText(signedIn, t)).toBeNull();
+    expect(alone !== null && otherSignInsText(alone, t)).toBeNull();
   });
 });

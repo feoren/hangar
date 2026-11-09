@@ -2,9 +2,11 @@
 //!
 //! Every request has a total time limit, every answer a size limit, redirects are not followed
 //! (a bearer token never travels to another address), and plain http is allowed only when the
-//! configured base is a loopback address. Request bodies are JSON (the API accepts flat JSON
-//! objects). Errors never carry a token: request URLs hold none, and bodies are not logged.
+//! configured base is a loopback address (which is also never reached through a proxy). Request
+//! bodies are JSON (the API accepts flat JSON objects), except the RFC 7009 revocation, which is a
+//! form. Errors never carry a token: request URLs hold none, and bodies are not logged.
 
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use reqwest::{Method, StatusCode};
@@ -16,6 +18,8 @@ use crate::account::{
 };
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+/// Revoking on sign-out is best effort; the person should not wait long for it.
+pub const REVOKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Far above any real answer (a project list of a few hundred entries).
 pub const RESPONSE_LIMIT: usize = 512 * 1024;
 
@@ -74,6 +78,13 @@ pub struct AccountApi {
     base: BaseUrl,
 }
 
+enum Body {
+    None,
+    Json(serde_json::Value),
+    /// `application/x-www-form-urlencoded`, already encoded; may hold a token.
+    Form(Zeroizing<String>),
+}
+
 struct Answer {
     status: StatusCode,
     /// Token answers carry tokens; wiped when dropped.
@@ -83,12 +94,18 @@ struct Answer {
 impl AccountApi {
     pub fn new(base: BaseUrl) -> Result<Self, ApiError> {
         crate::updates::ensure_crypto_provider();
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .user_agent(format!("Hangar/{}", env!("CARGO_PKG_VERSION")))
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(REQUEST_TIMEOUT)
             .https_only(base.is_https())
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        if base.is_loopback() {
+            // A development server on this machine: a system proxy would see the plain-http
+            // tokens, or fail to reach it at all.
+            builder = builder.no_proxy();
+        }
+        let client = builder
             .build()
             .map_err(|error| ApiError::Network(error.without_url().to_string()))?;
         Ok(Self { client, base })
@@ -103,7 +120,7 @@ impl AccountApi {
         method: Method,
         path: &str,
         bearer: Option<&str>,
-        body: Option<serde_json::Value>,
+        body: Body,
     ) -> Result<Answer, ApiError> {
         let mut request = self
             .client
@@ -112,11 +129,23 @@ impl AccountApi {
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        if let Some(body) = body {
-            let bytes = serde_json::to_vec(&body).map_err(|_| ApiError::Malformed)?;
-            request = request
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .body(bytes);
+        match body {
+            Body::None => {}
+            Body::Json(body) => {
+                let bytes = serde_json::to_vec(&body).map_err(|_| ApiError::Malformed)?;
+                request = request
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(bytes);
+            }
+            Body::Form(form) => {
+                request = request
+                    .header(
+                        reqwest::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .timeout(REVOKE_TIMEOUT)
+                    .body(form.as_bytes().to_vec());
+            }
         }
         let mut response = request.send().await.map_err(map_reqwest)?;
         let status = response.status();
@@ -149,7 +178,7 @@ impl AccountApi {
             "platform": platform,
         });
         let answer = self
-            .send(Method::POST, "oauth/device", None, Some(body))
+            .send(Method::POST, "oauth/device", None, Body::Json(body))
             .await?;
         if !answer.status.is_success() {
             return Err(oauth_error(&answer));
@@ -165,7 +194,7 @@ impl AccountApi {
             "client_id": account::CLIENT_ID,
         });
         let answer = match self
-            .send(Method::POST, "oauth/token", None, Some(body))
+            .send(Method::POST, "oauth/token", None, Body::Json(body))
             .await
         {
             Ok(answer) => answer,
@@ -193,7 +222,7 @@ impl AccountApi {
             "client_id": account::CLIENT_ID,
         });
         let answer = self
-            .send(Method::POST, "oauth/token", None, Some(body))
+            .send(Method::POST, "oauth/token", None, Body::Json(body))
             .await?;
         if !answer.status.is_success() {
             return Err(oauth_error(&answer));
@@ -201,8 +230,37 @@ impl AccountApi {
         TokenSet::parse(&answer.body).ok_or(ApiError::Malformed)
     }
 
+    /// `POST /oauth/revoke` (RFC 7009) with the refresh token, which removes the whole device grant
+    /// on the server. A form, as the RFC prescribes; at most [`REVOKE_TIMEOUT`]. The server answers
+    /// 200 even for a token it no longer knows.
+    pub async fn revoke(&self, refresh_token: &str) -> Result<(), ApiError> {
+        let mut form = Zeroizing::new(String::new());
+        for (key, value) in [
+            ("token", refresh_token),
+            ("token_type_hint", "refresh_token"),
+            ("client_id", account::CLIENT_ID),
+        ] {
+            if !form.is_empty() {
+                form.push('&');
+            }
+            form.push_str(key);
+            form.push('=');
+            form_encode(&mut form, value);
+        }
+        let answer = self
+            .send(Method::POST, "oauth/revoke", None, Body::Form(form))
+            .await?;
+        if answer.status.is_success() {
+            Ok(())
+        } else {
+            Err(oauth_error(&answer))
+        }
+    }
+
     async fn get(&self, path: &str, access: &str) -> Result<Zeroizing<Vec<u8>>, ApiError> {
-        let answer = self.send(Method::GET, path, Some(access), None).await?;
+        let answer = self
+            .send(Method::GET, path, Some(access), Body::None)
+            .await?;
         checked(answer)
     }
 
@@ -224,7 +282,7 @@ impl AccountApi {
     ) -> Result<RelayTicket, ApiError> {
         let body = serde_json::json!({ "project_id": project_id });
         let answer = self
-            .send(Method::POST, "relay-ticket", Some(access), Some(body))
+            .send(Method::POST, "relay-ticket", Some(access), Body::Json(body))
             .await?;
         let body = checked(answer)?;
         RelayTicket::parse(&body).ok_or(ApiError::Malformed)
@@ -260,10 +318,35 @@ fn oauth_error(answer: &Answer) -> ApiError {
     }
 }
 
+/// Percent-encodes `value` for a form body: unreserved characters stay, every other byte becomes
+/// `%XX` (WHATWG `application/x-www-form-urlencoded`, with `%20` for space, which it accepts).
+fn form_encode(out: &mut String, value: &str) {
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'*') {
+            out.push(char::from(byte));
+        } else {
+            // Writing to a String cannot fail.
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+}
+
 fn map_reqwest(error: reqwest::Error) -> ApiError {
     if error.is_timeout() {
         ApiError::Timeout
     } else {
         ApiError::Network(error.without_url().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn form_values_are_percent_encoded() {
+        let mut out = String::new();
+        form_encode(&mut out, "hgrt_a-b.c*d~e+f=g&h%i j/\u{e4}");
+        assert_eq!(out, "hgrt_a-b.c*d%7Ee%2Bf%3Dg%26h%25i%20j%2F%C3%A4");
     }
 }

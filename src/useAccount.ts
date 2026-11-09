@@ -19,6 +19,8 @@ import { ACCOUNT_CHANGED, api } from "./api";
 export interface AccountSnapshot {
   /** `null` until the backend answered (or outside Tauri). */
   view: AccountView | null;
+  /** The first status could not be read; `view` stays `null`. */
+  unavailable: boolean;
   /** `null` while not loaded. */
   projects: Project[] | null;
   projectsError: AccountProblem | null;
@@ -27,6 +29,7 @@ export interface AccountSnapshot {
 
 let snapshot: AccountSnapshot = {
   view: null,
+  unavailable: false,
   projects: null,
   projectsError: null,
   loadingProjects: false,
@@ -54,7 +57,7 @@ function accept(value: unknown): AccountView | null {
   const view = parseAccountView(value);
   if (view === null) return null;
   const action = projectsAction(snapshot.view, view);
-  update({ view });
+  update({ view, unavailable: false });
   if (action === "load") void loadProjects();
   if (action === "clear") update({ projects: null, projectsError: null });
   return view;
@@ -72,8 +75,12 @@ function start(): void {
   }
   api
     .accountStatus()
-    .then(accept)
-    .catch(() => undefined);
+    .then((value) => {
+      if (accept(value) === null) update({ unavailable: true });
+    })
+    .catch(() => {
+      update({ unavailable: true });
+    });
 }
 
 /** Runs an account command; resolves with the problem when it was rejected, else `null`. */

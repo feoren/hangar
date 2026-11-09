@@ -781,10 +781,13 @@ const de = {
   "account.ownSeats": "Dein Konto: {seats}",
   "account.signOut": "Abmelden",
   "account.signOutHelp":
-    "Abmelden entfernt die Anmeldung nur auf diesem Gerät. Verbundene Geräte entfernst du auf deiner Kontoseite.",
+    "Abmelden entfernt dieses Gerät auch aus deinem Konto. Andere Geräte findest du auf deiner Kontoseite.",
   "account.devicesPage": "Verbundene Geräte öffnen",
-  "account.signedOut":
-    "Du bist abgemeldet. Das Gerät bleibt in deinem Konto, bis du es dort entfernst.",
+  "account.signedOut": "Du bist abgemeldet, und dieses Gerät wurde aus deinem Konto entfernt.",
+  "account.signedOutLocally":
+    "Du bist auf diesem Gerät abgemeldet. Der Server war nicht erreichbar, deshalb bleibt das Gerät in deinem Konto, bis du es dort entfernst.",
+  "account.otherSignIns":
+    "Anmeldungen für andere Server bleiben auf diesem Gerät gespeichert: {hosts}. Wechsle zum Server, um dich dort abzumelden.",
   "account.sessionEnded":
     "Deine Anmeldung ist abgelaufen oder wurde widerrufen. Melde dich neu an.",
   "account.tryAgain": "Erneut versuchen",
@@ -1556,10 +1559,13 @@ const en: Record<MessageKey, string> = {
   "account.ownSeats": "Your account: {seats}",
   "account.signOut": "Sign out",
   "account.signOutHelp":
-    "Signing out removes the sign-in from this device only. You remove connected devices on your account page.",
+    "Signing out also removes this device from your account. Your other devices are on your account page.",
   "account.devicesPage": "Open connected devices",
-  "account.signedOut":
-    "You are signed out. The device stays in your account until you remove it there.",
+  "account.signedOut": "You are signed out, and this device was removed from your account.",
+  "account.signedOutLocally":
+    "You are signed out on this device. The server could not be reached, so the device stays in your account until you remove it there.",
+  "account.otherSignIns":
+    "Sign-ins for other servers stay stored on this device: {hosts}. Switch to a server to sign out there.",
   "account.sessionEnded": "Your sign-in expired or was revoked. Please sign in again.",
   "account.tryAgain": "Try again",
   "account.codeIntro": "Confirm this code in your browser:",
@@ -2352,10 +2358,13 @@ const el: Record<MessageKey, string> = {
   "account.ownSeats": "Ο λογαριασμός σου: {seats}",
   "account.signOut": "Αποσύνδεση",
   "account.signOutHelp":
-    "Η αποσύνδεση αφαιρεί τη σύνδεση μόνο από αυτή τη συσκευή. Τις συνδεδεμένες συσκευές τις αφαιρείς στη σελίδα του λογαριασμού σου.",
+    "Η αποσύνδεση αφαιρεί επίσης αυτή τη συσκευή από τον λογαριασμό σου. Τις άλλες συσκευές τις βρίσκεις στη σελίδα του λογαριασμού σου.",
   "account.devicesPage": "Άνοιγμα συνδεδεμένων συσκευών",
-  "account.signedOut":
-    "Αποσυνδέθηκες. Η συσκευή μένει στον λογαριασμό σου μέχρι να την αφαιρέσεις εκεί.",
+  "account.signedOut": "Αποσυνδέθηκες και αυτή η συσκευή αφαιρέθηκε από τον λογαριασμό σου.",
+  "account.signedOutLocally":
+    "Αποσυνδέθηκες σε αυτή τη συσκευή. Ο διακομιστής δεν ήταν προσβάσιμος, οπότε η συσκευή μένει στον λογαριασμό σου μέχρι να την αφαιρέσεις εκεί.",
+  "account.otherSignIns":
+    "Οι συνδέσεις για άλλους διακομιστές μένουν αποθηκευμένες σε αυτή τη συσκευή: {hosts}. Άλλαξε διακομιστή για να αποσυνδεθείς εκεί.",
   "account.sessionEnded": "Η σύνδεσή σου έληξε ή ανακλήθηκε. Συνδέσου ξανά.",
   "account.tryAgain": "Δοκίμασε ξανά",
   "account.codeIntro": "Επιβεβαίωσε αυτόν τον κωδικό στο πρόγραμμα περιήγησης:",
@@ -3139,10 +3148,13 @@ const es: Record<MessageKey, string> = {
   "account.ownSeats": "Tu cuenta: {seats}",
   "account.signOut": "Cerrar sesión",
   "account.signOutHelp":
-    "Cerrar sesión solo quita el acceso en este dispositivo. Los dispositivos conectados se quitan en la página de tu cuenta.",
+    "Cerrar sesión también quita este dispositivo de tu cuenta. Los demás dispositivos están en la página de tu cuenta.",
   "account.devicesPage": "Abrir dispositivos conectados",
-  "account.signedOut":
-    "Has cerrado sesión. El dispositivo sigue en tu cuenta hasta que lo quites allí.",
+  "account.signedOut": "Has cerrado sesión y este dispositivo se ha quitado de tu cuenta.",
+  "account.signedOutLocally":
+    "Has cerrado sesión en este dispositivo. No se pudo contactar con el servidor, así que el dispositivo sigue en tu cuenta hasta que lo quites allí.",
+  "account.otherSignIns":
+    "Los inicios de sesión de otros servidores siguen guardados en este dispositivo: {hosts}. Cambia a ese servidor para cerrar sesión allí.",
   "account.sessionEnded": "Tu sesión caducó o fue revocada. Vuelve a iniciar sesión.",
   "account.tryAgain": "Reintentar",
   "account.codeIntro": "Confirma este código en tu navegador:",
@@ -3934,10 +3946,13 @@ const fr: Record<MessageKey, string> = {
   "account.ownSeats": "Ton compte : {seats}",
   "account.signOut": "Se déconnecter",
   "account.signOutHelp":
-    "La déconnexion retire l'accès sur cet appareil uniquement. Tu retires les appareils connectés sur la page de ton compte.",
+    "La déconnexion retire aussi cet appareil de ton compte. Tes autres appareils sont sur la page de ton compte.",
   "account.devicesPage": "Ouvrir les appareils connectés",
-  "account.signedOut":
-    "Tu es déconnecté. L'appareil reste dans ton compte jusqu'à ce que tu l'y retires.",
+  "account.signedOut": "Tu es déconnecté et cet appareil a été retiré de ton compte.",
+  "account.signedOutLocally":
+    "Tu es déconnecté sur cet appareil. Le serveur était injoignable, l'appareil reste donc dans ton compte jusqu'à ce que tu l'y retires.",
+  "account.otherSignIns":
+    "Les connexions à d'autres serveurs restent enregistrées sur cet appareil : {hosts}. Passe sur ce serveur pour t'y déconnecter.",
   "account.sessionEnded": "Ta connexion a expiré ou a été révoquée. Reconnecte-toi.",
   "account.tryAgain": "Réessayer",
   "account.codeIntro": "Confirme ce code dans ton navigateur :",
@@ -4723,9 +4738,13 @@ const it: Record<MessageKey, string> = {
   "account.ownSeats": "Il tuo account: {seats}",
   "account.signOut": "Esci",
   "account.signOutHelp":
-    "Uscire rimuove l'accesso solo da questo dispositivo. I dispositivi collegati li rimuovi nella pagina del tuo account.",
+    "Uscire rimuove anche questo dispositivo dal tuo account. Gli altri dispositivi sono nella pagina del tuo account.",
   "account.devicesPage": "Apri dispositivi collegati",
-  "account.signedOut": "Sei uscito. Il dispositivo resta nel tuo account finché non lo rimuovi lì.",
+  "account.signedOut": "Sei uscito e questo dispositivo è stato rimosso dal tuo account.",
+  "account.signedOutLocally":
+    "Sei uscito su questo dispositivo. Il server non era raggiungibile, quindi il dispositivo resta nel tuo account finché non lo rimuovi lì.",
+  "account.otherSignIns":
+    "Gli accessi ad altri server restano salvati su questo dispositivo: {hosts}. Passa a quel server per uscire lì.",
   "account.sessionEnded": "Il tuo accesso è scaduto o è stato revocato. Accedi di nuovo.",
   "account.tryAgain": "Riprova",
   "account.codeIntro": "Conferma questo codice nel browser:",
@@ -5509,9 +5528,13 @@ const ja: Record<MessageKey, string> = {
   "account.ownSeats": "あなたのアカウント: {seats}",
   "account.signOut": "サインアウト",
   "account.signOutHelp":
-    "サインアウトはこのデバイスのサインインだけを削除します。接続済みデバイスはアカウントページで削除できます。",
+    "サインアウトすると、このデバイスはアカウントからも削除されます。ほかのデバイスはアカウントページで確認できます。",
   "account.devicesPage": "接続済みデバイスを開く",
-  "account.signedOut": "サインアウトしました。デバイスはアカウントページで削除するまで残ります。",
+  "account.signedOut": "サインアウトしました。このデバイスはアカウントから削除されました。",
+  "account.signedOutLocally":
+    "このデバイスでサインアウトしました。サーバーに接続できなかったため、アカウントページで削除するまでデバイスはアカウントに残ります。",
+  "account.otherSignIns":
+    "ほかのサーバーのサインインはこのデバイスに保存されたままです: {hosts}。そのサーバーに切り替えるとサインアウトできます。",
   "account.sessionEnded":
     "サインインの有効期限が切れたか、取り消されました。もう一度サインインしてください。",
   "account.tryAgain": "再試行",
@@ -6290,10 +6313,13 @@ const pl: Record<MessageKey, string> = {
   "account.ownSeats": "Twoje konto: {seats}",
   "account.signOut": "Wyloguj się",
   "account.signOutHelp":
-    "Wylogowanie usuwa logowanie tylko z tego urządzenia. Połączone urządzenia usuniesz na stronie swojego konta.",
+    "Wylogowanie usuwa też to urządzenie z twojego konta. Pozostałe urządzenia znajdziesz na stronie swojego konta.",
   "account.devicesPage": "Otwórz połączone urządzenia",
-  "account.signedOut":
-    "Wylogowano. Urządzenie pozostaje na twoim koncie, dopóki go tam nie usuniesz.",
+  "account.signedOut": "Wylogowano, a to urządzenie zostało usunięte z twojego konta.",
+  "account.signedOutLocally":
+    "Wylogowano na tym urządzeniu. Serwer był nieosiągalny, więc urządzenie pozostaje na twoim koncie, dopóki go tam nie usuniesz.",
+  "account.otherSignIns":
+    "Logowania do innych serwerów pozostają zapisane na tym urządzeniu: {hosts}. Przełącz się na ten serwer, aby się tam wylogować.",
   "account.sessionEnded": "Twoje logowanie wygasło lub zostało cofnięte. Zaloguj się ponownie.",
   "account.tryAgain": "Spróbuj ponownie",
   "account.codeIntro": "Potwierdź ten kod w przeglądarce:",
@@ -7077,9 +7103,13 @@ const pt: Record<MessageKey, string> = {
   "account.ownSeats": "Sua conta: {seats}",
   "account.signOut": "Sair",
   "account.signOutHelp":
-    "Sair remove o login apenas deste dispositivo. Dispositivos conectados você remove na página da sua conta.",
+    "Sair também remove este dispositivo da sua conta. Os outros dispositivos estão na página da sua conta.",
   "account.devicesPage": "Abrir dispositivos conectados",
-  "account.signedOut": "Você saiu. O dispositivo continua na sua conta até você removê-lo lá.",
+  "account.signedOut": "Você saiu e este dispositivo foi removido da sua conta.",
+  "account.signedOutLocally":
+    "Você saiu neste dispositivo. Não foi possível falar com o servidor, então o dispositivo continua na sua conta até você removê-lo lá.",
+  "account.otherSignIns":
+    "Os logins de outros servidores continuam salvos neste dispositivo: {hosts}. Troque para esse servidor para sair lá.",
   "account.sessionEnded": "Seu login expirou ou foi revogado. Entre novamente.",
   "account.tryAgain": "Tentar de novo",
   "account.codeIntro": "Confirme este código no navegador:",
@@ -7851,10 +7881,13 @@ const ru: Record<MessageKey, string> = {
   "account.ownSeats": "Твой аккаунт: {seats}",
   "account.signOut": "Выйти",
   "account.signOutHelp":
-    "Выход удаляет вход только на этом устройстве. Подключённые устройства удаляются на странице аккаунта.",
+    "Выход также удаляет это устройство из аккаунта. Остальные устройства есть на странице аккаунта.",
   "account.devicesPage": "Открыть подключённые устройства",
-  "account.signedOut":
-    "Выход выполнен. Устройство остаётся в аккаунте, пока ты не удалишь его там.",
+  "account.signedOut": "Выход выполнен, и это устройство удалено из аккаунта.",
+  "account.signedOutLocally":
+    "Выход выполнен на этом устройстве. Сервер недоступен, поэтому устройство остаётся в аккаунте, пока ты не удалишь его там.",
+  "account.otherSignIns":
+    "Входы на другие серверы остаются сохранёнными на этом устройстве: {hosts}. Переключись на сервер, чтобы выйти там.",
   "account.sessionEnded": "Вход истёк или был отозван. Войди снова.",
   "account.tryAgain": "Повторить",
   "account.codeIntro": "Подтверди этот код в браузере:",
@@ -8627,9 +8660,13 @@ const tr: Record<MessageKey, string> = {
   "account.ownSeats": "Hesabın: {seats}",
   "account.signOut": "Oturumu kapat",
   "account.signOutHelp":
-    "Oturumu kapatmak yalnızca bu cihazdaki oturumu kaldırır. Bağlı cihazları hesap sayfandan kaldırırsın.",
+    "Oturumu kapatmak bu cihazı hesabından da kaldırır. Diğer cihazların hesap sayfanda.",
   "account.devicesPage": "Bağlı cihazları aç",
-  "account.signedOut": "Oturumun kapatıldı. Cihaz, oradan kaldırana kadar hesabında kalır.",
+  "account.signedOut": "Oturumun kapatıldı ve bu cihaz hesabından kaldırıldı.",
+  "account.signedOutLocally":
+    "Bu cihazda oturumun kapatıldı. Sunucuya ulaşılamadı, bu yüzden cihaz oradan kaldırana kadar hesabında kalır.",
+  "account.otherSignIns":
+    "Diğer sunucuların oturumları bu cihazda kayıtlı kalır: {hosts}. Orada oturumu kapatmak için o sunucuya geç.",
   "account.sessionEnded": "Oturumunun süresi doldu veya iptal edildi. Yeniden oturum aç.",
   "account.tryAgain": "Tekrar dene",
   "account.codeIntro": "Bu kodu tarayıcıda onayla:",
@@ -9371,9 +9408,13 @@ const zh: Record<MessageKey, string> = {
   "account.signedInAs": "已登录为 {name}",
   "account.ownSeats": "你的账户：{seats}",
   "account.signOut": "退出登录",
-  "account.signOutHelp": "退出登录只会移除此设备上的登录。已连接的设备可在账户页面中移除。",
+  "account.signOutHelp": "退出登录也会将此设备从你的账户中移除。其他设备可在账户页面查看。",
   "account.devicesPage": "打开已连接设备",
-  "account.signedOut": "你已退出登录。在账户页面移除之前，此设备仍会保留在你的账户中。",
+  "account.signedOut": "你已退出登录，此设备已从你的账户中移除。",
+  "account.signedOutLocally":
+    "你已在此设备上退出登录。无法连接服务器，因此在账户页面移除之前，此设备仍会保留在你的账户中。",
+  "account.otherSignIns":
+    "其他服务器的登录仍保存在此设备上：{hosts}。切换到该服务器即可在那里退出登录。",
   "account.sessionEnded": "你的登录已过期或被撤销。请重新登录。",
   "account.tryAgain": "重试",
   "account.codeIntro": "请在浏览器中确认此代码：",

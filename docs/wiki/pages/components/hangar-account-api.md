@@ -34,11 +34,15 @@ Base `/api/v1`, default `https://hangar.feoren.com/api/v1`. All answers JSON wit
 | --- | --- | --- |
 | `POST /oauth/device` | none | RFC 8628 3.1: `client_id=hangar-desktop`, `scope=team`, optional `device_name` (100), `platform` (40); answers `device_code`, `user_code` (`XXXX-XXXX`), `verification_uri`, `verification_uri_complete`, `expires_in` 600, `interval` 5 |
 | `POST /oauth/token` | none | `grant_type=urn:ietf:params:oauth:grant-type:device_code` or `refresh_token`; access token `hgat_...` (900 s), refresh token `hgrt_...` |
+| `POST /oauth/revoke` | none | RFC 7009, form fields `token`, `token_type_hint` (`refresh_token` or `access_token`), `client_id=hangar-desktop`; 200 with an empty body (also for unknown tokens); 400 `invalid_client` or `invalid_request` (an unknown hint counts as `invalid_request`). Revoking a refresh token removes the whole device grant |
 | `GET /me` | Bearer | `id`, `email`, `name`, `locale`, `seats_account_total`, `seats_account_used` |
 | `GET /projects` | Bearer | `{"projects":[...]}`: `id`, `name`, `role` (owner, admin, member), `owner_id`, `plan`, `seats_account_total`, `seats_account_used` (the owner's account), `pending_invitations` (owner and admin only), `invite_url` |
 | `POST /relay-ticket` | Bearer | `{"project_id"}` -> `{"ticket","expires_at","relay_url"}`; 404 for non-members and unknown projects |
 | `GET /keys` | none | public Ed25519 keys (not used by the app yet) |
 | `GET/POST /devices` | none | reserved, 501 |
+
+`seats_account_used` (in `/me` and `/projects`) counts members only, the owner included; pending
+invitations are not part of it (changed by the website on 2026-11-09).
 
 A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
 `WWW-Authenticate: Bearer realm="hangar", error="invalid_token"`.
@@ -51,8 +55,11 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
 - **Refresh tokens rotate.** Every refresh returns a new pair and spends the old refresh token.
   Presenting a spent one revokes the whole device (all its tokens); two concurrent refreshes of
   the same app count as such a reuse. Refreshes must therefore be serialized.
-- There is no revoke endpoint. Connected devices are listed and revoked on the account page
-  `/account/devices` of the server's origin.
+- **Grace of 30 s.** A just-rotated refresh token presented again within 30 s, while its successor
+  was never used, gets a fresh pair once (for an answer lost on the way). Any other reuse revokes
+  the device.
+- `POST /oauth/revoke` removes the device grant; connected devices are also listed and revoked on
+  the account page `/account/devices` of the server's origin.
 - Seats count per account of a project's owner (ADR 0005, licensing).
 
 ## How Hangar uses it
@@ -79,25 +86,47 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   the page (`verification`, `devices`, `invite` with a project id), never a URL; the backend opens
   it through `desktop::open_url` (explorer.exe, `open`, `xdg-open`; on Windows an address with a
   comma or quote is refused because explorer.exe splits its command line at commas).
-- **Tokens:** the refresh token lives only in the OS keychain (service `hangar-account`, account
-  = the server address, so each server keeps its own sign-in) and in memory as `Zeroizing`; the
-  access token only in memory. It is treated as expired 30 s early. No token appears in
+- **Tokens:** the refresh token lives only in the OS keychain (service `hangar-account`, in debug
+  builds `hangar-account-dev`, so a dev build never shares the installed app's rotating token;
+  account = the server address, so each server keeps its own sign-in) and in memory as
+  `Zeroizing`; the access token only in memory. It is treated as expired 30 s early. No token appears in
   `Debug`, an error, a log line or an event; the device code stays in the backend.
 - **Single flight:** one async mutex is held across every refresh, sign-in, sign-out and server
   change. A caller that saw an expired or refused token refreshes only when no newer token set
   exists (a generation counter); otherwise it uses the new one. A 401 is answered with one
   refresh and one retry; a second 401 or `invalid_grant` on refresh signs out locally with
   `sessionEnded` and deletes the keychain entry.
+- **Several processes:** two Hangar processes on one keychain entry (two instances of the same
+  build) each have their own gate. A refresh therefore also holds the lock file `account.lock` in
+  the config folder (`std::fs::File::try_lock`, polled, at most 40 s) and reads the keychain under
+  it: a token another process stored is redeemed instead of the remembered, spent one. A missing
+  entry means another process signed out: `sessionEnded`. Test: two services on one store and one
+  config folder refresh at the same time, the mock sees no reuse and no grace use.
+- **Lost answers:** a refresh that fails transiently (network, timeout, 5xx, 429) is repeated once
+  after a second with the same token, which the server's grace answers with a fresh pair. Should
+  that fail too, a later attempt presents a spent token and the device is revoked.
 - **Rotation and the keychain:** the rotated refresh token is written to the keychain right after
-  the refresh. Should that write fail, the running app keeps working, but the next start presents
-  the spent token and the server revokes the device (logged, not shown).
+  the refresh. Should that write fail, the running app keeps working from memory (the stored,
+  spent token is then ignored), but the next start presents the spent token and the server
+  revokes the device (logged, not shown).
+- **Sign-out:** revokes the newest refresh token through `/oauth/revoke` (form, 5 s at most), then
+  deletes it locally. Success: notice `signedOut` (the device is gone from the account). Any
+  failure still signs out locally, with notice `signedOutLocally` and a link to the devices page.
+- **Other servers:** `account.json` lists the servers with a stored sign-in (`signedIn`), since the
+  keychain cannot list its entries. The view carries `otherSignIns`; after a sign-out Settings
+  names those hosts and says to switch there to sign out.
 - **Server text:** problem texts, project names, plans and the person's name reach the window
   without control characters and bidirectional marks (they could reorder what is read), at most
   300 characters.
 - **Limits:** 15 s per request (connect and total), answers at most 512 KiB, no redirects,
-  https-only client unless the base is loopback http.
+  https-only client unless the base is loopback http; a loopback base never goes through a proxy.
+- **Pages in the window:** `verificationUri` and `verificationUriComplete` are the addresses as
+  checked and normalized by the origin check, never the server's raw text.
+- **Relay tickets:** `relay_url` must be `wss`, or `ws` only on the loopback, without user info or
+  fragment; otherwise the ticket is refused as malformed. A same-site check against the base is
+  not done (it would need the public suffix list).
 - **Interface:** commands `account_status`, `account_sign_in`, `account_cancel_sign_in`,
   `account_sign_out`, `account_projects`, `account_set_base_url(baseUrl | null)`,
   `account_open(page)` (main window only); event `account-changed` with `AccountView { baseUrl,
-  official, devicesUrl, state }`; errors as `{ kind, detail }`. `relay_ticket` is a typed client
+  official, devicesUrl, state, otherSignIns }`; errors as `{ kind, detail }`. `relay_ticket` is a typed client
   function, not a command yet.
