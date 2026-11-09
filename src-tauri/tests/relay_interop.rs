@@ -31,7 +31,7 @@ use hangar_lib::account_api::{AccountApi, ApiError};
 use hangar_lib::account_service::{AccountService, Options as AccountOptions};
 use hangar_lib::claims::{ChangeKind, Claim, LineRange, OverlapLevel};
 use hangar_lib::secrets::{SecretError, SecretStore};
-use hangar_lib::team::{TeamSnapshot, TeamStatus, Timing};
+use hangar_lib::team::{self, TeamSnapshot, TeamStatus, Timing};
 use hangar_lib::team_service::{Options, Task, TeamService};
 use hangar_lib::team_share::{LocalSession, SessionState, TeamActivity};
 use hangar_lib::team_tasks::{AttemptState, NoticeKind};
@@ -333,7 +333,13 @@ struct App {
     team: TeamService,
     /// Every status the team service published, in order.
     statuses: Arc<Mutex<Vec<TeamStatus>>>,
-    _dir: TempDir,
+    /// What survives a restart of the app: the account's and the team's keychain entries and
+    /// the config and state folders.
+    accounts: Arc<MemoryStore>,
+    keychain: Arc<MemoryStore>,
+    dir: Arc<TempDir>,
+    name: String,
+    renew_every: Duration,
 }
 
 fn timing(renew_every: Duration) -> Timing {
@@ -352,10 +358,39 @@ fn timing(renew_every: Duration) -> Timing {
 
 impl App {
     fn new(base: &BaseUrl, name: &str, renew_every: Duration) -> Self {
-        let dir = TempDir::new(name);
+        Self::with(
+            base,
+            name,
+            renew_every,
+            Arc::default(),
+            Arc::default(),
+            Arc::new(TempDir::new(name)),
+        )
+    }
+
+    /// The same Hangar started again: new services on the stored sign-in, keys and state.
+    fn restart(&self, base: &BaseUrl) -> Self {
+        Self::with(
+            base,
+            &self.name,
+            self.renew_every,
+            Arc::clone(&self.accounts),
+            Arc::clone(&self.keychain),
+            Arc::clone(&self.dir),
+        )
+    }
+
+    fn with(
+        base: &BaseUrl,
+        name: &str,
+        renew_every: Duration,
+        accounts: Arc<MemoryStore>,
+        keychain: Arc<MemoryStore>,
+        dir: Arc<TempDir>,
+    ) -> Self {
         let account = AccountService::new(
             base.clone(),
-            Arc::new(MemoryStore::default()),
+            Arc::clone(&accounts) as Arc<dyn SecretStore>,
             Arc::new(|_: &reqwest::Url| Ok(())),
             Arc::new(|_: &AccountView| {}),
             AccountOptions {
@@ -367,7 +402,7 @@ impl App {
         let seen = Arc::clone(&statuses);
         let team = TeamService::new(
             account.clone(),
-            Arc::new(MemoryStore::default()),
+            Arc::clone(&keychain) as Arc<dyn SecretStore>,
             Arc::new(move |snapshot: &TeamSnapshot| {
                 if let Some(entry) = snapshot.teams.first() {
                     let mut seen = guard(&seen);
@@ -387,8 +422,18 @@ impl App {
             account,
             team,
             statuses,
-            _dir: dir,
+            accounts,
+            keychain,
+            dir,
+            name: name.to_owned(),
+            renew_every,
         }
+    }
+
+    /// Whether this device's identity for `project` is in the keychain.
+    fn has_identity(&self, base: &BaseUrl, project: &str) -> bool {
+        let account = team::device_account(&team::team_key(base.as_str(), project));
+        guard(&self.keychain.0).contains_key(&account)
     }
 
     /// The app's own device flow; the person approves on the relay's page.
@@ -504,6 +549,104 @@ fn local(id: u64, agent: &str, root: &str, files: &[(&str, u32, u32)]) -> LocalS
             .collect(),
         truncated: false,
     }
+}
+
+/// After the owner removed `removed`'s device while it held `title`: the device verified the
+/// removing entry, stopped as removed and forgot its identity, the task is free for the others,
+/// and the owner and the member's other device stay connected.
+#[allow(clippy::too_many_arguments)]
+async fn removed_device(
+    owner: &App,
+    other: &App,
+    removed: &App,
+    base: &BaseUrl,
+    project: &str,
+    title: &str,
+    findings: &mut Findings,
+    what: &str,
+) {
+    let stopped = removed
+        .wait(
+            project,
+            &format!("{what}: removed device stops"),
+            WAIT,
+            |s| *s == TeamStatus::Removed,
+        )
+        .await;
+    findings.check(
+        stopped,
+        format!(
+            "{what}: the removed device stops as removed: {:?}",
+            removed.team.status(project)
+        ),
+    );
+    findings.check(
+        wait(&format!("{what}: identity wiped"), WAIT, || {
+            !removed.has_identity(base, project)
+        })
+        .await,
+        format!("{what}: the removed device forgot its identity"),
+    );
+    findings.check(
+        wait(&format!("{what}: task released"), WAIT, || {
+            [owner, other].iter().all(|app| {
+                app.activity()
+                    .is_some_and(|a| a.tasks.iter().all(|t| t.title != title))
+            })
+        })
+        .await,
+        format!("{what}: the removed device's task is free for the others"),
+    );
+    for (app, who) in [(owner, "owner"), (other, "member's other device")] {
+        findings.check(
+            app.wait(
+                project,
+                &format!("{what}: {who} after the removal"),
+                WAIT,
+                |s| matches!(s, TeamStatus::Connected { devices: 2, .. }),
+            )
+            .await,
+            format!("{what}: the {who} stays connected without the removed device"),
+        );
+    }
+}
+
+/// A device that forgot its identity turns sharing on again: it waits as a new device until
+/// `confirmer`, another device of the same person, endorses it.
+async fn rejoin(device: &App, confirmer: &App, project: &str, findings: &mut Findings, what: &str) {
+    device.team.enable(project).await.unwrap();
+    let waiting = device
+        .wait(
+            project,
+            &format!("{what}: waits as a new device"),
+            WAIT,
+            |s| matches!(s, TeamStatus::WaitingForConfirmation { .. }),
+        )
+        .await;
+    let asked = waiting
+        && wait(&format!("{what}: confirmation asked"), WAIT, || {
+            !confirmer.team.pending().is_empty()
+        })
+        .await;
+    if !findings.check(
+        asked,
+        format!(
+            "{what}: the device comes back as a new one waiting for confirmation: {:?}",
+            device.team.status(project)
+        ),
+    ) {
+        return;
+    }
+    let pending = confirmer.team.pending();
+    confirmer.team.confirm(&pending[0].id).await.unwrap();
+    findings.check(
+        device
+            .wait(project, &format!("{what}: connected again"), WAIT, |s| {
+                matches!(s, TeamStatus::Connected { devices: 3, .. })
+            })
+            .await,
+        format!("{what}: the new device joins"),
+    );
 }
 
 fn task(title: &str, session: Option<u64>, area: Option<&str>) -> Task {
@@ -953,7 +1096,7 @@ fn hangar_against_a_self_hosted_relay() {
         b2.connected(&team, 1, 2, 3).await;
         a1.connected(&team, 1, 2, 3).await;
 
-        // ---- device.remove: the owner removes Bob's second device ----
+        // ---- device.remove (a): Bob's second device is online and holds a task ----
         let bob_second = a1
             .activity()
             .and_then(|a| {
@@ -963,54 +1106,97 @@ fn hangar_against_a_self_hosted_relay() {
             })
             .map(|p| p.device)
             .expect("bob's second device in alice's view");
+        b2.team
+            .reserve_task(&team, task("Refactor cart", None, None))
+            .await
+            .unwrap();
+        until("alice sees the task of bob's second device", || {
+            a1.activity().is_some_and(|a| {
+                a.tasks
+                    .iter()
+                    .any(|t| t.title == "Refactor cart" && t.device == bob_second)
+            })
+        })
+        .await;
+        assert!(b2.has_identity(&base, &team));
         a1.team
             .remove_device(&team, &bob_id, &bob_second)
             .await
             .unwrap();
-        let removed = b2
-            .wait(&team, "bob's removed device stops", WAIT, |s| {
-                !matches!(
-                    s,
-                    TeamStatus::Connected { .. } | TeamStatus::Connecting { .. }
-                )
-            })
-            .await;
+        removed_device(
+            &a1,
+            &b1,
+            &b2,
+            &base,
+            &team,
+            "Refactor cart",
+            &mut findings,
+            "live",
+        )
+        .await;
+        rejoin(&b2, &b1, &team, &mut findings, "live").await;
+        // The new device shows in Alice's view once its presence arrives.
+        let new_device = || {
+            a1.activity()
+                .and_then(|a| {
+                    a.peers.into_iter().find(|p| {
+                        p.member == bob_id && p.device != bob_first && p.device != bob_second
+                    })
+                })
+                .map(|p| p.device)
+        };
+        wait("alice sees bob's new device", WAIT, || {
+            new_device().is_some()
+        })
+        .await;
+        let bob_third = new_device().unwrap_or_default();
         findings.check(
-            removed && b2.team.status(&team) == TeamStatus::Removed,
-            format!(
-                "a removed device stops as removed: {:?}",
-                b2.team.status(&team)
-            ),
+            !bob_third.is_empty() && bob_third != bob_second,
+            format!("live: the device came back under a new id ({bob_second} -> {bob_third})"),
         );
-        findings.check(
-            a1.wait(&team, "alice after the device removal", WAIT, |s| {
-                matches!(s, TeamStatus::Connected { devices: 2, .. })
+
+        // ---- device.remove (b): removed while the app is closed, seen at the next start ----
+        b2.team
+            .reserve_task(&team, task("Tidy logs", None, None))
+            .await
+            .unwrap();
+        until("alice sees the second task of bob's device", || {
+            a1.activity().is_some_and(|a| {
+                a.tasks
+                    .iter()
+                    .any(|t| t.title == "Tidy logs" && t.device == bob_third)
             })
-            .await,
-            "the owner's view drops the removed device",
-        );
+        })
+        .await;
+        b2.team.shutdown();
+        until("bob's device is offline for alice", || {
+            a1.activity()
+                .is_some_and(|a| a.peers.iter().all(|p| p.device != bob_third))
+        })
+        .await;
+        a1.team
+            .remove_device(&team, &bob_id, &bob_third)
+            .await
+            .unwrap();
         findings.check(
-            b1.wait(&team, "bob's first device stays", WAIT, |s| {
-                matches!(s, TeamStatus::Connected { devices: 2, .. })
-            })
-            .await,
-            "the member's other device stays connected",
+            b2.has_identity(&base, &team),
+            "restart: the closed app still holds its identity before it starts",
         );
-        // Turned on again, the removed device should learn from the verified log that it was
-        // removed, forget its identity and ask to join as a new device.
-        b2.team.enable(&team).await.unwrap();
-        let rejoined = b2
-            .wait(&team, "bob's removed device asks again", WAIT, |s| {
-                matches!(s, TeamStatus::WaitingForConfirmation { .. })
-            })
-            .await;
-        findings.check(
-            rejoined,
-            format!(
-                "a removed device asks to join again as a new one: {:?}",
-                b2.team.status(&team)
-            ),
-        );
+        let b2 = b2.restart(&base);
+        b2.account.status().await;
+        b2.team.start_enabled();
+        removed_device(
+            &a1,
+            &b1,
+            &b2,
+            &base,
+            &team,
+            "Tidy logs",
+            &mut findings,
+            "restart",
+        )
+        .await;
+        rejoin(&b2, &b1, &team, &mut findings, "restart").await;
         b2.team.shutdown();
 
         // ---- Member removal (4403) and team deletion (4404) ----
