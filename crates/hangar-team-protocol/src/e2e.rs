@@ -39,6 +39,7 @@
 //! | `memberlog.append` | owner, admin ([`check_append_role`]) | `forbidden` |
 //! | `key.rotate` | owner, admin ([`check_rotate`]) | `forbidden` |
 //! | `key.wrap` | owner, admin, or another device of the target device's member ([`check_wrap`]) | `forbidden`; `conflict` when the device already has a key in the epoch |
+//! | `device.remove` | owner, admin, or another device of the target device's member ([`check_device_remove`]) | `forbidden`; `notFound` when the relay does not know the device |
 
 use std::collections::HashSet;
 use std::fmt;
@@ -49,7 +50,9 @@ use thiserror::Error;
 
 use crate::hash::{hex32, length_prefix, parse_hex32};
 use crate::ids::{Ciphertext, Epoch};
-use crate::wire::{ErrorCode, Holder, KeyRotate, KeyWrap, MemberLogAppend, MemberLogEntry, Role};
+use crate::wire::{
+    DeviceRemove, ErrorCode, Holder, KeyRotate, KeyWrap, MemberLogAppend, MemberLogEntry, Role,
+};
 
 const LABEL_MEMBERLOG: &[u8] = b"hangar-team/v1/memberlog";
 
@@ -458,6 +461,36 @@ pub fn check_append_role(role: Role) -> Result<(), MemberLogForbidden> {
     } else {
         Err(MemberLogForbidden)
     }
+}
+
+/// A `device.remove` the sender may not make.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("this device may not remove that device")]
+pub struct DeviceRemoveForbidden;
+
+impl DeviceRemoveForbidden {
+    /// The `err` code the relay answers with.
+    pub fn code(&self) -> ErrorCode {
+        ErrorCode::Forbidden
+    }
+}
+
+/// The relay's rights check of a `device.remove`; `role` and `sender` are the connection's (as
+/// for [`check_wrap`]), `remove.holder` the target. An owner or admin removes any other device,
+/// a member only another device of its own (a lost laptop, from the phone). No device removes
+/// itself: it simply disconnects, and removing it for good is the website's business. Rights
+/// come before the relay's lookup of the target, so a member does not learn whether another
+/// member's device exists (`notFound` only after this check passed).
+pub fn check_device_remove(
+    role: Role,
+    sender: &Holder,
+    remove: &DeviceRemove,
+) -> Result<(), DeviceRemoveForbidden> {
+    let target = &remove.holder;
+    if sender == target || (!is_owner_or_admin(role) && sender.member != target.member) {
+        return Err(DeviceRemoveForbidden);
+    }
+    Ok(())
 }
 
 /// Why a `key.wrap` is refused.
@@ -869,5 +902,43 @@ mod tests {
             ),
             Err(KeyWrapError::Forbidden)
         );
+    }
+
+    #[test]
+    fn device_remove_rights() {
+        let alice_laptop = device("alice", "laptop");
+        let alice_phone = device("alice", "phone");
+        let bob_laptop = device("bob", "laptop");
+        let remove = |holder: &Holder| DeviceRemove {
+            holder: holder.clone(),
+        };
+        // Owners and admins remove any other device.
+        for role in [Role::Owner, Role::Admin] {
+            assert_eq!(
+                check_device_remove(role, &alice_laptop, &remove(&bob_laptop)),
+                Ok(())
+            );
+            assert_eq!(
+                check_device_remove(role, &alice_laptop, &remove(&alice_phone)),
+                Ok(())
+            );
+        }
+        // A member removes another device of its own.
+        assert_eq!(
+            check_device_remove(Role::Member, &alice_phone, &remove(&alice_laptop)),
+            Ok(())
+        );
+        // But not another member's, even one with the same device id.
+        let error =
+            check_device_remove(Role::Member, &alice_laptop, &remove(&bob_laptop)).unwrap_err();
+        assert_eq!(error, DeviceRemoveForbidden);
+        assert_eq!(error.code(), ErrorCode::Forbidden);
+        // No device removes itself, whatever its role.
+        for role in [Role::Owner, Role::Admin, Role::Member] {
+            assert_eq!(
+                check_device_remove(role, &alice_laptop, &remove(&alice_laptop)),
+                Err(DeviceRemoveForbidden)
+            );
+        }
     }
 }

@@ -19,9 +19,14 @@
 //!   that comes later than the deadline expires the hold without a warning.
 //! - Events that time caused are returned apart from the intent's outcome ([`Applied::timing`]),
 //!   so they reach the team even when the intent is refused, and exactly once.
+//!
+//! Across a relay restart the book is kept with [`ReservationBook::export`] and
+//! [`ReservationBook::restore`] (a versioned [`BookSnapshot`]); after a restore every holder
+//! counts as offline until its device connects again.
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::hash::KeyedHash;
@@ -186,7 +191,8 @@ impl Hold {
 }
 
 /// Someone asked the holder to hand the task over.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseRequest {
     pub requester: Holder,
     pub at: UnixMillis,
@@ -1395,6 +1401,12 @@ impl ReservationBook {
 fn tag(task: KeyedHash, events: Vec<ReservationEvent>) -> BookEvents {
     events.into_iter().map(|event| (task, event)).collect()
 }
+
+mod snapshot;
+
+pub use snapshot::{
+    BookSnapshot, CooldownSnapshot, EntrySnapshot, RestoreError, Restored, BOOK_SNAPSHOT_VERSION,
+};
 
 #[cfg(test)]
 mod tests;

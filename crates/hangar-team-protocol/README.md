@@ -10,17 +10,17 @@ derives that epoch's separate matching and sealing keys.
 
 ## Modules
 
-| Module        | Content                                                                                                                                                              |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wire`        | Client and server messages, the JSON envelope, `encode_*` and `decode_*` with size, field and version checks, epoch checks (`check_epoch`), body digests for retries |
-| `hash`        | `EpochKeys` (HKDF-SHA256), `MatchKey` (HMAC-SHA256), normalization of task ids, repository ids and paths (NFC, case rule), `PathHashes`                              |
-| `reservation` | `Reservation` state machine and `ReservationBook`, the server's "first wins" authority; time events come apart from the outcome (`Applied`)                          |
-| `overlap`     | `ClaimBoard`: same area and same file between sessions of different holders, by hash equality; passes the encrypted detail on                                        |
-| `log`         | `EventLog` (sequence numbers, replay window, resync), `ClientCursor`, `RecentOps` (op id retries per sender and team)                                                |
-| `e2e`         | What the relay checks for step E without a key: `PublicKey` (device keys), `LogHash`, `MemberChain` and `check_append` (membership log chain), `check_rotate`        |
-| `close`       | WebSocket close codes of the relay and the `hello` deadline                                                                                                          |
-| `ids`         | Identifiers, `Seq`, `UnixMillis`, `Epoch`, `Ciphertext`, `Sealed`                                                                                                    |
-| `limits`      | Size limits both sides enforce                                                                                                                                       |
+| Module        | Content                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wire`        | Client and server messages, the JSON envelope, `encode_*` and `decode_*` with size, field and version checks, epoch checks (`check_epoch`), body digests for retries      |
+| `hash`        | `EpochKeys` (HKDF-SHA256), `MatchKey` (HMAC-SHA256), normalization of task ids, repository ids and paths (NFC, case rule), `PathHashes`                                   |
+| `reservation` | `Reservation` state machine and `ReservationBook`, the server's "first wins" authority; time events come apart from the outcome (`Applied`); `BookSnapshot` for a restart |
+| `overlap`     | `ClaimBoard`: same area and same file between sessions of different holders, by hash equality; passes the encrypted detail on                                             |
+| `log`         | `EventLog` (sequence numbers, replay window, resync), `ClientCursor`, `RecentOps` (op id retries per sender and team)                                                     |
+| `e2e`         | What the relay checks for step E without a key: `PublicKey` (device keys), `LogHash`, `MemberChain` and `check_append` (membership log chain), `check_rotate`             |
+| `close`       | WebSocket close codes of the relay and the `hello` deadline                                                                                                               |
+| `ids`         | Identifiers, `Seq`, `UnixMillis`, `Epoch`, `Ciphertext`, `Sealed`                                                                                                         |
+| `limits`      | Size limits both sides enforce                                                                                                                                            |
 
 Identifiers that come from elsewhere (team = the website's project id, member = the website's user
 id, device, blob, stream) are opaque strings: any characters but control, format and line or
@@ -109,6 +109,30 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
     member. `check_wrap` takes the target from the `key.wrap` message; `check_rotate` allows
     one key per holder. A rotation to 512 devices now fits with wrapped keys of up to about
     1.7 KiB each.
+
+- **Version 1, additions (2026-11-09), third round for the relay:**
+  - Reservations survive a relay restart: `ReservationBook::export` writes a versioned
+    `BookSnapshot` (serde; holds with `since`, last activity, offline time and warning, open
+    release requests, cooldowns, the epoch and a running rekey grace; no connection counts),
+    `BookSnapshot::from_json` reads one (version first), and `ReservationBook::restore` checks it
+    (unknown version, a task twice, epochs, times, requests, the per member limit) and returns
+    the book with the events the restart caused. After a restore every holder counts as offline
+    from the restore's time: a deadline becomes at least restore time plus the warning, so the
+    downtime never expires a hold without a warning; release requests and the rekey grace run
+    on wall-clock time. `EventLog::position` gives the stream and head to store with the
+    snapshot for `EventLog::resume`. The `ClaimBoard` is not persisted: claims are live state
+    that clients send again after each `welcome`.
+  - `notify` names its recipient (`member`) and is no longer logged: targeted like
+    `key.wrapped` (`ServerMessage::recipient`), kept by the relay for an unconnected member and
+    delivered after that member's next `welcome`. `Notify::attention` builds it for
+    `task.release_requested` and `reservation.expiring` when the holder's member has no
+    connected device. E-mail is the website's business.
+  - `CLOSE_TEAM_DELETED` (4404): the project was deleted on the website.
+  - `device.remove {holder}` (deduplicated; owner or admin for any other device, a member for
+    another device of its own: `check_device_remove`) and `device.removed {holder}` (logged).
+  - `CLOSE_ROLE_CHANGED` (4401) is documented as the exception: a role change with a known new
+    role applies silently on the live connection (`ticket.renew`, the website's revocation
+    feed) and `member.role_changed` reports it; 4401 only when the new role is unknown.
 
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

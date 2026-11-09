@@ -72,6 +72,7 @@ number.
 | `blob.get` | `blob` | `ack` with `blob` and `content` |
 | `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url | `ack`; replaces the device's keys |
 | `devices.get` | none | `devices` |
+| `device.remove` | `holder {member, device}` | owner or admin for any other device, a member for another device of its own: `ack`, `device.removed`; the device's holds and claims end and its connections close with 4403; `notFound` for an unknown device |
 | `memberlog.append` | `index` (from 1, no gaps), `prev` (hash of the entry before, null on the first), `entry` (opaque, at most 16 KiB) | `ack`, `memberlog.appended`; `conflict` when the index was taken first |
 | `memberlog.get` | `after` (0: from the start) | `memberlog.entries` |
 | `key.rotate` | `epoch` (exactly current + 1), `wrapped` (at most 512 `{holder, data}`, one per holder) | owner or admin only: `ack`, `key.rotated` per device |
@@ -85,8 +86,8 @@ A client never sends `notify` (decoding refuses it like an unknown type).
 **Answers and retries.** The answer to a client frame carries its op id as `id`: `ack` or `err`,
 `welcome` or `resync_required` for `hello`, `devices` and `memberlog.entries` for the two reads.
 The relay remembers the answer by op id only for intents that change shared state once
-(`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `memberlog.append`, `key.rotate`,
-`key.wrap`; a retry gets the first answer and is not applied again. `presence.set`, `heartbeat`,
+(`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `device.remove`, `memberlog.append`,
+`key.rotate`, `key.wrap`; a retry gets the first answer and is not applied again. `presence.set`, `heartbeat`,
 `claim.set`, `claim.clear` and `device.keys` replace the sender's own state and are applied and
 acknowledged every time, and so is `ticket.renew` (the same ticket verifies to the same result);
 reads, `hello` and `ping` are answered every time.
@@ -137,7 +138,8 @@ relay delivers per device by holder, never by the device id alone.
 | `member.role_changed` | `member`, `role` | yes |
 | `key.rotated` | `epoch`, `wrapped` (only the receiving device's own wrapped key) | yes |
 | `key.wrapped` | `epoch`, `holder`; only to that holder's connections | no |
-| `notify` | `topic` (attention), `content` sealed | yes |
+| `notify` | `topic` (attention), `member` (the recipient), `content` sealed; only to that member's connections | no |
+| `device.removed` | `holder` | yes |
 | `devices` | `devices` (at most 512 `{holder, sign, kem, at}`) | no |
 | `memberlog.entries` | `entries` (at most 256 `{index, hash, entry, by, at}`), `more` | no |
 | `memberlog.appended` | `index`, `hash`, `by` | yes |
@@ -150,10 +152,24 @@ same `seq` with different bodies (`null` when the relay holds no key for that de
 the target holder for the team, so the device knows to call `key.get`. It is never logged, since
 one device's event in the shared log would be a gap for every other device. Fallback: after every
 `welcome`, a device without the current epoch's key calls `key.get`; `notFound` means it still
-waits for a `key.wrap`. `notify` is created by the relay only, topic `attention`: a release request for a task or an upcoming expiry
-of a hold whose holder has no connection; it is logged, so the holder's devices see it on replay,
-and the relay may also tell the person out of band. The relay holds no team key, so `content` is
-null unless it passes on a sealed note it received.
+waits for a `key.wrap`.
+
+`notify` is created by the relay only (`Notify::attention`), topic `attention`, for
+`task.release_requested` and `reservation.expiring` whose holder's member has no connected device
+in the team. It names its recipient (`member`) and is targeted like `key.wrapped`
+(`ServerMessage::recipient`), so it is never logged: the relay keeps the newest undelivered one per
+member and team and sends it to that member's connections right after their next `welcome`, then
+drops it. One is enough, since the events themselves reach the devices on replay; the `notify` is
+the app's cue to raise a notification. An e-mail to the person is the website's business. The relay
+holds no team key, so `content` is null unless it passes on the release request's sealed note.
+
+`device.removed` follows a `device.remove`, after the `task.released` (memberRemoved) and
+`task.release_request_ended` (withdrawn) events of the device's holds and requests. Clients drop
+the device from their list and wrap no key to it again; an owner or admin should rotate the key,
+since the device had it. The website remains the authority on which devices a member has (`hello`
+accepts only listed devices); while the website still lists a device the relay removed, the relay
+itself refuses that holder's `hello`. The website's revocation feed may later carry a
+`device_removed` entry, which the relay would apply the same way.
 
 `err` codes: `conflict` (held by someone else, or a release request is open), `limit` (frame,
 list, ciphertext, reservations per member, also for a handover to a full member), `forbidden`
@@ -173,11 +189,17 @@ is no longer acceptable; a refused intent is an `err` (module `close`).
 | Code | Constant | When | Client |
 | --- | --- | --- | --- |
 | 1008 | `CLOSE_HELLO_TIMEOUT` | no valid `hello` within 15 s of opening (`HELLO_TIMEOUT_SECS`) | reconnects with a fresh ticket |
-| 4401 | `CLOSE_ROLE_CHANGED` | the member's role changed since the connection's ticket was issued | fetches a new ticket and reconnects |
-| 4403 | `CLOSE_REMOVED` | the member was removed; `ticket.renew` without a seat, for another subject, for another team (after `err forbidden`) or invalid | does not reuse the ticket; asks the website, which tells whether the seat remains |
+| 4401 | `CLOSE_ROLE_CHANGED` | a role change was reported without the new role | fetches a new ticket and reconnects |
+| 4403 | `CLOSE_REMOVED` | the member or the connection's device was removed; `ticket.renew` without a seat, for another subject, for another team (after `err forbidden`) or invalid | does not reuse the ticket; asks the website, which tells whether the seat remains |
+| 4404 | `CLOSE_TEAM_DELETED` | the project was deleted on the website (revocation feed `project_deleted`, or the self hosted relay) | drops the team's local state, does not reconnect to it |
 
-1008 is the standard "policy violation" code; 4401 and 4403 lie in the range RFC 6455 leaves to
-applications and mirror HTTP 401 and 403.
+1008 is the standard "policy violation" code; 4401, 4403 and 4404 lie in the range RFC 6455
+leaves to applications and mirror HTTP 401, 403 and 404.
+
+Role changes normally close nothing: a change the relay learns with the new role (from
+`ticket.renew`, or the revocation feed's `role_changed` with `role`) applies silently on the live
+connection, rights are checked per intent from then on, and `member.role_changed` reports it. 4401
+is only for a change reported without the new role.
 
 ## Rights
 
@@ -194,6 +216,7 @@ shared log.
 | `memberlog.append` | owner, admin (entries are signed by admin devices in step E) | `forbidden` | `check_append_role` |
 | `key.rotate` | owner, admin | `forbidden` | `check_rotate` |
 | `key.wrap` | owner, admin, or another device of the target holder's member (adding one's own new device); never the target itself | `forbidden`; `conflict` when the device already has a wrapped key in the current epoch | `check_wrap` |
+| `device.remove` | owner, admin, or another device of the target holder's member (a lost laptop, from the phone); never the sending device itself | `forbidden`; `notFound` (after the rights check) when the relay does not know the device | `check_device_remove` |
 
 `check_wrap` takes the `key.wrap` message itself, whose `wrapped.holder` names the target with its
 member, and whether the relay already stores a wrapped key for that holder in the current epoch. A
@@ -345,6 +368,22 @@ old-epoch hold --grace ends--> Expired
   it again for every old hold. Alternative considered: accepting rekeys only for some minutes
   after a rotation; it still loses the task of an offline holder to whoever reserves the new
   hash first, which `prev` prevents.
+- **Restart:** `ReservationBook::export` writes a versioned `BookSnapshot` (JSON through serde):
+  per hold the holder, epoch, `since`, last activity, offline time, warning, open release request
+  and cooldowns, plus the book's epoch and a running rekey grace. Deadlines are not stored; they
+  follow from the last activity and the policy passed to `restore`. Connection counts are not
+  stored, since connections do not survive a restart. `BookSnapshot::from_json` reads the version
+  first; `ReservationBook::restore` refuses another version and inconsistent snapshots (a task
+  twice, a hold of a newer epoch, an old-epoch hold without a rotation, `since` after the last
+  activity, a request by the holder or older than the hold, more holds per member than the limit);
+  the relay then starts empty with a new stream. After a restore every holder counts as offline
+  from the restore's time: the deadline becomes `max(last activity + 30 min, restore + 5 min)`
+(`Policy::default`), so
+  a held task starts to run (with a warning first) and the downtime never expires a hold without a
+  warning, since nobody could reach the relay to keep it. Release requests and the rekey grace run
+  on wall-clock time and end at the restore if they ran out meanwhile (the requester may ask again
+  once the usual cooldown, counted from the timeout, has passed). `restore` returns the events the restart caused (`task.reserved` for changed
+  deadlines, then warnings, timeouts and grace ends), which the relay logs as usual.
 
 ## Event log
 
@@ -359,6 +398,16 @@ incarnation of the log (a restored backup starts a new stream).
 | equal to the head | `welcome`, nothing to replay |
 | its next event still in the window | `welcome`, then the events after it with `seq` |
 | older | `resync_required tooOld` |
+
+**Across a restart** the relay stores the log's position (`EventLog::position`: stream and head)
+in the same write as the reservation snapshot, and no frame with a `seq` leaves before a durable
+write whose head covers that `seq`. This holds for every logged event, also for one that changes
+nothing in the book (`presence.update`, `device.removed`); `EventLog::resume` then lets a client at the stored head go on without a
+snapshot (clients behind it resync, the window is gone). Otherwise a new event could reuse a `seq`
+a client already saw, and the client would drop it as a duplicate; a relay that cannot promise the
+order starts a new stream instead. The claim board is not persisted: claims are live state, never
+logged, and every client sends its `claim.set` again after each `welcome`, so a restored board
+would only compare sessions whose agents may have ended during the downtime.
 
 After `resync_required` the client drops its team state; the relay sends the current state as
 events without `seq` (`member.joined`, `presence.update`, `task.reserved` per hold, plus

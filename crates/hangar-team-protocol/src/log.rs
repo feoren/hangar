@@ -32,7 +32,12 @@ impl<T> EventLog<T> {
     }
 
     /// A log whose events up to `head` are in storage only (after a server restart): clients
-    /// behind `head` need a snapshot, clients at `head` go on.
+    /// behind `head` need a snapshot, clients at `head` go on. `stream` and `head` are the
+    /// stored [`EventLog::position`]; the relay stores it in the same write as the state the
+    /// events changed (such as [`crate::reservation::BookSnapshot`]), and no frame with a `seq`
+    /// leaves before a stored head covers it (every logged event, also one that changes no
+    /// stored state), or a new event could reuse a `seq` a client already saw, and the client
+    /// would drop it as a duplicate.
     pub fn resume(stream: StreamId, head: Seq, capacity: usize) -> Self {
         Self {
             stream,
@@ -50,6 +55,14 @@ impl<T> EventLog<T> {
     /// The newest sequence number (0 while empty).
     pub fn head(&self) -> Seq {
         self.head
+    }
+
+    /// Stream and head, to store for [`EventLog::resume`] (serde: `{"stream":..,"seq":..}`).
+    pub fn position(&self) -> Cursor {
+        Cursor {
+            stream: self.stream.clone(),
+            seq: self.head,
+        }
     }
 
     /// Appends an event and returns its sequence number.
@@ -292,6 +305,25 @@ mod tests {
         );
         assert_eq!(log.push("x"), Seq(11));
         assert_eq!(seqs(log.replay(Some(&cursor("s", 10)))), vec![11]);
+    }
+
+    #[test]
+    fn a_stored_position_resumes_the_log() {
+        let mut log = EventLog::new(stream("s"), 4);
+        log.push("a");
+        log.push("b");
+        let stored = serde_json::to_string(&log.position()).unwrap();
+        assert_eq!(stored, r#"{"stream":"s","seq":2}"#);
+        // Restart: the window is gone, the position is not.
+        let position: Cursor = serde_json::from_str(&stored).unwrap();
+        let mut log = EventLog::<&str>::resume(position.stream, position.seq, 4);
+        assert_eq!(seqs(log.replay(Some(&cursor("s", 2)))), Vec::<u64>::new());
+        assert_eq!(
+            log.replay(Some(&cursor("s", 1))),
+            Replay::Resync(ResyncReason::TooOld)
+        );
+        assert_eq!(log.push("c"), Seq(3));
+        assert_eq!(log.position(), cursor("s", 3));
     }
 
     #[test]

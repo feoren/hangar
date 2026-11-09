@@ -22,6 +22,9 @@
 //! Direction: `notify` is created by the server only; a client frame of that type is refused
 //! like any unknown type.
 //!
+//! Targeted messages: `key.wrapped` and `notify` go only to the connections of their recipient
+//! ([`ServerMessage::recipient`]) and are never logged.
+//!
 //! How and why the relay ends a connection (WebSocket close codes): [`crate::close`].
 
 use serde::de::DeserializeOwned;
@@ -454,6 +457,21 @@ pub struct KeyGet {
     pub epoch: Epoch,
 }
 
+/// `device.remove`: take one device out of the team (a lost or retired machine). Allowed for an
+/// owner or admin for any device, and for a member for another device of its own
+/// ([`crate::e2e::check_device_remove`]); no device removes itself (it simply disconnects, and
+/// the website removes it for good). Deduplicated by op id. Answered with `ack`, or `notFound`
+/// when the relay does not know the holder in the team. The relay then frees the device's
+/// reservations (`ReservationBook::remove_device`), clears its claims
+/// (`ClaimBoard::clear_device`), forgets its public keys and wrapped keys, logs
+/// [`DeviceRemoved`] and closes the device's connections with
+/// [`crate::close::CLOSE_REMOVED`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceRemove {
+    pub holder: Holder,
+}
+
 /// Everything a client sends. `type` on the wire is the serde name; [`CLIENT_KINDS`] lists them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", content = "body")]
@@ -495,6 +513,8 @@ pub enum ClientMessage {
     /// The team's devices and their public keys; answered with `devices`. No body.
     #[serde(rename = "devices.get")]
     DevicesGet,
+    #[serde(rename = "device.remove")]
+    DeviceRemove(DeviceRemove),
     #[serde(rename = "memberlog.append")]
     MemberLogAppend(MemberLogAppend),
     #[serde(rename = "memberlog.get")]
@@ -547,6 +567,7 @@ impl ClientMessage {
             ClientMessage::BlobGet(_) => "blob.get",
             ClientMessage::DeviceKeys(_) => "device.keys",
             ClientMessage::DevicesGet => "devices.get",
+            ClientMessage::DeviceRemove(_) => "device.remove",
             ClientMessage::MemberLogAppend(_) => "memberlog.append",
             ClientMessage::MemberLogGet(_) => "memberlog.get",
             ClientMessage::KeyRotate(_) => "key.rotate",
@@ -563,8 +584,8 @@ impl ClientMessage {
 
     /// Whether the relay remembers this intent's answer by op id ([`crate::log::RecentOps`]):
     /// a retry with the same op id gets the first answer and is not applied again. True for the
-    /// intents that change shared state once: every `task.*`, `blob.put`, `memberlog.append`,
-    /// `key.rotate` and `key.wrap`.
+    /// intents that change shared state once: every `task.*`, `blob.put`, `device.remove`,
+    /// `memberlog.append`, `key.rotate` and `key.wrap`.
     ///
     /// False for the rest. `presence.set`, `heartbeat`, `claim.set`, `claim.clear` and
     /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
@@ -582,6 +603,7 @@ impl ClientMessage {
                 | ClientMessage::TaskForceRelease(_)
                 | ClientMessage::TaskRekey(_)
                 | ClientMessage::BlobPut(_)
+                | ClientMessage::DeviceRemove(_)
                 | ClientMessage::MemberLogAppend(_)
                 | ClientMessage::KeyRotate(_)
                 | ClientMessage::KeyWrap(_)
@@ -627,6 +649,7 @@ impl ClientMessage {
             | ClientMessage::BlobGet(_)
             | ClientMessage::DeviceKeys(_)
             | ClientMessage::DevicesGet
+            | ClientMessage::DeviceRemove(_)
             | ClientMessage::MemberLogAppend(_)
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyRotate(_)
@@ -691,6 +714,7 @@ impl ClientMessage {
             | ClientMessage::BlobGet(_)
             | ClientMessage::DeviceKeys(_)
             | ClientMessage::DevicesGet
+            | ClientMessage::DeviceRemove(_)
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyGet(_)
             | ClientMessage::Ping => Ok(()),
@@ -1036,16 +1060,68 @@ pub enum NotifyTopic {
     Attention,
 }
 
-/// `notify`: something needs the person. Created by the server only (clients cannot send it);
-/// it is logged, so the person's devices see it on replay when they connect again, and the
-/// relay may also tell the person out of band (for example by e-mail). The relay holds no team
-/// key, so `content` is `None` unless it passes on a sealed note it received (such as the
-/// release request's note).
+/// `notify`: something in the team needs one person (`member`). Created by the relay only
+/// (clients cannot send it), with [`Notify::attention`]: for `task.release_requested` and
+/// `reservation.expiring` whose holder's member has no connected device in the team.
+///
+/// Targeted like [`KeyWrapped`], and therefore never logged: the relay keeps the newest
+/// undelivered `notify` per member and team (one is enough: the events themselves are in the
+/// log and reach the devices on replay) and sends it to every connection of that member right
+/// after its next `welcome`, then drops it. It is the app's cue to raise its own notification.
+/// Telling the person out of band (an e-mail) is the website's business, not the relay's.
+/// The relay holds no team key, so `content` is `None` unless it passes on a sealed note it
+/// received (the release request's note).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Notify {
     pub topic: NotifyTopic,
+    /// The recipient: every device of this member, never anyone else.
+    pub member: MemberId,
     pub content: Option<Sealed>,
+}
+
+impl Notify {
+    /// The `notify` the relay creates for `event`, if any: `task.release_requested` (with the
+    /// request's note) and `reservation.expiring`, addressed to the holder's member, and only
+    /// when `member_connected` says that member has no connected device in the team (a
+    /// connected device already got the event itself).
+    pub fn attention(
+        event: &ServerMessage,
+        member_connected: impl Fn(&MemberId) -> bool,
+    ) -> Option<Notify> {
+        let (member, content) = match event {
+            ServerMessage::TaskReleaseRequested(m) => (&m.holder.member, m.note.clone()),
+            ServerMessage::ReservationExpiring(m) => (&m.holder.member, None),
+            _ => return None,
+        };
+        if member_connected(member) {
+            return None;
+        }
+        Some(Notify {
+            topic: NotifyTopic::Attention,
+            member: member.clone(),
+            content,
+        })
+    }
+}
+
+/// `device.removed`: a device left the team (`device.remove`); logged. Its holds ended with
+/// `task.released` (memberRemoved) and its release requests with `task.release_request_ended`
+/// (withdrawn) before this event. Clients drop the device from their device list and wrap no
+/// key to it again; an owner or admin should rotate the team key, since the device had it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceRemoved {
+    pub holder: Holder,
+}
+
+/// Who a targeted message is for ([`ServerMessage::recipient`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Recipient<'a> {
+    /// The connections bound to this holder (member and device).
+    Holder(&'a Holder),
+    /// The connections of every device of this member.
+    Member(&'a MemberId),
 }
 
 /// A device of the team with its public keys, as `device.keys` set them.
@@ -1181,6 +1257,8 @@ pub enum ServerMessage {
     KeyWrapped(KeyWrapped),
     #[serde(rename = "notify")]
     Notify(Notify),
+    #[serde(rename = "device.removed")]
+    DeviceRemoved(DeviceRemoved),
     #[serde(rename = "devices")]
     Devices(DeviceList),
     #[serde(rename = "memberlog.entries")]
@@ -1212,6 +1290,7 @@ impl ServerMessage {
             ServerMessage::KeyRotated(_) => "key.rotated",
             ServerMessage::KeyWrapped(_) => "key.wrapped",
             ServerMessage::Notify(_) => "notify",
+            ServerMessage::DeviceRemoved(_) => "device.removed",
             ServerMessage::Devices(_) => "devices",
             ServerMessage::MemberLogEntries(_) => "memberlog.entries",
             ServerMessage::MemberLogAppended(_) => "memberlog.appended",
@@ -1236,9 +1315,21 @@ impl ServerMessage {
                 | ServerMessage::MemberRemoved(_)
                 | ServerMessage::MemberRoleChanged(_)
                 | ServerMessage::KeyRotated(_)
-                | ServerMessage::Notify(_)
+                | ServerMessage::DeviceRemoved(_)
                 | ServerMessage::MemberLogAppended(_)
         )
+    }
+
+    /// The recipient of a targeted message: `key.wrapped` goes only to its holder's
+    /// connections, `notify` only to its member's. `None` for everything else, which goes to
+    /// the team (events) or to the connection that asked (answers). Targeted messages are never
+    /// logged: one recipient's event in the shared log would be a gap for everyone else.
+    pub fn recipient(&self) -> Option<Recipient<'_>> {
+        match self {
+            ServerMessage::KeyWrapped(m) => Some(Recipient::Holder(&m.holder)),
+            ServerMessage::Notify(m) => Some(Recipient::Member(&m.member)),
+            _ => None,
+        }
     }
 
     /// Rules between fields that the types alone do not express.
@@ -1439,6 +1530,7 @@ pub const CLIENT_KINDS: &[&str] = &[
     "blob.get",
     "device.keys",
     "devices.get",
+    "device.remove",
     "memberlog.append",
     "memberlog.get",
     "key.rotate",
@@ -1468,6 +1560,7 @@ pub const SERVER_KINDS: &[&str] = &[
     "key.rotated",
     "key.wrapped",
     "notify",
+    "device.removed",
     "devices",
     "memberlog.entries",
     "memberlog.appended",
@@ -1518,6 +1611,7 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
         "blob.get" => ClientMessage::BlobGet(parse(kind, body)?),
         "device.keys" => ClientMessage::DeviceKeys(parse(kind, body)?),
         "devices.get" => no_body(kind, body, ClientMessage::DevicesGet)?,
+        "device.remove" => ClientMessage::DeviceRemove(parse(kind, body)?),
         "memberlog.append" => ClientMessage::MemberLogAppend(parse(kind, body)?),
         "memberlog.get" => ClientMessage::MemberLogGet(parse(kind, body)?),
         "key.rotate" => ClientMessage::KeyRotate(parse(kind, body)?),
@@ -1565,6 +1659,7 @@ fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, 
         "key.rotated" => ServerMessage::KeyRotated(parse(kind, body)?),
         "key.wrapped" => ServerMessage::KeyWrapped(parse(kind, body)?),
         "notify" => ServerMessage::Notify(parse(kind, body)?),
+        "device.removed" => ServerMessage::DeviceRemoved(parse(kind, body)?),
         "devices" => ServerMessage::Devices(parse(kind, body)?),
         "memberlog.entries" => ServerMessage::MemberLogEntries(parse(kind, body)?),
         "memberlog.appended" => ServerMessage::MemberLogAppended(parse(kind, body)?),
@@ -1758,6 +1853,12 @@ mod tests {
                 kem: PublicKey::from_bytes([2; 32]),
             }),
             ClientMessage::DevicesGet,
+            ClientMessage::DeviceRemove(DeviceRemove {
+                holder: Holder {
+                    member: MemberId::new("m1").unwrap(),
+                    device: DeviceId::new("d2").unwrap(),
+                },
+            }),
             ClientMessage::MemberLogAppend(MemberLogAppend {
                 index: 2,
                 prev: Some(LogHash::from_bytes([3; 32])),
@@ -1900,8 +2001,10 @@ mod tests {
             }),
             ServerMessage::Notify(Notify {
                 topic: NotifyTopic::Attention,
+                member: MemberId::new("m1").unwrap(),
                 content: None,
             }),
+            ServerMessage::DeviceRemoved(DeviceRemoved { holder: holder() }),
             ServerMessage::Devices(DeviceList {
                 devices: vec![DeviceInfo {
                     holder: holder(),
@@ -2364,13 +2467,145 @@ mod tests {
     }
 
     #[test]
-    fn notify_comes_from_the_server_only() {
-        let text = r#"{"v":1,"id":"o","team":"t","type":"notify","body":{"topic":"attention","content":null}}"#;
+    fn notify_comes_from_the_server_only_and_is_targeted() {
+        let text = r#"{"v":1,"id":"o","team":"t","type":"notify","body":{"topic":"attention","member":"m1","content":null}}"#;
         assert_eq!(decode_client(text), Err(unlisted()));
-        assert!(decode_server(text).is_ok());
-        // Logged: a holder without a connection sees it on replay.
+        let frame = decode_server(text).unwrap();
+        assert_eq!(
+            frame.message.recipient(),
+            Some(Recipient::Member(&MemberId::new("m1").unwrap()))
+        );
+        // Live only: it never carries a seq.
+        assert!(!frame.message.loggable());
         let logged = text.replacen(r#""v":1,"#, r#""v":1,"seq":9,"#, 1);
-        assert_eq!(decode_server(&logged).unwrap().seq, Some(Seq(9)));
+        assert_eq!(
+            decode_server(&logged),
+            Err(DecodeError::Sequence {
+                kind: "notify",
+                problem: "never carries a seq"
+            })
+        );
+        // Without a recipient it is refused.
+        let unaddressed = text.replace(r#""member":"m1","#, "");
+        assert!(matches!(
+            decode_server(&unaddressed),
+            Err(DecodeError::Body { kind: "notify", .. })
+        ));
+    }
+
+    #[test]
+    fn recipients_of_targeted_messages() {
+        for message in all_server_messages() {
+            let expected = match &message {
+                ServerMessage::KeyWrapped(m) => Some(Recipient::Holder(&m.holder)),
+                ServerMessage::Notify(m) => Some(Recipient::Member(&m.member)),
+                _ => None,
+            };
+            assert_eq!(message.recipient(), expected, "{}", message.kind());
+            if message.recipient().is_some() {
+                assert!(!message.loggable(), "{}", message.kind());
+            }
+        }
+    }
+
+    #[test]
+    fn attention_goes_to_an_unconnected_holder() {
+        let note = Some(sealed_text(4));
+        let requested = ServerMessage::TaskReleaseRequested(TaskReleaseRequested {
+            task: h(1),
+            holder: holder(),
+            requester: MemberId::new("m2").unwrap(),
+            note: note.clone(),
+        });
+        let expiring = ServerMessage::ReservationExpiring(ReservationExpiring {
+            task: h(1),
+            holder: holder(),
+            expires_at: UnixMillis(20),
+        });
+        let offline = |_: &MemberId| false;
+        let online = |member: &MemberId| member.as_str() == "m1";
+        assert_eq!(
+            Notify::attention(&requested, offline),
+            Some(Notify {
+                topic: NotifyTopic::Attention,
+                member: MemberId::new("m1").unwrap(),
+                content: note,
+            })
+        );
+        assert_eq!(
+            Notify::attention(&expiring, offline),
+            Some(Notify {
+                topic: NotifyTopic::Attention,
+                member: MemberId::new("m1").unwrap(),
+                content: None,
+            })
+        );
+        // A connected member already got the event.
+        assert_eq!(Notify::attention(&requested, online), None);
+        assert_eq!(Notify::attention(&expiring, online), None);
+        // Only the holder's member counts, not the requester's.
+        let requester_online = |member: &MemberId| member.as_str() == "m2";
+        assert!(Notify::attention(&requested, requester_online).is_some());
+        // Nothing else creates one.
+        for message in all_server_messages() {
+            if !matches!(
+                message,
+                ServerMessage::TaskReleaseRequested(_) | ServerMessage::ReservationExpiring(_)
+            ) {
+                assert_eq!(
+                    Notify::attention(&message, offline),
+                    None,
+                    "{}",
+                    message.kind()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn device_remove_and_removed() {
+        let remove = ClientMessage::DeviceRemove(DeviceRemove {
+            holder: Holder {
+                member: MemberId::new("m1").unwrap(),
+                device: DeviceId::new("d2").unwrap(),
+            },
+        });
+        assert!(remove.deduplicated());
+        assert_eq!(remove.check_epoch(Epoch(9)), Ok(()));
+        let text = encode_client(&client(remove)).unwrap();
+        assert_eq!(
+            text,
+            r#"{"v":1,"id":"op-1","team":"t1","type":"device.remove","body":{"holder":{"member":"m1","device":"d2"}}}"#
+        );
+        // A bare device id does not name a device.
+        let bare = text.replace(
+            r#"{"holder":{"member":"m1","device":"d2"}}"#,
+            r#"{"device":"d2"}"#,
+        );
+        assert!(matches!(
+            decode_client(&bare),
+            Err(DecodeError::Body {
+                kind: "device.remove",
+                ..
+            })
+        ));
+        let removed = ServerMessage::DeviceRemoved(DeviceRemoved { holder: holder() });
+        assert!(removed.loggable());
+        assert_eq!(removed.recipient(), None);
+        let event = encode_server(&ServerFrame {
+            id: None,
+            seq: Some(Seq(5)),
+            team: Some(TeamId::new("t1").unwrap()),
+            message: removed,
+        })
+        .unwrap();
+        assert_eq!(
+            event,
+            r#"{"v":1,"seq":5,"team":"t1","type":"device.removed","body":{"holder":{"member":"m1","device":"d1"}}}"#
+        );
+        // Server only.
+        let sent = event.replacen(r#""seq":5"#, r#""id":"o""#, 1);
+        assert_eq!(decode_client(&sent), Err(unlisted()));
     }
 
     #[test]
@@ -2440,6 +2675,7 @@ mod tests {
                 "task.force_release",
                 "task.rekey",
                 "blob.put",
+                "device.remove",
                 "memberlog.append",
                 "key.rotate",
                 "key.wrap",

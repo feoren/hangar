@@ -80,6 +80,13 @@ pub struct OverlapNotice {
 }
 
 /// All sessions' claims of one team, with the overlaps last reported, so only changes are sent.
+///
+/// Not persisted across a relay restart, unlike the [`crate::reservation::ReservationBook`]:
+/// claims are live state of connected sessions, never logged, and every client sends its
+/// sessions' `claim.set` again after each `welcome`. A restart closes every connection, so a
+/// restored board would compare sessions whose agents may have ended during the downtime, and
+/// the overlaps it reported were never in the log a client could have missed. The relay starts
+/// with an empty board and refills it as devices reconnect.
 #[derive(Debug, Clone, Default)]
 pub struct ClaimBoard {
     sessions: HashMap<SessionRef, SessionClaims>,

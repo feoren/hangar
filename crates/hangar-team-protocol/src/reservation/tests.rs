@@ -1102,3 +1102,405 @@ fn book_release_flow_with_presence() {
         [(_, ReservationEvent::Reserved { expires_at: Some(deadline), .. })] if *deadline == at(32)
     ));
 }
+
+// --- Persistence across a relay restart ----------------------------------------------------
+
+/// Online `a` holds 1 and 3 (3 with an open request of `b` since minute 20 and a cooldown of
+/// `d` until 28); offline `c` holds 2 since minute 0 and was warned at 25 (deadline 30). All
+/// three are of epoch 1; the book rotated to 2 at minute 21.
+fn busy_book() -> ReservationBook {
+    let mut book = ReservationBook::new(Policy::default(), Epoch(1));
+    book.presence(&who("a"), true, at(0));
+    book.presence(&who("b"), true, at(0));
+    book.presence(&who("d"), true, at(0));
+    book_ok(book.apply(&who("a"), reserve(task(1), 1), at(0)));
+    book_ok(book.apply(&who("c"), reserve(task(2), 1), at(0)));
+    book_ok(book.apply(&who("a"), reserve(task(3), 1), at(0)));
+    book_ok(book.apply(&who("d"), Intent::RequestRelease { task: task(3) }, at(17)));
+    book_ok(book.apply(
+        &who("a"),
+        Intent::AnswerRelease {
+            task: task(3),
+            requester: member("d"),
+            accept: false,
+        },
+        at(18),
+    ));
+    book_ok(book.apply(&who("b"), Intent::RequestRelease { task: task(3) }, at(20)));
+    book.rotate(Epoch(2), at(21)).unwrap();
+    assert_eq!(book_kinds(&book.tick(at(25))), vec!["expiring"]);
+    book
+}
+
+#[test]
+fn a_snapshot_round_trips_through_json() {
+    let book = busy_book();
+    let snapshot = book.export();
+    assert_eq!(snapshot.version, BOOK_SNAPSHOT_VERSION);
+    assert_eq!(snapshot.epoch, Epoch(2));
+    assert_eq!(snapshot.rotated_at, Some(at(21)));
+    let tasks: Vec<_> = snapshot.entries.iter().map(|e| e.task).collect();
+    assert_eq!(tasks, vec![task(1), task(2), task(3)]);
+    let expiring = &snapshot.entries[1];
+    assert_eq!(expiring.warned_at, Some(at(25)));
+    assert_eq!(expiring.offline_since, Some(at(0)));
+    let requested = &snapshot.entries[2];
+    assert_eq!(
+        requested.request,
+        Some(ReleaseRequest {
+            requester: who("b"),
+            at: at(20)
+        })
+    );
+    assert_eq!(
+        requested.cooldowns,
+        vec![CooldownSnapshot {
+            member: member("d"),
+            until: at(28)
+        }]
+    );
+    let json = serde_json::to_string(&snapshot).unwrap();
+    assert!(
+        json.starts_with(r#"{"version":1,"epoch":2,"rotatedAt":"#),
+        "{json}"
+    );
+    assert!(json.contains(r#""lastActivity":"#), "{json}");
+    assert_eq!(BookSnapshot::from_json(&json).unwrap(), snapshot);
+    // Restored and exported again: everyone is offline from now, and the holds of the online
+    // `a`, idle since minute 0, now run out at 31 and are warned at once. Nothing else changed.
+    let restored = ReservationBook::restore(snapshot.clone(), Policy::default(), at(26)).unwrap();
+    assert_eq!(
+        book_kinds(&restored.events),
+        vec!["reserved", "reserved", "reserved", "expiring", "expiring"]
+    );
+    let mut again = restored.book.export();
+    for entry in &again.entries {
+        assert_eq!(entry.offline_since, Some(at(26)));
+    }
+    assert_eq!(again.entries[0].warned_at, Some(at(26)));
+    assert_eq!(again.entries[2].warned_at, Some(at(26)));
+    for (a, b) in again.entries.iter_mut().zip(&snapshot.entries) {
+        a.offline_since = b.offline_since;
+        a.warned_at = b.warned_at;
+    }
+    assert_eq!(again, snapshot);
+}
+
+#[test]
+fn after_a_restore_an_online_hold_runs_with_a_warning_first() {
+    let mut book = ReservationBook::new(Policy::default(), Epoch(1));
+    book.presence(&who("a"), true, at(0));
+    book_ok(book.apply(&who("a"), reserve(task(1), 1), at(0)));
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(10)).unwrap();
+    // The deadline starts to run: max(0 + 30, 10 + 5).
+    assert_eq!(
+        restored.events,
+        vec![(
+            task(1),
+            ReservationEvent::Reserved {
+                holder: who("a"),
+                epoch: Epoch(1),
+                since: at(0),
+                expires_at: Some(at(30)),
+            }
+        )]
+    );
+    let mut book = restored.book;
+    assert_eq!(book.next_wakeup(), Some(at(25)));
+    assert!(book.tick(at(25).minus(1)).is_empty());
+    assert_eq!(
+        book.tick(at(25)),
+        vec![(
+            task(1),
+            ReservationEvent::Expiring {
+                holder: who("a"),
+                expires_at: at(30)
+            }
+        )]
+    );
+    assert_eq!(
+        book.tick(at(30)),
+        vec![(task(1), ReservationEvent::Expired { holder: who("a") })]
+    );
+}
+
+#[test]
+fn the_downtime_never_expires_a_hold_without_a_warning() {
+    // Offline since minute 0, deadline 30; the relay was down until minute 100.
+    let book = book_with_offline_hold();
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(100)).unwrap();
+    assert_eq!(book_kinds(&restored.events), vec!["reserved", "expiring"]);
+    assert_eq!(
+        restored.events[1].1,
+        ReservationEvent::Expiring {
+            holder: who("a"),
+            expires_at: at(105)
+        }
+    );
+    let mut book = restored.book;
+    assert!(book.tick(at(105).minus(1)).is_empty());
+    assert_eq!(
+        book.tick(at(105)),
+        vec![(task(1), ReservationEvent::Expired { holder: who("a") })]
+    );
+}
+
+#[test]
+fn a_short_restart_keeps_an_offline_deadline() {
+    let book = book_with_offline_hold();
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(5)).unwrap();
+    // max(0 + 30, 5 + 5) is the old deadline: nothing to report.
+    assert!(restored.events.is_empty());
+    let mut book = restored.book;
+    assert_eq!(book_kinds(&book.tick(at(25))), vec!["expiring"]);
+    assert_eq!(book_kinds(&book.tick(at(30))), vec!["expired"]);
+}
+
+#[test]
+fn a_reconnect_after_a_restore_stops_the_clock() {
+    let book = busy_book();
+    let mut book = ReservationBook::restore(book.export(), Policy::default(), at(31))
+        .unwrap()
+        .book;
+    let events = book.presence(&who("c"), true, at(32));
+    // The warned hold of 2 (deadline moved from 30 to 36 by the restart) has no deadline any
+    // more.
+    assert_eq!(
+        events,
+        vec![(
+            task(2),
+            ReservationEvent::Reserved {
+                holder: who("c"),
+                epoch: Epoch(1),
+                since: at(0),
+                expires_at: None,
+            }
+        )]
+    );
+    assert!(matches!(
+        book.get(&task(2)).map(Reservation::state),
+        Some(ReservationState::Held { .. })
+    ));
+}
+
+#[test]
+fn requests_and_cooldowns_survive_a_restart() {
+    let book = busy_book();
+    let mut book = ReservationBook::restore(book.export(), Policy::default(), at(26))
+        .unwrap()
+        .book;
+    let refused = book.apply(&who("d"), Intent::RequestRelease { task: task(3) }, at(26));
+    assert_eq!(refused.outcome, Err(Rejection::RequestPending));
+    let answered = book_ok(book.apply(
+        &who("a"),
+        Intent::AnswerRelease {
+            task: task(3),
+            requester: member("b"),
+            accept: false,
+        },
+        at(27),
+    ));
+    assert_eq!(book_kinds(&answered), vec!["answered"]);
+    // d still cools down until minute 28.
+    let refused = book.apply(&who("d"), Intent::RequestRelease { task: task(3) }, at(27));
+    assert_eq!(refused.outcome, Err(Rejection::Cooldown { until: at(28) }));
+}
+
+#[test]
+fn a_request_that_ran_out_during_the_downtime_ends_at_the_restore() {
+    let mut book = ReservationBook::new(Policy::default(), Epoch(1));
+    book.presence(&who("a"), true, at(0));
+    book_ok(book.apply(&who("a"), reserve(task(1), 1), at(0)));
+    book_ok(book.apply(&who("b"), Intent::RequestRelease { task: task(1) }, at(1)));
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(20)).unwrap();
+    assert_eq!(
+        book_kinds(&restored.events),
+        vec!["reserved", "request ended"]
+    );
+    assert_eq!(
+        restored.events[1].1,
+        ReservationEvent::ReleaseRequestEnded {
+            holder: who("a"),
+            requester: who("b"),
+            reason: RequestEndReason::TimedOut
+        }
+    );
+    // The cooldown counts from the timeout (minute 11).
+    let mut book = restored.book;
+    let refused = book.apply(&who("b"), Intent::RequestRelease { task: task(1) }, at(20));
+    assert_eq!(refused.outcome, Err(Rejection::Cooldown { until: at(21) }));
+}
+
+#[test]
+fn an_old_epoch_hold_whose_grace_ran_out_expires_at_the_restore() {
+    let mut book = ReservationBook::new(Policy::default(), Epoch(1));
+    book.presence(&who("a"), true, at(0));
+    book_ok(book.apply(&who("a"), reserve(task(1), 1), at(0)));
+    book.rotate(Epoch(2), at(10)).unwrap();
+    book_ok(book.apply(
+        &who("a"),
+        Intent::Heartbeat {
+            tasks: vec![task(1)],
+        },
+        at(19),
+    ));
+    // Within the grace the hold stays, and the grace still ends at minute 40 (the hold's own
+    // deadline is 49, warned at 44).
+    let early = ReservationBook::restore(book.export(), Policy::default(), at(20)).unwrap();
+    assert_eq!(book_kinds(&early.events), vec!["reserved"]);
+    assert_eq!(early.book.next_wakeup(), Some(at(40)));
+    let late = ReservationBook::restore(book.export(), Policy::default(), at(42)).unwrap();
+    assert_eq!(book_kinds(&late.events), vec!["reserved", "expired"]);
+    assert!(late.book.get(&task(1)).is_none());
+}
+
+#[test]
+fn a_restore_refuses_other_versions_and_broken_snapshots() {
+    let good = busy_book().export();
+    // Version: in the value, and in stored text even with fields this version does not know.
+    let mut other = good.clone();
+    other.version = 2;
+    assert_eq!(
+        ReservationBook::restore(other, Policy::default(), at(31)).unwrap_err(),
+        RestoreError::Version {
+            got: 2,
+            supported: 1
+        }
+    );
+    assert_eq!(
+        BookSnapshot::from_json(r#"{"version":2,"shards":[]}"#),
+        Err(RestoreError::Version {
+            got: 2,
+            supported: 1
+        })
+    );
+    assert!(matches!(
+        BookSnapshot::from_json(r#"{"version":1,"epoch":1}"#),
+        Err(RestoreError::Malformed { .. })
+    ));
+    assert!(matches!(
+        BookSnapshot::from_json("not json"),
+        Err(RestoreError::Malformed { .. })
+    ));
+    let json = serde_json::to_string(&good).unwrap();
+    let extra = json.replacen(r#"{"version":1,"#, r#"{"version":1,"extra":0,"#, 1);
+    assert!(matches!(
+        BookSnapshot::from_json(&extra),
+        Err(RestoreError::Malformed { .. })
+    ));
+
+    let broken = |change: &dyn Fn(&mut BookSnapshot)| {
+        let mut snapshot = good.clone();
+        change(&mut snapshot);
+        match ReservationBook::restore(snapshot, Policy::default(), at(26)) {
+            Err(RestoreError::Inconsistent { problem, .. }) => problem,
+            other => panic!("restored: {other:?}"),
+        }
+    };
+    assert_eq!(
+        broken(&|s| {
+            let first = s.entries[0].clone();
+            s.entries.push(first);
+        }),
+        "the task appears twice"
+    );
+    assert_eq!(
+        broken(&|s| s.entries[0].epoch = Epoch(3)),
+        "the hold's epoch is newer than the book's"
+    );
+    assert_eq!(
+        broken(&|s| s.rotated_at = None),
+        "a hold of an older epoch without a rotation"
+    );
+    assert_eq!(
+        broken(&|s| s.entries[0].since = at(99)),
+        "the hold starts after its last activity"
+    );
+    assert_eq!(
+        broken(&|s| {
+            if let Some(request) = &mut s.entries[2].request {
+                request.requester = who("a");
+            }
+        }),
+        "the holder asks itself for a release"
+    );
+    assert_eq!(
+        broken(&|s| {
+            s.entries[2].since = at(21);
+            s.entries[2].last_activity = at(21);
+        }),
+        "the release request predates the hold"
+    );
+    assert_eq!(
+        broken(&|s| {
+            let template = s.entries[0].clone();
+            s.entries = (0..=MAX_RESERVATIONS_PER_MEMBER)
+                .map(|n| EntrySnapshot {
+                    task: KeyedHash::from_bytes([n as u8; 32]),
+                    ..template.clone()
+                })
+                .collect();
+        }),
+        "more holds of one member than allowed"
+    );
+    // The error text names the entry by position, never its content.
+    let text = RestoreError::Inconsistent {
+        index: 2,
+        problem: "the task appears twice",
+    }
+    .to_string();
+    assert_eq!(text, "snapshot entry 2: the task appears twice");
+}
+
+#[test]
+fn an_empty_book_restores_empty() {
+    let book = ReservationBook::new(Policy::default(), Epoch(7));
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(0)).unwrap();
+    assert!(restored.events.is_empty());
+    assert_eq!(restored.book.epoch(), Epoch(7));
+    assert_eq!(restored.book.iter().count(), 0);
+    assert_eq!(restored.book.next_wakeup(), None);
+}
+
+#[test]
+fn a_restore_at_the_exact_deadline_warns_instead_of_expiring() {
+    // Offline since minute 0, deadline 30; the book was never ticked before the export.
+    let book = book_with_offline_hold();
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(30)).unwrap();
+    assert_eq!(book_kinds(&restored.events), vec!["reserved", "expiring"]);
+    assert_eq!(
+        restored.events[1].1,
+        ReservationEvent::Expiring {
+            holder: who("a"),
+            expires_at: at(35)
+        }
+    );
+}
+
+#[test]
+fn a_restore_with_the_clock_set_back_keeps_the_stored_deadline() {
+    // Offline since minute 0, last activity at 20 (deadline 50); the restore's clock says 10,
+    // before the last activity it restores.
+    let mut book = book_with_offline_hold();
+    book_ok(book.apply(
+        &who("a"),
+        Intent::Heartbeat {
+            tasks: vec![task(1)],
+        },
+        at(20),
+    ));
+    let restored = ReservationBook::restore(book.export(), Policy::default(), at(10)).unwrap();
+    // max(20 + 30, 10 + 5) is the stored deadline: nothing changes, nothing is reported.
+    assert!(restored.events.is_empty());
+    assert_eq!(restored.book.next_wakeup(), Some(at(45)));
+}
+
+#[test]
+fn a_cooldown_that_ends_at_the_restore_is_dropped() {
+    let snapshot = busy_book().export();
+    // d's cooldown on task 3 runs until minute 28 (inclusive end, as in `cooldown`).
+    let restored = ReservationBook::restore(snapshot.clone(), Policy::default(), at(28)).unwrap();
+    assert!(restored.book.export().entries[2].cooldowns.is_empty());
+    let kept = ReservationBook::restore(snapshot, Policy::default(), at(28).minus(1)).unwrap();
+    assert_eq!(kept.book.export().entries[2].cooldowns.len(), 1);
+}
