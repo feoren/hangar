@@ -30,9 +30,12 @@
 //! (status) and per teammate session (detail) and refuse anything older; an equal counter is the
 //! same record sent again and passes. The marks live in the state file and survive the relay's
 //! unsigned `offline`, a reconnect and a restart, so the relay cannot bring back an old status or
-//! detail. Records of an epoch older than the current one are refused too. The marks are written
-//! at most every [`MARKS_STORE_EVERY_MS`] (and on the next ping, a new connection and the end of
-//! one), all together, so the file always holds a consistent earlier snapshot.
+//! detail. Records of an epoch older than the current one are refused too. A rising mark is
+//! written at once when the last write is [`MARKS_STORE_EVERY_MS`] ago, otherwise with the next
+//! state file write for any reason, the next ping, a new connection or the end of one; all
+//! together, so the file always holds a consistent earlier snapshot. Marks compare by the key
+//! period of the signing key first, then the counter, so a device id admitted again with a clock
+//! behind is not hidden and its old keys' records stay old.
 //!
 //! There is no age limit on top: a status is sent only when it changes (no periodic re-seal), so
 //! a quiet teammate's newest status may be hours old and still current.
@@ -44,9 +47,10 @@
 //! A signed live record whose log head has another hash at an index this device verified is a
 //! fork only that sender (or the relay towards it) shows: the sending device is set aside
 //! ([`DivergentDevice`] in the Team view) and its live records are ignored until this device's
-//! verified log changes. The team stops ([`AttentionReason::HistoryMismatch`]) only when this
-//! device's own log fetch contradicts what it verified before, so a single device cannot stop
-//! everyone else's sharing.
+//! verified log changes, and the log is fetched again. The team stops
+//! ([`AttentionReason::HistoryMismatch`]) when this device's own log fetch contradicts what it
+//! verified before, or when devices of two distinct members report another history (then the
+//! fork is this device's), so a single member cannot stop everyone else's sharing.
 //!
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
@@ -176,119 +180,155 @@ enum Mark {
     Raised,
 }
 
+/// When a teammate's live record was sealed, in the order marks compare: the log index of the
+/// entry that added the signing key (its key period), then the record counter. A device id
+/// admitted again signs with keys of a later period, so its records are newer than any of the
+/// old keys whatever its clock says, and a record of the old keys stays older.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct Stamp {
+    /// `added_at` of the key period; 0 for a mark stored before periods were kept (it then
+    /// counts as the period of the record it is compared with).
+    period: u64,
+    counter: u64,
+}
+
+impl Stamp {
+    /// `self` as a mark compared with `record`: a mark without a known period takes the
+    /// record's, so marks of the earlier format compare by counter alone.
+    fn against(self, record: Stamp) -> Stamp {
+        if self.period == 0 {
+            Stamp {
+                period: record.period,
+                counter: self.counter,
+            }
+        } else {
+            self
+        }
+    }
+}
+
 /// High-water marks of the teammates' live state shown on this device: presence status per
-/// device, claim detail per device and session key. Never cleared by `offline`, `hello` or a
-/// restart (they are stored with [`LocalState`]); trimmed to the devices the verified log lists
-/// and to [`MAX_DETAIL_SESSIONS`] sessions per device.
+/// device, claim detail per device and session key, as [`Stamp`]s. Never cleared by `offline`,
+/// `hello` or a restart (they are stored with [`LocalState`]); trimmed to the devices the
+/// verified log ever listed and to [`MAX_DETAIL_SESSIONS`] sessions per device.
 ///
-/// The presence mark is per device, not per signing key: a device id admitted again comes with
-/// new keys, but its counter continues above the old ones (`team::counter_floor`), so a status
-/// signed with the old key stays older than anything shown since.
+/// The presence mark is per device, not per signing key: a status signed with the old keys of a
+/// device id admitted again belongs to an earlier key period and stays older than anything
+/// shown since.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LiveMarks {
-    presence: BTreeMap<Holder, u64>,
-    detail: BTreeMap<(Holder, String), u64>,
-    /// Per device: the highest counter of a detail mark dropped to stay within bounds; a detail of
+    presence: BTreeMap<Holder, Stamp>,
+    detail: BTreeMap<(Holder, String), Stamp>,
+    /// Per device: the highest stamp of a detail mark dropped to stay within bounds; a detail of
     /// a session without a mark must be newer.
-    floors: BTreeMap<Holder, u64>,
+    floors: BTreeMap<Holder, Stamp>,
 }
 
 impl LiveMarks {
     fn from_local(local: &LocalState) -> Self {
         // A file of the first format may hold several marks per device (one per signing key):
         // the highest one counts.
-        let mut presence: BTreeMap<Holder, u64> = BTreeMap::new();
+        let mut presence: BTreeMap<Holder, Stamp> = BTreeMap::new();
         for mark in &local.presence_marks {
-            let counter = presence.entry(mark.holder.clone()).or_insert(0);
-            *counter = (*counter).max(mark.counter);
+            let stamp = presence.entry(mark.holder.clone()).or_default();
+            *stamp = (*stamp).max(Stamp {
+                period: mark.period,
+                counter: mark.counter,
+            });
         }
         Self {
             presence,
             detail: local
                 .detail_marks
                 .iter()
-                .map(|m| ((m.holder.clone(), m.session.clone()), m.counter))
+                .map(|m| {
+                    let stamp = Stamp {
+                        period: m.period,
+                        counter: m.counter,
+                    };
+                    ((m.holder.clone(), m.session.clone()), stamp)
+                })
                 .collect(),
             floors: local
                 .detail_floors
                 .iter()
-                .map(|m| (m.holder.clone(), m.counter))
+                .map(|m| {
+                    let stamp = Stamp {
+                        period: m.period,
+                        counter: m.counter,
+                    };
+                    (m.holder.clone(), stamp)
+                })
                 .collect(),
         }
     }
 
     fn store(&self, local: &mut LocalState) {
-        local.presence_marks = self
-            .presence
-            .iter()
-            .map(|(holder, counter)| HolderMark {
-                holder: holder.clone(),
-                counter: *counter,
-            })
-            .collect();
+        let holder_mark = |(holder, stamp): (&Holder, &Stamp)| HolderMark {
+            holder: holder.clone(),
+            period: stamp.period,
+            counter: stamp.counter,
+        };
+        local.presence_marks = self.presence.iter().map(holder_mark).collect();
         local.detail_marks = self
             .detail
             .iter()
-            .map(|((holder, session), counter)| DetailMark {
+            .map(|((holder, session), stamp)| DetailMark {
                 holder: holder.clone(),
                 session: session.clone(),
-                counter: *counter,
+                period: stamp.period,
+                counter: stamp.counter,
             })
             .collect();
-        local.detail_floors = self
-            .floors
-            .iter()
-            .map(|(holder, counter)| HolderMark {
-                holder: holder.clone(),
-                counter: *counter,
-            })
-            .collect();
+        local.detail_floors = self.floors.iter().map(holder_mark).collect();
     }
 
-    fn raise(mark: &mut u64, counter: u64) -> Mark {
-        match counter.cmp(mark) {
+    fn raise(mark: &mut Stamp, record: Stamp) -> Mark {
+        match record.cmp(&mark.against(record)) {
             std::cmp::Ordering::Less => Mark::Stale,
             std::cmp::Ordering::Equal => Mark::Seen,
             std::cmp::Ordering::Greater => {
-                *mark = counter;
+                *mark = record;
                 Mark::Raised
             }
         }
     }
 
-    fn presence(&mut self, holder: &Holder, counter: u64) -> Mark {
-        let mark = self.presence.entry(holder.clone()).or_insert(0);
-        Self::raise(mark, counter)
+    fn presence(&mut self, holder: &Holder, record: Stamp) -> Mark {
+        let mark = self.presence.entry(holder.clone()).or_default();
+        Self::raise(mark, record)
     }
 
-    fn detail(&mut self, holder: &Holder, session: &str, counter: u64) -> Mark {
+    fn detail(&mut self, holder: &Holder, session: &str, record: Stamp) -> Mark {
         let key = (holder.clone(), session.to_owned());
         if let Some(mark) = self.detail.get_mut(&key) {
-            return Self::raise(mark, counter);
+            return Self::raise(mark, record);
         }
-        if counter <= self.floors.get(holder).copied().unwrap_or(0) {
+        let floor = self.floors.get(holder).copied().unwrap_or_default();
+        if record <= floor.against(record) {
             return Mark::Stale;
         }
-        self.detail.insert(key, counter);
+        self.detail.insert(key, record);
         // The device's marks are adjacent in the map: count them and find the lowest without
         // walking every other device's (at most MAX_DETAIL_SESSIONS + 1 entries).
         let mut count = 0;
-        let mut lowest: Option<(&String, u64)> = None;
+        let mut lowest: Option<(&String, Stamp)> = None;
         for ((_, held), at) in self
             .detail
             .range((holder.clone(), String::new())..)
             .take_while(|((h, _), _)| h == holder)
         {
             count += 1;
-            if lowest.is_none_or(|(_, low)| *at < low) {
-                lowest = Some((held, *at));
+            let at = at.against(record);
+            if lowest.is_none_or(|(_, low)| at < low) {
+                lowest = Some((held, at));
             }
         }
         if count > MAX_DETAIL_SESSIONS {
             if let Some((dropped, at)) = lowest.map(|(s, at)| (s.clone(), at)) {
                 self.detail.remove(&(holder.clone(), dropped.clone()));
-                let floor = self.floors.entry(holder.clone()).or_insert(0);
-                *floor = (*floor).max(at);
+                let floor = self.floors.entry(holder.clone()).or_default();
+                *floor = (*floor).against(at).max(at);
                 if dropped == session {
                     return Mark::Stale;
                 }
@@ -646,6 +686,15 @@ impl Engine {
         vec![Effect::StoreLocal]
     }
 
+    /// [`Engine::local`] with every live mark in it, for an [`Effect::StoreLocal`]: marks that
+    /// rose since the last write go along with any write that happens anyway.
+    pub fn local_to_store(&mut self) -> &LocalState {
+        if self.marks_dirty {
+            self.store_marks();
+        }
+        &self.local
+    }
+
     fn store_marks(&mut self) {
         self.live.store(&mut self.local);
         self.marks_dirty = false;
@@ -653,7 +702,8 @@ impl Engine {
     }
 
     /// A mark rose: stored at once when the last store is [`MARKS_STORE_EVERY_MS`] ago (or the
-    /// clock went back), otherwise left for the next ping or the end of the connection.
+    /// clock went back), otherwise left for the next state file write ([`Engine::local_to_store`]),
+    /// the next ping or the end of the connection.
     fn marks_raised(&mut self) -> Vec<Effect> {
         let now = (self.now)();
         let due = self
@@ -1759,7 +1809,10 @@ impl Engine {
         if let Some(sealed) = &update.status {
             match self.open_sealed(RecordKind::PresenceStatus, b"", &update.holder, sealed) {
                 Open::Opened(opened) => {
-                    match self.live.presence(&update.holder, opened.counter) {
+                    match self
+                        .live
+                        .presence(&update.holder, self.stamp(&update.holder, &opened))
+                    {
                         // An old status shown again (after `offline`, a reconnect or a
                         // restart): the newer one stays.
                         Mark::Stale => return Vec::new(),
@@ -1808,6 +1861,21 @@ impl Engine {
         );
         effects.push(Effect::Changed);
         effects
+    }
+
+    /// When `opened` was sealed: the key period its signing key belongs to, then its counter.
+    fn stamp(&self, holder: &Holder, opened: &Opened) -> Stamp {
+        let period = self.verifier.state().map_or(0, |state| {
+            state
+                .key_periods(holder)
+                .iter()
+                .find(|p| p.keys.sign == opened.sign)
+                .map_or(0, |p| p.added_at)
+        });
+        Stamp {
+            period,
+            counter: opened.counter,
+        }
     }
 
     /// The devices the verified log lists now.
@@ -1885,10 +1953,11 @@ impl Engine {
                 sealed,
             ) {
                 Open::Opened(opened) => {
+                    let stamp = self.stamp(&overlap.other.holder, &opened);
                     let mark = self.live.detail(
                         &overlap.other.holder,
                         overlap.other.session.as_str(),
-                        opened.counter,
+                        stamp,
                     );
                     if mark == Mark::Raised {
                         effects.extend(self.marks_raised());
@@ -1927,6 +1996,14 @@ impl Engine {
     /// (or the relay towards it) sees a different team history. Only that device is set aside,
     /// with a notice in the Team view, until this device's verified log changes; its marks stay,
     /// since they only refuse records older than ones verified against this device's log.
+    ///
+    /// The fork may also be this device's: the relay can show it an entry the others never got
+    /// (after a restart, past the head it stored). So every divergence fetches the log again,
+    /// and when devices of two distinct members report another history, this device is the odd
+    /// one out and the team stops. Devices of one member never stop it, however many: which
+    /// other devices are heard is the relay's word (an unsigned `offline`, a new connection),
+    /// and one person must not be able to stop everyone. A fork of this device's own log shows
+    /// in the log fetch.
     fn diverged(&mut self, holder: &Holder) -> Vec<Effect> {
         eprintln!("hangar: a team device reports a different membership history");
         let at = self.verifier.state().map_or(0, |s| s.head().index);
@@ -1938,7 +2015,14 @@ impl Engine {
         self.retain_overlaps(|other| other.holder != *holder);
         self.divergent
             .insert(holder.clone(), Divergent { at, name });
-        vec![Effect::Changed]
+        let members: BTreeSet<&MemberId> = self.divergent.keys().map(|h| &h.member).collect();
+        if members.len() >= 2 {
+            eprintln!("hangar: several team devices report another history than this one");
+            return vec![Self::stop(AttentionReason::HistoryMismatch)];
+        }
+        let mut effects = vec![Effect::Changed];
+        effects.extend(self.sync_log());
+        effects
     }
 
     /// This device's spelling of a file the relay names by its keyed hash.
@@ -3609,22 +3693,30 @@ mod tests {
             .all(|o| o.level == OverlapLevel::SameArea && o.path.is_none()));
     }
 
+    /// A record stamp of the key period added at log index 3.
+    fn at(counter: u64) -> Stamp {
+        Stamp { period: 3, counter }
+    }
+
     #[test]
     fn detail_marks_stay_bounded_per_device_and_refuse_dropped_sessions() {
         let mut marks = LiveMarks::default();
         let bob = holder("bob", "b1");
         for n in 0..MAX_DETAIL_SESSIONS as u64 {
-            assert_eq!(marks.detail(&bob, &format!("s{n}"), 100 + n), Mark::Raised);
+            assert_eq!(
+                marks.detail(&bob, &format!("s{n}"), at(100 + n)),
+                Mark::Raised
+            );
         }
         // One more: the oldest session's mark goes, and the floor rises to it.
-        assert_eq!(marks.detail(&bob, "late", 500), Mark::Raised);
+        assert_eq!(marks.detail(&bob, "late", at(500)), Mark::Raised);
         assert_eq!(marks.detail.len(), MAX_DETAIL_SESSIONS);
-        assert_eq!(marks.detail(&bob, "s0", 100), Mark::Stale);
+        assert_eq!(marks.detail(&bob, "s0", at(100)), Mark::Stale);
         // A newer session (or record) of the device still passes; an older unknown one does not.
-        assert_eq!(marks.detail(&bob, "later", 600), Mark::Raised);
-        assert_eq!(marks.detail(&bob, "ancient", 50), Mark::Stale);
-        assert_eq!(marks.detail(&bob, "late", 500), Mark::Seen);
-        assert_eq!(marks.detail(&bob, "late", 499), Mark::Stale);
+        assert_eq!(marks.detail(&bob, "later", at(600)), Mark::Raised);
+        assert_eq!(marks.detail(&bob, "ancient", at(50)), Mark::Stale);
+        assert_eq!(marks.detail(&bob, "late", at(500)), Mark::Seen);
+        assert_eq!(marks.detail(&bob, "late", at(499)), Mark::Stale);
         // Devices the log no longer lists lose their marks.
         assert!(marks.retain(|_| false));
         assert!(marks.detail.is_empty() && marks.floors.is_empty());
@@ -3737,7 +3829,7 @@ mod tests {
     }
 
     /// Carol joins the team of `a1` (owner) and `b1`: the verified log moves on.
-    fn carol_joins(relay: &mut Relay, a1: &mut Client, b1: &mut Client) {
+    fn carol_joins(relay: &mut Relay, a1: &mut Client, b1: &mut Client) -> Client {
         let mut c1 = client("carol", "c1", Role::Member);
         let hello = c1.engine.hello(ticket());
         run(relay, &mut [&mut *a1, &mut *b1, &mut c1], vec![(2, hello)]);
@@ -3750,6 +3842,123 @@ mod tests {
             &mut [&mut *a1, &mut *b1, &mut c1],
             vec![(0, confirm)],
         );
+        c1
+    }
+
+    /// A presence status `client` signs over its verified head index with another hash.
+    fn forked_status(relay: &Relay, client: &mut Client) -> String {
+        let (cipher, head, _) = client.engine.current_cipher().unwrap();
+        let forked = ChainHead {
+            index: head.index,
+            hash: hangar_team_protocol::e2e::LogHash::from_bytes([7; 32]),
+        };
+        let status = br#"{"v":1,"name":"","sessions":[]}"#;
+        let sealed = client
+            .engine
+            .seal(&cipher, &forked, RecordKind::PresenceStatus, b"", status)
+            .unwrap();
+        presence_text(relay, &client.holder, Some(sealed))
+    }
+
+    #[test]
+    fn devices_of_two_members_reporting_another_history_stop_the_team() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        assert_eq!(connected(&c1), (1, 3, 3));
+        // One device: set aside, and the log is fetched again in case the fork is this one's.
+        let effects = a1.engine.on_text(&forked_status(&relay, &mut b1));
+        assert!(log_get(&effects).is_some(), "{effects:?}");
+        assert!(!effects.iter().any(|e| matches!(e, Effect::End(_))));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(a1.ended.is_none());
+        assert_eq!(a1.engine.activity().divergent.len(), 1);
+        // A second member's device too: this device is the odd one out.
+        let effects = a1.engine.on_text(&forked_status(&relay, &mut c1));
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                Effect::End(SessionEnd::Stop(StopReason::Attention(
+                    AttentionReason::HistoryMismatch
+                )))
+            )),
+            "{effects:?}"
+        );
+    }
+
+    /// A presence status `client` signs over its own verified head.
+    fn honest_status(relay: &Relay, client: &mut Client) -> String {
+        let (cipher, head, _) = client.engine.current_cipher().unwrap();
+        let status = br#"{"v":1,"name":"","sessions":[]}"#;
+        let sealed = client
+            .engine
+            .seal(&cipher, &head, RecordKind::PresenceStatus, b"", status)
+            .unwrap();
+        presence_text(relay, &client.holder, Some(sealed))
+    }
+
+    fn stops(effects: &[Effect]) -> bool {
+        effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::End(SessionEnd::Stop(StopReason::Attention(
+                    AttentionReason::HistoryMismatch
+                )))
+            )
+        })
+    }
+
+    #[test]
+    fn devices_of_one_member_never_stop_the_team_even_when_nobody_else_is_heard() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        let mut b2 = client("bob", "b2", Role::Member);
+        let hello = b2.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1, &mut b2],
+            vec![(3, hello)],
+        );
+        // Bob confirms his own new device.
+        let poll = b1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1, &mut b2],
+            vec![(1, poll)],
+        );
+        let request = b1.engine.pending().into_iter().next().unwrap();
+        let confirm = b1.engine.confirm(&request.id).unwrap();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1, &mut b2],
+            vec![(1, confirm)],
+        );
+        assert_eq!(connected(&b2), (1, 3, 4));
+
+        // Bob's two devices never stop the team, whether another device is heard or not: which
+        // devices are heard is the relay's word.
+        a1.engine.peers.clear();
+        let effects = a1.engine.on_text(&honest_status(&relay, &mut c1));
+        assert!(!stops(&effects), "{effects:?}");
+        assert_eq!(a1.engine.peers.len(), 1);
+        for heard in [true, false] {
+            a1.engine.divergent.clear();
+            if !heard {
+                a1.engine.peers.clear();
+            }
+            for device in [&mut b1, &mut b2] {
+                let effects = a1.engine.on_text(&forked_status(&relay, device));
+                assert!(!stops(&effects), "heard: {heard}, {effects:?}");
+                assert!(
+                    log_get(&effects).is_some() || a1.engine.syncing,
+                    "{effects:?}"
+                );
+            }
+            assert_eq!(a1.engine.activity().divergent.len(), 2);
+            assert!(a1.engine.peers.len() <= 1);
+        }
+        // A second member's device too: then this device is the odd one out.
+        let effects = a1.engine.on_text(&forked_status(&relay, &mut c1));
+        assert!(stops(&effects), "{effects:?}");
     }
 
     #[test]
@@ -3805,7 +4014,7 @@ mod tests {
         assert_eq!(a1.engine.activity().divergent.len(), 1);
 
         // The log moves on: bob's device is heard again.
-        carol_joins(&mut relay, &mut a1, &mut b1);
+        let _ = carol_joins(&mut relay, &mut a1, &mut b1);
         assert!(a1.engine.activity().divergent.is_empty());
         let later = b1
             .engine
@@ -3818,27 +4027,37 @@ mod tests {
     #[test]
     fn presence_marks_are_kept_per_device_and_read_from_per_key_marks() {
         let bob = holder("bob", "b1");
-        // A state file of the first format: one mark per signing key of the same device.
+        // A state file of the first format: one mark per signing key of the same device, and no
+        // key period.
+        let mark = |counter: u64| HolderMark {
+            holder: bob.clone(),
+            period: 0,
+            counter,
+        };
         let local = LocalState {
-            presence_marks: vec![
-                HolderMark {
-                    holder: bob.clone(),
-                    counter: 9,
-                },
-                HolderMark {
-                    holder: bob.clone(),
-                    counter: 7,
-                },
-            ],
+            presence_marks: vec![mark(9), mark(7)],
             ..LocalState::default()
         };
         let mut marks = LiveMarks::from_local(&local);
         assert_eq!(marks.presence.len(), 1);
-        assert_eq!(marks.presence[&bob], 9);
-        // Whatever key signed it: an older status stays refused.
-        assert_eq!(marks.presence(&bob, 8), Mark::Stale);
-        assert_eq!(marks.presence(&bob, 9), Mark::Seen);
-        assert_eq!(marks.presence(&bob, 10), Mark::Raised);
+        assert_eq!(marks.presence[&bob].counter, 9);
+        // Without a stored period the counter alone decides.
+        assert_eq!(marks.presence(&bob, at(8)), Mark::Stale);
+        assert_eq!(marks.presence(&bob, at(9)), Mark::Seen);
+        assert_eq!(marks.presence(&bob, at(10)), Mark::Raised);
+        // The device id admitted again (keys added at index 9) with a clock behind: newer anyway.
+        let readmitted = Stamp {
+            period: 9,
+            counter: 5,
+        };
+        assert_eq!(marks.presence(&bob, readmitted), Mark::Raised);
+        // A status of the old keys stays older, whatever its counter.
+        assert_eq!(marks.presence(&bob, at(u64::MAX)), Mark::Stale);
+        // Stored with the period and read back alike.
+        let mut stored = LocalState::default();
+        marks.store(&mut stored);
+        assert_eq!(stored.presence_marks[0].period, 9);
+        assert_eq!(LiveMarks::from_local(&stored), marks);
     }
 
     #[test]
@@ -4011,8 +4230,16 @@ mod tests {
         assert_ne!(a1.engine.local().presence_marks, stored);
         assert_eq!(LiveMarks::from_local(a1.engine.local()), a1.engine.live);
         assert_eq!(stores(&a1.engine.ping()), 0, "nothing left");
+        // A rise left for later goes along with the next write that happens anyway.
+        advance(1_000);
+        assert_eq!(stores(&a1.engine.on_text(&three)), 0);
+        assert_ne!(LiveMarks::from_local(a1.engine.local()), a1.engine.live);
+        let written = LiveMarks::from_local(a1.engine.local_to_store());
+        assert_eq!(written, a1.engine.live);
+        assert!(a1.engine.flush_marks().is_empty(), "nothing left");
         advance(MARKS_STORE_EVERY_MS);
-        assert_eq!(stores(&a1.engine.on_text(&three)), 1);
+        let four = status("four.rs");
+        assert_eq!(stores(&a1.engine.on_text(&four)), 1);
         assert!(a1.engine.flush_marks().is_empty());
     }
 

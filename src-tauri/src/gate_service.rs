@@ -629,8 +629,14 @@ impl Inner {
         let worktrees = (self.worktrees)();
         let titles = (self.titles)();
         let teammates = self.teammates_of(session, &worktrees);
+        // Built before the gate's lock: it may look into the worktree for up to 50 ms, and
+        // other sessions' edits wait on that lock.
+        let Some(text) = gate::context_facts_with_team(session, &worktrees, &titles, &teammates)
+        else {
+            return String::new();
+        };
         lock(&self.gate)
-            .context(session, conversation, &worktrees, &titles, &teammates)
+            .tell(session, conversation, text)
             .map(|text| gate::context_body(&text))
             .unwrap_or_default()
     }

@@ -97,6 +97,8 @@ windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_Security",
+  # GetDriveTypeW: the gate looks up teammates' paths only on fixed local drives (gate.rs).
+  "Win32_Storage_FileSystem",
   "Win32_System_JobObjects",
   # Uninstall keys, to tell how a program was installed (install_source.rs).
   "Win32_System_Registry",

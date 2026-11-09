@@ -261,3 +261,13 @@ for removed devices; overlaps count only for sessions the teammate's newest sign
 a status-less presence keeps the sessions; marks are written at most every 5 s; the root commit
 cache is checked per scan; teammate paths in the agent's context use this device's spelling;
 old root-only links can be removed. Pages changed: [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-09] ingest | Team service step F part 2b: last security review
+Every divergent teammate record now fetches the log again, and divergence reported by devices of
+two distinct members stops the team, since the fork is then this device's; devices of one member
+never do, as which devices are heard is the relay's word. Fork detection from live records is
+documented as best effort. `open_verified` reports a fork only after the epoch start check and decryption, so an
+old key of a re-admitted device id cannot get the honest device set aside. Live marks compare by
+key period, then counter, and go along with every state file write. The teammate path lookup
+for the agent's context is bounded to 50 ms (checked before every file system call), follows no
+reparse point, skips worktrees below one and non-fixed drives, and runs outside the gate's lock. Pages changed: [[team-service-v1]], [[team-crypto]].

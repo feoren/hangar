@@ -713,6 +713,9 @@ pub struct DetailMark {
     pub holder: Holder,
     /// The session key the detail was sealed for (its record id).
     pub session: String,
+    /// The log index that added the signing key (its key period); 0 in files from before.
+    #[serde(default)]
+    pub period: u64,
     pub counter: u64,
 }
 
@@ -725,6 +728,9 @@ pub struct DetailMark {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HolderMark {
     pub holder: Holder,
+    /// The log index that added the signing key (its key period); 0 in files from before.
+    #[serde(default)]
+    pub period: u64,
     pub counter: u64,
 }
 
@@ -735,10 +741,12 @@ pub struct HolderMark {
 /// The counter only rises: besides this file, every start raises it to [`counter_floor`] of the
 /// clock, so a backup put back or a file that went missing cannot make the device repeat one.
 ///
-/// The live marks are written at most every few seconds (and when the connection ends), always
-/// all of them together: the file holds a consistent earlier snapshot, never a dropped detail
-/// mark without the floor that replaced it. Losing the newest marks (a crash) only lets the relay
-/// show again a teammate's record that a newer one replaced within those seconds.
+/// The live marks are written at once when the last write is 5 s ago, and otherwise with the
+/// next write of this file for any reason, the next ping (25 s) or the end of the connection;
+/// always all of them together, with their key periods: the file holds a consistent earlier
+/// snapshot, never a dropped detail mark without the floor that replaced it. A crash loses at
+/// most the marks of that span (up to one ping interval), which only lets the relay show again
+/// a teammate's record that a newer one replaced within it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalState {

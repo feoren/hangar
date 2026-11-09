@@ -40,10 +40,13 @@
 //! Hangar's live marks are) then also refuse records signed with the old keys.
 //!
 //! Order when opening ([`EpochCipher::open_verified`]): format, a head index this device verified,
-//! the sender's keys at that index, epoch, signature, then the head's hash (fork), the epoch's
-//! start and decryption. A forged record costs no decryption, a wrong sender fails as a signature
-//! error, and only a signed record can report a fork: a record anyone could write with a wrong
-//! head hash must not make the app stop trusting the team.
+//! the sender's keys at that index, epoch, signature, the epoch's start, decryption, and only
+//! then the head's hash (fork). A forged record costs no decryption, a wrong sender fails as a
+//! signature error, and only a record that is signed and sealed with the current epoch's key can
+//! report a fork: a record anyone could write with a wrong head hash must not set a device aside,
+//! and neither may one signed with the old keys of a device id removed and admitted again (after
+//! the rotation the removal made due, its old key period ends before the epoch, so it fails as
+//! [`OpenError::HeadBeforeEpoch`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -516,12 +519,14 @@ impl EpochCipher {
     /// - the log vouched for the sender's keys at that head index, also when the device was
     ///   removed since (its key history), and the sender is no recovery device;
     /// - epoch and signature as in [`EpochCipher::open`];
-    /// - only then the head's hash ([`OpenError::Fork`]) and that it is not from before the
-    ///   epoch began, and decryption.
+    /// - that the head is not from before the epoch began ([`OpenError::HeadBeforeEpoch`]), then
+    ///   decryption, and only then the head's hash ([`OpenError::Fork`]).
     ///
-    /// The signature comes before the fork check: a fork is a reason to stop trusting the team,
-    /// so only a record a listed device signed over the differing head may report one. Anyone
-    /// can write a head with a wrong hash; unsigned, it is a [`OpenError::Signature`] error.
+    /// Signature, epoch start and decryption come before the fork check: a fork is a reason to
+    /// distrust a device or the team, so only a record a listed device signed over the differing
+    /// head, sealed with the current epoch's key, may report one. Anyone can write a head with a
+    /// wrong hash (unsigned, it is a [`OpenError::Signature`] error), and the old signing key of a
+    /// device id removed and admitted again only covers heads from before the epoch.
     ///
     /// A removed device still holds the epoch's key and can name an old head, so its records
     /// stay possible until the next rotation; the relay refuses content of an old epoch.
@@ -554,13 +559,14 @@ impl EpochCipher {
         }
         let sign = period.keys.sign;
         let aad = self.verify_parsed(context, &sign, sealed, &parsed)?;
-        if known != head.hash {
-            return Err(OpenError::Fork { index: head.index });
-        }
         if head.index < record.index {
             return Err(OpenError::HeadBeforeEpoch);
         }
-        self.decrypt_parsed(context, &sign, &parsed, &aad)
+        let opened = self.decrypt_parsed(context, &sign, &parsed, &aad)?;
+        if known != head.hash {
+            return Err(OpenError::Fork { index: head.index });
+        }
+        Ok(opened)
     }
 }
 

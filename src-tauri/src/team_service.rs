@@ -1527,14 +1527,16 @@ impl Worker {
                 }
                 Effect::StoreLocal => {
                     if let (Some(engine), Some(dir)) =
-                        (&self.engine, &self.service.inner.options.state_dir)
+                        (&mut self.engine, &self.service.inner.options.state_dir)
                     {
                         // Like the keychain: nothing after a failed write happens, so a record
-                        // never leaves with a counter that was not stored first.
-                        let saved =
-                            engine
-                                .local()
-                                .save(dir, self.service.service_name(), &self.key);
+                        // never leaves with a counter that was not stored first. Live marks
+                        // waiting for their next write go along.
+                        let saved = engine.local_to_store().save(
+                            dir,
+                            self.service.service_name(),
+                            &self.key,
+                        );
                         if let Err(error) = saved {
                             eprintln!("hangar: team state not saved: {error}");
                             result = Some(Ok(SessionEnd::Lost));

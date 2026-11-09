@@ -592,14 +592,16 @@ pub fn context_facts_with_team(
         }
     }
     let top = std::path::Path::new(&own.root_key);
-    let look = !crate::git::is_remote(top);
+    let look = !crate::git::is_remote(top) && local_fixed_drive(top) && plain_folder(top);
     let listed = lines.len();
+    // All looks together: a slow folder costs the prompt at most this long.
+    let deadline = std::time::Instant::now() + SPELLING_BUDGET;
     for (index, (key, (path, who, ranges))) in by_file.into_iter().enumerate() {
         let spelled = match local.get(key) {
             Some(mine) => (*mine).to_owned(),
             // Only for lines that can still be listed: each look reads a few folders.
             None if look && listed + index < MAX_CONTEXT_FILES => {
-                existing_spelling(top, path).unwrap_or_else(|| cut_path(path))
+                existing_spelling(top, path, deadline).unwrap_or_else(|| cut_path(path))
             }
             None => cut_path(path),
         };
@@ -653,17 +655,36 @@ fn cut_path(path: &str) -> String {
     path.chars().take(MAX_TEAMMATE_PATH_CHARS).collect()
 }
 
+/// How long the context may spend looking up teammates' paths in the worktree, in all.
+const SPELLING_BUDGET: Duration = Duration::from_millis(50);
+
 /// This device's spelling of a teammate's `path` below `top`, when the file exists here: each
 /// part as the folder lists it, the exact name first, else the one equal ignoring case (the
-/// team compares paths case folded). `None` for a path the team refuses or that is not here.
-fn existing_spelling(top: &std::path::Path, path: &str) -> Option<String> {
+/// team compares paths case folded). `None` for a path the team refuses, one that is not here,
+/// or once `deadline` passed.
+///
+/// It descends only into real folders and names only a regular file: no symlink, junction or
+/// other reparse point is followed, so a teammate's path cannot lead the lookup out of the
+/// worktree or onto a slow target.
+fn existing_spelling(
+    top: &std::path::Path,
+    path: &str,
+    deadline: std::time::Instant,
+) -> Option<String> {
     team_share::team_path(path)?;
     let mut dir = top.to_path_buf();
     let mut parts = Vec::new();
+    let out_of_time = || std::time::Instant::now() >= deadline;
     for part in path.split('/').filter(|p| !p.is_empty()) {
         let mut folded = None;
         let mut exact = None;
+        if out_of_time() {
+            return None;
+        }
         for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
@@ -678,8 +699,79 @@ fn existing_spelling(top: &std::path::Path, path: &str) -> Option<String> {
         let name = exact.or(folded)?;
         dir.push(&name);
         parts.push(name);
+        if out_of_time() {
+            return None;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&dir) else {
+            return None;
+        };
+        if is_reparse_point(&meta) {
+            return None;
+        }
+        // A folder until the last part, which is a file.
+        let last = parts.len() == path.split('/').filter(|p| !p.is_empty()).count();
+        if (last && !meta.is_file()) || (!last && !meta.is_dir()) {
+            return None;
+        }
     }
-    (!parts.is_empty() && dir.is_file()).then(|| parts.join("/"))
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// Whether `top` and every folder above it are plain folders: none is a symlink, junction or
+/// other reparse point. A worktree reached through one (`mklink /D C:\w \\host\share`) may
+/// lie on another computer, so its files are not looked up. Checked without following links.
+fn plain_folder(top: &std::path::Path) -> bool {
+    top.ancestors().all(|folder| {
+        folder.as_os_str().is_empty()
+            || std::fs::symlink_metadata(folder).is_ok_and(|meta| {
+                // A drive root reports no reparse point of its own; a mount point below it does.
+                meta.is_dir() && !is_reparse_point(&meta)
+            })
+    })
+}
+
+/// A symlink, or on Windows any reparse point (junctions and mount points too, which
+/// `FileType::is_symlink` may not report).
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        /// `FILE_ATTRIBUTE_REPARSE_POINT` of the Windows SDK.
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    meta.file_type().is_symlink()
+}
+
+/// Whether `top` lies on a fixed local drive. On Windows a mapped network drive (`Z:`) or a
+/// removable one is not looked into; elsewhere `git::is_remote` is the only check.
+#[cfg(windows)]
+fn local_fixed_drive(top: &std::path::Path) -> bool {
+    use std::path::{Component, Prefix};
+    /// `DRIVE_FIXED` of `GetDriveTypeW`.
+    const DRIVE_FIXED: u32 = 3;
+    let Some(Component::Prefix(prefix)) = top.components().next() else {
+        return false;
+    };
+    let letter = match prefix.kind() {
+        Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => letter,
+        _ => return false,
+    };
+    let root: Vec<u16> = format!("{}:\\", char::from(letter))
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call, which only reads
+    // it.
+    let kind = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(root.as_ptr()) };
+    kind == DRIVE_FIXED
+}
+
+#[cfg(not(windows))]
+fn local_fixed_drive(_top: &std::path::Path) -> bool {
+    true
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -973,6 +1065,18 @@ impl<W> Gate<W> {
         teammates: &[TeammateFile],
     ) -> Option<String> {
         let text = context_facts_with_team(session, worktrees, titles, teammates)?;
+        self.tell(session, conversation, text)
+    }
+
+    /// `text` (from [`context_facts_with_team`], built before taking the gate's lock: it may
+    /// look into the worktree) for the session's next prompt, only when it differs from what it
+    /// was told last or the conversation changed.
+    pub fn tell(
+        &mut self,
+        session: SessionId,
+        conversation: Option<&str>,
+        text: String,
+    ) -> Option<String> {
         let told = (conversation.map(str::to_owned), text);
         if self.told.get(&session) == Some(&told) {
             return None;
@@ -1687,7 +1791,62 @@ mod tests {
         );
         assert!(other.ends_with('…'));
         // A path the team refuses is never looked up.
-        assert_eq!(existing_spelling(&top, "../repo/Src/Deep/Main.rs"), None);
+        let later = std::time::Instant::now() + Duration::from_secs(10);
+        assert_eq!(
+            existing_spelling(&top, "../repo/Src/Deep/Main.rs", later),
+            None
+        );
+        assert_eq!(
+            existing_spelling(&top, "src/deep/main.rs", later).as_deref(),
+            Some("Src/Deep/Main.rs")
+        );
+        // Out of time: not looked up any more.
+        let past = std::time::Instant::now();
+        assert_eq!(existing_spelling(&top, "src/deep/main.rs", past), None);
+        // A folder only, or a file where a folder is needed: no spelling.
+        assert_eq!(existing_spelling(&top, "src/deep", later), None);
+        assert_eq!(existing_spelling(&top, "src/deep/main.rs/x", later), None);
+        assert!(
+            local_fixed_drive(&top),
+            "the test folder is on a local disk"
+        );
+    }
+
+    #[test]
+    fn teammates_paths_never_lead_through_a_link_out_of_the_worktree() {
+        let tmp = crate::test_support::TempDir::new("gate-spelling-link");
+        let top = tmp.path().join("repo");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&top).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("Secret.rs"), "x").unwrap();
+        let link = top.join("linked");
+        #[cfg(windows)]
+        {
+            // A junction needs no privilege, unlike a symlink.
+            let made = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(&outside)
+                .output()
+                .unwrap();
+            assert!(made.status.success(), "{made:?}");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert!(link.join("Secret.rs").exists(), "the link works");
+        let later = std::time::Instant::now() + Duration::from_secs(10);
+        assert_eq!(existing_spelling(&top, "linked/secret.rs", later), None);
+        assert_eq!(existing_spelling(&top, "linked/Secret.rs", later), None);
+        // A worktree reached through a link (it may be a network share) is not looked into, and
+        // the context then names the teammate's spelling.
+        assert!(plain_folder(&top));
+        assert!(!plain_folder(&link));
+        let inner = link.to_string_lossy().into_owned();
+        let mine = vec![worktree(&inner, &[1], vec![])];
+        let team = [teammate("secret.rs", "Anna (Claude Code)", &[])];
+        let text = context_facts_with_team(1, &mine, &HashMap::new(), &team).unwrap();
+        assert_eq!(teammate_lines(&text)[0]["file"], "secret.rs");
     }
 
     #[test]

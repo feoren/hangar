@@ -677,11 +677,15 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   passes. The marks are stored in the team's state file (`presenceMarks`, `detailMarks`,
   `detailFloors`) and are never cleared by the relay's unsigned `offline`, a reconnect or a
   restart, so the relay can no longer bring back an older authentic status or detail. They are
-  written at most every 5 s while they rise, and otherwise with the next ping, a new connection
-  and the end of a connection (turning sharing off, quitting), always all together: the file holds
-  a consistent earlier snapshot, never a dropped detail mark without its floor, so losing the
-  newest seconds (a crash) only lets the relay show again a record that a newer one replaced
-  within them. They stay bounded: marks of devices the verified log never listed go after every
+  written at once when the last write is 5 s ago, otherwise with the next state file write for
+  any reason (a record counter, the cursor), the next ping (25 s), a new connection and the end
+  of a connection (turning sharing off, quitting), always all together: the file holds a
+  consistent earlier snapshot, never a dropped detail mark without its floor. A crash loses at
+  most that span (up to one ping interval), which only lets the relay show again a record that a
+  newer one replaced within it. A mark is a pair: the log index that added the signing key (its
+  key period), then the counter. A device id admitted again signs with keys of a later period, so
+  its records count as newer even when its clock is behind, and its old keys' records as older;
+  marks stored before periods were kept (period 0) compare by counter alone. They stay bounded: marks of devices the verified log never listed go after every
   log fetch (a removed device keeps its marks, the log keeps its key history), and a device keeps at most 64
   session marks (beyond that the oldest goes and raises a floor that unknown sessions must
   exceed). Only records of the current epoch or a newer one are opened. No age limit on top: a
@@ -703,8 +707,20 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   "Anna #3f9a2c1b… (device 9c41d0e2…) reports a different team history" (`activity.divergent`).
   The earlier stop of the whole team was dropped: one listed device, faulty or shown another log
   by the relay, could stop everyone's sharing with one record, while this device's own log is
-  still the one it verified. The team still stops with `historyMismatch` when this device's own
-  log fetch contradicts the head it verified before (fork, rewind, rewrite). The device's marks
+  still the one it verified. The fork may be this device's, though: after a restart the relay
+  can show it a signed but withheld entry past its stored head, and then every honest teammate
+  looks forked. So each such record fetches the log again, and when devices of two distinct
+  members report another history, this device is the odd one out and stops with
+  `historyMismatch`. Devices of one member never stop it, even when no other device is heard:
+  which devices are heard is the relay's word (unsigned `offline`, a new connection), so a rule
+  like "every device heard disagrees" would let one person, or the relay, stop the team. Live
+  records detect forks only on a best effort basis (a fork before the epoch's rotate entry gives
+  another epoch key, so its records fail to decrypt instead of reporting `Fork`); the own log
+  sync is the authoritative check. It also stops when its own log fetch contradicts the
+  head it verified before (fork, rewind, rewrite). A fork counts only for a record that also
+  decrypts with the current epoch's key and names a head from within the epoch (crypto crate),
+  so after the rotation its removal made due, an old key of a re-admitted device id cannot get
+  the honest device set aside. The device's marks
   stay: they only refuse records older than ones verified against this device's log. Unknown
   fields or versions in a document are refused; names, titles and lists are cut when read. A
   `presence.update` without a status changes only the state (active, idle, away); the sessions
@@ -737,8 +753,11 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   B, with the teammates' names as JSON literals. The prompt hook's context adds one line per
   teammate file (`{"file":..,"teammates":[..],"lines":".."}`) under the same caps; the file is
   named as this device spells it when one of its sessions changes it or it exists in the worktree
-  (each part as the folder lists it, looked up only for lines that can still be listed and not on
-  network folders), else in the teammate's spelling cut to 200 characters (`literal` cuts further
+  (each part as the folder lists it, looked up only for lines that can still be listed, within
+  50 ms for all lines (checked before every folder read and metadata call), only through real
+  folders, never through a symlink, junction or other reparse point, not in a worktree that lies
+  below one (`mklink /D C:\w \\host\share` could lead to another computer), and not on
+  network folders or, on Windows, drives that are not fixed, such as a mapped `Z:`; the lookup runs before the gate's lock is taken), else in the teammate's spelling cut to 200 characters (`literal` cuts further
   and marks control, invisible and reordering characters, also in the names).
 - **Interface:** commands `team_session_states(states: {sessionId, state}[])` and
   `team_link_repo(projectId, root, folder or null, on)` (main window only); `team-changed` adds per team

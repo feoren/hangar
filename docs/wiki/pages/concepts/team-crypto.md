@@ -103,16 +103,30 @@ A.2.1 test.
   carries its sender's log head (index and hash) in the signed context; `open_verified` refuses a
   head with another hash at a known index (`Fork`), asks to fetch the log for a newer head
   (`AheadOfLog`) and refuses a head from before the epoch. `Fork` is reported only after the
-  sender's signature verified with its keys valid at that index: anyone can write a head with a
-  wrong hash, and an unsigned record must not make the app stop trusting the team (otherwise it
-  fails with `Signature`, `UnknownSender` or `SenderNotValid`). A signed fork in a live record
+  sender's signature verified with its keys valid at that index, the head is not from before
+  the epoch, and the record decrypted with the current epoch's key: anyone can write a head with
+  a wrong hash, and an unsigned record must not make the app distrust anyone (otherwise it fails
+  with `Signature`, `UnknownSender` or `SenderNotValid`). Once the rotation the removal made due
+  has happened, whoever holds the old signing key of a device id that was removed and admitted
+  again can only name heads of the old key period, which end before the epoch: `HeadBeforeEpoch`,
+  never a fork against the honest device (before that rotation, the removed device's residual
+  below applies). A signed fork in a live record
   sets only that sending device aside: the app hides its presence and overlaps, ignores its live
   records until this device's verified log changes, and names it in the Team view ("reports a
   different team history"). It does not stop the team: one listed device (compromised, buggy, or
   shown another log by the relay) could otherwise stop everyone's sharing with a single record,
-  and this device's own log is still the one it verified. The team stops (`HistoryMismatch`) only
-  when this device's own log fetch contradicts the head it verified before; which side of a fork
-  is real only the people comparing log safety numbers can tell. `TeamState::log_safety_number_at`
+  and this device's own log is still the one it verified. The fork may also be this device's
+  (the relay showed it an entry the others never got, past the head it stored), so every such
+  record makes it fetch the log again, and when devices of two distinct members report another
+  history, it stops (`HistoryMismatch`). Devices of one member never stop it, however many and
+  whether or not other devices are heard: which devices are heard is the relay's word (unsigned
+  `offline`, a new connection), and one person must not stop everyone. It also stops when its
+  own log fetch contradicts the head it verified before; which side of a fork
+  is real only the people comparing log safety numbers can tell. Fork detection from live
+  records is best effort: since decryption comes before the hash comparison, a real fork whose
+  branch derived another epoch key (the fork lies before the epoch's rotate entry) ends as a
+  decryption failure (`Decrypt`), not as `Fork`, and such a record is simply not shown. The
+  authoritative check is the device's own log sync against the head it verified. `TeamState::log_safety_number_at`
   gives the safety number at any verified index, so two people compare at an entry both have.
 - **Freshness** (M5). Each device numbers its records with a 64-bit counter in the signed
   context (`SendCounter`, stored before each send). `ReplayGuard` keeps the highest counter per

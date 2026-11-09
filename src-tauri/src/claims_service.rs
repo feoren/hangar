@@ -283,11 +283,16 @@ pub fn root_commit(git: &Git, top: &Path) -> Result<Option<String>, GitError> {
 /// replaced at the same path (deleted and cloned again, or another repository moved there) no
 /// longer has the root commit cached for the folder; `false` also when git fails.
 pub fn has_commit(git: &Git, top: &Path, id: &str) -> bool {
-    if git::check_folder(top).is_err() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+    // Only a full commit id (40 or 64 hex digits, `RepoId`): an empty or short one would name
+    // something else, or nothing git refuses.
+    let Ok(id) = hangar_team_protocol::hash::RepoId::new(id) else {
+        return false;
+    };
+    if git::check_folder(top).is_err() {
         return false;
     }
     let deadline = Instant::now() + git::TIMEOUT;
-    let object = format!("{id}^{{commit}}");
+    let object = format!("{}^{{commit}}", id.as_str());
     git.run(top, ["cat-file", "-e", object.as_str()], deadline, 1024)
         .is_ok_and(|output| output.success)
 }
@@ -1235,9 +1240,11 @@ mod tests {
         assert!(!has_commit(&git, &repo, &first));
         let second = refresh_root_commit(&git, &repo, Some(&cached)).unwrap();
         assert_ne!(second, first);
-        assert_eq!(Some(second), root_commit(&git, &repo).unwrap());
-        // Not a commit id at all: never handed to git.
+        assert_eq!(Some(second.clone()), root_commit(&git, &repo).unwrap());
+        // Not a full commit id: never handed to git.
         assert!(!has_commit(&git, &repo, "HEAD"));
+        assert!(!has_commit(&git, &repo, ""));
+        assert!(!has_commit(&git, &repo, &second[..12]));
         // Git could not tell before: not asked again while cached.
         assert_eq!(refresh_root_commit(&git, &repo, Some(&None)), None);
     }
