@@ -2,39 +2,39 @@
 //! it needs a relay started by hand on the loopback and two one-time sign-in links:
 //!
 //! ```text
-//! HANGAR_INTEROP_BASE=http://127.0.0.1:8080          the relay's PUBLIC_URL
+//! HANGAR_INTEROP_BASE=http://127.0.0.1:8080          the relay's PUBLIC_URL (origin)
 //! HANGAR_INTEROP_LINK_A=<login link for the owner>   `hangar-team-server login-link a@example.org`
 //! HANGAR_INTEROP_LINK_B=<login link for the member>  `hangar-team-server login-link b@example.org`
+//! HANGAR_INTEROP_SHORT_TIMERS=1                      optional: the relay runs with
+//!     RESERVATION_INACTIVITY_SECS=120 RESERVATION_WARN_SECS=60 CONNECTION_MAX_AGE_SECS=60,
+//!     which adds the hold expiry and the connection age close (4401) to the run
 //! cargo test --test relay_interop -- --ignored --nocapture
 //! ```
 //!
 //! Without `HANGAR_INTEROP_BASE` the test returns at once. Nothing here knows a server secret.
 //!
-//! Part 1 points the app's own account client (`AccountApi`) straight at the relay's self-host API
-//! under three plausible bases and records every endpoint that does not answer the way the app
-//! expects. Part 2 bridges that gap with an in-test adapter on 127.0.0.1 that speaks the website
-//! API the app knows (`/api/v1/oauth/device`, `/oauth/token`, `/me`, `/projects`,
-//! `/relay-ticket`) and translates each call onto the relay's self-host API. Through it the real
-//! `AccountService` signs in two accounts with the device flow, and the real `TeamService` runs
-//! both against the real relay: team creation, a new member confirmed into the membership log,
-//! presence, a claim overlap and ticket renewals. The test fails at the end while part 1 found a
-//! mismatch, so it turns green only once the relay serves the app's API itself.
+//! The app uses the account API under `<origin>/api/v1`, exactly as a person would enter it in
+//! Settings: the real `AccountService` signs both accounts in with the device flow (the person's
+//! approval goes through the relay's `/device` page), and the real `TeamService` runs both
+//! against the real relay. Only what the app has no call for (creating the team, inviting,
+//! accepting, removing a member, deleting the team) goes through the relay's own `/v1` routes.
+//! Steps the protocol may legitimately take differently are checked softly: each miss is
+//! collected and the test fails at the end with the full list.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use hangar_lib::account::{AccountState, AccountView, BaseUrl};
-use hangar_lib::account_api::AccountApi;
+use hangar_lib::account::{AccountState, AccountView, BaseUrl, IdleNotice, PollResponse, Role};
+use hangar_lib::account_api::{AccountApi, ApiError};
 use hangar_lib::account_service::{AccountService, Options as AccountOptions};
 use hangar_lib::claims::{ChangeKind, Claim, LineRange, OverlapLevel};
 use hangar_lib::secrets::{SecretError, SecretStore};
 use hangar_lib::team::{TeamSnapshot, TeamStatus, Timing};
-use hangar_lib::team_service::{Options, TeamService};
-use hangar_lib::team_share::{LocalSession, SessionState};
+use hangar_lib::team_service::{Options, Task, TeamService};
+use hangar_lib::team_share::{LocalSession, SessionState, TeamActivity};
+use hangar_lib::team_tasks::{AttemptState, NoticeKind};
 use zeroize::Zeroizing;
 
 const FOLDER: &str = "c:/src/shop/.git";
@@ -49,6 +49,23 @@ fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// Soft checks: every miss is kept, the test fails at the end with all of them.
+#[derive(Default)]
+struct Findings(Vec<String>);
+
+impl Findings {
+    fn check(&mut self, ok: bool, what: impl Into<String>) -> bool {
+        let what = what.into();
+        if ok {
+            eprintln!("interop: ok: {what}");
+        } else {
+            eprintln!("interop: MISMATCH: {what}");
+            self.0.push(what);
+        }
+        ok
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -193,14 +210,40 @@ async fn call(
     }
 }
 
+/// The relay's own management routes (`/v1/...`), which the app has no calls for.
+async fn relay_api(
+    client: &reqwest::Client,
+    origin: &str,
+    method: reqwest::Method,
+    path: &str,
+    access: &str,
+    body: Option<&serde_json::Value>,
+) -> Reply {
+    let bearer = format!("Bearer {access}");
+    call(
+        client,
+        method,
+        &format!("{origin}{path}"),
+        &[("authorization", &bearer)],
+        body.map_or(Body::None, Body::Json),
+    )
+    .await
+}
+
 // ------------------------------------------------------------------------------------------
-// The relay's own sign-in: magic link, device page, device flow
+// The person in the browser: login link, device page
 // ------------------------------------------------------------------------------------------
 
 /// A browser signed in at the relay through a login link (session cookie `hangar_team`).
 struct Browser {
     origin: String,
     cookie: String,
+}
+
+/// Tokens of a sign-in made by the test itself, for the management routes.
+struct Tokens {
+    access: String,
+    refresh: String,
 }
 
 impl Browser {
@@ -258,329 +301,44 @@ impl Browser {
         assert_eq!(decided.status, 200, "approve: {}", decided.text());
     }
 
-    /// An access token straight from the relay's device flow (for the team and invitation calls
-    /// the app does not make, and for part 1).
-    async fn access_token(&self, client: &reqwest::Client) -> String {
-        let started = call(
-            client,
-            reqwest::Method::POST,
-            &format!("{}/oauth/device_authorization", self.origin),
-            &[],
-            Body::Form(form(&[("client_id", "hangar"), ("device_name", "interop")])),
-        )
-        .await;
-        assert_eq!(started.status, 200, "device flow: {}", started.text());
-        let started = started.json();
-        let device_code = started["device_code"].as_str().unwrap().to_owned();
-        self.approve(client, started["user_code"].as_str().unwrap())
-            .await;
-        let interval = started["interval"].as_u64().unwrap_or(5);
+    /// A device flow of the test itself through the app's account client (`AccountApi`), so the
+    /// test holds tokens for the management routes.
+    async fn tokens(&self, client: &reqwest::Client, api: &AccountApi) -> Tokens {
+        let started = api
+            .device_authorization("interop test", "windows")
+            .await
+            .expect("device flow starts");
+        self.approve(client, &started.user_code).await;
+        let interval = started.interval.unwrap_or(5);
         let deadline = Instant::now() + WAIT;
         loop {
             tokio::time::sleep(Duration::from_secs(interval + 1)).await;
-            let reply = call(
-                client,
-                reqwest::Method::POST,
-                &format!("{}/oauth/token", self.origin),
-                &[],
-                Body::Form(form(&[
-                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                    ("device_code", &device_code),
-                    ("client_id", "hangar"),
-                ])),
-            )
-            .await;
-            if reply.status == 200 {
-                return reply.json()["access_token"].as_str().unwrap().to_owned();
+            if let PollResponse::Tokens(tokens) = api.poll_token(&started.device_code).await {
+                return Tokens {
+                    access: tokens.access.to_string(),
+                    refresh: tokens.refresh.expect("rotating refresh token").to_string(),
+                };
             }
-            assert!(Instant::now() < deadline, "token: {}", reply.text());
+            assert!(Instant::now() < deadline, "no token");
         }
     }
-}
-
-async fn relay_api(
-    client: &reqwest::Client,
-    origin: &str,
-    method: reqwest::Method,
-    path: &str,
-    access: &str,
-    body: Option<&serde_json::Value>,
-) -> Reply {
-    let bearer = format!("Bearer {access}");
-    call(
-        client,
-        method,
-        &format!("{origin}{path}"),
-        &[("authorization", &bearer)],
-        body.map_or(Body::None, Body::Json),
-    )
-    .await
 }
 
 // ------------------------------------------------------------------------------------------
-// Part 1: the app's account client straight against the relay
-// ------------------------------------------------------------------------------------------
-
-/// Calls every endpoint the app uses under `base` and returns one line per endpoint that does not
-/// answer as the app expects (empty when all do).
-async fn probe(base: &str, access: &str, team: &str) -> Vec<String> {
-    let api = AccountApi::new(BaseUrl::parse(base).unwrap()).unwrap();
-    let mut bad = Vec::new();
-    match api.device_authorization("interop", "windows").await {
-        Ok(_) => {}
-        Err(error) => bad.push(format!("POST {base}/oauth/device -> {error:?}")),
-    }
-    // An unknown device code: the app expects the OAuth error `invalid_grant`.
-    match api.poll_token("unknown-device-code").await {
-        hangar_lib::account::PollResponse::OAuth(code, _) => {
-            let code = format!("{code:?}");
-            if code != "InvalidGrant" {
-                bad.push(format!("POST {base}/oauth/token -> OAuth {code}"));
-            }
-        }
-        hangar_lib::account::PollResponse::Tokens(_) => {}
-        hangar_lib::account::PollResponse::Transient => {
-            bad.push(format!("POST {base}/oauth/token -> transient error"))
-        }
-        hangar_lib::account::PollResponse::Malformed => bad.push(format!(
-            "POST {base}/oauth/token -> malformed/unexpected answer"
-        )),
-    }
-    match api.me(access).await {
-        Ok(_) => {}
-        Err(error) => bad.push(format!("GET {base}/me -> {error:?}")),
-    }
-    match api.projects(access).await {
-        Ok(projects) if projects.iter().any(|p| p.id == team) => {}
-        Ok(projects) => bad.push(format!("GET {base}/projects -> team missing: {projects:?}")),
-        Err(error) => bad.push(format!("GET {base}/projects -> {error:?}")),
-    }
-    match api.relay_ticket(access, team).await {
-        Ok(_) => {}
-        Err(error) => bad.push(format!("POST {base}/relay-ticket -> {error:?}")),
-    }
-    bad
-}
-
-// ------------------------------------------------------------------------------------------
-// Part 2: adapter from the app's website API to the relay's self-host API
-// ------------------------------------------------------------------------------------------
-
-struct Adapter {
-    origin: String,
-}
-
-impl Adapter {
-    fn start(relay: &str) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        let relay = relay.to_owned();
-        let own = origin.clone();
-        std::thread::spawn(move || {
-            let client = client();
-            for stream in listener.incoming() {
-                let Ok(stream) = stream else { return };
-                let (client, relay, own) = (client.clone(), relay.clone(), own.clone());
-                std::thread::spawn(move || translate(stream, &client, &relay, &own));
-            }
-        });
-        Self { origin }
-    }
-
-    fn base(&self) -> BaseUrl {
-        BaseUrl::parse(&format!("{}/api/v1", self.origin)).unwrap()
-    }
-}
-
-struct Request {
-    method: String,
-    path: String,
-    bearer: Option<String>,
-    body: Vec<u8>,
-}
-
-fn read_request(stream: &mut TcpStream) -> Option<Request> {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-    let mut data = Vec::new();
-    let mut buffer = [0u8; 4096];
-    let head_end = loop {
-        let read = stream.read(&mut buffer).ok()?;
-        if read == 0 {
-            return None;
-        }
-        data.extend_from_slice(&buffer[..read]);
-        if let Some(at) = data.windows(4).position(|w| w == b"\r\n\r\n") {
-            break at + 4;
-        }
-    };
-    let head = String::from_utf8_lossy(&data[..head_end]).to_string();
-    let mut lines = head.split("\r\n");
-    let mut first = lines.next()?.split(' ');
-    let method = first.next()?.to_owned();
-    let path = first.next()?.to_owned();
-    let mut headers = HashMap::new();
-    for line in lines.filter(|l| !l.is_empty()) {
-        let (name, value) = line.split_once(':')?;
-        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
-    }
-    let length: usize = headers
-        .get("content-length")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-    while data.len() < head_end + length {
-        let read = stream.read(&mut buffer).ok()?;
-        if read == 0 {
-            return None;
-        }
-        data.extend_from_slice(&buffer[..read]);
-    }
-    let bearer = headers
-        .get("authorization")
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::to_owned);
-    Some(Request {
-        method,
-        path,
-        bearer,
-        body: data[head_end..head_end + length].to_vec(),
-    })
-}
-
-fn respond(stream: &mut TcpStream, status: u16, body: &[u8]) {
-    let head = format!(
-        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
-         Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(body);
-    let _ = stream.flush();
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-}
-
-/// One call of the app, translated: what the relay's self-host API needs differently is written
-/// out here, and each difference is one mismatch of the report.
-fn translate(mut stream: TcpStream, client: &reqwest::Client, relay: &str, own: &str) {
-    let Some(request) = read_request(&mut stream) else {
-        return;
-    };
-    let app: serde_json::Value =
-        serde_json::from_slice(&request.body).unwrap_or(serde_json::Value::Null);
-    let text = |key: &str| app[key].as_str().unwrap_or_default().to_owned();
-    let access = request.bearer.clone().unwrap_or_default();
-    let (status, body) = tauri::async_runtime::block_on(async {
-        match (request.method.as_str(), request.path.as_str()) {
-            // App: JSON, client_id `hangar-desktop`, scope, platform. Relay: form at
-            // `/oauth/device_authorization`, client_id `hangar`.
-            ("POST", "/api/v1/oauth/device") => {
-                let reply = call(
-                    client,
-                    reqwest::Method::POST,
-                    &format!("{relay}/oauth/device_authorization"),
-                    &[],
-                    Body::Form(form(&[
-                        ("client_id", "hangar"),
-                        ("device_name", &text("device_name")),
-                    ])),
-                )
-                .await;
-                // The app opens the page only on its server's origin.
-                let body = reply.text().replace(relay, own).into_bytes();
-                (reply.status, body)
-            }
-            // App: JSON with client_id `hangar-desktop`. Relay: form with client_id `hangar`.
-            ("POST", "/api/v1/oauth/token") => {
-                let grant = text("grant_type");
-                let mut pairs = vec![
-                    ("grant_type", grant.clone()),
-                    ("client_id", "hangar".into()),
-                ];
-                if grant == "refresh_token" {
-                    pairs.push(("refresh_token", text("refresh_token")));
-                } else {
-                    pairs.push(("device_code", text("device_code")));
-                }
-                let pairs: Vec<(&str, &str)> =
-                    pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
-                let reply = call(
-                    client,
-                    reqwest::Method::POST,
-                    &format!("{relay}/oauth/token"),
-                    &[],
-                    Body::Form(form(&pairs)),
-                )
-                .await;
-                (reply.status, reply.body)
-            }
-            // App: `/me`. Relay: `/v1/me`, same `id` and `email`.
-            ("GET", "/api/v1/me") => {
-                let reply =
-                    relay_api(client, relay, reqwest::Method::GET, "/v1/me", &access, None).await;
-                (reply.status, reply.body)
-            }
-            // App: `/projects` -> `{"projects":[{id,name,role}]}`. Relay: the `teams` of `/v1/me`.
-            ("GET", "/api/v1/projects") => {
-                let reply =
-                    relay_api(client, relay, reqwest::Method::GET, "/v1/me", &access, None).await;
-                if reply.status != 200 {
-                    return (reply.status, reply.body);
-                }
-                let projects = reply.json()["teams"].clone();
-                (
-                    200,
-                    serde_json::json!({ "projects": projects })
-                        .to_string()
-                        .into_bytes(),
-                )
-            }
-            // App: `/relay-ticket` `{project_id}` -> `{ticket, expires_at, relay_url}`. Relay:
-            // `/v1/tickets` `{team}` -> `{ticket, expiresIn, live}`.
-            ("POST", "/api/v1/relay-ticket") => {
-                let body = serde_json::json!({ "team": text("project_id") });
-                let reply = relay_api(
-                    client,
-                    relay,
-                    reqwest::Method::POST,
-                    "/v1/tickets",
-                    &access,
-                    Some(&body),
-                )
-                .await;
-                if reply.status != 200 {
-                    return (reply.status, reply.body);
-                }
-                let issued = reply.json();
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                let ticket = serde_json::json!({
-                    "ticket": issued["ticket"],
-                    "expires_at": now + issued["expiresIn"].as_u64().unwrap_or(60),
-                    "relay_url": issued["live"],
-                });
-                (200, ticket.to_string().into_bytes())
-            }
-            _ => (404, br#"{"error":"not_found"}"#.to_vec()),
-        }
-    });
-    respond(&mut stream, status, &body);
-}
-
-// ------------------------------------------------------------------------------------------
-// One Hangar on the adapter
+// One Hangar on the relay's account API
 // ------------------------------------------------------------------------------------------
 
 struct App {
     account: AccountService,
     team: TeamService,
+    /// Every status the team service published, in order.
+    statuses: Arc<Mutex<Vec<TeamStatus>>>,
     _dir: TempDir,
 }
 
-fn timing() -> Timing {
+fn timing(renew_every: Duration) -> Timing {
     Timing {
-        // A few real `ticket.renew` during the run (the relay allows 600 tickets an hour).
-        renew_every: Duration::from_secs(3),
+        renew_every,
         max_age: Duration::from_secs(540),
         ping_every: Duration::from_secs(5),
         silence: Duration::from_secs(30),
@@ -593,10 +351,10 @@ fn timing() -> Timing {
 }
 
 impl App {
-    fn new(adapter: &Adapter, name: &str) -> Self {
+    fn new(base: &BaseUrl, name: &str, renew_every: Duration) -> Self {
         let dir = TempDir::new(name);
         let account = AccountService::new(
-            adapter.base(),
+            base.clone(),
             Arc::new(MemoryStore::default()),
             Arc::new(|_: &reqwest::Url| Ok(())),
             Arc::new(|_: &AccountView| {}),
@@ -605,20 +363,30 @@ impl App {
                 ..AccountOptions::default()
             },
         );
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&statuses);
         let team = TeamService::new(
             account.clone(),
             Arc::new(MemoryStore::default()),
-            Arc::new(|_: &TeamSnapshot| {}),
+            Arc::new(move |snapshot: &TeamSnapshot| {
+                if let Some(entry) = snapshot.teams.first() {
+                    let mut seen = guard(&seen);
+                    if seen.last() != Some(&entry.status) {
+                        seen.push(entry.status.clone());
+                    }
+                }
+            }),
             Options {
                 config_dir: Some(dir.0.join("config")),
                 state_dir: Some(dir.0.join("local")),
-                timing: timing(),
+                timing: timing(renew_every),
                 ..Options::default()
             },
         );
         Self {
             account,
             team,
+            statuses,
             _dir: dir,
         }
     }
@@ -626,9 +394,15 @@ impl App {
     /// The app's own device flow; the person approves on the relay's page.
     async fn sign_in(&self, client: &reqwest::Client, browser: &Browser) -> String {
         let view = self.account.sign_in().await.unwrap();
-        let AccountState::WaitingForUser { user_code, .. } = view.state else {
+        let AccountState::WaitingForUser {
+            user_code,
+            verification_uri_complete,
+            ..
+        } = view.state
+        else {
             panic!("device flow did not start: {:?}", view.state);
         };
+        eprintln!("interop: app device flow shows {user_code} at {verification_uri_complete}");
         browser.approve(client, &user_code).await;
         let deadline = Instant::now() + WAIT;
         loop {
@@ -644,17 +418,39 @@ impl App {
         }
     }
 
-    async fn until(&self, project: &str, what: &str, test: impl Fn(&TeamStatus) -> bool) {
-        let deadline = Instant::now() + WAIT;
+    fn activity(&self) -> Option<TeamActivity> {
+        self.team
+            .snapshot()
+            .teams
+            .first()
+            .map(|t| t.activity.clone())
+    }
+
+    /// Waits for `test`; `false` after `limit`.
+    async fn wait(
+        &self,
+        project: &str,
+        what: &str,
+        limit: Duration,
+        test: impl Fn(&TeamStatus) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + limit;
         loop {
             let status = self.team.status(project);
             if test(&status) {
                 eprintln!("interop: {what}: {status:?}");
-                return;
+                return true;
             }
-            assert!(Instant::now() < deadline, "{what}: still {status:?}");
+            if Instant::now() >= deadline {
+                eprintln!("interop: {what}: still {status:?}");
+                return false;
+            }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    async fn until(&self, project: &str, what: &str, test: impl Fn(&TeamStatus) -> bool) {
+        assert!(self.wait(project, what, WAIT, test).await, "{what}");
     }
 
     async fn connected(&self, project: &str, epoch: u32, members: usize, devices: usize) {
@@ -668,13 +464,22 @@ impl App {
     }
 }
 
-async fn until(what: &str, test: impl Fn() -> bool) {
-    let deadline = Instant::now() + WAIT;
+/// Waits for `test`; `false` after `limit`.
+async fn wait(what: &str, limit: Duration, test: impl Fn() -> bool) -> bool {
+    let deadline = Instant::now() + limit;
     while !test() {
-        assert!(Instant::now() < deadline, "{what}");
+        if Instant::now() >= deadline {
+            eprintln!("interop: {what}: timed out");
+            return false;
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     eprintln!("interop: {what}");
+    true
+}
+
+async fn until(what: &str, test: impl Fn() -> bool) {
+    assert!(wait(what, WAIT, test).await, "{what}");
 }
 
 fn local(id: u64, agent: &str, root: &str, files: &[(&str, u32, u32)]) -> LocalSession {
@@ -701,6 +506,31 @@ fn local(id: u64, agent: &str, root: &str, files: &[(&str, u32, u32)]) -> LocalS
     }
 }
 
+fn task(title: &str, session: Option<u64>, area: Option<&str>) -> Task {
+    Task {
+        title: title.to_owned(),
+        session,
+        area: area.map(str::to_owned),
+    }
+}
+
+fn has_notice(activity: Option<TeamActivity>, kind: NoticeKind) -> bool {
+    activity.is_some_and(|a| a.notices.iter().any(|n| n.kind == kind))
+}
+
+async fn session_count(client: &reqwest::Client, origin: &str, access: &str) -> usize {
+    let reply = relay_api(
+        client,
+        origin,
+        reqwest::Method::GET,
+        "/v1/sessions",
+        access,
+        None,
+    )
+    .await;
+    reply.json()["sessions"].as_array().map_or(0, Vec::len)
+}
+
 // ------------------------------------------------------------------------------------------
 // The test
 // ------------------------------------------------------------------------------------------
@@ -715,14 +545,49 @@ fn hangar_against_a_self_hosted_relay() {
     let origin = origin.trim_end_matches('/').to_owned();
     let link_a = env("HANGAR_INTEROP_LINK_A").expect("HANGAR_INTEROP_LINK_A");
     let link_b = env("HANGAR_INTEROP_LINK_B").expect("HANGAR_INTEROP_LINK_B");
+    let short_timers = env("HANGAR_INTEROP_SHORT_TIMERS").is_some();
     tauri::async_runtime::block_on(async move {
+        let mut findings = Findings::default();
         let client = client();
+        let base = BaseUrl::parse(&format!("{origin}/api/v1")).unwrap();
+        let api = AccountApi::new(base.clone()).unwrap();
         let alice = Browser::sign_in(&client, &origin, &link_a).await;
         let bob = Browser::sign_in(&client, &origin, &link_b).await;
         eprintln!("interop: both login links redeemed");
-        let alice_token = alice.access_token(&client).await;
-        let bob_token = bob.access_token(&client).await;
-        eprintln!("interop: relay device flow gave both accounts a token");
+
+        // ---- Part 1: the account API as the app's client speaks it ----
+        let alice_tokens = alice.tokens(&client, &api).await;
+        let bob_tokens = bob.tokens(&client, &api).await;
+        eprintln!("interop: AccountApi device flow gave both accounts tokens");
+        let poll = api.poll_token("unknown-device-code").await;
+        findings.check(
+            matches!(
+                poll,
+                PollResponse::OAuth(hangar_lib::account::OAuthCode::InvalidGrant, _)
+            ),
+            "POST /oauth/token with an unknown device code -> invalid_grant",
+        );
+        let refreshed = api.refresh("hgrt_unknown").await;
+        findings.check(
+            matches!(
+                refreshed,
+                Err(ApiError::OAuth(
+                    hangar_lib::account::OAuthCode::InvalidGrant,
+                    _
+                ))
+            ),
+            format!("POST /oauth/token with an unknown refresh token -> {refreshed:?}"),
+        );
+        let me = api.me(&alice_tokens.access).await;
+        findings.check(
+            me.as_ref().is_ok_and(|me| me.email == "a@example.org"),
+            format!("GET /me -> {me:?}"),
+        );
+        let unauthorized = api.me("hgat_unknown").await;
+        findings.check(
+            matches!(unauthorized, Err(ApiError::Unauthorized)),
+            format!("GET /me with an unknown token -> {unauthorized:?}"),
+        );
 
         // The team, the invitation and its acceptance: the app has no calls for these yet.
         let created = relay_api(
@@ -730,29 +595,39 @@ fn hangar_against_a_self_hosted_relay() {
             &origin,
             reqwest::Method::POST,
             "/v1/teams",
-            &alice_token,
+            &alice_tokens.access,
             Some(&serde_json::json!({ "name": "Interop" })),
         )
         .await;
         assert_eq!(created.status, 201, "team: {}", created.text());
         let team = created.json()["id"].as_str().unwrap().to_owned();
-        let bob_me = relay_api(
-            &client,
-            &origin,
-            reqwest::Method::GET,
-            "/v1/me",
-            &bob_token,
-            None,
-        )
-        .await
-        .json();
+        let projects = api.projects(&alice_tokens.access).await;
+        findings.check(
+            projects
+                .as_ref()
+                .is_ok_and(|p| p.iter().any(|p| p.id == team && p.role == Role::Owner)),
+            format!("GET /projects lists the team as owner -> {projects:?}"),
+        );
+        let ticket = api.relay_ticket(&alice_tokens.access, &team).await;
+        findings.check(
+            ticket.as_ref().is_ok_and(|t| {
+                t.relay_url.as_str() == format!("{}/v1/live", origin.replacen("http", "ws", 1))
+            }),
+            format!("POST /relay-ticket -> {ticket:?}"),
+        );
+        let stranger = api.relay_ticket(&bob_tokens.access, &team).await;
+        findings.check(
+            matches!(stranger, Err(ApiError::Status { status: 404, .. })),
+            format!("POST /relay-ticket for a non-member -> {stranger:?}"),
+        );
+        let bob_me = api.me(&bob_tokens.access).await.expect("bob's /me");
         let invited = relay_api(
             &client,
             &origin,
             reqwest::Method::POST,
             &format!("/v1/teams/{team}/invitations"),
-            &alice_token,
-            Some(&serde_json::json!({ "emails": [bob_me["email"]], "role": "member" })),
+            &alice_tokens.access,
+            Some(&serde_json::json!({ "emails": [bob_me.email], "role": "member" })),
         )
         .await;
         assert_eq!(invited.status, 200, "invite: {}", invited.text());
@@ -766,35 +641,23 @@ fn hangar_against_a_self_hosted_relay() {
             &origin,
             reqwest::Method::POST,
             "/v1/invitations/accept",
-            &bob_token,
+            &bob_tokens.access,
             Some(&serde_json::json!({ "token": token })),
         )
         .await;
         assert_eq!(accepted.status, 200, "accept: {}", accepted.text());
         eprintln!("interop: team created, member invited and joined");
 
-        // Part 1: the app's account client as it is, against the relay.
-        let mut mismatches = Vec::new();
-        for base in [
-            origin.clone(),
-            format!("{origin}/v1"),
-            format!("{origin}/api/v1"),
-        ] {
-            let bad = probe(&base, &alice_token, &team).await;
-            if bad.is_empty() {
-                mismatches.clear();
-                break;
-            }
-            mismatches.extend(bad);
-        }
-        for line in &mismatches {
-            eprintln!("interop: account API mismatch: {line}");
-        }
-
-        // Part 2: the real account and team services through the adapter.
-        let adapter = Adapter::start(&origin);
-        let a1 = App::new(&adapter, "a1");
-        let b1 = App::new(&adapter, "b1");
+        // ---- Part 2: the real account and team services ----
+        // Alice's device renews no ticket when the relay's connection age is short, so the relay
+        // ends her connection with 4401 and she reconnects; Bob's renews every 3 s.
+        let alice_renew = if short_timers {
+            Duration::from_secs(3600)
+        } else {
+            Duration::from_secs(3)
+        };
+        let a1 = App::new(&base, "a1", alice_renew);
+        let b1 = App::new(&base, "b1", Duration::from_secs(3));
         let alice_id = a1.sign_in(&client, &alice).await;
         let bob_id = b1.sign_in(&client, &bob).await;
         eprintln!("interop: app device flow signed in {alice_id} and {bob_id}");
@@ -806,15 +669,11 @@ fn hangar_against_a_self_hosted_relay() {
             matches!(s, TeamStatus::WaitingForConfirmation { .. })
         })
         .await;
-        let deadline = Instant::now() + WAIT;
-        let pending = loop {
-            let pending = a1.team.pending();
-            if !pending.is_empty() {
-                break pending;
-            }
-            assert!(Instant::now() < deadline, "no pending confirmation");
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        };
+        until("alice is asked to confirm bob", || {
+            !a1.team.pending().is_empty()
+        })
+        .await;
+        let pending = a1.team.pending();
         assert_eq!(pending[0].member, bob_id);
         a1.team.confirm(&pending[0].id).await.unwrap();
         b1.connected(&team, 1, 2, 2).await;
@@ -833,8 +692,8 @@ fn hangar_against_a_self_hosted_relay() {
         a1.team.link_repo(&team, &root, FOLDER, true).unwrap();
         b1.team.link_repo(&team, &root, FOLDER, true).unwrap();
         until("bob sees alice's session", || {
-            b1.team.snapshot().teams.first().is_some_and(|t| {
-                t.activity.peers.iter().any(|p| {
+            b1.activity().is_some_and(|a| {
+                a.peers.iter().any(|p| {
                     p.sessions
                         .iter()
                         .any(|s| s.agent == "Claude Code" && s.files == ["src/auth.rs"])
@@ -843,8 +702,8 @@ fn hangar_against_a_self_hosted_relay() {
         })
         .await;
         until("alice sees the overlapping lines", || {
-            a1.team.snapshot().teams.first().is_some_and(|t| {
-                t.activity.overlaps.iter().any(|o| {
+            a1.activity().is_some_and(|a| {
+                a.overlaps.iter().any(|o| {
                     o.level == OverlapLevel::OverlappingLines
                         && o.lines == [LineRange { start: 10, end: 15 }]
                         && o.agent == "Codex"
@@ -853,59 +712,401 @@ fn hangar_against_a_self_hosted_relay() {
         })
         .await;
 
-        // Several ticket renewals later both are still on the same connection state.
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        a1.connected(&team, 1, 2, 2).await;
-        b1.connected(&team, 1, 2, 2).await;
+        // ---- Task reservations ----
+        // T1: Alice reserves, Bob is second and waits on her, asks, Alice hands it over.
+        a1.team
+            .reserve_task(&team, task("Fix checkout", Some(1), Some("src/pay")))
+            .await
+            .unwrap();
+        until("bob sees alice's reservation", || {
+            b1.activity().is_some_and(|a| {
+                a.tasks
+                    .iter()
+                    .any(|t| t.title == "Fix checkout" && t.member == alice_id)
+            })
+        })
+        .await;
+        b1.team
+            .reserve_task(&team, task("fix checkout", None, None))
+            .await
+            .unwrap();
+        until("bob's attempt waits on alice by name", || {
+            b1.activity().is_some_and(|a| {
+                a.attempts.len() == 1
+                    && a.attempts[0].state == AttemptState::Blocked
+                    && a.attempts[0].member.as_deref() == Some(alice_id.as_str())
+            })
+        })
+        .await;
+        let t1 = b1.activity().unwrap().attempts[0].task.clone();
+        b1.team.ask_release(&team, &t1).await.unwrap();
+        until("alice is asked to hand over", || {
+            a1.activity().is_some_and(|a| {
+                a.tasks.iter().any(|t| {
+                    t.task == t1
+                        && t.mine
+                        && t.request
+                            .as_ref()
+                            .is_some_and(|r| r.member == bob_id && r.confirmed)
+                })
+            })
+        })
+        .await;
+        a1.team
+            .answer_release(&team, &t1, &bob_id, true)
+            .await
+            .unwrap();
+        until("bob holds the task", || {
+            b1.activity()
+                .is_some_and(|a| a.tasks.iter().any(|t| t.task == t1 && t.mine))
+        })
+        .await;
+        findings.check(
+            has_notice(b1.activity(), NoticeKind::ReleaseAccepted),
+            "bob is told the handover was accepted",
+        );
+        until("alice reads bob's note", || {
+            a1.activity().is_some_and(|a| {
+                a.tasks
+                    .iter()
+                    .any(|t| t.task == t1 && t.member == bob_id && t.title == "fix checkout")
+            })
+        })
+        .await;
 
-        // The owner removes the member on the server: the relay closes his connection (4403), his
-        // app sees the project gone from its list and stops; the owner's app takes him out of
-        // the membership log and rotates to epoch 2.
+        // T2: Alice declines.
+        a1.team
+            .reserve_task(&team, task("Update docs", None, None))
+            .await
+            .unwrap();
+        until("bob sees the second reservation", || {
+            b1.activity()
+                .is_some_and(|a| a.tasks.iter().any(|t| t.title == "Update docs"))
+        })
+        .await;
+        b1.team
+            .reserve_task(&team, task("Update docs", None, None))
+            .await
+            .unwrap();
+        until("bob's second attempt is blocked", || {
+            b1.activity().is_some_and(|a| {
+                a.attempts
+                    .iter()
+                    .any(|t| t.title == "Update docs" && t.state == AttemptState::Blocked)
+            })
+        })
+        .await;
+        let t2 = b1
+            .activity()
+            .unwrap()
+            .attempts
+            .iter()
+            .find(|t| t.title == "Update docs")
+            .unwrap()
+            .task
+            .clone();
+        b1.team.ask_release(&team, &t2).await.unwrap();
+        until("alice is asked for the second task", || {
+            a1.activity()
+                .is_some_and(|a| a.tasks.iter().any(|t| t.task == t2 && t.request.is_some()))
+        })
+        .await;
+        a1.team
+            .answer_release(&team, &t2, &bob_id, false)
+            .await
+            .unwrap();
+        findings.check(
+            wait("bob is told the request was declined", WAIT, || {
+                has_notice(b1.activity(), NoticeKind::ReleaseDeclined)
+            })
+            .await,
+            "bob is told the request was declined",
+        );
+        findings.check(
+            a1.activity().is_some_and(|a| {
+                a.tasks
+                    .iter()
+                    .any(|t| t.task == t2 && t.mine && t.request.is_none())
+            }),
+            "alice keeps the declined task, the request is gone",
+        );
+        // Bob asks again at once: the relay's cooldown refuses it.
+        b1.team.ask_release(&team, &t2).await.unwrap();
+        findings.check(
+            wait(
+                "a second request within the cooldown is refused",
+                WAIT,
+                || has_notice(b1.activity(), NoticeKind::AskRefused),
+            )
+            .await,
+            "a second request within the cooldown is refused",
+        );
+        b1.team.release_task(&team, &t2).await.unwrap();
+        a1.team.release_task(&team, &t2).await.unwrap();
+        findings.check(
+            wait("the second task is gone everywhere", WAIT, || {
+                a1.activity()
+                    .is_some_and(|a| a.tasks.iter().all(|t| t.task != t2))
+                    && b1.activity().is_some_and(|a| {
+                        a.tasks.iter().all(|t| t.task != t2)
+                            && a.attempts.iter().all(|t| t.task != t2)
+                    })
+            })
+            .await,
+            "the second task is gone everywhere after release and cancel",
+        );
+
+        // ---- Expiry of an offline holder's task and the connection age (4401) ----
+        if short_timers {
+            let before = guard(&a1.statuses).len();
+            b1.team.disable(&team).await.unwrap();
+            findings.check(
+                wait("alice sees bob's hold run on a deadline", WAIT, || {
+                    a1.activity().is_some_and(|a| {
+                        a.tasks
+                            .iter()
+                            .any(|t| t.task == t1 && t.expires_at.is_some())
+                    })
+                })
+                .await,
+                "an offline holder's task gets a deadline",
+            );
+            findings.check(
+                wait(
+                    "alice sees the expiry warning",
+                    Duration::from_secs(150),
+                    || {
+                        a1.activity()
+                            .is_some_and(|a| a.tasks.iter().any(|t| t.task == t1 && t.expiring))
+                    },
+                )
+                .await,
+                "the expiry warning reaches the team",
+            );
+            findings.check(
+                wait("bob's task expired", Duration::from_secs(150), || {
+                    a1.activity()
+                        .is_some_and(|a| a.tasks.iter().all(|t| t.task != t1))
+                })
+                .await,
+                "the offline holder's task expires",
+            );
+            let seen: Vec<TeamStatus> = guard(&a1.statuses)[before..].to_vec();
+            findings.check(
+                seen.iter()
+                    .any(|s| matches!(s, TeamStatus::Connecting { .. })),
+                format!("alice's connection was replaced after the relay's age limit: {seen:?}"),
+            );
+            a1.connected(&team, 1, 2, 2).await;
+            b1.team.enable(&team).await.unwrap();
+            b1.connected(&team, 1, 2, 2).await;
+            let notices: Vec<NoticeKind> = b1
+                .activity()
+                .map(|a| a.notices.iter().map(|n| n.kind).collect())
+                .unwrap_or_default();
+            eprintln!("interop: bob's notices after coming back: {notices:?}");
+            findings.check(
+                wait(
+                    "bob learns that his task ran out",
+                    Duration::from_secs(20),
+                    || {
+                        has_notice(b1.activity(), NoticeKind::Expired)
+                            || has_notice(b1.activity(), NoticeKind::Expiring)
+                    },
+                )
+                .await,
+                "bob learns about the expiry when he comes back",
+            );
+        } else {
+            eprintln!("interop: short timers off: hold expiry and 4401 not exercised");
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            a1.connected(&team, 1, 2, 2).await;
+            b1.connected(&team, 1, 2, 2).await;
+        }
+
+        // ---- A second device of Bob, endorsed by his first ----
+        let bob_first = a1
+            .activity()
+            .and_then(|a| a.peers.into_iter().find(|p| p.member == bob_id))
+            .map(|p| p.device)
+            .expect("bob's device in alice's view");
+        let b2 = App::new(&base, "b2", Duration::from_secs(3));
+        assert_eq!(b2.sign_in(&client, &bob).await, bob_id);
+        b2.team.enable(&team).await.unwrap();
+        b2.until(&team, "bob's second device waits", |s| {
+            matches!(s, TeamStatus::WaitingForConfirmation { .. })
+        })
+        .await;
+        until("bob's first device is asked", || {
+            !b1.team.pending().is_empty()
+        })
+        .await;
+        let pending = b1.team.pending();
+        findings.check(
+            pending[0].kind == hangar_lib::team::PendingKind::OwnDevice,
+            format!(
+                "the second device is the member's own: {:?}",
+                pending[0].kind
+            ),
+        );
+        b1.team.confirm(&pending[0].id).await.unwrap();
+        b2.connected(&team, 1, 2, 3).await;
+        a1.connected(&team, 1, 2, 3).await;
+
+        // ---- device.remove: the owner removes Bob's second device ----
+        let bob_second = a1
+            .activity()
+            .and_then(|a| {
+                a.peers
+                    .into_iter()
+                    .find(|p| p.member == bob_id && p.device != bob_first)
+            })
+            .map(|p| p.device)
+            .expect("bob's second device in alice's view");
+        a1.team
+            .remove_device(&team, &bob_id, &bob_second)
+            .await
+            .unwrap();
+        let removed = b2
+            .wait(&team, "bob's removed device stops", WAIT, |s| {
+                !matches!(
+                    s,
+                    TeamStatus::Connected { .. } | TeamStatus::Connecting { .. }
+                )
+            })
+            .await;
+        findings.check(
+            removed && b2.team.status(&team) == TeamStatus::Removed,
+            format!(
+                "a removed device stops as removed: {:?}",
+                b2.team.status(&team)
+            ),
+        );
+        findings.check(
+            a1.wait(&team, "alice after the device removal", WAIT, |s| {
+                matches!(s, TeamStatus::Connected { devices: 2, .. })
+            })
+            .await,
+            "the owner's view drops the removed device",
+        );
+        findings.check(
+            b1.wait(&team, "bob's first device stays", WAIT, |s| {
+                matches!(s, TeamStatus::Connected { devices: 2, .. })
+            })
+            .await,
+            "the member's other device stays connected",
+        );
+        // Turned on again, the removed device should learn from the verified log that it was
+        // removed, forget its identity and ask to join as a new device.
+        b2.team.enable(&team).await.unwrap();
+        let rejoined = b2
+            .wait(&team, "bob's removed device asks again", WAIT, |s| {
+                matches!(s, TeamStatus::WaitingForConfirmation { .. })
+            })
+            .await;
+        findings.check(
+            rejoined,
+            format!(
+                "a removed device asks to join again as a new one: {:?}",
+                b2.team.status(&team)
+            ),
+        );
+        b2.team.shutdown();
+
+        // ---- Member removal (4403) and team deletion (4404) ----
         let removed = relay_api(
             &client,
             &origin,
             reqwest::Method::DELETE,
             &format!("/v1/teams/{team}/members/{bob_id}"),
-            &alice_token,
+            &alice_tokens.access,
             None,
         )
         .await;
         assert_eq!(removed.status, 204, "remove member: {}", removed.text());
-        b1.until(&team, "member removed", |s| *s == TeamStatus::Removed)
-            .await;
+        findings.check(
+            b1.wait(&team, "member removed", WAIT, |s| *s == TeamStatus::Removed)
+                .await,
+            "a member removed on the server stops as removed",
+        );
         a1.team.remove_member(&team, &bob_id).await.unwrap();
-        a1.connected(&team, 2, 1, 1).await;
-        until("bob gone from alice's view", || {
-            a1.team
-                .snapshot()
-                .teams
-                .first()
-                .is_some_and(|t| t.activity.peers.is_empty())
+        a1.until(&team, "alice alone", |s| {
+            matches!(
+                s,
+                TeamStatus::Connected {
+                    members: 1,
+                    devices: 1,
+                    ..
+                }
+            )
         })
         .await;
-
-        // The owner deletes the team: 4404, confirmed by the (adapted) project list.
         let deleted = relay_api(
             &client,
             &origin,
             reqwest::Method::DELETE,
             &format!("/v1/teams/{team}"),
-            &alice_token,
+            &alice_tokens.access,
             None,
         )
         .await;
         assert_eq!(deleted.status, 204, "delete team: {}", deleted.text());
-        a1.until(&team, "project deleted", |s| {
-            *s == TeamStatus::ProjectDeleted
-        })
-        .await;
+        findings.check(
+            a1.wait(&team, "project deleted", WAIT, |s| {
+                *s == TeamStatus::ProjectDeleted
+            })
+            .await,
+            "a deleted team stops as deleted",
+        );
         a1.team.shutdown();
         b1.team.shutdown();
 
+        // ---- Sign-out revokes the device grant on the server ----
+        let sessions_before = session_count(&client, &origin, &alice_tokens.access).await;
+        let view = a1.account.sign_out().await.unwrap();
+        let sessions_after = session_count(&client, &origin, &alice_tokens.access).await;
+        findings.check(
+            matches!(
+                view.state,
+                AccountState::Idle {
+                    notice: Some(IdleNotice::SignedOut)
+                }
+            ) && sessions_after + 1 == sessions_before,
+            format!(
+                "sign-out revokes: {:?}, sessions {sessions_before} -> {sessions_after}",
+                view.state
+            ),
+        );
+        let view = b1.account.sign_out().await.unwrap();
+        findings.check(
+            matches!(
+                view.state,
+                AccountState::Idle {
+                    notice: Some(IdleNotice::SignedOut)
+                }
+            ),
+            format!("bob's sign-out revokes: {:?}", view.state),
+        );
+        // The test's own grant: revoke, after which the refresh token is spent.
+        let revoked = api.revoke(&alice_tokens.refresh).await;
+        let reused = api.refresh(&alice_tokens.refresh).await;
+        findings.check(
+            revoked.is_ok()
+                && matches!(
+                    reused,
+                    Err(ApiError::OAuth(
+                        hangar_lib::account::OAuthCode::InvalidGrant,
+                        _
+                    ))
+                ),
+            format!("revoke then refresh -> {revoked:?}, {reused:?}"),
+        );
+        let _ = api.revoke(&bob_tokens.refresh).await;
+
         assert!(
-            mismatches.is_empty(),
-            "the app's account client does not work against the relay's self-host API:\n{}",
-            mismatches.join("\n")
+            findings.0.is_empty(),
+            "mismatches between the app and the relay:\n{}",
+            findings.0.join("\n")
         );
     });
 }
