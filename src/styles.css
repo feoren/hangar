@@ -5495,6 +5495,142 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
+/* Team view of a connected project: shared repositories and the teammates' sessions. */
+
+.team-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.team-activity-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.team-repo-list,
+.team-peer-list,
+.team-session-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-repo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team-repo input {
+  flex: none;
+  margin: 0;
+}
+
+.team-repo-name,
+.team-peer-name,
+.team-session-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-peer + .team-peer {
+  margin-top: 6px;
+}
+
+.team-peer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.team-repo-folder {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-peer-id {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.team-peer-away {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.team-session {
+  padding-left: 2px;
+  font-size: 12px;
+}
+
+.team-session-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.team-session-state {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Shape and text tell the state, not the color alone: dot working, diamond waiting, bar idle. */
+.team-session-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  transform: translateY(-1px);
+}
+
+.team-session.state-waiting .team-session-mark {
+  border-radius: 1px;
+  background: var(--attention);
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.team-session.state-idle .team-session-mark {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: translateY(-3px);
+}
+
+.team-session-files {
+  padding-left: 13px;
+}
+
+.team-session-files .claims-toggle {
+  font-size: 11px;
+}
+
 .safety-number {
   display: grid;
   grid-template-columns: repeat(3, max-content);

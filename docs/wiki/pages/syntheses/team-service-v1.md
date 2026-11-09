@@ -596,11 +596,154 @@ real relay yet; tested against an in-test relay built from both crates.
   rewritten history, sign-out and sign-in, a server change and a second window. Engine tests add
   a partial rotation completed with `key.wrap`, the re-admission mark, the bounded wrapped keys
   of `key.rotated` and the counter floor.
-- **Not built yet:** teammates' presence and claims (part 2b), removing devices and members from
-  the UI, the "added by" note for current members, granting history on a rotation, comparing log
+- **Not built yet:** teammates' presence and claims (part 2b, built since), removing devices and
+  members from the UI, the "added by" note for current members, granting history on a rotation, comparing log
   safety numbers in the UI, the recovery code, a proxy for the relay. A device removed with
   `device.remove` keeps its keys (4403 follows at once and the log fetch is not answered) until
   the person turns sharing off.
+
+### Step F as built (part 2b, 2026-11-09)
+
+See your team: the teammates' sessions, the files they change, and their collisions with your own
+sessions, with the agent gate of step B pausing on a teammate's file. Not run against a real
+relay yet; tested against the in-test relays of `team_engine.rs` and `tests/team.rs`, which pass
+presence on and compare claims with the protocol crate's `ClaimBoard`.
+
+- **Review items of part 2a:** the device identity is bound to the account of its first
+  `welcome` (`StoredDevice` format `v2 <device> <member in hex> <identity>`; `v1` entries are bound
+  at their next `welcome`). Another account on the same keychain stops with `needsAttention
+  { otherAccount }` before connecting (when the account already knows who is signed in) or at
+  `welcome`, and touches no key; signing in with the first account again restarts the team. An
+  unreadable `team.json` is an error (`TeamConfig::load`), so turning sharing on or off fails with
+  `config` instead of writing over the other projects' and the other build's choices. A worker
+  holds its team's turn (an in-process lock) for its whole run; a new worker of the same team
+  (off and on again, signed out and in) waits up to 3 s for it before it tries the lock file, so it
+  no longer shows `otherInstance` for 5 s. The service now acts on the account's current view in
+  its subscription, since the account publishes from several threads and a sign-out's view can
+  arrive after the next sign-in's. The regression test for the handover passes with and without
+  the turn on the test machine (the old worker exits faster than a sign-in takes), so it guards
+  the behavior but did not reproduce the original race.
+- **Which repository belongs to a project:** the website knows no repository, so the person links
+  them in the Team view: a checkbox per repository folder of a running agent session ("Shared
+  repositories", stored in `team.json` under `reposByService.<service>.<server>.<project>` with
+  the root commit, the clone's git common folder as `claims::folder_key` normalizes it, and the
+  folder name). The root commit alone is not enough: every other clone and every fork of the
+  same project shares it, so a link by root alone shared a private fork as soon as its upstream
+  was linked. The git common folder is the unit (not the worktree top), so every worktree of a
+  linked clone, including the ones Hangar creates for agents, is shared without asking again;
+  another clone or fork is its own choice, unticked until the person ticks it. Links from before
+  folders were bound (`folder` missing) share nothing; the Team view asks to tick the folders
+  again when a running folder of such a repository is offered, and ticking one replaces the old
+  link. This is the safer migration: binding them to whatever folders run now could pick a fork
+  the person never meant. Nothing of an unlinked folder leaves the device; the device's presence
+  still goes out (with no sessions), so teammates see it is connected. `team_link_repo` takes
+  only a project id the team protocol accepts (`TeamId::new`), links only to a project with
+  sharing on (`unknownProject` otherwise), and only a folder of a running session.
+- **Repository identity:** the claims worker asks git once per repository
+  `rev-list --max-parents=0 HEAD --` through `Git::run` after the first scan with a base commit and
+  keeps the smallest root (`RepoId`); `Git::run` sets `GIT_NO_REPLACE_OBJECTS=1`, so a replace
+  ref cannot graft another root onto the history; a failure, a timeout or cut output is remembered as unknown
+  for the app run (a huge history is not walked again). `WorktreeClaims` carries it with the
+  folder name and the truncation flag. Its cost on a very large history is not measured.
+- **What is shared** (`team_share.rs`, pure): per linked session the agent's program name, the
+  session title, its state (working, waiting, idle from the window's attention logic, sent with
+  `team_session_states`, 1 s quiet time), the repository's root commit and the changed paths,
+  plus the person's display name as the website keeps it (`GET /me` `name`), empty without one.
+  The e-mail address never leaves the device; a teammate without a name shows as its short
+  member id. Presence status is a
+  sealed `PresenceStatus` record (record id empty), at most `RecordKind::max_plaintext` (about
+  12 KB): file lists are halved from the largest session until it fits, the rest counted in
+  `moreFiles`. Each session with changes sends `claim.set`: the keyed hashes of repository, area
+  and path (case rule fold, paths the protocol refuses are left out and the set marked truncated,
+  at most 1000 files) and a sealed `ClaimDetail` (record id: the session key) with name, agent,
+  title, base commit, paths and line ranges, cut to fit. Session keys are random per session for
+  the engine's lifetime. Nothing is sent again unless its content changed (a digest per session);
+  after every `hello` and on a new epoch everything goes again. The record counter is stored once
+  before the frames of one batch.
+- **What is shown:** `presence.update` and the detail in `claim.overlap` are opened with
+  `EpochCipher::open_verified` against the verified log. Both are live state the relay repeats
+  after a reconnect, so they bypass the `ReplayGuard` (which would refuse the second delivery).
+  High-water marks take its place (`LiveMarks` in `team_engine.rs`): per teammate device and
+  signing key the newest status counter shown, per device and session key the newest detail
+  counter; a record below its mark is ignored, an equal one (the same record again) passes. The
+  marks are stored in the team's state file (`presenceMarks`, `detailMarks`, `detailFloors`) and
+  are never cleared by the relay's unsigned `offline`, a reconnect or a restart, so the relay can
+  no longer bring back an older authentic status or detail. They stay bounded: marks of devices
+  the verified log no longer lists go after every log fetch, and a device keeps at most 64
+  session marks (beyond that the oldest goes and raises a floor that unknown sessions must
+  exceed). Only records of the current epoch or a newer one are opened. No age limit on top: a
+  status is sent only when it changes (no periodic re-seal), so a quiet teammate's newest status
+  may be hours old and still current; an age window would need a heartbeat re-seal first. The
+  relay still decides what reaches the device and when (accepted risk: delayed, never older than
+  shown, never forged). Only devices the verified log vouches for appear, at most one entry per
+  device in the log: a
+  presence or overlap naming another holder is retried once after a log fetch and then dropped,
+  and devices the log no longer lists leave the view after every fetch. A record naming a log
+  entry or
+  an epoch this device does not have yet is kept (at most 64) and retried once after the next log
+  fetch; a fork (`OpenError::Fork`) stops with `historyMismatch`. Since the crypto crate checks
+  the sender's signature before the head's hash, only a record a listed device signed over a
+  head this device's log does not have can report a fork; a record anyone could write (wrong
+  hash, no valid signature) is dropped and the connection stays. The stop for a signed fork stays
+  on purpose: the relay shows two devices different logs, which only comparing log safety numbers
+  can settle, and trusting either side meanwhile could hand content to the wrong one. Unknown fields or versions in a
+  document are refused; names, titles and lists are cut when read. `offline` removes the device and
+  its overlaps.
+- **Teammate overlaps:** the relay's `sameFile` is refined locally with step A's rule (same base
+  commit, ranges within 3 lines: overlapping lines) from the teammate's detail; a detail that
+  names no file of ours wins over the relay's word and leaves at most `sameArea`. Without a detail
+  the relay's file hash is matched against this device's own claims to name the file. At most 64
+  overlaps are kept per own session and device in the log, so invented session keys cannot grow
+  the view. Each
+  overlap names our session, the teammate, agent and title, the level, our spelling of the file
+  and the lines. The window shows the worst one in the session's sidebar marker when no local
+  overlap is there, a block "Overlaps with your team" in the Changes tab ("Anna (Codex) is changing
+  the same lines: src/auth.rs, lines 10 to 15"), and a notice (and, in the background, a desktop
+  notification) once per session, teammate device and file per app run. The remembered
+  collisions are capped at 2000 and desktop notifications about teammates go out at most once a
+  minute, however many collisions arrive. Names in overlaps, notices and the gate card carry the
+  short member id from the verified log (`Anna #3f9a2c1b…`), since any member can send any
+  display name; the Team view shows the id quietly next to the name.
+- **Gate:** `gate::assess_with_team` also pauses an edit of a file a teammate's live claim covers
+  (same root commit, paths compared case folded) in a clone linked to that teammate's project
+  (`TeamService::teammate_files(root, folder)`): from the teammates' presence, with their lines
+  where a detail arrived. `PendingDecision.teammates` names them on the card next to the user's own
+  sessions ("Also being changed by Codex · feature, Anna #3f9a2c1b… (Claude Code)"); a teammate alone is
+  enough (`otherSessions` may then be empty). The card names the file as this device spells it
+  (its own claim, else the edited path), never in the teammate's spelling. The answers and the deny reasons are those of step
+  B, with the teammates' names as JSON literals. The prompt hook's context adds one line per
+  teammate file (`{"file":..,"teammates":[..],"lines":".."}`) under the same caps.
+- **Interface:** commands `team_session_states(states: {sessionId, state}[])` and
+  `team_link_repo(projectId, root, folder, on)` (main window only); `team-changed` adds per team
+  `activity { linked: {root, folder or null, name}[], peers: PeerView[], overlaps:
+  TeammateOverlap[] }` and `repos: {root, folder, name}[]` (the running sessions' repository
+  folders). `PeerView { member, device, name, own, presence, sessions: {key, agent, title, state,
+  files, moreFiles}[] }` (`key`: the session key, unique per device, the row's React key),
+  `TeammateOverlap
+  { sessionId, member, device, otherSession, name, agent, title, level, path, lines, files }`
+  (`otherSession`: the teammate's session key, the row's React key, never shown). New attention
+  reason `otherAccount`, error kind `unknownRepository`. Types mirror in `src/team.ts`.
+- **UI:** below the switch of a connected project, the Team view (`TeamActivityView.tsx`): the
+  shared repositories as checkboxes with a line on what the team sees (display name; per
+  session agent, title, state, changed files with line numbers), and "In the team": each
+  connected device by name (the own other devices as "You (another device)", "away" as text),
+  its sessions with agent and title, the state as text and as a shape (dot working, diamond
+  waiting, bar idle), and a folded list of changed files. Keyboard: native checkboxes and buttons.
+- **Tests:** `team_share.rs` (documents, size limits, refinement, refused paths, repository
+  choices, local sessions), engine tests (two members see each other's presence and a refined
+  overlap with lines; nothing changed sends nothing; a session's end clears the overlap; the
+  frames carry no path, name or root commit; a device bound to another account stops and keeps its
+  keys), gate tests (a teammate's claim pauses, other repositories and unclaimed files do not, deny
+  names the teammate, context lines), a gate endpoint test with real HTTP, and `tests/team.rs`
+  (two members over real WebSockets: presence before and after linking, no claims before linking,
+  refined lines, teammate files for the gate, offline after sharing is turned off; two people on
+  one keychain; an unreadable `team.json`; sign-out and sign-in three times without
+  `otherInstance`). Vitest for the new parsing and texts in `src/team.ts` and the gate's teammates.
+- **Not built yet:** task reservation (`task.reserve`, release requests and their cards, expiry
+  warnings) and with it the reservations in the agent's context; shared decisions; a "Wait" answer
+  of the gate; the gate for other agents than Claude Code; naming the area of a `sameArea`
+  overlap (the relay sends only hashes); removing devices and members from the UI; a hint in the
+  Team view when local claims are turned off (then no repository is offered).
 
 ## Still to verify by measurement
 - Claude Code http hook: a connection failure and a timeout fail open (measured,

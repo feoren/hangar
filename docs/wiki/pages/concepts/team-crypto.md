@@ -102,7 +102,13 @@ A.2.1 test.
   to the rotation: two sides of a fork derive different keys from the same secret. Every record
   carries its sender's log head (index and hash) in the signed context; `open_verified` refuses a
   head with another hash at a known index (`Fork`), asks to fetch the log for a newer head
-  (`AheadOfLog`) and refuses a head from before the epoch. `TeamState::log_safety_number_at`
+  (`AheadOfLog`) and refuses a head from before the epoch. `Fork` is reported only after the
+  sender's signature verified with its keys valid at that index: anyone can write a head with a
+  wrong hash, and an unsigned record must not make the app stop trusting the team (otherwise it
+  fails with `Signature`, `UnknownSender` or `SenderNotValid`). A signed fork still stops the
+  team (`HistoryMismatch`): a listed device signed a head this device's log does not have, so the
+  relay shows the two devices different logs, and only the people comparing log safety numbers
+  can tell which one is real. `TeamState::log_safety_number_at`
   gives the safety number at any verified index, so two people compare at an entry both have.
 - **Freshness** (M5). Each device numbers its records with a 64-bit counter in the signed
   context (`SendCounter`, stored before each send). `ReplayGuard` keeps the highest counter per
@@ -190,6 +196,8 @@ anyway (delay, drop, disconnect), never for deleting keys or raising rights:
 | close 4403 | stop with "removed", keys kept (a relay can only disconnect) |
 | close 4401, `err forbidden` on `hello` | a fresh ticket; one immediate retry per settled connection |
 | `memberlog.entries` with `more` | only with at least one entry (progress), else the connection ends |
+| `presence.update` | shown only for a device the verified log lists (one fetch and retry for an unknown one); the status only when it opens with `open_verified` under the current epoch or a newer one and its counter is not below the newest one shown for that device and key (marks in the state file, kept across `offline`, reconnects and restarts); `offline` (unsigned) only hides the device; at most one entry per listed device |
+| `claim.overlap` | for one of this device's own session keys and a listed device; the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and listed device; desktop notices at most once a minute |
 
 ## Threat model
 

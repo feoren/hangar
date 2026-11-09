@@ -109,6 +109,10 @@ pub enum AttentionReason {
     /// Another Hangar window on this computer runs this team's connection; this one waits and
     /// takes over once that one ends.
     OtherInstance,
+    /// This computer's device for the team belongs to another account (another person signed
+    /// in on the same keychain). Its keys stay untouched; sharing waits until that person signs
+    /// in again or the device is removed from the team.
+    OtherAccount,
 }
 
 /// A device waiting for this device's confirmation.
@@ -141,14 +145,19 @@ pub enum PendingKind {
 pub struct TeamEntry {
     pub project_id: String,
     pub status: TeamStatus,
+    /// The teammates' sessions and their collisions with this device's sessions, and the
+    /// repositories the project shares from this device.
+    pub activity: crate::team_share::TeamActivity,
 }
 
-/// Payload of `team-changed`: every team that is on or not off, and every pending confirmation.
+/// Payload of `team-changed`: every team that is on or not off, every pending confirmation, and
+/// the repositories of this device's running sessions (offered for linking to a project).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSnapshot {
     pub teams: Vec<TeamEntry>,
     pub pending: Vec<PendingConfirmation>,
+    pub repos: Vec<crate::team_share::RepoChoice>,
 }
 
 /// The safety number as the window shows it: six groups of five digits.
@@ -171,6 +180,8 @@ pub enum TeamError {
     Config(String),
     #[error("The team connection is busy; try again")]
     Busy,
+    #[error("No running session works in that repository")]
+    UnknownRepository,
 }
 
 impl TeamError {
@@ -182,6 +193,7 @@ impl TeamError {
             Self::Keychain(_) => "keychain",
             Self::Config(_) => "config",
             Self::Busy => "busy",
+            Self::UnknownRepository => "unknownRepository",
         }
     }
 
@@ -545,9 +557,13 @@ pub fn new_device_id(
     Ok(hex(&bytes))
 }
 
-/// The device entry in the keychain: `v1 <device id> <exported identity in hex>`.
+/// The device entry in the keychain: `v2 <device id> <member in hex> <exported identity in hex>`.
+/// The member is the account the device acts for, bound at its first `welcome`; an entry of the
+/// first format (`v1 <device id> <identity>`, no member) is bound at its next `welcome`.
 pub struct StoredDevice {
     pub device: String,
+    /// `None` until the relay's first `welcome` named the account (and for `v1` entries).
+    pub member: Option<String>,
     pub secret: Zeroizing<Vec<u8>>,
 }
 
@@ -555,17 +571,25 @@ impl std::fmt::Debug for StoredDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoredDevice")
             .field("device", &self.device)
+            .field("member", &self.member)
             .finish_non_exhaustive()
     }
 }
 
 impl StoredDevice {
     pub fn encode(&self) -> Zeroizing<String> {
+        let member = self.member.as_deref().unwrap_or_default();
         let mut out = Zeroizing::new(String::with_capacity(
-            4 + self.device.len() + 2 * self.secret.len(),
+            6 + self.device.len() + 2 * member.len() + 2 * self.secret.len(),
         ));
-        out.push_str("v1 ");
+        out.push_str("v2 ");
         out.push_str(&self.device);
+        out.push(' ');
+        if member.is_empty() {
+            out.push('-');
+        } else {
+            push_hex(&mut out, member.as_bytes());
+        }
         out.push(' ');
         push_hex(&mut out, &self.secret);
         out
@@ -573,16 +597,27 @@ impl StoredDevice {
 
     pub fn decode(text: &str) -> Option<Self> {
         let mut parts = text.split(' ');
-        if parts.next()? != "v1" {
-            return None;
-        }
+        let version = parts.next()?;
         let device = parts.next()?;
+        let member = match version {
+            "v1" => None,
+            "v2" => match parts.next()? {
+                "-" => None,
+                hex => {
+                    let bytes = unhex(hex)?;
+                    let member = String::from_utf8(bytes.to_vec()).ok()?;
+                    (!member.is_empty()).then_some(member)
+                }
+            },
+            _ => return None,
+        };
         let secret = unhex(parts.next()?)?;
         let valid = parts.next().is_none()
             && !device.is_empty()
             && device.bytes().all(|b| b.is_ascii_hexdigit());
         valid.then(|| Self {
             device: device.to_owned(),
+            member,
             secret,
         })
     }
@@ -672,8 +707,26 @@ pub struct ReplayMark {
     pub counter: u64,
 }
 
+/// The highest counter shown from a teammate's claim detail for one of its sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DetailMark {
+    pub holder: Holder,
+    /// The session key the detail was sealed for (its record id).
+    pub session: String,
+    pub counter: u64,
+}
+
+/// The highest counter of a teammate's claim details whose session marks were dropped to stay
+/// within bounds: a detail of a session without a mark must be newer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HolderMark {
+    pub holder: Holder,
+    pub counter: u64,
+}
+
 /// The team's state file (nothing secret): where the event log was read up to, the last record
-/// counter used, the replay marks, and the confirmation requests the person rejected.
+/// counter used, the replay marks, the high-water marks of the live state shown (presence
+/// status and claim details), and the confirmation requests the person rejected.
 ///
 /// The counter only rises: besides this file, every start raises it to [`counter_floor`] of the
 /// clock, so a backup put back or a file that went missing cannot make the device repeat one.
@@ -687,6 +740,16 @@ pub struct LocalState {
     pub counter: u64,
     #[serde(default)]
     pub marks: Vec<ReplayMark>,
+    /// Per teammate device and signing key: the newest presence status counter shown. Live
+    /// state the relay may send again, so equal counters pass; older ones never do, also after an
+    /// `offline` event, a reconnect or a restart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub presence_marks: Vec<ReplayMark>,
+    /// Per teammate device and session key: the newest claim detail counter shown.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detail_marks: Vec<DetailMark>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detail_floors: Vec<HolderMark>,
     #[serde(default)]
     pub rejected: Vec<String>,
 }
@@ -758,14 +821,51 @@ impl LocalState {
 pub struct TeamConfig {
     #[serde(default)]
     pub enabled_by_service: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// Per keychain service, server and project: the repositories whose sessions the project
+    /// shares (presence and claims). Nothing is shared from a repository the person did not
+    /// link, so a private repository never reaches a team by accident.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub repos_by_service: BTreeMap<String, BTreeMap<String, BTreeMap<String, Vec<LinkedRepo>>>>,
+}
+
+/// A repository folder linked to a shared project: its identity in the team protocol (the root
+/// commit, `RepoId` of the protocol crate), the clone on this device (its git common folder as
+/// `claims::folder_key` normalizes it, so every worktree of that clone counts) and the folder
+/// name it had when it was linked.
+///
+/// The root commit alone is not enough: every other clone and every fork of the same project
+/// shares it, and a private fork must not reach the team because its upstream was linked. A new
+/// folder with a known root commit is shared only once the person ticks it.
+///
+/// `folder` is `None` for links made before folders were bound (root commit only). Such a link
+/// shares nothing: the window asks the person to tick the folders again (the safer migration,
+/// since nothing tells which of today's clones the person meant back then).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedRepo {
+    pub root: String,
+    #[serde(default)]
+    pub folder: Option<String>,
+    pub name: String,
+}
+
+impl LinkedRepo {
+    /// Whether this link shares the clone at `folder` of the repository `root`.
+    pub fn shares(&self, root: &str, folder: &str) -> bool {
+        self.root == root && self.folder.as_deref() == Some(folder)
+    }
 }
 
 impl TeamConfig {
-    pub fn load(config_dir: &Path) -> Self {
-        std::fs::read_to_string(config_dir.join(CONFIG_FILE))
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+    /// The stored choices; empty when there is no file yet. A file that exists but cannot be
+    /// read or parsed is an error: writing over it would drop every other project's choice and
+    /// the other build's part.
+    pub fn load(config_dir: &Path) -> std::io::Result<Self> {
+        match std::fs::read_to_string(config_dir.join(CONFIG_FILE)) {
+            Ok(text) => serde_json::from_str(&text).map_err(std::io::Error::other),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn save(&self, config_dir: &Path) -> std::io::Result<()> {
@@ -778,6 +878,55 @@ impl TeamConfig {
             .get(service)
             .and_then(|servers| servers.get(base))
             .map_or(&[], Vec::as_slice)
+    }
+
+    pub fn linked(&self, service: &str, base: &str, project: &str) -> &[LinkedRepo] {
+        self.repos_by_service
+            .get(service)
+            .and_then(|servers| servers.get(base))
+            .and_then(|projects| projects.get(project))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Links or unlinks a repository folder (by root commit and folder); `true` when the list
+    /// changed. Linking a folder drops a link of the same root commit from before folders were
+    /// bound: the person confirmed the folder it stood for.
+    pub fn link(
+        &mut self,
+        service: &str,
+        base: &str,
+        project: &str,
+        repo: &LinkedRepo,
+        on: bool,
+    ) -> bool {
+        let servers = self.repos_by_service.entry(service.to_owned()).or_default();
+        let projects = servers.entry(base.to_owned()).or_default();
+        let list = projects.entry(project.to_owned()).or_default();
+        let same = |r: &LinkedRepo| r.root == repo.root && r.folder == repo.folder;
+        let before = list.len();
+        if on && repo.folder.is_some() {
+            list.retain(|r| r.root != repo.root || r.folder.is_some());
+        }
+        let present = list.iter().any(same);
+        let mut changed = list.len() != before;
+        if present != on {
+            changed = true;
+            if on {
+                list.push(repo.clone());
+            } else {
+                list.retain(|r| !same(r));
+            }
+        }
+        if list.is_empty() {
+            projects.remove(project);
+        }
+        if projects.is_empty() {
+            servers.remove(base);
+        }
+        if servers.is_empty() {
+            self.repos_by_service.remove(service);
+        }
+        changed
     }
 
     /// `true` when the list changed.
@@ -959,17 +1108,32 @@ mod tests {
     fn stored_device_and_keys_round_trip_and_refuse_garbage() {
         let device = StoredDevice {
             device: "00ff".to_owned(),
+            member: None,
             secret: Zeroizing::new(vec![1, 2, 255]),
         };
         let text = device.encode();
-        assert_eq!(text.as_str(), "v1 00ff 0102ff");
+        assert_eq!(text.as_str(), "v2 00ff - 0102ff");
         let back = StoredDevice::decode(&text).unwrap();
         assert_eq!(back.device, "00ff");
+        assert_eq!(back.member, None);
         assert_eq!(back.secret.as_slice(), &[1, 2, 255]);
         assert!(!format!("{back:?}").contains("0102ff"));
+        // Bound to an account: the member travels in hex, so any opaque id fits.
+        let bound = StoredDevice {
+            member: Some("anna b@x".to_owned()),
+            ..device
+        };
+        let back = StoredDevice::decode(&bound.encode()).unwrap();
+        assert_eq!(back.member.as_deref(), Some("anna b@x"));
+        // An entry of the first format has no member yet.
+        let old = StoredDevice::decode("v1 00ff 0102ff").unwrap();
+        assert_eq!(old.member, None);
+        assert_eq!(old.secret.as_slice(), &[1, 2, 255]);
         for bad in [
             "",
             "v2 00ff 01",
+            "v3 00ff - 01",
+            "v2 00ff zz 01",
             "v1 0 0",
             "v1 zz 01",
             "v1 00 01 extra",
@@ -1022,12 +1186,12 @@ mod tests {
     fn config_and_local_state_round_trip_through_files() {
         let temp = crate::test_support::TempDir::new("team-config");
         let dir = temp.path();
-        let mut config = TeamConfig::load(dir);
+        let mut config = TeamConfig::load(dir).unwrap();
         assert!(config.set("svc", "https://a", "1", true));
         assert!(!config.set("svc", "https://a", "1", true));
         assert!(config.set("svc", "https://a", "2", true));
         config.save(dir).unwrap();
-        let mut back = TeamConfig::load(dir);
+        let mut back = TeamConfig::load(dir).unwrap();
         assert_eq!(back.enabled_for("svc", "https://a"), ["1", "2"]);
         assert!(back.set("svc", "https://a", "1", false));
         assert!(back.set("svc", "https://a", "2", false));
@@ -1059,16 +1223,16 @@ mod tests {
         let temp = crate::test_support::TempDir::new("team-services");
         let dir = temp.path();
         // The release build turns sharing on; the debug build on the same folder does not see it.
-        let mut config = TeamConfig::load(dir);
+        let mut config = TeamConfig::load(dir).unwrap();
         config.set("hangar-team", "https://a", "1", true);
         config.save(dir).unwrap();
-        let mut config = TeamConfig::load(dir);
+        let mut config = TeamConfig::load(dir).unwrap();
         assert!(config
             .enabled_for("hangar-team-dev", "https://a")
             .is_empty());
         config.set("hangar-team-dev", "https://a", "2", true);
         config.save(dir).unwrap();
-        let back = TeamConfig::load(dir);
+        let back = TeamConfig::load(dir).unwrap();
         assert_eq!(back.enabled_for("hangar-team", "https://a"), ["1"]);
         assert_eq!(back.enabled_for("hangar-team-dev", "https://a"), ["2"]);
 
@@ -1086,6 +1250,75 @@ mod tests {
         assert_ne!(
             lock_path(dir, "hangar-team", "k"),
             lock_path(dir, "hangar-team-dev", "k")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_config_file_is_an_error_not_an_empty_list() {
+        let temp = crate::test_support::TempDir::new("team-config-broken");
+        let dir = temp.path();
+        std::fs::write(dir.join(CONFIG_FILE), "{ not json").unwrap();
+        assert!(TeamConfig::load(dir).is_err());
+        std::fs::remove_file(dir.join(CONFIG_FILE)).unwrap();
+        std::fs::create_dir(dir.join(CONFIG_FILE)).unwrap();
+        assert!(TeamConfig::load(dir).is_err());
+    }
+
+    #[test]
+    fn linked_repositories_are_kept_per_service_server_and_project() {
+        let temp = crate::test_support::TempDir::new("team-config-repos");
+        let dir = temp.path();
+        let repo = LinkedRepo {
+            root: "a".repeat(40),
+            folder: Some("c:/src/hangar/.git".to_owned()),
+            name: "hangar".to_owned(),
+        };
+        let mut config = TeamConfig::default();
+        assert!(config.link("svc", "https://a", "1", &repo, true));
+        assert!(!config.link("svc", "https://a", "1", &repo, true));
+        config.save(dir).unwrap();
+        let mut back = TeamConfig::load(dir).unwrap();
+        assert_eq!(
+            back.linked("svc", "https://a", "1"),
+            std::slice::from_ref(&repo)
+        );
+        assert!(back.linked("svc", "https://a", "2").is_empty());
+        assert!(back.linked("other", "https://a", "1").is_empty());
+        // Another clone (or a fork) of the same repository is a link of its own.
+        let fork = LinkedRepo {
+            folder: Some("c:/src/hangar-fork/.git".to_owned()),
+            ..repo.clone()
+        };
+        let linked = back.linked("svc", "https://a", "1");
+        assert!(linked[0].shares(&repo.root, "c:/src/hangar/.git"));
+        assert!(!linked
+            .iter()
+            .any(|r| r.shares(&repo.root, "c:/src/hangar-fork/.git")));
+        assert!(back.link("svc", "https://a", "1", &fork, true));
+        assert!(back.link("svc", "https://a", "1", &repo, false));
+        assert!(back.link("svc", "https://a", "1", &fork, false));
+        assert!(back.repos_by_service.is_empty());
+    }
+
+    #[test]
+    fn a_link_from_before_folders_shares_nothing_until_a_folder_is_ticked() {
+        // team.json as the root-only version wrote it.
+        let text = r#"{"enabledByService":{},"reposByService":{"svc":{"https://a":{"1":[
+            {"root":"aaaa","name":"hangar"}]}}}}"#;
+        let mut config: TeamConfig = serde_json::from_str(text).unwrap();
+        let legacy = config.linked("svc", "https://a", "1")[0].clone();
+        assert_eq!(legacy.folder, None);
+        assert!(!legacy.shares("aaaa", "c:/src/hangar/.git"));
+        // Ticking a folder of that repository replaces it.
+        let folder = LinkedRepo {
+            root: "aaaa".to_owned(),
+            folder: Some("c:/src/hangar/.git".to_owned()),
+            name: "hangar".to_owned(),
+        };
+        assert!(config.link("svc", "https://a", "1", &folder, true));
+        assert_eq!(
+            config.linked("svc", "https://a", "1"),
+            std::slice::from_ref(&folder)
         );
     }
 
@@ -1142,6 +1375,7 @@ mod tests {
         for (reason, name) in [
             (AttentionReason::Storage, "storage"),
             (AttentionReason::OtherInstance, "otherInstance"),
+            (AttentionReason::OtherAccount, "otherAccount"),
         ] {
             assert_eq!(
                 json(&TeamStatus::NeedsAttention { reason }),

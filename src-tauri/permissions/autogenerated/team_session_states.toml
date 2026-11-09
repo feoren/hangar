@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-session-states"
+description = "Enables the team_session_states command without any pre-configured scope."
+commands.allow = ["team_session_states"]
+
+[[permission]]
+identifier = "deny-team-session-states"
+description = "Denies the team_session_states command without any pre-configured scope."
+commands.deny = ["team_session_states"]

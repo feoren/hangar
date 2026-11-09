@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-link-repo"
+description = "Enables the team_link_repo command without any pre-configured scope."
+commands.allow = ["team_link_repo"]
+
+[[permission]]
+identifier = "deny-team-link-repo"
+description = "Denies the team_link_repo command without any pre-configured scope."
+commands.deny = ["team_link_repo"]

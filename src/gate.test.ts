@@ -23,6 +23,8 @@ const names = new Map([
 ]);
 const nameOf = (id: number) => names.get(id) ?? `#${String(id)}`;
 
+const NO_TEAMMATES: string[] = [];
+
 /** As the backend serializes it (camelCase). */
 const rawDecision = {
   id: 7,
@@ -30,6 +32,7 @@ const rawDecision = {
   tool: "Edit",
   path: "src/x.ts",
   otherSessions: [2],
+  teammates: NO_TEAMMATES,
   level: "overlappingLines",
   lines: [{ start: 10, end: 14 }],
   createdAt: 1_762_700_000_000,
@@ -88,6 +91,8 @@ describe("parseGateSnapshot", () => {
       { enabled: true, pending: [{ ...rawDecision, path: ["src/x.ts"] }] },
       { enabled: true, pending: [{ ...rawDecision, otherSessions: [] }] },
       { enabled: true, pending: [{ ...rawDecision, otherSessions: [2, "3"] }] },
+      { enabled: true, pending: [{ ...rawDecision, teammates: [""] }] },
+      { enabled: true, pending: [{ ...rawDecision, teammates: [1] }] },
       { enabled: true, pending: [{ ...rawDecision, level: "sameArea" }] },
       { enabled: true, pending: [{ ...rawDecision, level: "none" }] },
       { enabled: true, pending: [{ ...rawDecision, lines: [{ start: 5, end: 2 }] }] },
@@ -138,6 +143,27 @@ describe("decisionText", () => {
     );
     expect(decisionText(decision({ lines: [] }), nameOf, t).detail).toBe(
       "Also being changed by Codex · feature",
+    );
+  });
+
+  it("waits for a teammate alone, and names teammates after the own sessions", () => {
+    const parsed = parseGateSnapshot({
+      enabled: true,
+      pending: [{ ...rawDecision, otherSessions: [], teammates: ["Anna (Claude Code)"] }],
+    });
+    expect(parsed?.pending[0]?.teammates).toEqual(["Anna (Claude Code)"]);
+    const text = decisionText(
+      decision({ otherSessions: [2], teammates: ["Anna (Claude Code)"], level: "sameFile" }),
+      nameOf,
+      t,
+    );
+    expect(text.detail).toBe("Also being changed by Codex · feature, Anna (Claude Code)");
+    // An older backend sends no teammates: none.
+    const older = Object.fromEntries(
+      Object.entries(rawDecision).filter(([key]) => key !== "teammates"),
+    );
+    expect(parseGateSnapshot({ enabled: true, pending: [older] })?.pending[0]?.teammates).toEqual(
+      [],
     );
   });
 

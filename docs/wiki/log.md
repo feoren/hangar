@@ -234,3 +234,21 @@ settled connection; the reader queue is bounded; the send counter has a clock fl
 device entries and state files stop instead of starting over. The confirmation panel shows one
 request at a time with an arming delay, an inline question before rejecting and a re-admission
 warning. Pages changed: [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-09] ingest | Team service step F part 2b as built (see your team)
+Teammates' presence and claims: repositories are linked to a shared project in the Team view;
+presence and claim details travel sealed and are opened against the verified log; the relay's
+"same file" is refined to overlapping lines locally; teammate overlaps show in the sidebar marker,
+the Changes tab and a one-time notice; the agent gate pauses on a teammate's file and the context
+names teammates' files. Review items of part 2a: the device identity is bound to its account, an
+unreadable `team.json` is an error, a new worker waits for the old one's turn. Reservations are
+not built yet. Pages changed: [[team-service-v1]].
+
+## [2026-11-09] ingest | Team service step F part 2b: review fixes
+A fork is reported only for a record whose signature verifies (crypto crate, check order);
+high-water marks for teammates' status and claim details survive offline, reconnects and
+restarts; only records of the current epoch or newer open; peers and overlaps are bounded and
+desktop notices about teammates throttled; repositories are linked per clone folder (root-only
+links share nothing until a folder is ticked again); the e-mail address no longer leaves the
+device; names carry the short member id; git ignores replace refs. Pages changed:
+[[team-service-v1]], [[team-crypto]].

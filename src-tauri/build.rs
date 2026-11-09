@@ -76,6 +76,8 @@ const COMMANDS: &[&str] = &[
     "team_pending_confirmations",
     "team_confirm",
     "team_reject",
+    "team_session_states",
+    "team_link_repo",
 ];
 
 fn main() {

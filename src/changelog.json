@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Sieh, woran dein Team arbeitet. Ändert jemand dieselbe Datei, warnt Hangar dich und hält Claude Code vor dem Bearbeiten an.",
+        "en": "See what your team is working on. When a teammate changes the same file, Hangar warns you and pauses Claude Code before it edits.",
+        "el": "Δες σε τι δουλεύει η ομάδα σου. Αν κάποιος αλλάζει το ίδιο αρχείο, το Hangar σε προειδοποιεί και σταματά το Claude Code πριν την αλλαγή.",
+        "es": "Mira en qué trabaja tu equipo. Si alguien cambia el mismo archivo, Hangar te avisa y pausa Claude Code antes de editar.",
+        "fr": "Vois sur quoi travaille ton équipe. Si quelqu'un modifie le même fichier, Hangar te prévient et met Claude Code en pause avant.",
+        "it": "Guarda a cosa lavora il tuo team. Se qualcuno modifica lo stesso file, Hangar ti avvisa e mette in pausa Claude Code prima.",
+        "ja": "チームの作業内容が見えます。誰かが同じファイルを変更していると、Hangar が知らせ、Claude Code を編集の前に一時停止します。",
+        "pl": "Zobacz, nad czym pracuje zespół. Gdy ktoś zmienia ten sam plik, Hangar ostrzega cię i wstrzymuje Claude Code przed edycją.",
+        "pt": "Veja no que sua equipe trabalha. Se alguém altera o mesmo arquivo, o Hangar avisa e pausa o Claude Code antes da edição.",
+        "ru": "Смотри, над чем работает команда. Если кто-то меняет тот же файл, Hangar предупредит и остановит Claude Code перед правкой.",
+        "tr": "Ekibinin ne üzerinde çalıştığını gör. Biri aynı dosyayı değiştirirse Hangar seni uyarır ve Claude Code'u düzenlemeden önce durdurur.",
+        "zh": "查看团队正在做什么。有人修改同一个文件时，Hangar 会提醒你，并在 Claude Code 编辑前暂停它。"
+      },
+      {
         "de": "Schalte „Mit Team teilen“ ein: Das Projekt verbindet sich Ende-zu-Ende-verschlüsselt mit dem Teamserver. Neue Geräte bestätigst du per Sicherheitsnummer.",
         "en": "Turn on \"Share with team\": the project connects to the team server, end to end encrypted. You confirm new devices by comparing a safety number.",
         "el": "Ενεργοποίησε την «Κοινή χρήση με την ομάδα»: το έργο συνδέεται κρυπτογραφημένα από άκρο σε άκρο. Οι νέες συσκευές επιβεβαιώνονται με αριθμό ασφαλείας.",

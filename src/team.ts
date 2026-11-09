@@ -1,10 +1,21 @@
-// The team connection in the window (team service step F, part 2a): checks the backend's team
-// state (Rust: serde camelCase, tagged by `state`) and builds the texts of the Team group in the
-// sidebar. The backend owns the keys, the connection and every request; the window only shows the
-// state, turns "Share with team" on or off and answers confirmations of new devices.
+// The team connection in the window (team service step F, parts 2a and 2b): checks the backend's
+// team state (Rust: serde camelCase, tagged by `state`) and builds the texts of the Team group in
+// the sidebar. The backend owns the keys, the connection and every request; the window only shows
+// the state, turns "Share with team" on or off, answers confirmations of new devices, links
+// repositories to a project and shows the teammates' sessions and their overlaps with ours.
 
-import { field, isCount, list } from "./claims";
+import type { AttentionState } from "./attention";
+import {
+  field,
+  formatLines,
+  isCount,
+  list,
+  parseRange,
+  type LineRange,
+  type OverlapLevel,
+} from "./claims";
 import type { MessageKey, Translate } from "./i18n";
+import { revealInvisible } from "./invisible";
 
 /**
  * `storage`: the team's local state on this device could not be read. `otherInstance`: another
@@ -18,6 +29,7 @@ export type AttentionReason =
   | "refused"
   | "storage"
   | "otherInstance"
+  | "otherAccount"
   | "unknown";
 
 /** State of one project's team connection (Rust: `TeamStatus`). */
@@ -48,14 +60,96 @@ export interface PendingConfirmation {
   readmitted: boolean;
 }
 
+/** What a session is doing, as the window's attention logic sees it (Rust: `SessionState`). */
+export type SessionState = "working" | "waiting" | "idle";
+
+/** A teammate's session as its device's presence describes it (Rust: `PeerSession`). */
+export interface PeerSession {
+  /** The session's key in the team: unique per teammate device, never shown (a row's React key). */
+  key: string;
+  agent: string;
+  title: string;
+  state: SessionState;
+  /** Paths relative to the repository, as the teammate's git spells them. */
+  files: string[];
+  /** Files left out of the presence to keep it small. */
+  moreFiles: number;
+}
+
+/** A teammate's device that is connected to the team (Rust: `PeerView`). */
+export interface PeerView {
+  member: string;
+  device: string;
+  /** The display name the device sends; empty when it sent none. */
+  name: string;
+  /** Another device of the signed-in person. */
+  own: boolean;
+  presence: "active" | "idle" | "away";
+  sessions: PeerSession[];
+}
+
+/** One of our sessions colliding with a teammate's session (Rust: `TeammateOverlap`). */
+export interface TeammateOverlap {
+  sessionId: number;
+  member: string;
+  device: string;
+  /** The teammate's session key: a device may collide with ours in several sessions (a row's React key, never shown). */
+  otherSession: string;
+  name: string;
+  agent: string;
+  title: string;
+  level: OverlapLevel;
+  /** Our spelling of the shared file; `null` for the same area, or a file this device cannot name. */
+  path: string | null;
+  lines: LineRange[];
+  /** Shared files in all. */
+  files: number;
+}
+
+/** A repository folder linked to a project, or offered for linking (Rust: `LinkedRepo`, `RepoChoice`). */
+export interface RepoRef {
+  /** The repository's root commit: its identity in the team. */
+  root: string;
+  /**
+   * The clone on this device (its git common folder, normalized). Each clone or fork is linked on
+   * its own; `null` only for a link from before folders were bound, which shares nothing.
+   */
+  folder: string | null;
+  name: string;
+}
+
+/** What the Team view shows of one shared project (Rust: `TeamActivity`). */
+export interface TeamActivity {
+  linked: RepoRef[];
+  peers: PeerView[];
+  overlaps: TeammateOverlap[];
+}
+
+export const EMPTY_ACTIVITY: TeamActivity = { linked: [], peers: [], overlaps: [] };
+
+export interface TeamEntry {
+  projectId: string;
+  status: TeamStatus;
+  activity: TeamActivity;
+}
+
 /** Payload of `team-changed`. A project missing from `teams` is off. */
 export interface TeamSnapshot {
-  teams: { projectId: string; status: TeamStatus }[];
+  teams: TeamEntry[];
   pending: PendingConfirmation[];
+  /** Repositories of this device's running sessions, offered for linking. */
+  repos: RepoRef[];
 }
 
 export type TeamErrorKind =
-  "notSignedIn" | "unknownProject" | "unknownRequest" | "keychain" | "config" | "busy" | "unknown";
+  | "notSignedIn"
+  | "unknownProject"
+  | "unknownRequest"
+  | "unknownRepository"
+  | "keychain"
+  | "config"
+  | "busy"
+  | "unknown";
 
 /** A rejected team command (Rust: `{ kind, detail }`). */
 export interface TeamProblem {
@@ -71,12 +165,14 @@ const REASONS: readonly AttentionReason[] = [
   "refused",
   "storage",
   "otherInstance",
+  "otherAccount",
 ];
 const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember"];
 const ERROR_KINDS: readonly TeamErrorKind[] = [
   "notSignedIn",
   "unknownProject",
   "unknownRequest",
+  "unknownRepository",
   "keychain",
   "config",
   "busy",
@@ -158,19 +254,132 @@ export function parsePendingConfirmations(value: unknown): PendingConfirmation[]
   return new Set(pending.map((entry) => entry.id)).size === pending.length ? pending : null;
 }
 
-function parseTeamEntry(value: unknown): { projectId: string; status: TeamStatus } | null {
+const SESSION_STATES: readonly SessionState[] = ["working", "waiting", "idle"];
+const PRESENCES: readonly PeerView["presence"][] = ["active", "idle", "away"];
+const OVERLAP_LEVELS: readonly OverlapLevel[] = [
+  "none",
+  "sameArea",
+  "sameFile",
+  "overlappingLines",
+];
+
+function isText(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function texts(value: unknown): string[] | null {
+  return list(value, (item) => (isText(item) ? item : null));
+}
+
+function parsePeerSession(value: unknown): PeerSession | null {
+  const key = text(field(value, "key"));
+  const agent = field(value, "agent");
+  const title = field(value, "title");
+  const state = SESSION_STATES.find((entry) => entry === field(value, "state"));
+  const files = texts(field(value, "files"));
+  const moreFiles = field(value, "moreFiles");
+  if (key === null || !isText(agent) || !isText(title)) return null;
+  if (files === null || !isCount(moreFiles)) return null;
+  // A state this Hangar does not know reads as idle rather than dropping the whole team view.
+  return { key, agent, title, state: state ?? "idle", files, moreFiles };
+}
+
+function parsePeer(value: unknown): PeerView | null {
+  const member = text(field(value, "member"));
+  const device = text(field(value, "device"));
+  const name = field(value, "name");
+  const own = field(value, "own");
+  const presence = PRESENCES.find((entry) => entry === field(value, "presence")) ?? "idle";
+  const sessions = list(field(value, "sessions"), parsePeerSession);
+  if (member === null || device === null || !isText(name) || typeof own !== "boolean") return null;
+  if (sessions === null) return null;
+  // The rows are keyed by session key: a repeat would be malformed (the backend drops them).
+  if (new Set(sessions.map((session) => session.key)).size !== sessions.length) return null;
+  return { member, device, name, own, presence, sessions };
+}
+
+function parseTeammateOverlap(value: unknown): TeammateOverlap | null {
+  const sessionId = field(value, "sessionId");
+  const member = text(field(value, "member"));
+  const device = text(field(value, "device"));
+  const otherSession = text(field(value, "otherSession"));
+  const name = field(value, "name");
+  const agent = field(value, "agent");
+  const title = field(value, "title");
+  const level = OVERLAP_LEVELS.find((entry) => entry === field(value, "level"));
+  const pathValue = field(value, "path");
+  const lines = list(field(value, "lines"), parseRange);
+  const files = field(value, "files");
+  if (!isCount(sessionId) || member === null || device === null || otherSession === null) {
+    return null;
+  }
+  if (!isText(name) || !isText(agent) || !isText(title) || level === undefined) return null;
+  if (pathValue !== null && !isText(pathValue)) return null;
+  if (lines === null || !isCount(files)) return null;
+  return {
+    sessionId,
+    member,
+    device,
+    otherSession,
+    name,
+    agent,
+    title,
+    level,
+    path: pathValue,
+    lines,
+    files,
+  };
+}
+
+/** A linked repository; its folder may be `null` (a link from before folders were bound). */
+function parseLinked(value: unknown): RepoRef | null {
+  const root = text(field(value, "root"));
+  const folderValue = field(value, "folder");
+  const folder = folderValue === undefined || folderValue === null ? null : text(folderValue);
+  const name = field(value, "name");
+  if (root === null || !isText(name)) return null;
+  if (folderValue !== undefined && folderValue !== null && folder === null) return null;
+  return { root, folder, name };
+}
+
+/** A repository folder offered for linking: always with its folder. */
+function parseRepo(value: unknown): RepoRef | null {
+  const repo = parseLinked(value);
+  return repo === null || repo.folder === null ? null : repo;
+}
+
+/** The activity of a team; absent counts as empty (an older backend), malformed as `null`. */
+function parseActivity(value: unknown): TeamActivity | null {
+  if (value === undefined) return EMPTY_ACTIVITY;
+  const linked = list(field(value, "linked"), parseLinked);
+  const peers = list(field(value, "peers"), parsePeer);
+  const overlaps = list(field(value, "overlaps"), parseTeammateOverlap);
+  if (linked === null || peers === null || overlaps === null) return null;
+  return { linked, peers, overlaps };
+}
+
+function parseTeamEntry(value: unknown): TeamEntry | null {
   const projectId = text(field(value, "projectId"));
   const status = parseTeamStatus(field(value, "status"));
-  return projectId === null || status === null ? null : { projectId, status };
+  const activity = parseActivity(field(value, "activity"));
+  if (projectId === null || status === null || activity === null) return null;
+  return { projectId, status, activity };
 }
 
 /** Checks the payload of `team-changed`; `null` if anything is malformed or a project repeats. */
 export function parseTeamSnapshot(value: unknown): TeamSnapshot | null {
   const teams = list(field(value, "teams"), parseTeamEntry);
   const pending = parsePendingConfirmations(field(value, "pending"));
-  if (teams === null || pending === null) return null;
+  const reposValue = field(value, "repos");
+  const repos = reposValue === undefined ? [] : list(reposValue, parseRepo);
+  if (teams === null || pending === null || repos === null) return null;
   if (new Set(teams.map((entry) => entry.projectId)).size !== teams.length) return null;
-  return { teams, pending };
+  return { teams, pending, repos };
+}
+
+/** The activities of a snapshot by project. */
+export function activitiesOf(snapshot: TeamSnapshot): ReadonlyMap<string, TeamActivity> {
+  return new Map(snapshot.teams.map((entry) => [entry.projectId, entry.activity]));
 }
 
 /** A rejected command as `{ kind, detail }`; anything else becomes `unknown`. */
@@ -222,6 +431,7 @@ const REASON_TEXTS: Record<AttentionReason, MessageKey> = {
   refused: "team.status.refused",
   storage: "team.status.storage",
   otherInstance: "team.status.otherInstance",
+  otherAccount: "team.status.otherAccount",
   unknown: "team.status.attention",
 };
 
@@ -289,6 +499,7 @@ const ERROR_TEXTS: Record<TeamErrorKind, MessageKey> = {
   notSignedIn: "account.error.notSignedIn",
   unknownProject: "team.error.unknownProject",
   unknownRequest: "team.error.unknownRequest",
+  unknownRepository: "team.error.unknownRepository",
   keychain: "team.status.keychain",
   config: "account.error.config",
   busy: "team.error.busy",
@@ -350,4 +561,240 @@ export function armDelayLeft(shownAt: number, now: number, delay = ARM_DELAY_MS)
 /** Whether Confirm and Reject of a request shown at `shownAt` may be used at `now`. */
 export function isArmed(shownAt: number, now: number, delay = ARM_DELAY_MS): boolean {
   return armDelayLeft(shownAt, now, delay) === 0;
+}
+
+// -------------------------------------------------------------------------------------------
+// Teammates (part 2b)
+// -------------------------------------------------------------------------------------------
+
+/** What the window's attention logic says a session does, as the team's presence names it. */
+export function sessionStateOf(state: AttentionState | undefined): SessionState {
+  switch (state) {
+    case "working":
+      return "working";
+    case "attention":
+      return "waiting";
+    case "idle":
+    case undefined:
+      return "idle";
+  }
+}
+
+/** The sessions' states for `team_session_states`, in the order of `ids`. */
+export function sessionStates(
+  ids: readonly number[],
+  attention: ReadonlyMap<number, AttentionState>,
+): { sessionId: number; state: SessionState }[] {
+  return ids.map((sessionId) => ({ sessionId, state: sessionStateOf(attention.get(sessionId)) }));
+}
+
+function sameFolder(a: RepoRef, b: RepoRef): boolean {
+  return a.root === b.root && a.folder !== null && a.folder === b.folder;
+}
+
+/**
+ * The repository folders to offer: the linked ones first, then the running sessions' others. A
+ * clone or fork of a linked repository in another folder is a choice of its own, unticked. Links
+ * from before folders were bound (`folder: null`) are not offered: they share nothing.
+ */
+export function repoChoices(
+  linked: readonly RepoRef[],
+  running: readonly RepoRef[],
+): { repo: RepoRef; linked: boolean }[] {
+  const shown = linked
+    .filter((repo) => repo.folder !== null)
+    .map((repo) => ({ repo, linked: true }));
+  for (const repo of running) {
+    if (!linked.some((entry) => sameFolder(entry, repo))) shown.push({ repo, linked: false });
+  }
+  return shown;
+}
+
+/**
+ * Whether a link from before folders were bound waits for the person: a running folder of that
+ * repository is offered but not ticked, and nothing of it is shared until it is.
+ */
+export function needsRelink(linked: readonly RepoRef[], running: readonly RepoRef[]): boolean {
+  return linked.some(
+    (old) =>
+      old.folder === null &&
+      running.some(
+        (repo) => repo.root === old.root && !linked.some((entry) => sameFolder(entry, repo)),
+      ),
+  );
+}
+
+/** A clone's folder as the person knows it: the git folder's parent (`c:/src/shop/.git`). */
+export function folderLabel(folder: string): string {
+  return folder.replace(/\/\.git$/i, "");
+}
+
+/** "Anna", or the member's shortened id when the device sent no name; own devices say so. */
+export function personName(
+  person: { name: string; member: string; own?: boolean },
+  t: Translate,
+): string {
+  if (person.own === true) return t("team.activity.you");
+  // Names come from teammates' devices: invisible and reordering characters show as marks.
+  const name = revealInvisible(person.name.trim());
+  return name === "" ? t("team.confirm.member", { id: shortId(person.member) }) : name;
+}
+
+/**
+ * "Anna #3f9a2c1b…": the self-chosen name with the short member id the verified log vouches for,
+ * so two teammates who call themselves the same stay apart in texts. Own devices and nameless
+ * teammates read as `personName` says.
+ */
+export function personTag(
+  person: { name: string; member: string; own?: boolean },
+  t: Translate,
+): string {
+  const name = personName(person, t);
+  if (person.own === true || person.name.trim() === "") return name;
+  return `${name} #${shortId(person.member)}`;
+}
+
+/** "Anna #3f9a2c1b… (Claude Code)": who changes something, for overlaps and notices. */
+export function personWithAgent(
+  person: { name: string; member: string; agent: string },
+  t: Translate,
+): string {
+  const name = personTag(person, t);
+  const agent = revealInvisible(person.agent.trim());
+  return agent === "" ? name : `${name} (${agent})`;
+}
+
+const STATE_TEXTS: Record<SessionState, MessageKey> = {
+  working: "team.state.working",
+  waiting: "team.state.waiting",
+  idle: "team.state.idle",
+};
+
+export function sessionStateText(state: SessionState, t: Translate): string {
+  return t(STATE_TEXTS[state]);
+}
+
+/** "Anna (Codex) is changing the same lines: src/x.ts, lines 3 to 9", or the file or area form. */
+export function teammateOverlapText(overlap: TeammateOverlap, t: Translate): string {
+  const person = personWithAgent(overlap, t);
+  const path = revealInvisible(overlap.path ?? "");
+  if (overlap.level === "overlappingLines" && overlap.path !== null) {
+    return t("claims.teammateLines", { person, path, lines: formatLines(overlap.lines, t) });
+  }
+  if (overlap.level === "sameFile" && overlap.path !== null) {
+    return t("claims.teammateFile", { person, path });
+  }
+  return t("claims.teammateArea", { person });
+}
+
+/** Same file or overlapping lines, with a file this device can name: worth a marker and notice. */
+export function isTeammateFileOverlap(overlap: TeammateOverlap): boolean {
+  return (
+    overlap.path !== null && (overlap.level === "sameFile" || overlap.level === "overlappingLines")
+  );
+}
+
+/** Every teammate overlap of every shared project, by our session, worst first per session. */
+export function teammateOverlapsBySession(
+  activities: ReadonlyMap<string, TeamActivity>,
+): Map<number, TeammateOverlap[]> {
+  const grouped = new Map<number, TeammateOverlap[]>();
+  const rank = (level: OverlapLevel) => OVERLAP_LEVELS.indexOf(level);
+  for (const activity of activities.values()) {
+    for (const overlap of activity.overlaps) {
+      const entries = grouped.get(overlap.sessionId);
+      if (entries === undefined) grouped.set(overlap.sessionId, [overlap]);
+      else entries.push(overlap);
+    }
+  }
+  for (const entries of grouped.values()) entries.sort((a, b) => rank(b.level) - rank(a.level));
+  return grouped;
+}
+
+/** The sidebar marker's text for a session's worst teammate overlap on a file; `null` if none. */
+export function teammateMarkerText(
+  overlaps: readonly TeammateOverlap[],
+  t: Translate,
+): string | null {
+  const files = overlaps.filter(isTeammateFileOverlap);
+  const first = files[0];
+  if (first === undefined) return null;
+  const text = teammateOverlapText(first, t);
+  return files.length > 1 ? `${text} ${t("claims.moreCount", { count: files.length - 1 })}` : text;
+}
+
+/** Same for every notice of one collision: our session, the teammate's device and the file. */
+export function teammateOverlapKey(overlap: TeammateOverlap): string {
+  return [String(overlap.sessionId), overlap.member, overlap.device, overlap.path ?? ""].join(
+    "\u0000",
+  );
+}
+
+/** File-level teammate overlaps not announced yet; the caller adds their keys to `seen`. */
+export function freshTeammateOverlaps(
+  seen: ReadonlySet<string>,
+  activities: ReadonlyMap<string, TeamActivity>,
+): TeammateOverlap[] {
+  const fresh = new Map<string, TeammateOverlap>();
+  for (const activity of activities.values()) {
+    for (const overlap of activity.overlaps) {
+      if (!isTeammateFileOverlap(overlap)) continue;
+      const key = teammateOverlapKey(overlap);
+      if (!seen.has(key) && !fresh.has(key)) fresh.set(key, overlap);
+    }
+  }
+  return [...fresh.values()];
+}
+
+/** Collision keys remembered per app run; the oldest go first beyond this. */
+export const MAX_SEEN_TEAMMATE_OVERLAPS = 2000;
+
+/** Desktop notifications about teammates come at most this often. */
+export const TEAMMATE_NOTICE_GAP_MS = 60_000;
+
+/** Adds `keys` to `seen` and forgets the oldest beyond `max`, so the set stays bounded. */
+export function rememberSeen(
+  seen: Set<string>,
+  keys: readonly string[],
+  max = MAX_SEEN_TEAMMATE_OVERLAPS,
+): void {
+  for (const key of keys) {
+    seen.delete(key);
+    seen.add(key);
+  }
+  for (const key of seen) {
+    if (seen.size <= max) break;
+    seen.delete(key);
+  }
+}
+
+/**
+ * Whether a desktop notification about a teammate may go out at `now`, after the last one at
+ * `lastAt`: however many collisions teammates' devices report, the desktop hears of them at most
+ * once per `TEAMMATE_NOTICE_GAP_MS` (the sidebar markers and the in-app notice still show all).
+ */
+export function teammateNoticeDue(
+  lastAt: number | null,
+  now: number,
+  gap = TEAMMATE_NOTICE_GAP_MS,
+): boolean {
+  // A clock running backwards counts as just notified.
+  return lastAt === null || (now >= lastAt && now - lastAt >= gap);
+}
+
+/** "Anna (Codex) is changing the same file as Claude 1" with the file and lines as body. */
+export function teammateNotice(
+  overlap: TeammateOverlap,
+  sessionName: string,
+  t: Translate,
+): { title: string; body: string } {
+  const lines = overlap.level === "overlappingLines" ? formatLines(overlap.lines, t) : "";
+  const path = revealInvisible(overlap.path ?? "");
+  return {
+    title: t("claims.teammateNotice", {
+      person: personWithAgent(overlap, t),
+      session: sessionName,
+    }),
+    body: lines === "" ? path : `${path}, ${lines}`,
+  };
 }

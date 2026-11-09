@@ -154,3 +154,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Teamverbindung                                  | team connection                   | per project, turned on by "Share with team"; `TeamStatus` in `team.ts`      |
 | Sicherheitsnummer                               | safety number                     | 6 groups of 5 digits, compared on both devices before a confirmation        |
 | Bestätigung (neues Gerät)                       | confirmation                      | an own device or an owner/admin accepts a new device; `PendingConfirmation` |
+| Anwesenheit (Teamgerät)                         | presence                          | `presence.set`; the device's sessions in linked repositories, sealed        |
+| Verknüpftes Repository                          | linked repository                 | `LinkedRepo`; only its sessions are shared with a project                   |
+| Teamansicht                                     | Team view                         | `TeamActivityView.tsx`; teammates' sessions per shared project              |
+| Überschneidung mit dem Team                     | teammate overlap                  | `TeammateOverlap`; the relay's `claim.overlap`, refined locally             |
+| Zustand (Session, fürs Team)                    | session state                     | working, waiting, idle; `SessionState`                                      |
+| Anderes Konto (Teamgerät)                       | other account                     | `otherAccount`; a team device acts only for the account it was bound to     |

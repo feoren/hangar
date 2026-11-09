@@ -579,6 +579,12 @@
           "markdownDescription": "Enables the team_enable command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_link_repo command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-link-repo",
+          "markdownDescription": "Enables the team_link_repo command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_pending_confirmations command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-pending-confirmations",
@@ -589,6 +595,12 @@
           "type": "string",
           "const": "allow-team-reject",
           "markdownDescription": "Enables the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_session_states command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-session-states",
+          "markdownDescription": "Enables the team_session_states command without any pre-configured scope."
         },
         {
           "description": "Enables the team_status command without any pre-configured scope.",
@@ -1023,6 +1035,12 @@
           "markdownDescription": "Denies the team_enable command without any pre-configured scope."
         },
         {
+          "description": "Denies the team_link_repo command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-link-repo",
+          "markdownDescription": "Denies the team_link_repo command without any pre-configured scope."
+        },
+        {
           "description": "Denies the team_pending_confirmations command without any pre-configured scope.",
           "type": "string",
           "const": "deny-team-pending-confirmations",
@@ -1033,6 +1051,12 @@
           "type": "string",
           "const": "deny-team-reject",
           "markdownDescription": "Denies the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_session_states command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-session-states",
+          "markdownDescription": "Denies the team_session_states command without any pre-configured scope."
         },
         {
           "description": "Denies the team_status command without any pre-configured scope.",

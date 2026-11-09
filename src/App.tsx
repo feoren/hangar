@@ -205,6 +205,18 @@ import { planSubAgentPanes } from "./subAgents";
 import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
+import { useTeam } from "./useTeam";
+import {
+  freshTeammateOverlaps,
+  rememberSeen,
+  sessionStates,
+  teammateMarkerText,
+  teammateNotice,
+  teammateNoticeDue,
+  teammateOverlapKey,
+  teammateOverlapsBySession,
+  type TeammateOverlap,
+} from "./team";
 import { gateReady, useGate } from "./useGate";
 import {
   decisionText,
@@ -220,7 +232,7 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
-import { ClaimNoticeView } from "./ClaimsView";
+import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
 import {
   createErrorText,
@@ -275,6 +287,9 @@ const BADGE_CLEAR_TIMEOUT_MS = 300;
 const RESTORE_STAGGER_MS = 150;
 /** One stable empty list, so a session without overlaps does not re-render its panel. */
 const NO_OVERLAPS: readonly Overlap[] = [];
+const NO_TEAMMATES: readonly TeammateOverlap[] = [];
+/** Session states reach the team's presence at most this often (state changes come in bursts). */
+const TEAM_STATES_DELAY_MS = 1000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -508,6 +523,10 @@ export function App() {
   >(null);
   /** A new collision of two sessions on one file (claims.ts), until dismissed or replaced. */
   const [claimNotice, setClaimNotice] = useState<{ overlap: Overlap; key: number } | null>(null);
+  /** A new collision with a teammate's session, until dismissed or replaced. */
+  const [teamNotice, setTeamNotice] = useState<{ overlap: TeammateOverlap; key: number } | null>(
+    null,
+  );
   /** Gate decisions answered here whose snapshot has not caught up yet: hidden at once. */
   const [answeredGate, setAnsweredGate] = useState<ReadonlySet<number>>(() => new Set());
   /** An answer that did not reach the backend, shown on its card. */
@@ -872,16 +891,69 @@ export function App() {
   );
   /** Overlaps per session, grouped once per snapshot. */
   const overlapsById = useMemo(() => overlapsBySession(claims), [claims]);
-  /** Sidebar marker text per session that collides with another one on a file. */
+  // Shared projects (team service step F part 2b): the teammates' sessions that collide with
+  // ours join the same marker, Changes block and one-time notice as the user's own sessions.
+  const teamStore = useTeam();
+  const teammatesById = useMemo(
+    () => teammateOverlapsBySession(teamStore.activities),
+    [teamStore.activities],
+  );
+  /** Sidebar marker text per session that collides with another one (or a teammate) on a file. */
   const overlapMarkers = useMemo(() => {
     const name = (id: number) => state.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
     const markers = new Map<number, string>();
     for (const session of state.sessions) {
-      const text = markerText(overlapsById.get(session.id) ?? NO_OVERLAPS, name, t);
+      const text =
+        markerText(overlapsById.get(session.id) ?? NO_OVERLAPS, name, t) ??
+        teammateMarkerText(teammatesById.get(session.id) ?? NO_TEAMMATES, t);
       if (text !== null) markers.set(session.id, text);
     }
     return markers;
-  }, [overlapsById, state.sessions, t]);
+  }, [overlapsById, teammatesById, state.sessions, t]);
+  /** Teammate collisions already announced in this app run. */
+  const seenTeammates = useRef(new Set<string>());
+  /** When the last desktop notification about a teammate went out. */
+  const teammateNotifiedAt = useRef<number | null>(null);
+  useEffect(() => {
+    const fresh = freshTeammateOverlaps(seenTeammates.current, teamStore.activities);
+    rememberSeen(seenTeammates.current, fresh.map(teammateOverlapKey));
+    const first = fresh[0];
+    if (first === undefined) return;
+    const now = Date.now();
+    setTeamNotice({ overlap: first, key: now });
+    const current = settingsRef.current;
+    if (!current.notifyDesktop || !current.attentionEnabled || document.hasFocus()) return;
+    // Teammates' devices decide how many collisions arrive: the desktop hears of a few at most.
+    if (!teammateNoticeDue(teammateNotifiedAt.current, now)) return;
+    teammateNotifiedAt.current = now;
+    const session =
+      stateRef.current.sessions.find((s) => s.id === first.sessionId)?.title ??
+      `#${String(first.sessionId)}`;
+    const text = teammateNotice(first, session, createTranslator(current.language));
+    api.notifySession(first.sessionId, text.title, text.body).catch(() => undefined);
+  }, [teamStore.activities]);
+  // What each session does goes into the team's presence (only for sessions in repositories
+  // linked to a shared project; the backend picks them). At most once per second, always the
+  // newest states: a steady stream of changes must not hold them back.
+  const sessionIds = state.sessions.map((session) => session.id).join(",");
+  const statesTimer = useRef<number | null>(null);
+  const sendStates = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    const ids = sessionIds === "" ? [] : sessionIds.split(",").map(Number);
+    sendStates.current = () => {
+      statesTimer.current = null;
+      api.teamSessionStates(sessionStates(ids, attention)).catch(() => undefined);
+    };
+    statesTimer.current ??= window.setTimeout(() => {
+      sendStates.current();
+    }, TEAM_STATES_DELAY_MS);
+  }, [sessionIds, attention]);
+  useEffect(
+    () => () => {
+      if (statesTimer.current !== null) window.clearTimeout(statesTimer.current);
+    },
+    [],
+  );
   /** Where the next session starts: the active project, a chosen folder, the last one, home. */
   const target = resolveStartTarget({
     chosen: chosenCwd,
@@ -3671,6 +3743,11 @@ export function App() {
                         ? (overlapsById.get(activeSession.id) ?? NO_OVERLAPS)
                         : NO_OVERLAPS
                     }
+                    teammates={
+                      activeSession
+                        ? (teammatesById.get(activeSession.id) ?? NO_TEAMMATES)
+                        : NO_TEAMMATES
+                    }
                     nameOf={sessionName}
                     onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}
@@ -3817,6 +3894,21 @@ export function App() {
                 }}
                 onDismiss={() => {
                   setClaimNotice(null);
+                  focusActive();
+                }}
+              />
+            )}
+            {teamNotice !== null && (
+              <TeammateNoticeView
+                key={teamNotice.key}
+                overlap={teamNotice.overlap}
+                sessionName={sessionName(teamNotice.overlap.sessionId)}
+                onShow={() => {
+                  setTeamNotice(null);
+                  showSession(teamNotice.overlap.sessionId);
+                }}
+                onDismiss={() => {
+                  setTeamNotice(null);
                   focusActive();
                 }}
               />

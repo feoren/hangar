@@ -574,10 +574,17 @@ pub struct WorktreeClaims {
     pub repo: String,
     /// Worktree key, [`folder_key`] of its top folder.
     pub root_key: String,
+    /// The worktree's folder name (the repository's name for the team view).
+    pub name: String,
+    /// The repository's root commit, its identity in the team protocol; `None` before the first
+    /// commit or while unknown.
+    pub root_commit: Option<String>,
     pub base: Option<String>,
     /// Running sessions in this worktree, in the session list's order.
     pub sessions: Vec<SessionId>,
     pub claims: Vec<Claim>,
+    /// git's output was cut: claims past it may be missing.
+    pub truncated: bool,
 }
 
 /// Event `claims-changed` and the answer of `claims_snapshot`.

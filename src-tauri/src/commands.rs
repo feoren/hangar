@@ -34,6 +34,7 @@ use crate::session::{SessionId, SessionInfo, SessionKind};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
+use crate::team_share::SessionState;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
@@ -1134,6 +1135,40 @@ pub async fn team_confirm(team: State<'_, TeamService>, request: String) -> Resu
 #[tauri::command]
 pub async fn team_reject(team: State<'_, TeamService>, request: String) -> Result<(), TeamError> {
     team.reject(&request).await
+}
+
+/// What a session is doing, as the window's attention logic says.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStateEntry {
+    session_id: SessionId,
+    state: SessionState,
+}
+
+/// The window's states of its sessions, for the team's presence (only sessions in repositories
+/// linked to a shared project leave the device).
+#[tauri::command]
+pub fn team_session_states(team: State<'_, TeamService>, states: Vec<SessionStateEntry>) {
+    team.set_session_states(
+        states
+            .into_iter()
+            .map(|entry| (entry.session_id, entry.state))
+            .collect(),
+    );
+}
+
+/// Links or unlinks a repository folder (its root commit and clone folder, from `team-changed`'s
+/// `repos`) to a shared project: its sessions' presence and changed files go to the team from
+/// now on.
+#[tauri::command]
+pub fn team_link_repo(
+    team: State<'_, TeamService>,
+    project_id: String,
+    root: String,
+    folder: String,
+    on: bool,
+) -> Result<(), TeamError> {
+    team.link_repo(&project_id, &root, &folder, on)
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

@@ -20,6 +20,7 @@ import { useT } from "./i18n";
 import { ChevronIcon, RestartIcon } from "./icons";
 import { hasInvisible, revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import type { TeammateOverlap } from "./team";
 
 interface Props {
   /** Working folder of the active session; `null` without a session. */
@@ -35,6 +36,8 @@ interface Props {
   claims: SessionClaims | null;
   /** Its collisions with other sessions, worst first. */
   overlaps: readonly Overlap[];
+  /** Its collisions with teammates' sessions in shared projects, worst first. */
+  teammates: readonly TeammateOverlap[];
   nameOf: (id: number) => string;
   onShowSession: (id: number) => void;
 }
@@ -129,6 +132,7 @@ export function ChangesPanel(props: Props) {
         key={props.claims?.sessionId ?? "none"}
         claims={props.claims}
         overlaps={props.overlaps}
+        teammates={props.teammates}
         nameOf={props.nameOf}
         onShowSession={props.onShowSession}
       />

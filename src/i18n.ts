@@ -871,6 +871,29 @@ const de = {
   "team.error.unknownProject": "Dieses Projekt gibt es nicht mehr.",
   "team.error.unknownRequest": "Diese Anfrage gibt es nicht mehr.",
   "team.error.busy": "Gerade beschäftigt. Versuch es gleich noch mal.",
+  "team.status.otherAccount":
+    "Das Teamgerät auf diesem Computer gehört zu einem anderen Konto. Melde dich mit diesem Konto an.",
+  "team.error.unknownRepository": "In diesem Repository läuft keine Session mehr.",
+  "team.activity.repos": "Geteilte Repositories",
+  "team.activity.reposHelp":
+    "Dein Team sieht deinen Anzeigenamen von der Website und nur für Sessions in angehakten Ordnern Agent, Titel, Zustand und geänderte Dateien mit Zeilennummern. Nie Dateiinhalte oder deine E-Mail-Adresse.",
+  "team.activity.relink":
+    "Repositories werden jetzt pro Ordner geteilt. Hake die Ordner an, die du wieder teilen willst.",
+  "team.activity.noRepos": "Starte einen Agenten in einem Git-Repository, um es hier zu teilen.",
+  "team.activity.people": "Im Team",
+  "team.activity.nobody": "Gerade ist niemand sonst verbunden.",
+  "team.activity.you": "Du (anderes Gerät)",
+  "team.activity.noSessions": "Keine geteilte Session",
+  "team.activity.files": "Geänderte Dateien: {count}",
+  "team.activity.away": "abwesend",
+  "team.state.working": "arbeitet",
+  "team.state.waiting": "wartet",
+  "team.state.idle": "ruhig",
+  "claims.teammateFile": "{person} ändert diese Datei auch: {path}",
+  "claims.teammateLines": "{person} ändert dieselben Zeilen: {path}, {lines}",
+  "claims.teammateArea": "{person} arbeitet im selben Bereich",
+  "claims.teammateNotice": "{person} ändert dieselbe Datei wie {session}",
+  "claims.teammateTitle": "Überschneidung mit dem Team",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -1687,6 +1710,29 @@ const en: Record<MessageKey, string> = {
   "team.error.unknownProject": "This project no longer exists.",
   "team.error.unknownRequest": "This request no longer exists.",
   "team.error.busy": "Busy right now. Try again in a moment.",
+  "team.status.otherAccount":
+    "On this computer, the team device belongs to another account. Sign in with that account.",
+  "team.error.unknownRepository": "No session runs in that repository any more.",
+  "team.activity.repos": "Shared repositories",
+  "team.activity.reposHelp":
+    "Your team sees your display name from the website and, only for sessions in checked folders, agent, title, state and changed files with line numbers. Never file contents or your e-mail address.",
+  "team.activity.relink":
+    "Repositories are now shared per folder. Check the folders you want to share again.",
+  "team.activity.noRepos": "Start an agent in a git repository to share it here.",
+  "team.activity.people": "In the team",
+  "team.activity.nobody": "Nobody else is connected right now.",
+  "team.activity.you": "You (another device)",
+  "team.activity.noSessions": "No shared session",
+  "team.activity.files": "Changed files: {count}",
+  "team.activity.away": "away",
+  "team.state.working": "working",
+  "team.state.waiting": "waiting",
+  "team.state.idle": "idle",
+  "claims.teammateFile": "{person} is changing this file too: {path}",
+  "claims.teammateLines": "{person} is changing the same lines: {path}, {lines}",
+  "claims.teammateArea": "{person} is working in the same area",
+  "claims.teammateNotice": "{person} is changing the same file as {session}",
+  "claims.teammateTitle": "Overlaps with your team",
 };
 
 const el: Record<MessageKey, string> = {
@@ -2529,6 +2575,29 @@ const el: Record<MessageKey, string> = {
   "team.error.unknownProject": "Αυτό το έργο δεν υπάρχει πια.",
   "team.error.unknownRequest": "Αυτό το αίτημα δεν υπάρχει πια.",
   "team.error.busy": "Απασχολημένο τώρα. Δοκίμασε ξανά σε λίγο.",
+  "team.status.otherAccount":
+    "Η συσκευή ομάδας σε αυτόν τον υπολογιστή ανήκει σε άλλον λογαριασμό. Συνδέσου με εκείνον τον λογαριασμό.",
+  "team.error.unknownRepository": "Σε αυτό το αποθετήριο δεν τρέχει πια καμία συνεδρία.",
+  "team.activity.repos": "Κοινόχρηστα αποθετήρια",
+  "team.activity.reposHelp":
+    "Η ομάδα σου βλέπει το εμφανιζόμενο όνομά σου από τον ιστότοπο και, μόνο για συνεδρίες σε επιλεγμένους φακέλους, agent, τίτλο, κατάσταση και αλλαγμένα αρχεία με αριθμούς γραμμών. Ποτέ το περιεχόμενο των αρχείων ή τη διεύθυνση email σου.",
+  "team.activity.relink":
+    "Τα αποθετήρια κοινοποιούνται πλέον ανά φάκελο. Επίλεξε ξανά τους φακέλους που θέλεις να μοιραστείς.",
+  "team.activity.noRepos": "Ξεκίνα έναν agent σε ένα αποθετήριο git για να το μοιραστείς εδώ.",
+  "team.activity.people": "Στην ομάδα",
+  "team.activity.nobody": "Κανείς άλλος δεν είναι συνδεδεμένος αυτή τη στιγμή.",
+  "team.activity.you": "Εσύ (άλλη συσκευή)",
+  "team.activity.noSessions": "Καμία κοινόχρηστη συνεδρία",
+  "team.activity.files": "Αλλαγμένα αρχεία: {count}",
+  "team.activity.away": "εκτός",
+  "team.state.working": "δουλεύει",
+  "team.state.waiting": "περιμένει",
+  "team.state.idle": "σε αδράνεια",
+  "claims.teammateFile": "Το ίδιο αρχείο αλλάζει και {person}: {path}",
+  "claims.teammateLines": "Τις ίδιες γραμμές αλλάζει και {person}: {path}, {lines}",
+  "claims.teammateArea": "Στην ίδια περιοχή δουλεύει και {person}",
+  "claims.teammateNotice": "Το ίδιο αρχείο με {session} αλλάζει και {person}",
+  "claims.teammateTitle": "Επικάλυψη με την ομάδα",
 };
 
 const es: Record<MessageKey, string> = {
@@ -3359,6 +3428,29 @@ const es: Record<MessageKey, string> = {
   "team.error.unknownProject": "Este proyecto ya no existe.",
   "team.error.unknownRequest": "Esta solicitud ya no existe.",
   "team.error.busy": "Ocupado ahora mismo. Inténtalo de nuevo en un momento.",
+  "team.status.otherAccount":
+    "En este ordenador, el dispositivo del equipo pertenece a otra cuenta. Inicia sesión con esa cuenta.",
+  "team.error.unknownRepository": "Ya no se ejecuta ninguna sesión en ese repositorio.",
+  "team.activity.repos": "Repositorios compartidos",
+  "team.activity.reposHelp":
+    "Tu equipo ve tu nombre visible del sitio web y, solo para las sesiones de las carpetas marcadas, agente, título, estado y archivos cambiados con números de línea. Nunca el contenido de los archivos ni tu correo electrónico.",
+  "team.activity.relink":
+    "Los repositorios ahora se comparten por carpeta. Marca de nuevo las carpetas que quieras compartir.",
+  "team.activity.noRepos": "Inicia un agente en un repositorio git para compartirlo aquí.",
+  "team.activity.people": "En el equipo",
+  "team.activity.nobody": "Ahora mismo no hay nadie más conectado.",
+  "team.activity.you": "Tú (otro dispositivo)",
+  "team.activity.noSessions": "Ninguna sesión compartida",
+  "team.activity.files": "Archivos cambiados: {count}",
+  "team.activity.away": "ausente",
+  "team.state.working": "trabajando",
+  "team.state.waiting": "esperando",
+  "team.state.idle": "inactiva",
+  "claims.teammateFile": "{person} también cambia este archivo: {path}",
+  "claims.teammateLines": "{person} cambia las mismas líneas: {path}, {lines}",
+  "claims.teammateArea": "{person} trabaja en la misma área",
+  "claims.teammateNotice": "{person} cambia el mismo archivo que {session}",
+  "claims.teammateTitle": "Coincidencias con tu equipo",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -4198,6 +4290,29 @@ const fr: Record<MessageKey, string> = {
   "team.error.unknownProject": "Ce projet n'existe plus.",
   "team.error.unknownRequest": "Cette demande n'existe plus.",
   "team.error.busy": "Occupé pour le moment. Réessaie dans un instant.",
+  "team.status.otherAccount":
+    "Sur cet ordinateur, l'appareil d'équipe appartient à un autre compte. Connecte-toi avec ce compte.",
+  "team.error.unknownRepository": "Plus aucune session ne tourne dans ce dépôt.",
+  "team.activity.repos": "Dépôts partagés",
+  "team.activity.reposHelp":
+    "Ton équipe voit ton nom d'affichage du site web et, uniquement pour les sessions des dossiers cochés, agent, titre, état et fichiers modifiés avec les numéros de ligne. Jamais le contenu des fichiers ni ton adresse e-mail.",
+  "team.activity.relink":
+    "Les dépôts sont désormais partagés par dossier. Coche à nouveau les dossiers à partager.",
+  "team.activity.noRepos": "Lance un agent dans un dépôt git pour le partager ici.",
+  "team.activity.people": "Dans l'équipe",
+  "team.activity.nobody": "Personne d'autre n'est connecté pour le moment.",
+  "team.activity.you": "Toi (autre appareil)",
+  "team.activity.noSessions": "Aucune session partagée",
+  "team.activity.files": "Fichiers modifiés : {count}",
+  "team.activity.away": "absent",
+  "team.state.working": "au travail",
+  "team.state.waiting": "en attente",
+  "team.state.idle": "inactive",
+  "claims.teammateFile": "{person} modifie aussi ce fichier : {path}",
+  "claims.teammateLines": "{person} modifie les mêmes lignes : {path}, {lines}",
+  "claims.teammateArea": "{person} travaille dans la même zone",
+  "claims.teammateNotice": "{person} modifie le même fichier que {session}",
+  "claims.teammateTitle": "Chevauchements avec ton équipe",
 };
 
 const it: Record<MessageKey, string> = {
@@ -5030,6 +5145,29 @@ const it: Record<MessageKey, string> = {
   "team.error.unknownProject": "Questo progetto non esiste più.",
   "team.error.unknownRequest": "Questa richiesta non esiste più.",
   "team.error.busy": "Occupato al momento. Riprova tra poco.",
+  "team.status.otherAccount":
+    "Su questo computer il dispositivo del team appartiene a un altro account. Accedi con quell'account.",
+  "team.error.unknownRepository": "In quel repository non è più in esecuzione nessuna sessione.",
+  "team.activity.repos": "Repository condivisi",
+  "team.activity.reposHelp":
+    "Il tuo team vede il tuo nome visualizzato dal sito web e, solo per le sessioni nelle cartelle selezionate, agente, titolo, stato e file modificati con i numeri di riga. Mai il contenuto dei file né il tuo indirizzo e-mail.",
+  "team.activity.relink":
+    "Ora i repository si condividono per cartella. Seleziona di nuovo le cartelle da condividere.",
+  "team.activity.noRepos": "Avvia un agente in un repository git per condividerlo qui.",
+  "team.activity.people": "Nel team",
+  "team.activity.nobody": "Al momento nessun altro è connesso.",
+  "team.activity.you": "Tu (altro dispositivo)",
+  "team.activity.noSessions": "Nessuna sessione condivisa",
+  "team.activity.files": "File modificati: {count}",
+  "team.activity.away": "assente",
+  "team.state.working": "al lavoro",
+  "team.state.waiting": "in attesa",
+  "team.state.idle": "inattiva",
+  "claims.teammateFile": "Anche {person} sta modificando questo file: {path}",
+  "claims.teammateLines": "{person} sta modificando le stesse righe: {path}, {lines}",
+  "claims.teammateArea": "{person} lavora nella stessa area",
+  "claims.teammateNotice": "{person} modifica lo stesso file di {session}",
+  "claims.teammateTitle": "Sovrapposizioni con il tuo team",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -5862,6 +6000,29 @@ const ja: Record<MessageKey, string> = {
   "team.error.unknownProject": "このプロジェクトはもう存在しません。",
   "team.error.unknownRequest": "このリクエストはもう存在しません。",
   "team.error.busy": "処理中です。少し待ってから再試行してください。",
+  "team.status.otherAccount":
+    "このコンピューターのチーム用デバイスは別のアカウントのものです。そのアカウントでサインインしてください。",
+  "team.error.unknownRepository": "そのリポジトリで実行中のセッションはもうありません。",
+  "team.activity.repos": "共有するリポジトリ",
+  "team.activity.reposHelp":
+    "チームに見えるのは、ウェブサイトの表示名と、チェックしたフォルダーのセッションのエージェント、タイトル、状態、変更されたファイルと行番号だけです。ファイルの内容やメールアドレスは共有されません。",
+  "team.activity.relink":
+    "リポジトリはフォルダーごとに共有されるようになりました。共有するフォルダーをもう一度チェックしてください。",
+  "team.activity.noRepos": "ここで共有するには、git リポジトリでエージェントを起動してください。",
+  "team.activity.people": "チーム",
+  "team.activity.nobody": "現在、ほかに接続している人はいません。",
+  "team.activity.you": "自分 (別のデバイス)",
+  "team.activity.noSessions": "共有中のセッションはありません",
+  "team.activity.files": "変更されたファイル: {count}",
+  "team.activity.away": "離席中",
+  "team.state.working": "作業中",
+  "team.state.waiting": "待機中",
+  "team.state.idle": "アイドル",
+  "claims.teammateFile": "{person} もこのファイルを変更中: {path}",
+  "claims.teammateLines": "{person} が同じ行を変更中: {path}、{lines}",
+  "claims.teammateArea": "{person} が同じ領域で作業中",
+  "claims.teammateNotice": "{person} が {session} と同じファイルを変更中",
+  "claims.teammateTitle": "チームとの重なり",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -6686,6 +6847,29 @@ const pl: Record<MessageKey, string> = {
   "team.error.unknownProject": "Ten projekt już nie istnieje.",
   "team.error.unknownRequest": "To żądanie już nie istnieje.",
   "team.error.busy": "Zajęte. Spróbuj ponownie za chwilę.",
+  "team.status.otherAccount":
+    "Na tym komputerze urządzenie zespołu należy do innego konta. Zaloguj się na to konto.",
+  "team.error.unknownRepository": "W tym repozytorium nie działa już żadna sesja.",
+  "team.activity.repos": "Udostępniane repozytoria",
+  "team.activity.reposHelp":
+    "Twój zespół widzi Twoją nazwę wyświetlaną ze strony i tylko dla sesji w zaznaczonych folderach: agenta, tytuł, stan i zmienione pliki z numerami wierszy. Nigdy zawartości plików ani Twojego adresu e-mail.",
+  "team.activity.relink":
+    "Repozytoria są teraz udostępniane osobno dla każdego folderu. Zaznacz ponownie foldery, które chcesz udostępnić.",
+  "team.activity.noRepos": "Uruchom agenta w repozytorium git, aby je tu udostępnić.",
+  "team.activity.people": "W zespole",
+  "team.activity.nobody": "W tej chwili nikt inny nie jest połączony.",
+  "team.activity.you": "Ty (inne urządzenie)",
+  "team.activity.noSessions": "Brak udostępnionej sesji",
+  "team.activity.files": "Zmienione pliki: {count}",
+  "team.activity.away": "nieobecny",
+  "team.state.working": "pracuje",
+  "team.state.waiting": "czeka",
+  "team.state.idle": "bezczynna",
+  "claims.teammateFile": "{person} też zmienia ten plik: {path}",
+  "claims.teammateLines": "{person} zmienia te same wiersze: {path}, {lines}",
+  "claims.teammateArea": "{person} pracuje w tym samym obszarze",
+  "claims.teammateNotice": "{person} zmienia ten sam plik co {session}",
+  "claims.teammateTitle": "Nakładanie się z zespołem",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -7517,6 +7701,29 @@ const pt: Record<MessageKey, string> = {
   "team.error.unknownProject": "Este projeto não existe mais.",
   "team.error.unknownRequest": "Esta solicitação não existe mais.",
   "team.error.busy": "Ocupado agora. Tente de novo em instantes.",
+  "team.status.otherAccount":
+    "Neste computador, o dispositivo da equipe pertence a outra conta. Entre com essa conta.",
+  "team.error.unknownRepository": "Nenhuma sessão está mais rodando nesse repositório.",
+  "team.activity.repos": "Repositórios compartilhados",
+  "team.activity.reposHelp":
+    "Sua equipe vê seu nome de exibição do site e, só para as sessões das pastas marcadas, agente, título, estado e arquivos alterados com números de linha. Nunca o conteúdo dos arquivos nem seu e-mail.",
+  "team.activity.relink":
+    "Os repositórios agora são compartilhados por pasta. Marque de novo as pastas que quer compartilhar.",
+  "team.activity.noRepos": "Inicie um agente em um repositório git para compartilhá-lo aqui.",
+  "team.activity.people": "Na equipe",
+  "team.activity.nobody": "Ninguém mais está conectado agora.",
+  "team.activity.you": "Você (outro dispositivo)",
+  "team.activity.noSessions": "Nenhuma sessão compartilhada",
+  "team.activity.files": "Arquivos alterados: {count}",
+  "team.activity.away": "ausente",
+  "team.state.working": "trabalhando",
+  "team.state.waiting": "aguardando",
+  "team.state.idle": "ociosa",
+  "claims.teammateFile": "{person} também está alterando este arquivo: {path}",
+  "claims.teammateLines": "{person} está alterando as mesmas linhas: {path}, {lines}",
+  "claims.teammateArea": "{person} está trabalhando na mesma área",
+  "claims.teammateNotice": "{person} está alterando o mesmo arquivo que {session}",
+  "claims.teammateTitle": "Sobreposições com sua equipe",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -8337,6 +8544,29 @@ const ru: Record<MessageKey, string> = {
   "team.error.unknownProject": "Этого проекта больше нет.",
   "team.error.unknownRequest": "Этого запроса больше нет.",
   "team.error.busy": "Сейчас занято. Попробуй ещё раз чуть позже.",
+  "team.status.otherAccount":
+    "На этом компьютере устройство команды принадлежит другой учётной записи. Войди с этой учётной записью.",
+  "team.error.unknownRepository": "В этом репозитории больше не работает ни одна сессия.",
+  "team.activity.repos": "Общие репозитории",
+  "team.activity.reposHelp":
+    "Команда видит твоё отображаемое имя с сайта и, только для сессий в отмеченных папках, агента, заголовок, состояние и изменённые файлы с номерами строк. Никогда не содержимое файлов и не твой адрес почты.",
+  "team.activity.relink":
+    "Теперь репозитории открываются для команды по папкам. Отметь заново папки, которыми хочешь поделиться.",
+  "team.activity.noRepos": "Запусти агента в git-репозитории, чтобы поделиться им здесь.",
+  "team.activity.people": "В команде",
+  "team.activity.nobody": "Сейчас больше никто не подключён.",
+  "team.activity.you": "Ты (другое устройство)",
+  "team.activity.noSessions": "Нет общей сессии",
+  "team.activity.files": "Изменённые файлы: {count}",
+  "team.activity.away": "нет на месте",
+  "team.state.working": "работает",
+  "team.state.waiting": "ждёт",
+  "team.state.idle": "простаивает",
+  "claims.teammateFile": "{person} тоже меняет этот файл: {path}",
+  "claims.teammateLines": "{person} меняет те же строки: {path}, {lines}",
+  "claims.teammateArea": "{person} работает в той же области",
+  "claims.teammateNotice": "{person} меняет тот же файл, что и {session}",
+  "claims.teammateTitle": "Пересечения с командой",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -9155,6 +9385,29 @@ const tr: Record<MessageKey, string> = {
   "team.error.unknownProject": "Bu proje artık yok.",
   "team.error.unknownRequest": "Bu istek artık yok.",
   "team.error.busy": "Şu an meşgul. Birazdan yeniden dene.",
+  "team.status.otherAccount":
+    "Bu bilgisayardaki ekip cihazı başka bir hesaba ait. O hesapla oturum aç.",
+  "team.error.unknownRepository": "Bu depoda artık çalışan bir oturum yok.",
+  "team.activity.repos": "Paylaşılan depolar",
+  "team.activity.reposHelp":
+    "Ekibin web sitesindeki görünen adını ve yalnızca işaretli klasörlerdeki oturumlar için ajanı, başlığı, durumu ve değişen dosyaları satır numaralarıyla görür. Dosya içeriklerini veya e-posta adresini asla görmez.",
+  "team.activity.relink":
+    "Depolar artık klasör başına paylaşılıyor. Paylaşmak istediğin klasörleri yeniden işaretle.",
+  "team.activity.noRepos": "Burada paylaşmak için bir git deposunda bir ajan başlat.",
+  "team.activity.people": "Ekipte",
+  "team.activity.nobody": "Şu anda başka kimse bağlı değil.",
+  "team.activity.you": "Sen (başka cihaz)",
+  "team.activity.noSessions": "Paylaşılan oturum yok",
+  "team.activity.files": "Değişen dosyalar: {count}",
+  "team.activity.away": "uzakta",
+  "team.state.working": "çalışıyor",
+  "team.state.waiting": "bekliyor",
+  "team.state.idle": "boşta",
+  "claims.teammateFile": "{person} de bu dosyayı değiştiriyor: {path}",
+  "claims.teammateLines": "{person} aynı satırları değiştiriyor: {path}, {lines}",
+  "claims.teammateArea": "{person} aynı alanda çalışıyor",
+  "claims.teammateNotice": "{person}, {session} ile aynı dosyayı değiştiriyor",
+  "claims.teammateTitle": "Ekibinle çakışma",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -9936,6 +10189,27 @@ const zh: Record<MessageKey, string> = {
   "team.error.unknownProject": "此项目已不存在。",
   "team.error.unknownRequest": "此请求已不存在。",
   "team.error.busy": "正在忙碌。请稍后再试。",
+  "team.status.otherAccount": "此电脑上的团队设备属于另一个账户。请用该账户登录。",
+  "team.error.unknownRepository": "该仓库中已没有正在运行的会话。",
+  "team.activity.repos": "共享的仓库",
+  "team.activity.reposHelp":
+    "团队能看到你在网站上的显示名称，以及仅限已勾选文件夹中会话的智能体、标题、状态和修改的文件及行号。绝不包括文件内容或你的电子邮件地址。",
+  "team.activity.relink": "仓库现在按文件夹共享。请重新勾选要共享的文件夹。",
+  "team.activity.noRepos": "在 git 仓库中启动一个智能体，即可在此共享。",
+  "team.activity.people": "团队中",
+  "team.activity.nobody": "目前没有其他人连接。",
+  "team.activity.you": "你（另一台设备）",
+  "team.activity.noSessions": "没有共享的会话",
+  "team.activity.files": "修改的文件：{count}",
+  "team.activity.away": "离开",
+  "team.state.working": "工作中",
+  "team.state.waiting": "等待中",
+  "team.state.idle": "空闲",
+  "claims.teammateFile": "{person} 也在修改此文件：{path}",
+  "claims.teammateLines": "{person} 正在修改相同的行：{path}，{lines}",
+  "claims.teammateArea": "{person} 在同一区域工作",
+  "claims.teammateNotice": "{person} 与 {session} 在修改同一个文件",
+  "claims.teammateTitle": "与团队重叠",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

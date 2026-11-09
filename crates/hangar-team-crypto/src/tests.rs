@@ -627,6 +627,66 @@ fn record_heads_detect_forks_and_newer_logs() {
         cipher.open_verified(team.state(), &context, &forked).err(),
         Some(OpenError::Fork { index: 4 })
     );
+    // The same wrong head without a valid signature is no fork: anyone can write a head, and
+    // only a listed device's signature over it may make the app stop trusting the team.
+    let unsigned = {
+        let mut data = crate::encoding::from_ciphertext(&forked.data).expect("data");
+        let last = data.len() - 1;
+        data[last] ^= 1;
+        Sealed {
+            epoch: forked.epoch,
+            data: crate::encoding::to_ciphertext(&data).expect("data"),
+        }
+    };
+    assert_eq!(
+        cipher
+            .open_verified(team.state(), &context, &unsigned)
+            .err(),
+        Some(OpenError::Signature)
+    );
+    // Signed by a device the log never listed, or by a listed device under another's name.
+    let stranger = Device::new("stranger", "d");
+    let as_stranger = RecordContext {
+        sender: &stranger.holder,
+        ..context
+    };
+    let foreign_fork = cipher
+        .seal(
+            &as_stranger,
+            &stranger.identity,
+            &forged_head,
+            1,
+            b"y",
+            &mut OsEntropy,
+        )
+        .expect("seal");
+    assert_eq!(
+        cipher
+            .open_verified(team.state(), &as_stranger, &foreign_fork)
+            .err(),
+        Some(OpenError::UnknownSender)
+    );
+    let member_holder = team.member.holder.clone();
+    let as_member = RecordContext {
+        sender: &member_holder,
+        ..context
+    };
+    let impersonated = cipher
+        .seal(
+            &as_member,
+            &team.admin.identity,
+            &forged_head,
+            3,
+            b"y",
+            &mut OsEntropy,
+        )
+        .expect("seal");
+    assert_eq!(
+        cipher
+            .open_verified(team.state(), &as_member, &impersonated)
+            .err(),
+        Some(OpenError::Signature)
+    );
     // A head from before the epoch began.
     let old_head = ChainHead {
         index: 3,

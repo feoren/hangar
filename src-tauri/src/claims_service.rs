@@ -254,6 +254,31 @@ pub fn scan(git: &Git, root: &RootInfo) -> Result<ScanResult, GitError> {
     Ok(result)
 }
 
+/// The repository's root commit, its identity in the team protocol (`RepoId`: the smallest of
+/// the commits without parents reachable from HEAD). `None` before the first commit, when git
+/// fails, or when its output was cut (the smallest one might be missing).
+pub fn root_commit(git: &Git, top: &Path) -> Result<Option<String>, GitError> {
+    git::check_folder(top)?;
+    let deadline = Instant::now() + git::TIMEOUT;
+    let output = git.run(
+        top,
+        ["rev-list", "--max-parents=0", "HEAD", "--"],
+        deadline,
+        64 * 1024,
+    )?;
+    if !output.success || output.truncated {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .lines()
+        .map(|line| line.trim().to_ascii_lowercase())
+        .filter(|id| {
+            (id.len() == 40 || id.len() == 64) && id.bytes().all(|b| b.is_ascii_hexdigit())
+        })
+        .min())
+}
+
 /// Whether a file event at `path` can change the claims. Inside a git folder only `HEAD`,
 /// `index` and `logs/HEAD` count (commits, checkouts, staging); everything else there is git's
 /// own bookkeeping, often written by the rescan's neighbours.
@@ -368,7 +393,11 @@ struct Shared {
     released: Mutex<Vec<String>>,
     /// Held during every scan.
     scan_gate: Mutex<()>,
+    /// Told whenever the worktrees' claims change (the team service shares them).
+    listener: Mutex<Option<WorktreesListener>>,
 }
+
+type WorktreesListener = Box<dyn Fn() + Send>;
 
 /// A folder handed to [`ClaimsService::release`]. Give it back with
 /// [`ClaimsService::unrelease`] when the folder stays after all.
@@ -404,6 +433,7 @@ impl ClaimsService {
             keys: HashMap::new(),
             places: HashMap::new(),
             roots: HashMap::new(),
+            root_commits: HashMap::new(),
             active: Vec::new(),
             budget: ScanBudget::new(Instant::now()),
             dirty: true,
@@ -413,6 +443,11 @@ impl ClaimsService {
             .spawn(move || worker.run())?;
         *lock(&self.tx) = Some(tx);
         Ok(())
+    }
+
+    /// Calls `listener` after every change of [`Self::worktrees`], on the claims thread.
+    pub fn on_worktrees(&self, listener: impl Fn() + Send + 'static) {
+        *lock(&self.shared.listener) = Some(Box::new(listener));
     }
 
     /// Turns claim watching on or off (the frontend setting).
@@ -519,6 +554,10 @@ struct Worker {
     places: HashMap<PathBuf, Place>,
     /// Per worktree key.
     roots: HashMap<String, Root>,
+    /// Root commit per repository key, found once per app run (it never changes once the
+    /// repository has a commit).
+    /// `None` once git could not tell (timed out on a huge history, failed): not asked again.
+    root_commits: HashMap<String, Option<String>>,
     /// Sessions observed in the last check, in the session list's order.
     active: Vec<WatchedSession>,
     budget: ScanBudget,
@@ -825,6 +864,16 @@ impl Worker {
                 *lock(&root.ignored) =
                     ignored_dirs(&git, &root.info.top, deadline).unwrap_or_default();
             }
+            // The repository's identity for the team, once per repository with a commit.
+            let has_base = matches!(&result, Ok(scan) if scan.base.is_some());
+            if has_base && !self.root_commits.contains_key(&root.info.repo) {
+                let id = root_commit(&git, &root.info.top).unwrap_or_else(|error| {
+                    eprintln!("hangar: root commit not read: {error}");
+                    None
+                });
+                self.dirty |= id.is_some();
+                self.root_commits.insert(root.info.repo.clone(), id);
+            }
             drop(gate);
             let finished = Instant::now();
             self.budget.spent(started, finished);
@@ -865,7 +914,17 @@ impl Worker {
         } else {
             (ClaimsSnapshot::default(), Vec::new())
         };
-        *lock(&self.shared.worktrees) = Arc::new(worktrees);
+        let worktrees_changed = {
+            let mut current = lock(&self.shared.worktrees);
+            let changed = **current != worktrees;
+            *current = Arc::new(worktrees);
+            changed
+        };
+        if worktrees_changed {
+            if let Some(listener) = lock(&self.shared.listener).as_ref() {
+                listener();
+            }
+        }
         let mut current = lock(&self.shared.snapshot);
         if *current != snapshot {
             *current = snapshot.clone();
@@ -901,9 +960,17 @@ impl Worker {
                 Some(WorktreeClaims {
                     repo: root.info.repo.clone(),
                     root_key: root.info.key.clone(),
+                    name: root
+                        .info
+                        .top
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    root_commit: self.root_commits.get(&root.info.repo).cloned().flatten(),
                     base: result.base.clone(),
                     sessions,
                     claims: result.claims.clone(),
+                    truncated: result.truncated,
                 })
             })
             .collect();
@@ -1063,6 +1130,45 @@ mod tests {
         fs::write(dir.join("logo.bin"), [0u8, 1, 2, 0, 255]).unwrap();
         git_ok(git, dir, &["add", "-A"]);
         git_ok(git, dir, &["commit", "--quiet", "-m", "first"]);
+    }
+
+    /// stdout of a git command, trimmed.
+    fn git_text(git: &Git, dir: &Path, args: &[&str]) -> String {
+        let output = git
+            .run(dir, args, Instant::now() + Duration::from_secs(30), 1 << 20)
+            .unwrap();
+        assert!(output.success, "git {args:?}");
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn the_root_commit_ignores_replace_refs() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("claims-replace");
+        let repo = tmp.path().join("repo");
+        repo_with_commit(&git, &repo);
+        write(&repo.join("docs").join("a.md"), "b\n");
+        git_ok(&git, &repo, &["commit", "--quiet", "-am", "second"]);
+        let root = git_text(&git, &repo, &["rev-parse", "HEAD~1"]);
+        // A replace ref grafts HEAD onto another root: with replace objects honoured, the clone
+        // would claim to be another repository (`RepoId`) than its history says.
+        let tree = git_text(&git, &repo, &["rev-parse", "HEAD~1^{tree}"]);
+        let other = git_text(
+            &git,
+            &repo,
+            &[
+                "-c",
+                "user.name=Hangar Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit-tree",
+                &tree,
+                "-m",
+                "other root",
+            ],
+        );
+        git_ok(&git, &repo, &["replace", "--graft", "HEAD", &other]);
+        assert_eq!(root_commit(&git, &repo).unwrap(), Some(root));
     }
 
     #[test]

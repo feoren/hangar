@@ -8,8 +8,10 @@ import {
   type Project,
 } from "./account";
 import { useT } from "./i18n";
+import { TeamActivityView } from "./TeamActivityView";
 import {
   ARM_DELAY_MS,
+  EMPTY_ACTIVITY,
   armDelayLeft,
   canToggle,
   confirmationKindText,
@@ -31,8 +33,9 @@ import { loadTeamStatuses, team, useTeam } from "./useTeam";
 /**
  * Body of the sidebar's Team group: new devices waiting for confirmation (only when there are
  * any), then the account's projects with role, plan, seats (per account of the owner), pending
- * invitations, the "Share with team" switch with the team connection's state, and "Invite people"
- * for owners and admins. Shown only while signed in.
+ * invitations, the "Share with team" switch with the team connection's state, while connected the
+ * shared repositories and the teammates' sessions, and "Invite people" for owners and admins.
+ * Shown only while signed in.
  */
 export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
   const t = useT();
@@ -102,6 +105,7 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
         {projects.map((project) => {
           const role = roleText(project.role, t);
           const meta = projectMeta(project, t);
+          const status = statusFor(teamStore.statuses, project.id);
           return (
             <li key={project.id} className="team-project">
               <div className="team-project-head">
@@ -117,7 +121,7 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
               )}
               <ShareSwitch
                 project={project}
-                status={statusFor(teamStore.statuses, project.id)}
+                status={status}
                 busy={teamStore.busy.has(project.id)}
                 problem={shareProblems.get(project.id) ?? null}
                 onToggle={(on) => {
@@ -130,6 +134,14 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
                     .catch(() => undefined);
                 }}
               />
+              {status.state === "connected" && (
+                <TeamActivityView
+                  projectId={project.id}
+                  activity={teamStore.activities.get(project.id) ?? EMPTY_ACTIVITY}
+                  repos={teamStore.repos}
+                  busy={teamStore.busy}
+                />
+              )}
               {project.canInvite && (
                 <button
                   type="button"

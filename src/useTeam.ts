@@ -6,6 +6,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 import { TEAM_CHANGED, api } from "./api";
 import {
+  activitiesOf,
   parsePendingConfirmations,
   parseTeamError,
   parseTeamSnapshot,
@@ -13,6 +14,8 @@ import {
   statusesOf,
   withoutRequest,
   type PendingConfirmation,
+  type RepoRef,
+  type TeamActivity,
   type TeamProblem,
   type TeamStatus,
 } from "./team";
@@ -20,12 +23,22 @@ import {
 export interface TeamStore {
   /** Projects missing here are off. */
   statuses: ReadonlyMap<string, TeamStatus>;
+  /** The teammates and the linked repositories per shared project. */
+  activities: ReadonlyMap<string, TeamActivity>;
+  /** Repositories of this device's running sessions, offered for linking. */
+  repos: RepoRef[];
   pending: PendingConfirmation[];
-  /** Project ids and request ids with a command on its way. */
+  /** Project ids, request ids and link keys (`linkKey`) with a command on its way. */
   busy: ReadonlySet<string>;
 }
 
-let store: TeamStore = { statuses: new Map(), pending: [], busy: new Set() };
+let store: TeamStore = {
+  statuses: new Map(),
+  activities: new Map(),
+  repos: [],
+  pending: [],
+  busy: new Set(),
+};
 const listeners = new Set<() => void>();
 let started = false;
 /** Grows with every `team-changed`; an answer asked for before a newer event is dropped. */
@@ -70,7 +83,12 @@ function start(): void {
       const snapshot = parseTeamSnapshot(event.payload);
       if (snapshot === null) return;
       generation += 1;
-      update({ statuses: statusesOf(snapshot), pending: snapshot.pending });
+      update({
+        statuses: statusesOf(snapshot),
+        activities: activitiesOf(snapshot),
+        repos: snapshot.repos,
+        pending: snapshot.pending,
+      });
     }).catch(() => undefined);
   } catch {
     // Outside Tauri (browser preview) there are no backend events.
@@ -136,8 +154,26 @@ async function answer(request: string, confirm: boolean): Promise<TeamProblem | 
   return problem;
 }
 
+/** The busy key of linking the clone at `folder` of `root` to `projectId`. */
+export function linkKey(projectId: string, root: string, folder: string): string {
+  return [projectId, root, folder].join("\u0000");
+}
+
+function linkRepo(
+  projectId: string,
+  root: string,
+  folder: string,
+  on: boolean,
+): Promise<TeamProblem | null> {
+  return command(linkKey(projectId, root, folder), async () => {
+    await api.teamLinkRepo(projectId, root, folder, on);
+    return true;
+  });
+}
+
 export const team = {
   setSharing: toggle,
+  linkRepo,
   confirm: (request: string) => answer(request, true),
   reject: (request: string) => answer(request, false),
 };

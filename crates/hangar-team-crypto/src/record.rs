@@ -24,7 +24,8 @@
 //!
 //! **Log head.** The sender's newest verified membership log entry (index and hash) travels in
 //! the signed context. [`EpochCipher::open_verified`] compares it with the opener's own log: a
-//! different hash at that index is a fork the relay showed one side ([`OpenError::Fork`]), so a
+//! different hash at that index, in a record whose signature verifies, is a fork the relay
+//! showed one side ([`OpenError::Fork`]), so a
 //! forked log surfaces with the first record that crosses it, not only when people compare
 //! safety numbers. The head also dates the record in log time: a device's signature counts only
 //! for heads at which the log vouched for its keys.
@@ -35,8 +36,11 @@
 //! stores [`ReplayGuard::marks`]. A device id used again after its removal comes with new keys
 //! and a counter that starts at 1 again, so it gets a fresh mark.
 //!
-//! Order when opening: format, epoch, signature, then decryption, so a forged record costs no
-//! decryption and a wrong sender fails as a signature error.
+//! Order when opening ([`EpochCipher::open_verified`]): format, a head index this device verified,
+//! the sender's keys at that index, epoch, signature, then the head's hash (fork), the epoch's
+//! start and decryption. A forged record costs no decryption, a wrong sender fails as a signature
+//! error, and only a signed record can report a fork: a record anyone could write with a wrong
+//! head hash must not make the app stop trusting the team.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -445,6 +449,18 @@ impl EpochCipher {
         sealed: &Sealed,
         parsed: &Parsed<'_>,
     ) -> Result<Opened, OpenError> {
+        let aad = self.verify_parsed(context, sender_sign, sealed, parsed)?;
+        self.decrypt_parsed(context, sender_sign, parsed, &aad)
+    }
+
+    /// Epoch and signature; the associated data for decryption on success.
+    fn verify_parsed(
+        &self,
+        context: &RecordContext<'_>,
+        sender_sign: &PublicKey,
+        sealed: &Sealed,
+        parsed: &Parsed<'_>,
+    ) -> Result<Vec<u8>, OpenError> {
         if sealed.epoch != self.epoch {
             return Err(OpenError::EpochMismatch {
                 expected: self.epoch.0,
@@ -459,6 +475,16 @@ impl EpochCipher {
         ) {
             return Err(OpenError::Signature);
         }
+        Ok(aad)
+    }
+
+    fn decrypt_parsed(
+        &self,
+        context: &RecordContext<'_>,
+        sender_sign: &PublicKey,
+        parsed: &Parsed<'_>,
+        aad: &[u8],
+    ) -> Result<Opened, OpenError> {
         let plaintext = self
             .cipher()
             .map_err(|()| OpenError::Decrypt)?
@@ -466,7 +492,7 @@ impl EpochCipher {
                 &XNonce::from(array24(parsed.nonce)),
                 Payload {
                     msg: parsed.ciphertext,
-                    aad: &aad,
+                    aad,
                 },
             )
             .map_err(|_| OpenError::Decrypt)?;
@@ -483,11 +509,16 @@ impl EpochCipher {
     ///
     /// - the cipher's epoch is one of `state` (same rotate entry hash);
     /// - the sender's log head is one this device verified ([`OpenError::AheadOfLog`] otherwise:
-    ///   fetch the log and try again), with the same hash ([`OpenError::Fork`]), and not from
-    ///   before the epoch began;
-    /// - the log vouched for the sender's keys at that head, also when the device was removed
-    ///   since (its key history), and the sender is no recovery device;
-    /// - signature and decryption as in [`EpochCipher::open`].
+    ///   fetch the log and try again);
+    /// - the log vouched for the sender's keys at that head index, also when the device was
+    ///   removed since (its key history), and the sender is no recovery device;
+    /// - epoch and signature as in [`EpochCipher::open`];
+    /// - only then the head's hash ([`OpenError::Fork`]) and that it is not from before the
+    ///   epoch began, and decryption.
+    ///
+    /// The signature comes before the fork check: a fork is a reason to stop trusting the team,
+    /// so only a record a listed device signed over the differing head may report one. Anyone
+    /// can write a head with a wrong hash; unsigned, it is a [`OpenError::Signature`] error.
     ///
     /// A removed device still holds the epoch's key and can name an old head, so its records
     /// stay possible until the next rotation; the relay refuses content of an old epoch.
@@ -507,12 +538,6 @@ impl EpochCipher {
         let known = state
             .hash_at(head.index)
             .ok_or(OpenError::AheadOfLog { index: head.index })?;
-        if known != head.hash {
-            return Err(OpenError::Fork { index: head.index });
-        }
-        if head.index < record.index {
-            return Err(OpenError::HeadBeforeEpoch);
-        }
         let periods = state.key_periods(context.sender);
         if periods.is_empty() {
             return Err(OpenError::UnknownSender);
@@ -524,7 +549,15 @@ impl EpochCipher {
         if period.recovery {
             return Err(OpenError::RecoverySender);
         }
-        self.open_parsed(context, &period.keys.sign, sealed, &parsed)
+        let sign = period.keys.sign;
+        let aad = self.verify_parsed(context, &sign, sealed, &parsed)?;
+        if known != head.hash {
+            return Err(OpenError::Fork { index: head.index });
+        }
+        if head.index < record.index {
+            return Err(OpenError::HeadBeforeEpoch);
+        }
+        self.decrypt_parsed(context, &sign, &parsed, &aad)
     }
 }
 

@@ -2,7 +2,8 @@
 //! on 127.0.0.1 built from the protocol and crypto crates (`EventLog`, `LogVerifier::admit`,
 //! `admit_rotation`, `admit_device_remove`, `relay::check_wrap`, `check_registered_keys`), and the
 //! account service against a mock of the account API (as in `tests/account.rs`). Nothing here
-//! talks to a real server or touches the OS keychain: both keychains are in-memory stores.
+//! talks to a real server or touches the OS keychain: both keychains are in-memory stores. The
+//! relay also passes presence on and compares claims with the protocol crate's `ClaimBoard`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -15,11 +16,14 @@ use std::time::{Duration, Instant};
 use futures_util::{SinkExt as _, StreamExt as _};
 use hangar_lib::account::{AccountView, BaseUrl};
 use hangar_lib::account_service::{AccountService, Options as AccountOptions};
+use hangar_lib::claims::{ChangeKind, Claim, LineRange, OverlapLevel};
 use hangar_lib::secrets::{SecretError, SecretStore};
 use hangar_lib::team::{
-    self, PendingKind, StoredKeys, TeamConfig, TeamSnapshot, TeamStatus, Timing,
+    self, PendingKind, StoredDevice, StoredKeys, TeamConfig, TeamError, TeamSnapshot, TeamStatus,
+    Timing,
 };
 use hangar_lib::team_service::{Options, TeamService};
+use hangar_lib::team_share::{LocalSession, SessionState};
 use hangar_team_crypto::identity::DevicePublicKeys;
 use hangar_team_crypto::memberlog::LogVerifier;
 use hangar_team_protocol::e2e::ChainHead;
@@ -27,11 +31,13 @@ use hangar_team_protocol::ids::{
     Ciphertext, DeviceId, Epoch, MemberId, Sealed, StreamId, TeamId, UnixMillis,
 };
 use hangar_team_protocol::log::{EventLog, Replay};
+use hangar_team_protocol::overlap::{ClaimBoard, OverlapNotice, SessionClaims};
 use hangar_team_protocol::wire::{
     decode_client, encode_server, Ack, ClientMessage, Cursor, DeviceInfo, DeviceList,
     DeviceRemoved, ErrorBody, ErrorCode, Holder, KeyRotated, KeyWrapped, MemberLogAppend,
     MemberLogAppended, MemberLogEntries, MemberLogEntry, MemberRemoved, MemberRoleChanged,
-    ResyncRequired, Role, ServerFrame, ServerMessage, Welcome,
+    PresenceState, PresenceUpdate, ResyncRequired, Role, ServerFrame, ServerMessage, SessionRef,
+    Welcome,
 };
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -342,6 +348,11 @@ struct RelayState {
     renewals: u32,
     /// `key.rotate` frames received, admitted or not.
     rotates: u32,
+    /// The newest presence per device, for devices that connect later.
+    presence: BTreeMap<Holder, ServerMessage>,
+    board: ClaimBoard,
+    /// `claim.set` frames received.
+    claim_sets: u32,
 }
 
 #[derive(Clone)]
@@ -429,6 +440,39 @@ impl RelayState {
         }));
     }
 
+    /// Live state (never logged) to the connections of everyone but `from`.
+    fn others(&self, from: &Holder, message: &ServerMessage) {
+        for conn in self.conns.values().filter(|c| c.holder != *from) {
+            let _ = conn.out.send(text(None, None, &self.team, message.clone()));
+        }
+    }
+
+    fn deliver(&self, notices: Vec<OverlapNotice>) {
+        for notice in notices {
+            let message = ServerMessage::ClaimOverlap(notice.overlap);
+            for conn in self.conns.values().filter(|c| c.holder == notice.to.holder) {
+                let _ = conn.out.send(text(None, None, &self.team, message.clone()));
+            }
+        }
+    }
+
+    /// A device's last connection closed: it is offline and its claims end.
+    fn gone(&mut self, holder: &Holder) {
+        if self.conns.values().any(|c| c.holder == *holder) {
+            return;
+        }
+        self.presence.remove(holder);
+        let offline = ServerMessage::PresenceUpdate(PresenceUpdate {
+            holder: holder.clone(),
+            state: PresenceState::Offline,
+            status: None,
+            at: UnixMillis(2),
+        });
+        self.others(holder, &offline);
+        let notices = self.board.clear_device(holder);
+        self.deliver(notices);
+    }
+
     fn removed(&mut self, holders: &[Holder]) {
         for holder in holders {
             self.devices.remove(holder);
@@ -457,6 +501,9 @@ impl Relay {
             hellos: Vec::new(),
             renewals: 0,
             rotates: 0,
+            presence: BTreeMap::new(),
+            board: ClaimBoard::new(),
+            claim_sets: 0,
         }));
         let shared = Arc::clone(&state);
         tauri::async_runtime::spawn(async move {
@@ -530,7 +577,10 @@ async fn connection(stream: tokio::net::TcpStream, state: Arc<Mutex<RelayState>>
         let mut state = guard(&state);
         handle(&mut state, id, &out, &mut bound, frame);
     }
-    guard(&state).conns.remove(&id);
+    let mut state = guard(&state);
+    if let Some(conn) = state.conns.remove(&id) {
+        state.gone(&conn.holder);
+    }
 }
 
 fn ticket_of(ticket: &str) -> Option<(String, Role)> {
@@ -594,12 +644,22 @@ fn handle(
                     .collect()),
                 Replay::Resync(reason) => Err(reason),
             };
+        // The others' presence, as the relay sends it to every new connection.
+        let presence: Vec<ServerMessage> = state
+            .presence
+            .iter()
+            .filter(|(from, _)| **from != holder)
+            .map(|(_, update)| update.clone())
+            .collect();
         match replay {
             Ok(events) => {
                 state.hellos.push((holder, hello.last_seq.clone(), false));
                 reply(welcome);
                 for (seq, event) in events {
                     let _ = out.send(text(None, Some(seq), &team, event));
+                }
+                for update in presence {
+                    let _ = out.send(text(None, None, &team, update));
                 }
             }
             Err(reason) => {
@@ -610,6 +670,9 @@ fn handle(
                     reason,
                 }));
                 reply(welcome);
+                for update in presence {
+                    let _ = out.send(text(None, None, &team, update));
+                }
             }
         }
         return;
@@ -770,6 +833,42 @@ fn handle(
                 Err(error) => reply(err(error.code())),
             }
         }
+        ClientMessage::PresenceSet(set) => {
+            reply(ack(None));
+            let update = ServerMessage::PresenceUpdate(PresenceUpdate {
+                holder: sender.clone(),
+                state: set.state,
+                status: set.status,
+                at: UnixMillis(1),
+            });
+            state.others(&sender, &update);
+            state.presence.insert(sender, update);
+        }
+        ClientMessage::ClaimSet(set) => {
+            state.claim_sets += 1;
+            reply(ack(None));
+            let notices = state.board.set(
+                SessionRef {
+                    holder: sender,
+                    session: set.session,
+                },
+                SessionClaims {
+                    repo: set.repo,
+                    epoch: set.epoch,
+                    files: set.files,
+                    detail: set.detail,
+                },
+            );
+            state.deliver(notices);
+        }
+        ClientMessage::ClaimClear(clear) => {
+            reply(ack(None));
+            let notices = state.board.clear(&SessionRef {
+                holder: sender,
+                session: clear.session,
+            });
+            state.deliver(notices);
+        }
         _ => reply(ack(None)),
     }
 }
@@ -866,6 +965,7 @@ impl Device {
     /// The projects this build shares, as `team.json` says.
     fn enabled(&self) -> Vec<String> {
         TeamConfig::load(&self.dir.0.join("config"))
+            .unwrap()
             .enabled_for(team::KEYCHAIN_SERVICE, &self.base)
             .to_vec()
     }
@@ -1302,6 +1402,263 @@ fn a_second_window_waits_while_the_first_runs_the_team() {
             assert_eq!(state.hellos.last().unwrap().0, state.hellos[0].0);
         }
         second.team.shutdown();
+    });
+}
+
+/// The clone of the shared repository on each test device (its git common folder key).
+const FOLDER: &str = "c:/src/shop/.git";
+/// Another clone of the same repository (a private fork, say) on the same device.
+const FORK: &str = "c:/src/shop-fork/.git";
+
+/// One running session of this device in the repository `root`, changing `files`.
+fn local(id: u64, agent: &str, root: &str, files: &[(&str, u32, u32)]) -> LocalSession {
+    local_in(id, agent, root, FOLDER, files)
+}
+
+fn local_in(
+    id: u64,
+    agent: &str,
+    root: &str,
+    folder: &str,
+    files: &[(&str, u32, u32)],
+) -> LocalSession {
+    LocalSession {
+        id,
+        agent: agent.to_owned(),
+        title: format!("{agent} at work"),
+        state: SessionState::Working,
+        repo: root.to_owned(),
+        folder: folder.to_owned(),
+        repo_name: "shop".to_owned(),
+        base: Some("b".repeat(40)),
+        claims: files
+            .iter()
+            .map(|&(path, start, end)| Claim {
+                path: path.to_owned(),
+                kind: ChangeKind::Modified,
+                whole_file: false,
+                ranges: vec![LineRange { start, end }],
+                area: path.split_once('/').map(|(area, _)| area.to_owned()),
+            })
+            .collect(),
+        truncated: false,
+    }
+}
+
+#[test]
+fn teammates_see_each_others_sessions_and_a_shared_file_down_to_the_lines() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        {
+            let mut mock = guard(&website.state);
+            mock.roles.insert("alice".to_owned(), "owner");
+            mock.roles.insert("bob".to_owned(), "member");
+        }
+        let a1 = Device::new(&website, "alice", "p-a1");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        let b1 = Device::new(&website, "bob", "p-b1");
+        b1.team.enable(PROJECT).await.unwrap();
+        b1.waiting().await;
+        let pending = a1.pending(1).await;
+        a1.team.confirm(&pending[0].id).await.unwrap();
+        b1.connected(1, 2, 2).await;
+
+        let root = "a".repeat(40);
+        a1.team.set_local(vec![
+            local(1, "Claude Code", &root, &[("src/auth.rs", 10, 12)]),
+            // A fork with the same root commit in another folder: never shared by the link
+            // of the first folder.
+            local_in(2, "Aider", &root, FORK, &[("src/private.rs", 1, 2)]),
+        ]);
+        b1.team.set_local(vec![local(
+            5,
+            "Codex",
+            &root,
+            &[("src/Auth.rs", 14, 15), ("docs/notes.md", 1, 1)],
+        )]);
+        // The repository is not linked yet: each device is present, but shares no session.
+        until("bob sees alice", || {
+            b1.team
+                .snapshot()
+                .teams
+                .first()
+                .is_some_and(|t| t.activity.peers.len() == 1)
+        })
+        .await;
+        assert!(b1.team.snapshot().teams[0].activity.peers[0]
+            .sessions
+            .is_empty());
+        assert_eq!(relay.state().claim_sets, 0, "no claims before linking");
+        assert_eq!(b1.team.snapshot().repos[0].root, root);
+        assert_eq!(b1.team.snapshot().repos[0].folder, FOLDER);
+        assert_eq!(a1.team.snapshot().repos.len(), 2, "each folder is a choice");
+        // Only a project with sharing on can be linked, and only with a valid project id.
+        assert!(matches!(
+            a1.team.link_repo("other", &root, FOLDER, true),
+            Err(TeamError::UnknownProject)
+        ));
+        assert!(matches!(
+            a1.team.link_repo(&"x".repeat(500), &root, FOLDER, true),
+            Err(TeamError::UnknownProject)
+        ));
+
+        // Both link it: presence lists the sessions, the relay matches the file by its keyed
+        // hash and each side refines the overlap to the lines with the other's sealed detail.
+        a1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+        b1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+        until("bob sees alice's session", || {
+            b1.team.snapshot().teams[0].activity.peers[0]
+                .sessions
+                .iter()
+                .any(|s| s.agent == "Claude Code" && s.files == ["src/auth.rs"])
+        })
+        .await;
+        until("alice sees the overlapping lines", || {
+            a1.team.snapshot().teams[0]
+                .activity
+                .overlaps
+                .iter()
+                .any(|o| {
+                    o.session_id == 1
+                        && o.level == OverlapLevel::OverlappingLines
+                        && o.lines == [LineRange { start: 10, end: 15 }]
+                        && o.agent == "Codex"
+                })
+        })
+        .await;
+        // Only the linked folder: the fork's session stays on this device.
+        let seen = b1.team.snapshot().teams[0].activity.peers[0].clone();
+        assert_eq!(seen.sessions.len(), 1, "{seen:?}");
+        // The website lists no display name: the teammates get none, never the e-mail.
+        assert_eq!(seen.name, "");
+        let files = a1.team.teammate_files(&root, FOLDER);
+        let auth = files.iter().find(|f| f.key == "src/auth.rs").unwrap();
+        assert_eq!(
+            auth.who, "#bob (Codex)",
+            "the member id stands in for the name"
+        );
+        assert!(a1.team.teammate_files(&"c".repeat(40), FOLDER).is_empty());
+        assert!(
+            a1.team.teammate_files(&root, FORK).is_empty(),
+            "a clone not linked to the project is not paused by its teammates"
+        );
+        assert_eq!(a1.team.snapshot().teams[0].activity.linked[0].name, "shop");
+
+        // Bob turns sharing off: his device goes offline, the overlap ends on Alice's device.
+        b1.team.disable(PROJECT).await.unwrap();
+        until("bob gone", || {
+            let snapshot = a1.team.snapshot();
+            snapshot.teams[0].activity.peers.is_empty()
+                && snapshot.teams[0].activity.overlaps.is_empty()
+        })
+        .await;
+        assert!(a1.team.teammate_files(&root, FOLDER).is_empty());
+        a1.team.shutdown();
+    });
+}
+
+#[test]
+fn a_device_never_acts_for_another_person_on_the_same_keychain() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        {
+            let mut mock = guard(&website.state);
+            mock.roles.insert("alice".to_owned(), "owner");
+            mock.roles.insert("bob".to_owned(), "member");
+        }
+        let a1 = Device::new(&website, "alice", "other-account");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        let device = a1.keychain.value(&team::device_account(&a1.key())).unwrap();
+        assert_eq!(
+            StoredDevice::decode(&device).unwrap().member.as_deref(),
+            Some("alice"),
+            "bound to the account of its first welcome"
+        );
+        let keys = a1.keychain.value(&team::keys_account(&a1.key())).unwrap();
+
+        // Bob signs in on the same computer and keychain: the team waits, nothing is touched.
+        a1.account.sign_out().await.unwrap();
+        guard(&website.state).device_user = "bob".to_owned();
+        a1.account.sign_in().await.unwrap();
+        a1.attention(team::AttentionReason::OtherAccount).await;
+        assert_eq!(
+            a1.keychain.value(&team::device_account(&a1.key())),
+            Some(device.clone())
+        );
+        assert_eq!(
+            a1.keychain.value(&team::keys_account(&a1.key())),
+            Some(keys)
+        );
+        assert_eq!(a1.enabled(), [PROJECT.to_owned()], "sharing stays on");
+
+        // Alice signs in again: her device connects as before.
+        a1.account.sign_out().await.unwrap();
+        guard(&website.state).device_user = "alice".to_owned();
+        a1.account.sign_in().await.unwrap();
+        a1.connected(1, 1, 1).await;
+        assert_eq!(
+            a1.keychain.value(&team::device_account(&a1.key())),
+            Some(device)
+        );
+        a1.team.shutdown();
+    });
+}
+
+#[test]
+fn an_unreadable_settings_file_is_never_written_over() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        guard(&website.state)
+            .roles
+            .insert("alice".to_owned(), "owner");
+        let a1 = Device::new(&website, "alice", "settings-broken");
+        let config = a1.dir.0.join("config");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join(team::CONFIG_FILE), "{ broken").unwrap();
+        let error = a1.team.enable(PROJECT).await.unwrap_err();
+        assert!(matches!(error, TeamError::Config(_)), "{error:?}");
+        assert_eq!(
+            std::fs::read_to_string(config.join(team::CONFIG_FILE)).unwrap(),
+            "{ broken"
+        );
+        assert_eq!(a1.status(), TeamStatus::Off);
+        assert!(relay.state().hellos.is_empty());
+    });
+}
+
+#[test]
+fn signing_out_and_in_again_hands_the_team_over_without_a_wait() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        guard(&website.state)
+            .roles
+            .insert("alice".to_owned(), "owner");
+        let a1 = Device::new(&website, "alice", "handover");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        for _ in 0..3 {
+            let seen = guard(&a1.snapshots).len();
+            a1.account.sign_out().await.unwrap();
+            guard(&website.state).device_user = "alice".to_owned();
+            a1.account.sign_in().await.unwrap();
+            a1.connected(1, 1, 1).await;
+            let other = TeamStatus::NeedsAttention {
+                reason: team::AttentionReason::OtherInstance,
+            };
+            assert!(
+                !guard(&a1.snapshots)[seen..]
+                    .iter()
+                    .any(|s| s.teams.iter().any(|t| t.status == other)),
+                "the new worker met the old one's lock file"
+            );
+        }
+        a1.team.shutdown();
     });
 }
 

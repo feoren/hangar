@@ -40,6 +40,7 @@ use crate::hook_http::{self, Head, Status};
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
 use crate::session::{GateStatus, SessionId};
+use crate::team_share::TeammateFile;
 
 /// Event to the main window with the newest [`GateSnapshot`].
 pub const EVENT: &str = "gate-changed";
@@ -83,6 +84,9 @@ type Waiter = SyncSender<Outcome>;
 type Worktrees = Box<dyn Fn() -> Arc<Vec<WorktreeClaims>> + Send + Sync>;
 type Titles = Box<dyn Fn() -> HashMap<SessionId, String> + Send + Sync>;
 type Emit = Box<dyn Fn(&GateSnapshot) + Send + Sync>;
+/// The files teammates' sessions are changing in the repository with a root commit (first) for
+/// the clone at a git common folder (second): only teams that clone is linked to count.
+type Teammates = Box<dyn Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync>;
 
 struct Inner {
     gate: Mutex<Gate<Waiter>>,
@@ -96,6 +100,8 @@ struct Inner {
     worktrees: Worktrees,
     titles: Titles,
     emit: Emit,
+    /// The teammates' live claims, once a team service exists (step F part 2b).
+    teammates: Mutex<Option<Teammates>>,
 }
 
 /// Tauri state of the agent gate; clones share one gate.
@@ -135,8 +141,18 @@ impl GateService {
                 worktrees: Box::new(worktrees),
                 titles: Box::new(titles),
                 emit: Box::new(emit),
+                teammates: Mutex::new(None),
             }),
         }
+    }
+
+    /// Where the teammates' live claims come from: an edit of a file a teammate's session is
+    /// changing pauses like one of the user's own sessions, and the agent's context names it.
+    pub fn set_teammates(
+        &self,
+        teammates: impl Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.teammates) = Some(Box::new(teammates));
     }
 
     /// The window's setting. Turning it off lets every waiting edit through.
@@ -591,14 +607,30 @@ impl Inner {
         }
     }
 
+    /// The teammates' files in the repository of `session`'s worktree.
+    fn teammates_of(&self, session: SessionId, worktrees: &[WorktreeClaims]) -> Vec<TeammateFile> {
+        let Some((repo, folder)) = worktrees
+            .iter()
+            .find(|w| w.sessions.contains(&session))
+            .and_then(|w| Some((w.root_commit.as_deref()?, w.repo.as_str())))
+        else {
+            return Vec::new();
+        };
+        lock(&self.teammates)
+            .as_ref()
+            .map(|teammates| teammates(repo, folder))
+            .unwrap_or_default()
+    }
+
     fn context(&self, session: SessionId, conversation: Option<&str>) -> String {
         if !lock(&self.gate).enabled() {
             return String::new();
         }
         let worktrees = (self.worktrees)();
         let titles = (self.titles)();
+        let teammates = self.teammates_of(session, &worktrees);
         lock(&self.gate)
-            .context(session, conversation, &worktrees, &titles)
+            .context(session, conversation, &worktrees, &titles, &teammates)
             .map(|text| gate::context_body(&text))
             .unwrap_or_default()
     }
@@ -618,7 +650,9 @@ impl Inner {
             return Outcome::Allow;
         };
         let candidates = path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key));
-        let Some(conflict) = gate::assess(session, &candidates, &worktrees) else {
+        let teammates = self.teammates_of(session, &worktrees);
+        let Some(conflict) = gate::assess_with_team(session, &candidates, &worktrees, &teammates)
+        else {
             return Outcome::Allow;
         };
         let titles = (self.titles)();
@@ -626,6 +660,7 @@ impl Inner {
             .others
             .iter()
             .map(|id| titles.get(id).cloned().unwrap_or_else(|| format!("#{id}")))
+            .chain(conflict.teammates.iter().cloned())
             .collect();
         let shown_path = conflict.path.clone();
         let (tx, rx) = sync_channel(1);
@@ -732,13 +767,19 @@ mod tests {
             WorktreeClaims {
                 repo: "repo".into(),
                 root_key,
+                name: "repo".into(),
+                root_commit: Some("r".repeat(40)),
                 base: Some("b".into()),
                 sessions: vec![1],
                 claims: Vec::new(),
+                truncated: false,
             },
             WorktreeClaims {
                 repo: "repo".into(),
                 root_key: "elsewhere/feature".into(),
+                name: "feature".into(),
+                root_commit: None,
+                truncated: false,
                 base: Some("b".into()),
                 sessions: vec![2],
                 claims: vec![Claim {
@@ -881,6 +922,46 @@ mod tests {
                 Err(_) => return started.elapsed(),
             }
         }
+    }
+
+    #[test]
+    fn an_edit_of_a_file_a_teammate_changes_waits_for_the_person() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.set_teammates(|repo, _folder| {
+            if repo != "r".repeat(40) {
+                return Vec::new();
+            }
+            vec![TeammateFile {
+                repo: repo.to_owned(),
+                path: "src/team.rs".into(),
+                key: "src/team.rs".into(),
+                who: "Anna (Claude Code)".into(),
+                lines: vec![LineRange { start: 4, end: 9 }],
+            }]
+        });
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let body = edit(&fixture.root, "src/team.rs");
+        let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body));
+        let snapshot = next_pending(&fixture.events);
+        let decision = &snapshot.pending[0];
+        assert_eq!(decision.teammates, ["Anna (Claude Code)"]);
+        assert!(decision.other_sessions.is_empty());
+        assert_eq!(decision.lines, [LineRange { start: 4, end: 9 }]);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        let (code, body) = waiting.join().unwrap();
+        assert_eq!(code, 200);
+        assert!(body.contains("\"deny\""), "{body}");
+        assert!(body.contains("Anna (Claude Code)"), "{body}");
+        // A file no teammate changes goes through at once.
+        let (_, token) = launch(&fixture, 1);
+        let (code, body) = post(
+            port,
+            ROUTE_PRE_TOOL_USE,
+            Some(&token),
+            &edit(&fixture.root, "src/other.rs"),
+        );
+        assert_eq!((code, body.as_str()), (200, ""));
     }
 
     #[test]

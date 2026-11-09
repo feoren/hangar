@@ -7,6 +7,7 @@ import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import type { GateAnswer } from "./gate";
 import type { NotesMessage } from "./notesBridge";
+import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
 
@@ -328,6 +329,12 @@ export const api = {
   teamPendingConfirmations: () => invoke<unknown>("team_pending_confirmations"),
   teamConfirm: (request: string) => invoke<unknown>("team_confirm", { request }),
   teamReject: (request: string) => invoke<unknown>("team_reject", { request }),
+  /** What each session does (team.ts `sessionStates`), for the team's presence. */
+  teamSessionStates: (states: { sessionId: number; state: SessionState }[]) =>
+    invoke<undefined>("team_session_states", { states }),
+  /** Links a repository folder (root commit and clone folder) to a shared project, or unlinks it. */
+  teamLinkRepo: (projectId: string, root: string, folder: string, on: boolean) =>
+    invoke<unknown>("team_link_repo", { projectId, root, folder, on }),
 
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>

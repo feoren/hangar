@@ -40,19 +40,33 @@ use zeroize::Zeroizing;
 
 use crate::account::{self, AccountError, AccountState, AccountView};
 use crate::account_service::AccountService;
+use crate::claims::WorktreeClaims;
 use crate::lock;
 use crate::secrets::SecretStore;
+use crate::session::SessionId;
 use crate::team::{
     self, device_account, keys_account, team_key, AttentionReason, ConnectionClock, Due,
-    LocalState, Next, PendingConfirmation, ReconnectPolicy, SessionEnd, StopReason, StoredDevice,
-    StoredKeys, TeamConfig, TeamEntry, TeamError, TeamSnapshot, TeamStatus, Timing,
+    LinkedRepo, LocalState, Next, PendingConfirmation, ReconnectPolicy, SessionEnd, StopReason,
+    StoredDevice, StoredKeys, TeamConfig, TeamEntry, TeamError, TeamSnapshot, TeamStatus, Timing,
 };
 use crate::team_engine::{Effect, Engine, EngineSetup};
+use crate::team_share::{
+    self, LocalSession, LocalShare, SessionLabel, SessionState, TeamActivity, TeammateFile,
+};
+
+/// Where this device's sessions come from: the claims' worktrees and the session list.
+pub type LocalSource = Box<dyn Fn() -> (Arc<Vec<WorktreeClaims>>, Vec<SessionLabel>) + Send + Sync>;
 
 pub type Emit = Arc<dyn Fn(&TeamSnapshot) + Send + Sync>;
 
+/// A team's turn: the running worker holds it (`team_service::Inner::turns`).
+type Turn = Arc<tokio::sync::Mutex<()>>;
+
 /// Frames read ahead of the worker; when it falls behind, the reader stops reading the socket.
 const READ_QUEUE: usize = 32;
+/// How long a new worker waits for the previous worker of the same team (turned off and on
+/// again, signed out and in) to let go of the team before it tries the lock file itself.
+const HANDOVER: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -83,6 +97,8 @@ enum Command {
     Reject(String, oneshot::Sender<Result<(), TeamError>>),
     RemoveMember(MemberId, oneshot::Sender<Result<(), TeamError>>),
     RemoveDevice(Holder, oneshot::Sender<Result<(), TeamError>>),
+    /// What the project shares from this device now (part 2b).
+    Share(LocalShare),
     Stop,
 }
 
@@ -95,6 +111,11 @@ enum Frame {
 struct Team {
     status: TeamStatus,
     pending: Vec<PendingConfirmation>,
+    activity: TeamActivity,
+    /// The teammates' files, for the agent gate and the agent's context.
+    files: Vec<TeammateFile>,
+    /// The share last handed to the worker.
+    shared: Option<LocalShare>,
     tx: Option<mpsc::UnboundedSender<Command>>,
     worker: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Rises with every start, so an ended worker does not overwrite a newer one's status.
@@ -118,6 +139,14 @@ struct Inner {
     next_run: Mutex<u64>,
     /// The server address the workers run for; a change stops them and starts the new server's.
     base: Mutex<String>,
+    /// This device's running agent sessions in repositories, all projects (`set_local`).
+    local: Mutex<Vec<LocalSession>>,
+    /// What the window says each session is doing.
+    states: Mutex<BTreeMap<SessionId, SessionState>>,
+    source: Mutex<Option<LocalSource>>,
+    /// One turn per team: held by its worker for its whole run, so a new worker of the same team
+    /// waits for the old one to let go instead of meeting its lock file.
+    turns: Mutex<BTreeMap<(String, String), Turn>>,
 }
 
 /// What the website says about the person and the project.
@@ -171,6 +200,10 @@ impl TeamService {
                 memory_config: Mutex::new(TeamConfig::default()),
                 next_run: Mutex::new(0),
                 base: Mutex::new(base),
+                local: Mutex::new(Vec::new()),
+                states: Mutex::new(BTreeMap::new()),
+                source: Mutex::new(None),
+                turns: Mutex::new(BTreeMap::new()),
             }),
         };
         // Weak: the account outlives no team service it would keep alive.
@@ -194,36 +227,224 @@ impl TeamService {
         &self.inner.options.keychain_service
     }
 
-    fn config(&self) -> TeamConfig {
+    fn config(&self) -> Result<TeamConfig, TeamError> {
         match &self.inner.options.config_dir {
-            Some(dir) => TeamConfig::load(dir),
-            None => lock(&self.inner.memory_config).clone(),
+            Some(dir) => {
+                TeamConfig::load(dir).map_err(|error| TeamError::Config(error.to_string()))
+            }
+            None => Ok(lock(&self.inner.memory_config).clone()),
         }
     }
 
+    /// The enabled projects; none while `team.json` cannot be read (it stays untouched).
     fn enabled(&self, base: &str) -> Vec<String> {
-        self.config()
-            .enabled_for(self.service_name(), base)
-            .to_vec()
+        match self.config() {
+            Ok(config) => config.enabled_for(self.service_name(), base).to_vec(),
+            Err(error) => {
+                eprintln!("hangar: team settings not read: {error}");
+                Vec::new()
+            }
+        }
     }
 
-    fn set_enabled(&self, base: &str, project: &str, on: bool) -> Result<(), TeamError> {
-        let service = self.service_name().to_owned();
+    /// Changes the stored choices with `change`; a file that cannot be read is never written
+    /// over, so the other projects' and the other build's choices survive.
+    fn update_config(&self, change: impl FnOnce(&mut TeamConfig) -> bool) -> Result<(), TeamError> {
         match &self.inner.options.config_dir {
             Some(dir) => {
                 // Reread first: the other build's part of the file stays as it is.
-                let mut config = TeamConfig::load(dir);
-                if config.set(&service, base, project, on) {
+                let mut config =
+                    TeamConfig::load(dir).map_err(|error| TeamError::Config(error.to_string()))?;
+                if change(&mut config) {
                     config
                         .save(dir)
                         .map_err(|error| TeamError::Config(error.to_string()))?;
                 }
             }
             None => {
-                lock(&self.inner.memory_config).set(&service, base, project, on);
+                change(&mut lock(&self.inner.memory_config));
             }
         }
         Ok(())
+    }
+
+    fn set_enabled(&self, base: &str, project: &str, on: bool) -> Result<(), TeamError> {
+        let service = self.service_name().to_owned();
+        self.update_config(|config| config.set(&service, base, project, on))
+    }
+
+    /// The repositories linked to `project`; none while `team.json` cannot be read.
+    fn linked(&self, base: &str, project: &str) -> Vec<LinkedRepo> {
+        self.config()
+            .map(|config| config.linked(self.service_name(), base, project).to_vec())
+            .unwrap_or_default()
+    }
+
+    /// The person's display name for the teammates: the name the website keeps for the account,
+    /// empty without one (the teammates then see the short member id). Never the e-mail address:
+    /// it is not the team's to read.
+    fn person(&self) -> String {
+        match self.inner.account.view().state {
+            AccountState::SignedIn { user: Some(me) } => me.name.unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
+    /// What `project` shares: the sessions in its linked repository folders.
+    fn share_for(&self, base: &str, project: &str) -> LocalShare {
+        let linked = self.linked(base, project);
+        let sessions = lock(&self.inner.local)
+            .iter()
+            .filter(|s| linked.iter().any(|r| r.shares(&s.repo, &s.folder)))
+            .cloned()
+            .collect();
+        LocalShare {
+            person: self.person(),
+            sessions,
+        }
+    }
+
+    /// Hands every running worker its project's share when it changed.
+    fn reshare(&self) {
+        let base = self.base();
+        let running: Vec<String> = lock(&self.inner.teams)
+            .iter()
+            .filter(|((b, _), team)| *b == base && team.tx.is_some())
+            .map(|((_, project), _)| project.clone())
+            .collect();
+        for project in running {
+            let share = self.share_for(&base, &project);
+            let mut teams = lock(&self.inner.teams);
+            let Some(team) = teams.get_mut(&(base.clone(), project)) else {
+                continue;
+            };
+            if team.shared.as_ref() == Some(&share) {
+                continue;
+            }
+            if let Some(tx) = &team.tx {
+                let _ = tx.send(Command::Share(share.clone()));
+            }
+            team.shared = Some(share);
+        }
+    }
+
+    /// This device's running agent sessions in git repositories (all of them; each project gets
+    /// only those in its linked repositories). Called whenever the claims or the window's
+    /// session states change.
+    pub fn set_local(&self, sessions: Vec<LocalSession>) {
+        let changed = {
+            let mut local = lock(&self.inner.local);
+            let changed = *local != sessions;
+            *local = sessions;
+            changed
+        };
+        if changed {
+            self.reshare();
+            self.publish();
+        }
+    }
+
+    /// Where [`Self::refresh_local`] reads this device's sessions from.
+    pub fn set_local_source(
+        &self,
+        source: impl Fn() -> (Arc<Vec<WorktreeClaims>>, Vec<SessionLabel>) + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.source) = Some(Box::new(source));
+        self.refresh_local();
+    }
+
+    /// Reads the sessions again (the claims changed, or the window's states).
+    pub fn refresh_local(&self) {
+        let read = lock(&self.inner.source).as_ref().map(|source| source());
+        let Some((worktrees, labels)) = read else {
+            return;
+        };
+        let states = lock(&self.inner.states).clone();
+        self.set_local(team_share::local_sessions(&worktrees, &labels, &states));
+    }
+
+    /// What the window's attention logic says each session is doing (working, waiting, idle).
+    pub fn set_session_states(&self, states: BTreeMap<SessionId, SessionState>) {
+        let changed = {
+            let mut current = lock(&self.inner.states);
+            let changed = *current != states;
+            *current = states;
+            changed
+        };
+        if changed {
+            self.refresh_local();
+        }
+    }
+
+    /// Links (or unlinks) the clone at `folder` of the repository with root commit `root` to
+    /// `project`: its sessions' presence and claims go to the team from now on (or no longer).
+    /// Only a project with sharing on can be linked to, and only a folder of a running session.
+    pub fn link_repo(
+        &self,
+        project: &str,
+        root: &str,
+        folder: &str,
+        on: bool,
+    ) -> Result<(), TeamError> {
+        // The same check as the team's id, so nothing the protocol refuses lands in team.json.
+        TeamId::new(project).map_err(|_| TeamError::UnknownProject)?;
+        let base = self.base();
+        if on && !self.enabled(&base).iter().any(|p| p == project) {
+            return Err(TeamError::UnknownProject);
+        }
+        let name = lock(&self.inner.local)
+            .iter()
+            .find(|s| s.repo == root && s.folder == folder)
+            .map(|s| s.repo_name.clone());
+        let linked = self.linked(&base, project);
+        let repo = match (name, linked.iter().find(|r| r.shares(root, folder))) {
+            (_, Some(known)) => known.clone(),
+            (Some(name), None) => LinkedRepo {
+                root: root.to_owned(),
+                folder: Some(folder.to_owned()),
+                name,
+            },
+            // Only a repository folder of a running session can be linked.
+            (None, None) if on => return Err(TeamError::UnknownRepository),
+            (None, None) => return Ok(()),
+        };
+        let service = self.service_name().to_owned();
+        self.update_config(|config| config.link(&service, &base, project, &repo, on))?;
+        self.reshare();
+        self.publish();
+        Ok(())
+    }
+
+    /// Every file a teammate's session is changing in the repository with root commit `repo`,
+    /// over the running teams of the current server whose project this device linked the clone
+    /// at `folder` to. A teammate of another project, or of a project only another clone is
+    /// linked to, does not stop an edit here.
+    pub fn teammate_files(&self, repo: &str, folder: &str) -> Vec<TeammateFile> {
+        let base = self.base();
+        let config = self.config().unwrap_or_default();
+        let service = self.service_name();
+        lock(&self.inner.teams)
+            .iter()
+            .filter(|((b, project), _)| {
+                *b == base
+                    && config
+                        .linked(service, &base, project)
+                        .iter()
+                        .any(|r| r.shares(repo, folder))
+            })
+            .flat_map(|(_, team)| team.files.iter())
+            .filter(|file| file.repo == repo)
+            .cloned()
+            .collect()
+    }
+
+    fn turn(&self, base: &str, project: &str) -> Turn {
+        let mut turns = lock(&self.inner.turns);
+        Arc::clone(
+            turns
+                .entry((base.to_owned(), project.to_owned()))
+                .or_default(),
+        )
     }
 
     /// Starts the workers of every enabled project of the current server (at app start and
@@ -235,8 +456,12 @@ impl TeamService {
         }
     }
 
-    /// Follows the account's view (`AccountService::subscribe`).
-    fn account_changed(&self, view: &AccountView) {
+    /// Follows the account's view (`AccountService::subscribe`). The account publishes from
+    /// several threads, so a view can arrive after a newer one (a sign-out's after the next
+    /// sign-in's); the service acts on the account's current view, never on a stale one.
+    fn account_changed(&self, _published: &AccountView) {
+        let current = self.inner.account.view();
+        let view = &current;
         let changed = {
             let mut base = lock(&self.inner.base);
             let changed = *base != view.base_url;
@@ -277,6 +502,8 @@ impl TeamService {
                         reason: AttentionReason::SignedOut,
                     };
                     team.pending.clear();
+                    team.activity = TeamActivity::default();
+                    team.files.clear();
                     changed = true;
                 }
             }
@@ -301,18 +528,22 @@ impl TeamService {
         });
     }
 
-    /// Starts again the enabled teams of `base` that stopped because nobody was signed in.
+    /// Starts again the enabled teams of `base` that stopped because nobody was signed in, or
+    /// because another account was signed in.
     fn restart_signed_out(&self, base: &str) {
-        let signed_out = TeamStatus::NeedsAttention {
-            reason: AttentionReason::SignedOut,
+        let waiting = |status: &TeamStatus| {
+            matches!(
+                status,
+                TeamStatus::NeedsAttention {
+                    reason: AttentionReason::SignedOut | AttentionReason::OtherAccount
+                }
+            )
         };
         let stopped: Vec<String> = {
             let teams = lock(&self.inner.teams);
             teams
                 .iter()
-                .filter(|((b, _), team)| {
-                    b == base && team.tx.is_none() && team.status == signed_out
-                })
+                .filter(|((b, _), team)| b == base && team.tx.is_none() && waiting(&team.status))
                 .map(|((_, project), _)| project.clone())
                 .collect()
         };
@@ -327,16 +558,23 @@ impl TeamService {
 
     pub fn snapshot(&self) -> TeamSnapshot {
         let base = self.base();
+        let config = self.config().unwrap_or_default();
+        let mut snapshot = TeamSnapshot {
+            repos: team_share::repo_choices(&lock(&self.inner.local)),
+            ..TeamSnapshot::default()
+        };
         let teams = lock(&self.inner.teams);
-        let mut snapshot = TeamSnapshot::default();
         for ((team_base, project), team) in teams.iter() {
             if *team_base != base {
                 continue;
             }
             if team.status != TeamStatus::Off {
+                let mut activity = team.activity.clone();
+                activity.linked = config.linked(self.service_name(), &base, project).to_vec();
                 snapshot.teams.push(TeamEntry {
                     project_id: project.clone(),
                     status: team.status.clone(),
+                    activity,
                 });
             }
             snapshot.pending.extend(team.pending.iter().cloned());
@@ -395,6 +633,8 @@ impl TeamService {
             teams.get_mut(&(base, project.to_owned())).and_then(|team| {
                 team.status = TeamStatus::Off;
                 team.pending.clear();
+                team.activity = TeamActivity::default();
+                team.files.clear();
                 if let Some(tx) = team.tx.take() {
                     let _ = tx.send(Command::Stop);
                 }
@@ -446,6 +686,9 @@ impl TeamService {
                 .or_insert_with(|| Team {
                     status: TeamStatus::Off,
                     pending: Vec::new(),
+                    activity: TeamActivity::default(),
+                    files: Vec::new(),
+                    shared: None,
                     tx: None,
                     worker: None,
                     run,
@@ -456,6 +699,9 @@ impl TeamService {
             team.run = run;
             team.status = TeamStatus::Connecting { retrying: false };
             team.pending.clear();
+            team.activity = TeamActivity::default();
+            team.files.clear();
+            team.shared = None;
             team.tx = Some(tx);
         }
         let worker = Worker {
@@ -466,6 +712,7 @@ impl TeamService {
             run,
             rx,
             engine: None,
+            share: LocalShare::default(),
             policy: ReconnectPolicy::default(),
             _lock: None,
             writer_closed: false,
@@ -477,6 +724,7 @@ impl TeamService {
                 team.worker = Some(handle);
             }
         }
+        self.reshare();
         self.publish();
     }
 
@@ -549,21 +797,18 @@ impl TeamService {
     }
 
     /// Sets a worker's view, unless a newer worker took over the team.
-    fn set_view(
-        &self,
-        base: &str,
-        project: &str,
-        run: u64,
-        status: TeamStatus,
-        pending: Vec<PendingConfirmation>,
-    ) {
+    fn set_view(&self, base: &str, project: &str, run: u64, view: View) {
         let changed = {
             let mut teams = lock(&self.inner.teams);
             match teams.get_mut(&(base.to_owned(), project.to_owned())) {
                 Some(team) if team.run == run && team.tx.is_some() => {
-                    let changed = team.status != status || team.pending != pending;
-                    team.status = status;
-                    team.pending = pending;
+                    let changed = team.status != view.status
+                        || team.pending != view.pending
+                        || team.activity != view.activity;
+                    team.status = view.status;
+                    team.pending = view.pending;
+                    team.activity = view.activity;
+                    team.files = view.files;
                     changed
                 }
                 _ => false,
@@ -583,6 +828,8 @@ impl TeamService {
                 if team.run == run && team.tx.is_some() {
                     team.status = status;
                     team.pending.clear();
+                    team.activity = TeamActivity::default();
+                    team.files.clear();
                     team.tx = None;
                     team.worker = None;
                 }
@@ -611,6 +858,14 @@ impl TeamService {
 // The worker of one team
 // ---------------------------------------------------------------------------------------------
 
+/// What a worker shows of its team.
+struct View {
+    status: TeamStatus,
+    pending: Vec<PendingConfirmation>,
+    activity: TeamActivity,
+    files: Vec<TeammateFile>,
+}
+
 struct Worker {
     service: TeamService,
     base: String,
@@ -619,6 +874,8 @@ struct Worker {
     run: u64,
     rx: mpsc::UnboundedReceiver<Command>,
     engine: Option<Engine>,
+    /// What the project shares from this device; handed to the engine once it exists.
+    share: LocalShare,
     policy: ReconnectPolicy,
     /// A send on this connection failed (often: the relay's close frame was already read).
     /// Nothing more is sent, but the frames read before the close are still handled.
@@ -649,24 +906,45 @@ impl Worker {
     }
 
     fn view(&self) {
-        let (status, pending) = match &self.engine {
-            Some(engine) => (engine.status(self.policy.retrying()), engine.pending()),
-            None => (
-                TeamStatus::Connecting {
+        let view = match &self.engine {
+            Some(engine) => View {
+                status: engine.status(self.policy.retrying()),
+                pending: engine.pending(),
+                activity: engine.activity(),
+                files: engine.teammate_files(),
+            },
+            None => View {
+                status: TeamStatus::Connecting {
                     retrying: self.policy.retrying(),
                 },
-                Vec::new(),
-            ),
+                pending: Vec::new(),
+                activity: TeamActivity::default(),
+                files: Vec::new(),
+            },
         };
-        self.show(status, pending);
+        self.service
+            .set_view(&self.base, &self.project, self.run, view);
     }
 
-    fn show(&self, status: TeamStatus, pending: Vec<PendingConfirmation>) {
-        self.service
-            .set_view(&self.base, &self.project, self.run, status, pending);
+    fn show(&self, status: TeamStatus) {
+        self.service.set_view(
+            &self.base,
+            &self.project,
+            self.run,
+            View {
+                status,
+                pending: Vec::new(),
+                activity: TeamActivity::default(),
+                files: Vec::new(),
+            },
+        );
     }
 
     async fn run(mut self) {
+        // The previous worker of this team (turned off and on again, signed out and in) lets go
+        // first; it closes within moments of its stop. Past the wait, the lock file decides.
+        let turn = self.service.turn(&self.base, &self.project);
+        let _turn = tokio::time::timeout(HANDOVER, turn.lock_owned()).await.ok();
         let exit = match self.take_lock().await {
             Ok(()) => self.connect_loop().await,
             Err(exit) => exit,
@@ -713,12 +991,9 @@ impl Worker {
                     return Ok(());
                 }
                 Err(std::fs::TryLockError::WouldBlock) => {
-                    self.show(
-                        TeamStatus::NeedsAttention {
-                            reason: AttentionReason::OtherInstance,
-                        },
-                        Vec::new(),
-                    );
+                    self.show(TeamStatus::NeedsAttention {
+                        reason: AttentionReason::OtherInstance,
+                    });
                     if self.wait(self.timing().lock_retry).await {
                         return Err(Exit::Stopped);
                     }
@@ -780,7 +1055,7 @@ impl Worker {
                 Err(_) => return false,
                 Ok(None) => return true,
                 Ok(Some(command)) => {
-                    if Self::refuse(command) {
+                    if self.refuse(command) {
                         return true;
                     }
                 }
@@ -788,10 +1063,19 @@ impl Worker {
         }
     }
 
-    /// Answers a command while no connection runs; `true` for `Stop`.
-    fn refuse(command: Command) -> bool {
+    /// Answers a command while no connection runs; `true` for `Stop`. A new share is kept for
+    /// the next connection.
+    fn refuse(&mut self, command: Command) -> bool {
         match command {
             Command::Stop => true,
+            Command::Share(share) => {
+                if let Some(engine) = &mut self.engine {
+                    // Not connected: the engine only keeps it and sends it after `welcome`.
+                    let _ = engine.set_share(share.clone());
+                }
+                self.share = share;
+                false
+            }
             Command::Confirm(_, reply)
             | Command::Reject(_, reply)
             | Command::RemoveMember(_, reply)
@@ -864,7 +1148,7 @@ impl Worker {
                 keychain
             })?;
         let existing = stored.is_some();
-        let (device, identity) = match stored {
+        let (device, member, identity) = match stored {
             Some(text) => {
                 // An entry that is there but unreadable stops: replacing it would make this a
                 // new device and drop the old one's place in the team unasked.
@@ -873,7 +1157,11 @@ impl Worker {
                     return Err(keychain);
                 };
                 let identity = DeviceIdentity::import(&stored.secret).map_err(|_| keychain)?;
-                (stored.device, identity)
+                let member = match stored.member {
+                    Some(member) => Some(MemberId::new(member).map_err(|_| keychain)?),
+                    None => None,
+                };
+                (stored.device, member, identity)
             }
             None => {
                 // First use on this server and project: a new device. Stored before it is used,
@@ -883,6 +1171,7 @@ impl Worker {
                     team::new_device_id(|bytes| OsEntropy.fill(bytes)).map_err(|_| keychain)?;
                 let text = StoredDevice {
                     device: device.clone(),
+                    member: None,
                     secret: identity.export(),
                 }
                 .encode();
@@ -899,7 +1188,7 @@ impl Worker {
                         eprintln!("hangar: team device not stored: {error}");
                         keychain
                     })?;
-                (device, identity)
+                (device, None, identity)
             }
         };
         // An unreadable keys entry stops instead of starting over: dropping it would forget the
@@ -922,18 +1211,33 @@ impl Worker {
         let team =
             TeamId::new(self.project.clone()).map_err(|_| attention(AttentionReason::Refused))?;
         let device = DeviceId::new(device).map_err(|_| keychain)?;
-        self.engine = Some(Engine::new(EngineSetup {
+        let mut engine = Engine::new(EngineSetup {
             project: self.project.clone(),
             team,
             device,
             identity,
+            member,
             website_role: role,
             keys,
             local,
             now: Box::new(crate::updates::now_millis),
             entropy: Box::new(OsEntropy),
-        }));
+        });
+        let _ = engine.set_share(self.share.clone());
+        self.engine = Some(engine);
         Ok(())
+    }
+
+    /// The device acts for another account than the one signed in now (two people on one
+    /// keychain): known before connecting when the account already read who is signed in.
+    fn other_account(&self) -> bool {
+        let Some(bound) = self.engine.as_ref().and_then(Engine::member) else {
+            return false;
+        };
+        match self.service.inner.account.view().state {
+            AccountState::SignedIn { user: Some(me) } => me.id != bound.as_str(),
+            _ => false,
+        }
     }
 
     async fn ticket(&self) -> Result<account::RelayTicket, SessionEnd> {
@@ -962,6 +1266,9 @@ impl Worker {
         };
         if let Err(end) = self.ensure_engine(role).await {
             return Ok(end);
+        }
+        if self.other_account() {
+            return Ok(attention(AttentionReason::OtherAccount));
         }
         let ticket = match self.ticket().await {
             Ok(ticket) => ticket,
@@ -1071,11 +1378,17 @@ impl Worker {
         writer: &mut Writer,
         command: Command,
     ) -> Option<Result<SessionEnd, Exit>> {
-        let Some(engine) = self.engine.as_mut() else {
-            return Self::refuse(command).then_some(Err(Exit::Stopped));
-        };
+        if self.engine.is_none() {
+            return self.refuse(command).then_some(Err(Exit::Stopped));
+        }
+        let engine = self.engine.as_mut()?;
         let (effects, reply) = match command {
             Command::Stop => return Some(Err(Exit::Stopped)),
+            Command::Share(share) => {
+                self.share = share.clone();
+                let effects = engine.set_share(share);
+                return self.apply(writer, effects).await;
+            }
             Command::Confirm(id, reply) => (engine.confirm(&id), reply),
             Command::Reject(id, reply) => (engine.reject(&id), reply),
             Command::RemoveMember(member, reply) => (engine.remove_member(&member), reply),
@@ -1168,6 +1481,20 @@ impl Worker {
                         .await;
                     if let Err(error) = stored {
                         eprintln!("hangar: team keys not stored: {error}");
+                        result = Some(Ok(attention(AttentionReason::Keychain)));
+                        break;
+                    }
+                }
+                Effect::StoreDevice => {
+                    let Some(engine) = &self.engine else { continue };
+                    let text = engine.stored_device().encode();
+                    let name = device_account(&self.key);
+                    let stored = self
+                        .service
+                        .keychain(move |store| store.set(&name, &text))
+                        .await;
+                    if let Err(error) = stored {
+                        eprintln!("hangar: team device not stored: {error}");
                         result = Some(Ok(attention(AttentionReason::Keychain)));
                         break;
                     }

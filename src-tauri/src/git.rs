@@ -277,7 +277,10 @@ impl Git {
                 command.env_remove(&key);
             }
         }
+        // Replace refs (`git replace`, `refs/replace/`) let a clone show another history than
+        // its objects hold, such as another root commit, the repository's identity in the team.
         command
+            .env("GIT_NO_REPLACE_OBJECTS", "1")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_PAGER", "cat")

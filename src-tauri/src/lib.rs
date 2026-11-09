@@ -35,6 +35,7 @@ pub mod team;
 pub mod team_engine;
 pub mod team_relay;
 pub mod team_service;
+pub mod team_share;
 #[cfg(test)]
 mod test_support;
 pub mod text;
@@ -186,7 +187,41 @@ pub fn run() -> tauri::Result<()> {
             );
             app.state::<SessionManager>()
                 .set_launch_gate(std::sync::Arc::new(gate.clone()));
+            // The team shares the sessions of repositories linked to a shared project; the gate
+            // pauses an edit of a file a teammate's session is changing (step F part 2b).
+            let teammates = app.handle().clone();
+            gate.set_teammates(move |repo, folder| {
+                teammates
+                    .state::<team_service::TeamService>()
+                    .teammate_files(repo, folder)
+            });
             app.manage(gate);
+            let source = app.handle().clone();
+            app.state::<team_service::TeamService>()
+                .set_local_source(move || {
+                    let worktrees = source.state::<claims_service::ClaimsService>().worktrees();
+                    let manager = source.state::<SessionManager>();
+                    let names: std::collections::HashMap<String, String> = manager
+                        .profiles()
+                        .into_iter()
+                        .map(|profile| (profile.id, profile.name))
+                        .collect();
+                    let labels = manager
+                        .list()
+                        .into_iter()
+                        .map(|info| team_share::SessionLabel {
+                            agent: names.get(&info.profile_id).cloned().unwrap_or_default(),
+                            id: info.id,
+                            title: info.title,
+                        })
+                        .collect();
+                    (worktrees, labels)
+                });
+            let refresh = app.handle().clone();
+            app.state::<claims_service::ClaimsService>()
+                .on_worktrees(move || {
+                    refresh.state::<team_service::TeamService>().refresh_local();
+                });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -264,6 +299,8 @@ pub fn run() -> tauri::Result<()> {
             commands::team_pending_confirmations,
             commands::team_confirm,
             commands::team_reject,
+            commands::team_session_states,
+            commands::team_link_repo,
         ])
         .build(tauri::generate_context!())?;
 

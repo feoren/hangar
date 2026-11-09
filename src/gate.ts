@@ -23,8 +23,10 @@ export interface PendingDecision {
   tool: string;
   /** Relative to the session's worktree with `/` separators; shown via `revealInvisible`. */
   path: string;
-  /** Sessions changing the same file, at least one. */
+  /** The user's own sessions changing the same file; empty when only teammates do. */
   otherSessions: number[];
+  /** Teammates changing the file ("Anna (Claude Code)"), from a shared project's presence. */
+  teammates: string[];
   level: GateLevel;
   /** Lines the other sessions changed in that file; empty: whole file or unknown. */
   lines: LineRange[];
@@ -51,6 +53,11 @@ function parseDecision(value: unknown): PendingDecision | null {
   const otherSessions = list(field(value, "otherSessions"), (item) =>
     isCount(item) ? item : null,
   );
+  const teammatesValue = field(value, "teammates");
+  const teammates =
+    teammatesValue === undefined
+      ? []
+      : list(teammatesValue, (item) => (typeof item === "string" && item !== "" ? item : null));
   const level = LEVELS.find((entry) => entry === field(value, "level"));
   const lines = list(field(value, "lines"), parseRange);
   const createdAt = field(value, "createdAt");
@@ -58,9 +65,11 @@ function parseDecision(value: unknown): PendingDecision | null {
   if (typeof path !== "string" || path === "" || level === undefined || lines === null) {
     return null;
   }
-  if (otherSessions === null || otherSessions.length === 0) return null;
+  // Someone else changes the file: one of the user's sessions or a teammate, at least one.
+  if (otherSessions === null || teammates === null) return null;
+  if (otherSessions.length === 0 && teammates.length === 0) return null;
   if (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0) return null;
-  return { id, sessionId, tool, path, otherSessions, level, lines, createdAt };
+  return { id, sessionId, tool, path, otherSessions, teammates, level, lines, createdAt };
 }
 
 /** Checks the backend's snapshot; `null` if anything is malformed or an id repeats. */
@@ -124,7 +133,7 @@ export function decisionText(
   nameOf: (id: number) => string,
   t: Translate,
 ): DecisionText {
-  const others = decision.otherSessions.map(nameOf).join(", ");
+  const others = [...decision.otherSessions.map(nameOf), ...decision.teammates].join(", ");
   const lines =
     decision.level === "overlappingLines" && decision.lines.length > 0
       ? formatLines(decision.lines, t)
