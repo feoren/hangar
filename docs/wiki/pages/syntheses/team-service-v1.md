@@ -396,6 +396,35 @@ into the app yet; the separate relay will use it as a path dependency.
 - **Not built yet:** the relay (step D), the crypto behind `Sealed` (step E), the app side
   (step F).
 
+### Step E as built (2026-11-09)
+
+Crypto crate `crates/hangar-team-crypto` (MIT), described with its decisions and threat model in
+[[team-crypto]]. Pure (no I/O, no clock, no keychain); not wired into the app yet, step F part 2
+uses it. Needs an external cryptographic review before it protects real data.
+
+- **Standalone like the protocol crate:** own `Cargo.toml` with an empty `[workspace]` table, own
+  `Cargo.lock`, path dependency on `hangar-team-protocol`. CI runs fmt, clippy, tests and the
+  Python reference as a separate step on all three systems.
+- **Modules:** `identity` (Ed25519 and X25519 device keys, versioned keychain format, safety
+  numbers per device and per log head), `memberlog` (canonical signed entries bound to team,
+  index and predecessor; `LogVerifier` into a `TeamState`), `epoch` (random secret per epoch,
+  commitment in the log, HPKE wrapping, history link), `rotation` (`memberlog.append` plus
+  `key.rotate`, `key.wrap` for one device), `record` (`Sealed` content: XChaCha20-Poly1305 plus
+  the sender's signature, `ReplayGuard`), `recovery` (128-bit code in Crockford base32 with a
+  checksum, derives an offline device).
+- **Dependencies:** `hpke` 0.15 (default features off), `ed25519-dalek` 3, `chacha20poly1305`
+  0.11, `hkdf` 0.13, `sha2` 0.11, `getrandom` 0.4, `zeroize`, `thiserror`, `data-encoding`; all
+  MIT, Apache-2.0 or BSD-3-Clause, one RustCrypto and dalek generation.
+- **Randomness:** through the `Entropy` trait, fallible; `hpke` gets its ephemeral key material
+  through a one-shot generator, so a failing generator is an error and never a panic.
+- **Tests:** 39 unit tests (whole-team flows, every log rule and binding, record context, size
+  limits, malformed input, RFC anchors) and `test_vectors.py`, which reimplements every
+  primitive with the Python standard library and recomputes the crate's 13 vectors.
+- **Open for step F part 2:** members cannot append the log entry for removing their own device
+  (the relay allows `device.remove`, the log needs an owner or admin); `TeamState` keeps only
+  current devices, so records of a removed device need a key history in the app; the app
+  re-verifies the log from entry 1; no automatic fork detection.
+
 ### Step F as built (part 1, 2026-11-09)
 
 Sign in to a Hangar account and see its projects. Endpoints, token rules and the client's

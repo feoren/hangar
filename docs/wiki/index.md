@@ -24,6 +24,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages, comparison rules (sources: 2, updated: 2026-11-08)
 
 ## Concepts
+- [[team-crypto]]: team crypto (step E): device keys and safety numbers, signed membership log bound to team and position, epoch commitments, HPKE wrapping, history links, sealed and signed records, recovery code, threat model (sources: 0, updated: 2026-11-09)
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources

@@ -24,6 +24,10 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo fmt --manifest-path crates/hangar-team-protocol/Cargo.toml --check
 cargo clippy --manifest-path crates/hangar-team-protocol/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
+cargo fmt --manifest-path crates/hangar-team-crypto/Cargo.toml --check
+cargo clippy --manifest-path crates/hangar-team-crypto/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path crates/hangar-team-crypto/Cargo.toml
+python3 crates/hangar-team-crypto/test_vectors.py  # Windows: py -3
 pnpm format:check && pnpm lint && pnpm test && pnpm build
 ```
 

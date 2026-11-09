@@ -65,3 +65,22 @@ jobs:
           cargo fmt --manifest-path crates/hangar-team-protocol/Cargo.toml --check
           cargo clippy --manifest-path crates/hangar-team-protocol/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
+
+      # The team crypto crate builds on its own as well (own lock file); the Python reference
+      # recomputes its test vectors with the standard library.
+      - name: Team crypto crate
+        shell: bash
+        run: |
+          cargo fmt --manifest-path crates/hangar-team-crypto/Cargo.toml --check
+          cargo clippy --manifest-path crates/hangar-team-crypto/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path crates/hangar-team-crypto/Cargo.toml
+          # macOS and Linux runners name the interpreter python3, Windows runners python; a
+          # python3 that is only the Microsoft Store stub exists but does not run, so each
+          # candidate has to start before it is used.
+          for candidate in python3 python; do
+            if "$candidate" -c "import sys; sys.exit(sys.version_info < (3, 8))" 2>/dev/null; then
+              py="$candidate"
+              break
+            fi
+          done
+          "${py:?no Python 3.8 or newer found}" crates/hangar-team-crypto/test_vectors.py

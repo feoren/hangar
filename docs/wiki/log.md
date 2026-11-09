@@ -191,3 +191,10 @@ pages to the window and checks relay addresses. Pages changed: [[hangar-account-
 process lock before each write. Storing a confirmed sign-in and ending the session after a second
 401 now hold the process lock as well. The `signedOutLocally` notice no longer claims the server
 was unreachable. Pages changed: [[hangar-account-api]].
+
+## [2026-11-09] ingest | Team crypto (step E)
+Built the pure crate `crates/hangar-team-crypto`: device keys and safety numbers, a signed
+membership log bound to team and position, epoch commitments with HPKE wrapping, history links,
+sealed and signed records and the recovery code, with RFC anchored tests and an independent
+Python reference for the vectors. Needs an external cryptographic review. Pages changed:
+[[team-crypto]] (new), [[team-service-v1]].

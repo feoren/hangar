@@ -1,0 +1,44 @@
+[package]
+name = "hangar-team-crypto"
+version = "0.1.0"
+description = "End-to-end cryptography of Hangar teams: device keys, signed membership log, key epochs, sealed records (no I/O)"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+# Standalone like hangar-team-protocol: a workspace at the repository root would move the app's
+# target folder. The empty table stops Cargo from looking for a workspace further up.
+[workspace]
+
+[dependencies]
+# Wire types (PublicKey, LogHash, Ciphertext, Sealed, KeyRotate, ...), the membership log's hash
+# chain and EpochKeys. Our own crate, MIT.
+hangar-team-protocol = { path = "../hangar-team-protocol" }
+# Wrapping epoch secrets to devices (RFC 9180, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256,
+# ChaCha20Poly1305). MIT/Apache-2.0, pure Rust, built on the same RustCrypto and dalek versions as
+# the rest of this tree (no duplicates). Default features off: no ML-KEM, no NIST curves, no
+# system RNG that panics on failure (this crate draws randomness itself, fallibly).
+# Alternative hpke-rs is MPL-2.0.
+hpke = { version = "0.15", default-features = false, features = ["alloc", "x25519", "chacha"] }
+# Device signatures (RFC 8032, strict verification). BSD-3-Clause, dalek-cryptography; already
+# pulled by hpke through curve25519-dalek. `zeroize` wipes signing keys on drop.
+ed25519-dalek = { version = "3", default-features = false, features = ["fast", "zeroize"] }
+# XChaCha20-Poly1305 for sealed records and history links (192-bit random nonces).
+# MIT/Apache-2.0, RustCrypto; hpke already depends on the same version.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+# Key derivation (RFC 5869) and hashes with the same versions as hangar-team-protocol.
+# MIT/Apache-2.0, RustCrypto.
+hkdf = "0.13"
+sha2 = "0.11"
+# The operating system's random number generator, with an error instead of a panic.
+# MIT/Apache-2.0, rust-random; already in the tree through the RustCrypto crates.
+getrandom = "0.4"
+# Wipes secrets on drop. MIT/Apache-2.0, no dependencies.
+zeroize = "1"
+# Error types of the public API. MIT/Apache-2.0, already used by the protocol crate.
+thiserror = "2"
+# Canonical base64url without padding (rejects padding and non-zero trailing bits, so one byte
+# string has one spelling). MIT, no dependencies, about 60 KB of source. The protocol crate's own
+# decoder is crate-private.
+data-encoding = "2"
