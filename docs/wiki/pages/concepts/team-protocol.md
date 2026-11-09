@@ -15,8 +15,9 @@ doc comments hold the details. Nothing here was run against a real relay yet.
 
 ## Envelope
 
-One JSON object per WebSocket text message, at most 1 MiB (`MAX_FRAME_BYTES`), checked before
-parsing.
+One JSON object per WebSocket text message, at most 1 MiB (`MAX_FRAME_BYTES`). The relay's
+WebSocket reader refuses a larger message before decoding (the connection ends, no `err`);
+`decode_client` and `decode_server` check the size again as a second line, before parsing.
 
 | Field | Client frame | Server frame |
 | --- | --- | --- |
@@ -68,7 +69,25 @@ number.
 | `claim.clear` | `session` | `ack`; ended overlaps as `claim.overlap` with level `none` |
 | `blob.put` | `kind` (decision, task, transcript), `content` sealed | `ack` with `blob` |
 | `blob.get` | `blob` | `ack` with `blob` and `content` |
+| `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url | `ack`; replaces the device's keys |
+| `devices.get` | none | `devices` |
+| `memberlog.append` | `index` (from 1, no gaps), `prev` (hash of the entry before, null on the first), `entry` (opaque, at most 16 KiB) | `ack`, `memberlog.appended`; `conflict` when the index was taken first |
+| `memberlog.get` | `after` (0: from the start) | `memberlog.entries` |
+| `key.rotate` | `epoch` (exactly current + 1), `wrapped` (at most 512 `{device, data}`, one per device) | owner or admin only: `ack`, `key.rotated` per device |
+| `key.wrap` | `epoch` (the current one), `wrapped {device, data}` | `ack`; hands the current key to one (newly approved) device |
+| `key.get` | `epoch` | `ack` with `content` = `{epoch, data}`, the sender's own wrapped key; `notFound` if none |
 | `ping` | none | `ack` |
+
+`presence.set` with `offline` is refused (`badRequest`): only the server reports a device offline.
+A client never sends `notify` (decoding refuses it like an unknown type).
+
+**Answers and retries.** The answer to a client frame carries its op id as `id`: `ack` or `err`,
+`welcome` or `resync_required` for `hello`, `devices` and `memberlog.entries` for the two reads.
+The relay remembers the answer by op id only for intents that change shared state once
+(`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `memberlog.append`, `key.rotate`,
+`key.wrap`; a retry gets the first answer and is not applied again. `presence.set`, `heartbeat`,
+`claim.set`, `claim.clear` and `device.keys` replace the sender's own state and are applied and
+acknowledged every time; reads, `hello` and `ping` are answered every time.
 
 The ticket is the website's short-lived Ed25519 ticket in compact form
 (`base64url(payload).base64url(signature)`, payload with `v`, `kid`, `sub`, `prj`, `role`,
@@ -86,7 +105,7 @@ lists that device for that member.
 | `resync_required` | `stream`, `head`, `reason` (noCursor, otherStream, tooOld, ahead) | no |
 | `ack` | `blob`, `content` (both optional) | no |
 | `err` | `code`, `retryAfterMs`, `holder` | no |
-| `presence.update` | `holder {member, device}`, `state`, `status`, `at` | no |
+| `presence.update` | `holder {member, device}`, `state` (active, idle, away, offline; offline without `status`, when the device's last connection closed), `status`, `at` | no |
 | `task.reserved` | `task`, `holder`, `epoch`, `since`, `expiresAt` (null while it cannot expire), `note` | yes |
 | `task.released` | `task`, `holder`, `reason` (released, handedOver, memberRemoved, forceReleased) | yes |
 | `reservation.expiring` | `task`, `holder`, `expiresAt` | yes |
@@ -97,8 +116,21 @@ lists that device for that member.
 | `task.release_request_ended` | `task`, `holder`, `requester`, `reason` (withdrawn, timedOut) | yes |
 | `member.joined` | `member`, `role` (owner, admin, member) | yes |
 | `member.removed` | `member` | yes |
-| `key.rotated` | `epoch`, `wrapped` (the new key for this device, step E) | yes |
+| `member.role_changed` | `member`, `role` | yes |
+| `key.rotated` | `epoch`, `wrapped` (only the receiving device's own wrapped key) | yes |
 | `notify` | `topic` (attention), `content` sealed | yes |
+| `devices` | `devices` (at most 512 `{holder, sign, kem, at}`) | no |
+| `memberlog.entries` | `entries` (at most 256 `{index, hash, entry, by, at}`), `more` | no |
+| `memberlog.appended` | `index`, `hash`, `by` | yes |
+
+`welcome` and `resync_required` carry the `hello`'s op id as `id`. `key.rotated` is one log entry
+per rotation, but each device receives it with only its own wrapped key: the relay fills `wrapped`
+from storage per receiving device, live and on replay, so two devices see the same `seq` with
+different bodies (`null` when the relay holds no key for that device and epoch). `notify` is
+created by the relay only, topic `attention`: a release request for a task or an upcoming expiry
+of a hold whose holder has no connection; it is logged, so the holder's devices see it on replay,
+and the relay may also tell the person out of band. The relay holds no team key, so `content` is
+null unless it passes on a sealed note it received.
 
 `err` codes: `conflict` (held by someone else, or a release request is open), `limit` (frame,
 list, ciphertext, reservations per member, also for a handover to a full member), `forbidden`
@@ -151,6 +183,35 @@ RFC 4231 test case 2, HKDF with RFC 5869 test case 3.
 What the relay still learns: whether a changed file lies in a folder at all, which changed files
 share their first folder, how many files a session changes, and that a value repeats within an
 epoch.
+
+## End-to-end groundwork
+
+The relay holds no key, but it enforces the structure step E relies on (module `e2e`; the
+cryptography itself is step E).
+
+- **Device keys:** `PublicKey` is exactly 32 bytes as 43 characters of canonical base64url (no
+  padding, unused trailing bits zero), so one key has one spelling. Whether the bytes are a valid
+  curve point is step E's check. Clients trust a device's keys only when the membership log
+  vouches for them; `devices` is a directory, not a trust anchor.
+- **Membership log hash:** entry `index` hashes to
+  `SHA-256(field("hangar-team/v1/memberlog") || field(index, 8 bytes big endian) || field(prev, 32 bytes or empty) || field(entry bytes))`,
+  `field(x)` being `x`'s length as 32-bit big endian followed by `x` (as in the keyed hashes).
+  The entry is hashed as the bytes its canonical base64url decodes to. Test vectors in
+  `src/e2e.rs`, computed independently by `test_vectors.py`.
+- **Chain rule** (`check_append`, `MemberChain`): indexes from 1 without gaps, `prev` the
+  predecessor's hash (absent on the first). A taken index is `conflict` (another device appended
+  first; fetch and retry), a gap, a wrong `prev` or a non-canonical entry `badRequest`. Clients
+  verify every received entry against their trusted head (`MemberChain::verify`) and never take
+  `hash` from the relay unchecked.
+- **Rotation rule** (`check_rotate`): owner or admin, epoch exactly current + 1 (`staleEpoch`
+  otherwise), at least one wrapped key and at most one per device. Covering every device is the
+  rotating client's job. `key.wrap` must name the current epoch (`check_epoch`); `key.get` may
+  name any epoch the device had.
+- **Sizes:** a log entry and a wrapped key are each at most 16 KiB, but the 1 MiB frame binds a
+  list first: 512 wrapped keys fit when each is under about 1.8 KiB (an HPKE wrapped 32-byte key
+  is about 110 characters), and the relay ends a `memberlog.entries` page early (`more`) when the
+  next entry would not fit. `MemberLogEntries::page` builds such a page from a lazy source of
+  stored entries (count and frame budget, worst case envelope included).
 
 ## Overlap levels
 
@@ -280,7 +341,9 @@ What the relay can and cannot do, and what the protocol relies on:
 | `MAX_ID_LEN` / `MAX_OPAQUE_ID_LEN` | 64 / 128 |
 | `MAX_TICKET_LEN` | 2048 |
 | `MAX_CIPHERTEXT_LEN` (blobs, claim detail in `claim.set` and `claim.overlap`) | 175 000 characters (about 128 KiB) |
-| `MAX_INLINE_CIPHERTEXT_LEN` (status, notes, notify content, wrapped key) | 16 KiB |
+| `MAX_INLINE_CIPHERTEXT_LEN` (status, notes, notify content, wrapped key, membership log entry) | 16 KiB |
+| `MAX_WRAPPED_KEYS` (per `key.rotate`, devices in `devices`) | 512 |
+| `MAX_LOG_ENTRIES` (per `memberlog.entries`) | 256 |
 | `MAX_CLAIM_FILES` | 1000 (more: `truncated`) |
 | `MAX_HEARTBEAT_TASKS` | 64 |
 | `MAX_PREV_HASHES` | 4 |

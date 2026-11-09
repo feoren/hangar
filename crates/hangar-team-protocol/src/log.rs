@@ -174,9 +174,12 @@ pub enum Retry<'a, R> {
 /// The results of recent intents, so a retry with the same op id gets the same answer instead of
 /// being applied twice. Each entry keeps the digest of the body ([`ClientMessage::digest`]), so
 /// an op id reused for a different intent is refused rather than answered with an old result.
-/// Bounded: the oldest are forgotten first.
+/// Bounded: the oldest are forgotten first. Only intents whose
+/// [`ClientMessage::deduplicated`] is true go through it; the others are applied and answered
+/// every time.
 ///
 /// [`ClientMessage::digest`]: crate::wire::ClientMessage::digest
+/// [`ClientMessage::deduplicated`]: crate::wire::ClientMessage::deduplicated
 #[derive(Debug, Clone)]
 pub struct RecentOps<R> {
     capacity: usize,

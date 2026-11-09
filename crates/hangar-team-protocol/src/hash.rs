@@ -82,14 +82,33 @@ impl KeyedHash {
 
     /// The 64 lowercase hex digits the wire carries.
     pub fn to_hex(&self) -> String {
-        const DIGITS: &[u8; 16] = b"0123456789abcdef";
-        let mut out = String::with_capacity(64);
-        for byte in self.0 {
-            out.push(char::from(DIGITS[usize::from(byte >> 4)]));
-            out.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
-        }
-        out
+        hex32(&self.0)
     }
+}
+
+/// 32 bytes as 64 lowercase hex digits.
+pub(crate) fn hex32(bytes: &[u8; 32]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        out.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    out
+}
+
+/// Exactly 64 lowercase hex digits as 32 bytes; anything else is `None`.
+pub(crate) fn parse_hex32(value: &str) -> Option<[u8; 32]> {
+    let digits = value.as_bytes();
+    if digits.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 32];
+    let (pairs, _) = digits.as_chunks::<2>();
+    for (byte, pair) in bytes.iter_mut().zip(pairs) {
+        *byte = (hex_value(pair[0])? << 4) | hex_value(pair[1])?;
+    }
+    Some(bytes)
 }
 
 /// Only lowercase hex, so one value has exactly one spelling and the server can compare text.
@@ -109,18 +128,7 @@ pub struct InvalidHash;
 impl TryFrom<String> for KeyedHash {
     type Error = InvalidHash;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let digits = value.as_bytes();
-        if digits.len() != 64 {
-            return Err(InvalidHash);
-        }
-        let mut bytes = [0u8; 32];
-        let (pairs, _) = digits.as_chunks::<2>();
-        for (byte, pair) in bytes.iter_mut().zip(pairs) {
-            let high = hex_value(pair[0]).ok_or(InvalidHash)?;
-            let low = hex_value(pair[1]).ok_or(InvalidHash)?;
-            *byte = (high << 4) | low;
-        }
-        Ok(Self(bytes))
+        parse_hex32(&value).map(Self).ok_or(InvalidHash)
     }
 }
 
@@ -389,7 +397,7 @@ impl MatchKey {
 }
 
 /// Lengths are bounded far below 4 GiB by the limits; saturate rather than wrap.
-fn length_prefix(part: &[u8]) -> [u8; 4] {
+pub(crate) fn length_prefix(part: &[u8]) -> [u8; 4] {
     u32::try_from(part.len()).unwrap_or(u32::MAX).to_be_bytes()
 }
 

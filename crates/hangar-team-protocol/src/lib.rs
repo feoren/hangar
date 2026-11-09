@@ -5,10 +5,12 @@
 //! No I/O, no clock, no async runtime, no network: the app and the separate team server both
 //! depend on this crate and bring those themselves. Time is passed in as [`ids::UnixMillis`].
 //! Encryption is step E; this crate only carries opaque [`ids::Ciphertext`] values and the
-//! [`ids::Epoch`] of the key they were sealed with.
+//! [`ids::Epoch`] of the key they were sealed with, plus the checks the relay makes without a
+//! key ([`e2e`]: device public keys, the membership log's hash chain, key rotation rules).
 //!
 //! Design and message table: `docs/wiki/pages/concepts/team-protocol.md`.
 
+pub mod e2e;
 pub mod hash;
 pub mod ids;
 pub mod limits;

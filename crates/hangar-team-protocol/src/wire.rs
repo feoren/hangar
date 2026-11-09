@@ -8,7 +8,19 @@
 //! version (read on its own first and tolerantly, so a frame of another version gets a version
 //! error even when it has fields this version does not know), the envelope (unknown and
 //! duplicate fields rejected), the body (parsed straight into the message's type: unknown and
-//! duplicate fields rejected at every level), and the limits of lists and ciphertexts.
+//! duplicate fields rejected at every level), the limits of lists and ciphertexts, and the few
+//! rules a body's fields have among themselves (`offline` is the server's word only). The relay's
+//! WebSocket reader refuses a message over [`MAX_FRAME_BYTES`] before any of this runs; the size
+//! check here is the second line.
+//!
+//! Answers: the server's frame that answers a client's frame carries the client's op id as
+//! `id`: `ack` or `err` for an intent, `welcome` or `resync_required` for a `hello`, `devices`
+//! for `devices.get` and `memberlog.entries` for `memberlog.get`. Which intents the relay
+//! remembers by op id, and which it simply applies and acknowledges again, says
+//! [`ClientMessage::deduplicated`].
+//!
+//! Direction: `notify` is created by the server only; a client frame of that type is refused
+//! like any unknown type.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -16,6 +28,7 @@ use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::e2e::{LogHash, PublicKey};
 use crate::hash::{KeyedHash, PathHashes};
 use crate::ids::{
     BlobId, Ciphertext, DeviceId, Epoch, MemberId, OpId, Sealed, Seq, SessionKey, StreamId, TeamId,
@@ -23,7 +36,7 @@ use crate::ids::{
 };
 use crate::limits::{
     MAX_CIPHERTEXT_LEN, MAX_CLAIM_FILES, MAX_FRAME_BYTES, MAX_HEARTBEAT_TASKS,
-    MAX_INLINE_CIPHERTEXT_LEN, MAX_PREV_HASHES,
+    MAX_INLINE_CIPHERTEXT_LEN, MAX_LOG_ENTRIES, MAX_PREV_HASHES, MAX_WRAPPED_KEYS,
 };
 use crate::PROTOCOL_VERSION;
 
@@ -80,6 +93,11 @@ pub enum EncodeError {
     TooLarge { max: usize },
     #[error("the frame could not be serialized: {0}")]
     Json(String),
+    #[error("`{kind}` is not valid: {reason}")]
+    Invalid {
+        kind: &'static str,
+        reason: &'static str,
+    },
 }
 
 /// `min` is above `max`.
@@ -195,7 +213,7 @@ pub struct Holder {
     pub device: DeviceId,
 }
 
-/// A device's presence, as `presence.set` sets it.
+/// A device's presence, as `presence.set` sets it and `presence.update` reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PresenceState {
@@ -205,6 +223,10 @@ pub enum PresenceState {
     Idle,
     /// The person said they are away.
     Away,
+    /// The device has no connection any more. Only the server says so (in `presence.update`,
+    /// without `status`, when the device's last connection closed); a `presence.set` with it is
+    /// refused.
+    Offline,
 }
 
 /// What an encrypted blob holds, so the server can apply retention per kind.
@@ -334,6 +356,79 @@ pub struct BlobGet {
     pub blob: BlobId,
 }
 
+/// `device.keys`: the sending device's public keys (step E). Replaces earlier ones; the relay
+/// lists them in `devices`. Clients trust a device's keys only when the membership log vouches
+/// for them, so a relay that swaps keys is caught there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceKeys {
+    /// Ed25519, signs membership log entries and sealed records.
+    pub sign: PublicKey,
+    /// X25519, receives wrapped team keys (HPKE).
+    pub kem: PublicKey,
+}
+
+/// `memberlog.append`: the next entry of the team's signed membership log. The relay checks
+/// only the chain ([`crate::e2e::check_append`]: `index` the next one from 1, `prev` the hash of
+/// the entry before, `None` on the first); the entry's content and signature are the clients'
+/// business. Answered with `ack`; everyone gets `memberlog.appended`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberLogAppend {
+    pub index: u64,
+    pub prev: Option<LogHash>,
+    /// Signed by the appending device (format: step E), canonical base64url, at most
+    /// [`MAX_INLINE_CIPHERTEXT_LEN`]. Not bound to a key epoch: a new device reads the log
+    /// before it has the team key.
+    pub entry: Ciphertext,
+}
+
+/// `memberlog.get`: the entries with an index above `after` (0: from the start), answered with
+/// `memberlog.entries`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberLogGet {
+    pub after: u64,
+}
+
+/// A team key wrapped to one device (HPKE output, opaque; at most
+/// [`MAX_INLINE_CIPHERTEXT_LEN`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WrappedKey {
+    pub device: DeviceId,
+    pub data: Ciphertext,
+}
+
+/// `key.rotate`: start a new epoch, with the new key wrapped to every device of the team (at
+/// most [`MAX_WRAPPED_KEYS`]). Owner or admin only, `epoch` exactly the current one plus one
+/// ([`crate::e2e::check_rotate`]). Answered with `ack`; every device gets `key.rotated` with only
+/// its own wrapped key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyRotate {
+    pub epoch: Epoch,
+    pub wrapped: Vec<WrappedKey>,
+}
+
+/// `key.wrap`: hand the current epoch's key to one device, typically one just approved in the
+/// membership log. `epoch` must be the current one (`staleEpoch` otherwise).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyWrap {
+    pub epoch: Epoch,
+    pub wrapped: WrappedKey,
+}
+
+/// `key.get`: the sending device's own wrapped key of `epoch` (any epoch it got one for).
+/// Answered with `ack` whose `content` is `Sealed { epoch, data }`, `data` being the wrapped key;
+/// `notFound` when there is none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyGet {
+    pub epoch: Epoch,
+}
+
 /// Everything a client sends. `type` on the wire is the serde name; [`CLIENT_KINDS`] lists them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", content = "body")]
@@ -368,6 +463,21 @@ pub enum ClientMessage {
     BlobPut(BlobPut),
     #[serde(rename = "blob.get")]
     BlobGet(BlobGet),
+    #[serde(rename = "device.keys")]
+    DeviceKeys(DeviceKeys),
+    /// The team's devices and their public keys; answered with `devices`. No body.
+    #[serde(rename = "devices.get")]
+    DevicesGet,
+    #[serde(rename = "memberlog.append")]
+    MemberLogAppend(MemberLogAppend),
+    #[serde(rename = "memberlog.get")]
+    MemberLogGet(MemberLogGet),
+    #[serde(rename = "key.rotate")]
+    KeyRotate(KeyRotate),
+    #[serde(rename = "key.wrap")]
+    KeyWrap(KeyWrap),
+    #[serde(rename = "key.get")]
+    KeyGet(KeyGet),
     /// Keeps the connection alive; answered with `ack`.
     #[serde(rename = "ping")]
     Ping,
@@ -407,6 +517,13 @@ impl ClientMessage {
             ClientMessage::ClaimClear(_) => "claim.clear",
             ClientMessage::BlobPut(_) => "blob.put",
             ClientMessage::BlobGet(_) => "blob.get",
+            ClientMessage::DeviceKeys(_) => "device.keys",
+            ClientMessage::DevicesGet => "devices.get",
+            ClientMessage::MemberLogAppend(_) => "memberlog.append",
+            ClientMessage::MemberLogGet(_) => "memberlog.get",
+            ClientMessage::KeyRotate(_) => "key.rotate",
+            ClientMessage::KeyWrap(_) => "key.wrap",
+            ClientMessage::KeyGet(_) => "key.get",
             ClientMessage::Ping => "ping",
         }
     }
@@ -416,8 +533,46 @@ impl ClientMessage {
         !matches!(self, ClientMessage::Ping)
     }
 
-    /// Every epoch the payload is bound to: hashes made with an epoch's matching key and content
-    /// sealed with its sealing key. `prev` of `task.reserve` is old on purpose and not listed.
+    /// Whether the relay remembers this intent's answer by op id ([`crate::log::RecentOps`]):
+    /// a retry with the same op id gets the first answer and is not applied again. True for the
+    /// intents that change shared state once: every `task.*`, `blob.put`, `memberlog.append`,
+    /// `key.rotate` and `key.wrap`.
+    ///
+    /// False for the rest. `presence.set`, `heartbeat`, `claim.set`, `claim.clear` and
+    /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
+    /// they are applied and answered with `ack` every time. Reads (`blob.get`, `key.get`,
+    /// `devices.get`, `memberlog.get`), `hello` and `ping` are answered every time.
+    pub fn deduplicated(&self) -> bool {
+        matches!(
+            self,
+            ClientMessage::TaskReserve(_)
+                | ClientMessage::TaskRelease(_)
+                | ClientMessage::TaskReleaseRequest(_)
+                | ClientMessage::TaskReleaseWithdraw(_)
+                | ClientMessage::TaskReleaseAnswer(_)
+                | ClientMessage::TaskForceRelease(_)
+                | ClientMessage::TaskRekey(_)
+                | ClientMessage::BlobPut(_)
+                | ClientMessage::MemberLogAppend(_)
+                | ClientMessage::KeyRotate(_)
+                | ClientMessage::KeyWrap(_)
+        )
+    }
+
+    /// Rules between fields that the types alone do not express.
+    fn check_rules(&self) -> Result<(), &'static str> {
+        match self {
+            ClientMessage::PresenceSet(m) if m.state == PresenceState::Offline => {
+                Err("offline is reported by the server only")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Every epoch the payload is bound to: hashes made with an epoch's matching key, content
+    /// sealed with its sealing key, and the epoch a `key.wrap` hands out. Not listed, on
+    /// purpose: `prev` of `task.reserve` (old), the epoch of `key.rotate` (the next one,
+    /// checked by [`crate::e2e::check_rotate`]) and of `key.get` (any epoch the device had).
     pub fn epochs(&self) -> Vec<Epoch> {
         let sealed = |value: Option<&Sealed>| value.map(|s| s.epoch);
         match self {
@@ -431,6 +586,7 @@ impl ClientMessage {
                 .chain(sealed(m.detail.as_ref()))
                 .collect(),
             ClientMessage::BlobPut(m) => vec![m.content.epoch],
+            ClientMessage::KeyWrap(m) => vec![m.epoch],
             ClientMessage::Hello(_)
             | ClientMessage::Heartbeat(_)
             | ClientMessage::TaskRelease(_)
@@ -439,6 +595,12 @@ impl ClientMessage {
             | ClientMessage::TaskForceRelease(_)
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
+            | ClientMessage::DeviceKeys(_)
+            | ClientMessage::DevicesGet
+            | ClientMessage::MemberLogAppend(_)
+            | ClientMessage::MemberLogGet(_)
+            | ClientMessage::KeyRotate(_)
+            | ClientMessage::KeyGet(_)
             | ClientMessage::Ping => Vec::new(),
         }
     }
@@ -480,6 +642,14 @@ impl ClientMessage {
                 sealed("detail", m.detail.as_ref(), MAX_CIPHERTEXT_LEN)
             }
             ClientMessage::BlobPut(m) => sealed("content", Some(&m.content), MAX_CIPHERTEXT_LEN),
+            ClientMessage::MemberLogAppend(m) => cipher("entry", Some(&m.entry)),
+            ClientMessage::KeyRotate(m) => {
+                count("wrapped", m.wrapped.len(), MAX_WRAPPED_KEYS)?;
+                m.wrapped
+                    .iter()
+                    .try_for_each(|w| cipher("data", Some(&w.data)))
+            }
+            ClientMessage::KeyWrap(m) => cipher("data", Some(&m.wrapped.data)),
             ClientMessage::Hello(_)
             | ClientMessage::TaskRelease(_)
             | ClientMessage::TaskReleaseWithdraw(_)
@@ -488,9 +658,22 @@ impl ClientMessage {
             | ClientMessage::TaskRekey(_)
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
+            | ClientMessage::DeviceKeys(_)
+            | ClientMessage::DevicesGet
+            | ClientMessage::MemberLogGet(_)
+            | ClientMessage::KeyGet(_)
             | ClientMessage::Ping => Ok(()),
         }
     }
+}
+
+/// A bare ciphertext (log entry, wrapped key) within [`MAX_INLINE_CIPHERTEXT_LEN`].
+fn cipher(field: &'static str, value: Option<&Ciphertext>) -> Result<(), (&'static str, usize)> {
+    count(
+        field,
+        value.map_or(0, |c| c.as_str().len()),
+        MAX_INLINE_CIPHERTEXT_LEN,
+    )
 }
 
 fn count(field: &'static str, len: usize, max: usize) -> Result<(), (&'static str, usize)> {
@@ -518,6 +701,8 @@ fn inline(field: &'static str, value: Option<&Sealed>) -> Result<(), (&'static s
 
 /// The hello was accepted. Events after the client's cursor follow (with `seq`), then live ones.
 /// After `resync_required` the snapshot ends with a `welcome` whose `head` is the new cursor.
+/// The envelope's `id` is the op id of the `hello` it answers (also for the `welcome` that ends
+/// a snapshot), so a client with several teams on one connection can match it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Welcome {
@@ -546,7 +731,8 @@ pub enum ResyncReason {
 /// The client drops its team state; the server sends the current state as events without
 /// `seq` (`member.joined`, `presence.update`, `task.reserved` per hold, and for a hold in that
 /// state also `reservation.expiring` and `task.release_requested`, so a holder can still answer
-/// an open request) and ends with `welcome`.
+/// an open request) and ends with `welcome`. The envelope's `id` is the op id of the `hello` it
+/// answers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResyncRequired {
@@ -555,13 +741,15 @@ pub struct ResyncRequired {
     pub reason: ResyncReason,
 }
 
-/// An intent was applied (the envelope's `id` names it).
+/// An intent was applied (the envelope's `id` names it). Whether a retry is answered from memory
+/// or applied again: [`ClientMessage::deduplicated`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ack {
     /// `blob.put`: the stored blob; `blob.get`: the blob asked for.
     pub blob: Option<BlobId>,
-    /// `blob.get`: its content.
+    /// `blob.get`: its content. `key.get`: the device's wrapped key of the asked epoch, as
+    /// `Sealed { epoch, data }`.
     pub content: Option<Sealed>,
 }
 
@@ -767,13 +955,28 @@ pub struct MemberRemoved {
     pub member: MemberId,
 }
 
+/// `member.role_changed`: a member's role changed (the relay learns it from a newer ticket).
+/// A resync snapshot carries the current role in `member.joined` instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberRoleChanged {
+    pub member: MemberId,
+    pub role: Role,
+}
+
 /// A new team key epoch. Clients rekey their reservations and resend their claims.
+///
+/// Delivered per device: each device receives the event with **only its own** wrapped key in
+/// `wrapped`, never another device's. The log keeps one entry (one `seq`) per rotation; when
+/// the relay sends it live or replays it, it fills `wrapped` from storage for the receiving
+/// device, so two devices see the same `seq` with different bodies. `None` when the relay holds
+/// no key for the device in that epoch (the device was added later and waits for `key.wrap`,
+/// then fetches it with `key.get`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyRotated {
     pub epoch: Epoch,
-    /// The new team key wrapped to the receiving device (step E); the server sends each device
-    /// its own.
+    /// The new team key wrapped to the receiving device (step E).
     pub wrapped: Option<Ciphertext>,
 }
 
@@ -781,16 +984,111 @@ pub struct KeyRotated {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NotifyTopic {
-    /// Something in the team needs this person (the content says what, if any).
+    /// Something in the team needs this person: a release request for a task they hold, or a
+    /// hold of theirs about to expire, while none of their devices is connected.
     Attention,
 }
 
-/// `notify`: something needs the person; no content unless encrypted.
+/// `notify`: something needs the person. Created by the server only (clients cannot send it);
+/// it is logged, so the person's devices see it on replay when they connect again, and the
+/// relay may also tell the person out of band (for example by e-mail). The relay holds no team
+/// key, so `content` is `None` unless it passes on a sealed note it received (such as the
+/// release request's note).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Notify {
     pub topic: NotifyTopic,
     pub content: Option<Sealed>,
+}
+
+/// A device of the team with its public keys, as `device.keys` set them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceInfo {
+    pub holder: Holder,
+    pub sign: PublicKey,
+    pub kem: PublicKey,
+    /// When the keys were set.
+    pub at: UnixMillis,
+}
+
+/// `devices`: the answer to `devices.get` (envelope `id` = its op id), at most
+/// [`MAX_WRAPPED_KEYS`] devices. Devices that never sent `device.keys` are not listed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceList {
+    pub devices: Vec<DeviceInfo>,
+}
+
+/// One stored membership log entry. `hash` is the relay's claim; a client checks it with
+/// [`crate::e2e::MemberChain::verify`] before it trusts the entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberLogEntry {
+    pub index: u64,
+    pub hash: LogHash,
+    pub entry: Ciphertext,
+    /// The device that appended it.
+    pub by: Holder,
+    pub at: UnixMillis,
+}
+
+/// `memberlog.entries`: the answer to `memberlog.get` (envelope `id` = its op id), in index
+/// order, at most [`MAX_LOG_ENTRIES`] and fewer when the next entry would not fit in the frame.
+/// `more`: entries after the last one exist; the client asks again with its index as `after`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberLogEntries {
+    pub entries: Vec<MemberLogEntry>,
+    pub more: bool,
+}
+
+/// Bytes of a `memberlog.entries` frame outside its entries: the envelope (`v`, an op id of
+/// [`crate::limits::MAX_ID_LEN`], a team id of at most 256 bytes of JSON since its 128 bytes
+/// escape to at most two each, `type`) and `{"entries":[],"more":false}` take under 500; the
+/// rest is headroom.
+const ENTRIES_FRAME_RESERVE: usize = 1024;
+
+impl MemberLogEntries {
+    /// The relay's answer to a `memberlog.get`: takes `entries` (the stored ones after `after`,
+    /// in index order) while they fit, at most [`MAX_LOG_ENTRIES`] and only as many as keep the
+    /// encoded frame within [`MAX_FRAME_BYTES`], and sets `more` when any are left. Pulls at most
+    /// one entry beyond the page, so `entries` can be a lazy database cursor. The first entry is
+    /// always taken (one entry is far below the frame budget by the limits), so every page makes
+    /// progress.
+    pub fn page<I>(entries: I) -> Self
+    where
+        I: IntoIterator<Item = MemberLogEntry>,
+    {
+        let mut source = entries.into_iter().peekable();
+        let budget = MAX_FRAME_BYTES - ENTRIES_FRAME_RESERVE;
+        let mut used = 0usize;
+        let mut page = Vec::new();
+        while page.len() < MAX_LOG_ENTRIES {
+            let Some(next) = source.peek() else { break };
+            // The entry's JSON plus the separating comma.
+            let size = serde_json::to_vec(next).map_or(usize::MAX, |json| json.len() + 1);
+            if !page.is_empty() && used.saturating_add(size) > budget {
+                break;
+            }
+            used = used.saturating_add(size);
+            page.extend(source.next());
+        }
+        Self {
+            more: source.peek().is_some(),
+            entries: page,
+        }
+    }
+}
+
+/// `memberlog.appended`: an entry was added (logged, with `seq`). Clients fetch it with
+/// `memberlog.get` and verify the chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberLogAppended {
+    pub index: u64,
+    pub hash: LogHash,
+    pub by: Holder,
 }
 
 /// Everything the server sends. `type` on the wire is the serde name; [`SERVER_KINDS`] lists
@@ -828,10 +1126,18 @@ pub enum ServerMessage {
     MemberJoined(MemberJoined),
     #[serde(rename = "member.removed")]
     MemberRemoved(MemberRemoved),
+    #[serde(rename = "member.role_changed")]
+    MemberRoleChanged(MemberRoleChanged),
     #[serde(rename = "key.rotated")]
     KeyRotated(KeyRotated),
     #[serde(rename = "notify")]
     Notify(Notify),
+    #[serde(rename = "devices")]
+    Devices(DeviceList),
+    #[serde(rename = "memberlog.entries")]
+    MemberLogEntries(MemberLogEntries),
+    #[serde(rename = "memberlog.appended")]
+    MemberLogAppended(MemberLogAppended),
 }
 
 impl ServerMessage {
@@ -853,8 +1159,12 @@ impl ServerMessage {
             ServerMessage::TaskReleaseRequestEnded(_) => "task.release_request_ended",
             ServerMessage::MemberJoined(_) => "member.joined",
             ServerMessage::MemberRemoved(_) => "member.removed",
+            ServerMessage::MemberRoleChanged(_) => "member.role_changed",
             ServerMessage::KeyRotated(_) => "key.rotated",
             ServerMessage::Notify(_) => "notify",
+            ServerMessage::Devices(_) => "devices",
+            ServerMessage::MemberLogEntries(_) => "memberlog.entries",
+            ServerMessage::MemberLogAppended(_) => "memberlog.appended",
         }
     }
 
@@ -874,9 +1184,23 @@ impl ServerMessage {
                 | ServerMessage::TaskReleaseRequestEnded(_)
                 | ServerMessage::MemberJoined(_)
                 | ServerMessage::MemberRemoved(_)
+                | ServerMessage::MemberRoleChanged(_)
                 | ServerMessage::KeyRotated(_)
                 | ServerMessage::Notify(_)
+                | ServerMessage::MemberLogAppended(_)
         )
+    }
+
+    /// Rules between fields that the types alone do not express.
+    fn check_rules(&self) -> Result<(), &'static str> {
+        match self {
+            ServerMessage::PresenceUpdate(m)
+                if m.state == PresenceState::Offline && m.status.is_some() =>
+            {
+                Err("an offline device has no status")
+            }
+            _ => Ok(()),
+        }
     }
 
     fn check_limits(&self) -> Result<(), (&'static str, usize)> {
@@ -894,6 +1218,13 @@ impl ServerMessage {
                 MAX_INLINE_CIPHERTEXT_LEN,
             ),
             ServerMessage::Notify(m) => inline("content", m.content.as_ref()),
+            ServerMessage::Devices(m) => count("devices", m.devices.len(), MAX_WRAPPED_KEYS),
+            ServerMessage::MemberLogEntries(m) => {
+                count("entries", m.entries.len(), MAX_LOG_ENTRIES)?;
+                m.entries
+                    .iter()
+                    .try_for_each(|e| cipher("entry", Some(&e.entry)))
+            }
             _ => Ok(()),
         }
     }
@@ -986,6 +1317,13 @@ pub fn encode_client(frame: &ClientFrame) -> Result<String, EncodeError> {
         });
     }
     frame.message.check_limits().map_err(limit_error)?;
+    frame
+        .message
+        .check_rules()
+        .map_err(|reason| EncodeError::Invalid {
+            kind: frame.message.kind(),
+            reason,
+        })?;
     finish(&OutFrame {
         v: PROTOCOL_VERSION,
         id: Some(&frame.id),
@@ -995,9 +1333,17 @@ pub fn encode_client(frame: &ClientFrame) -> Result<String, EncodeError> {
     })
 }
 
-/// Builds the text of a server frame; refuses values over a limit.
+/// Builds the text of a server frame; refuses values over a limit and an offline presence with
+/// a status.
 pub fn encode_server(frame: &ServerFrame) -> Result<String, EncodeError> {
     frame.message.check_limits().map_err(limit_error)?;
+    frame
+        .message
+        .check_rules()
+        .map_err(|reason| EncodeError::Invalid {
+            kind: frame.message.kind(),
+            reason,
+        })?;
     finish(&OutFrame {
         v: PROTOCOL_VERSION,
         id: frame.id.as_ref(),
@@ -1040,6 +1386,13 @@ pub const CLIENT_KINDS: &[&str] = &[
     "claim.clear",
     "blob.put",
     "blob.get",
+    "device.keys",
+    "devices.get",
+    "memberlog.append",
+    "memberlog.get",
+    "key.rotate",
+    "key.wrap",
+    "key.get",
     "ping",
 ];
 
@@ -1060,8 +1413,12 @@ pub const SERVER_KINDS: &[&str] = &[
     "task.release_request_ended",
     "member.joined",
     "member.removed",
+    "member.role_changed",
     "key.rotated",
     "notify",
+    "devices",
+    "memberlog.entries",
+    "memberlog.appended",
 ];
 
 /// Parses a body straight into its type, so duplicate and unknown fields are refused by the
@@ -1106,15 +1463,31 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
         "claim.clear" => ClientMessage::ClaimClear(parse(kind, body)?),
         "blob.put" => ClientMessage::BlobPut(parse(kind, body)?),
         "blob.get" => ClientMessage::BlobGet(parse(kind, body)?),
-        "ping" if body.is_none() => ClientMessage::Ping,
-        "ping" => {
-            return Err(DecodeError::Body {
-                kind,
-                reason: "has no body".into(),
-            })
-        }
+        "device.keys" => ClientMessage::DeviceKeys(parse(kind, body)?),
+        "devices.get" => no_body(kind, body, ClientMessage::DevicesGet)?,
+        "memberlog.append" => ClientMessage::MemberLogAppend(parse(kind, body)?),
+        "memberlog.get" => ClientMessage::MemberLogGet(parse(kind, body)?),
+        "key.rotate" => ClientMessage::KeyRotate(parse(kind, body)?),
+        "key.wrap" => ClientMessage::KeyWrap(parse(kind, body)?),
+        "key.get" => ClientMessage::KeyGet(parse(kind, body)?),
+        "ping" => no_body(kind, body, ClientMessage::Ping)?,
         _ => return Err(unlisted()),
     })
+}
+
+/// A message without fields: a `body`, even an empty one, is refused.
+fn no_body(
+    kind: &'static str,
+    body: Option<&RawValue>,
+    message: ClientMessage,
+) -> Result<ClientMessage, DecodeError> {
+    match body {
+        None => Ok(message),
+        Some(_) => Err(DecodeError::Body {
+            kind,
+            reason: "has no body".into(),
+        }),
+    }
 }
 
 fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, DecodeError> {
@@ -1135,8 +1508,12 @@ fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, 
         "task.release_request_ended" => ServerMessage::TaskReleaseRequestEnded(parse(kind, body)?),
         "member.joined" => ServerMessage::MemberJoined(parse(kind, body)?),
         "member.removed" => ServerMessage::MemberRemoved(parse(kind, body)?),
+        "member.role_changed" => ServerMessage::MemberRoleChanged(parse(kind, body)?),
         "key.rotated" => ServerMessage::KeyRotated(parse(kind, body)?),
         "notify" => ServerMessage::Notify(parse(kind, body)?),
+        "devices" => ServerMessage::Devices(parse(kind, body)?),
+        "memberlog.entries" => ServerMessage::MemberLogEntries(parse(kind, body)?),
+        "memberlog.appended" => ServerMessage::MemberLogAppended(parse(kind, body)?),
         _ => return Err(unlisted()),
     })
 }
@@ -1186,6 +1563,10 @@ pub fn decode_client(text: &str) -> Result<ClientFrame, DecodeError> {
         });
     }
     message.check_limits().map_err(decode_limit)?;
+    message.check_rules().map_err(|reason| DecodeError::Body {
+        kind: message.kind(),
+        reason: reason.into(),
+    })?;
     Ok(ClientFrame {
         id,
         team: raw.team,
@@ -1204,6 +1585,10 @@ pub fn decode_server(text: &str) -> Result<ServerFrame, DecodeError> {
         });
     }
     message.check_limits().map_err(decode_limit)?;
+    message.check_rules().map_err(|reason| DecodeError::Body {
+        kind: message.kind(),
+        reason: reason.into(),
+    })?;
     Ok(ServerFrame {
         id: raw.id,
         seq: raw.seq,
@@ -1215,6 +1600,7 @@ pub fn decode_server(text: &str) -> Result<ServerFrame, DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::limits::{MAX_ID_LEN, MAX_OPAQUE_ID_LEN};
 
     fn h(byte: u8) -> KeyedHash {
         KeyedHash::from_bytes([byte; 32])
@@ -1310,8 +1696,45 @@ mod tests {
             ClientMessage::BlobGet(BlobGet {
                 blob: BlobId::new("b1").unwrap(),
             }),
+            ClientMessage::DeviceKeys(DeviceKeys {
+                sign: PublicKey::from_bytes([1; 32]),
+                kem: PublicKey::from_bytes([2; 32]),
+            }),
+            ClientMessage::DevicesGet,
+            ClientMessage::MemberLogAppend(MemberLogAppend {
+                index: 2,
+                prev: Some(LogHash::from_bytes([3; 32])),
+                entry: Ciphertext::new("AAEC").unwrap(),
+            }),
+            ClientMessage::MemberLogGet(MemberLogGet { after: 0 }),
+            ClientMessage::KeyRotate(KeyRotate {
+                epoch: Epoch(3),
+                wrapped: vec![wrapped("d1"), wrapped("d2")],
+            }),
+            ClientMessage::KeyWrap(KeyWrap {
+                epoch: Epoch(2),
+                wrapped: wrapped("d3"),
+            }),
+            ClientMessage::KeyGet(KeyGet { epoch: Epoch(1) }),
             ClientMessage::Ping,
         ]
+    }
+
+    fn wrapped(device: &str) -> WrappedKey {
+        WrappedKey {
+            device: DeviceId::new(device).unwrap(),
+            data: Ciphertext::new("A".repeat(110)).unwrap(),
+        }
+    }
+
+    fn log_entry(index: u64, len: usize) -> MemberLogEntry {
+        MemberLogEntry {
+            index,
+            hash: LogHash::from_bytes([4; 32]),
+            entry: Ciphertext::new("A".repeat(len)).unwrap(),
+            by: holder(),
+            at: UnixMillis(7),
+        }
     }
 
     fn all_server_messages() -> Vec<ServerMessage> {
@@ -1403,6 +1826,10 @@ mod tests {
             ServerMessage::MemberRemoved(MemberRemoved {
                 member: MemberId::new("m3").unwrap(),
             }),
+            ServerMessage::MemberRoleChanged(MemberRoleChanged {
+                member: MemberId::new("m3").unwrap(),
+                role: Role::Admin,
+            }),
             ServerMessage::KeyRotated(KeyRotated {
                 epoch: Epoch(3),
                 wrapped: Some(Ciphertext::new("AAAA").unwrap()),
@@ -1410,6 +1837,23 @@ mod tests {
             ServerMessage::Notify(Notify {
                 topic: NotifyTopic::Attention,
                 content: None,
+            }),
+            ServerMessage::Devices(DeviceList {
+                devices: vec![DeviceInfo {
+                    holder: holder(),
+                    sign: PublicKey::from_bytes([1; 32]),
+                    kem: PublicKey::from_bytes([2; 32]),
+                    at: UnixMillis(5),
+                }],
+            }),
+            ServerMessage::MemberLogEntries(MemberLogEntries {
+                entries: vec![log_entry(1, 8), log_entry(2, 12)],
+                more: true,
+            }),
+            ServerMessage::MemberLogAppended(MemberLogAppended {
+                index: 3,
+                hash: LogHash::from_bytes([5; 32]),
+                by: holder(),
             }),
         ]
     }
@@ -1844,5 +2288,387 @@ mod tests {
         assert!(!error.contains("ticket-marker"), "{error}");
         let frame = decode_client(&text.replace(r#","extra":true"#, "")).unwrap();
         assert!(!format!("{frame:?}").contains("ticket-marker"));
+    }
+
+    fn server(message: ServerMessage) -> ServerFrame {
+        ServerFrame {
+            id: Some(OpId::new("op-1").unwrap()),
+            seq: None,
+            team: Some(TeamId::new("t1").unwrap()),
+            message,
+        }
+    }
+
+    #[test]
+    fn notify_comes_from_the_server_only() {
+        let text = r#"{"v":1,"id":"o","team":"t","type":"notify","body":{"topic":"attention","content":null}}"#;
+        assert_eq!(decode_client(text), Err(unlisted()));
+        assert!(decode_server(text).is_ok());
+        // Logged: a holder without a connection sees it on replay.
+        let logged = text.replacen(r#""v":1,"#, r#""v":1,"seq":9,"#, 1);
+        assert_eq!(decode_server(&logged).unwrap().seq, Some(Seq(9)));
+    }
+
+    #[test]
+    fn offline_is_the_servers_word() {
+        let offline = ClientMessage::PresenceSet(PresenceSet {
+            state: PresenceState::Offline,
+            status: None,
+        });
+        assert_eq!(
+            encode_client(&client(offline)),
+            Err(EncodeError::Invalid {
+                kind: "presence.set",
+                reason: "offline is reported by the server only"
+            })
+        );
+        let text = r#"{"v":1,"id":"o","team":"t","type":"presence.set","body":{"state":"offline","status":null}}"#;
+        assert!(matches!(
+            decode_client(text),
+            Err(DecodeError::Body {
+                kind: "presence.set",
+                ..
+            })
+        ));
+        let update = |status| {
+            server(ServerMessage::PresenceUpdate(PresenceUpdate {
+                holder: holder(),
+                state: PresenceState::Offline,
+                status,
+                at: UnixMillis(3),
+            }))
+        };
+        let text = encode_server(&update(None)).unwrap();
+        assert!(
+            text.contains(r#""state":"offline","status":null"#),
+            "{text}"
+        );
+        assert_eq!(decode_server(&text).unwrap(), update(None));
+        assert!(matches!(
+            encode_server(&update(Some(sealed_text(4)))),
+            Err(EncodeError::Invalid { .. })
+        ));
+        let with_status = text.replace(r#""status":null"#, r#""status":{"epoch":2,"data":"AAAA"}"#);
+        assert!(matches!(
+            decode_server(&with_status),
+            Err(DecodeError::Body {
+                kind: "presence.update",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn only_state_changing_intents_are_deduplicated() {
+        let deduplicated: Vec<_> = all_client_messages()
+            .into_iter()
+            .filter(ClientMessage::deduplicated)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(
+            deduplicated,
+            [
+                "task.reserve",
+                "task.release",
+                "task.release_request",
+                "task.release_withdraw",
+                "task.release_answer",
+                "task.force_release",
+                "task.rekey",
+                "blob.put",
+                "memberlog.append",
+                "key.rotate",
+                "key.wrap",
+            ]
+        );
+    }
+
+    #[test]
+    fn e2e_messages_have_their_shape_and_kinds() {
+        let append = all_client_messages()
+            .into_iter()
+            .find(|m| m.kind() == "memberlog.append")
+            .unwrap();
+        let text = encode_client(&client(append)).unwrap();
+        assert!(
+            text.contains(&format!(
+                r#""body":{{"index":2,"prev":"{}","entry":"AAEC"}}"#,
+                "03".repeat(32)
+            )),
+            "{text}"
+        );
+        let bodyless = encode_client(&client(ClientMessage::DevicesGet)).unwrap();
+        assert_eq!(
+            bodyless,
+            r#"{"v":1,"id":"op-1","team":"t1","type":"devices.get"}"#
+        );
+        assert!(
+            decode_client(r#"{"v":1,"id":"o","team":"t","type":"devices.get","body":{}}"#).is_err()
+        );
+        assert_eq!(
+            decode_client(r#"{"v":1,"id":"o","type":"devices.get"}"#),
+            Err(DecodeError::MissingTeam {
+                kind: "devices.get"
+            })
+        );
+        // Keys are 32 bytes of canonical base64url; log hashes lowercase hex.
+        let key = PublicKey::from_bytes([1; 32]).to_base64url();
+        let keys = |sign: &str| {
+            format!(
+                r#"{{"v":1,"id":"o","team":"t","type":"device.keys","body":{{"sign":"{sign}","kem":"{key}"}}}}"#
+            )
+        };
+        assert!(decode_client(&keys(&key)).is_ok());
+        for bad in [&key[..42], "AAAA", &format!("{key}A")] {
+            assert!(matches!(
+                decode_client(&keys(bad)),
+                Err(DecodeError::Body {
+                    kind: "device.keys",
+                    ..
+                })
+            ));
+        }
+        let upper = format!(
+            r#"{{"v":1,"id":"o","team":"t","type":"memberlog.append","body":{{"index":1,"prev":"{}","entry":"AAAA"}}}}"#,
+            "AB".repeat(32)
+        );
+        assert!(decode_client(&upper).is_err());
+        // Answers to reads are live, the appended event and the role change are logged.
+        for message in all_server_messages() {
+            let logged = matches!(message.kind(), "member.role_changed" | "memberlog.appended");
+            let answer = matches!(message.kind(), "devices" | "memberlog.entries");
+            if logged {
+                assert!(message.loggable(), "{}", message.kind());
+            }
+            if answer {
+                assert!(!message.loggable(), "{}", message.kind());
+            }
+        }
+    }
+
+    #[test]
+    fn e2e_limits() {
+        let rotate = |n: usize, len: usize| {
+            ClientMessage::KeyRotate(KeyRotate {
+                epoch: Epoch(3),
+                wrapped: (0..n)
+                    .map(|i| WrappedKey {
+                        device: DeviceId::new(format!("d{i}")).unwrap(),
+                        data: Ciphertext::new("A".repeat(len)).unwrap(),
+                    })
+                    .collect(),
+            })
+        };
+        assert_eq!(
+            encode_client(&client(rotate(MAX_WRAPPED_KEYS + 1, 8))),
+            Err(EncodeError::Limit {
+                field: "wrapped",
+                max: MAX_WRAPPED_KEYS
+            })
+        );
+        assert_eq!(
+            encode_client(&client(rotate(1, MAX_INLINE_CIPHERTEXT_LEN + 1))),
+            Err(EncodeError::Limit {
+                field: "data",
+                max: MAX_INLINE_CIPHERTEXT_LEN
+            })
+        );
+        let wrap = ClientMessage::KeyWrap(KeyWrap {
+            epoch: Epoch(2),
+            wrapped: WrappedKey {
+                device: DeviceId::new("d").unwrap(),
+                data: Ciphertext::new("A".repeat(MAX_INLINE_CIPHERTEXT_LEN + 1)).unwrap(),
+            },
+        });
+        assert!(matches!(
+            encode_client(&client(wrap)),
+            Err(EncodeError::Limit { field: "data", .. })
+        ));
+        let append = ClientMessage::MemberLogAppend(MemberLogAppend {
+            index: 1,
+            prev: None,
+            entry: Ciphertext::new("A".repeat(MAX_INLINE_CIPHERTEXT_LEN + 1)).unwrap(),
+        });
+        assert!(matches!(
+            encode_client(&client(append)),
+            Err(EncodeError::Limit { field: "entry", .. })
+        ));
+
+        // Over-limit answers, written by hand, are refused on decoding.
+        let one = encode_server(&server(ServerMessage::MemberLogEntries(MemberLogEntries {
+            entries: vec![log_entry(1, 8)],
+            more: false,
+        })))
+        .unwrap();
+        let entry = serde_json::to_string(&log_entry(1, 8)).unwrap();
+        let many = one.replacen(
+            &entry,
+            &vec![entry.as_str(); MAX_LOG_ENTRIES + 1].join(","),
+            1,
+        );
+        assert_eq!(
+            decode_server(&many),
+            Err(DecodeError::Limit {
+                field: "entries",
+                max: MAX_LOG_ENTRIES
+            })
+        );
+        let big = serde_json::to_string(&log_entry(1, MAX_INLINE_CIPHERTEXT_LEN + 1)).unwrap();
+        assert!(matches!(
+            decode_server(&one.replacen(&entry, &big, 1)),
+            Err(DecodeError::Limit { field: "entry", .. })
+        ));
+        let device = DeviceInfo {
+            holder: holder(),
+            sign: PublicKey::from_bytes([1; 32]),
+            kem: PublicKey::from_bytes([2; 32]),
+            at: UnixMillis(5),
+        };
+        let devices = ServerMessage::Devices(DeviceList {
+            devices: vec![device; MAX_WRAPPED_KEYS + 1],
+        });
+        assert!(matches!(
+            encode_server(&server(devices)),
+            Err(EncodeError::Limit {
+                field: "devices",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_largest_e2e_frames_fit() {
+        // A rotation to the most devices with the longest ids and realistic HPKE output.
+        let rotate = ClientMessage::KeyRotate(KeyRotate {
+            epoch: Epoch(u32::MAX),
+            wrapped: (0..MAX_WRAPPED_KEYS)
+                .map(|i| WrappedKey {
+                    device: DeviceId::new(format!("{i:0>128}")).unwrap(),
+                    data: Ciphertext::new("A".repeat(1500)).unwrap(),
+                })
+                .collect(),
+        });
+        let text = encode_client(&client(rotate)).unwrap();
+        assert!(decode_client(&text).is_ok(), "{}", text.len());
+        let long_holder = Holder {
+            member: MemberId::new("m".repeat(128)).unwrap(),
+            device: DeviceId::new("d".repeat(128)).unwrap(),
+        };
+        let devices = ServerMessage::Devices(DeviceList {
+            devices: vec![
+                DeviceInfo {
+                    holder: long_holder.clone(),
+                    sign: PublicKey::from_bytes([1; 32]),
+                    kem: PublicKey::from_bytes([2; 32]),
+                    at: UnixMillis(u64::MAX),
+                };
+                MAX_WRAPPED_KEYS
+            ],
+        });
+        assert!(decode_server(&encode_server(&server(devices)).unwrap()).is_ok());
+        let entries = ServerMessage::MemberLogEntries(MemberLogEntries {
+            entries: vec![
+                MemberLogEntry {
+                    by: long_holder,
+                    ..log_entry(u64::MAX, 3000)
+                };
+                MAX_LOG_ENTRIES
+            ],
+            more: true,
+        });
+        assert!(decode_server(&encode_server(&server(entries)).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn memberlog_pages_fit_the_frame() {
+        // Worst case envelope and holders: the longest ids, every character escaped in JSON.
+        let escaped = "\"".repeat(MAX_OPAQUE_ID_LEN);
+        let frame = |page: MemberLogEntries| ServerFrame {
+            id: Some(OpId::new("o".repeat(MAX_ID_LEN)).unwrap()),
+            seq: None,
+            team: Some(TeamId::new(escaped.clone()).unwrap()),
+            message: ServerMessage::MemberLogEntries(page),
+        };
+        let long_holder = Holder {
+            member: MemberId::new(escaped.clone()).unwrap(),
+            device: DeviceId::new(escaped.clone()).unwrap(),
+        };
+        let empty_frame = encode_server(&frame(MemberLogEntries {
+            entries: Vec::new(),
+            more: false,
+        }))
+        .unwrap();
+        assert!(empty_frame.len() < 500, "{}", empty_frame.len());
+        assert!(empty_frame.len() < ENTRIES_FRAME_RESERVE);
+        let largest = |index| MemberLogEntry {
+            by: long_holder.clone(),
+            ..log_entry(index, MAX_INLINE_CIPHERTEXT_LEN)
+        };
+
+        // Large entries: the frame budget ends the page, `more` says so, nothing is lost.
+        let mut after = 0;
+        let mut pages = 0;
+        loop {
+            let page = MemberLogEntries::page((after + 1..=200).map(largest));
+            assert!(!page.entries.is_empty());
+            assert_eq!(page.entries[0].index, after + 1);
+            let more = page.more;
+            after = page.entries.last().unwrap().index;
+            let text = encode_server(&frame(page)).unwrap();
+            assert!(text.len() <= MAX_FRAME_BYTES, "{}", text.len());
+            assert!(decode_server(&text).is_ok());
+            pages += 1;
+            if !more {
+                break;
+            }
+        }
+        assert_eq!(after, 200);
+        assert!(pages > 1);
+
+        // Small entries: the count limit ends the page.
+        let page = MemberLogEntries::page((1..=1000).map(|i| log_entry(i, 8)));
+        assert_eq!(page.entries.len(), MAX_LOG_ENTRIES);
+        assert!(page.more);
+        let page = MemberLogEntries::page((1..=MAX_LOG_ENTRIES as u64).map(|i| log_entry(i, 8)));
+        assert_eq!(page.entries.len(), MAX_LOG_ENTRIES);
+        assert!(!page.more);
+        let empty = MemberLogEntries::page(Vec::new());
+        assert_eq!(
+            empty,
+            MemberLogEntries {
+                entries: Vec::new(),
+                more: false
+            }
+        );
+
+        // At most one entry beyond the page is pulled from the source.
+        let mut pulled = 0;
+        let page = MemberLogEntries::page((1..=1000).map(|i| {
+            pulled += 1;
+            log_entry(i, 8)
+        }));
+        assert_eq!(page.entries.len(), MAX_LOG_ENTRIES);
+        assert_eq!(pulled, MAX_LOG_ENTRIES + 1);
+    }
+
+    #[test]
+    fn key_epochs() {
+        let current = Epoch(2);
+        let wrap = |epoch| {
+            ClientMessage::KeyWrap(KeyWrap {
+                epoch: Epoch(epoch),
+                wrapped: wrapped("d1"),
+            })
+        };
+        assert_eq!(wrap(2).check_epoch(current), Ok(()));
+        assert!(wrap(1).check_epoch(current).is_err());
+        // The next epoch of a rotation and an old epoch of key.get are expected.
+        let rotate = ClientMessage::KeyRotate(KeyRotate {
+            epoch: Epoch(3),
+            wrapped: vec![wrapped("d1")],
+        });
+        assert_eq!(rotate.check_epoch(current), Ok(()));
+        let get = ClientMessage::KeyGet(KeyGet { epoch: Epoch(1) });
+        assert_eq!(get.check_epoch(current), Ok(()));
     }
 }
