@@ -63,6 +63,13 @@ const COMMANDS: &[&str] = &[
     "configure_tray",
     "watch_sub_agents",
     "unwatch_sub_agents",
+    "account_status",
+    "account_sign_in",
+    "account_cancel_sign_in",
+    "account_sign_out",
+    "account_projects",
+    "account_set_base_url",
+    "account_open",
 ];
 
 fn main() {

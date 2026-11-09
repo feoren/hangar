@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { t } from "./i18n";
+import type { AccountPage } from "./account";
 import type { GateAnswer } from "./gate";
 import type { NotesMessage } from "./notesBridge";
 
@@ -300,6 +301,23 @@ export const api = {
   deleteProfileSecret: (profileId: string, name: string) =>
     invoke<null>("delete_profile_secret", { profileId, name }),
 
+  // Hangar account (account.rs, account_service.rs). Answers and errors are checked in
+  // account.ts (`parseAccountView`, `parseProjects`, `parseAccountError`).
+  /** The sign-in state; the first call reads a stored sign-in from the keychain. */
+  accountStatus: () => invoke<unknown>("account_status"),
+  /** Starts the device flow: a code to confirm, the confirmation page opens in the browser. */
+  accountSignIn: () => invoke<unknown>("account_sign_in"),
+  accountCancelSignIn: () => invoke<unknown>("account_cancel_sign_in"),
+  /** Drops the sign-in on this device only. */
+  accountSignOut: () => invoke<unknown>("account_sign_out"),
+  /** The account's projects, fresh from the server. */
+  accountProjects: () => invoke<unknown>("account_projects"),
+  /** `null`: the official service. Rejects when the address is not https (or loopback http). */
+  accountSetBaseUrl: (baseUrl: string | null) =>
+    invoke<unknown>("account_set_base_url", { baseUrl }),
+  /** Opens one of the account's own pages; the window never passes a URL. */
+  accountOpen: (page: AccountPage) => invoke<null>("account_open", { page }),
+
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),
@@ -320,6 +338,8 @@ export const TRAY_QUIT = "tray-quit";
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */
 export const GATE_CHANGED = "gate-changed";
+/** Event with the newest account state (`parseAccountView` in account.ts). */
+export const ACCOUNT_CHANGED = "account-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
 export function parseActivatedSession(payload: unknown): number | null {

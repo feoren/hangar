@@ -143,3 +143,11 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Protokoll-Crate                                 | protocol crate                    | `crates/hangar-team-protocol`                                          |
 | Programm-Editor                                 | profile editor                    | `ProfileEditor.tsx`; Settings, Programs                                |
 | Anpassen (eingebauter Eintrag)                  | customize                         | saving a catalog or WSL entry as the user's own profile                |
+| Konto (Hangar-Konto)                            | account                           | `account.rs`; optional, Hangar works without it                        |
+| Anmeldung (Konto)                               | sign-in                           | OAuth device flow; the refresh token lives only in the keychain        |
+| Bestätigungscode                                | user code                         | `XXXX-XXXX`, confirmed in the browser                                  |
+| Serveradresse                                   | server address                    | API base of the official service or a self-hosted server; `BaseUrl`    |
+| Projekt (Team)                                  | project, team                     | a project on the website is a team; `Project`                          |
+| Platz (Lizenz)                                  | seat                              | counted per account of the project's owner (ADR 0005)                  |
+| Tarif                                           | plan                              | `Project.plan`, as the server names it                                 |
+| Einladung                                       | invitation                        | sent and accepted on the website                                       |

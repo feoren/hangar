@@ -1,5 +1,8 @@
 //! Hangar backend: owns all processes, the frontend only renders.
 
+pub mod account;
+pub mod account_api;
+pub mod account_service;
 pub mod agent_catalog;
 pub mod batch;
 pub mod claims;
@@ -75,6 +78,23 @@ pub fn run() -> tauri::Result<()> {
                 Vec::new()
             });
             app.manage(SessionManager::new(profiles, catalog, home));
+            // Hangar account: the chosen server comes from the config folder; the sign-in itself
+            // is read from the keychain on the window's first status call.
+            let events = app.handle().clone();
+            app.manage(account_service::AccountService::new(
+                account::load_base(&config_dir),
+                std::sync::Arc::new(secrets::KeyringStore::with_service(
+                    account::KEYCHAIN_SERVICE,
+                )),
+                std::sync::Arc::new(|url: &reqwest::Url| desktop::open_url(url)),
+                std::sync::Arc::new(move |view: &account::AccountView| {
+                    let _ = events.emit_to(notes_window::MAIN_LABEL, account::EVENT, view);
+                }),
+                account_service::Options {
+                    config_dir: Some(config_dir.clone()),
+                    ..account_service::Options::default()
+                },
+            ));
             app.manage(ProfileLoad {
                 error: Mutex::new(error),
                 dir: config_dir,
@@ -208,6 +228,13 @@ pub fn run() -> tauri::Result<()> {
             commands::configure_tray,
             commands::watch_sub_agents,
             commands::unwatch_sub_agents,
+            commands::account_status,
+            commands::account_sign_in,
+            commands::account_cancel_sign_in,
+            commands::account_sign_out,
+            commands::account_projects,
+            commands::account_set_base_url,
+            commands::account_open,
         ])
         .build(tauri::generate_context!())?;
 

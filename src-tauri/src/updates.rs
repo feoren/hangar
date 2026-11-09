@@ -701,7 +701,7 @@ pub fn stale_sources(items: &[Item], cache: &UpdateCache, now: u64, force: bool)
 }
 
 /// Rustls needs a process-wide crypto provider; the same one as tauri-plugin-updater.
-fn ensure_crypto_provider() {
+pub(crate) fn ensure_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         // Fails only if another thread has just set one; that is fine then.
         let _ = rustls::crypto::ring::default_provider().install_default();

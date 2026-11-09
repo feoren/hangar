@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
 
 import { Dialog } from "./Dialog";
@@ -93,6 +94,7 @@ const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   attention: "settings.attention",
   programs: "settings.programs",
   snippets: "settings.snippets",
+  account: "settings.account",
   updates: "settings.updates",
 };
 
@@ -263,6 +265,8 @@ function SectionContent(props: Props & { section: SettingsSection }) {
           }}
         />
       );
+    case "account":
+      return <AccountSettings />;
     case "updates":
       return <UpdatesSection {...props} />;
   }

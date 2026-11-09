@@ -177,6 +177,48 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the account_cancel_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-cancel-sign-in",
+          "markdownDescription": "Enables the account_cancel_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-open",
+          "markdownDescription": "Enables the account_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_projects command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-projects",
+          "markdownDescription": "Enables the account_projects command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_set_base_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-set-base-url",
+          "markdownDescription": "Enables the account_set_base_url command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-sign-in",
+          "markdownDescription": "Enables the account_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_sign_out command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-sign-out",
+          "markdownDescription": "Enables the account_sign_out command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the account_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-status",
+          "markdownDescription": "Enables the account_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ack_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ack-session",
@@ -541,6 +583,48 @@
           "type": "string",
           "const": "allow-write-session",
           "markdownDescription": "Enables the write_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_cancel_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-cancel-sign-in",
+          "markdownDescription": "Denies the account_cancel_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-open",
+          "markdownDescription": "Denies the account_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_projects command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-projects",
+          "markdownDescription": "Denies the account_projects command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_set_base_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-set-base-url",
+          "markdownDescription": "Denies the account_set_base_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-sign-in",
+          "markdownDescription": "Denies the account_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_sign_out command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-sign-out",
+          "markdownDescription": "Denies the account_sign_out command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-status",
+          "markdownDescription": "Denies the account_status command without any pre-configured scope."
         },
         {
           "description": "Denies the ack_session command without any pre-configured scope.",

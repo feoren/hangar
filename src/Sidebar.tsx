@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 
+import { isSignedIn } from "./account";
 import type { Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
@@ -46,6 +47,8 @@ import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
+import { TeamProjects } from "./TeamProjects";
+import { useAccount } from "./useAccount";
 import {
   detailLine,
   statusLine,
@@ -158,6 +161,7 @@ export function Sidebar(props: Props) {
     props;
   const { startable } = props;
   const t = useT();
+  const accountSnapshot = useAccount();
   const now = useClock(STATUS_TICK_MS);
   /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
   const lines = (session: SessionView) => {
@@ -602,6 +606,7 @@ export function Sidebar(props: Props) {
 
   const sessionsOpen = open("sessions");
   const newSessionOpen = open("newSession");
+  const teamOpen = open("team");
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
     : t("sidebar.sessionsCount", { count: sessions.length });
@@ -835,6 +840,19 @@ export function Sidebar(props: Props) {
           })}
         </ul>
       </GroupSection>
+
+      {/* Only while signed in: without an account Hangar shows nothing of the team service. */}
+      {isSignedIn(accountSnapshot.view) && (
+        <GroupSection
+          group="team"
+          title={t("team.title")}
+          open={teamOpen}
+          className={teamOpen ? "team-group" : "team-group closed"}
+          onToggle={props.onToggleGroup}
+        >
+          <TeamProjects snapshot={accountSnapshot} />
+        </GroupSection>
+      )}
 
       <Splitter
         orientation="vertical"

@@ -5272,3 +5272,140 @@ body.session-dragging .session-actions {
     transform: translate(-50%, -4px);
   }
 }
+
+/* Hangar account (Settings, Account) */
+
+.account-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.account-waiting p {
+  margin: 0;
+}
+
+.account-code {
+  align-self: flex-start;
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  user-select: all;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.account-manual {
+  overflow-wrap: anywhere;
+}
+
+.account-person {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-name {
+  font-weight: 600;
+}
+
+.account-link {
+  padding: 0;
+  text-decoration: underline;
+}
+
+.dialog .account-help {
+  margin-left: 0;
+}
+
+.account-server summary {
+  cursor: pointer;
+}
+
+.account-server-row {
+  margin-top: 6px;
+}
+
+.account-server-input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+/* Sidebar, Team group */
+
+.team-group {
+  max-height: 40%;
+}
+
+.team-group.closed {
+  max-height: none;
+}
+
+.team-group .group-body {
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.team-list {
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+}
+
+.team-project {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.team-project + .team-project {
+  margin-top: 2px;
+}
+
+.team-project:hover {
+  background: var(--hover);
+}
+
+.team-project-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.team-project-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-role {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.team-project-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.team-invite {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.team-reload {
+  padding: 0;
+  text-decoration: underline;
+}

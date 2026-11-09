@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Melde dich in den Einstellungen mit deinem Hangar-Konto an: Die Seitenleiste zeigt deine Projekte mit Rolle, Tarif und Plätzen.",
+        "en": "Sign in with your Hangar account in Settings: the sidebar shows your projects with role, plan and seats.",
+        "el": "Συνδέσου με τον λογαριασμό Hangar στις Ρυθμίσεις: η πλαϊνή στήλη δείχνει τα έργα σου με ρόλο, πρόγραμμα και θέσεις.",
+        "es": "Inicia sesión con tu cuenta de Hangar en Ajustes: la barra lateral muestra tus proyectos con rol, plan y plazas.",
+        "fr": "Connecte-toi avec ton compte Hangar dans les Réglages : la barre latérale montre tes projets avec rôle, offre et places.",
+        "it": "Accedi con il tuo account Hangar nelle Impostazioni: la barra laterale mostra i tuoi progetti con ruolo, piano e posti.",
+        "ja": "設定で Hangar アカウントにサインインすると、サイドバーにプロジェクトのロール、プラン、席数が表示されます。",
+        "pl": "Zaloguj się kontem Hangar w Ustawieniach: pasek boczny pokazuje twoje projekty z rolą, planem i miejscami.",
+        "pt": "Entre com sua conta Hangar nas Configurações: a barra lateral mostra seus projetos com função, plano e vagas.",
+        "ru": "Войди в аккаунт Hangar в настройках: боковая панель покажет твои проекты с ролью, тарифом и местами.",
+        "tr": "Ayarlar'da Hangar hesabınla oturum aç: kenar çubuğu projelerini rol, plan ve koltuklarla gösterir.",
+        "zh": "在设置中登录你的 Hangar 账户：侧边栏会显示你的项目及其角色、套餐和席位。"
+      },
+      {
         "de": "Bevor Claude Code eine Datei ändert, an der eine andere Session gerade arbeitet, fragt Hangar dich: einmal erlauben, für die Datei erlauben oder nicht.",
         "en": "Before Claude Code changes a file another session is working on, Hangar asks you: allow once, allow for that file, or don't allow.",
         "el": "Πριν το Claude Code αλλάξει αρχείο που αλλάζει άλλη συνεδρία, το Hangar σε ρωτά: άδεια μία φορά, για το αρχείο ή όχι.",

@@ -2,6 +2,7 @@
 //!
 //! Callers only pass paths the backend determined itself (notes folder, profiles.toml).
 //! The frontend never names a path, so this never becomes a command for opening arbitrary files.
+//! Web pages ([`open_url`]) are only http(s) addresses the backend checked (the account's pages).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -89,6 +90,28 @@ pub fn reveal(file: &Path) -> io::Result<()> {
     spawn_detached(command)
 }
 
+/// Program and arguments that open an http(s) address in the default browser, without a shell.
+/// explorer.exe parses its own command line and splits it at commas, so such an address is
+/// refused on Windows; a serialized URL has no spaces or quotes (they are percent-encoded).
+pub fn url_command(url: &reqwest::Url) -> io::Result<(PathBuf, Vec<std::ffi::OsString>)> {
+    let text = url.as_str();
+    if !matches!(url.scheme(), "https" | "http") || (cfg!(windows) && text.contains([',', '"'])) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "only plain http(s) addresses open in the browser",
+        ));
+    }
+    let (program, _) = command_for(Path::new(""), Target::Folder);
+    Ok((program, vec![text.into()]))
+}
+
+pub fn open_url(url: &reqwest::Url) -> io::Result<()> {
+    let (program, args) = url_command(url)?;
+    let mut command = Command::new(program);
+    command.args(args);
+    spawn_detached(command)
+}
+
 fn spawn_detached(mut command: Command) -> io::Result<()> {
     let mut child = command
         .stdin(Stdio::null())
@@ -158,6 +181,24 @@ mod tests {
             assert_eq!(name, "xdg-open");
             assert_eq!(args, [file.parent().unwrap().as_os_str().to_owned()]);
         }
+    }
+
+    #[test]
+    fn urls_open_as_one_argument() {
+        let url = reqwest::Url::parse("https://example.test/device?user_code=BCDF-GHJK").unwrap();
+        let (program, args) = url_command(&url).unwrap();
+        assert_eq!(args, [std::ffi::OsString::from(url.as_str())]);
+        let name = program.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        assert!(
+            ["explorer.exe", "open", "xdg-open"].contains(&name),
+            "{name}"
+        );
+        for refused in ["file:///C:/Windows/notepad.exe", "ftp://example.test/x"] {
+            let url = reqwest::Url::parse(refused).unwrap();
+            assert!(url_command(&url).is_err(), "{refused}");
+        }
+        let comma = reqwest::Url::parse("https://example.test/a,b").unwrap();
+        assert_eq!(url_command(&comma).is_err(), cfg!(windows));
     }
 
     #[test]

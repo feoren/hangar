@@ -1,0 +1,791 @@
+//! The Hangar account at run time: the device flow, the tokens and the project list
+//! (contract: docs/wiki/pages/components/hangar-account-api.md).
+//!
+//! - The refresh token lives only in the OS keychain (service [`account::KEYCHAIN_SERVICE`],
+//!   account = the server address) and, while Hangar runs, in memory as [`Zeroizing`]; the access
+//!   token only in memory.
+//! - Refreshes are single-flight: the server rotates the refresh token and revokes the whole
+//!   device when an old one is used again, and two concurrent refreshes count as such a reuse.
+//!   Every refresh, sign-in, sign-out and server change holds `refresh_gate`.
+//! - A refused refresh (`invalid_grant`, or 401 right after a refresh) signs out locally with
+//!   [`IdleNotice::SessionEnded`].
+//! - Every state change goes to the window through `emit` ([`AccountView`]); no token is part of
+//!   it, and no log line names one.
+
+use std::future::Future;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use reqwest::Url;
+use tokio::sync::Notify;
+use zeroize::Zeroizing;
+
+use crate::account::{
+    self, AccountError, AccountPage, AccountState, AccountView, BaseUrl, DevicePoll, FailKind,
+    FailReason, IdleNotice, OAuthCode, PollStep, Project, TokenSet,
+};
+use crate::account_api::{AccountApi, ApiError};
+use crate::lock;
+use crate::secrets::{SecretError, SecretStore};
+
+pub type Emit = Arc<dyn Fn(&AccountView) + Send + Sync>;
+/// Opens a page in the default browser (`desktop::open_url`); replaced in tests.
+pub type Opener = Arc<dyn Fn(&Url) -> std::io::Result<()> + Send + Sync>;
+
+/// Run-time settings of the service.
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Length of one second of the device flow's timing (interval, expiry); shorter in tests.
+    pub unit: Duration,
+    /// Where `account.json` (the chosen server) is written; `None` keeps it in memory only.
+    pub config_dir: Option<PathBuf>,
+    pub device_name: String,
+    pub platform: String,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            unit: Duration::from_secs(1),
+            config_dir: None,
+            device_name: account::device_name(),
+            platform: account::platform().to_owned(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AccountService {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    store: Arc<dyn SecretStore>,
+    emit: Emit,
+    open: Opener,
+    options: Options,
+    core: Mutex<Core>,
+    /// Held across every refresh and every change of the stored tokens.
+    refresh_gate: tokio::sync::Mutex<()>,
+    /// Wakes a waiting poll when its flow was cancelled.
+    cancel: Notify,
+}
+
+struct Core {
+    base: BaseUrl,
+    api: Option<Arc<AccountApi>>,
+    state: AccountState,
+    tokens: Slot,
+    /// Id of the current sign-in flow; raising it cancels a running one.
+    flow: u64,
+    next_generation: u64,
+    /// The confirmation page of the waiting flow, for "Open browser again".
+    verification: Option<Url>,
+    /// The last project list, for opening an invite page by project id.
+    projects: Vec<Project>,
+}
+
+enum Slot {
+    /// The keychain was not read yet for this server.
+    Unloaded,
+    Empty,
+    Present(Tokens),
+}
+
+struct Tokens {
+    access: Option<Access>,
+    refresh: Zeroizing<String>,
+    /// Rises with every new token set; a caller that saw a refused access token refreshes only
+    /// when no newer set exists.
+    generation: u64,
+}
+
+const MAX_ACCESS_LIFETIME: u64 = 86_400;
+
+struct Access {
+    token: Zeroizing<String>,
+    valid_until: Instant,
+}
+
+impl Access {
+    /// Treated as expired a little early (30 s, or half the lifetime when that is shorter), so a
+    /// request does not reach the server with a token that ran out on the way.
+    fn new(token: Zeroizing<String>, expires_in: u64) -> Self {
+        // At most a day: the server's number must not overflow the clock.
+        let lifetime = expires_in.min(MAX_ACCESS_LIFETIME);
+        let margin = (lifetime / 2).min(30);
+        Self {
+            token,
+            valid_until: Instant::now() + Duration::from_secs(lifetime - margin),
+        }
+    }
+}
+
+impl Tokens {
+    fn valid_access(&self) -> Option<Zeroizing<String>> {
+        self.access
+            .as_ref()
+            .filter(|access| Instant::now() < access.valid_until)
+            .map(|access| access.token.clone())
+    }
+}
+
+impl Core {
+    fn api(&mut self) -> Result<Arc<AccountApi>, AccountError> {
+        if let Some(api) = &self.api {
+            return Ok(Arc::clone(api));
+        }
+        let api = Arc::new(AccountApi::new(self.base.clone()).map_err(AccountError::from)?);
+        self.api = Some(Arc::clone(&api));
+        Ok(api)
+    }
+
+    fn generation(&mut self) -> u64 {
+        self.next_generation += 1;
+        self.next_generation
+    }
+
+    fn clear(&mut self, notice: IdleNotice) {
+        self.tokens = Slot::Empty;
+        self.state = AccountState::Idle {
+            notice: Some(notice),
+        };
+        self.projects.clear();
+        self.verification = None;
+    }
+}
+
+type Authorized = (Zeroizing<String>, u64, Arc<AccountApi>);
+
+impl AccountService {
+    pub fn new(
+        base: BaseUrl,
+        store: Arc<dyn SecretStore>,
+        open: Opener,
+        emit: Emit,
+        options: Options,
+    ) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store,
+                emit,
+                open,
+                options,
+                core: Mutex::new(Core {
+                    base,
+                    api: None,
+                    state: AccountState::Idle { notice: None },
+                    tokens: Slot::Unloaded,
+                    flow: 0,
+                    next_generation: 0,
+                    verification: None,
+                    projects: Vec::new(),
+                }),
+                refresh_gate: tokio::sync::Mutex::new(()),
+                cancel: Notify::new(),
+            }),
+        }
+    }
+
+    pub fn view(&self) -> AccountView {
+        let core = lock(&self.inner.core);
+        AccountView::new(&core.base, core.state.clone())
+    }
+
+    fn publish(&self) {
+        let view = self.view();
+        (self.inner.emit)(&view);
+    }
+
+    /// The current state; reads the keychain once per server first, so a stored sign-in counts.
+    pub async fn status(&self) -> AccountView {
+        self.ensure_loaded().await;
+        self.view()
+    }
+
+    /// Reads the keychain if not done yet; a stored sign-in then learns the person's name in
+    /// the background.
+    async fn ensure_loaded(&self) {
+        if self.load_tokens().await {
+            self.publish();
+            let service = self.clone();
+            tauri::async_runtime::spawn(async move { service.fetch_me().await });
+        }
+    }
+
+    /// `true` when this call found a stored sign-in. Never spawns, so the token path
+    /// (`access_token`) does not await a future that spawns itself (no Send cycle).
+    async fn load_tokens(&self) -> bool {
+        let account = {
+            let core = lock(&self.inner.core);
+            if !matches!(core.tokens, Slot::Unloaded) {
+                return false;
+            }
+            core.base.as_str().to_owned()
+        };
+        let loaded = self.keychain_get(account.clone()).await;
+        let mut core = lock(&self.inner.core);
+        if !matches!(core.tokens, Slot::Unloaded) || core.base.as_str() != account {
+            return false;
+        }
+        {
+            match loaded {
+                Ok(Some(refresh)) => {
+                    let generation = core.generation();
+                    core.tokens = Slot::Present(Tokens {
+                        access: None,
+                        refresh,
+                        generation,
+                    });
+                    if matches!(core.state, AccountState::Idle { .. }) {
+                        core.state = AccountState::SignedIn { user: None };
+                    }
+                    true
+                }
+                Ok(None) => {
+                    core.tokens = Slot::Empty;
+                    false
+                }
+                Err(error) => {
+                    eprintln!("hangar: account sign-in not read from the keychain: {error}");
+                    core.tokens = Slot::Empty;
+                    false
+                }
+            }
+        }
+    }
+
+    /// Starts the device flow: asks the server for a code, shows it, opens the confirmation page
+    /// and polls in the background. A failure of the first request ends in `Failed`.
+    pub async fn sign_in(&self) -> Result<AccountView, AccountError> {
+        self.ensure_loaded().await;
+        let (flow, api) = {
+            let mut core = lock(&self.inner.core);
+            if matches!(core.state, AccountState::SignedIn { .. }) {
+                return Ok(AccountView::new(&core.base, core.state.clone()));
+            }
+            core.flow += 1;
+            (core.flow, core.api()?)
+        };
+        // A previous flow stops waiting and sees that it is no longer current.
+        self.inner.cancel.notify_waiters();
+        let started = Instant::now();
+        let options = &self.inner.options;
+        let authorization = match api
+            .device_authorization(&options.device_name, &options.platform)
+            .await
+        {
+            Ok(authorization) => authorization,
+            Err(error) => {
+                self.fail_flow(flow, fail_reason(&error));
+                return Ok(self.view());
+            }
+        };
+        let base = api.base();
+        let complete = authorization
+            .verification_uri_complete
+            .clone()
+            .unwrap_or_else(|| authorization.verification_uri.clone());
+        let (Some(page), Some(_)) = (
+            base.same_origin(&complete),
+            base.same_origin(&authorization.verification_uri),
+        ) else {
+            self.fail_flow(
+                flow,
+                FailReason {
+                    kind: FailKind::ForeignPage,
+                    detail: None,
+                },
+            );
+            return Ok(self.view());
+        };
+        let poll = DevicePoll::new(authorization.interval, authorization.expires_in);
+        let unit_ms = u64::try_from(options.unit.as_millis()).unwrap_or(u64::MAX);
+        let expires_at = crate::updates::now_millis()
+            .saturating_add(authorization.expires_in.saturating_mul(unit_ms));
+        {
+            let mut core = lock(&self.inner.core);
+            if core.flow != flow {
+                return Ok(AccountView::new(&core.base, core.state.clone()));
+            }
+            core.verification = Some(page.clone());
+            core.state = AccountState::WaitingForUser {
+                user_code: authorization.user_code.clone(),
+                verification_uri: authorization.verification_uri.clone(),
+                verification_uri_complete: page.to_string(),
+                expires_at,
+                interval: poll.interval(),
+            };
+        }
+        self.publish();
+        // The code is on screen and "Open browser again" retries, so a failure only goes to the log.
+        if let Err(error) = (self.inner.open)(&page) {
+            eprintln!("hangar: sign-in page not opened: {error}");
+        }
+        let service = self.clone();
+        let device_code = authorization.device_code;
+        tauri::async_runtime::spawn(async move {
+            service.run_flow(flow, device_code, poll, started).await;
+        });
+        Ok(self.view())
+    }
+
+    fn flow_current(&self, flow: u64) -> bool {
+        lock(&self.inner.core).flow == flow
+    }
+
+    async fn run_flow(
+        &self,
+        flow: u64,
+        device_code: Zeroizing<String>,
+        mut poll: DevicePoll,
+        started: Instant,
+    ) {
+        let unit = self.inner.options.unit;
+        let unit_ms = unit.as_millis().max(1);
+        loop {
+            let elapsed =
+                u64::try_from(started.elapsed().as_millis() / unit_ms).unwrap_or(u64::MAX);
+            let Some(wait) = poll.next_wait(elapsed) else {
+                self.fail_flow(
+                    flow,
+                    FailReason {
+                        kind: FailKind::Expired,
+                        detail: None,
+                    },
+                );
+                return;
+            };
+            // Registered before the check, so a cancel in between still wakes it.
+            let cancelled = self.inner.cancel.notified();
+            if !self.flow_current(flow) {
+                return;
+            }
+            let pause = unit.saturating_mul(u32::try_from(wait).unwrap_or(u32::MAX));
+            let _ = tokio::time::timeout(pause, cancelled).await;
+            let api = {
+                let mut core = lock(&self.inner.core);
+                if core.flow != flow {
+                    return;
+                }
+                match core.api() {
+                    Ok(api) => api,
+                    Err(_) => return,
+                }
+            };
+            let response = api.poll_token(&device_code).await;
+            if !self.flow_current(flow) {
+                return;
+            }
+            match poll.on_response(response) {
+                PollStep::Wait(_) => {}
+                PollStep::SignedIn(tokens) => {
+                    self.finish_sign_in(flow, tokens).await;
+                    return;
+                }
+                PollStep::Failed(reason) => {
+                    self.fail_flow(flow, reason);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn fail_flow(&self, flow: u64, reason: FailReason) {
+        {
+            let mut core = lock(&self.inner.core);
+            if core.flow != flow {
+                return;
+            }
+            core.verification = None;
+            core.state = AccountState::Failed { reason };
+        }
+        self.publish();
+    }
+
+    async fn finish_sign_in(&self, flow: u64, tokens: TokenSet) {
+        let Some(refresh) = tokens.refresh else {
+            self.fail_flow(
+                flow,
+                FailReason {
+                    kind: FailKind::BadResponse,
+                    detail: None,
+                },
+            );
+            return;
+        };
+        let _gate = self.inner.refresh_gate.lock().await;
+        let account = {
+            let core = lock(&self.inner.core);
+            if core.flow != flow {
+                return;
+            }
+            core.base.as_str().to_owned()
+        };
+        if let Err(error) = self.keychain_set(account.clone(), refresh.clone()).await {
+            self.fail_flow(
+                flow,
+                FailReason {
+                    kind: FailKind::Keychain,
+                    detail: Some(error.to_string()),
+                },
+            );
+            return;
+        }
+        let stored = {
+            let mut core = lock(&self.inner.core);
+            if core.flow == flow {
+                let generation = core.generation();
+                core.tokens = Slot::Present(Tokens {
+                    access: Some(Access::new(tokens.access, tokens.expires_in)),
+                    refresh,
+                    generation,
+                });
+                core.state = AccountState::SignedIn { user: None };
+                core.verification = None;
+                true
+            } else {
+                false
+            }
+        };
+        if !stored {
+            // Cancelled while the keychain was written: take it back out.
+            if let Err(error) = self.keychain_delete(account).await {
+                eprintln!("hangar: cancelled account sign-in not removed: {error}");
+            }
+            return;
+        }
+        drop(_gate);
+        self.publish();
+        self.fetch_me().await;
+    }
+
+    /// Ends a waiting or failed flow; the state returns to `Idle`.
+    pub fn cancel_sign_in(&self) -> AccountView {
+        let changed = {
+            let mut core = lock(&self.inner.core);
+            let ends = matches!(
+                core.state,
+                AccountState::WaitingForUser { .. } | AccountState::Failed { .. }
+            );
+            if ends {
+                core.flow += 1;
+                core.verification = None;
+                core.state = AccountState::Idle { notice: None };
+            }
+            ends
+        };
+        self.inner.cancel.notify_waiters();
+        if changed {
+            self.publish();
+        }
+        self.view()
+    }
+
+    /// Drops the tokens on this device. The server has no revoke endpoint; the device stays
+    /// listed on the account page until it is removed there.
+    pub async fn sign_out(&self) -> Result<AccountView, AccountError> {
+        lock(&self.inner.core).flow += 1;
+        self.inner.cancel.notify_waiters();
+        let _gate = self.inner.refresh_gate.lock().await;
+        let account = {
+            let mut core = lock(&self.inner.core);
+            core.clear(IdleNotice::SignedOut);
+            core.base.as_str().to_owned()
+        };
+        let deleted = self.keychain_delete(account).await;
+        drop(_gate);
+        self.publish();
+        deleted
+            .map(|()| self.view())
+            .map_err(|error| AccountError::Keychain(error.to_string()))
+    }
+
+    /// Signs out locally because the server no longer accepts the tokens of `generation`.
+    /// Called with `refresh_gate` held.
+    async fn end_session(&self, generation: u64) {
+        let account = {
+            let mut core = lock(&self.inner.core);
+            let current = matches!(&core.tokens, Slot::Present(t) if t.generation == generation);
+            if !current {
+                return;
+            }
+            core.clear(IdleNotice::SessionEnded);
+            core.base.as_str().to_owned()
+        };
+        if let Err(error) = self.keychain_delete(account).await {
+            eprintln!("hangar: ended account sign-in not removed from the keychain: {error}");
+        }
+        self.publish();
+    }
+
+    /// A valid access token, refreshed first when needed.
+    async fn access_token(&self) -> Result<Authorized, AccountError> {
+        self.load_tokens().await;
+        let seen = {
+            let mut core = lock(&self.inner.core);
+            let api = core.api()?;
+            match &core.tokens {
+                Slot::Present(tokens) => {
+                    if let Some(access) = tokens.valid_access() {
+                        return Ok((access, tokens.generation, api));
+                    }
+                    tokens.generation
+                }
+                _ => return Err(AccountError::NotSignedIn),
+            }
+        };
+        self.refreshed_after(seen).await
+    }
+
+    /// Single-flight refresh: waits for any running one, and refreshes only when the tokens are
+    /// still those of `seen` (a newer set from another caller is used as it is).
+    async fn refreshed_after(&self, seen: u64) -> Result<Authorized, AccountError> {
+        let _gate = self.inner.refresh_gate.lock().await;
+        let (refresh, generation, api, account) = {
+            let mut core = lock(&self.inner.core);
+            let api = core.api()?;
+            let account = core.base.as_str().to_owned();
+            match &core.tokens {
+                Slot::Present(tokens) => {
+                    if tokens.generation != seen {
+                        if let Some(access) = tokens.valid_access() {
+                            return Ok((access, tokens.generation, api));
+                        }
+                    }
+                    (tokens.refresh.clone(), tokens.generation, api, account)
+                }
+                _ => return Err(AccountError::NotSignedIn),
+            }
+        };
+        match api.refresh(&refresh).await {
+            Ok(set) => {
+                let rotated = set.refresh.unwrap_or(refresh);
+                // Stored before use: the old token is spent on the server now. Should the keychain
+                // fail, this run keeps working; the next start may then present the spent token
+                // and be signed out (the server revokes the device).
+                if let Err(error) = self.keychain_set(account, rotated.clone()).await {
+                    eprintln!(
+                        "hangar: rotated account sign-in not stored in the keychain: {error}"
+                    );
+                }
+                let mut core = lock(&self.inner.core);
+                let current =
+                    matches!(&core.tokens, Slot::Present(t) if t.generation == generation);
+                if !current {
+                    return Err(AccountError::NotSignedIn);
+                }
+                let generation = core.generation();
+                let access = set.access.clone();
+                core.tokens = Slot::Present(Tokens {
+                    access: Some(Access::new(set.access, set.expires_in)),
+                    refresh: rotated,
+                    generation,
+                });
+                Ok((access, generation, api))
+            }
+            Err(ApiError::OAuth(OAuthCode::InvalidGrant, _) | ApiError::Unauthorized) => {
+                self.end_session(generation).await;
+                Err(AccountError::SessionEnded)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Runs `call` with an access token; on 401 refreshes once and tries again, and a second 401
+    /// ends the sign-in.
+    async fn authorized<T, F, Fut>(&self, call: F) -> Result<T, AccountError>
+    where
+        F: Fn(Arc<AccountApi>, Zeroizing<String>) -> Fut,
+        Fut: Future<Output = Result<T, ApiError>>,
+    {
+        let (token, generation, api) = self.access_token().await?;
+        match call(api, token).await {
+            Err(ApiError::Unauthorized) => {}
+            other => return other.map_err(AccountError::from),
+        }
+        let (token, generation, api) = self.refreshed_after(generation).await?;
+        match call(api, token).await {
+            Err(ApiError::Unauthorized) => {
+                let _gate = self.inner.refresh_gate.lock().await;
+                self.end_session(generation).await;
+                Err(AccountError::SessionEnded)
+            }
+            other => other.map_err(AccountError::from),
+        }
+    }
+
+    /// Fills in the signed-in person; failures leave `user` empty (the next status tries again).
+    async fn fetch_me(&self) {
+        let me = self
+            .authorized(|api, token| async move { api.me(&token).await })
+            .await;
+        match me {
+            Ok(me) => {
+                {
+                    let mut core = lock(&self.inner.core);
+                    if !matches!(core.state, AccountState::SignedIn { .. }) {
+                        return;
+                    }
+                    core.state = AccountState::SignedIn { user: Some(me) };
+                }
+                self.publish();
+            }
+            Err(error) => eprintln!("hangar: account details not loaded: {error}"),
+        }
+    }
+
+    /// The account's projects (teams), fresh from the server.
+    pub async fn projects(&self) -> Result<Vec<Project>, AccountError> {
+        let projects = self
+            .authorized(|api, token| async move { api.projects(&token).await })
+            .await?;
+        lock(&self.inner.core).projects.clone_from(&projects);
+        // A sign-in loaded at start learns its name here too.
+        let needs_user = matches!(
+            lock(&self.inner.core).state,
+            AccountState::SignedIn { user: None }
+        );
+        if needs_user {
+            self.fetch_me().await;
+        }
+        Ok(projects)
+    }
+
+    /// A short-lived ticket for the relay of `project_id` (step D; not used by the window yet).
+    pub async fn relay_ticket(
+        &self,
+        project_id: &str,
+    ) -> Result<account::RelayTicket, AccountError> {
+        let project_id = project_id.to_owned();
+        self.authorized(move |api, token| {
+            let project_id = project_id.clone();
+            async move { api.relay_ticket(&token, &project_id).await }
+        })
+        .await
+    }
+
+    /// Switches the server (`None` or empty: the official one). Ends a waiting flow; a sign-in
+    /// stored for the new server counts at once, the old one stays in the keychain for a switch
+    /// back.
+    pub async fn set_base_url(&self, text: Option<String>) -> Result<AccountView, AccountError> {
+        let base = match text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            None => BaseUrl::official(),
+            Some(text) => BaseUrl::parse(text).map_err(AccountError::BaseUrl)?,
+        };
+        {
+            let mut core = lock(&self.inner.core);
+            if core.base == base {
+                return Ok(AccountView::new(&core.base, core.state.clone()));
+            }
+            core.flow += 1;
+        }
+        self.inner.cancel.notify_waiters();
+        {
+            let _gate = self.inner.refresh_gate.lock().await;
+            if let Some(dir) = &self.inner.options.config_dir {
+                if let Err(error) = account::save_base(dir, &base) {
+                    // The waiting flow was already stopped above; do not leave its code on screen.
+                    let ended = {
+                        let mut core = lock(&self.inner.core);
+                        let waiting = matches!(core.state, AccountState::WaitingForUser { .. });
+                        if waiting {
+                            core.verification = None;
+                            core.state = AccountState::Idle { notice: None };
+                        }
+                        waiting
+                    };
+                    if ended {
+                        self.publish();
+                    }
+                    return Err(AccountError::Config(error.to_string()));
+                }
+            }
+            let mut core = lock(&self.inner.core);
+            core.base = base;
+            core.api = None;
+            core.tokens = Slot::Unloaded;
+            core.state = AccountState::Idle { notice: None };
+            core.projects.clear();
+            core.verification = None;
+        }
+        self.publish();
+        self.ensure_loaded().await;
+        Ok(self.view())
+    }
+
+    /// Opens one of the account's pages in the browser; only pages on the server's own origin.
+    pub fn open(&self, page: AccountPage) -> Result<(), AccountError> {
+        let url = {
+            let core = lock(&self.inner.core);
+            match page {
+                AccountPage::Verification => core
+                    .verification
+                    .clone()
+                    .ok_or(AccountError::NothingToOpen)?,
+                AccountPage::Devices => core.base.devices_page(),
+                AccountPage::Invite { project_id } => {
+                    let project = core
+                        .projects
+                        .iter()
+                        .find(|project| project.id == project_id)
+                        .ok_or(AccountError::UnknownProject)?;
+                    project
+                        .invite_url
+                        .as_deref()
+                        .filter(|_| project.can_invite)
+                        .and_then(|url| core.base.same_origin(url))
+                        .ok_or(AccountError::ForeignPage)?
+                }
+            }
+        };
+        (self.inner.open)(&url).map_err(|error| AccountError::Open(error.to_string()))
+    }
+
+    async fn keychain_get(
+        &self,
+        account: String,
+    ) -> Result<Option<Zeroizing<String>>, SecretError> {
+        self.keychain(move |store| store.get(&account)).await
+    }
+
+    async fn keychain_set(
+        &self,
+        account: String,
+        value: Zeroizing<String>,
+    ) -> Result<(), SecretError> {
+        self.keychain(move |store| store.set(&account, &value))
+            .await
+    }
+
+    async fn keychain_delete(&self, account: String) -> Result<(), SecretError> {
+        self.keychain(move |store| store.delete(&account)).await
+    }
+
+    /// The keychain may block (D-Bus on Linux, a prompt on macOS), so it runs off the async threads.
+    async fn keychain<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&dyn SecretStore) -> Result<T, SecretError> + Send + 'static,
+    ) -> Result<T, SecretError> {
+        let store = Arc::clone(&self.inner.store);
+        tauri::async_runtime::spawn_blocking(move || work(store.as_ref()))
+            .await
+            .map_err(|error| SecretError::Task(error.to_string()))?
+    }
+}
+
+/// The window's reason for an error of the first device request.
+fn fail_reason(error: &ApiError) -> FailReason {
+    let (kind, detail) = match error {
+        ApiError::Network(_) | ApiError::Timeout => (FailKind::Network, None),
+        ApiError::OAuth(_, detail) => (FailKind::Refused, detail.clone()),
+        ApiError::Status { problem, .. } => {
+            (FailKind::Server, problem.as_ref().and_then(|p| p.message()))
+        }
+        ApiError::TooLarge | ApiError::Malformed | ApiError::Unauthorized => {
+            (FailKind::BadResponse, None)
+        }
+    };
+    FailReason { kind, detail }
+}

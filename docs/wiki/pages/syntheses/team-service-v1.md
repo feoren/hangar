@@ -382,8 +382,48 @@ into the app yet; the separate relay will use it as a path dependency.
   sender, team and op id with a body digest; the version is read before the envelope; bodies are
   parsed straight from raw JSON (duplicate keys refused); a client frame without a team is never
   built; task ids and paths never show in `Debug`. A threat model section is in [[team-protocol]].
+- **Additions for the relay (protocol version stays 1, nothing is deployed):** the server side
+  of section 3 without cryptography (module `e2e`): `device.keys`, `devices.get`/`devices`, the
+  membership log (`memberlog.append`, `memberlog.get`, `memberlog.entries`, logged
+  `memberlog.appended`) with a domain-separated SHA-256 chain over index, `prev` and entry, test
+  vectors and `MemberChain` for both sides, and `key.rotate` (owner or admin, epoch exactly
+  current + 1, `check_rotate`), `key.wrap` and `key.get`; limits `MAX_WRAPPED_KEYS` (512) and
+  `MAX_LOG_ENTRIES` (256). `key.rotated` reaches each device with only its own wrapped key, also
+  on replay. Also `member.role_changed`, presence `offline` (server only), the op id of `hello`
+  on `welcome` and `resync_required`, the deduplication rule (`ClientMessage::deduplicated`),
+  `notify` as server-originated only, and the relay's WebSocket reader as the first size check.
+  Names follow the relay's draft; field types are the crate's checked types instead of strings.
 - **Not built yet:** the relay (step D), the crypto behind `Sealed` (step E), the app side
   (step F).
+
+### Step F as built (part 1, 2026-11-09)
+
+Sign in to a Hangar account and see its projects. Endpoints, token rules and the client's
+behavior: [[hangar-account-api]]. Nothing of the team service shows without signing in.
+
+- **Backend:** `account.rs` (pure), `account_api.rs` (reqwest, 15 s, 512 KiB, no redirects),
+  `account_service.rs` (device flow state machine `Idle -> WaitingForUser -> SignedIn | Failed`,
+  polling with `interval` and `slow_down`, expiry and cancel; refresh token only in the keychain,
+  access token in memory, single-flight refresh with rotation; `invalid_grant` signs out with a
+  reason). The server address is stored by the backend in `account.json`, because the keychain
+  entry is found by it before the window exists. New dependency entry: tokio (`sync`, `time`),
+  already in the tree through Tauri and reqwest.
+- **Pages:** the confirmation, invite and devices pages open only on the server's own origin; the
+  window names the page, never a URL. No revoke endpoint exists, so signing out drops the tokens
+  locally and Settings points to `/account/devices`.
+- **Window:** Settings, Account (sign in, the code large with copy and "Open browser again", the
+  remaining minutes, signed-in name and e-mail with the seats of the own account, sign out,
+  server address for self-hosting folded away) and a Team group at the bottom of the sidebar
+  while signed in (projects with role, plan, "2 of 3 seats" of the owner's account, pending
+  invitations, "Invite people" for owners and admins). One store (`useAccount.ts`) serves both.
+- **Tests:** pure rules in `account.rs` (addresses, origins, problems, tokens, polling), the
+  service against an in-test mock server on 127.0.0.1 (`tests/account.rs`: whole flow with
+  measured poll gaps, decline, expiry, cancel, foreign page, one refresh for two concurrent
+  callers, rotation without reuse, `invalid_grant`, problem documents, invite pages, sign-out,
+  server switch, relay ticket), Vitest for `src/account.ts`.
+- **Not built yet:** the relay ticket in use (step D), creating projects and inviting from inside
+  Hangar (the website does it), the Team entry in the collapsed rail, reloading projects on a
+  timer.
 
 ## Still to verify by measurement
 - Claude Code http hook: a connection failure and a timeout fail open (measured,

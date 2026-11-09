@@ -165,3 +165,16 @@ presence, device removal, rekey grace with old hashes in `task.reserve`, `staleE
 separation, NFC and format character checks, area-only path hashes, claim detail delivery,
 stricter decoding and op retry keys. Added a threat model. Pages changed: [[team-protocol]],
 [[team-service-v1]].
+
+## [2026-11-09] ingest | Step C protocol additions for the relay
+Extended the protocol crate with the relay's wishes, keeping protocol version 1: end-to-end
+groundwork without cryptography (device keys, membership log with a SHA-256 hash chain and test
+vectors, key rotation, wrapping and fetching), `member.role_changed`, presence `offline`, and
+documented answer, deduplication, `notify` and frame size rules. Pages changed: [[team-protocol]],
+[[team-service-v1]].
+
+## [2026-11-09] ingest | Step F part 1: account sign-in and projects
+Built the app side of the Hangar account: device flow sign-in with polling rules, the refresh
+token in the OS keychain, single-flight refresh with rotation, problem documents, origin checks
+for opened pages, Settings section Account and the sidebar's Team group. Filed the API and the
+client's behavior. Pages changed: [[hangar-account-api]] (new), [[team-service-v1]].

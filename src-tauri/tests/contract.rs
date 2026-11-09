@@ -72,6 +72,26 @@ fn commands_are_registered_allowed_and_wired() {
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
     }
+    // The Hangar account: only the main window signs in, lists projects and opens account
+    // pages; the notes window never holds these permissions.
+    let notes: serde_json::Value = serde_json::from_str(&read("capabilities/notes.json")).unwrap();
+    let notes_text = notes["permissions"].to_string();
+    for command in [
+        "account_status",
+        "account_sign_in",
+        "account_cancel_sign_in",
+        "account_sign_out",
+        "account_projects",
+        "account_set_base_url",
+        "account_open",
+    ] {
+        assert!(commands.iter().any(|c| c == command), "{command} missing");
+        let permission = format!("allow-{}", command.replace('_', "-"));
+        assert!(
+            !notes_text.contains(&permission),
+            "{permission} must not reach the notes window"
+        );
+    }
     for command in [
         "save_workspace",
         "load_workspace",

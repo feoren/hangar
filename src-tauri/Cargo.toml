@@ -57,6 +57,11 @@ sha2 = "0.10"
 # (rustls with ring, system proxy), so no extra code in the build; MIT/Apache-2.0.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Hangar account (account_service.rs): an async mutex for single-flight token refreshes, a
+# notification to cancel the device flow's wait, and its timer. Tauri's async runtime is tokio
+# and both features are already on in the tree (through tauri and reqwest), so this adds no code;
+# MIT, maintained by the tokio-rs org.
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
 # Local claims (claims_service.rs): file events per session worktree, only as a trigger for a git
 # rescan. The de facto standard watcher (ReadDirectoryChangesW, inotify, FSEvents), maintained
 # by the notify-rs org; alternatives were a hand-written watcher per platform or polling alone

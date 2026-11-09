@@ -8,6 +8,8 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{Emitter as _, Manager as _, State};
 
+use crate::account::{AccountError, AccountPage, AccountView, Project};
+use crate::account_service::AccountService;
 use crate::agent_catalog::ProfileView;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
@@ -1030,6 +1032,63 @@ pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
 #[tauri::command]
 pub fn answer_gate(gate: State<'_, GateService>, id: u64, answer: Answer) -> bool {
     gate.answer(id, answer)
+}
+
+// Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change
+// of the state is also emitted as `account-changed` with an `AccountView`.
+
+/// The sign-in state; reads a stored sign-in from the keychain on the first call.
+#[tauri::command]
+pub async fn account_status(
+    account: State<'_, AccountService>,
+) -> Result<AccountView, AccountError> {
+    Ok(account.status().await)
+}
+
+/// Starts the device flow: shows a code and opens the confirmation page in the browser.
+#[tauri::command]
+pub async fn account_sign_in(
+    account: State<'_, AccountService>,
+) -> Result<AccountView, AccountError> {
+    account.sign_in().await
+}
+
+#[tauri::command]
+pub fn account_cancel_sign_in(account: State<'_, AccountService>) -> AccountView {
+    account.cancel_sign_in()
+}
+
+/// Drops the tokens on this device only (the server has no revoke endpoint).
+#[tauri::command]
+pub async fn account_sign_out(
+    account: State<'_, AccountService>,
+) -> Result<AccountView, AccountError> {
+    account.sign_out().await
+}
+
+#[tauri::command]
+pub async fn account_projects(
+    account: State<'_, AccountService>,
+) -> Result<Vec<Project>, AccountError> {
+    account.projects().await
+}
+
+/// Changes the server for self-hosting; `null` or empty: the official service.
+#[tauri::command]
+pub async fn account_set_base_url(
+    account: State<'_, AccountService>,
+    base_url: Option<String>,
+) -> Result<AccountView, AccountError> {
+    account.set_base_url(base_url).await
+}
+
+/// Opens one of the account's pages; the window names the page, never a URL.
+#[tauri::command]
+pub fn account_open(
+    account: State<'_, AccountService>,
+    page: AccountPage,
+) -> Result<(), AccountError> {
+    account.open(page)
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

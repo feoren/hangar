@@ -13,6 +13,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[0001-foundation]]: foundation: Tauri 2, portable-pty, xterm.js, output flow, process tree (sources: 1, updated: 2026-11-07)
 
 ## Components
+- [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage (sources: 0, updated: 2026-11-09)
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 
 ## Platforms
@@ -47,7 +48,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
-- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate) and C (protocol crate) as built (sources: 2, updated: 2026-11-09)
+- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate), C (protocol crate) and F part 1 (account sign-in and projects) as built (sources: 2, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window) and the notes UI as built (sources: 0, updated: 2026-11-09)
