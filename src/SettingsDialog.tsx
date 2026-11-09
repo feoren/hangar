@@ -455,6 +455,25 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <p id="claims-help" className="muted settings-help">
         {t("settings.claimsHelp")}
       </p>
+      {/* The gate only knows about overlaps the claims found: without them it stays off. */}
+      <label className={settings.claimsEnabled ? "check" : "check disabled"}>
+        <input
+          type="checkbox"
+          checked={settings.gateEnabled && settings.claimsEnabled}
+          disabled={!settings.claimsEnabled}
+          aria-describedby="gate-help"
+          onChange={(event) => {
+            onChange({ gateEnabled: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.gate")}</span>
+      </label>
+      <p id="gate-help" className="muted settings-help">
+        {t("settings.gateHelp")}
+        {!settings.claimsEnabled && (
+          <> {t("settings.gateNeedsClaims", { setting: t("settings.claims") })}</>
+        )}
+      </p>
     </section>
   );
 }

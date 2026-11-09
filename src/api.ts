@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { t } from "./i18n";
+import type { GateAnswer } from "./gate";
 import type { NotesMessage } from "./notesBridge";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -79,7 +80,15 @@ export interface SessionInfo {
   cliSessionId?: string | null;
   /** `watchSubAgents` works for this session (the program has sub-agents, the session an id). */
   subAgents?: boolean;
+  /** Whether the gate (gate.ts) watches the current process; older backends send none. */
+  gate?: GateStatus;
 }
+
+/**
+ * Rust `GateStatus`: "none" (not for this program, gate off, update session), "active", or why a
+ * program that could take the gate does not get it ("noEndpoint", "launcher").
+ */
+export type GateStatus = "none" | "active" | "noEndpoint" | "launcher";
 
 export type SessionKind = "agent" | "update";
 
@@ -266,6 +275,15 @@ export const api = {
   configureClaims: (enabled: boolean) => invoke<null>("configure_claims", { enabled }),
   /** The newest claims snapshot; check with `parseClaimsSnapshot`. */
   claimsSnapshot: () => invoke<unknown>("claims_snapshot"),
+  /**
+   * Turns the gate (gate.ts) on or off. Only sessions started while it is on get the hook;
+   * turning it off answers every waiting decision with "allow" at once.
+   */
+  configureGate: (enabled: boolean) => invoke<null>("configure_gate", { enabled }),
+  /** The newest gate snapshot; check with `parseGateSnapshot`. */
+  gateSnapshot: () => invoke<unknown>("gate_snapshot"),
+  /** `false`: the decision no longer waits (answered elsewhere, timed out, session ended). */
+  answerGate: (id: number, answer: GateAnswer) => invoke<boolean>("answer_gate", { id, answer }),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */
@@ -300,6 +318,8 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
+/** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */
+export const GATE_CHANGED = "gate-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
 export function parseActivatedSession(payload: unknown): number | null {

@@ -7,10 +7,12 @@ use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
-use hangar_lib::manager::{ManagerError, SessionEvent, SessionManager, TermSize};
+use hangar_lib::manager::{
+    GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, TermSize,
+};
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
-use hangar_lib::session::{SessionInfo, SessionKind, Status};
+use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, Status};
 use hangar_lib::updates::{CommandError, PlatformHint};
 use zeroize::Zeroizing;
 
@@ -690,6 +692,8 @@ fn resumed_flag(manager: &SessionManager, id: u64) -> bool {
 #[test]
 fn resume_fails_fast_then_exactly_one_normal_start() {
     let manager = resume_manager();
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
     let (info, rx) = start(&manager, "r-fail", true);
     assert!(info.resumed);
     let (output, code) = collect_until_exit(&manager, info.id, &rx);
@@ -712,6 +716,17 @@ fn resume_fails_fast_then_exactly_one_normal_start() {
     let listed = manager.list();
     assert_eq!(listed[0].exit_code, Some(3));
     assert!(!listed[0].resumed);
+    // The gate hears of both processes: the failed resume ends before the fallback starts, so
+    // the fallback gets a fresh registration, and the fallback's own end follows.
+    let count = |list: &std::sync::Mutex<Vec<u64>>| {
+        list.lock()
+            .unwrap()
+            .iter()
+            .filter(|id| **id == info.id)
+            .count()
+    };
+    assert_eq!(count(&gate.prepared), 2);
+    assert_eq!(count(&gate.ended), 2);
 }
 
 #[test]
@@ -1259,4 +1274,131 @@ fn invalid_conversation_id_is_refused_before_anything_starts() {
         Err(ManagerError::NoSubAgents(_))
     ));
     let _ = collect_until_exit(&manager, info.id, &rx);
+}
+
+/// Stands in for the agent gate: hands one session start an argument and a token, and records
+/// which sessions it was told about.
+#[derive(Default)]
+struct RecordingGate {
+    prepared: std::sync::Mutex<Vec<u64>>,
+    ended: std::sync::Mutex<Vec<u64>>,
+}
+
+impl LaunchGate for RecordingGate {
+    fn prepare(
+        &self,
+        session: u64,
+        agent: &hangar_lib::agent_catalog::Agent,
+        _program: &std::path::Path,
+    ) -> GatePlan {
+        self.prepared.lock().unwrap().push(session);
+        match agent.id() {
+            "gated" => GatePlan::Launch(GateLaunch {
+                args: vec!["gate-arg-marker".into()],
+                env: vec![(
+                    hangar_lib::gate::TOKEN_ENV.into(),
+                    Zeroizing::new("gate-token-marker".into()),
+                )],
+            }),
+            "ungated" => GatePlan::Unavailable(GateStatus::Launcher),
+            _ => GatePlan::Skip,
+        }
+    }
+
+    fn ended(&self, session: u64) {
+        self.ended.lock().unwrap().push(session);
+    }
+}
+
+/// Prints the gate's token and every argument after its own.
+fn gate_probe(id: &str) -> Profile {
+    let mut probe = if cfg!(windows) {
+        profile(
+            id,
+            "cmd",
+            &["/d", "/c", "echo", "TOKEN=%HANGAR_HOOK_TOKEN%", "ARGS="],
+        )
+    } else {
+        profile(
+            id,
+            "sh",
+            &[
+                "-c",
+                "echo TOKEN=${HANGAR_HOOK_TOKEN:-none} ARGS=$0",
+                "none",
+            ],
+        )
+    };
+    // A profile cannot replace the gate's token.
+    probe
+        .env
+        .insert("HANGAR_HOOK_TOKEN".into(), "profile-value".into());
+    probe
+}
+
+#[test]
+fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
+    let gated = gate_probe("gated");
+    let mut gated_unix = gated.clone();
+    if cfg!(unix) {
+        // `sh -c script $0`: the gate's argument replaces the placeholder `$0`.
+        gated_unix.args.pop();
+    }
+    let manager = SessionManager::new(
+        vec![gated_unix, gate_probe("plain"), gate_probe("ungated")],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+
+    let (tx, rx) = channel();
+    let info = manager
+        .create("gated", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    // The session tells the window that the gate watches it.
+    assert_eq!(info.gate, GateStatus::Active);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("TOKEN=gate-token-marker"), "{output:?}");
+    assert!(output.contains("gate-arg-marker"), "{output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+    assert!(gate.ended.lock().unwrap().contains(&info.id));
+
+    // A restart asks the gate again.
+    let (tx, rx) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    collect_until_exit(&manager, info.id, &rx);
+    assert_eq!(
+        gate.prepared
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|id| **id == info.id)
+            .count(),
+        2
+    );
+
+    // Without the gate's answer, the profile's own variable stays.
+    let (tx, rx) = channel();
+    let plain = manager
+        .create("plain", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(plain.gate, GateStatus::None);
+    let (output, _) = collect_until_exit(&manager, plain.id, &rx);
+    assert!(output.contains("TOKEN=profile-value"), "{output:?}");
+    assert!(!output.contains("gate-arg-marker"), "{output:?}");
+
+    // A program that could take the gate but does not get it says why.
+    let (tx, rx) = channel();
+    let ungated = manager
+        .create("ungated", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(ungated.gate, GateStatus::Launcher);
+    collect_until_exit(&manager, ungated.id, &rx);
+
+    // Closing tells the gate as well.
+    manager.close(plain.id).unwrap();
+    assert!(gate.ended.lock().unwrap().contains(&plain.id));
 }

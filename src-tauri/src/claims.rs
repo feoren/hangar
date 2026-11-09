@@ -117,7 +117,7 @@ pub fn folder_key(path: &Path) -> String {
 }
 
 /// Comparison key of a path inside a repository, case-insensitive where the file system is.
-fn file_key(path: &str) -> String {
+pub fn file_key(path: &str) -> String {
     if cfg!(any(windows, target_os = "macos")) {
         path.to_lowercase()
     } else {
@@ -419,7 +419,7 @@ fn shared_lines(a: &[LineRange], b: &[LineRange]) -> Vec<LineRange> {
 }
 
 /// Collision of two claims on the same path.
-fn file_level(a: &Claim, b: &Claim, same_base: bool) -> (OverlapLevel, Vec<LineRange>) {
+pub fn file_level(a: &Claim, b: &Claim, same_base: bool) -> (OverlapLevel, Vec<LineRange>) {
     if same_base && !a.whole_file && !b.whole_file {
         let lines = shared_lines(&a.ranges, &b.ranges);
         if !lines.is_empty() {
@@ -564,6 +564,20 @@ pub struct SessionClaims {
     /// Overlaps of this session in all; the snapshot lists at most [`MAX_LISTED_OVERLAPS`].
     pub overlap_count: usize,
     pub overlaps_truncated: bool,
+}
+
+/// One worktree's claims with its sessions, as the agent gate (`gate.rs`) asks about them: all
+/// claims, not the capped list of the snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeClaims {
+    /// Repository key (the git common folder, [`folder_key`]).
+    pub repo: String,
+    /// Worktree key, [`folder_key`] of its top folder.
+    pub root_key: String,
+    pub base: Option<String>,
+    /// Running sessions in this worktree, in the session list's order.
+    pub sessions: Vec<SessionId>,
+    pub claims: Vec<Claim>,
 }
 
 /// Event `claims-changed` and the answer of `claims_snapshot`.

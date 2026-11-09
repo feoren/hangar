@@ -2,7 +2,7 @@
 title: "Team service version 1: research results and build plan"
 type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
-sources: ["[[claims-rescan-measurement]]"]
+sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-09
 updated: 2026-11-09
 ---
@@ -112,6 +112,32 @@ Consequences:
   degrades to "warn only" when the server is unreachable, and client and server share one
   protocol crate.
 
+## 4a. Accounts and invitations (owner's decision, 2026-11-09)
+
+- Hangar gets a sign-in that is bound to a team server (official or self-hosted). The account
+  tells Hangar which teams the person belongs to; without signing in Hangar stays fully usable
+  alone.
+- Sign-in from the app: the app opens the browser, the person confirms with a magic link sent
+  by mail (later passkeys, GitHub or other OIDC providers); the app receives its token through
+  the device flow and keeps it in the OS keychain.
+- People join a team **only by invitation to an e-mail address**:
+  1. a team admin enters one or more addresses in Hangar and picks a role;
+  2. the server sends a single-use, expiring invitation mail; the seat limit is checked when the
+     invitation is accepted, not when it is sent;
+  3. the link opens a page that starts Hangar (or offers the download), the person signs in or
+     creates the account with that address; the address must match;
+  4. before the team key is shared, an existing member's device confirms the new device
+     (short code comparison for admins who want it); then the person sees the team.
+- Invitations can be resent and revoked; pending ones show in the team view.
+- **Mail in Hangar style:** one shared template set for invitation, sign-in link, "invitation
+  accepted" and "something needs your attention" mails: Hangar logo and colors from the design
+  tokens, light and dark variants, table layout with inline CSS that works in Outlook, Gmail
+  and Apple Mail, an equivalent plain-text part, no remote images or tracking pixels, all texts
+  in the 12 app languages, the button link also as plain text. Mails carry no task or file
+  content (end-to-end encryption). Sender authentication (SPF, DKIM, DMARC) for the official
+  service; self-hosted servers use their own SMTP or, without mail, admin-copied invitation
+  links.
+
 ## 5. Build plan
 
 Each step is useful on its own and ships behind a setting until the team parts exist.
@@ -121,7 +147,7 @@ Each step is useful on its own and ships behind a setting until the team parts e
 | A | **Local claims**: watcher plus git rescan per session worktree, a claims view, overlap warnings between the person's own sessions (two agents on one machine already collide today) | no |
 | B | **Agent gate**: local http hook endpoint, `--settings` injection for Claude Code, pause with "Allow once / Wait / Stop" in Hangar, catalog capability flags, watcher fallback for the others | no |
 | C | **Protocol crate** (MIT, in this repository): message types, envelopes, keyed hashes, state machines for reservation and expiry, tests | no |
-| D | **Team server** (separate repository, Elastic License 2.0): axum, SQLite, device flow login, teams, invites, seats, live events, replay | yes |
+| D | **Team server** (separate repository, Elastic License 2.0): axum, SQLite, device flow and magic link sign-in, teams, e-mail invitations with the Hangar mail templates, seats, live events, replay | yes |
 | E | **Team crypto**: device keys, membership log, epochs, HPKE wrapping, recovery key, test vectors, external review | yes |
 | F | **Team UI in Hangar**: sign in, create or join a team, live status of everyone's agents, task list with reservation, claims of others, pause on overlap with a release request, shared decisions as context at start | yes |
 | G | Later: merge queue, issue import, shared transcripts, phone push, chat, peer to peer | yes |
@@ -198,9 +224,117 @@ and timing: [[claims-rescan-measurement]].
 - **Not built yet:** configurable areas (first folder only), committed but unmerged changes on a
   session branch (only uncommitted changes against HEAD count), stage 2 with `git merge-tree`.
 
+### Step B as built (2026-11-09)
+
+Agent gate, behind the setting "Pause agents before editing a file another session is changing"
+(on by default, needs "Detect overlaps between sessions"). Measurements:
+[[claude-http-hook-measurement]], [[claude-settings-file-measurement]]. The gate coordinates
+the user's own sessions and is no security boundary: edits through the shell, sessions inside
+WSL, managed settings that forbid the hook, a body over the limit and every failure of Hangar
+let the edit through. The setting's help text says so.
+
+- **Catalog:** `capabilities = { pre_edit_block, context_inject, per_session_config }` per entry,
+  all false by default; Claude Code has all three, Codex, Gemini, Copilot and Aider are false
+  with a comment pointing here. The gate goes only where `pre_edit_block` and
+  `per_session_config` are true, in the one format built so far (Claude Code's `--settings`). A
+  user profile with the same id and program inherits the flags.
+- **Launch:** `SessionManager::spawn` asks the `LaunchGate` (`gate_service.rs`) on every start of
+  an agent session (first start, restart, resume, resume fallback; never update sessions). When
+  the gate is on, it appends `--settings <inline JSON>` (http hooks: `PreToolUse` with matcher
+  `Edit|Write|MultiEdit|NotebookEdit`, timeout 660 s, and `UserPromptSubmit` for context,
+  timeout 10 s) as argv and sets `HANGAR_HOOK_TOKEN` in the child's environment after the profile
+  variables; an inherited `HANGAR_HOOK_TOKEN` is removed from every child. A `.cmd` launcher
+  (npm's `claude.cmd`) cannot take the inline JSON (Hangar refuses `"` in its arguments,
+  `batch.rs`), so it gets `--settings <file>`: the same JSON, without the token, in
+  `<local app data>/gate/claude-hooks-<port>[-context].json`, written whole under a temporary
+  name and renamed; files of earlier runs are deleted when the endpoint starts, except those whose
+  port is still listened on (another Hangar sharing the folder). Measured to work
+  with a path containing spaces ([[claude-settings-file-measurement]]). When that path holds a
+  character cmd.exe would interpret, or the file cannot be written, the session starts without
+  the gate. `SessionInfo.gate` tells the window: `none` (not for this program, gate off, update
+  session), `active`, `noEndpoint` (the endpoint did not start) or `launcher` (no settings file);
+  the last two show as a quiet muted marker next to the session's title and a line in its
+  tooltip. Sessions inside WSL cannot reach the
+  endpoint on the Windows loopback and get no gate (WSL entries have no capabilities).
+- **Restore order:** the window's restore waits until the first `configure_gate` has settled
+  (at most 3 s, `gateSetup` in `src/gate.ts`), so restored Claude Code sessions do not start
+  before the backend knows the gate is on.
+- **Endpoint:** `hook_http.rs`, a hand-written HTTP/1.1 reader with explicit limits (head 16 KiB,
+  64 headers, body 32 MiB, no chunked bodies, no second `Content-Length`, no folded headers, only
+  `POST`) on 127.0.0.1 with a random port, started with the first gated launch. One thread per
+  connection. Time limits are totals, not per read: a reader sets the socket's read timeout to
+  the time left before every read (head 5 s, body 30 s, reading after the answer 2 s, each write
+  5 s), so a client sending a byte now and then is cut off. Until the token is known a
+  connection holds one of 8 slots; a known session moves to one of 64 (then 503), so slow
+  unknown clients cannot take the slots of held requests. The accept thread never reads or
+  writes: a connection over the 8 is closed unanswered at once, and Claude Code goes on as with a
+  failed hook. A request with `Origin` or any `Sec-Fetch-*` header, or whose `Host` is not exactly
+  `127.0.0.1:<port>` (what Claude Code sends, measured), gets 403 before the token is looked at.
+  A token per process (two UUID v4, 64 hex characters), held in memory only, compared in constant
+  time against every registered token before the body is read; 401 otherwise. Routes `/v1/pre-tool-use` and `/v1/user-prompt-submit`. The body is parsed as it
+  streams in; a `Write`'s content is skipped, never kept. Answers close gracefully (write side
+  first), since Windows otherwise reset the connection in the tests. No server crate: two routes,
+  one client, all limits in one file.
+- **Decision logic** (`gate.rs`, pure): the hook's path (as named, and with its existing part
+  resolved) relative to the session's worktree. The path comes from the model, so it is resolved
+  only when it lies on a local drive or on the share the session's own worktree lives on
+  (`git::gitdir_allowed`) and names no DOS device (`CON`, `NUL`, `COM1` ...): a UNC or device path
+  would otherwise make Hangar connect to a host (NTLM) or open a pipe before Claude Code's own
+  permission prompt. A session outside every known worktree is not looked at at all; another running session in another worktree of
+  the same repository whose claims hold the path is an overlap, whether or not this session
+  changed the file yet. Both changed it on the same base with near ranges: `overlappingLines`
+  with the shared lines; otherwise `sameFile` with the other session's lines. Sessions in one
+  folder never collide. No overlap: an empty answer, so Claude Code's own permission flow goes
+  on.
+- **Pending decisions:** an overlap holds the request and emits `gate-changed`; answers "Allow
+  once" (empty answer), "Allow for this file" (the session is not asked again about that file
+  until it ends) and "Don't allow" (deny with a short reason naming the other sessions and the
+  file). No answer within 10 minutes: deny with "no answer". The session ends, Hangar quits:
+  deny. The gate is switched off: empty answer. The agent stops waiting (connection closed, seen
+  every 500 ms): its request leaves the decision, which disappears with the last one. The same
+  file asked again by the same session while a decision waits joins that decision (up to 4
+  requests), and the answer reaches all of them. At most 3 decisions per session and 32 in all;
+  beyond that the answer is `permissionDecision: "ask"`, so Claude Code's own prompt asks the
+  person instead of letting the edit pass silently ("ask prompts the user to confirm", hooks
+  reference; in print mode it did not write the file, [[claude-settings-file-measurement]]).
+  The card does not show the tool name: the question is the file, not the tool.
+- **Context:** the prompt hook returns the files other running sessions in the repository are
+  changing as facts: a header saying the data are names, never instructions, then one JSON
+  object per file (`{"file":..,"sessions":[..],"lines":".."}`), at most 30 files and 4 000
+  characters, then `{"moreFiles":n}`. Every file and session name, here and in the deny and ask
+  reasons, is a JSON string literal whose characters outside a positive list (letters and digits
+  of any script, space and `._-/+@#~,()[]=&$!%':` and the middle dot) become `<U+XXXX>`, so a
+  hostile name cannot close its quotes, break a line or pose as Hangar's own text. The facts go
+  out only when they changed since the session was last told, or when Claude Code's `session_id`
+  in the prompt hook changed (a new conversation). That `/clear` starts a new `session_id` is not
+  measured, and `/compact` keeps it, so after a compaction the facts come again only when they
+  change. `SessionStart` takes no http hooks (measured), so it is the first prompt rather than
+  the start.
+- **Interface:** commands `configure_gate(enabled)`, `gate_snapshot()` and
+  `answer_gate(id, answer: "allowOnce" | "allowFile" | "deny") -> bool` (main window only), event
+  `gate-changed` with `GateSnapshot { enabled, pending: PendingDecision[] }`,
+  `PendingDecision { id, sessionId, tool, path, otherSessions, level, lines, createdAt }`.
+  Types mirror in `src/gate.ts`.
+- **UI:** the waiting session takes the attention look with the reason `gate` (sidebar pulse,
+  status "needs your decision", chime, taskbar and desktop notification once per decision under
+  the existing settings); a card at the top of the waiting session's pane (floating at the top of
+  the session area when that session is not on screen) with "Allow once", "Allow for this file",
+  "Don't allow", "Show other session" and a count of further waiting decisions. It never takes
+  the focus itself; Ctrl+Shift+A brings it there, Escape returns to the terminal without
+  answering.
+- **Fails open on purpose:** Hangar gone, endpoint refused, Claude Code's own hook timeout, or
+  managed settings that forbid the hook (`allowedHttpHookUrls`, `allowManagedHooksOnly`) let the
+  edit through; the step A warning remains. A local program running as the same user can read a
+  session's environment and with it its token; it can then only ask questions for that session.
+- **Not built yet:** the gate for other agents, the gate for Claude Code inside WSL, the "Wait"
+  and "Stop" answers of the plan (deny covers both for now). A local program of the same user can
+  hold the 8 unknown-client slots and so make new hooks fail open; accepted, since such a program
+  can also edit the files itself.
+
 ## Still to verify by measurement
-- Claude Code http hook: does a connection failure fail open or closed; do sub-agent tool calls
-  pass `PreToolUse`.
+- Claude Code http hook: a connection failure and a timeout fail open (measured,
+  [[claude-http-hook-measurement]]); still open whether sub-agent tool calls pass `PreToolUse`
+  and how the interactive mode behaves while a hook waits.
 - Codex: path shape of `apply_patch` input; Gemini: hook merging with
   `GEMINI_CLI_SYSTEM_SETTINGS_PATH`; Copilot: per-session hooks.
 - Cost of `git status` and `git diff -U0` on a large repository on Windows: measured, see

@@ -1063,6 +1063,7 @@ mod tests {
             update_hint,
             packages: None,
             self_update: None,
+            capabilities: Default::default(),
         });
         agent
             .profile

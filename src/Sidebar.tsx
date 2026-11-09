@@ -8,8 +8,10 @@ import { FolderMenu } from "./FolderMenu";
 import { elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
 import { exitDetail } from "./format";
+import { gateHint } from "./gate";
 import { useT } from "./i18n";
 import {
+  AlertIcon,
   BranchIcon,
   ChevronIcon,
   CloseIcon,
@@ -1156,6 +1158,7 @@ function SessionItem({
   const where = lines.detail;
   const detail = exitDetail(session, t);
   const overlap = overlaps.get(session.id);
+  const gateOff = gateHint(session.gate, t);
   const className = [
     "session",
     active ? "active" : "",
@@ -1201,6 +1204,7 @@ function SessionItem({
           title={[
             waiting ? `${session.title} · ${status}` : "",
             overlap ?? "",
+            gateOff ?? "",
             detail,
             session.worktree
               ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
@@ -1238,6 +1242,13 @@ function SessionItem({
                 <span className="session-overlap">
                   <OverlapIcon size={12} />
                   <span className="sr-only">{overlap}</span>
+                </span>
+              )}
+              {/* Rare and lasting (no endpoint, unusable data path): visible, but quiet. */}
+              {gateOff !== null && (
+                <span className="session-gate-off">
+                  <AlertIcon size={12} />
+                  <span className="sr-only">{gateOff}</span>
                 </span>
               )}
             </span>

@@ -68,11 +68,12 @@ export const EMPTY_CLAIMS: ClaimsSnapshot = { enabled: false, sessions: [], over
 const LEVELS: readonly OverlapLevel[] = ["none", "sameArea", "sameFile", "overlappingLines"];
 const KINDS: readonly ChangeKind[] = ["added", "modified", "deleted", "untracked", "conflicted"];
 
-function field(value: unknown, key: string): unknown {
+/** A property of an object from JSON, `undefined` for anything else. Shared with gate.ts. */
+export function field(value: unknown, key: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
 }
 
-function isCount(value: unknown): value is number {
+export function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
@@ -81,7 +82,8 @@ function optionalText(value: unknown): string | null | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function list<T>(value: unknown, parse: (item: unknown) => T | null): T[] | null {
+/** Every item parsed, or `null` when one of them is malformed. */
+export function list<T>(value: unknown, parse: (item: unknown) => T | null): T[] | null {
   if (!Array.isArray(value)) return null;
   const items: T[] = [];
   for (const item of value) {
@@ -96,7 +98,7 @@ function parseLevel(value: unknown): OverlapLevel | null {
   return LEVELS.find((level) => level === value) ?? null;
 }
 
-function parseRange(value: unknown): LineRange | null {
+export function parseRange(value: unknown): LineRange | null {
   const start = field(value, "start");
   const end = field(value, "end");
   return isCount(start) && isCount(end) && start <= end ? { start, end } : null;

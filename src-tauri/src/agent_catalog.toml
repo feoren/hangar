@@ -38,6 +38,15 @@
 #                    normally with args plus session_id_args and the same id.
 #   sub_agents       Optional. Where the program keeps sub-agent transcripts that Hangar can show
 #                    read-only; only "claude" so far (docs/wiki/pages/sources/subagent-transcripts.md).
+#   capabilities     Optional. What Hangar's agent gate can do with the program (team service
+#                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
+#                    default: { pre_edit_block, context_inject, per_session_config }.
+#                    pre_edit_block: a hook can stop an edit before it happens; context_inject: a
+#                    hook can hand the agent facts as context; per_session_config: hooks can be
+#                    given to one session without touching the user's settings files. Hangar
+#                    installs its gate only where pre_edit_block and per_session_config are true,
+#                    and only in the format of Claude Code's `--settings` (the one format built so
+#                    far). A user profile with the same id and program inherits them.
 #   latest           Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
@@ -82,6 +91,8 @@ resume_args = ["--continue"]
 session_id_args = ["--session-id", "{id}"]
 resume_id_args = ["--resume", "{id}"]
 sub_agents = "claude"
+# Measured with Claude Code 2.1.319: docs/wiki/pages/sources/claude-http-hook-measurement.md.
+capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
@@ -95,6 +106,9 @@ id = "codex"
 name = "Codex CLI"
 commands = ["codex"]
 resume_args = ["resume", "--last"]
+# Hooks exist (PreToolUse on apply_patch) but need trust by hash and the path shape is
+# unverified: team-service-v1.md, section 1. The step A warning applies.
+capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
 icon = "Cx"
 homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
@@ -108,6 +122,9 @@ id = "gemini"
 name = "Gemini CLI"
 commands = ["gemini"]
 resume_args = ["--resume"]
+# BeforeTool hooks exist; whether user hooks still merge with a per-session settings file is
+# unverified: team-service-v1.md, section 1. The step A warning applies.
+capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
 icon = "G"
 homepage = "https://github.com/google-gemini/gemini-cli"
 install_windows = "npm install -g @google/gemini-cli"
@@ -130,6 +147,9 @@ id = "copilot"
 name = "GitHub Copilot CLI"
 commands = ["copilot"]
 resume_args = ["--continue"]
+# preToolUse hooks exist; per-session hooks are unverified: team-service-v1.md, section 1.
+# The step A warning applies.
+capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -205,6 +225,8 @@ id = "aider"
 name = "Aider"
 commands = ["aider"]
 resume_args = ["--restore-chat-history"]
+# No hooks: team-service-v1.md, section 1. The step A warning applies.
+capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
 icon = "A"
 homepage = "https://github.com/Aider-AI/aider"
 install_windows = "python -m pip install aider-install && aider-install"

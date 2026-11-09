@@ -120,6 +120,28 @@ const de = {
   "settings.claims": "Überschneidungen zwischen Sessions erkennen",
   "settings.claimsHelp":
     "Hangar schaut, welche Dateien die Agenten ändern, und warnt, wenn zwei deiner Sessions dieselbe Datei oder dieselben Zeilen bearbeiten. Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
+  "gate.label": "Entscheidung nötig",
+  "gate.title": "{session} will {path} ändern",
+  "gate.also": "Wird gerade auch von {others} geändert",
+  "gate.alsoLines": "Wird gerade auch von {others} geändert: {lines}",
+  "gate.allowOnce": "Einmal erlauben",
+  "gate.allowFile": "Für diese Datei erlauben",
+  "gate.deny": "Nicht erlauben",
+  "gate.showOther": "Andere Session zeigen",
+  "gate.more": "Weitere warten: {count}",
+  "gate.timeout": "Ohne Antwort gilt nach 10 Minuten „Nicht erlauben“.",
+  "gate.failed": "Deine Antwort kam nicht an: {error}",
+  "gate.announce": "{title} wartet auf deine Entscheidung",
+  "status.gate": "braucht deine Entscheidung",
+  "settings.gate":
+    "Agenten anhalten, bevor sie eine Datei bearbeiten, die eine andere Session ändert",
+  "settings.gateHelp":
+    "Claude Code wartet dann, bis du hier entscheidest. Gilt für Claude-Code-Sessions, die du startest, während das an ist, nicht in WSL. Das stimmt deine Sessions ab und ist kein Schutz: Änderungen über das Terminal werden nicht angehalten, und kann Hangar nicht antworten, läuft die Änderung weiter.",
+  "settings.gateNeedsClaims": "Braucht „{setting}“.",
+  "gate.noEndpoint":
+    "Änderungen werden in dieser Session nicht angehalten: Hangar konnte seinen lokalen Hook-Endpunkt nicht starten.",
+  "gate.launcher":
+    "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Datenordner enthält Zeichen, die cmd.exe auswerten würde.",
   "settings.subAgentExcerpts": "Textauszüge von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
     "Zeigt den letzten Text jedes Sub-Agents. Erkennbare Schlüssel und Passwörter werden ausgeblendet, gespeichert wird nichts davon.",
@@ -830,6 +852,27 @@ const en: Record<MessageKey, string> = {
   "settings.claims": "Detect overlaps between sessions",
   "settings.claimsHelp":
     "Hangar watches which files the agents change and warns when two of your sessions edit the same file or the same lines. Everything stays on this computer; Hangar reads no file contents for this.",
+  "gate.label": "Decision needed",
+  "gate.title": "{session} wants to change {path}",
+  "gate.also": "Also being changed by {others}",
+  "gate.alsoLines": "Also being changed by {others}: {lines}",
+  "gate.allowOnce": "Allow once",
+  "gate.allowFile": "Allow for this file",
+  "gate.deny": "Don't allow",
+  "gate.showOther": "Show other session",
+  "gate.more": "{count} more waiting",
+  "gate.timeout": 'Without an answer, it counts as "Don\'t allow" after 10 minutes.',
+  "gate.failed": "Your answer did not get through: {error}",
+  "gate.announce": "{title} is waiting for your decision",
+  "status.gate": "needs your decision",
+  "settings.gate": "Pause agents before editing a file another session is changing",
+  "settings.gateHelp":
+    "Claude Code then waits until you decide here. Applies to Claude Code sessions you start while this is on, not inside WSL. This coordinates your sessions and is no protection: changes made through the terminal are not held, and if Hangar cannot answer, the change goes ahead.",
+  "settings.gateNeedsClaims": 'Needs "{setting}".',
+  "gate.noEndpoint":
+    "Edits are not paused in this session: Hangar could not start its local hook endpoint.",
+  "gate.launcher":
+    "Edits are not paused in this session: the path of Hangar's data folder contains characters cmd.exe would interpret.",
   "settings.subAgentExcerpts": "Show sub-agent text excerpts",
   "settings.subAgentExcerptsHelp":
     "Shows each sub-agent's latest text. Recognizable keys and passwords are hidden, and none of it is stored.",
@@ -1523,6 +1566,27 @@ const el: Record<MessageKey, string> = {
   "settings.claims": "Εντοπισμός επικαλύψεων μεταξύ συνεδριών",
   "settings.claimsHelp":
     "Το Hangar βλέπει ποια αρχεία αλλάζουν οι πράκτορες και σε προειδοποιεί όταν δύο συνεδρίες σου επεξεργάζονται το ίδιο αρχείο ή τις ίδιες γραμμές. Όλα μένουν σε αυτόν τον υπολογιστή· το Hangar δεν διαβάζει περιεχόμενα αρχείων γι' αυτό.",
+  "gate.label": "Χρειάζεται απόφαση",
+  "gate.title": "Το {session} θέλει να αλλάξει το {path}",
+  "gate.also": "Το αλλάζει επίσης το {others}",
+  "gate.alsoLines": "Το αλλάζει επίσης το {others}: {lines}",
+  "gate.allowOnce": "Άδεια μία φορά",
+  "gate.allowFile": "Άδεια για αυτό το αρχείο",
+  "gate.deny": "Όχι",
+  "gate.showOther": "Εμφάνιση άλλης συνεδρίας",
+  "gate.more": "Περιμένουν ακόμη: {count}",
+  "gate.timeout": "Χωρίς απάντηση, μετά από 10 λεπτά ισχύει «Όχι».",
+  "gate.failed": "Η απάντησή σου δεν έφτασε: {error}",
+  "gate.announce": "Το {title} περιμένει την απόφασή σου",
+  "status.gate": "θέλει την απόφασή σου",
+  "settings.gate": "Παύση πρακτόρων πριν αλλάξουν αρχείο που αλλάζει άλλη συνεδρία",
+  "settings.gateHelp":
+    "Το Claude Code τότε περιμένει μέχρι να αποφασίσεις εδώ. Ισχύει για συνεδρίες Claude Code που ξεκινάς όσο είναι ενεργό, όχι μέσα σε WSL. Συντονίζει τις συνεδρίες σου και δεν είναι προστασία: αλλαγές μέσω του τερματικού δεν σταματούν, και αν το Hangar δεν μπορεί να απαντήσει, η αλλαγή γίνεται.",
+  "settings.gateNeedsClaims": "Χρειάζεται το «{setting}».",
+  "gate.noEndpoint":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το Hangar δεν μπόρεσε να ξεκινήσει το τοπικό σημείο για hooks.",
+  "gate.launcher":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του φακέλου δεδομένων του Hangar περιέχει χαρακτήρες που θα ερμήνευε το cmd.exe.",
   "settings.subAgentExcerpts": "Εμφάνιση αποσπασμάτων κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
     "Δείχνει το τελευταίο κείμενο κάθε υπο-πράκτορα. Αναγνωρίσιμα κλειδιά και κωδικοί αποκρύπτονται και τίποτα δεν αποθηκεύεται.",
@@ -2239,6 +2303,27 @@ const es: Record<MessageKey, string> = {
   "settings.claims": "Detectar coincidencias entre sesiones",
   "settings.claimsHelp":
     "Hangar mira qué archivos cambian los agentes y te avisa cuando dos de tus sesiones editan el mismo archivo o las mismas líneas. Todo queda en este equipo; Hangar no lee el contenido de los archivos para esto.",
+  "gate.label": "Hace falta una decisión",
+  "gate.title": "{session} quiere cambiar {path}",
+  "gate.also": "También lo está cambiando {others}",
+  "gate.alsoLines": "También lo está cambiando {others}: {lines}",
+  "gate.allowOnce": "Permitir una vez",
+  "gate.allowFile": "Permitir para este archivo",
+  "gate.deny": "No permitir",
+  "gate.showOther": "Mostrar la otra sesión",
+  "gate.more": "Esperan más: {count}",
+  "gate.timeout": "Sin respuesta, tras 10 minutos cuenta como «No permitir».",
+  "gate.failed": "Tu respuesta no llegó: {error}",
+  "gate.announce": "{title} espera tu decisión",
+  "status.gate": "necesita tu decisión",
+  "settings.gate": "Pausar a los agentes antes de editar un archivo que otra sesión está cambiando",
+  "settings.gateHelp":
+    "Claude Code espera entonces a que decidas aquí. Se aplica a las sesiones de Claude Code que inicies mientras esté activado, no dentro de WSL. Coordina tus sesiones y no es una protección: los cambios desde el terminal no se detienen y, si Hangar no puede responder, el cambio sigue adelante.",
+  "settings.gateNeedsClaims": "Necesita «{setting}».",
+  "gate.noEndpoint":
+    "En esta sesión los cambios no se detienen: Hangar no pudo iniciar su punto de conexión local para hooks.",
+  "gate.launcher":
+    "En esta sesión los cambios no se detienen: la ruta de la carpeta de datos de Hangar contiene caracteres que cmd.exe interpretaría.",
   "settings.subAgentExcerpts": "Mostrar extractos de texto de los subagentes",
   "settings.subAgentExcerptsHelp":
     "Muestra el último texto de cada subagente. Las claves y contraseñas reconocibles se ocultan y no se guarda nada.",
@@ -2945,6 +3030,28 @@ const fr: Record<MessageKey, string> = {
   "settings.claims": "Détecter les chevauchements entre sessions",
   "settings.claimsHelp":
     "Hangar regarde quels fichiers les agents modifient et te prévient quand deux de tes sessions modifient le même fichier ou les mêmes lignes. Tout reste sur cet ordinateur ; Hangar ne lit aucun contenu de fichier pour cela.",
+  "gate.label": "Décision requise",
+  "gate.title": "{session} veut modifier {path}",
+  "gate.also": "Aussi en cours de modification par {others}",
+  "gate.alsoLines": "Aussi en cours de modification par {others} : {lines}",
+  "gate.allowOnce": "Autoriser une fois",
+  "gate.allowFile": "Autoriser pour ce fichier",
+  "gate.deny": "Ne pas autoriser",
+  "gate.showOther": "Afficher l'autre session",
+  "gate.more": "Encore en attente : {count}",
+  "gate.timeout": "Sans réponse, cela compte comme « Ne pas autoriser » après 10 minutes.",
+  "gate.failed": "Ta réponse n'est pas arrivée : {error}",
+  "gate.announce": "{title} attend ta décision",
+  "status.gate": "attend ta décision",
+  "settings.gate":
+    "Mettre les agents en pause avant de modifier un fichier qu'une autre session modifie",
+  "settings.gateHelp":
+    "Claude Code attend alors que tu décides ici. S'applique aux sessions Claude Code lancées pendant que c'est activé, pas dans WSL. Cela coordonne tes sessions et n'est pas une protection : les modifications via le terminal ne sont pas retenues et, si Hangar ne peut pas répondre, la modification a lieu.",
+  "settings.gateNeedsClaims": "Nécessite « {setting} ».",
+  "gate.noEndpoint":
+    "Les modifications ne sont pas retenues dans cette session : Hangar n'a pas pu démarrer son point d'accès local pour les hooks.",
+  "gate.launcher":
+    "Les modifications ne sont pas retenues dans cette session : le chemin du dossier de données de Hangar contient des caractères que cmd.exe interpréterait.",
   "settings.subAgentExcerpts": "Afficher les extraits de texte des sous-agents",
   "settings.subAgentExcerptsHelp":
     "Affiche le dernier texte de chaque sous-agent. Les clés et mots de passe reconnaissables sont masqués et rien n'est enregistré.",
@@ -3659,6 +3766,28 @@ const it: Record<MessageKey, string> = {
   "settings.claims": "Rileva sovrapposizioni tra sessioni",
   "settings.claimsHelp":
     "Hangar guarda quali file cambiano gli agenti e ti avvisa quando due tue sessioni modificano lo stesso file o le stesse righe. Tutto resta su questo computer; Hangar non legge il contenuto dei file per farlo.",
+  "gate.label": "Serve una decisione",
+  "gate.title": "{session} vuole modificare {path}",
+  "gate.also": "Lo sta modificando anche {others}",
+  "gate.alsoLines": "Lo sta modificando anche {others}: {lines}",
+  "gate.allowOnce": "Consenti una volta",
+  "gate.allowFile": "Consenti per questo file",
+  "gate.deny": "Non consentire",
+  "gate.showOther": "Mostra l'altra sessione",
+  "gate.more": "Altre in attesa: {count}",
+  "gate.timeout": "Senza risposta, dopo 10 minuti vale «Non consentire».",
+  "gate.failed": "La tua risposta non è arrivata: {error}",
+  "gate.announce": "{title} attende la tua decisione",
+  "status.gate": "attende la tua decisione",
+  "settings.gate":
+    "Metti in pausa gli agenti prima di modificare un file che un'altra sessione sta cambiando",
+  "settings.gateHelp":
+    "Claude Code aspetta finché decidi qui. Vale per le sessioni di Claude Code avviate mentre è attivo, non dentro WSL. Coordina le tue sessioni e non è una protezione: le modifiche dal terminale non vengono fermate e, se Hangar non può rispondere, la modifica va avanti.",
+  "settings.gateNeedsClaims": "Richiede «{setting}».",
+  "gate.noEndpoint":
+    "In questa sessione le modifiche non vengono fermate: Hangar non è riuscito ad avviare il suo endpoint locale per gli hook.",
+  "gate.launcher":
+    "In questa sessione le modifiche non vengono fermate: il percorso della cartella dati di Hangar contiene caratteri che cmd.exe interpreterebbe.",
   "settings.subAgentExcerpts": "Mostra estratti di testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
     "Mostra l'ultimo testo di ogni sotto-agente. Chiavi e password riconoscibili vengono nascoste e non viene salvato nulla.",
@@ -4367,6 +4496,27 @@ const ja: Record<MessageKey, string> = {
   "settings.claims": "セッション間の重なりを検出",
   "settings.claimsHelp":
     "エージェントが変更するファイルを Hangar が確認し、2 つのセッションが同じファイルや同じ行を編集すると知らせます。すべてこのコンピューター内で行われ、ファイルの内容は読み取りません。",
+  "gate.label": "判断が必要です",
+  "gate.title": "{session} が {path} を変更しようとしています",
+  "gate.also": "{others} もこのファイルを変更中です",
+  "gate.alsoLines": "{others} もこのファイルを変更中です: {lines}",
+  "gate.allowOnce": "今回だけ許可",
+  "gate.allowFile": "このファイルは許可",
+  "gate.deny": "許可しない",
+  "gate.showOther": "もう一方のセッションを表示",
+  "gate.more": "ほかに待機中: {count}",
+  "gate.timeout": "10 分間応答がないと「許可しない」になります。",
+  "gate.failed": "応答を送れませんでした: {error}",
+  "gate.announce": "{title} があなたの判断を待っています",
+  "status.gate": "判断待ち",
+  "settings.gate": "別のセッションが変更中のファイルを編集する前にエージェントを一時停止",
+  "settings.gateHelp":
+    "Claude Code はここで判断するまで待ちます。オンの間に開始した Claude Code セッションに適用されます（WSL 内は対象外）。セッション間の調整であり、保護ではありません。ターミナル経由の変更は止まらず、Hangar が応答できない場合は変更が実行されます。",
+  "settings.gateNeedsClaims": "「{setting}」が必要です。",
+  "gate.noEndpoint":
+    "このセッションでは変更は一時停止されません。Hangar がローカルのフック用エンドポイントを開始できませんでした。",
+  "gate.launcher":
+    "このセッションでは変更は一時停止されません。Hangar のデータフォルダーのパスに cmd.exe が解釈する文字が含まれています。",
   "settings.subAgentExcerpts": "サブエージェントのテキスト抜粋を表示",
   "settings.subAgentExcerptsHelp":
     "各サブエージェントの最新のテキストを表示します。認識できるキーやパスワードは隠され、何も保存されません。",
@@ -5073,6 +5223,27 @@ const pl: Record<MessageKey, string> = {
   "settings.claims": "Wykrywaj nakładanie się sesji",
   "settings.claimsHelp":
     "Hangar sprawdza, które pliki zmieniają agenci, i ostrzega, gdy dwie twoje sesje edytują ten sam plik lub te same wiersze. Wszystko zostaje na tym komputerze; Hangar nie czyta przy tym zawartości plików.",
+  "gate.label": "Potrzebna decyzja",
+  "gate.title": "{session} chce zmienić {path}",
+  "gate.also": "Zmienia go też {others}",
+  "gate.alsoLines": "Zmienia go też {others}: {lines}",
+  "gate.allowOnce": "Zezwól raz",
+  "gate.allowFile": "Zezwól dla tego pliku",
+  "gate.deny": "Nie zezwalaj",
+  "gate.showOther": "Pokaż drugą sesję",
+  "gate.more": "Czeka jeszcze: {count}",
+  "gate.timeout": "Bez odpowiedzi po 10 minutach liczy się jako „Nie zezwalaj”.",
+  "gate.failed": "Twoja odpowiedź nie dotarła: {error}",
+  "gate.announce": "{title} czeka na twoją decyzję",
+  "status.gate": "czeka na twoją decyzję",
+  "settings.gate": "Wstrzymuj agentów przed edycją pliku, który zmienia inna sesja",
+  "settings.gateHelp":
+    "Claude Code czeka wtedy, aż zdecydujesz tutaj. Dotyczy sesji Claude Code uruchomionych, gdy to jest włączone, nie w WSL. To koordynuje twoje sesje i nie jest ochroną: zmiany przez terminal nie są wstrzymywane, a gdy Hangar nie może odpowiedzieć, zmiana zostaje wykonana.",
+  "settings.gateNeedsClaims": "Wymaga opcji „{setting}”.",
+  "gate.noEndpoint":
+    "W tej sesji zmiany nie są wstrzymywane: Hangar nie mógł uruchomić lokalnego punktu dla hooków.",
+  "gate.launcher":
+    "W tej sesji zmiany nie są wstrzymywane: ścieżka folderu danych Hangara zawiera znaki, które cmd.exe by zinterpretował.",
   "settings.subAgentExcerpts": "Pokazuj fragmenty tekstu podagentów",
   "settings.subAgentExcerptsHelp":
     "Pokazuje ostatni tekst każdego podagenta. Rozpoznawalne klucze i hasła są ukrywane, a nic nie jest zapisywane.",
@@ -5774,6 +5945,27 @@ const pt: Record<MessageKey, string> = {
   "settings.claims": "Detectar sobreposições entre sessões",
   "settings.claimsHelp":
     "O Hangar observa quais arquivos os agentes alteram e avisa quando duas sessões suas editam o mesmo arquivo ou as mesmas linhas. Tudo fica neste computador; o Hangar não lê o conteúdo dos arquivos para isso.",
+  "gate.label": "Decisão necessária",
+  "gate.title": "{session} quer alterar {path}",
+  "gate.also": "Também está sendo alterado por {others}",
+  "gate.alsoLines": "Também está sendo alterado por {others}: {lines}",
+  "gate.allowOnce": "Permitir uma vez",
+  "gate.allowFile": "Permitir para este arquivo",
+  "gate.deny": "Não permitir",
+  "gate.showOther": "Mostrar a outra sessão",
+  "gate.more": "Mais aguardando: {count}",
+  "gate.timeout": 'Sem resposta, após 10 minutos vale como "Não permitir".',
+  "gate.failed": "Sua resposta não chegou: {error}",
+  "gate.announce": "{title} aguarda sua decisão",
+  "status.gate": "aguarda sua decisão",
+  "settings.gate": "Pausar agentes antes de editar um arquivo que outra sessão está alterando",
+  "settings.gateHelp":
+    "O Claude Code então espera até você decidir aqui. Vale para sessões do Claude Code iniciadas enquanto isto estiver ativado, não dentro do WSL. Isto coordena suas sessões e não é uma proteção: alterações pelo terminal não são retidas e, se o Hangar não puder responder, a alteração segue adiante.",
+  "settings.gateNeedsClaims": 'Requer "{setting}".',
+  "gate.noEndpoint":
+    "Nesta sessão as alterações não são pausadas: o Hangar não conseguiu iniciar seu endpoint local de hooks.",
+  "gate.launcher":
+    "Nesta sessão as alterações não são pausadas: o caminho da pasta de dados do Hangar contém caracteres que o cmd.exe interpretaria.",
   "settings.subAgentExcerpts": "Mostrar trechos de texto dos subagentes",
   "settings.subAgentExcerptsHelp":
     "Mostra o texto mais recente de cada subagente. Chaves e senhas reconhecíveis ficam ocultas e nada é salvo.",
@@ -6482,6 +6674,27 @@ const ru: Record<MessageKey, string> = {
   "settings.claims": "Находить пересечения между сессиями",
   "settings.claimsHelp":
     "Hangar следит, какие файлы меняют агенты, и предупреждает, когда две твои сессии правят один файл или одни строки. Всё остаётся на этом компьютере; содержимое файлов Hangar для этого не читает.",
+  "gate.label": "Нужно решение",
+  "gate.title": "{session} хочет изменить {path}",
+  "gate.also": "Его также меняет {others}",
+  "gate.alsoLines": "Его также меняет {others}: {lines}",
+  "gate.allowOnce": "Разрешить один раз",
+  "gate.allowFile": "Разрешить для этого файла",
+  "gate.deny": "Не разрешать",
+  "gate.showOther": "Показать другую сессию",
+  "gate.more": "Ждут ещё: {count}",
+  "gate.timeout": "Без ответа через 10 минут считается «Не разрешать».",
+  "gate.failed": "Твой ответ не дошёл: {error}",
+  "gate.announce": "{title} ждёт твоего решения",
+  "status.gate": "ждёт твоего решения",
+  "settings.gate": "Останавливать агентов перед правкой файла, который меняет другая сессия",
+  "settings.gateHelp":
+    "Тогда Claude Code ждёт, пока ты решишь здесь. Действует для сессий Claude Code, запущенных, пока это включено, но не внутри WSL. Это согласует твои сессии и не является защитой: изменения через терминал не задерживаются, а если Hangar не может ответить, изменение выполняется.",
+  "settings.gateNeedsClaims": "Нужна опция «{setting}».",
+  "gate.noEndpoint":
+    "В этой сессии изменения не приостанавливаются: Hangar не смог запустить локальную точку для хуков.",
+  "gate.launcher":
+    "В этой сессии изменения не приостанавливаются: путь к папке данных Hangar содержит символы, которые cmd.exe стал бы интерпретировать.",
   "settings.subAgentExcerpts": "Показывать фрагменты текста субагентов",
   "settings.subAgentExcerptsHelp":
     "Показывает последний текст каждого субагента. Распознанные ключи и пароли скрываются, ничего не сохраняется.",
@@ -7177,6 +7390,27 @@ const tr: Record<MessageKey, string> = {
   "settings.claims": "Oturumlar arasındaki çakışmaları algıla",
   "settings.claimsHelp":
     "Hangar ajanların hangi dosyaları değiştirdiğine bakar ve iki oturumun aynı dosyayı ya da aynı satırları düzenlediğinde seni uyarır. Her şey bu bilgisayarda kalır; Hangar bunun için dosya içeriği okumaz.",
+  "gate.label": "Karar gerekiyor",
+  "gate.title": "{session}, {path} dosyasını değiştirmek istiyor",
+  "gate.also": "{others} da bu dosyayı değiştiriyor",
+  "gate.alsoLines": "{others} da bu dosyayı değiştiriyor: {lines}",
+  "gate.allowOnce": "Bir kez izin ver",
+  "gate.allowFile": "Bu dosya için izin ver",
+  "gate.deny": "İzin verme",
+  "gate.showOther": "Diğer oturumu göster",
+  "gate.more": "Bekleyen diğerleri: {count}",
+  "gate.timeout": 'Yanıt verilmezse 10 dakika sonra "İzin verme" sayılır.',
+  "gate.failed": "Yanıtın ulaşmadı: {error}",
+  "gate.announce": "{title} kararını bekliyor",
+  "status.gate": "kararını bekliyor",
+  "settings.gate": "Başka bir oturumun değiştirdiği dosyayı düzenlemeden önce ajanları duraklat",
+  "settings.gateHelp":
+    "Claude Code o zaman sen burada karar verene kadar bekler. Bu açıkken başlattığın Claude Code oturumları için geçerlidir, WSL içinde değil. Bu, oturumlarını eşgüdümler ve bir koruma değildir: terminal üzerinden yapılan değişiklikler durdurulmaz ve Hangar yanıt veremezse değişiklik yapılır.",
+  "settings.gateNeedsClaims": '"{setting}" gerekir.',
+  "gate.noEndpoint":
+    "Bu oturumda değişiklikler duraklatılmıyor: Hangar yerel hook uç noktasını başlatamadı.",
+  "gate.launcher":
+    "Bu oturumda değişiklikler duraklatılmıyor: Hangar'ın veri klasörünün yolu, cmd.exe'nin yorumlayacağı karakterler içeriyor.",
   "settings.subAgentExcerpts": "Alt ajan metin alıntılarını göster",
   "settings.subAgentExcerptsHelp":
     "Her alt ajanın son metnini gösterir. Tanınabilen anahtarlar ve parolalar gizlenir, hiçbiri kaydedilmez.",
@@ -7872,6 +8106,25 @@ const zh: Record<MessageKey, string> = {
   "settings.claims": "检测会话之间的重叠",
   "settings.claimsHelp":
     "Hangar 会查看代理修改了哪些文件，并在你的两个会话编辑同一文件或相同的行时提醒你。一切都留在这台电脑上，Hangar 不会为此读取文件内容。",
+  "gate.label": "需要你决定",
+  "gate.title": "{session} 想要修改 {path}",
+  "gate.also": "{others} 也在修改此文件",
+  "gate.alsoLines": "{others} 也在修改此文件：{lines}",
+  "gate.allowOnce": "允许一次",
+  "gate.allowFile": "允许此文件",
+  "gate.deny": "不允许",
+  "gate.showOther": "显示另一个会话",
+  "gate.more": "还有 {count} 个在等待",
+  "gate.timeout": "10 分钟内未回答将视为“不允许”。",
+  "gate.failed": "你的回答未能送达：{error}",
+  "gate.announce": "{title} 正在等待你的决定",
+  "status.gate": "等待你的决定",
+  "settings.gate": "在代理编辑另一个会话正在修改的文件前暂停",
+  "settings.gateHelp":
+    "Claude Code 会等你在这里做出决定。适用于开启期间启动的 Claude Code 会话，WSL 中的除外。这只是协调你的会话，并非保护：通过终端进行的修改不会被拦下，Hangar 无法回应时修改会照常进行。",
+  "settings.gateNeedsClaims": "需要开启“{setting}”。",
+  "gate.noEndpoint": "此会话中的修改不会暂停：Hangar 无法启动本地钩子端点。",
+  "gate.launcher": "此会话中的修改不会暂停：Hangar 数据文件夹的路径包含 cmd.exe 会解释的字符。",
   "settings.subAgentExcerpts": "显示子代理文本摘录",
   "settings.subAgentExcerptsHelp":
     "显示每个子代理的最新文本。可识别的密钥和密码会被隐藏，不会保存任何内容。",

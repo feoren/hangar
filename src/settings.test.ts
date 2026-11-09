@@ -5,6 +5,7 @@ import {
   CHIME_VOLUME,
   DEFAULT_ATTENTION_COLOR,
   defaultSettings,
+  gateActive,
   normalizeColor,
   parseSettings,
   QUIET_SECONDS,
@@ -45,6 +46,7 @@ describe("parseSettings", () => {
       scrollbackLines: 2000,
       subAgentExcerpts: false,
       claimsEnabled: false,
+      gateEnabled: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
       terminalScheme: "solarized",
       terminalFont: "JetBrains Mono",
@@ -76,6 +78,7 @@ describe("parseSettings", () => {
       scrollbackLines: "many",
       subAgentExcerpts: "off",
       claimsEnabled: "no",
+      gateEnabled: 0,
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
@@ -193,6 +196,18 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").claimsEnabled).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").claimsEnabled).toBe(true);
     expect(parseSettings(JSON.stringify({ claimsEnabled: false }), "de").claimsEnabled).toBe(false);
+  });
+
+  it("pauses agents before overlapping edits by default, also for older settings", () => {
+    expect(defaultSettings("de").gateEnabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").gateEnabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ gateEnabled: false }), "de").gateEnabled).toBe(false);
+  });
+
+  it("turns the gate on only together with the overlap detection", () => {
+    expect(gateActive({ claimsEnabled: true, gateEnabled: true })).toBe(true);
+    expect(gateActive({ claimsEnabled: false, gateEnabled: true })).toBe(false);
+    expect(gateActive({ claimsEnabled: true, gateEnabled: false })).toBe(false);
   });
 
   it("keeps the scrollback per session within limits and steps", () => {

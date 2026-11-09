@@ -22,6 +22,10 @@ describe("sessionChip", () => {
     expect(sessionChip(exited(0), "attention", "exit")).toBe("done");
   });
 
+  it("shows a pending decision as a question", () => {
+    expect(sessionChip(running, "attention", "gate")).toBe("asks");
+  });
+
   it("marks a failed exit, also once it was seen", () => {
     expect(sessionChip(exited(1), "attention", "exit")).toBe("failed");
     expect(sessionChip(exited(1), "idle", null)).toBe("failed");

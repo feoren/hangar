@@ -13,6 +13,8 @@ use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
+use crate::gate::{Answer, GateSnapshot};
+use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
@@ -1006,6 +1008,28 @@ pub fn configure_claims(claims: State<'_, ClaimsService>, enabled: bool) {
 #[tauri::command]
 pub fn claims_snapshot(claims: State<'_, ClaimsService>) -> ClaimsSnapshot {
     claims.snapshot()
+}
+
+// Agent gate (gate.rs, gate_service.rs). Contract: team-service-v1.md, step B.
+
+/// Turns the agent gate on or off (the window's setting). Only agents started while it is on get
+/// the hook; turning it off lets every waiting edit through. Emits `gate-changed` with a
+/// [`GateSnapshot`] whenever the waiting edits change.
+#[tauri::command]
+pub fn configure_gate(gate: State<'_, GateService>, enabled: bool) {
+    gate.configure(enabled);
+}
+
+#[tauri::command]
+pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
+    gate.snapshot()
+}
+
+/// The person's answer to a waiting edit; `false` when it no longer waits (answered, timed out,
+/// session ended).
+#[tauri::command]
+pub fn answer_gate(gate: State<'_, GateService>, id: u64, answer: Answer) -> bool {
+    gate.answer(id, answer)
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

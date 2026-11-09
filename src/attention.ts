@@ -10,9 +10,10 @@ export type AttentionState = "idle" | "working" | "attention";
 
 /**
  * Why a session waits: it went quiet after working, the program rang the bell (BEL, often a
- * question), or its process exited. Only set while the state is "attention".
+ * question), or its process exited. Only set while the state is "attention". "gate" never comes
+ * from the tracker: the app sets it while the agent waits for a pending decision (gate.ts).
  */
-export type AttentionReason = "quiet" | "bell" | "exit";
+export type AttentionReason = "quiet" | "bell" | "exit" | "gate";
 
 export interface AttentionConfig {
   enabled: boolean;

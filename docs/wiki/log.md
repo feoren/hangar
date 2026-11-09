@@ -128,3 +128,21 @@ stopped following symlinks in the watcher, dropped events from ignored top-level
 a scan budget across worktrees, cached folder keys, capped overlaps per session, gave a released
 worktree back when its removal fails, and showed the overlap in the collapsed rail. Read notify
 8.2.2's inotify source for the ENOSPC path. Pages changed: [[team-service-v1]].
+
+## [2026-11-09] ingest | Claude Code http hooks and step B as built
+Measured Claude Code 2.1.319 http hooks given through `--settings` (request shape, deny reason
+reaches the model, timeout and unreachable endpoint fail open, no http hooks on SessionStart,
+UserPromptSubmit context) and filed excerpts of the hooks reference. Built the agent gate (step
+B): catalog capability flags, local hook endpoint with per-session tokens, pending decisions
+answered in the window, facts as prompt context. Pages changed: [[claude-http-hook-measurement]],
+[[team-service-v1]].
+
+## [2026-11-09] ingest | Claude Code --settings file and step B hardening
+Measured `claude -p --settings <file>` with Claude Code 2.1.319 (file path with spaces works,
+`Host` is `127.0.0.1:<port>`, "ask" in print mode does not write the file). Hardened step B after
+the security and acceptance reviews: total time limits per request and separate slots for
+unknown clients, 403 for browser requests and other hosts, no file system access for UNC and
+device paths, names as JSON literals in reasons and facts, a per-session decision limit with
+"ask" when full, a settings file for `claude.cmd`, a gate status per session, and a restore that
+waits for the first gate setting. Pages changed: [[claude-settings-file-measurement]],
+[[team-service-v1]].

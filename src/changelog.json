@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Bevor Claude Code eine Datei ändert, an der eine andere Session gerade arbeitet, fragt Hangar dich: einmal erlauben, für die Datei erlauben oder nicht.",
+        "en": "Before Claude Code changes a file another session is working on, Hangar asks you: allow once, allow for that file, or don't allow.",
+        "el": "Πριν το Claude Code αλλάξει αρχείο που αλλάζει άλλη συνεδρία, το Hangar σε ρωτά: άδεια μία φορά, για το αρχείο ή όχι.",
+        "es": "Antes de que Claude Code cambie un archivo en el que trabaja otra sesión, Hangar te pregunta: permitir una vez, para ese archivo o no permitir.",
+        "fr": "Avant que Claude Code modifie un fichier sur lequel travaille une autre session, Hangar te demande : une fois, pour ce fichier ou pas du tout.",
+        "it": "Prima che Claude Code modifichi un file su cui lavora un'altra sessione, Hangar ti chiede: consenti una volta, per quel file o non consentire.",
+        "ja": "別のセッションが作業中のファイルを Claude Code が変更する前に、Hangar が確認します。今回だけ許可、このファイルは許可、または許可しない。",
+        "pl": "Zanim Claude Code zmieni plik, nad którym pracuje inna sesja, Hangar zapyta: zezwól raz, dla tego pliku albo nie zezwalaj.",
+        "pt": "Antes de o Claude Code alterar um arquivo em que outra sessão trabalha, o Hangar pergunta: permitir uma vez, para esse arquivo ou não permitir.",
+        "ru": "Прежде чем Claude Code изменит файл, над которым работает другая сессия, Hangar спросит: разрешить один раз, для этого файла или нет.",
+        "tr": "Claude Code başka bir oturumun üzerinde çalıştığı dosyayı değiştirmeden önce Hangar sorar: bir kez izin ver, bu dosya için izin ver ya da verme.",
+        "zh": "在 Claude Code 修改另一个会话正在处理的文件之前，Hangar 会先问你：允许一次、允许此文件或不允许。"
+      },
+      {
         "de": "Zwei Agenten an derselben Datei? Hangar merkt es: ein Hinweis an der Session, in „Änderungen“ die betroffenen Zeilen und ein Sprung zur anderen Session.",
         "en": "Two agents on the same file? Hangar notices: a marker on the session, the affected lines under Changes and a jump to the other session.",
         "el": "Δύο πράκτορες στο ίδιο αρχείο; Το Hangar το προσέχει: σήμανση στη συνεδρία, οι γραμμές στις Αλλαγές και μετάβαση στην άλλη συνεδρία.",

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize, Serializer};
+use zeroize::Zeroizing;
 
 use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source};
 use crate::batch;
@@ -31,7 +32,7 @@ use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::ProcTree;
 use crate::profile::Profile;
 use crate::secrets::{self, KeyringStore, SecretStore};
-use crate::session::{SessionId, SessionInfo, SessionKind, Status, TransitionError};
+use crate::session::{GateStatus, SessionId, SessionInfo, SessionKind, Status, TransitionError};
 use crate::subagents;
 use crate::updates::{self, CommandError};
 use crate::wsl;
@@ -104,6 +105,42 @@ pub enum SessionEvent {
         cli_session_id: Option<String>,
         sub_agents: bool,
     },
+}
+
+/// What the agent gate (`gate_service.rs`) adds to one process start of an agent session.
+pub struct GateLaunch {
+    /// Appended to the start arguments, before a working folder option.
+    pub args: Vec<String>,
+    /// Set in the child's environment only, after the profile's own variables.
+    pub env: Vec<(String, Zeroizing<String>)>,
+}
+
+/// What the agent gate decided for one process start.
+pub enum GatePlan {
+    /// Not for this program, or the gate is off: the session shows nothing about it.
+    Skip,
+    Launch(GateLaunch),
+    /// The program could take the hooks but does not get them; the session shows why.
+    Unavailable(GateStatus),
+}
+
+impl GatePlan {
+    fn status(&self) -> GateStatus {
+        match self {
+            GatePlan::Skip => GateStatus::None,
+            GatePlan::Launch(_) => GateStatus::Active,
+            GatePlan::Unavailable(status) => *status,
+        }
+    }
+}
+
+/// Installs the agent gate per process. `prepare` is called without the session lock for every
+/// start of an agent session (first start, restart, resume and its fallback); `ended` is called
+/// under the session lock when that process is gone or the session closed, so a restart that
+/// follows can never lose its new registration to the old process's end.
+pub trait LaunchGate: Send + Sync {
+    fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan;
+    fn ended(&self, session: SessionId);
 }
 
 /// Receiver of a session's events (a Tauri channel in production, a closure in tests).
@@ -213,6 +250,8 @@ struct Runtime {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     tree: Option<ProcTree>,
     flow: Arc<Flow>,
+    /// The agent gate for this process, copied into the session's info when it attaches.
+    gate: GateStatus,
 }
 
 impl Runtime {
@@ -244,9 +283,30 @@ struct Shared {
     sessions: Mutex<HashMap<SessionId, Entry>>,
     /// Values of the profiles' `secret_env`, read at every start (also restart and fallback).
     secrets: Arc<dyn SecretStore>,
+    /// The agent gate, once the app set it ([`SessionManager::set_launch_gate`]).
+    gate: Mutex<Option<Arc<dyn LaunchGate>>>,
 }
 
 impl Shared {
+    fn new(secrets: Arc<dyn SecretStore>) -> Self {
+        Self {
+            sessions: Mutex::default(),
+            secrets,
+            gate: Mutex::new(None),
+        }
+    }
+
+    fn launch_gate(&self) -> Option<Arc<dyn LaunchGate>> {
+        lock(&self.gate).clone()
+    }
+
+    /// The gate lets go of the session's process. Under the session lock (see [`LaunchGate`]).
+    fn gate_ended(&self, id: SessionId) {
+        if let Some(gate) = self.launch_gate() {
+            gate.ended(id);
+        }
+    }
+
     fn finish(&self, id: SessionId, generation: u64, code: Option<u32>) {
         let mut sessions = lock(&self.sessions);
         if let Some(entry) = sessions.get_mut(&id) {
@@ -254,6 +314,7 @@ impl Shared {
                 entry.runtime = None;
                 // Already exited means another path was faster. Nothing to do.
                 let _ = entry.info.mark_exited(code);
+                self.gate_ended(id);
             }
         }
     }
@@ -267,6 +328,7 @@ impl Shared {
             let _ = runtime.kill();
             return Err(ManagerError::UnknownSession(id));
         };
+        entry.info.gate = runtime.gate;
         // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
         if entry.info.status == Status::Starting {
             entry.info.mark_running()?;
@@ -301,6 +363,9 @@ impl Shared {
             if entry.info.mark_exited(code).is_err() || entry.info.mark_restarting().is_err() {
                 return false;
             }
+            // The failed process is gone: its token, held edits and what it was told go with it,
+            // so the fresh conversation starts with a clean slate like a restart.
+            self.gate_ended(id);
             entry.info.resumed = false;
             entry.generation += 1;
             let plan = Plan::fallback(&entry.agent.profile, entry.info.cli_session_id.take());
@@ -414,21 +479,20 @@ impl SessionManager {
             catalog,
             home,
             next_id: AtomicU64::new(1),
-            shared: Arc::new(Shared {
-                sessions: Mutex::default(),
-                secrets: Arc::new(KeyringStore::default()),
-            }),
+            shared: Arc::new(Shared::new(Arc::new(KeyringStore::default()))),
         }
     }
 
     /// Another place for secret values, for tests. Only before the first session starts.
     #[must_use]
     pub fn with_secret_store(mut self, store: Arc<dyn SecretStore>) -> Self {
-        self.shared = Arc::new(Shared {
-            sessions: Mutex::default(),
-            secrets: store,
-        });
+        self.shared = Arc::new(Shared::new(store));
         self
+    }
+
+    /// Hands every later agent start to the agent gate ([`LaunchGate`]).
+    pub fn set_launch_gate(&self, gate: Arc<dyn LaunchGate>) {
+        *lock(&self.shared.gate) = Some(gate);
     }
 
     pub fn secret_store(&self) -> Arc<dyn SecretStore> {
@@ -765,7 +829,9 @@ impl SessionManager {
         ) {
             Ok(runtime) => self.shared.attach(id, runtime),
             Err(error) => {
-                lock(&self.shared.sessions).remove(&id);
+                let mut sessions = lock(&self.shared.sessions);
+                sessions.remove(&id);
+                self.shared.gate_ended(id);
                 Err(error)
             }
         }
@@ -825,6 +891,7 @@ impl SessionManager {
             Err(error) => {
                 if let Some(entry) = lock(&self.shared.sessions).get_mut(&id) {
                     let _ = entry.info.mark_exited(None);
+                    self.shared.gate_ended(id);
                 }
                 Err(error)
             }
@@ -919,9 +986,14 @@ impl SessionManager {
 
     /// Ends the process (if it is running) and removes the session.
     pub fn close(&self, id: SessionId) -> Result<(), ManagerError> {
-        let entry = lock(&self.shared.sessions)
-            .remove(&id)
-            .ok_or(ManagerError::UnknownSession(id))?;
+        let entry = {
+            let mut sessions = lock(&self.shared.sessions);
+            let entry = sessions
+                .remove(&id)
+                .ok_or(ManagerError::UnknownSession(id))?;
+            self.shared.gate_ended(id);
+            entry
+        };
         if let Some(runtime) = entry.runtime {
             runtime.flow.close();
             // Failure usually means the process was already gone. Dropping `runtime` cleans up the rest.
@@ -932,10 +1004,14 @@ impl SessionManager {
 
     /// Ends all sessions, for example when the app closes.
     pub fn shutdown(&self) {
-        let entries: Vec<Entry> = lock(&self.shared.sessions)
-            .drain()
-            .map(|(_, e)| e)
-            .collect();
+        let entries: Vec<Entry> = {
+            let mut sessions = lock(&self.shared.sessions);
+            let entries: Vec<Entry> = sessions.drain().map(|(_, e)| e).collect();
+            for entry in &entries {
+                self.shared.gate_ended(entry.info.id);
+            }
+            entries
+        };
         for runtime in entries.into_iter().filter_map(|e| e.runtime) {
             runtime.flow.close();
             let _ = runtime.kill();
@@ -1002,6 +1078,19 @@ fn spawn(
         .program;
     let profile = &agent.profile;
     let mut args = launch.args.to_vec();
+    // Update sessions never get the gate: they run an installer, not the agent.
+    let plan = match (launch.kind, shared.launch_gate()) {
+        (SessionKind::Agent, Some(gate)) => gate.prepare(id, agent, &program),
+        _ => GatePlan::Skip,
+    };
+    let gate_status = plan.status();
+    let gate = match plan {
+        GatePlan::Launch(launch) => Some(launch),
+        GatePlan::Skip | GatePlan::Unavailable(_) => None,
+    };
+    if let Some(gate) = &gate {
+        args.extend(gate.args.iter().cloned());
+    }
     if let Some(flag) = agent.cwd_flag {
         args.push(flag.to_owned());
         args.push(cwd.to_string_lossy().into_owned());
@@ -1027,6 +1116,8 @@ fn spawn(
     for key in INHERITED_SESSION_MARKERS {
         command.env_remove(key);
     }
+    // A Hangar started inside a gated session must not hand that session's token on.
+    command.env_remove(crate::gate::TOKEN_ENV);
     if cfg!(windows) && (launch.kind == SessionKind::Update || batch) {
         // Otherwise cmd.exe (and with it every `.cmd` launcher script such as `npm.cmd` or `codex.cmd`)
         // looks for programs in the working folder first, where a foreign project could drop `node.cmd`.
@@ -1047,6 +1138,10 @@ fn spawn(
     for (name, value) in
         secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)
     {
+        command.env(name, value.as_str());
+    }
+    // Last, so no profile variable can replace the gate's token.
+    for (name, value) in gate.iter().flat_map(|gate| &gate.env) {
         command.env(name, value.as_str());
     }
     let started = Instant::now();
@@ -1121,6 +1216,7 @@ fn spawn(
         killer: Mutex::new(killer),
         tree,
         flow,
+        gate: gate_status,
     })
 }
 

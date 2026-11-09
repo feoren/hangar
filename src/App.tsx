@@ -154,7 +154,13 @@ import {
   utf8Bytes,
   type ExportFormat,
 } from "./sessionExport";
-import { hasStoredSettings, loadSettings, saveSettings, type Settings } from "./settings";
+import {
+  gateActive,
+  hasStoredSettings,
+  loadSettings,
+  saveSettings,
+  type Settings,
+} from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
 import {
   focusCycleStep,
@@ -199,6 +205,16 @@ import { planSubAgentPanes } from "./subAgents";
 import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
+import { gateReady, useGate } from "./useGate";
+import {
+  decisionText,
+  decisionToShow,
+  waitingSessions,
+  withGate,
+  type GateAnswer,
+  type PendingDecision,
+} from "./gate";
+import { GateCard } from "./GateCard";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
@@ -371,9 +387,14 @@ export function App() {
   // Read before the settings are saved for the first time: has Hangar run here before?
   const [knownUser] = useState(hasStoredSettings);
   const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [attention, setAttention] = useState<ReadonlyMap<number, AttentionState>>(() => new Map());
+  /** What the terminals' trackers report; `attention` below adds the gate's waiting sessions. */
+  const [trackedAttention, setAttention] = useState<ReadonlyMap<number, AttentionState>>(
+    () => new Map(),
+  );
   /** Why a waiting session waits (attention.ts); only sessions in "attention" have an entry. */
-  const [reasons, setReasons] = useState<ReadonlyMap<number, AttentionReason>>(() => new Map());
+  const [trackedReasons, setReasons] = useState<ReadonlyMap<number, AttentionReason>>(
+    () => new Map(),
+  );
   /** Profile list loaded once (or failed): only then does the restore run. */
   const [profilesReady, setProfilesReady] = useState(false);
   /** Restore finished; nothing is saved before that, otherwise an empty start would overwrite the saved state. */
@@ -487,6 +508,12 @@ export function App() {
   >(null);
   /** A new collision of two sessions on one file (claims.ts), until dismissed or replaced. */
   const [claimNotice, setClaimNotice] = useState<{ overlap: Overlap; key: number } | null>(null);
+  /** Gate decisions answered here whose snapshot has not caught up yet: hidden at once. */
+  const [answeredGate, setAnsweredGate] = useState<ReadonlySet<number>>(() => new Set());
+  /** An answer that did not reach the backend, shown on its card. */
+  const [gateError, setGateError] = useState<{ id: number; text: string } | null>(null);
+  /** Above 0 while Ctrl+Shift+A wants the focus on the decision card; the card resets it. */
+  const [gateFocusToken, setGateFocusToken] = useState(0);
   const updater = useUpdater(version, settings.autoUpdate);
   const installed = installedKey(profiles);
   const programs = usePrograms(installed, settings.showVersions, settings.showIcons, startupDone);
@@ -809,6 +836,40 @@ export function App() {
     const text = overlapNotice(first, name, createTranslator(current.language));
     api.notifySession(first.sessionId, text.title, text.body).catch(() => undefined);
   });
+  // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
+  // notification once, under the same settings as a session that starts waiting.
+  const gate = useGate(gateActive(settings), (fresh) => {
+    const current = settingsRef.current;
+    if (!current.attentionEnabled) return;
+    const watched = windowWatched();
+    if (current.chime && fresh.some((d) => !(watched && shownRef.current.has(d.sessionId)))) {
+      chimes.request("waiting", current.chimeVolume);
+    }
+    flasher.attentionChanged("attention", {
+      enabled: current.taskbarFlash,
+      windowFocused: document.hasFocus(),
+    });
+    const first = fresh[0];
+    if (first === undefined || !current.notifyDesktop || document.hasFocus()) return;
+    const name = (id: number) =>
+      stateRef.current.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
+    const text = decisionText(first, name, createTranslator(current.language));
+    api.notifySession(first.sessionId, text.title, text.detail).catch(() => undefined);
+  });
+  /** Pending decisions not answered here yet, oldest first. */
+  const pendingGate = useMemo(
+    () => gate.pending.filter((decision) => !answeredGate.has(decision.id)),
+    [gate.pending, answeredGate],
+  );
+  // A session waiting for a decision looks like any waiting session, with the reason "gate".
+  const { attention, reasons } = useMemo(
+    () =>
+      withGate(
+        { attention: trackedAttention, reasons: trackedReasons },
+        waitingSessions({ enabled: gate.enabled, pending: pendingGate }),
+      ),
+    [trackedAttention, trackedReasons, gate.enabled, pendingGate],
+  );
   /** Overlaps per session, grouped once per snapshot. */
   const overlapsById = useMemo(() => overlapsBySession(claims), [claims]);
   /** Sidebar marker text per session that collides with another one on a file. */
@@ -994,6 +1055,46 @@ export function App() {
       shownKey === "" ? [] : shownKey.split(",").map((part) => Number(part)),
     );
   }, [shownKey]);
+
+  /** The one decision on a card; the others are counted on it. */
+  const shownDecision = decisionToShow(pendingGate, state.activeId, shown);
+
+  const answerDecision = (decision: PendingDecision, answer: GateAnswer) => {
+    setGateError(null);
+    setAnsweredGate((current) => new Set(current).add(decision.id));
+    focusTerminal();
+    // `false` means the decision no longer waited: the next snapshot drops it anyway.
+    api.answerGate(decision.id, answer).catch((e: unknown) => {
+      setAnsweredGate((current) => {
+        const next = new Set(current);
+        next.delete(decision.id);
+        return next;
+      });
+      setGateError({ id: decision.id, text: t("gate.failed", { error: errorText(e) }) });
+    });
+  };
+
+  const clearGateFocus = useCallback(() => {
+    setGateFocusToken(0);
+  }, []);
+
+  const gateCardFor = (decision: PendingDecision, floating: boolean) => (
+    <GateCard
+      key={decision.id}
+      focusToken={gateFocusToken}
+      onFocused={clearGateFocus}
+      decision={decision}
+      floating={floating}
+      more={pendingGate.length - 1}
+      error={gateError?.id === decision.id ? gateError.text : null}
+      nameOf={sessionName}
+      onAnswer={(answer) => {
+        answerDecision(decision, answer);
+      }}
+      onShowSession={showSession}
+      onEscape={focusTerminal}
+    />
+  );
 
   /** Opens or closes the sub-agent view of a session; opening makes the session active. */
   const toggleSubAgents = (id: number) => {
@@ -1765,6 +1866,8 @@ export function App() {
       if (!settingsRef.current.restoreSessions) return true;
       const workspace = parseWorkspace(await api.loadWorkspace());
       if (!workspace || workspace.sessions.length === 0) return true;
+      // Claude Code sessions get the gate only if the backend knows the setting before they start.
+      await gateReady;
       const language = settingsRef.current.language;
       const banner = createTranslator(language)("terminal.restored", {
         time: formatShortTime(new Date(), language),
@@ -2510,6 +2613,16 @@ export function App() {
         setDialog("settings");
         break;
       case "nextWaiting": {
+        // A pending decision comes first: its card takes the focus. Pressed again on the card,
+        // the shortcut goes on to the next waiting session as usual.
+        const onCard = (document.activeElement?.closest(".gate-card") ?? null) !== null;
+        if (shownDecision !== null && !onCard) {
+          if (shownDecision.sessionId !== state.activeId && shown.has(shownDecision.sessionId)) {
+            dispatch({ type: "activated", id: shownDecision.sessionId });
+          }
+          setGateFocusToken((token) => token + 1);
+          break;
+        }
         const id = nextWaitingId(
           state.sessions,
           state.activeId,
@@ -3281,6 +3394,9 @@ export function App() {
                       setSessionMenu({ id, x, y });
                     }}
                   >
+                    {shownDecision?.sessionId === session.id &&
+                      shown.has(session.id) &&
+                      gateCardFor(shownDecision, false)}
                     {searchTerminal === terminal && search !== null && (
                       <SearchBar
                         key={search.sessionId}
@@ -3302,6 +3418,9 @@ export function App() {
                   onClose={closeSubAgents}
                 />
               )}
+              {shownDecision !== null &&
+                !shown.has(shownDecision.sessionId) &&
+                gateCardFor(shownDecision, true)}
               {state.sessions.length > 0 &&
                 subAgentPlan === null &&
                 splitView.split.slots.map((id, slot) =>
@@ -3842,7 +3961,13 @@ export function App() {
         )}
         {/* For screen readers: waiting sessions are announced without moving focus. */}
         <div className="sr-only" role="status">
-          {waiting.map((s) => t("attention.announce", { title: s.title })).join(". ")}
+          {waiting
+            .map((s) =>
+              t(reasons.get(s.id) === "gate" ? "gate.announce" : "attention.announce", {
+                title: s.title,
+              }),
+            )
+            .join(". ")}
         </div>
         {closingSession && (
           <Dialog labelledBy="close-title" onClose={cancelClose}>

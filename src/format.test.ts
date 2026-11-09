@@ -88,6 +88,12 @@ describe("statusText", () => {
       "fertig, wartet auf dich",
     );
   });
+
+  it("says a running agent needs a decision while the gate holds it", () => {
+    const running = { status: "running", exitCode: null } as const;
+    expect(statusText(running, en, "attention", "gate")).toBe("needs your decision");
+    expect(statusText(running, de, "attention", "gate")).toBe("braucht deine Entscheidung");
+  });
 });
 
 describe("badgeText", () => {

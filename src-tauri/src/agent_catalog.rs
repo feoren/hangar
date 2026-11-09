@@ -64,6 +64,34 @@ pub struct CatalogAgent {
     /// The program's own update command (see [`SelfUpdate`]).
     #[serde(default)]
     pub self_update: Option<SelfUpdate>,
+    /// What the agent gate can do with the program (see [`Capabilities`]).
+    #[serde(default)]
+    pub capabilities: Capabilities,
+}
+
+/// What Hangar's agent gate (team service step B, `gate.rs`) can do with a program. All false
+/// unless the catalog says otherwise; evidence per agent in
+/// docs/wiki/pages/syntheses/team-service-v1.md, section 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    /// A hook can stop an edit before it happens and tell the agent why.
+    #[serde(default)]
+    pub pre_edit_block: bool,
+    /// A hook can hand the agent facts as context.
+    #[serde(default)]
+    pub context_inject: bool,
+    /// Hooks can be given to one session without touching the user's settings files.
+    #[serde(default)]
+    pub per_session_config: bool,
+}
+
+impl Capabilities {
+    /// The gate can be installed for one session and hold its edits. The only format built so
+    /// far is Claude Code's `--settings`; a second agent will need a format field next to these.
+    pub fn gate(self) -> bool {
+        self.pre_edit_block && self.per_session_config
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,6 +191,8 @@ pub struct Agent {
     /// Option that hands the working folder to the program as an argument, followed by the
     /// folder (`wsl.exe --cd <folder>`); `None` for programs that simply start in it.
     pub cwd_flag: Option<&'static str>,
+    /// From the catalog; a user profile inherits them only when it starts the same program.
+    pub capabilities: Capabilities,
 }
 
 impl Agent {
@@ -182,6 +212,7 @@ impl Agent {
             homepage: None,
             install_hint: None,
             cwd_flag: None,
+            capabilities: Capabilities::default(),
         }
     }
 
@@ -218,6 +249,7 @@ impl Agent {
             homepage: agent.homepage,
             install_hint,
             cwd_flag: None,
+            capabilities: agent.capabilities,
         }
     }
 
@@ -349,6 +381,8 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                 let same_program = from_catalog.candidates.contains(&agent.profile.command);
                 if same_program {
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
+                    // The hooks belong to the program, like its session options.
+                    agent.capabilities = from_catalog.capabilities;
                 }
                 // Same program, same packages and self-updater.
                 if same_program {
@@ -470,6 +504,7 @@ mod tests {
             update_hint: None,
             packages: None,
             self_update: None,
+            capabilities: Capabilities::default(),
         }
     }
 
@@ -994,6 +1029,79 @@ packages={ winget='x y' }
             (own[0].homepage.as_ref(), own[0].install_hint.as_ref()),
             (None, None)
         );
+    }
+
+    #[test]
+    fn capabilities_in_builtin_catalog() {
+        let agents = builtin().unwrap();
+        let caps = |id: &str| {
+            agents
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{id} missing"))
+                .capabilities
+        };
+        // Evidence: docs/wiki/pages/sources/claude-http-hook-measurement.md.
+        let claude = caps("claude");
+        assert!(claude.pre_edit_block && claude.context_inject && claude.per_session_config);
+        assert!(claude.gate());
+        // Not verified yet (team-service-v1.md, section 1): the step A warning applies.
+        for id in ["codex", "gemini", "copilot", "aider", "opencode"] {
+            assert_eq!(caps(id), Capabilities::default(), "{id}");
+            assert!(!caps(id).gate(), "{id}");
+        }
+        // Only the Claude Code format is built; any other entry with the gate needs code first.
+        let gated: Vec<&str> = agents
+            .iter()
+            .filter(|a| a.capabilities.gate())
+            .map(|a| a.id.as_str())
+            .collect();
+        assert_eq!(gated, ["claude"]);
+    }
+
+    #[test]
+    fn capabilities_parse_and_reject_unknown_flags() {
+        let base = "[[agent]]
+id='x'
+name='X'
+commands=['x']
+";
+        assert_eq!(
+            parse(base).unwrap()[0].capabilities,
+            Capabilities::default()
+        );
+        let partial = format!(
+            "{base}capabilities = {{ pre_edit_block = true }}
+"
+        );
+        let caps = parse(&partial).unwrap()[0].capabilities;
+        assert!(caps.pre_edit_block && !caps.per_session_config && !caps.gate());
+        let unknown = format!(
+            "{base}capabilities = {{ pre_edit_blocks = true }}
+"
+        );
+        assert!(parse(&unknown).is_err());
+        let wrong_type = format!(
+            "{base}capabilities = {{ pre_edit_block = 'yes' }}
+"
+        );
+        assert!(parse(&wrong_type).is_err());
+    }
+
+    #[test]
+    fn capabilities_follow_the_program_into_user_profiles() {
+        let mut with_gate = catalog("claude", &["claude"]);
+        with_gate.capabilities = Capabilities {
+            pre_edit_block: true,
+            context_inject: true,
+            per_session_config: true,
+        };
+        let same = merge(vec![user("claude", "claude")], vec![with_gate.clone()]);
+        assert!(same[0].capabilities.gate());
+        // A wrapper of its own may not understand the hooks.
+        let other = merge(vec![user("claude", "my-wrapper")], vec![with_gate]);
+        assert!(!other[0].capabilities.gate());
+        assert!(!Agent::from_user(user("u", "claude")).capabilities.gate());
     }
 
     #[test]

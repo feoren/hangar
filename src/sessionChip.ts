@@ -28,7 +28,8 @@ export function sessionChip(
   reason: AttentionReason | null,
 ): ChipKind | null {
   if (exitedWithError(session)) return "failed";
-  if (state === "attention") return reason === "bell" ? "asks" : "done";
+  // A pending decision (gate) is a question too.
+  if (state === "attention") return reason === "bell" || reason === "gate" ? "asks" : "done";
   if (session.status === "exited") return "ended";
   if (state === "working") return "working";
   return null;

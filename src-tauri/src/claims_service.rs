@@ -27,8 +27,8 @@ use notify::{RecursiveMode, Watcher as _};
 
 use crate::claims::{
     self, folder_key, key_within, ClaimState, ClaimsSnapshot, Coalescer, RootView, ScanBudget,
-    ScanReason, ScanResult, SessionClaims, MAX_LISTED_CLAIMS, MAX_LISTED_OVERLAPS, POLL_ONLY,
-    POLL_WATCHED,
+    ScanReason, ScanResult, SessionClaims, WorktreeClaims, MAX_LISTED_CLAIMS, MAX_LISTED_OVERLAPS,
+    POLL_ONLY, POLL_WATCHED,
 };
 use crate::git::{self, Git, GitError};
 use crate::lock;
@@ -359,6 +359,8 @@ fn start_watcher(
 #[derive(Default)]
 struct Shared {
     snapshot: Mutex<ClaimsSnapshot>,
+    /// All claims per worktree for the agent gate, rebuilt with the snapshot.
+    worktrees: Mutex<Arc<Vec<WorktreeClaims>>>,
     /// Watchers per worktree key; here rather than in the worker so [`ClaimsService::release`]
     /// can close one at once.
     watchers: Mutex<HashMap<String, notify::RecommendedWatcher>>,
@@ -420,6 +422,12 @@ impl ClaimsService {
 
     pub fn snapshot(&self) -> ClaimsSnapshot {
         lock(&self.shared.snapshot).clone()
+    }
+
+    /// Every worktree with sessions and a finished scan, with all its claims; empty while the
+    /// claims are off. Cheap: the list is shared, not copied.
+    pub fn worktrees(&self) -> Arc<Vec<WorktreeClaims>> {
+        Arc::clone(&lock(&self.shared.worktrees))
     }
 
     /// Closes the watchers of `folder` and everything below it and waits for a running git call
@@ -852,11 +860,12 @@ impl Worker {
             return;
         }
         self.dirty = false;
-        let snapshot = if self.enabled {
-            self.build()
+        let (snapshot, worktrees) = if self.enabled {
+            (self.build(), self.worktrees())
         } else {
-            ClaimsSnapshot::default()
+            (ClaimsSnapshot::default(), Vec::new())
         };
+        *lock(&self.shared.worktrees) = Arc::new(worktrees);
         let mut current = lock(&self.shared.snapshot);
         if *current != snapshot {
             *current = snapshot.clone();
@@ -865,8 +874,8 @@ impl Worker {
         }
     }
 
-    fn build(&self) -> ClaimsSnapshot {
-        // Sessions per worktree, in the session list's order.
+    /// Sessions per worktree key, in the session list's order.
+    fn members(&self) -> HashMap<&str, Vec<SessionId>> {
         let mut members: HashMap<&str, Vec<SessionId>> = HashMap::new();
         for session in &self.active {
             if let Some(Place {
@@ -877,6 +886,33 @@ impl Worker {
                 members.entry(key.as_str()).or_default().push(session.id);
             }
         }
+        members
+    }
+
+    fn worktrees(&self) -> Vec<WorktreeClaims> {
+        let mut list: Vec<WorktreeClaims> = self
+            .members()
+            .into_iter()
+            .filter_map(|(key, sessions)| {
+                let root = self.roots.get(key)?;
+                let Some(Ok(result)) = &root.result else {
+                    return None;
+                };
+                Some(WorktreeClaims {
+                    repo: root.info.repo.clone(),
+                    root_key: root.info.key.clone(),
+                    base: result.base.clone(),
+                    sessions,
+                    claims: result.claims.clone(),
+                })
+            })
+            .collect();
+        list.sort_by(|a, b| a.root_key.cmp(&b.root_key));
+        list
+    }
+
+    fn build(&self) -> ClaimsSnapshot {
+        let members = self.members();
         let mut keys: Vec<&str> = members.keys().copied().collect();
         keys.sort_unstable();
         let views: Vec<RootView<'_>> = keys

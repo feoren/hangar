@@ -38,6 +38,7 @@ export function statusText(
   // A failure stays a failure, also while it waits to be seen: "done" would contradict it.
   if (exitedWithError(session)) return t("status.failed");
   if (attention === "attention") {
+    if (reason === "gate" && session.status === "running") return t("status.gate");
     return reason === "bell" && session.status === "running"
       ? t("status.asks")
       : t("status.attention");

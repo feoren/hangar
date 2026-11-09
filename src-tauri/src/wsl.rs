@@ -105,6 +105,7 @@ pub fn agent(distro: &str) -> Agent {
         homepage: None,
         install_hint: None,
         cwd_flag: Some("--cd"),
+        capabilities: crate::agent_catalog::Capabilities::default(),
     }
 }
 

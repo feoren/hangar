@@ -183,6 +183,12 @@
           "markdownDescription": "Enables the ack_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the answer_gate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-answer-gate",
+          "markdownDescription": "Enables the answer_gate command without any pre-configured scope."
+        },
+        {
           "description": "Enables the check_program_updates command without any pre-configured scope.",
           "type": "string",
           "const": "allow-check-program-updates",
@@ -211,6 +217,12 @@
           "type": "string",
           "const": "allow-configure-claims",
           "markdownDescription": "Enables the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the configure_gate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-configure-gate",
+          "markdownDescription": "Enables the configure_gate command without any pre-configured scope."
         },
         {
           "description": "Enables the configure_tray command without any pre-configured scope.",
@@ -289,6 +301,12 @@
           "type": "string",
           "const": "allow-export-session",
           "markdownDescription": "Enables the export_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the gate_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-gate-snapshot",
+          "markdownDescription": "Enables the gate_snapshot command without any pre-configured scope."
         },
         {
           "description": "Enables the git_branches command without any pre-configured scope.",
@@ -531,6 +549,12 @@
           "markdownDescription": "Denies the ack_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the answer_gate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-answer-gate",
+          "markdownDescription": "Denies the answer_gate command without any pre-configured scope."
+        },
+        {
           "description": "Denies the check_program_updates command without any pre-configured scope.",
           "type": "string",
           "const": "deny-check-program-updates",
@@ -559,6 +583,12 @@
           "type": "string",
           "const": "deny-configure-claims",
           "markdownDescription": "Denies the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the configure_gate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-configure-gate",
+          "markdownDescription": "Denies the configure_gate command without any pre-configured scope."
         },
         {
           "description": "Denies the configure_tray command without any pre-configured scope.",
@@ -637,6 +667,12 @@
           "type": "string",
           "const": "deny-export-session",
           "markdownDescription": "Denies the export_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the gate_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-gate-snapshot",
+          "markdownDescription": "Denies the gate_snapshot command without any pre-configured scope."
         },
         {
           "description": "Denies the git_branches command without any pre-configured scope.",

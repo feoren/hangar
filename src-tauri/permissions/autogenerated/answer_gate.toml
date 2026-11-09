@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-answer-gate"
+description = "Enables the answer_gate command without any pre-configured scope."
+commands.allow = ["answer_gate"]
+
+[[permission]]
+identifier = "deny-answer-gate"
+description = "Denies the answer_gate command without any pre-configured scope."
+commands.deny = ["answer_gate"]

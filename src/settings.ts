@@ -93,6 +93,11 @@ export interface Settings {
    * touch the same file or lines (claims.ts). Off: no watcher and no git call for it.
    */
   claimsEnabled: boolean;
+  /**
+   * Claude Code sessions started while this is on ask Hangar before editing a file another
+   * session is changing (gate.ts). Only effective together with `claimsEnabled`.
+   */
+  gateEnabled: boolean;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
   /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
@@ -118,6 +123,7 @@ type Flag =
   | "restoreSessions"
   | "subAgentExcerpts"
   | "claimsEnabled"
+  | "gateEnabled"
   | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
@@ -140,6 +146,7 @@ export function defaultSettings(language: Language): Settings {
     scrollbackLines: SCROLLBACK_LINES.default,
     subAgentExcerpts: true,
     claimsEnabled: true,
+    gateEnabled: true,
     programs: DEFAULT_PROGRAM_PREFS,
     terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
@@ -231,6 +238,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         : defaults.scrollbackLines,
     subAgentExcerpts: flag("subAgentExcerpts"),
     claimsEnabled: flag("claimsEnabled"),
+    gateEnabled: flag("gateEnabled"),
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
@@ -238,6 +246,11 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     cursorBlink: flag("cursorBlink"),
     snippets: parseSnippets(get("snippets"), chosenLanguage),
   };
+}
+
+/** The gate needs the claims: it asks only about files another session is known to change. */
+export function gateActive(settings: Pick<Settings, "claimsEnabled" | "gateEnabled">): boolean {
+  return settings.claimsEnabled && settings.gateEnabled;
 }
 
 export function loadSettings(fallbackLanguage: Language): Settings {

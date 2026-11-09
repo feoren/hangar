@@ -9,7 +9,10 @@ mod commands;
 pub mod desktop;
 pub mod export;
 pub mod filecache;
+pub mod gate;
+pub mod gate_service;
 pub mod git;
+pub mod hook_http;
 pub mod icon;
 pub mod install_source;
 pub mod manager;
@@ -96,6 +99,8 @@ pub fn run() -> tauri::Result<()> {
             let notes = notes::NotesStore::new(&local_dir);
             notes.migrate_legacy_layout();
             app.manage(notes);
+            // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
+            let gate_dir = local_dir.join("gate");
             app.manage(persist::Store::new(local_dir));
             // Local claims: the worker stays idle until the window turns the setting on.
             let claims = claims_service::ClaimsService::default();
@@ -112,6 +117,33 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: claims not started: {error}");
             }
             app.manage(claims);
+            // Agent gate: holds an agent's edit of a file another session is changing until the
+            // person decides; idle until the window turns it on and a gated agent starts.
+            let worktrees = app.handle().clone();
+            let titles = app.handle().clone();
+            let events = app.handle().clone();
+            let gate = gate_service::GateService::new(
+                gate_dir,
+                move || {
+                    worktrees
+                        .state::<claims_service::ClaimsService>()
+                        .worktrees()
+                },
+                move || {
+                    titles
+                        .state::<SessionManager>()
+                        .list()
+                        .into_iter()
+                        .map(|info| (info.id, info.title))
+                        .collect()
+                },
+                move |snapshot| {
+                    let _ = events.emit_to(notes_window::MAIN_LABEL, gate_service::EVENT, snapshot);
+                },
+            );
+            app.state::<SessionManager>()
+                .set_launch_gate(std::sync::Arc::new(gate.clone()));
+            app.manage(gate);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -163,6 +195,9 @@ pub fn run() -> tauri::Result<()> {
             commands::remove_worktree,
             commands::configure_claims,
             commands::claims_snapshot,
+            commands::configure_gate,
+            commands::gate_snapshot,
+            commands::answer_gate,
             commands::save_profile,
             commands::delete_profile,
             commands::profile_env,
@@ -180,6 +215,8 @@ pub fn run() -> tauri::Result<()> {
         if let RunEvent::Exit = event {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
+            // Waiting edits are denied before the agents are ended.
+            handle.state::<gate_service::GateService>().stop();
             handle.state::<claims_service::ClaimsService>().stop();
             handle.state::<SessionManager>().shutdown();
         }

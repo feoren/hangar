@@ -129,5 +129,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Basis-Commit                                    | base commit                       | HEAD of the session's worktree; lines are compared on this side        |
 | Bereich (Claims: erster Ordner eines Pfads)     | area                              | `Claim.area`; configurable per repository later                        |
 | Geteilter Ordner                                | shared folder                     | several sessions in one folder share its changes                       |
+| Sperre vor dem Bearbeiten                       | gate                              | `gate.ts`; holds an agent's edit of a file another session is changing |
+| Offene Entscheidung                             | pending decision                  | `PendingDecision`; allow once, allow for this file or deny             |
 | Programm-Editor                                 | profile editor                    | `ProfileEditor.tsx`; Settings, Programs                                |
 | Anpassen (eingebauter Eintrag)                  | customize                         | saving a catalog or WSL entry as the user's own profile                |

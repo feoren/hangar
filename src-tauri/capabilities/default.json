@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: session commands, reloading profiles and opening the profile file, taskbar flash and badge, program updates as sessions, workspace and scrollback, notes, folder dialog, clipboard text, opening the detached notes window (fixed label, URL and size), desktop notifications, git branches and changes, worktrees, local claims (overlaps between the user's own sessions), profile editing and keychain secrets, session export, notification area icon and showing the window, read-only sub-agent view, updates and restart",
+  "description": "Main window: session commands, reloading profiles and opening the profile file, taskbar flash and badge, program updates as sessions, workspace and scrollback, notes, folder dialog, clipboard text, opening the detached notes window (fixed label, URL and size), desktop notifications, git branches and changes, worktrees, local claims (overlaps between the user's own sessions), the agent gate (answering an agent's held edit), profile editing and keychain secrets, session export, notification area icon and showing the window, read-only sub-agent view, updates and restart",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -62,6 +62,9 @@
     "allow-remove-worktree",
     "allow-configure-claims",
     "allow-claims-snapshot",
+    "allow-configure-gate",
+    "allow-gate-snapshot",
+    "allow-answer-gate",
     "allow-save-profile",
     "allow-delete-profile",
     "allow-profile-env",

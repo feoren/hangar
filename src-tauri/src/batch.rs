@@ -85,6 +85,11 @@ pub fn check(program: &Path, args: &[String]) -> Result<(), UnsafeBatch> {
     Ok(())
 }
 
+/// Would [`check`] accept `arg` as an argument of a `.cmd`/`.bat` target?
+pub fn argument_ok(arg: &str) -> bool {
+    find_unsafe(arg).is_none()
+}
+
 fn find_unsafe(token: &str) -> Option<char> {
     // portable-pty quotes parts with whitespace or `"`; tab and `"` are rejected anyway.
     let quoted = token.contains(' ');
@@ -141,6 +146,9 @@ mod tests {
             "Café äöü",
         ]);
         assert_eq!(check(program, &list), Ok(()));
+        assert!(list.iter().all(|arg| argument_ok(arg)));
+        assert!(!argument_ok("{\"hooks\":1}"));
+        assert!(!argument_ok("a&b"));
     }
 
     #[test]

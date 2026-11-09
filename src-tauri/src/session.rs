@@ -24,6 +24,22 @@ pub enum SessionKind {
     Update,
 }
 
+/// Whether the agent gate (`gate_service.rs`) watches the session's current process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GateStatus {
+    /// Not for this program, the gate was off at the start, or an update session.
+    #[default]
+    None,
+    /// The process got the gate's hooks.
+    Active,
+    /// The program could take the hooks, but Hangar's local hook endpoint did not start.
+    NoEndpoint,
+    /// A cmd.exe launcher (npm's `claude.cmd`): the hooks' settings file could not be written to
+    /// a path cmd.exe passes on unchanged.
+    Launcher,
+}
+
 /// What the frontend learns about a session. The profile's environment (`env`) is left out
 /// on purpose because it may contain secrets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -49,6 +65,8 @@ pub struct SessionInfo {
     /// `watch_sub_agents` works for this session: the program has a sub-agent source and the
     /// session a conversation id.
     pub sub_agents: bool,
+    /// The agent gate for the current process.
+    pub gate: GateStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -78,6 +96,7 @@ impl SessionInfo {
             kind: SessionKind::Agent,
             cli_session_id: None,
             sub_agents: false,
+            gate: GateStatus::None,
         }
     }
 
@@ -174,6 +193,12 @@ mod tests {
         assert_eq!(json["kind"], "agent");
         assert!(json["cliSessionId"].is_null());
         assert_eq!(json["subAgents"], false);
+        assert_eq!(json["gate"], "none");
+        let mut gated = info();
+        gated.gate = GateStatus::NoEndpoint;
+        assert_eq!(serde_json::to_value(&gated).unwrap()["gate"], "noEndpoint");
+        gated.gate = GateStatus::Launcher;
+        assert_eq!(serde_json::to_value(&gated).unwrap()["gate"], "launcher");
         let mut update = info();
         update.kind = SessionKind::Update;
         assert_eq!(serde_json::to_value(update).unwrap()["kind"], "update");

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gate-snapshot"
+description = "Enables the gate_snapshot command without any pre-configured scope."
+commands.allow = ["gate_snapshot"]
+
+[[permission]]
+identifier = "deny-gate-snapshot"
+description = "Denies the gate_snapshot command without any pre-configured scope."
+commands.deny = ["gate_snapshot"]
