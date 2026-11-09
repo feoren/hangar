@@ -10,6 +10,7 @@
 //!
 //! Design and message table: `docs/wiki/pages/concepts/team-protocol.md`.
 
+pub mod close;
 pub mod e2e;
 pub mod hash;
 pub mod ids;

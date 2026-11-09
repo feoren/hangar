@@ -143,9 +143,12 @@ string_id!(
 );
 string_id!(
     secret
-    /// The sign-in proof in `hello`: the short-lived Ed25519 ticket the Hangar website issues
-    /// (`base64url(payload).base64url(signature)`), carried unchanged. The relay verifies it;
-    /// this crate only checks it is printable ASCII without spaces. Never logged.
+    /// The sign-in proof in `hello` and `ticket.renew`: the short-lived Ed25519 ticket the
+    /// Hangar website issues (`base64url(payload).base64url(signature)`), carried unchanged.
+    /// The relay verifies it, including its audience: `aud` is required and must name the
+    /// relay (`"hangar-relay"` for the official service, the relay's `PUBLIC_URL` when self
+    /// hosted), so a ticket for one relay is useless at another. This crate only checks it is
+    /// printable ASCII without spaces. Never logged.
     Ticket, "ticket", MAX_TICKET_LEN, |c: char| c.is_ascii_graphic()
 );
 

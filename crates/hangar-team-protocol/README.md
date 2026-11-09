@@ -18,6 +18,7 @@ derives that epoch's separate matching and sealing keys.
 | `overlap`     | `ClaimBoard`: same area and same file between sessions of different holders, by hash equality; passes the encrypted detail on                                        |
 | `log`         | `EventLog` (sequence numbers, replay window, resync), `ClientCursor`, `RecentOps` (op id retries per sender and team)                                                |
 | `e2e`         | What the relay checks for step E without a key: `PublicKey` (device keys), `LogHash`, `MemberChain` and `check_append` (membership log chain), `check_rotate`        |
+| `close`       | WebSocket close codes of the relay and the `hello` deadline                                                                                                          |
 | `ids`         | Identifiers, `Seq`, `UnixMillis`, `Epoch`, `Ciphertext`, `Sealed`                                                                                                    |
 | `limits`      | Size limits both sides enforce                                                                                                                                       |
 
@@ -88,6 +89,26 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
   - Documented rules: `welcome` and `resync_required` carry the `hello`'s op id; which intents
     are deduplicated by op id (`ClientMessage::deduplicated`); `notify` is created by the
     server only; frames over 1 MiB are refused by the relay's WebSocket reader before decoding.
+- **Version 1, additions (2026-11-09), second round for the relay:**
+  - `ticket.renew {ticket}`: a fresh website ticket about every 5 minutes on a live connection;
+    verified like `hello`, applies the new role; answered with `ack`, not deduplicated.
+  - Close codes and the `hello` deadline as constants (module `close`): `CLOSE_HELLO_TIMEOUT`
+    (1008, no valid `hello` within `HELLO_TIMEOUT_SECS` = 15), `CLOSE_ROLE_CHANGED` (4401),
+    `CLOSE_REMOVED` (4403).
+  - Rights helpers with typed errors and `err` codes: `check_append_role` (`memberlog.append`
+    by owner or admin only) and `check_wrap` (`key.wrap` by owner, admin or another device of
+    the target's member; never over a key the device already has in the epoch: `conflict`).
+  - `key.wrapped {epoch, holder}`, live only and sent only to that device, so a new device
+    knows when to call `key.get`.
+  - Documented: the team id must be part of a membership log entry's signed content (step E);
+    the relay requires the ticket's `aud`; `ticket.renew` before an accepted `hello` is
+    `badRequest`, and one for another team (`prj`) is `forbidden` followed by close 4403.
+  - Devices are named by their full holder (member and device) wherever a target device is
+    named: `WrappedKey.holder` (in `key.rotate` and `key.wrap`) and `key.wrapped.holder`
+    replace the bare `device`, since clients choose device ids and they are unique only per
+    member. `check_wrap` takes the target from the `key.wrap` message; `check_rotate` allows
+    one key per holder. A rotation to 512 devices now fits with wrapped keys of up to about
+    1.7 KiB each.
 
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

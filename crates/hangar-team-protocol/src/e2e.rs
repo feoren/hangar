@@ -23,6 +23,22 @@
 //! independently by `test_vectors.py`.
 //!
 //! Indexes start at 1 and have no gaps; the first entry has no `prev`.
+//!
+//! The chain hash does not contain the team id, so two teams' logs can share entries byte for
+//! byte. Step E must therefore put the team id into the **signed content** of every entry
+//! (and clients must check it), or a relay could move a validly signed entry, such as "device
+//! X approved", from one team's log into another's.
+//!
+//! # Rights
+//!
+//! The relay passes the role from the connection's verified ticket and the holder it bound to
+//! the connection (ticket subject plus `hello.device`); nothing a frame says about itself counts.
+//!
+//! | Intent | Allowed for | Refused with |
+//! | --- | --- | --- |
+//! | `memberlog.append` | owner, admin ([`check_append_role`]) | `forbidden` |
+//! | `key.rotate` | owner, admin ([`check_rotate`]) | `forbidden` |
+//! | `key.wrap` | owner, admin, or another device of the target device's member ([`check_wrap`]) | `forbidden`; `conflict` when the device already has a key in the epoch |
 
 use std::collections::HashSet;
 use std::fmt;
@@ -33,7 +49,7 @@ use thiserror::Error;
 
 use crate::hash::{hex32, length_prefix, parse_hex32};
 use crate::ids::{Ciphertext, Epoch};
-use crate::wire::{ErrorCode, KeyRotate, MemberLogAppend, MemberLogEntry, Role};
+use crate::wire::{ErrorCode, Holder, KeyRotate, KeyWrap, MemberLogAppend, MemberLogEntry, Role};
 
 const LABEL_MEMBERLOG: &[u8] = b"hangar-team/v1/memberlog";
 
@@ -375,7 +391,7 @@ pub enum KeyRotateError {
     /// No wrapped key at all.
     #[error("`key.rotate` wraps the key for no device")]
     Empty,
-    /// One device has two wrapped keys.
+    /// One holder (member and device) has two wrapped keys.
     #[error("`key.rotate` wraps the key twice for one device")]
     DuplicateDevice,
 }
@@ -393,10 +409,11 @@ impl KeyRotateError {
 
 /// The relay's check of a `key.rotate` by a member of `role` while the team is at `current`:
 /// owner or admin only, the epoch exactly `current + 1`, at least one wrapped key and at most
-/// one per device. Size limits are checked when the frame is decoded. Whether the wrapped keys
-/// cover every device of the team is the rotating client's job (it reads the membership log).
+/// one per holder (the same device id under two members is two devices). Size limits are
+/// checked when the frame is decoded. Whether the wrapped keys cover every device of the team
+/// is the rotating client's job (it reads the membership log).
 pub fn check_rotate(role: Role, current: Epoch, rotate: &KeyRotate) -> Result<(), KeyRotateError> {
-    if !matches!(role, Role::Owner | Role::Admin) {
+    if !is_owner_or_admin(role) {
         return Err(KeyRotateError::Forbidden);
     }
     let expected = current.0.checked_add(1).map(Epoch);
@@ -410,8 +427,87 @@ pub fn check_rotate(role: Role, current: Epoch, rotate: &KeyRotate) -> Result<()
         return Err(KeyRotateError::Empty);
     }
     let mut seen = HashSet::with_capacity(rotate.wrapped.len());
-    if !rotate.wrapped.iter().all(|w| seen.insert(&w.device)) {
+    if !rotate.wrapped.iter().all(|w| seen.insert(&w.holder)) {
         return Err(KeyRotateError::DuplicateDevice);
+    }
+    Ok(())
+}
+
+fn is_owner_or_admin(role: Role) -> bool {
+    matches!(role, Role::Owner | Role::Admin)
+}
+
+/// A member without owner or admin role tried to append to the membership log.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("only an owner or an admin appends to the membership log")]
+pub struct MemberLogForbidden;
+
+impl MemberLogForbidden {
+    /// The `err` code the relay answers with.
+    pub fn code(&self) -> ErrorCode {
+        ErrorCode::Forbidden
+    }
+}
+
+/// The relay's rights check of a `memberlog.append`, before [`check_append`]: only an owner or
+/// an admin (`role` from the ticket) appends, since in step E every entry is signed by an admin
+/// device and an entry from anyone else could never verify.
+pub fn check_append_role(role: Role) -> Result<(), MemberLogForbidden> {
+    if is_owner_or_admin(role) {
+        Ok(())
+    } else {
+        Err(MemberLogForbidden)
+    }
+}
+
+/// Why a `key.wrap` is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum KeyWrapError {
+    /// The sending device wraps for itself (it cannot hold a key it is still waiting for), or
+    /// the sender is neither owner nor admin and the target device belongs to another member.
+    #[error("only an owner, an admin or another device of the same member wraps the team key for a device")]
+    Forbidden,
+    /// The device already has a wrapped key in this epoch. A wrapped key is never replaced;
+    /// a new key for a device comes only with a new epoch (`key.rotate`).
+    #[error("the device already has a wrapped team key in this epoch")]
+    AlreadyWrapped,
+}
+
+impl KeyWrapError {
+    /// The `err` code the relay answers with.
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            KeyWrapError::Forbidden => ErrorCode::Forbidden,
+            KeyWrapError::AlreadyWrapped => ErrorCode::Conflict,
+        }
+    }
+}
+
+/// The relay's rights check of a `key.wrap`, after the epoch check (`check_epoch`):
+///
+/// - `role` and `sender` are the connection's: the ticket's role, and the holder the relay
+///   bound to it (ticket subject and `hello.device`).
+/// - `wrap` is the message; its `wrapped.holder` names the target device with its member.
+/// - `already_wrapped` is whether the relay already stores a wrapped key for that holder in
+///   the current epoch.
+///
+/// An owner or admin may wrap for any other device, a member only for another device of its
+/// own (adding its own new device). No device wraps for itself: one without the key has
+/// nothing to wrap, and a wrapped key it stored for itself would block the real one for the
+/// whole epoch. Rights are checked first, so a member who may not wrap does not learn whether
+/// the device already has a key.
+pub fn check_wrap(
+    role: Role,
+    sender: &Holder,
+    wrap: &KeyWrap,
+    already_wrapped: bool,
+) -> Result<(), KeyWrapError> {
+    let target = &wrap.wrapped.holder;
+    if sender == target || (!is_owner_or_admin(role) && sender.member != target.member) {
+        return Err(KeyWrapError::Forbidden);
+    }
+    if already_wrapped {
+        return Err(KeyWrapError::AlreadyWrapped);
     }
     Ok(())
 }
@@ -420,7 +516,7 @@ pub fn check_rotate(role: Role, current: Epoch, rotate: &KeyRotate) -> Result<()
 mod tests {
     use super::*;
     use crate::ids::{DeviceId, MemberId, UnixMillis};
-    use crate::wire::{Holder, WrappedKey};
+    use crate::wire::WrappedKey;
 
     // Vectors computed independently with Python's standard library (`test_vectors.py`).
     const LOG_ENTRY_1: &str = "aGFuZ2FyIG1lbWJlciBsb2cgZW50cnkgMQ";
@@ -638,7 +734,7 @@ mod tests {
             wrapped: devices
                 .iter()
                 .map(|d| WrappedKey {
-                    device: DeviceId::new(*d).unwrap(),
+                    holder: device("m1", d),
                     data: text("AAAA"),
                 })
                 .collect(),
@@ -685,5 +781,93 @@ mod tests {
             check_rotate(Role::Owner, current, &rotate(5, &["d1", "d2", "d1"])).unwrap_err();
         assert_eq!(error, KeyRotateError::DuplicateDevice);
         assert_eq!(error.code(), ErrorCode::BadRequest);
+        // The same device id under two members is two devices.
+        let mut two_members = rotate(5, &["d1"]);
+        two_members.wrapped.push(WrappedKey {
+            holder: device("m2", "d1"),
+            data: text("AAAA"),
+        });
+        assert_eq!(check_rotate(Role::Owner, current, &two_members), Ok(()));
+    }
+
+    fn device(member: &str, device: &str) -> Holder {
+        Holder {
+            member: MemberId::new(member).unwrap(),
+            device: DeviceId::new(device).unwrap(),
+        }
+    }
+
+    #[test]
+    fn only_owners_and_admins_append_to_the_member_log() {
+        assert_eq!(check_append_role(Role::Owner), Ok(()));
+        assert_eq!(check_append_role(Role::Admin), Ok(()));
+        let error = check_append_role(Role::Member).unwrap_err();
+        assert_eq!(error, MemberLogForbidden);
+        assert_eq!(error.code(), ErrorCode::Forbidden);
+    }
+
+    fn wrap(target: &Holder) -> KeyWrap {
+        KeyWrap {
+            epoch: Epoch(1),
+            wrapped: WrappedKey {
+                holder: target.clone(),
+                data: text("AAAA"),
+            },
+        }
+    }
+
+    #[test]
+    fn key_wrap_rights() {
+        let alice_laptop = device("alice", "laptop");
+        let alice_phone = device("alice", "phone");
+        let bob_laptop = device("bob", "laptop");
+        // Owners and admins wrap for any device.
+        for role in [Role::Owner, Role::Admin] {
+            assert_eq!(
+                check_wrap(role, &alice_laptop, &wrap(&bob_laptop), false),
+                Ok(())
+            );
+            assert_eq!(
+                check_wrap(role, &alice_laptop, &wrap(&alice_phone), false),
+                Ok(())
+            );
+        }
+        // A member adds its own new device.
+        assert_eq!(
+            check_wrap(Role::Member, &alice_laptop, &wrap(&alice_phone), false),
+            Ok(())
+        );
+        // But not another member's, even one with the same device id.
+        let error = check_wrap(Role::Member, &alice_laptop, &wrap(&bob_laptop), false).unwrap_err();
+        assert_eq!(error, KeyWrapError::Forbidden);
+        assert_eq!(error.code(), ErrorCode::Forbidden);
+        // No device wraps for itself, whatever its role.
+        for role in [Role::Owner, Role::Admin, Role::Member] {
+            assert_eq!(
+                check_wrap(role, &alice_laptop, &wrap(&alice_laptop), false),
+                Err(KeyWrapError::Forbidden)
+            );
+        }
+    }
+
+    #[test]
+    fn key_wrap_never_replaces_a_wrapped_key() {
+        let alice_laptop = device("alice", "laptop");
+        let alice_phone = device("alice", "phone");
+        for role in [Role::Owner, Role::Admin, Role::Member] {
+            let error = check_wrap(role, &alice_laptop, &wrap(&alice_phone), true).unwrap_err();
+            assert_eq!(error, KeyWrapError::AlreadyWrapped);
+            assert_eq!(error.code(), ErrorCode::Conflict);
+        }
+        // Rights come first: a stranger does not learn whether the device has a key.
+        assert_eq!(
+            check_wrap(
+                Role::Member,
+                &device("bob", "pc"),
+                &wrap(&alice_phone),
+                true
+            ),
+            Err(KeyWrapError::Forbidden)
+        );
     }
 }

@@ -22,7 +22,7 @@ pub const MAX_CIPHERTEXT_LEN: usize = 175_000;
 /// Longest ciphertext in the other messages: presence status, notes, notify content, every
 /// wrapped key (`key.rotate`, `key.wrap`, `key.rotated`, `key.get`'s answer) and every
 /// membership log entry (`memberlog.append`, `memberlog.entries`). A list of them is still bound
-/// by [`MAX_FRAME_BYTES`]: 512 wrapped keys fit when each is under about 1.8 KiB (an HPKE
+/// by [`MAX_FRAME_BYTES`]: 512 wrapped keys fit when each is under about 1.7 KiB (an HPKE
 /// wrapped 32-byte key is about 110 characters), and the relay ends a `memberlog.entries` page
 /// early (`more`) when the next entry would not fit
 /// ([`crate::wire::MemberLogEntries::page`]).

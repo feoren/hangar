@@ -56,6 +56,7 @@ number.
 | Type | Body | Answer |
 | --- | --- | --- |
 | `hello` | `ticket`, `device`, `proto {min,max}`, `lastSeq {stream, seq}` or null | `welcome` and replay, or `resync_required` |
+| `ticket.renew` | `ticket` (a fresh website ticket, same type as in `hello`) | `ack`; a changed role as `member.role_changed`; close 4403 on no seat, another subject or an invalid ticket; another team: `err forbidden`, then 4403; before `hello`: `badRequest` |
 | `presence.set` | `state` (active, idle, away), `status` sealed or null | `ack`; others get `presence.update` |
 | `heartbeat` | `tasks` (keyed hashes, at most 64) | `ack`; held tasks get a new deadline |
 | `task.reserve` | `task`, `epoch`, `prev` (the task's hashes under earlier epochs, at most 4), `note` sealed or null | `ack` and `task.reserved`, or `err conflict` with `holder` |
@@ -73,8 +74,8 @@ number.
 | `devices.get` | none | `devices` |
 | `memberlog.append` | `index` (from 1, no gaps), `prev` (hash of the entry before, null on the first), `entry` (opaque, at most 16 KiB) | `ack`, `memberlog.appended`; `conflict` when the index was taken first |
 | `memberlog.get` | `after` (0: from the start) | `memberlog.entries` |
-| `key.rotate` | `epoch` (exactly current + 1), `wrapped` (at most 512 `{device, data}`, one per device) | owner or admin only: `ack`, `key.rotated` per device |
-| `key.wrap` | `epoch` (the current one), `wrapped {device, data}` | `ack`; hands the current key to one (newly approved) device |
+| `key.rotate` | `epoch` (exactly current + 1), `wrapped` (at most 512 `{holder, data}`, one per holder) | owner or admin only: `ack`, `key.rotated` per device |
+| `key.wrap` | `epoch` (the current one), `wrapped {holder, data}` | `ack`, the target device gets `key.wrapped`; hands the current key to one (newly approved) device; `conflict` when the device already has one in this epoch |
 | `key.get` | `epoch` | `ack` with `content` = `{epoch, data}`, the sender's own wrapped key; `notFound` if none |
 | `ping` | none | `ack` |
 
@@ -87,15 +88,32 @@ The relay remembers the answer by op id only for intents that change shared stat
 (`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `memberlog.append`, `key.rotate`,
 `key.wrap`; a retry gets the first answer and is not applied again. `presence.set`, `heartbeat`,
 `claim.set`, `claim.clear` and `device.keys` replace the sender's own state and are applied and
-acknowledged every time; reads, `hello` and `ping` are answered every time.
+acknowledged every time, and so is `ticket.renew` (the same ticket verifies to the same result);
+reads, `hello` and `ping` are answered every time.
 
 The ticket is the website's short-lived Ed25519 ticket in compact form
 (`base64url(payload).base64url(signature)`, payload with `v`, `kid`, `sub`, `prj`, `role`,
-`seat_ok`, `iat`, `exp`, `jti`, `aud: "hangar-relay"`), carried unchanged; the relay verifies it,
-the crate only checks printable ASCII up to 2048 characters and never prints it (`Debug` shows
-`Ticket(..)`). `hello` is sent per team on a connection. The member of every intent is the
-ticket's `sub` and the role its `role`; the relay accepts `hello.device` only if the website
-lists that device for that member.
+`seat_ok`, `iat`, `exp`, `jti`, `aud`), carried unchanged; the relay verifies it, the crate only
+checks printable ASCII up to 2048 characters and never prints it (`Debug` shows `Ticket(..)`).
+The relay requires `aud` and accepts only its own name: `"hangar-relay"` for the official
+service, the relay's `PUBLIC_URL` when self hosted, so a ticket for one relay is useless at
+another; the crate has nothing to validate there. `hello` is sent per team on a connection. The
+member of every intent is the ticket's `sub` and the role its `role`; the relay accepts
+`hello.device` only if the website lists that device for that member.
+
+**Ticket renewal.** Tickets are short-lived, connections are not: on a live connection the app
+sends `ticket.renew` with a fresh website ticket about every 5 minutes per team. The relay
+verifies it exactly like the `hello` ticket (signature, key id, expiry, `aud`, `prj` equal to
+the frame's team) and applies its role in place (`member.role_changed` when it differs). A
+ticket without a seat (`seat_ok` false), for another subject than the connection's member, or
+one that does not verify ends the connection with 4403. A ticket whose `prj` is not the frame's
+team is answered with `err forbidden`, and the connection is then closed with 4403 as well.
+Before the team's `hello` was accepted, `ticket.renew` is `badRequest`.
+
+**Devices are named by holder.** Clients choose device ids, so they are unique only per member.
+Wherever a message names a target device it carries the full holder (member and device):
+`WrappedKey.holder` in `key.rotate` and `key.wrap`, `key.wrapped.holder`, `devices` entries; the
+relay delivers per device by holder, never by the device id alone.
 
 ## Server messages
 
@@ -118,6 +136,7 @@ lists that device for that member.
 | `member.removed` | `member` | yes |
 | `member.role_changed` | `member`, `role` | yes |
 | `key.rotated` | `epoch`, `wrapped` (only the receiving device's own wrapped key) | yes |
+| `key.wrapped` | `epoch`, `holder`; only to that holder's connections | no |
 | `notify` | `topic` (attention), `content` sealed | yes |
 | `devices` | `devices` (at most 512 `{holder, sign, kem, at}`) | no |
 | `memberlog.entries` | `entries` (at most 256 `{index, hash, entry, by, at}`), `more` | no |
@@ -125,9 +144,13 @@ lists that device for that member.
 
 `welcome` and `resync_required` carry the `hello`'s op id as `id`. `key.rotated` is one log entry
 per rotation, but each device receives it with only its own wrapped key: the relay fills `wrapped`
-from storage per receiving device, live and on replay, so two devices see the same `seq` with
-different bodies (`null` when the relay holds no key for that device and epoch). `notify` is
-created by the relay only, topic `attention`: a release request for a task or an upcoming expiry
+from storage per receiving holder (member and device), live and on replay, so two devices see the
+same `seq` with different bodies (`null` when the relay holds no key for that device and epoch).
+`key.wrapped` is stricter: after a `key.wrap` the relay sends it only to the connections bound to
+the target holder for the team, so the device knows to call `key.get`. It is never logged, since
+one device's event in the shared log would be a gap for every other device. Fallback: after every
+`welcome`, a device without the current epoch's key calls `key.get`; `notFound` means it still
+waits for a `key.wrap`. `notify` is created by the relay only, topic `attention`: a release request for a task or an upcoming expiry
 of a hold whose holder has no connection; it is logged, so the holder's devices see it on replay,
 and the relay may also tell the person out of band. The relay holds no team key, so `content` is
 null unless it passes on a sealed note it received.
@@ -141,6 +164,42 @@ op id reused with another body), `notFound`.
 
 Presence and overlaps are live state and never logged: a reconnecting client sends its claims
 again and receives presence anew.
+
+## Close codes
+
+A close ends every team on the connection, so the relay closes only where the connection itself
+is no longer acceptable; a refused intent is an `err` (module `close`).
+
+| Code | Constant | When | Client |
+| --- | --- | --- | --- |
+| 1008 | `CLOSE_HELLO_TIMEOUT` | no valid `hello` within 15 s of opening (`HELLO_TIMEOUT_SECS`) | reconnects with a fresh ticket |
+| 4401 | `CLOSE_ROLE_CHANGED` | the member's role changed since the connection's ticket was issued | fetches a new ticket and reconnects |
+| 4403 | `CLOSE_REMOVED` | the member was removed; `ticket.renew` without a seat, for another subject, for another team (after `err forbidden`) or invalid | does not reuse the ticket; asks the website, which tells whether the seat remains |
+
+1008 is the standard "policy violation" code; 4401 and 4403 lie in the range RFC 6455 leaves to
+applications and mirror HTTP 401 and 403.
+
+## Rights
+
+The relay passes the role from the connection's verified ticket and the holder it bound to the
+connection (ticket `sub` plus `hello.device`) into pure helpers (module `e2e`); nothing a frame
+says about itself counts. The e2e helpers check rights before per-device state, so a refused
+sender does not learn whether a device already has a key. `task.force_release` refuses a task
+nobody holds with `badRequest` before checking the role, which reveals nothing: holds are in the
+shared log.
+
+| Intent | Allowed for | Refused | Helper |
+| --- | --- | --- | --- |
+| `task.force_release` | owner, admin | `forbidden` | `ReservationBook` |
+| `memberlog.append` | owner, admin (entries are signed by admin devices in step E) | `forbidden` | `check_append_role` |
+| `key.rotate` | owner, admin | `forbidden` | `check_rotate` |
+| `key.wrap` | owner, admin, or another device of the target holder's member (adding one's own new device); never the target itself | `forbidden`; `conflict` when the device already has a wrapped key in the current epoch | `check_wrap` |
+
+`check_wrap` takes the `key.wrap` message itself, whose `wrapped.holder` names the target with its
+member, and whether the relay already stores a wrapped key for that holder in the current epoch. A
+wrapped key is never replaced: a new key for a device comes only with a new epoch (`key.rotate`).
+No device wraps for itself, since a key it stored for itself would block the real one for the
+whole epoch.
 
 ## Keys and keyed hashes
 
@@ -198,17 +257,21 @@ cryptography itself is step E).
   `field(x)` being `x`'s length as 32-bit big endian followed by `x` (as in the keyed hashes).
   The entry is hashed as the bytes its canonical base64url decodes to. Test vectors in
   `src/e2e.rs`, computed independently by `test_vectors.py`.
+- **Team binding (step E):** the chain hash does not contain the team id. The signed content of
+  every entry must therefore name the team, and clients must check it, or a relay could move a
+  validly signed entry (such as "device X approved") from one team's log into another's.
 - **Chain rule** (`check_append`, `MemberChain`): indexes from 1 without gaps, `prev` the
   predecessor's hash (absent on the first). A taken index is `conflict` (another device appended
   first; fetch and retry), a gap, a wrong `prev` or a non-canonical entry `badRequest`. Clients
   verify every received entry against their trusted head (`MemberChain::verify`) and never take
   `hash` from the relay unchecked.
 - **Rotation rule** (`check_rotate`): owner or admin, epoch exactly current + 1 (`staleEpoch`
-  otherwise), at least one wrapped key and at most one per device. Covering every device is the
-  rotating client's job. `key.wrap` must name the current epoch (`check_epoch`); `key.get` may
-  name any epoch the device had.
+  otherwise), at least one wrapped key and at most one per holder. Covering every device is the
+  rotating client's job. `key.wrap` must name the current epoch (`check_epoch`), follows the
+  rights under [Rights](#rights) and never replaces a wrapped key; `key.get` may name any epoch
+  the device had.
 - **Sizes:** a log entry and a wrapped key are each at most 16 KiB, but the 1 MiB frame binds a
-  list first: 512 wrapped keys fit when each is under about 1.8 KiB (an HPKE wrapped 32-byte key
+  list first: 512 wrapped keys fit when each is under about 1.7 KiB (an HPKE wrapped 32-byte key
   is about 110 characters), and the relay ends a `memberlog.entries` page early (`more`) when the
   next entry would not fit. `MemberLogEntries::page` builds such a page from a lazy source of
   stored entries (count and frame budget, worst case envelope included).

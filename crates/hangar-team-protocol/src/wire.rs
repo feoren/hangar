@@ -21,6 +21,8 @@
 //!
 //! Direction: `notify` is created by the server only; a client frame of that type is refused
 //! like any unknown type.
+//!
+//! How and why the relay ends a connection (WebSocket close codes): [`crate::close`].
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -254,6 +256,23 @@ pub struct Hello {
     pub last_seq: Option<Cursor>,
 }
 
+/// `ticket.renew`: a fresh website ticket for a team whose `hello` was accepted on this
+/// connection, so a long-lived connection keeps a current role and seat. The app sends one
+/// about every 5 minutes (tickets are short-lived). The relay verifies it like the `hello`
+/// ticket (signature, key id, expiry, `aud`, `prj` equal to the frame's team) and applies its
+/// role; a changed role is announced as `member.role_changed`. A ticket without a seat
+/// (`seat_ok` false), for another subject than the connection's member, or one that does not
+/// verify ends the connection with [`crate::close::CLOSE_REMOVED`]. A ticket whose `prj` is not
+/// the frame's team is answered with `err forbidden`, and the connection is then closed with
+/// [`crate::close::CLOSE_REMOVED`] as well. Answered with `ack`; not deduplicated by op id,
+/// since applying the same ticket twice changes nothing ([`ClientMessage::deduplicated`]).
+/// Before the team's `hello` was accepted: `badRequest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TicketRenew {
+    pub ticket: Ticket,
+}
+
 /// `presence.set`: the device's presence and, encrypted, what its agents do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -392,18 +411,21 @@ pub struct MemberLogGet {
 }
 
 /// A team key wrapped to one device (HPKE output, opaque; at most
-/// [`MAX_INLINE_CIPHERTEXT_LEN`]).
+/// [`MAX_INLINE_CIPHERTEXT_LEN`]). The device is named as its full [`Holder`]: clients choose
+/// device ids, so they are unique only per member, and a bare device id could name devices of
+/// two members.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WrappedKey {
-    pub device: DeviceId,
+    pub holder: Holder,
     pub data: Ciphertext,
 }
 
 /// `key.rotate`: start a new epoch, with the new key wrapped to every device of the team (at
-/// most [`MAX_WRAPPED_KEYS`]). Owner or admin only, `epoch` exactly the current one plus one
+/// most [`MAX_WRAPPED_KEYS`], each device named by its holder). Owner or admin only, `epoch`
+/// exactly the current one plus one, at most one key per holder
 /// ([`crate::e2e::check_rotate`]). Answered with `ack`; every device gets `key.rotated` with only
-/// its own wrapped key.
+/// its own wrapped key, matched by holder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyRotate {
@@ -411,8 +433,11 @@ pub struct KeyRotate {
     pub wrapped: Vec<WrappedKey>,
 }
 
-/// `key.wrap`: hand the current epoch's key to one device, typically one just approved in the
-/// membership log. `epoch` must be the current one (`staleEpoch` otherwise).
+/// `key.wrap`: hand the current epoch's key to one device (`wrapped.holder`), typically one
+/// just approved in the membership log. `epoch` must be the current one (`staleEpoch`
+/// otherwise). Allowed for an owner or admin and for another device of the target holder's own
+/// member, and never over a key the holder already has in this epoch
+/// ([`crate::e2e::check_wrap`]). Answered with `ack`; the target device gets [`KeyWrapped`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyWrap {
@@ -435,6 +460,8 @@ pub struct KeyGet {
 pub enum ClientMessage {
     #[serde(rename = "hello")]
     Hello(Hello),
+    #[serde(rename = "ticket.renew")]
+    TicketRenew(TicketRenew),
     #[serde(rename = "presence.set")]
     PresenceSet(PresenceSet),
     #[serde(rename = "heartbeat")]
@@ -504,6 +531,7 @@ impl ClientMessage {
     pub fn kind(&self) -> &'static str {
         match self {
             ClientMessage::Hello(_) => "hello",
+            ClientMessage::TicketRenew(_) => "ticket.renew",
             ClientMessage::PresenceSet(_) => "presence.set",
             ClientMessage::Heartbeat(_) => "heartbeat",
             ClientMessage::TaskReserve(_) => "task.reserve",
@@ -540,7 +568,8 @@ impl ClientMessage {
     ///
     /// False for the rest. `presence.set`, `heartbeat`, `claim.set`, `claim.clear` and
     /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
-    /// they are applied and answered with `ack` every time. Reads (`blob.get`, `key.get`,
+    /// they are applied and answered with `ack` every time, and so is `ticket.renew`, which
+    /// verifies and applies the same ticket to the same result. Reads (`blob.get`, `key.get`,
     /// `devices.get`, `memberlog.get`), `hello` and `ping` are answered every time.
     pub fn deduplicated(&self) -> bool {
         matches!(
@@ -588,6 +617,7 @@ impl ClientMessage {
             ClientMessage::BlobPut(m) => vec![m.content.epoch],
             ClientMessage::KeyWrap(m) => vec![m.epoch],
             ClientMessage::Hello(_)
+            | ClientMessage::TicketRenew(_)
             | ClientMessage::Heartbeat(_)
             | ClientMessage::TaskRelease(_)
             | ClientMessage::TaskReleaseWithdraw(_)
@@ -651,6 +681,7 @@ impl ClientMessage {
             }
             ClientMessage::KeyWrap(m) => cipher("data", Some(&m.wrapped.data)),
             ClientMessage::Hello(_)
+            | ClientMessage::TicketRenew(_)
             | ClientMessage::TaskRelease(_)
             | ClientMessage::TaskReleaseWithdraw(_)
             | ClientMessage::TaskReleaseAnswer(_)
@@ -969,15 +1000,31 @@ pub struct MemberRoleChanged {
 /// Delivered per device: each device receives the event with **only its own** wrapped key in
 /// `wrapped`, never another device's. The log keeps one entry (one `seq`) per rotation; when
 /// the relay sends it live or replays it, it fills `wrapped` from storage for the receiving
-/// device, so two devices see the same `seq` with different bodies. `None` when the relay holds
-/// no key for the device in that epoch (the device was added later and waits for `key.wrap`,
-/// then fetches it with `key.get`).
+/// connection's holder (member and device, never the device id alone), so two devices see the
+/// same `seq` with different bodies. `None` when the relay holds
+/// no key for the device in that epoch (the device was added later and waits for `key.wrap`;
+/// [`KeyWrapped`] tells it when to fetch the key with `key.get`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyRotated {
     pub epoch: Epoch,
     /// The new team key wrapped to the receiving device (step E).
     pub wrapped: Option<Ciphertext>,
+}
+
+/// `key.wrapped`: the current epoch's key was wrapped for the receiving device (`key.wrap`), so
+/// it can fetch it with `key.get`. Targeted like the wrapped key in [`KeyRotated`], but stricter:
+/// the relay sends it only to the connections bound to `holder` (member and device) for the
+/// team, never to other devices.
+/// It is therefore live only and never logged (one device's event in the shared log would be a
+/// gap in every other device's sequence). Fallback for a device that was not connected: after
+/// every `welcome` a device without the current epoch's key calls `key.get`; `notFound` means
+/// it is still waiting for a `key.wrap`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeyWrapped {
+    pub epoch: Epoch,
+    pub holder: Holder,
 }
 
 /// What a `notify` is about.
@@ -1130,6 +1177,8 @@ pub enum ServerMessage {
     MemberRoleChanged(MemberRoleChanged),
     #[serde(rename = "key.rotated")]
     KeyRotated(KeyRotated),
+    #[serde(rename = "key.wrapped")]
+    KeyWrapped(KeyWrapped),
     #[serde(rename = "notify")]
     Notify(Notify),
     #[serde(rename = "devices")]
@@ -1161,6 +1210,7 @@ impl ServerMessage {
             ServerMessage::MemberRemoved(_) => "member.removed",
             ServerMessage::MemberRoleChanged(_) => "member.role_changed",
             ServerMessage::KeyRotated(_) => "key.rotated",
+            ServerMessage::KeyWrapped(_) => "key.wrapped",
             ServerMessage::Notify(_) => "notify",
             ServerMessage::Devices(_) => "devices",
             ServerMessage::MemberLogEntries(_) => "memberlog.entries",
@@ -1373,6 +1423,7 @@ fn envelope(text: &str) -> Result<InFrame<'_>, DecodeError> {
 /// Every `type` a client may send.
 pub const CLIENT_KINDS: &[&str] = &[
     "hello",
+    "ticket.renew",
     "presence.set",
     "heartbeat",
     "task.reserve",
@@ -1415,6 +1466,7 @@ pub const SERVER_KINDS: &[&str] = &[
     "member.removed",
     "member.role_changed",
     "key.rotated",
+    "key.wrapped",
     "notify",
     "devices",
     "memberlog.entries",
@@ -1450,6 +1502,7 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
     let kind = known(kind, CLIENT_KINDS)?;
     Ok(match kind {
         "hello" => ClientMessage::Hello(parse(kind, body)?),
+        "ticket.renew" => ClientMessage::TicketRenew(parse(kind, body)?),
         "presence.set" => ClientMessage::PresenceSet(parse(kind, body)?),
         "heartbeat" => ClientMessage::Heartbeat(parse(kind, body)?),
         "task.reserve" => ClientMessage::TaskReserve(parse(kind, body)?),
@@ -1510,6 +1563,7 @@ fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, 
         "member.removed" => ServerMessage::MemberRemoved(parse(kind, body)?),
         "member.role_changed" => ServerMessage::MemberRoleChanged(parse(kind, body)?),
         "key.rotated" => ServerMessage::KeyRotated(parse(kind, body)?),
+        "key.wrapped" => ServerMessage::KeyWrapped(parse(kind, body)?),
         "notify" => ServerMessage::Notify(parse(kind, body)?),
         "devices" => ServerMessage::Devices(parse(kind, body)?),
         "memberlog.entries" => ServerMessage::MemberLogEntries(parse(kind, body)?),
@@ -1639,6 +1693,9 @@ mod tests {
                     seq: Seq(41),
                 }),
             }),
+            ClientMessage::TicketRenew(TicketRenew {
+                ticket: Ticket::new("ticket-marker").unwrap(),
+            }),
             ClientMessage::PresenceSet(PresenceSet {
                 state: PresenceState::Active,
                 status: Some(sealed_text(8)),
@@ -1722,7 +1779,10 @@ mod tests {
 
     fn wrapped(device: &str) -> WrappedKey {
         WrappedKey {
-            device: DeviceId::new(device).unwrap(),
+            holder: Holder {
+                member: MemberId::new("m1").unwrap(),
+                device: DeviceId::new(device).unwrap(),
+            },
             data: Ciphertext::new("A".repeat(110)).unwrap(),
         }
     }
@@ -1833,6 +1893,10 @@ mod tests {
             ServerMessage::KeyRotated(KeyRotated {
                 epoch: Epoch(3),
                 wrapped: Some(Ciphertext::new("AAAA").unwrap()),
+            }),
+            ServerMessage::KeyWrapped(KeyWrapped {
+                epoch: Epoch(2),
+                holder: holder(),
             }),
             ServerMessage::Notify(Notify {
                 topic: NotifyTopic::Attention,
@@ -2453,7 +2517,10 @@ mod tests {
                 epoch: Epoch(3),
                 wrapped: (0..n)
                     .map(|i| WrappedKey {
-                        device: DeviceId::new(format!("d{i}")).unwrap(),
+                        holder: Holder {
+                            member: MemberId::new("m1").unwrap(),
+                            device: DeviceId::new(format!("d{i}")).unwrap(),
+                        },
                         data: Ciphertext::new("A".repeat(len)).unwrap(),
                     })
                     .collect(),
@@ -2476,7 +2543,7 @@ mod tests {
         let wrap = ClientMessage::KeyWrap(KeyWrap {
             epoch: Epoch(2),
             wrapped: WrappedKey {
-                device: DeviceId::new("d").unwrap(),
+                holder: holder(),
                 data: Ciphertext::new("A".repeat(MAX_INLINE_CIPHERTEXT_LEN + 1)).unwrap(),
             },
         });
@@ -2538,13 +2605,17 @@ mod tests {
 
     #[test]
     fn the_largest_e2e_frames_fit() {
-        // A rotation to the most devices with the longest ids and realistic HPKE output.
+        // A rotation to the most devices with the longest member and device ids and wrapped
+        // keys of 1.7 KiB (HPKE output for a 32-byte key is about 110 characters).
         let rotate = ClientMessage::KeyRotate(KeyRotate {
             epoch: Epoch(u32::MAX),
             wrapped: (0..MAX_WRAPPED_KEYS)
                 .map(|i| WrappedKey {
-                    device: DeviceId::new(format!("{i:0>128}")).unwrap(),
-                    data: Ciphertext::new("A".repeat(1500)).unwrap(),
+                    holder: Holder {
+                        member: MemberId::new(format!("{i:m>128}")).unwrap(),
+                        device: DeviceId::new(format!("{i:0>128}")).unwrap(),
+                    },
+                    data: Ciphertext::new("A".repeat(1700)).unwrap(),
                 })
                 .collect(),
         });
@@ -2649,6 +2720,103 @@ mod tests {
         }));
         assert_eq!(page.entries.len(), MAX_LOG_ENTRIES);
         assert_eq!(pulled, MAX_LOG_ENTRIES + 1);
+    }
+
+    #[test]
+    fn ticket_renew_is_a_team_message_that_hides_its_ticket() {
+        let text = r#"{"v":1,"id":"o","team":"t","type":"ticket.renew","body":{"ticket":"ticket-marker"}}"#;
+        let frame = decode_client(text).unwrap();
+        let ClientMessage::TicketRenew(renew) = &frame.message else {
+            panic!("not a ticket.renew: {frame:?}");
+        };
+        assert_eq!(renew.ticket.as_str(), "ticket-marker");
+        assert!(!format!("{frame:?}").contains("ticket-marker"));
+        // Applied and acknowledged every time, bound to no epoch.
+        assert!(!frame.message.deduplicated());
+        assert!(frame.message.epochs().is_empty());
+        // A ticket belongs to one team.
+        assert_eq!(
+            decode_client(&text.replace(r#""team":"t","#, "")),
+            Err(DecodeError::MissingTeam {
+                kind: "ticket.renew"
+            })
+        );
+        // Errors never echo the ticket, not even beside an unknown field.
+        for bad in [
+            text.replace(r#""}}"#, r#"","role":"owner"}}"#),
+            text.replace("ticket-marker", "ticket marker"),
+            text.replace(r#"{"ticket":"ticket-marker"}"#, "{}"),
+        ] {
+            let error = decode_client(&bad).unwrap_err().to_string();
+            assert!(!error.contains("marker"), "{error}");
+        }
+    }
+
+    #[test]
+    fn key_wrapped_is_live_only() {
+        let wrapped = ServerMessage::KeyWrapped(KeyWrapped {
+            epoch: Epoch(2),
+            holder: holder(),
+        });
+        assert!(!wrapped.loggable());
+        let text = encode_server(&ServerFrame {
+            id: None,
+            seq: None,
+            team: Some(TeamId::new("t1").unwrap()),
+            message: wrapped,
+        })
+        .unwrap();
+        assert_eq!(
+            text,
+            r#"{"v":1,"team":"t1","type":"key.wrapped","body":{"epoch":2,"holder":{"member":"m1","device":"d1"}}}"#
+        );
+        let logged = text.replacen(r#""v":1,"#, r#""v":1,"seq":4,"#, 1);
+        assert_eq!(
+            decode_server(&logged),
+            Err(DecodeError::Sequence {
+                kind: "key.wrapped",
+                problem: "never carries a seq"
+            })
+        );
+        // Server only.
+        let sent = text.replacen(r#""v":1,"#, r#""v":1,"id":"o","#, 1);
+        assert_eq!(decode_client(&sent), Err(unlisted()));
+        // A bare device id no longer names a device.
+        let bare = text.replace(
+            r#""holder":{"member":"m1","device":"d1"}"#,
+            r#""device":"d1""#,
+        );
+        assert!(matches!(
+            decode_server(&bare),
+            Err(DecodeError::Body {
+                kind: "key.wrapped",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn wrapped_keys_name_the_full_holder() {
+        let text = encode_client(&client(ClientMessage::KeyWrap(KeyWrap {
+            epoch: Epoch(2),
+            wrapped: wrapped("d3"),
+        })))
+        .unwrap();
+        assert!(
+            text.contains(r#""wrapped":{"holder":{"member":"m1","device":"d3"},"data":"#),
+            "{text}"
+        );
+        let bare = text.replace(
+            r#""holder":{"member":"m1","device":"d3"}"#,
+            r#""device":"d3""#,
+        );
+        assert!(matches!(
+            decode_client(&bare),
+            Err(DecodeError::Body {
+                kind: "key.wrap",
+                ..
+            })
+        ));
     }
 
     #[test]
