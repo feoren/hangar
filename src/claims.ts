@@ -4,6 +4,7 @@
 // texts for the sidebar marker, the Changes panel and the one-time notice.
 
 import type { Translate } from "./i18n";
+import { revealInvisible } from "./invisible";
 
 export type ChangeKind = "added" | "modified" | "deleted" | "untracked" | "conflicted";
 /** Ordered from harmless to worst, as in the backend. */
@@ -40,6 +41,9 @@ export interface SessionClaims {
   claims: Claim[];
   truncated: boolean;
   level: OverlapLevel;
+  /** Overlaps of this session in all; the snapshot lists at most 200 of them, the worst first. */
+  overlapCount: number;
+  overlapsTruncated: boolean;
 }
 
 /** One collision seen from `sessionId`; the backend lists each from both sides. */
@@ -125,13 +129,27 @@ function parseSession(value: unknown): SessionClaims | null {
   const claims = list(field(value, "claims"), parseClaim);
   const truncated = field(value, "truncated");
   const level = parseLevel(field(value, "level"));
+  const overlapCount = field(value, "overlapCount");
+  const overlapsTruncated = field(value, "overlapsTruncated");
   if (!isCount(sessionId) || state === null || root === undefined || base === undefined) {
     return null;
   }
   if (sharedWith === null || claims === null || typeof truncated !== "boolean" || level === null) {
     return null;
   }
-  return { sessionId, state, root, base, sharedWith, claims, truncated, level };
+  if (!isCount(overlapCount) || typeof overlapsTruncated !== "boolean") return null;
+  return {
+    sessionId,
+    state,
+    root,
+    base,
+    sharedWith,
+    claims,
+    truncated,
+    level,
+    overlapCount,
+    overlapsTruncated,
+  };
 }
 
 function parseOverlap(value: unknown): Overlap | null {
@@ -169,6 +187,17 @@ export function overlapsOf(snapshot: ClaimsSnapshot, sessionId: number): Overlap
   return snapshot.overlaps.filter((overlap) => overlap.sessionId === sessionId);
 }
 
+/** The same for every session at once, in one pass over the snapshot. */
+export function overlapsBySession(snapshot: ClaimsSnapshot): Map<number, Overlap[]> {
+  const grouped = new Map<number, Overlap[]>();
+  for (const overlap of snapshot.overlaps) {
+    const list = grouped.get(overlap.sessionId);
+    if (list === undefined) grouped.set(overlap.sessionId, [overlap]);
+    else list.push(overlap);
+  }
+  return grouped;
+}
+
 /** "line 4" or "lines 4 to 9", joined with commas. */
 export function formatLines(ranges: readonly LineRange[], t: Translate): string {
   return ranges
@@ -180,20 +209,27 @@ export function formatLines(ranges: readonly LineRange[], t: Translate): string 
     .join(", ");
 }
 
-/** "Same file as Claude 2: src/x.ts", "Same lines as …", "Same area as …". */
+/**
+ * "Same file as Claude 2: src/x.ts", "Same lines as …", "Same area as …". Paths and areas come
+ * from git and show invisible characters as placeholders.
+ */
 export function overlapText(overlap: Overlap, otherName: string, t: Translate): string {
+  const path = revealInvisible(overlap.path ?? "");
   switch (overlap.level) {
     case "overlappingLines":
       return t("claims.sameLines", {
         session: otherName,
-        path: overlap.path ?? "",
+        path,
         lines: formatLines(overlap.lines, t),
       });
     case "sameFile":
-      return t("claims.sameFile", { session: otherName, path: overlap.path ?? "" });
+      return t("claims.sameFile", { session: otherName, path });
     case "sameArea":
     case "none":
-      return t("claims.sameArea", { session: otherName, area: overlap.area ?? "" });
+      return t("claims.sameArea", {
+        session: otherName,
+        area: revealInvisible(overlap.area ?? ""),
+      });
   }
 }
 
@@ -246,12 +282,13 @@ export function overlapNotice(
   t: Translate,
 ): OverlapNotice {
   const lines = overlap.level === "overlappingLines" ? formatLines(overlap.lines, t) : "";
+  const path = revealInvisible(overlap.path ?? "");
   return {
     title: t("claims.noticeTitle", {
       session: nameOf(overlap.sessionId),
       other: nameOf(overlap.otherId),
     }),
-    body: lines === "" ? (overlap.path ?? "") : `${overlap.path ?? ""}, ${lines}`,
+    body: lines === "" ? path : `${path}, ${lines}`,
   };
 }
 

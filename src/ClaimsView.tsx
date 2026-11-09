@@ -16,6 +16,8 @@ import { Revealed } from "./Revealed";
 
 /** Changed places listed before "show more". */
 const CLAIM_PAGE = 50;
+/** Overlaps listed before "show more". */
+const OVERLAP_PAGE = 20;
 
 /**
  * Top of the Changes tab: a warning block when the active session collides with another one
@@ -32,17 +34,21 @@ export function ClaimsSection(props: {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [listed, setListed] = useState(CLAIM_PAGE);
+  const [listedOverlaps, setListedOverlaps] = useState(OVERLAP_PAGE);
   if (claims === null) return null;
   if (claims.state.kind === "failed") {
     return (
       <p className="changes-hint selectable">
-        {t("claims.failed", { error: claims.state.message })}
+        <Revealed text={t("claims.failed", { error: claims.state.message })} />
       </p>
     );
   }
   if (claims.state.kind !== "ready") return null;
   const files = overlaps.filter((o) => isFileLevel(o.level));
   const areas = overlaps.filter((o) => !isFileLevel(o.level));
+  const ordered = [...files, ...areas];
+  // Past the backend's limit some overlaps are not in the snapshot at all.
+  const unlisted = Math.max(0, claims.overlapCount - overlaps.length);
   return (
     <div className="claims">
       {overlaps.length > 0 && (
@@ -55,12 +61,12 @@ export function ClaimsSection(props: {
             <span>{t("claims.warningTitle")}</span>
           </p>
           <ul className="claims-overlaps">
-            {[...files, ...areas].map((overlap) => (
+            {ordered.slice(0, listedOverlaps).map((overlap) => (
               <li
                 key={`${String(overlap.otherId)}:${overlap.level}:${overlap.path ?? overlap.area ?? ""}`}
               >
                 <span className="selectable">
-                  <Revealed text={overlapText(overlap, nameOf(overlap.otherId), t)} />
+                  {overlapText(overlap, nameOf(overlap.otherId), t)}
                 </span>
                 <button
                   type="button"
@@ -74,6 +80,20 @@ export function ClaimsSection(props: {
               </li>
             ))}
           </ul>
+          {ordered.length > listedOverlaps && (
+            <button
+              type="button"
+              className="link-button change-more files"
+              onClick={() => {
+                setListedOverlaps((value) => value + OVERLAP_PAGE);
+              }}
+            >
+              {t("claims.moreOverlaps", { count: ordered.length - listedOverlaps })}
+            </button>
+          )}
+          {claims.overlapsTruncated && unlisted > 0 && (
+            <p className="claims-help">{t("claims.unlisted", { count: unlisted })}</p>
+          )}
           {files.length > 0 && <p className="claims-help">{t("claims.warningHelp")}</p>}
         </section>
       )}

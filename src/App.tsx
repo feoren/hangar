@@ -36,7 +36,7 @@ import {
 } from "./attention";
 import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
 import { chimeFor, ChimeScheduler } from "./chime";
-import { claimsOf, markerText, overlapNotice, overlapsOf, type Overlap } from "./claims";
+import { claimsOf, markerText, overlapNotice, overlapsBySession, type Overlap } from "./claims";
 import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
@@ -257,6 +257,8 @@ const QUIT_SAVE_TIMEOUT_MS = 3000;
 const BADGE_CLEAR_TIMEOUT_MS = 300;
 /** Restore: delay between the starts of the remaining sessions after the active one. */
 const RESTORE_STAGGER_MS = 150;
+/** One stable empty list, so a session without overlaps does not re-render its panel. */
+const NO_OVERLAPS: readonly Overlap[] = [];
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -807,16 +809,18 @@ export function App() {
     const text = overlapNotice(first, name, createTranslator(current.language));
     api.notifySession(first.sessionId, text.title, text.body).catch(() => undefined);
   });
+  /** Overlaps per session, grouped once per snapshot. */
+  const overlapsById = useMemo(() => overlapsBySession(claims), [claims]);
   /** Sidebar marker text per session that collides with another one on a file. */
   const overlapMarkers = useMemo(() => {
     const name = (id: number) => state.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
     const markers = new Map<number, string>();
     for (const session of state.sessions) {
-      const text = markerText(overlapsOf(claims, session.id), name, t);
+      const text = markerText(overlapsById.get(session.id) ?? NO_OVERLAPS, name, t);
       if (text !== null) markers.set(session.id, text);
     }
     return markers;
-  }, [claims, state.sessions, t]);
+  }, [overlapsById, state.sessions, t]);
   /** Where the next session starts: the active project, a chosen folder, the last one, home. */
   const target = resolveStartTarget({
     chosen: chosenCwd,
@@ -3543,7 +3547,11 @@ export function App() {
                 changes={
                   <ChangesPanel
                     claims={activeSession ? claimsOf(claims, activeSession.id) : null}
-                    overlaps={activeSession ? overlapsOf(claims, activeSession.id) : []}
+                    overlaps={
+                      activeSession
+                        ? (overlapsById.get(activeSession.id) ?? NO_OVERLAPS)
+                        : NO_OVERLAPS
+                    }
                     nameOf={sessionName}
                     onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}

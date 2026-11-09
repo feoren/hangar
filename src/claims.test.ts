@@ -8,6 +8,7 @@ import {
   markerText,
   overlapKey,
   overlapNotice,
+  overlapsBySession,
   overlapsOf,
   overlapText,
   parseClaimsSnapshot,
@@ -46,6 +47,8 @@ const raw = {
       ],
       truncated: false,
       level: "overlappingLines",
+      overlapCount: 3,
+      overlapsTruncated: false,
     },
     {
       sessionId: 2,
@@ -56,6 +59,8 @@ const raw = {
       claims: [],
       truncated: false,
       level: "none",
+      overlapCount: 1,
+      overlapsTruncated: false,
     },
   ],
   overlaps: [
@@ -117,6 +122,8 @@ describe("parseClaimsSnapshot", () => {
       { ...raw, overlaps: [{ ...raw.overlaps[0], lines: [{ start: 9, end: 2 }] }] },
       { ...raw, sessions: [{ ...raw.sessions[0], state: { kind: "failed" } }] },
       { ...raw, sessions: [{ ...raw.sessions[0], sharedWith: [-1] }] },
+      { ...raw, sessions: [{ ...raw.sessions[0], overlapCount: -1 }] },
+      { ...raw, sessions: [{ ...raw.sessions[0], overlapsTruncated: "no" }] },
       {
         ...raw,
         sessions: [{ ...raw.sessions[0], claims: [{ path: "a", kind: "moved", wholeFile: true }] }],
@@ -146,6 +153,30 @@ describe("texts", () => {
     expect(overlapText(lines, "Codex", t)).toBe("Same lines as Codex: src/x.ts, lines 10 to 15");
     expect(overlapText(file, "Codex", t)).toBe("Same file as Codex: src/y.ts");
     expect(overlapText(area, "Codex", t)).toBe("Same area as Codex: docs");
+  });
+
+  it("shows invisible characters in git's paths as placeholders", () => {
+    const sneaky: Overlap = {
+      sessionId: 1,
+      otherId: 2,
+      level: "overlappingLines",
+      path: "src/a\u202Eb.ts",
+      area: null,
+      lines: [{ start: 1, end: 1 }],
+    };
+    expect(overlapText(sneaky, "Codex", t)).toBe("Same lines as Codex: src/a<U+202E>b.ts, line 1");
+    expect(markerText([sneaky], nameOf, t)).toBe("Same lines as Codex: src/a<U+202E>b.ts, line 1");
+    expect(overlapNotice(sneaky, nameOf, t).body).toBe("src/a<U+202E>b.ts, line 1");
+    const area: Overlap = { ...sneaky, level: "sameArea", path: null, area: "d\u200Bocs" };
+    expect(overlapText(area, "Codex", t)).toBe("Same area as Codex: d<U+200B>ocs");
+  });
+
+  it("groups overlaps per session in the backend's order", () => {
+    const parsed = snapshot();
+    const grouped = overlapsBySession(parsed);
+    expect(grouped.get(1)).toEqual(overlapsOf(parsed, 1));
+    expect(grouped.get(2)).toEqual(overlapsOf(parsed, 2));
+    expect(grouped.get(3)).toBeUndefined();
   });
 
   it("marks only sessions that collide on a file", () => {

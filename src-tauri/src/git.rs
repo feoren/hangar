@@ -70,6 +70,8 @@ pub enum GitError {
     UnsafeFilters,
     #[error("The repository's git folder lies on another network share or device; Hangar does not run git there")]
     RemoteGitDir,
+    #[error("The repository moves its work tree to another folder (core.worktree); Hangar does not follow it there")]
+    ForeignWorkTree,
 }
 
 impl Serialize for GitError {
@@ -438,14 +440,75 @@ pub fn native_path(text: &str) -> PathBuf {
     }
 }
 
-/// Root of the work tree that contains `cwd`; `None` outside a repository.
+/// Root of the work tree that contains `cwd`; `None` outside a repository. A work tree moved by
+/// the repository's config is refused ([`check_work_tree`]).
 pub fn toplevel(git: &Git, cwd: &Path, deadline: Instant) -> Result<Option<PathBuf>, GitError> {
     let output = git.run(cwd, ["rev-parse", "--show-toplevel"], deadline, 64 * 1024)?;
     let text = String::from_utf8_lossy(&output.stdout);
     if !output.success || text.trim().is_empty() {
         return Ok(None);
     }
-    Ok(Some(native_path(&text)))
+    let top = native_path(&text);
+    check_work_tree(cwd, &top, &[])?;
+    Ok(Some(top))
+}
+
+/// Folder key without resolving: `\\?\` prefixes dropped, `/` separators, no trailing
+/// separator, lower case where the file system ignores case (Windows, macOS).
+pub fn path_key(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        text.into_owned()
+    };
+    let mut key = text.replace('\\', "/");
+    while key.len() > 1 && key.ends_with('/') {
+        key.pop();
+    }
+    if cfg!(any(windows, target_os = "macos")) {
+        key = key.to_lowercase();
+    }
+    key
+}
+
+/// `key` is `folder` or lies below it (both keys from [`path_key`]).
+pub fn key_within(key: &str, folder: &str) -> bool {
+    key == folder
+        || key
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// What git reports for `cwd` must stay where git found it. A repository's own config can move
+/// the work tree anywhere (`core.worktree`), to a share or a whole drive, and Hangar would then
+/// resolve, watch and scan there. Checked on the text first, before anything is touched: the work
+/// tree and the git folders must not lead from `cwd` (as named or resolved) to another share or
+/// a device ([`gitdir_allowed`]), the work tree must contain `cwd`, and it must hold the `.git`
+/// git found it by.
+pub fn check_work_tree(cwd: &Path, top: &Path, git_dirs: &[&Path]) -> Result<(), GitError> {
+    // git prints the work tree with symlinks resolved (`/tmp` is `/private/tmp` on macOS, a
+    // mapped network drive is its share on Windows); only `cwd`, which git already ran in, is
+    // resolved for the comparison, never the reported paths.
+    let real = std::cell::OnceCell::new();
+    let real = || real.get_or_init(|| fs::canonicalize(cwd).ok()).as_deref();
+    let remote = std::iter::once(top)
+        .chain(git_dirs.iter().copied())
+        .any(|path| {
+            !gitdir_allowed(cwd, path) && !real().is_some_and(|real| gitdir_allowed(real, path))
+        });
+    if remote {
+        return Err(GitError::RemoteGitDir);
+    }
+    let top_key = path_key(top);
+    let inside = key_within(&path_key(cwd), &top_key)
+        || real().is_some_and(|real| key_within(&path_key(real), &top_key));
+    if !inside || fs::symlink_metadata(top.join(".git")).is_err() {
+        return Err(GitError::ForeignWorkTree);
+    }
+    Ok(())
 }
 
 /// Folder argument from the frontend: absolute, an existing folder, and a repository whose git
@@ -1091,6 +1154,93 @@ pub(crate) mod tests {
         // The usual relative commondir is fine.
         write(&gitdir.join("commondir"), "../..\n");
         check_git_links(&linked).unwrap();
+    }
+
+    /// A session folder reached through a link (junction on Windows, symlink on Unix): git
+    /// reports the resolved work tree, which still contains the folder.
+    #[test]
+    fn work_tree_reached_through_a_link_passes() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-linked-cwd");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        fs::create_dir_all(repo.join("src")).unwrap();
+        let link = tmp.path().join("link");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&repo, &link).unwrap();
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(&link)
+                .arg(&repo)
+                .output()
+                .unwrap()
+                .status;
+            assert!(status.success());
+        }
+        let deadline = Instant::now() + TIMEOUT;
+        for cwd in [link.clone(), link.join("src")] {
+            assert!(toplevel(&git, &cwd, deadline).unwrap().is_some());
+            assert!(diff(&git, &cwd).unwrap().is_repo);
+        }
+    }
+
+    /// `core.worktree` in a repository's own config moves the work tree anywhere, a whole drive
+    /// or a share included. Neither the Changes panel nor the claims follow it.
+    #[test]
+    fn work_tree_moved_by_the_config_is_refused() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-core-worktree");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let other = tmp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        // Elsewhere: the work tree does not contain the session's folder.
+        git_ok(
+            &git,
+            &repo,
+            &["config", "core.worktree", &other.to_string_lossy()],
+        );
+        assert!(matches!(diff(&git, &repo), Err(GitError::ForeignWorkTree)));
+        assert!(matches!(
+            crate::worktree::create(&git, &tmp.path().join("wt"), &repo, "x"),
+            Err(crate::worktree::WorktreeError::Git(
+                GitError::ForeignWorkTree
+            ))
+        ));
+        // Above: contains the folder, like a whole drive, but holds no `.git` of its own.
+        git_ok(
+            &git,
+            &repo,
+            &["config", "core.worktree", &tmp.path().to_string_lossy()],
+        );
+        assert!(matches!(diff(&git, &repo), Err(GitError::ForeignWorkTree)));
+        // Without the setting the repository works as usual.
+        git_ok(&git, &repo, &["config", "--unset", "core.worktree"]);
+        assert!(diff(&git, &repo).unwrap().is_repo);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn work_tree_on_a_share_is_refused_without_touching_it() {
+        let cwd = Path::new(r"C:\Users\x\repo");
+        let git_dir = Path::new(r"C:\Users\x\repo\.git");
+        for top in [r"\\192.0.2.1\share", r"//192.0.2.1/share/repo"] {
+            assert!(matches!(
+                check_work_tree(cwd, Path::new(top), &[git_dir]),
+                Err(GitError::RemoteGitDir)
+            ));
+        }
+        assert!(matches!(
+            check_work_tree(cwd, cwd, &[Path::new(r"\\192.0.2.1\share\.git")]),
+            Err(GitError::RemoteGitDir)
+        ));
+        // Containment is compared on the text, without touching the folders.
+        assert!(matches!(
+            check_work_tree(cwd, Path::new(r"D:\elsewhere"), &[git_dir]),
+            Err(GitError::ForeignWorkTree)
+        ));
     }
 
     #[test]

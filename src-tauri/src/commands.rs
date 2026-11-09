@@ -966,7 +966,8 @@ pub async fn create_worktree(
 }
 
 /// Never forces: what stays is reported in `reason`. The claims let go of the worktree first
-/// (watcher closed, running scan finished), since Windows keeps a watched folder open.
+/// (watcher closed, running git call finished), since Windows keeps a watched folder open, and
+/// take it back when it stays.
 #[tauri::command]
 pub async fn remove_worktree(
     app: tauri::AppHandle,
@@ -977,8 +978,16 @@ pub async fn remove_worktree(
     tauri::async_runtime::spawn_blocking(move || {
         worktree::check_shape(&worktree)?;
         worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
-        app.state::<ClaimsService>().release(&worktree.path);
-        worktree::remove(&Git::locate()?, &base, &worktree)
+        let claims = app.state::<ClaimsService>();
+        let released = claims.release(&worktree.path);
+        let removal = Git::locate()
+            .map_err(WorktreeError::from)
+            .and_then(|git| worktree::remove(&git, &base, &worktree));
+        // The worktree stays: its sessions keep their overlap warnings.
+        if !removal.as_ref().is_ok_and(|removal| removal.removed) {
+            claims.unrelease(released);
+        }
+        removal
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?

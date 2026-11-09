@@ -611,6 +611,8 @@ const de = {
   "claims.wholeFile": "ganze Datei",
   "claims.noticeTitle": "{session} und {other} ändern dieselbe Datei",
   "claims.failed": "Überschneidungen ließen sich nicht prüfen: {error}",
+  "claims.moreOverlaps": "Weitere Überschneidungen zeigen (+{count})",
+  "claims.unlisted": "Hier nicht aufgeführte Überschneidungen: {count}.",
   "profile.movedNotSaved":
     "{name} ist noch nicht gespeichert: Es ist keine normale Variable mehr, und der Schlüsselbund hat den Wert nicht angenommen ({error}). Speichere erneut, sonst geht der Wert verloren.",
   "profile.valueBuiltIn": "Wert des eingebauten Eintrags",
@@ -1306,6 +1308,8 @@ const en: Record<MessageKey, string> = {
   "claims.wholeFile": "whole file",
   "claims.noticeTitle": "{session} and {other} change the same file",
   "claims.failed": "Overlaps could not be checked: {error}",
+  "claims.moreOverlaps": "Show more overlaps (+{count})",
+  "claims.unlisted": "Overlaps not listed here: {count}.",
   "profile.movedNotSaved":
     "{name} is not saved yet: it is no longer a plain variable, and the keychain did not take the value ({error}). Save again, or the value is lost.",
   "profile.valueBuiltIn": "Value of the built-in entry",
@@ -2018,6 +2022,8 @@ const el: Record<MessageKey, string> = {
   "claims.wholeFile": "ολόκληρο το αρχείο",
   "claims.noticeTitle": "Οι {session} και {other} αλλάζουν το ίδιο αρχείο",
   "claims.failed": "Δεν ήταν δυνατός ο έλεγχος επικαλύψεων: {error}",
+  "claims.moreOverlaps": "Περισσότερες επικαλύψεις (+{count})",
+  "claims.unlisted": "Επικαλύψεις που δεν εμφανίζονται εδώ: {count}.",
   "profile.movedNotSaved":
     "Το {name} δεν αποθηκεύτηκε ακόμα: δεν είναι πια απλή μεταβλητή και η θήκη κλειδιών δεν δέχτηκε την τιμή ({error}). Αποθήκευσε ξανά, αλλιώς η τιμή χάνεται.",
   "profile.valueBuiltIn": "Τιμή της ενσωματωμένης καταχώρισης",
@@ -2723,6 +2729,8 @@ const es: Record<MessageKey, string> = {
   "claims.wholeFile": "archivo completo",
   "claims.noticeTitle": "{session} y {other} cambian el mismo archivo",
   "claims.failed": "No se pudieron comprobar las coincidencias: {error}",
+  "claims.moreOverlaps": "Mostrar más coincidencias (+{count})",
+  "claims.unlisted": "Coincidencias no mostradas aquí: {count}.",
   "profile.movedNotSaved":
     "{name} aún no está guardada: ya no es una variable normal y el llavero no aceptó el valor ({error}). Guarda de nuevo o el valor se perderá.",
   "profile.valueBuiltIn": "Valor de la entrada incluida",
@@ -3435,6 +3443,8 @@ const fr: Record<MessageKey, string> = {
   "claims.wholeFile": "fichier entier",
   "claims.noticeTitle": "{session} et {other} modifient le même fichier",
   "claims.failed": "Impossible de vérifier les chevauchements : {error}",
+  "claims.moreOverlaps": "Afficher plus de chevauchements (+{count})",
+  "claims.unlisted": "Chevauchements non listés ici : {count}.",
   "profile.movedNotSaved":
     "{name} n'est pas encore enregistrée : ce n'est plus une variable ordinaire et le trousseau n'a pas accepté la valeur ({error}). Enregistre à nouveau, sinon la valeur sera perdue.",
   "profile.valueBuiltIn": "Valeur de l'entrée intégrée",
@@ -4140,6 +4150,8 @@ const it: Record<MessageKey, string> = {
   "claims.wholeFile": "file intero",
   "claims.noticeTitle": "{session} e {other} modificano lo stesso file",
   "claims.failed": "Impossibile controllare le sovrapposizioni: {error}",
+  "claims.moreOverlaps": "Mostra altre sovrapposizioni (+{count})",
+  "claims.unlisted": "Sovrapposizioni non elencate qui: {count}.",
   "profile.movedNotSaved":
     "{name} non è ancora salvata: non è più una variabile normale e il portachiavi non ha accettato il valore ({error}). Salva di nuovo, altrimenti il valore va perso.",
   "profile.valueBuiltIn": "Valore della voce integrata",
@@ -4845,6 +4857,8 @@ const ja: Record<MessageKey, string> = {
   "claims.wholeFile": "ファイル全体",
   "claims.noticeTitle": "{session} と {other} が同じファイルを変更しています",
   "claims.failed": "重なりを確認できませんでした: {error}",
+  "claims.moreOverlaps": "さらに重なりを表示 (+{count})",
+  "claims.unlisted": "ここに表示されていない重なり: {count}",
   "profile.movedNotSaved":
     "{name} はまだ保存されていません。通常の変数ではなくなり、キーチェーンも値を受け付けませんでした（{error}）。もう一度保存しないと値は失われます。",
   "profile.valueBuiltIn": "組み込み項目の値",
@@ -5543,6 +5557,8 @@ const pl: Record<MessageKey, string> = {
   "claims.wholeFile": "cały plik",
   "claims.noticeTitle": "{session} i {other} zmieniają ten sam plik",
   "claims.failed": "Nie udało się sprawdzić nakładania: {error}",
+  "claims.moreOverlaps": "Pokaż więcej nakładań (+{count})",
+  "claims.unlisted": "Nakładania niewymienione tutaj: {count}.",
   "profile.movedNotSaved":
     "{name} nie jest jeszcze zapisana: nie jest już zwykłą zmienną, a pęk kluczy nie przyjął wartości ({error}). Zapisz ponownie, inaczej wartość przepadnie.",
   "profile.valueBuiltIn": "Wartość wbudowanego wpisu",
@@ -6248,6 +6264,8 @@ const pt: Record<MessageKey, string> = {
   "claims.wholeFile": "arquivo inteiro",
   "claims.noticeTitle": "{session} e {other} alteram o mesmo arquivo",
   "claims.failed": "Não foi possível verificar sobreposições: {error}",
+  "claims.moreOverlaps": "Mostrar mais sobreposições (+{count})",
+  "claims.unlisted": "Sobreposições não listadas aqui: {count}.",
   "profile.movedNotSaved":
     "{name} ainda não foi salva: não é mais uma variável comum e o chaveiro não aceitou o valor ({error}). Salve de novo, senão o valor se perde.",
   "profile.valueBuiltIn": "Valor da entrada embutida",
@@ -6946,6 +6964,8 @@ const ru: Record<MessageKey, string> = {
   "claims.wholeFile": "весь файл",
   "claims.noticeTitle": "{session} и {other} меняют один и тот же файл",
   "claims.failed": "Не удалось проверить пересечения: {error}",
+  "claims.moreOverlaps": "Показать ещё пересечения (+{count})",
+  "claims.unlisted": "Пересечения, не показанные здесь: {count}.",
   "profile.movedNotSaved":
     "{name} ещё не сохранена: это уже не обычная переменная, а связка ключей не приняла значение ({error}). Сохрани ещё раз, иначе значение пропадёт.",
   "profile.valueBuiltIn": "Значение встроенной записи",
@@ -7640,6 +7660,8 @@ const tr: Record<MessageKey, string> = {
   "claims.wholeFile": "tüm dosya",
   "claims.noticeTitle": "{session} ve {other} aynı dosyayı değiştiriyor",
   "claims.failed": "Çakışmalar denetlenemedi: {error}",
+  "claims.moreOverlaps": "Daha fazla çakışma göster (+{count})",
+  "claims.unlisted": "Burada listelenmeyen çakışmalar: {count}.",
   "profile.movedNotSaved":
     "{name} henüz kaydedilmedi: artık normal bir değişken değil ve anahtar zinciri değeri almadı ({error}). Yeniden kaydet, yoksa değer kaybolur.",
   "profile.valueBuiltIn": "Yerleşik girdinin değeri",
@@ -8311,6 +8333,8 @@ const zh: Record<MessageKey, string> = {
   "claims.wholeFile": "整个文件",
   "claims.noticeTitle": "{session} 和 {other} 正在修改同一文件",
   "claims.failed": "无法检查重叠：{error}",
+  "claims.moreOverlaps": "显示更多重叠 (+{count})",
+  "claims.unlisted": "此处未列出的重叠：{count}",
   "profile.movedNotSaved":
     "{name} 尚未保存：它已不再是普通变量，而钥匙串也未接受该值（{error}）。请再次保存，否则该值会丢失。",
   "profile.valueBuiltIn": "内置条目的值",

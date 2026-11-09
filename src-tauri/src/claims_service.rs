@@ -6,11 +6,15 @@
 //! missed ones (notify 8.2 on Windows unwatches a folder silently after a buffer overflow, see
 //! docs/wiki/pages/sources/claims-rescan-measurement.md), and a watcher that cannot start leaves
 //! the worktree on the poll alone. Events inside the git folder count only for `HEAD`, `index`
-//! and `logs/HEAD`, which catch commits and checkouts. One worker means at most one git call of
-//! the claims at a time. Before a worktree is removed, [`ClaimsService::release`] closes its
-//! watcher and waits for a scan in it, because Windows keeps a watched folder open.
+//! and `logs/HEAD`, which catch commits and checkouts; events in top-level folders git ignores
+//! (`target`, `node_modules`) do not count at all. One worker means at most one git call of the
+//! claims at a time, and a budget across all worktrees keeps git from running most of the time.
+//! Before a worktree is removed, [`ClaimsService::release`] closes its watcher and waits for a
+//! git call in it, because Windows keeps a watched folder open.
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,8 +26,9 @@ use std::time::{Duration, Instant};
 use notify::{RecursiveMode, Watcher as _};
 
 use crate::claims::{
-    self, folder_key, key_within, ClaimState, ClaimsSnapshot, Coalescer, RootView, ScanReason,
-    ScanResult, SessionClaims, MAX_LISTED_CLAIMS, POLL_ONLY, POLL_WATCHED,
+    self, folder_key, key_within, ClaimState, ClaimsSnapshot, Coalescer, RootView, ScanBudget,
+    ScanReason, ScanResult, SessionClaims, MAX_LISTED_CLAIMS, MAX_LISTED_OVERLAPS, POLL_ONLY,
+    POLL_WATCHED,
 };
 use crate::git::{self, Git, GitError};
 use crate::lock;
@@ -38,6 +43,9 @@ const SESSION_CHECK: Duration = Duration::from_secs(1);
 const RESOLVE_AGAIN: Duration = POLL_WATCHED;
 /// Limit of the `-U0` diff; files past it count as whole files.
 const MAX_DIFF_OUTPUT: usize = git::MAX_LIST_BYTES;
+/// Names of top-level folders asked about in one `check-ignore`, in bytes (the Windows command
+/// line holds 32767 characters); folders past it keep their events.
+const MAX_IGNORE_ARGS_BYTES: usize = 8 * 1024;
 
 const STATUS_ARGS: &[&str] = &[
     "status",
@@ -130,13 +138,76 @@ pub fn resolve(git: &Git, cwd: &Path) -> Result<Option<RootInfo>, GitError> {
         }
     };
     let top = git::native_path(top);
+    let git_dir = absolute(git_dir);
     let common = absolute(common);
+    // Before anything below resolves, watches or runs git there.
+    git::check_work_tree(cwd, &top, &[&git_dir, &common])?;
     Ok(Some(RootInfo {
         key: folder_key(&top),
         repo: folder_key(&common),
-        git_dir: absolute(git_dir),
+        git_dir,
         top,
     }))
+}
+
+/// Top-level folders of the worktree that git ignores (`target`, `node_modules`, ...). A build
+/// writes there for minutes, and every write would ask for a rescan that finds nothing new.
+/// Names git prints quoted (control characters) do not match and keep their events; tracked
+/// files below an ignored folder are still found by the poll.
+pub fn ignored_dirs(git: &Git, top: &Path, deadline: Instant) -> Result<Vec<String>, GitError> {
+    let entries =
+        fs::read_dir(top).map_err(|_| GitError::InvalidPath("the folder cannot be read"))?;
+    let mut names = Vec::new();
+    let mut bytes = 0;
+    for entry in entries.flatten() {
+        // The watcher does not follow symlinks either.
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name == ".git" {
+            continue;
+        }
+        bytes += name.len() + 1;
+        if bytes > MAX_IGNORE_ARGS_BYTES {
+            break;
+        }
+        names.push(name);
+    }
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let args = ["check-ignore", "--"]
+        .into_iter()
+        .chain(names.iter().map(String::as_str));
+    let output = git.run(top, args, deadline, 64 * 1024)?;
+    match output.code {
+        Some(0) => {}
+        // None of them is ignored.
+        Some(1) => return Ok(Vec::new()),
+        _ => return Err(output.failure()),
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .filter(|line| names.iter().any(|name| name == line))
+        .map(str::to_owned)
+        .collect())
+}
+
+/// `path` is one of the worktree's ignored top-level folders or lies below one.
+pub fn in_ignored_dir(path: &Path, top: &Path, ignored: &[String]) -> bool {
+    let Ok(rest) = path.strip_prefix(top) else {
+        return false;
+    };
+    rest.components().next().is_some_and(|first| {
+        ignored
+            .iter()
+            .any(|name| first.as_os_str() == OsStr::new(name))
+    })
 }
 
 /// Changed files of a worktree against its HEAD, with line ranges on the HEAD side: filter
@@ -249,20 +320,33 @@ impl Signal {
     }
 }
 
+/// Ignored top-level folder names of one worktree, shared with its watcher's thread.
+type IgnoredDirs = Arc<Mutex<Vec<String>>>;
+
 fn start_watcher(
     root: &RootInfo,
     signal: Arc<Signal>,
+    ignored: IgnoredDirs,
 ) -> notify::Result<notify::RecommendedWatcher> {
     let git_dirs = vec![root.git_dir.clone(), root.top.join(".git")];
-    let mut watcher =
-        notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
-            Ok(event) => {
-                if event.need_rescan() || event.paths.iter().any(|p| relevant(p, &git_dirs)) {
-                    signal.hit();
-                }
+    let top = root.top.clone();
+    let handler = move |event: notify::Result<notify::Event>| match event {
+        Ok(event) => {
+            let ignored = lock(&ignored);
+            let counts =
+                |path: &PathBuf| relevant(path, &git_dirs) && !in_ignored_dir(path, &top, &ignored);
+            if event.need_rescan() || event.paths.iter().any(counts) {
+                signal.hit();
             }
-            Err(_) => signal.fail(),
-        })?;
+        }
+        // Includes the inotify watch limit (ENOSPC) reached while new folders are added: the
+        // worker then drops the watcher, which frees its watches, and polls.
+        Err(_) => signal.fail(),
+    };
+    // Symlinks are not followed: a link to `/` or to another tree would be watched in full (on
+    // Linux every folder below costs an inotify watch).
+    let config = notify::Config::default().with_follow_symlinks(false);
+    let mut watcher = notify::RecommendedWatcher::new(handler, config)?;
     watcher.watch(&root.top, RecursiveMode::Recursive)?;
     // A linked worktree's git folder lies outside it; HEAD and index live there.
     if !root.git_dir.starts_with(&root.top) {
@@ -282,6 +366,14 @@ struct Shared {
     released: Mutex<Vec<String>>,
     /// Held during every scan.
     scan_gate: Mutex<()>,
+}
+
+/// A folder handed to [`ClaimsService::release`]. Give it back with
+/// [`ClaimsService::unrelease`] when the folder stays after all.
+#[must_use]
+#[derive(Debug)]
+pub struct Released {
+    key: String,
 }
 
 /// Tauri state of the local claims.
@@ -307,9 +399,12 @@ impl ClaimsService {
             emit: Box::new(emit),
             enabled: false,
             git: None,
+            keys: HashMap::new(),
             places: HashMap::new(),
             roots: HashMap::new(),
             active: Vec::new(),
+            budget: ScanBudget::new(Instant::now()),
+            dirty: true,
         };
         thread::Builder::new()
             .name("claims".to_owned())
@@ -327,10 +422,10 @@ impl ClaimsService {
         lock(&self.shared.snapshot).clone()
     }
 
-    /// Closes the watchers of `folder` and everything below it and waits for a running scan,
-    /// before the folder is removed. No new watcher or scan starts there while a session still
-    /// works in it.
-    pub fn release(&self, folder: &Path) {
+    /// Closes the watchers of `folder` and everything below it and waits for a running git call
+    /// there, before the folder is removed. No new watcher, scan or resolve starts there while a
+    /// session still works in it, or until [`Self::unrelease`].
+    pub fn release(&self, folder: &Path) -> Released {
         let key = folder_key(folder);
         lock(&self.shared.released).push(key.clone());
         let closed: Vec<notify::RecommendedWatcher> = {
@@ -345,6 +440,19 @@ impl ClaimsService {
         // Dropping stops the watch; outside the lock, it may wait for the watcher's thread.
         drop(closed);
         drop(lock(&self.shared.scan_gate));
+        self.send(Message::Wake);
+        Released { key }
+    }
+
+    /// The folder stays after all (the removal failed or kept it): its sessions are watched and
+    /// compared again.
+    pub fn unrelease(&self, released: Released) {
+        {
+            let mut list = lock(&self.shared.released);
+            if let Some(index) = list.iter().position(|key| *key == released.key) {
+                list.remove(index);
+            }
+        }
         self.send(Message::Wake);
     }
 
@@ -361,6 +469,7 @@ impl ClaimsService {
 }
 
 /// What a session's folder turned out to be.
+#[derive(PartialEq, Eq)]
 enum PlaceState {
     Root(String),
     NotRepo,
@@ -381,6 +490,7 @@ enum Mode {
 struct Root {
     info: RootInfo,
     signal: Arc<Signal>,
+    ignored: IgnoredDirs,
     mode: Mode,
     coalescer: Coalescer,
     result: Option<Result<ScanResult, String>>,
@@ -394,12 +504,18 @@ struct Worker {
     emit: Box<dyn Fn(&ClaimsSnapshot) + Send>,
     enabled: bool,
     git: Option<Git>,
+    /// [`folder_key`] per session folder: resolving touches the folder, which can hang on a
+    /// network path, so it happens once per folder rather than every second.
+    keys: HashMap<PathBuf, String>,
     /// Per session folder, as the session list names it.
     places: HashMap<PathBuf, Place>,
     /// Per worktree key.
     roots: HashMap<String, Root>,
     /// Sessions observed in the last check, in the session list's order.
     active: Vec<WatchedSession>,
+    budget: ScanBudget,
+    /// Something the snapshot shows changed since it was last built.
+    dirty: bool,
 }
 
 impl Worker {
@@ -449,14 +565,25 @@ impl Worker {
             .values()
             .map(|root| root.coalescer.deadline())
             .min()
-            .unwrap_or_else(|| Instant::now() + SESSION_CHECK)
+            .map_or_else(
+                || Instant::now() + SESSION_CHECK,
+                |due| due.max(self.budget.not_before()),
+            )
     }
 
     fn clear(&mut self) {
         self.roots.clear();
+        self.keys.clear();
         self.places.clear();
         self.active.clear();
+        self.dirty = true;
         lock(&self.shared.watchers).clear();
+    }
+
+    fn is_released(&self, key: &str) -> bool {
+        lock(&self.shared.released)
+            .iter()
+            .any(|folder| key_within(key, folder))
     }
 
     fn git(&mut self) -> Result<Git, GitError> {
@@ -471,22 +598,38 @@ impl Worker {
     /// Reads the session list, resolves new folders, starts and drops worktrees and watchers.
     fn sync(&mut self, now: Instant) {
         let sessions = (self.sessions)();
-        let keys: Vec<String> = sessions.iter().map(|s| folder_key(&s.cwd)).collect();
+        self.keys
+            .retain(|cwd, _| sessions.iter().any(|session| session.cwd == *cwd));
+        let keys: Vec<String> = sessions
+            .iter()
+            .map(|session| {
+                self.keys
+                    .entry(session.cwd.clone())
+                    .or_insert_with(|| folder_key(&session.cwd))
+                    .clone()
+            })
+            .collect();
         let released = {
             let mut released = lock(&self.shared.released);
             released.retain(|folder| keys.iter().any(|key| key_within(key, folder)));
             released.clone()
         };
         let is_released = |key: &str| released.iter().any(|folder| key_within(key, folder));
-        self.active = sessions
+        let active: Vec<WatchedSession> = sessions
             .into_iter()
             .zip(&keys)
             .filter(|(_, key)| !is_released(key))
             .map(|(session, _)| session)
             .collect();
+        if active != self.active {
+            self.active = active;
+            self.dirty = true;
+        }
 
         let cwds: Vec<PathBuf> = self.active.iter().map(|s| s.cwd.clone()).collect();
+        let before = self.places.len();
         self.places.retain(|cwd, _| cwds.contains(cwd));
+        self.dirty |= self.places.len() != before;
         for cwd in &cwds {
             let stale = match self.places.get(cwd) {
                 None => true,
@@ -498,17 +641,13 @@ impl Worker {
             if !stale {
                 continue;
             }
-            let state = match self.git().and_then(|git| resolve(&git, cwd)) {
-                Ok(Some(info)) => {
-                    let key = info.key.clone();
-                    if !self.roots.contains_key(&key) && !is_released(&key) {
-                        self.add_root(info, now);
-                    }
-                    PlaceState::Root(key)
-                }
-                Ok(None) => PlaceState::NotRepo,
-                Err(error) => PlaceState::Failed(error.to_string()),
+            let Some(state) = self.resolve_place(cwd, now) else {
+                continue;
             };
+            self.dirty |= self
+                .places
+                .get(cwd)
+                .is_none_or(|place| place.state != state);
             self.places.insert(
                 cwd.clone(),
                 Place {
@@ -526,18 +665,54 @@ impl Worker {
                 _ => None,
             })
             .collect();
+        let before = self.roots.len();
         self.roots.retain(|key, _| used.contains(key));
+        self.dirty |= self.roots.len() != before;
         lock(&self.shared.watchers).retain(|key, _| used.contains(key));
+    }
+
+    /// What `cwd` is, asked under the scan gate so a release waits for this git call too.
+    /// `None` when the folder was released meanwhile.
+    fn resolve_place(&mut self, cwd: &Path, now: Instant) -> Option<PlaceState> {
+        let git = match self.git() {
+            Ok(git) => git,
+            Err(error) => return Some(PlaceState::Failed(error.to_string())),
+        };
+        let shared = Arc::clone(&self.shared);
+        let gate = lock(&shared.scan_gate);
+        let key = self
+            .keys
+            .get(cwd)
+            .cloned()
+            .unwrap_or_else(|| folder_key(cwd));
+        if self.is_released(&key) {
+            return None;
+        }
+        let resolved = resolve(&git, cwd);
+        drop(gate);
+        Some(match resolved {
+            Ok(Some(info)) => {
+                let key = info.key.clone();
+                if !self.roots.contains_key(&key) && !self.is_released(&key) {
+                    self.add_root(info, now);
+                }
+                PlaceState::Root(key)
+            }
+            Ok(None) => PlaceState::NotRepo,
+            Err(error) => PlaceState::Failed(error.to_string()),
+        })
     }
 
     fn add_root(&mut self, info: RootInfo, now: Instant) {
         let signal = Arc::new(Signal::new(self.tx.clone()));
-        let mode = self.watch(&info, &signal);
+        let ignored = IgnoredDirs::default();
+        let mode = self.watch(&info, &signal, &ignored);
         self.roots.insert(
             info.key.clone(),
             Root {
                 info,
                 signal,
+                ignored,
                 mode,
                 coalescer: Coalescer::new(now),
                 result: None,
@@ -546,11 +721,11 @@ impl Worker {
     }
 
     /// Starts a watcher for the worktree; network folders and failures stay on the poll.
-    fn watch(&self, info: &RootInfo, signal: &Arc<Signal>) -> Mode {
+    fn watch(&self, info: &RootInfo, signal: &Arc<Signal>, ignored: &IgnoredDirs) -> Mode {
         if git::is_remote(&info.top) {
             return Mode::PollOnly;
         }
-        match start_watcher(info, Arc::clone(signal)) {
+        match start_watcher(info, Arc::clone(signal), Arc::clone(ignored)) {
             Ok(watcher) => {
                 // Checked under the watchers lock: a release that came in while the watcher
                 // started either is seen here or closes the watcher right after the insert.
@@ -594,9 +769,18 @@ impl Worker {
     }
 
     fn scan_due(&mut self) {
-        let keys: Vec<String> = self.roots.keys().cloned().collect();
-        for key in keys {
+        // The most overdue first, so the budget cannot starve a worktree.
+        let mut keys: Vec<(Instant, String)> = self
+            .roots
+            .iter()
+            .map(|(key, root)| (root.coalescer.deadline(), key.clone()))
+            .collect();
+        keys.sort_unstable();
+        for (_, key) in keys {
             let now = Instant::now();
+            if !self.budget.allows(now) {
+                break;
+            }
             let Some(reason) = self.roots.get(&key).and_then(|r| r.coalescer.due(now)) else {
                 continue;
             };
@@ -606,7 +790,9 @@ impl Worker {
                     if let Some(root) = self.roots.get_mut(&key) {
                         root.coalescer.begin();
                         root.coalescer.finished(now, now, POLL_ONLY);
-                        root.result = Some(Err(error.to_string()));
+                        let result = Some(Err(error.to_string()));
+                        self.dirty |= root.result != result;
+                        root.result = result;
                     }
                     continue;
                 }
@@ -624,23 +810,36 @@ impl Worker {
             root.coalescer.begin();
             let started = Instant::now();
             let result = scan(&git, &root.info).map_err(|error| error.to_string());
+            if root.mode == Mode::Events {
+                // Refreshed with every scan: a new `target` or a changed `.gitignore` is an event
+                // that leads here.
+                let deadline = Instant::now() + git::TIMEOUT;
+                *lock(&root.ignored) =
+                    ignored_dirs(&git, &root.info.top, deadline).unwrap_or_default();
+            }
             drop(gate);
+            let finished = Instant::now();
+            self.budget.spent(started, finished);
             let poll = match root.mode {
                 Mode::Events => POLL_WATCHED,
                 Mode::PollOnly => POLL_ONLY,
             };
-            root.coalescer.finished(started, Instant::now(), poll);
+            root.coalescer.finished(started, finished, poll);
+            let changed = root.result.as_ref() != Some(&result);
+            self.dirty |= changed;
             // The poll found what no event reported: the watcher may have stopped silently
             // (overflow on Windows). Start it again.
             let missed = reason == ScanReason::Poll
                 && root.mode == Mode::Events
-                && root.result.as_ref().is_some_and(|old| *old != result);
+                && root.result.is_some()
+                && changed;
             root.result = Some(result);
             if missed {
                 let info = root.info.clone();
                 let signal = Arc::clone(&root.signal);
+                let ignored = Arc::clone(&root.ignored);
                 lock(&self.shared.watchers).remove(&key);
-                let mode = self.watch(&info, &signal);
+                let mode = self.watch(&info, &signal, &ignored);
                 if let Some(root) = self.roots.get_mut(&key) {
                     root.mode = mode;
                 }
@@ -649,6 +848,10 @@ impl Worker {
     }
 
     fn publish(&mut self) {
+        if !self.dirty {
+            return;
+        }
+        self.dirty = false;
         let snapshot = if self.enabled {
             self.build()
         } else {
@@ -693,11 +896,13 @@ impl Worker {
             .collect();
         let overlaps = claims::overlaps(&views);
         let levels = claims::levels(&overlaps);
+        let (overlaps, counts) = claims::cap_overlaps(overlaps, MAX_LISTED_OVERLAPS);
 
         let sessions = self
             .active
             .iter()
             .map(|session| {
+                let overlap_count = counts.get(&session.id).copied().unwrap_or(0);
                 let mut entry = SessionClaims {
                     session_id: session.id,
                     state: ClaimState::Pending,
@@ -707,6 +912,8 @@ impl Worker {
                     claims: Vec::new(),
                     truncated: false,
                     level: levels.get(&session.id).copied().unwrap_or_default(),
+                    overlap_count,
+                    overlaps_truncated: overlap_count > MAX_LISTED_OVERLAPS,
                 };
                 match self.places.get(&session.cwd).map(|place| &place.state) {
                     None => {}
@@ -870,6 +1077,67 @@ mod tests {
         assert_eq!(resolve(&git, &repo.join(".git")).unwrap(), None);
     }
 
+    /// A repository whose config moves the work tree elsewhere is refused before Hangar
+    /// resolves, watches or scans the folder it names.
+    #[test]
+    fn resolve_refuses_a_moved_work_tree() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("claims-core-worktree");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let other = tmp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        git_ok(
+            &git,
+            &repo,
+            &["config", "core.worktree", &other.to_string_lossy()],
+        );
+        assert!(matches!(
+            resolve(&git, &repo),
+            Err(GitError::ForeignWorkTree)
+        ));
+        git_ok(&git, &repo, &["config", "--unset", "core.worktree"]);
+        assert!(resolve(&git, &repo).unwrap().is_some());
+    }
+
+    #[test]
+    fn ignored_top_level_folders() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("claims-ignored");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        write(&repo.join(".gitignore"), "target/\nnode_modules\n*.log\n");
+        for dir in ["target", "node_modules", "src", "with space"] {
+            fs::create_dir_all(repo.join(dir)).unwrap();
+        }
+        write(&repo.join("loose.log"), "x\n");
+        let mut ignored = ignored_dirs(&git, &repo, Instant::now() + git::TIMEOUT).unwrap();
+        ignored.sort();
+        assert_eq!(ignored, ["node_modules", "target"]);
+
+        assert!(in_ignored_dir(&repo.join("target"), &repo, &ignored));
+        assert!(in_ignored_dir(
+            &repo.join("target").join("debug").join("x.o"),
+            &repo,
+            &ignored
+        ));
+        assert!(!in_ignored_dir(
+            &repo.join("src").join("a.rs"),
+            &repo,
+            &ignored
+        ));
+        assert!(!in_ignored_dir(&repo.join("loose.log"), &repo, &ignored));
+        assert!(!in_ignored_dir(&repo.join(".gitignore"), &repo, &ignored));
+        // Outside the worktree (a linked worktree's git folder) nothing is dropped.
+        assert!(!in_ignored_dir(&tmp.path().join("target"), &repo, &ignored));
+
+        // Nothing ignored: an empty list, not an error.
+        fs::remove_file(repo.join(".gitignore")).unwrap();
+        assert!(ignored_dirs(&git, &repo, Instant::now() + git::TIMEOUT)
+            .unwrap()
+            .is_empty());
+    }
+
     /// Two linked worktrees of one repository change the same lines of the same file; a third
     /// session shares the first worktree. The worker watches both, reports the overlap, follows a
     /// later change through the watcher and lets go of a released worktree.
@@ -973,8 +1241,23 @@ mod tests {
                 .any(|e| e.session_id == 2 && e.claims.iter().any(|c| c.path == "docs/b.md"))
         });
 
+        // Released, but the removal fails: given back, session 2 is watched and compared again.
+        let released = service.release(&wt_b);
+        assert_eq!(lock(&service.shared.watchers).len(), 1);
+        wait_for("session 2 released", &|s| {
+            s.sessions.iter().all(|e| e.session_id != 2)
+        });
+        service.unrelease(released);
+        wait_for("session 2 back", &|s| {
+            s.sessions
+                .iter()
+                .any(|e| e.session_id == 2 && e.state == ClaimState::Ready)
+                && s.overlaps.iter().any(|o| o.session_id == 2)
+        });
+        assert_eq!(lock(&service.shared.watchers).len(), 2);
+
         // Released: the watcher is closed at once and the worktree can go.
-        service.release(&wt_b);
+        let _released = service.release(&wt_b);
         assert_eq!(lock(&service.shared.watchers).len(), 1);
         git_ok(
             &git,

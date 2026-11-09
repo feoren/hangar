@@ -514,6 +514,11 @@ export function Sidebar(props: Props) {
                       {session.marker.emoji}
                     </span>
                   )}
+                  {props.overlaps.has(session.id) && (
+                    <span className="rail-overlap" aria-hidden="true">
+                      <OverlapIcon size={10} />
+                    </span>
+                  )}
                   {railShowsChip(chip) ? (
                     <span className="rail-chip">
                       <StatusChip kind={chip} compact />

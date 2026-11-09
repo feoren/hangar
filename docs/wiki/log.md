@@ -121,3 +121,10 @@ completion routine (silent unwatch after an overflow). Built local claims (step 
 worktree as a trigger, coalesced git rescans, overlap levels, sidebar marker, warning block in
 the Changes tab, one-time notice. Pages changed: [[claims-rescan-measurement]],
 [[team-service-v1]], [[overview]].
+
+## [2026-11-09] ingest | Step A hardening after review
+Refused work trees moved by `core.worktree` (shares, whole drives) before resolving or watching,
+stopped following symlinks in the watcher, dropped events from ignored top-level folders, added
+a scan budget across worktrees, cached folder keys, capped overlaps per session, gave a released
+worktree back when its removal fails, and showed the overlap in the collapsed rail. Read notify
+8.2.2's inotify source for the ENOSPC path. Pages changed: [[team-service-v1]].

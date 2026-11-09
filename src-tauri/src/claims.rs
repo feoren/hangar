@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+pub use crate::git::key_within;
 use crate::session::SessionId;
 
 /// Beyond this many hunks a file counts as changed as a whole: the ranges would say little and
@@ -23,6 +24,8 @@ pub const MAX_HUNKS_PER_FILE: usize = 64;
 pub const LINE_PADDING: u32 = 3;
 /// Claims per session sent to the window. Overlaps are computed on all of them.
 pub const MAX_LISTED_CLAIMS: usize = 2000;
+/// Overlaps per session sent to the window, the worst first. Levels are computed on all of them.
+pub const MAX_LISTED_OVERLAPS: usize = 200;
 
 /// What happened to a file, relative to the session's base commit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -106,34 +109,11 @@ pub struct ScanResult {
 // ---------------------------------------------------------------------------------------------
 // Keys
 
-/// Folder key: resolved where possible, `/` separators, no trailing separator, lower case where
-/// the file system ignores case (Windows, macOS). Two spellings of one folder give one key.
+/// Folder key: resolved where possible, then [`crate::git::path_key`]. Two spellings of one
+/// folder give one key. Resolving touches the folder; callers cache the key.
 pub fn folder_key(path: &Path) -> String {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let text = resolved.to_string_lossy();
-    let text = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{rest}")
-    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
-        rest.to_owned()
-    } else {
-        text.into_owned()
-    };
-    let mut key = text.replace('\\', "/");
-    while key.len() > 1 && key.ends_with('/') {
-        key.pop();
-    }
-    if cfg!(any(windows, target_os = "macos")) {
-        key = key.to_lowercase();
-    }
-    key
-}
-
-/// `key` is `folder` or lies below it (both from [`folder_key`]).
-pub fn key_within(key: &str, folder: &str) -> bool {
-    key == folder
-        || key
-            .strip_prefix(folder)
-            .is_some_and(|rest| rest.starts_with('/'))
+    crate::git::path_key(&resolved)
 }
 
 /// Comparison key of a path inside a repository, case-insensitive where the file system is.
@@ -520,6 +500,24 @@ pub fn overlaps(roots: &[RootView<'_>]) -> Vec<Overlap> {
     found
 }
 
+/// At most `max` overlaps per session (the input is sorted worst first per session, as
+/// [`overlaps`] returns it), and how many each session has in all.
+pub fn cap_overlaps(
+    overlaps: Vec<Overlap>,
+    max: usize,
+) -> (Vec<Overlap>, BTreeMap<SessionId, usize>) {
+    let mut counts: BTreeMap<SessionId, usize> = BTreeMap::new();
+    let listed = overlaps
+        .into_iter()
+        .filter(|overlap| {
+            let count = counts.entry(overlap.session_id).or_default();
+            *count += 1;
+            *count <= max
+        })
+        .collect();
+    (listed, counts)
+}
+
 /// Worst level per session.
 pub fn levels(overlaps: &[Overlap]) -> BTreeMap<SessionId, OverlapLevel> {
     let mut levels = BTreeMap::new();
@@ -563,6 +561,9 @@ pub struct SessionClaims {
     /// More claims than [`MAX_LISTED_CLAIMS`], or git's output was cut.
     pub truncated: bool,
     pub level: OverlapLevel,
+    /// Overlaps of this session in all; the snapshot lists at most [`MAX_LISTED_OVERLAPS`].
+    pub overlap_count: usize,
+    pub overlaps_truncated: bool,
 }
 
 /// Event `claims-changed` and the answer of `claims_snapshot`.
@@ -590,6 +591,38 @@ pub const MAX_GAP: Duration = Duration::from_secs(30);
 pub const POLL_WATCHED: Duration = Duration::from_secs(60);
 /// Poll without a watcher (network folder, watcher failed or limit reached).
 pub const POLL_ONLY: Duration = Duration::from_secs(30);
+
+/// Scans of all worktrees together take at most a quarter of the time: after a scan that took
+/// `t`, the next one of any worktree waits `BUDGET_FACTOR * t`.
+pub const BUDGET_FACTOR: u32 = 3;
+
+/// The shared side of the timing: one worker scans one worktree at a time, and many worktrees
+/// with cheap gaps each could still keep git busy all the time.
+#[derive(Debug, Clone)]
+pub struct ScanBudget {
+    not_before: Instant,
+}
+
+impl ScanBudget {
+    pub fn new(now: Instant) -> Self {
+        Self { not_before: now }
+    }
+
+    /// Earliest time any scan may start.
+    pub fn not_before(&self) -> Instant {
+        self.not_before
+    }
+
+    pub fn allows(&self, now: Instant) -> bool {
+        now >= self.not_before
+    }
+
+    /// A scan that started at `started` ended at `now`.
+    pub fn spent(&mut self, started: Instant, now: Instant) {
+        let cost = now.saturating_duration_since(started);
+        self.not_before = now + cost.saturating_mul(BUDGET_FACTOR).min(MAX_GAP);
+    }
+}
 
 /// Why a rescan is due.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1007,6 +1040,46 @@ diff --git a/c.rs b/c.rs\n@@ -1 +1 @@\n-x\n+y\n@@ -5,";
     }
 
     #[test]
+    fn overlaps_are_capped_per_session() {
+        let overlap = |session_id, other_id| Overlap {
+            session_id,
+            other_id,
+            level: OverlapLevel::SameFile,
+            path: Some("a".into()),
+            area: None,
+            lines: Vec::new(),
+        };
+        let all: Vec<Overlap> = (0..5)
+            .map(|n| overlap(1, 10 + n))
+            .chain([overlap(2, 1)])
+            .collect();
+        let (listed, counts) = cap_overlaps(all, 3);
+        assert_eq!(listed.len(), 4);
+        assert_eq!(
+            listed.iter().map(|o| o.other_id).collect::<Vec<_>>(),
+            [10, 11, 12, 1]
+        );
+        assert_eq!(counts[&1], 5);
+        assert_eq!(counts[&2], 1);
+    }
+
+    #[test]
+    fn scan_budget_spans_all_worktrees() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut budget = ScanBudget::new(t0);
+        assert!(budget.allows(t0));
+        // 200 ms of git: nothing else for 600 ms.
+        budget.spent(t0, ms(200));
+        assert_eq!(budget.not_before(), ms(800));
+        assert!(!budget.allows(ms(799)));
+        assert!(budget.allows(ms(800)));
+        // Never longer than the largest gap of one worktree.
+        budget.spent(ms(800), ms(60_800));
+        assert_eq!(budget.not_before(), ms(60_800) + MAX_GAP);
+    }
+
+    #[test]
     fn snapshot_serializes_camel_case() {
         let snapshot = ClaimsSnapshot {
             enabled: true,
@@ -1021,6 +1094,8 @@ diff --git a/c.rs b/c.rs\n@@ -1 +1 @@\n-x\n+y\n@@ -5,";
                 claims: vec![claim("src/a.rs", &[r(1, 2)])],
                 truncated: false,
                 level: OverlapLevel::OverlappingLines,
+                overlap_count: 201,
+                overlaps_truncated: true,
             }],
             overlaps: Vec::new(),
         };
@@ -1031,6 +1106,8 @@ diff --git a/c.rs b/c.rs\n@@ -1 +1 @@\n-x\n+y\n@@ -5,";
         assert_eq!(session["state"]["message"], "x");
         assert_eq!(session["sharedWith"][0], 2);
         assert_eq!(session["level"], "overlappingLines");
+        assert_eq!(session["overlapCount"], 201);
+        assert_eq!(session["overlapsTruncated"], true);
         assert_eq!(session["claims"][0]["wholeFile"], false);
         assert_eq!(session["claims"][0]["kind"], "modified");
         assert_eq!(session["claims"][0]["ranges"][0]["start"], 1);

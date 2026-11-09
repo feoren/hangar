@@ -1714,6 +1714,28 @@ body.resizing-horizontal * {
   line-height: 1;
 }
 
+/* A session that changes a file another one changes too: the same icon as in the expanded
+   list, in the badge's top left corner. Shape and colour, never colour alone. */
+.rail-overlap {
+  position: absolute;
+  top: 1px;
+  left: 6px;
+  display: flex;
+  padding: 1px;
+  border-radius: 3px;
+  /* Covers a colour marker's stripe below it. */
+  background: var(--panel);
+  color: var(--warn);
+  line-height: 0;
+}
+
+/* Hover, active and the breathing attention tint colour the button itself: follow it. */
+.rail-session:hover .rail-overlap,
+.rail-session.active .rail-overlap,
+.rail-session.attention .rail-overlap {
+  background: inherit;
+}
+
 .rail-new {
   flex: none;
   margin: 4px 0 8px;

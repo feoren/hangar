@@ -138,7 +138,17 @@ and timing: [[claims-rescan-measurement]].
   thread, one notify 8.2 watcher per distinct worktree, rescans through `Git::run`).
 - **Which sessions:** running agent sessions of the session manager (no update sessions, no
   exited ones). Each folder is resolved once with `rev-parse --show-toplevel --git-dir
-  --git-common-dir`; sessions in one worktree share its watcher and its rescan.
+  --git-common-dir`; sessions in one worktree share its watcher and its rescan. The folder key
+  is cached per session folder, so a hung network path is not resolved every second.
+- **Work tree check:** before anything is resolved, watched or scanned, the reported work tree
+  and both git folders must not lead from the session folder (as named or resolved, so a mapped
+  network drive may name its own share; unverified that Git for Windows prints the share there,
+  not measured on a real share) to another share or device, the work tree
+  must contain the session folder and must hold a `.git` (`git::check_work_tree`). A repository
+  whose own config moves the work tree (`core.worktree`, for example to `C:\` or a share) is
+  refused with a clear message; the Changes panel and worktree creation use the same check.
+  git itself still reads that config while answering `rev-parse` (not preventable without
+  parsing the config ourselves).
 - **Rescan:** filter overrides, `status --porcelain=v2 -z --branch --no-renames`, and only with
   a base commit and changes `diff -U0 --no-ext-diff --no-textconv --no-renames HEAD --`. Hunk
   headers only; a pure insertion after line `a` counts as lines `a` to `a + 1`. Whole file: new,
@@ -154,21 +164,36 @@ and timing: [[claims-rescan-measurement]].
 - **Watcher:** recursive on the worktree; inside a git folder only `HEAD`, `index` and
   `logs/HEAD` count (commits, checkouts, staging); a linked worktree's own git folder is watched
   too. Rescan flag, error or a network folder: poll only. A poll that finds unreported changes
-  restarts the watcher (silent unwatch after an overflow on Windows).
+  restarts the watcher (silent unwatch after an overflow on Windows). Symlinks are not followed
+  (`Config::with_follow_symlinks(false)`). notify 8.2.2 reports the inotify limit (ENOSPC) as
+  `ErrorKind::MaxFilesWatch` from `watch` or through the handler (`src/inotify.rs`, read in the
+  crate source); both switch the worktree to poll only at once and drop the watcher.
+- **Ignored folders:** with every scan the worker asks `git check-ignore` which top-level folders
+  are ignored (`target`, `node_modules`); their events are dropped, so a build no longer rescans
+  every few seconds. A changed `.gitignore` or a new folder is an event that leads to the next
+  scan and refresh. Tracked files below an ignored folder are found by the poll. The recursive
+  watch itself still covers those folders (on Linux each costs inotify watches).
 - **Timing:** 750 ms quiet, 3 s maximum wait, gap ten times the last rescan's cost (1 to 30 s),
   safety poll 60 s (30 s without a watcher). One worker: at most one git call of the claims at a
-  time.
+  time. A budget across all worktrees: after a scan that took `t`, no scan for `3 t` (at most
+  30 s), the most overdue worktree first. The snapshot is rebuilt only when a sync or scan changed
+  something.
 - **Removal:** `remove_worktree` checks the record, then `ClaimsService::release` closes the
-  worktree's watcher and waits for a running scan before git removes the folder; no watcher or
-  scan starts there again while a session still names it.
+  worktree's watcher and waits for a running git call (scan or resolve, both under one gate)
+  before git removes the folder; no watcher, scan or resolve starts there again while a session
+  still names it. When the removal fails or keeps the worktree, `ClaimsService::unrelease` gives
+  it back and its sessions keep their overlap warnings.
 - **Interface:** commands `configure_claims(enabled)` and `claims_snapshot()` (main window only),
   event `claims-changed` with `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps:
-  Overlap[] }`; each overlap is listed from both sides (`sessionId`, `otherId`). Types mirror in
+  Overlap[] }`; each overlap is listed from both sides (`sessionId`, `otherId`), at most 200 per
+  session (worst first), with `overlapCount` and `overlapsTruncated` per session. Types mirror in
   `src/claims.ts`.
-- **UI:** a warm overlap icon in the session row (tooltip and screen reader text "Same file as
-  <session>: <path>", file levels only); in the Changes tab a warning block with every overlap
-  and "Show session", a shared folder note, and a collapsible list of changed places with line
-  ranges; a notice in the window and, in the background, a desktop notification under the
+- **UI:** a warm overlap icon in the session row and, in the collapsed rail, in the badge's top
+  left corner (tooltip and screen reader text "Same file as <session>: <path>", file levels
+  only); in the Changes tab a warning block with the overlaps in pages of 20 and "Show session",
+  a note when overlaps past the limit are not listed, a shared folder note, and a collapsible list
+  of changed places with line ranges; paths, areas and git's messages show invisible characters
+  as placeholders; a notice in the window and, in the background, a desktop notification under the
   existing notification settings, once per session pair and file per app run.
 - **Not built yet:** configurable areas (first folder only), committed but unmerged changes on a
   session branch (only uncommitted changes against HEAD count), stage 2 with `git merge-tree`.
