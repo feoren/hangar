@@ -439,26 +439,18 @@ impl App {
     /// The app's own device flow; the person approves on the relay's page.
     async fn sign_in(&self, client: &reqwest::Client, browser: &Browser) -> String {
         let view = self.account.sign_in().await.unwrap();
-        let AccountState::WaitingForUser {
-            user_code,
-            verification_uri_complete,
-            ..
-        } = view.state
-        else {
-            panic!("device flow did not start: {:?}", view.state);
+        let AccountState::WaitingForUser { user_code, .. } = view.state else {
+            panic!("device flow did not start");
         };
-        eprintln!("interop: app device flow shows {user_code} at {verification_uri_complete}");
+        // The code and the link stay out of the output; they sign the device in.
+        eprintln!("interop: app device flow started");
         browser.approve(client, &user_code).await;
         let deadline = Instant::now() + WAIT;
         loop {
             if let AccountState::SignedIn { user: Some(me) } = self.account.view().state {
                 return me.id;
             }
-            assert!(
-                Instant::now() < deadline,
-                "not signed in: {:?}",
-                self.account.view().state
-            );
+            assert!(Instant::now() < deadline, "not signed in in time");
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
@@ -803,7 +795,8 @@ fn hangar_against_a_self_hosted_relay() {
         let b1 = App::new(&base, "b1", Duration::from_secs(3));
         let alice_id = a1.sign_in(&client, &alice).await;
         let bob_id = b1.sign_in(&client, &bob).await;
-        eprintln!("interop: app device flow signed in {alice_id} and {bob_id}");
+        assert_ne!(alice_id, bob_id);
+        eprintln!("interop: app device flow signed in both accounts");
 
         a1.team.enable(&team).await.unwrap();
         a1.connected(&team, 1, 1, 1).await;

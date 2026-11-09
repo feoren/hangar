@@ -69,8 +69,20 @@ export function quotePath(path: string, kind: ShellKind): string {
     case "wsl":
       return posixQuote(wslPath(path));
     case "agent":
-      return /^[^\s"']+$/u.test(path) ? path : `"${path.replace(/"/g, '\\"')}"`;
+      return agentQuote(path);
   }
+}
+
+/**
+ * A path in an agent's prompt is read, not parsed by a shell: quote it with a quote kind it does
+ * not contain. Only a path with both kinds gets backslash escapes, and then backslashes too, so
+ * the text stays unambiguous.
+ */
+function agentQuote(path: string): string {
+  if (/^[^\s"']+$/u.test(path)) return path;
+  if (!path.includes('"')) return `"${path}"`;
+  if (!path.includes("'")) return `'${path}'`;
+  return `"${path.replace(/[\\"]/g, "\\$&")}"`;
 }
 
 function posixQuote(path: string): string {

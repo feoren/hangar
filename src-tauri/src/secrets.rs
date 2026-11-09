@@ -186,7 +186,8 @@ pub fn for_launch(
 pub fn delete_all(store: &dyn SecretStore, profile_id: &str, names: &[String]) {
     for name in names {
         if let Err(error) = delete(store, profile_id, name) {
-            eprintln!("hangar: secret {name} of profile {profile_id} not deleted: {error}");
+            // The secret's name stays out of the log; the profile and the error are enough.
+            eprintln!("hangar: a secret of profile {profile_id} was not deleted: {error}");
         }
     }
 }

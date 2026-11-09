@@ -131,7 +131,8 @@ describe("agent CLIs", () => {
     expect(quotePath("C:\\a\\b.png", "agent")).toBe("C:\\a\\b.png");
     expect(quotePath("C:\\My Files\\b.png", "agent")).toBe('"C:\\My Files\\b.png"');
     expect(quotePath("/tmp/ada's.png", "agent")).toBe('"/tmp/ada\'s.png"');
-    expect(quotePath('/tmp/say "hi".png', "agent")).toBe('"/tmp/say \\"hi\\".png"');
+    expect(quotePath('/tmp/say "hi".png', "agent")).toBe("'/tmp/say \"hi\".png'");
+    expect(quotePath('/tmp/ada\'s "x"\\y.png', "agent")).toBe('"/tmp/ada\'s \\"x\\"\\\\y.png"');
     expect(quotePath("C:\\Übersicht\\日本.png", "agent")).toBe("C:\\Übersicht\\日本.png");
   });
 });
