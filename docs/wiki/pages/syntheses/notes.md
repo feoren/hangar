@@ -61,7 +61,7 @@ webviews. The backend keeps no window geometry.
 | Command | Window | Arguments | Result |
 |---|---|---|---|
 | `open_notes_window` | main | `alwaysOnTop: boolean` | `null`; creates the window with label `notes`, URL `index.html?window=notes`, 440 x 640, at least 320 x 360, title "Hangar"; if it exists, only unminimizes, shows and focuses it |
-| `set_notes_on_top` | main | `onTop: boolean` | `boolean`: `false` if the window is not open |
+| `set_notes_on_top` | notes | `onTop: boolean` | `null`; keeps the calling window on top or not; any window other than `notes` fails |
 | `notes_to_main` | notes | `message: NotesMessage` | `null`; delivers the validated message as event `notes-message` to the window `main` only |
 
 ```ts
@@ -80,13 +80,14 @@ type NotesMessage =
 
 Capabilities:
 
-- Main window (`capabilities/default.json`): `allow-open-notes-window`, `allow-set-notes-on-top`,
+- Main window (`capabilities/default.json`): `allow-open-notes-window`,
   `core:window:allow-set-focus`; no `core:webview:allow-create-webview-window` (a contract test
   keeps it out).
 - `notes` window (`capabilities/notes.json`, `windows: ["notes"]`): the note commands above,
-  `allow-notes-to-main`, `core:event:allow-listen` and `core:event:allow-unlisten` (listening
-  only, never `allow-emit` or `allow-emit-to`), `core:window:allow-set-always-on-top`,
-  `core:window:allow-close`, `core:window:allow-set-focus`, `clipboard-manager:allow-write-text`
+  `allow-notes-to-main`, `allow-set-notes-on-top`, `core:event:allow-listen` and `core:event:allow-unlisten` (listening
+  only, never `allow-emit` or `allow-emit-to`), `core:window:allow-close`,
+  `core:window:allow-destroy` (the close handler destroys the window once input is saved),
+  `core:window:allow-set-focus`, never `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text`
   (copy; `navigator.clipboard` fails in WebView2). Nothing else of the app (no sessions,
   profiles, updates, session export). A contract test (`src-tauri/tests/contract.rs`) keeps the
   list this narrow.
@@ -112,8 +113,19 @@ Capabilities:
   `sendToTerminal` (then `showMain`), and `notesChanged` after a change, which the main window also
   takes as the reply to `flush` on quit (it waits at most the usual quit timeout). The main window
   checks every `notes-message` again (`parseNotesMessage`) before it pastes.
-- The notes window toggles "Always on top" itself (`core:window:allow-set-always-on-top`);
-  `set_notes_on_top` stays unused. Closing the notes window (its own close button) sets
-  `detached` to false on `pagehide`, so the notes are back in the right panel; on quit the
+- Sending text from the app (a note's "Send to", a snippet) goes through `src/appPaste.ts`.
+  xterm wraps a paste in bracketed paste markers only while the program has DECSET 2004 on
+  (`term.modes.bracketedPasteMode`); otherwise every line break becomes CR and each line but the
+  last runs at once. In that case, and when the text holds bidi or zero-width characters
+  (`hasInvisible`, line breaks, tabs and emoji joiners ignored), the main window shows an inline
+  question with Cancel (focused, also Escape) and "Send anyway"; nothing is written before the
+  answer, and nothing at all if the session closes meanwhile. Ctrl+V
+  and Shift+Insert stay unchanged. The editor marks invisible characters with CodeMirror's
+  `highlightSpecialChars`, extended by the bidi embeddings, U+2068 and U+2060 to U+2064.
+- The notes window toggles "Always on top" through `set_notes_on_top`, for itself only.
+  Closing the notes window (its own close button, or "Bring back") runs its `onCloseRequested`
+  handler: `@tauri-apps/api` 2.12 awaits it and then calls `destroy()`, so pending input is saved
+  first and `detached` turns false, and the notes are back in the right panel; on quit the
   `flush` command keeps `detached`, and the next start opens the window again. If the window
-  vanished without a word, the main window finds out on focus (`Window.getByLabel`).
+  vanished without a word, the main window finds out on focus (`Window.getByLabel`), and on quit
+  it does not wait for a window that is gone.

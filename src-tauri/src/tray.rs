@@ -123,7 +123,8 @@ pub fn configure<R: Runtime>(
         .on_menu_event(|app, event| match event.id().as_ref() {
             OPEN_ITEM => show_main_window(app),
             QUIT_ITEM => {
-                let _ = app.emit(QUIT_EVENT, ());
+                // Only the main window quits the app; no other window needs to hear it.
+                let _ = app.emit_to(MAIN_WINDOW, QUIT_EVENT, ());
             }
             _ => {}
         })

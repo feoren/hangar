@@ -42,6 +42,7 @@ import { NO_ACTIVITY } from "./statusLine";
 import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths } from "./gitBranches";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
+import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { Badge } from "./Badge";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
@@ -384,6 +385,12 @@ export function App() {
   const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
   /** Clicked terminal link, for as long as its hint is shown. */
   const [link, setLink] = useState<{ url: string; copied: boolean } | null>(null);
+  /** Text from the app waiting for "Send anyway" (appPaste.ts); the answer goes to the ref. */
+  const [pasteCheck, setPasteCheck] = useState<{ warning: PasteWarning; name: string } | null>(
+    null,
+  );
+  const pasteAnswer = useRef<((send: boolean) => void) | null>(null);
+  const pasteCancelButton = useRef<HTMLButtonElement | null>(null);
   const viewportWidth = useSyncExternalStore(subscribeWindowWidth, windowWidth);
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
@@ -838,6 +845,53 @@ export function App() {
       if (id !== null) terminals.get(id)?.focus();
     });
   }, []);
+
+  /** Shows the warning for the session `name` and resolves with the user's answer. */
+  const confirmPaste = useCallback(
+    (name: string) =>
+      (warning: PasteWarning): Promise<boolean> => {
+        // A newer send replaces a question still open: the older text is not sent.
+        pasteAnswer.current?.(false);
+        return new Promise<boolean>((resolve) => {
+          pasteAnswer.current = resolve;
+          setPasteCheck({ warning, name });
+        });
+      },
+    [],
+  );
+
+  const answerPaste = (send: boolean) => {
+    const answer = pasteAnswer.current;
+    pasteAnswer.current = null;
+    setPasteCheck(null);
+    answer?.(send);
+    focusTerminal();
+  };
+
+  // The question takes the keyboard, so Enter typed next cannot land in the terminal unseen.
+  useEffect(() => {
+    if (pasteCheck !== null) pasteCancelButton.current?.focus();
+  }, [pasteCheck]);
+
+  /** Note or snippet text into a session, after a warning when it would run lines or hides some. */
+  const pasteIntoSession = useCallback(
+    (id: number, text: string) => {
+      const terminal = terminals.get(id);
+      if (!terminal) return;
+      const name = stateRef.current.sessions.find((s) => s.id === id)?.title ?? "";
+      // The session may close while the question is open: then nothing is sent.
+      const session = {
+        bracketedPaste: () => terminal.bracketedPaste(),
+        pasteText: (clean: string) => {
+          if (terminals.get(id) === terminal) terminal.pasteText(clean);
+        },
+      };
+      void pasteFromApp(session, text, confirmPaste(name)).then((pasted) => {
+        if (pasted) focusTerminal();
+      });
+    },
+    [confirmPaste, focusTerminal],
+  );
 
   const splitView = useSplitView({
     layout: layout.snapLayout,
@@ -1563,13 +1617,20 @@ export function App() {
   /** Save everything that would be lost on quit; waits at most QUIT_SAVE_TIMEOUT_MS. */
   const persistAll = useCallback(async () => {
     // The notes window saves its pending input too and says so (or the timeout ends the wait).
+    // A window that is gone (crash) cannot answer, so the quit does not wait for it.
     const notesWindowSaved = loadWindowPrefs().detached
-      ? new Promise<void>((resolve) => {
-          notesSavedRef.current = resolve;
-          emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "flush" }).catch(() => {
-            resolve();
-          });
-        })
+      ? Window.getByLabel(NOTES_WINDOW_LABEL)
+          .then((found) =>
+            found === null
+              ? undefined
+              : new Promise<void>((resolve) => {
+                  notesSavedRef.current = resolve;
+                  emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "flush" }).catch(() => {
+                    resolve();
+                  });
+                }),
+          )
+          .catch(() => undefined)
       : Promise.resolve();
     const work = Promise.all([
       notesWindowSaved,
@@ -2102,11 +2163,10 @@ export function App() {
   const sendFromNotes = (text: string, sessionId: number | null) => {
     const id = sessionId ?? activeIdRef.current;
     if (id === null) return;
-    const terminal = terminals.get(id);
-    if (!terminal) return;
-    terminal.pasteText(text);
+    if (!terminals.has(id)) return;
+    // That session shows first, so a warning is read next to the session it is about.
     if (id !== activeIdRef.current) dispatch({ type: "activated", id });
-    focusTerminal();
+    pasteIntoSession(id, text);
   };
 
   useEffect(() => {
@@ -2258,8 +2318,7 @@ export function App() {
     const session = activeSession;
     const terminal = activeTerminal();
     if (!session || session.status === "exited" || !terminal) return;
-    terminal.pasteText(snippet.text);
-    focusTerminal();
+    pasteIntoSession(session.id, snippet.text);
   };
 
   /**
@@ -3453,6 +3512,44 @@ export function App() {
             )}
           </div>
           <div className="notices">
+            {pasteCheck !== null && (
+              <div
+                className="link-notice paste-check"
+                role="alert"
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  answerPaste(false);
+                }}
+              >
+                {pasteCheck.warning.runsLines && (
+                  <span>{t("paste.runsLines", { name: pasteCheck.name })}</span>
+                )}
+                {pasteCheck.warning.hidden && <span>{t("paste.hidden")}</span>}
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    ref={pasteCancelButton}
+                    onClick={() => {
+                      answerPaste(false);
+                    }}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      answerPaste(true);
+                    }}
+                  >
+                    {t("paste.sendAnyway")}
+                  </button>
+                </div>
+              </div>
+            )}
             {startHint !== null && (
               <div className="link-notice start-hint" role="status" key={startHint}>
                 <span>{startHint}</span>

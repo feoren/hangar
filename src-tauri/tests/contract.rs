@@ -23,7 +23,7 @@ fn build_commands() -> Vec<String> {
 }
 
 /// Commands granted to the notes window and to no other window.
-const NOTES_WINDOW_ONLY: &[&str] = &["notes_to_main"];
+const NOTES_WINDOW_ONLY: &[&str] = &["notes_to_main", "set_notes_on_top"];
 
 #[test]
 fn commands_are_registered_allowed_and_wired() {
@@ -90,8 +90,9 @@ fn notes_window_capability_is_narrow() {
     let allowed_core = [
         "core:event:allow-listen",
         "core:event:allow-unlisten",
-        "core:window:allow-set-always-on-top",
+        // Close asks the window's own handler first; destroy ends it once input is saved.
         "core:window:allow-close",
+        "core:window:allow-destroy",
         "core:window:allow-set-focus",
         "clipboard-manager:allow-write-text",
     ];
@@ -108,8 +109,7 @@ fn notes_window_capability_is_narrow() {
             "{permission} names no registered command"
         );
         assert!(
-            (command.contains("note") || command == "list_trash")
-                && !matches!(command.as_str(), "open_notes_window" | "set_notes_on_top"),
+            (command.contains("note") || command == "list_trash") && command != "open_notes_window",
             "{permission} is not a note command"
         );
     }
@@ -120,12 +120,15 @@ fn notes_window_capability_is_narrow() {
         "allow-export-note",
         "allow-reveal-note",
         "allow-notes-to-main",
+        "allow-set-notes-on-top",
         "allow-read-note",
         "allow-write-note",
     ] {
         assert!(permissions.contains(&needed), "{needed} missing");
     }
+    // On top only for itself, through its own command, never for any window it can name.
     for forbidden in [
+        "core:window:allow-set-always-on-top",
         "core:event:default",
         "core:event:allow-emit",
         "core:event:allow-emit-to",

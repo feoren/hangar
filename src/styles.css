@@ -4967,7 +4967,8 @@ body.session-dragging .session-actions {
   padding: 8px 14px;
 }
 
-.link-notice.update-problem {
+.link-notice.update-problem,
+.link-notice.paste-check {
   border-color: color-mix(in srgb, var(--warn) 60%, transparent);
 }
 

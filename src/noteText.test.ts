@@ -84,4 +84,12 @@ describe("appendCapture", () => {
   it("uses a longer fence when the output contains one", () => {
     expect(appendCapture("", "```js\nx\n```", "1", "")).toContain("````\n```js");
   });
+
+  it("keeps the session title on one plain line in the heading", () => {
+    // The program sets the title (OSC 0/2); it must not break out of the italic heading.
+    expect(appendCapture("", "a", "9:01", "x_y *b* `c` [d](e)\n# Head\u0007")).toBe(
+      "_9:01 · x\\_y \\*b\\* \\`c\\` \\[d\\](e) # Head_\n\n```\na\n```\n",
+    );
+    expect(appendCapture("", "a", "9:01", "\r\n\u001b\t")).toBe("_9:01_\n\n```\na\n```\n");
+  });
 });

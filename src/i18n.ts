@@ -347,6 +347,9 @@ const de = {
   "link.notice":
     "Hangar öffnet Links noch nicht selbst. Kopiere die Adresse und öffne sie im Browser:",
   "link.copied": "Kopiert.",
+  "paste.runsLines": "{name} führt jede Zeile sofort aus, sobald sie ankommt.",
+  "paste.hidden": "Der Text enthält unsichtbare Zeichen. Er könnte anders laufen, als er aussieht.",
+  "paste.sendAnyway": "Trotzdem senden",
   "settings.scrollbackSecrets":
     "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
   "sidebar.startsIn": "Startet in",
@@ -1026,6 +1029,9 @@ const en: Record<MessageKey, string> = {
   "link.notice":
     "Hangar can't open links itself yet. Copy the address and open it in your browser:",
   "link.copied": "Copied.",
+  "paste.runsLines": "{name} runs each line as soon as it arrives.",
+  "paste.hidden": "The text contains hidden characters. It may run differently than it reads.",
+  "paste.sendAnyway": "Send anyway",
   "settings.scrollbackSecrets":
     "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
   "sidebar.startsIn": "Starts in",
@@ -1707,6 +1713,10 @@ const el: Record<MessageKey, string> = {
   "link.notice":
     "Το Hangar δεν ανοίγει ακόμη συνδέσμους μόνο του. Αντίγραψε τη διεύθυνση και άνοιξέ τη στον browser σου:",
   "link.copied": "Αντιγράφηκε.",
+  "paste.runsLines": "Το {name} εκτελεί κάθε γραμμή μόλις φτάσει.",
+  "paste.hidden":
+    "Το κείμενο περιέχει κρυφούς χαρακτήρες. Μπορεί να εκτελεστεί διαφορετικά από ό,τι φαίνεται.",
+  "paste.sendAnyway": "Αποστολή ούτως ή άλλως",
   "settings.scrollbackSecrets":
     "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
   "sidebar.startsIn": "Ξεκινά στο",
@@ -2393,6 +2403,10 @@ const es: Record<MessageKey, string> = {
   "link.notice":
     "Hangar aún no abre enlaces por sí mismo. Copia la dirección y ábrela en tu navegador:",
   "link.copied": "Copiado.",
+  "paste.runsLines": "{name} ejecuta cada línea en cuanto llega.",
+  "paste.hidden":
+    "El texto contiene caracteres ocultos. Podría ejecutarse de forma distinta a como se lee.",
+  "paste.sendAnyway": "Enviar de todos modos",
   "settings.scrollbackSecrets":
     "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
   "sidebar.startsIn": "Empieza en",
@@ -3076,6 +3090,10 @@ const fr: Record<MessageKey, string> = {
   "link.notice":
     "Hangar n’ouvre pas encore les liens lui-même. Copie l’adresse et ouvre-la dans ton navigateur :",
   "link.copied": "Copié.",
+  "paste.runsLines": "{name} exécute chaque ligne dès qu'elle arrive.",
+  "paste.hidden":
+    "Le texte contient des caractères cachés. Il pourrait s'exécuter autrement qu'il ne se lit.",
+  "paste.sendAnyway": "Envoyer quand même",
   "settings.scrollbackSecrets":
     "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
   "sidebar.startsIn": "Démarre dans",
@@ -3765,6 +3783,10 @@ const it: Record<MessageKey, string> = {
   "link.notice":
     "Hangar non apre ancora i link da solo. Copia l’indirizzo e aprilo nel tuo browser:",
   "link.copied": "Copiato.",
+  "paste.runsLines": "{name} esegue ogni riga appena arriva.",
+  "paste.hidden":
+    "Il testo contiene caratteri nascosti. Potrebbe essere eseguito diversamente da come si legge.",
+  "paste.sendAnyway": "Invia comunque",
   "settings.scrollbackSecrets":
     "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
   "sidebar.startsIn": "Parte in",
@@ -4445,6 +4467,10 @@ const ja: Record<MessageKey, string> = {
   "link.notice":
     "Hangar はまだリンクを直接開けません。アドレスをコピーしてブラウザーで開いてください:",
   "link.copied": "コピーしました。",
+  "paste.runsLines": "{name} は届いた行をすぐに 1 行ずつ実行します。",
+  "paste.hidden":
+    "テキストに見えない文字が含まれています。見た目と違う動作をする可能性があります。",
+  "paste.sendAnyway": "このまま送信",
   "settings.scrollbackSecrets":
     "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
   "sidebar.startsIn": "開始フォルダー",
@@ -5128,6 +5154,9 @@ const pl: Record<MessageKey, string> = {
   "link.notice":
     "Hangar nie otwiera jeszcze linków samodzielnie. Skopiuj adres i otwórz go w przeglądarce:",
   "link.copied": "Skopiowano.",
+  "paste.runsLines": "{name} wykonuje każdy wiersz, gdy tylko dotrze.",
+  "paste.hidden": "Tekst zawiera ukryte znaki. Może działać inaczej, niż wygląda.",
+  "paste.sendAnyway": "Wyślij mimo to",
   "settings.scrollbackSecrets":
     "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
   "sidebar.startsIn": "Startuje w",
@@ -5806,6 +5835,10 @@ const pt: Record<MessageKey, string> = {
   "orphans.end": "Encerrar",
   "link.notice": "O Hangar ainda não abre links sozinho. Copie o endereço e abra no seu navegador:",
   "link.copied": "Copiado.",
+  "paste.runsLines": "{name} executa cada linha assim que ela chega.",
+  "paste.hidden":
+    "O texto contém caracteres ocultos. Ele pode ser executado de forma diferente do que parece.",
+  "paste.sendAnyway": "Enviar mesmo assim",
   "settings.scrollbackSecrets":
     "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
   "sidebar.startsIn": "Começa em",
@@ -6488,6 +6521,9 @@ const ru: Record<MessageKey, string> = {
   "orphans.end": "Остановить",
   "link.notice": "Hangar пока не открывает ссылки сам. Скопируй адрес и открой его в браузере:",
   "link.copied": "Скопировано.",
+  "paste.runsLines": "{name} выполняет каждую строку сразу, как только она приходит.",
+  "paste.hidden": "В тексте есть скрытые символы. Он может выполниться не так, как выглядит.",
+  "paste.sendAnyway": "Всё равно отправить",
   "settings.scrollbackSecrets":
     "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
   "sidebar.startsIn": "Запуск в",
@@ -7158,6 +7194,9 @@ const tr: Record<MessageKey, string> = {
   "orphans.end": "Durdur",
   "link.notice": "Hangar bağlantıları henüz kendisi açamıyor. Adresi kopyala ve tarayıcında aç:",
   "link.copied": "Kopyalandı.",
+  "paste.runsLines": "{name} her satırı gelir gelmez çalıştırır.",
+  "paste.hidden": "Metin gizli karakterler içeriyor. Göründüğünden farklı çalışabilir.",
+  "paste.sendAnyway": "Yine de gönder",
   "settings.scrollbackSecrets":
     "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
   "sidebar.startsIn": "Başlangıç klasörü",
@@ -7821,6 +7860,9 @@ const zh: Record<MessageKey, string> = {
   "orphans.end": "结束",
   "link.notice": "Hangar 还不能自行打开链接。请复制地址并在浏览器中打开：",
   "link.copied": "已复制。",
+  "paste.runsLines": "{name} 会在每一行到达时立即执行。",
+  "paste.hidden": "文本包含隐藏字符，实际执行的内容可能与看到的不同。",
+  "paste.sendAnyway": "仍然发送",
   "settings.scrollbackSecrets":
     "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
   "sidebar.startsIn": "启动位置",

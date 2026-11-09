@@ -120,7 +120,8 @@ fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
                 running,
                 copies,
             );
-            let _ = app.emit(UPDATE_RESULT_EVENT, outcome);
+            // Only the main window listens for this.
+            let _ = app.emit_to(notes_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
         });
     if let Err(error) = spawned {
         eprintln!("hangar: update result not checked: {error}");
@@ -829,14 +830,16 @@ pub async fn open_notes_window(
     }
 }
 
-/// Keeps the notes window above other windows or not; `false` if it is not open.
+/// Keeps the notes window above other windows or not. Only the notes window calls it, for
+/// itself: it holds this command instead of the general `set_always_on_top` permission.
 #[tauri::command]
-pub fn set_notes_on_top(app: tauri::AppHandle, on_top: bool) -> Result<bool, NotesWindowError> {
-    let Some(window) = app.get_webview_window(notes_window::LABEL) else {
-        return Ok(false);
-    };
+pub fn set_notes_on_top(
+    window: tauri::WebviewWindow,
+    on_top: bool,
+) -> Result<(), NotesWindowError> {
+    notes_window::check_sender(window.label())?;
     window.set_always_on_top(on_top)?;
-    Ok(true)
+    Ok(())
 }
 
 /// The only way from the notes window to the main window: a validated [`NotesMessage`],
@@ -892,7 +895,8 @@ fn notification_app_id(app: &tauri::AppHandle) -> String {
 /// Brings the main window to the front and tells the frontend which session was meant.
 fn activate_session(app: &tauri::AppHandle, id: SessionId) {
     tray::show_main_window(app);
-    let _ = app.emit(
+    let _ = app.emit_to(
+        notes_window::MAIN_LABEL,
         "notification-activated",
         NotificationActivated { session_id: id },
     );

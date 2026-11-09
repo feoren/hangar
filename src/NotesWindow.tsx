@@ -108,9 +108,10 @@ export function NotesWindow() {
           );
           return;
         case "close":
-          void flushNotes()
-            .catch(() => undefined)
-            .then(() => getCurrentWindow().close());
+          // The close handler below saves first, then the window is destroyed.
+          getCurrentWindow()
+            .close()
+            .catch(() => undefined);
           return;
       }
     })
@@ -125,15 +126,25 @@ export function NotesWindow() {
     };
   }, [refreshFolders, ask]);
 
-  // Closing this window brings the notes back to the side of the main window.
+  // Closing this window brings the notes back to the side of the main window. The handler is
+  // awaited before Tauri destroys the window, so pending input is written first; `pagehide` gave
+  // no such guarantee. A failed save must not keep the window from closing.
   useEffect(() => {
-    const onUnload = () => {
-      void flushNotes();
-      if (!quitting.current) saveWindowPrefs({ ...loadWindowPrefs(), detached: false });
-    };
-    window.addEventListener("pagehide", onUnload);
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    getCurrentWindow()
+      .onCloseRequested(async () => {
+        await flushNotes().catch(() => undefined);
+        if (!quitting.current) saveWindowPrefs({ ...loadWindowPrefs(), detached: false });
+      })
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined);
     return () => {
-      window.removeEventListener("pagehide", onUnload);
+      disposed = true;
+      unlisten?.();
     };
   }, []);
 
@@ -162,9 +173,7 @@ export function NotesWindow() {
     const next = !onTop;
     setOnTop(next);
     saveWindowPrefs({ ...loadWindowPrefs(), onTop: next });
-    getCurrentWindow()
-      .setAlwaysOnTop(next)
-      .catch(() => undefined);
+    api.setNotesOnTop(next).catch(() => undefined);
   };
 
   const onChanged = (folder: NoteFolder) => {

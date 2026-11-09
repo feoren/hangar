@@ -101,3 +101,9 @@ to terminal and terminal selection to note, one right panel with Notes and Chang
 below 900 px, More menu with trash, detached window over localStorage and `notes-command`), the
 waiting edge hint in the sidebar and the 3 : 1 edge colors of `attentionEdges`. Pages changed:
 [[notes-and-start-usability]], [[notes]].
+
+## [2026-11-09] ingest | Notes window hardening
+Recorded the send warning for app text without bracketed paste (`src/appPaste.ts`), the marked
+invisible characters in the editor, the `onCloseRequested` close of the notes window (the API
+awaits the handler, then calls `destroy()`) and `set_notes_on_top` as a notes window command.
+Pages changed: [[notes]].

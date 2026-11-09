@@ -125,6 +125,23 @@ function fenceFor(text: string): string {
   return fence;
 }
 
+/** C0 and C1 controls, DEL, line and paragraph separators. */
+// eslint-disable-next-line no-control-regex -- control characters are exactly the target here.
+const HEADING_BREAKERS = new RegExp("[\u0000-\u001f\u007f-\u009f\u2028\u2029]", "g");
+
+/**
+ * A session title as plain text inside the italic heading: the program sets the title (OSC 0
+ * and 2), so control characters and line breaks become spaces and Markdown characters are
+ * escaped. Otherwise a title could end the heading or add lines to the note.
+ */
+function headingText(source: string): string {
+  return source
+    .replace(HEADING_BREAKERS, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\_*`[\]]/g, "\\$&");
+}
+
 /**
  * Adds terminal output at the end of a note: a line with time and source, then the text as a
  * code block (spacing and symbols of terminal output stay as they are). `existing` may be empty.
@@ -137,7 +154,8 @@ export function appendCapture(
 ): string {
   const body = captured.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
   const fence = fenceFor(body);
-  const heading = source === "" ? `_${stamp}_` : `_${stamp} · ${source}_`;
+  const label = headingText(source);
+  const heading = label === "" ? `_${stamp}_` : `_${stamp} · ${label}_`;
   const block = `${heading}\n\n${fence}\n${body}\n${fence}\n`;
   const trimmed = existing.replace(/\s+$/, "");
   return trimmed === "" ? block : `${trimmed}\n\n${block}`;

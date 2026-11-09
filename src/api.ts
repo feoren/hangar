@@ -225,8 +225,8 @@ export const api = {
   revealNote: (folder: NoteFolder, id: string) => invoke<null>("reveal_note", { folder, id }),
   /** Main window only: opens the notes window or brings it to the front. */
   openNotesWindow: (alwaysOnTop: boolean) => invoke<null>("open_notes_window", { alwaysOnTop }),
-  /** Main window only; `false` if the notes window is not open. */
-  setNotesOnTop: (onTop: boolean) => invoke<unknown>("set_notes_on_top", { onTop }),
+  /** Notes window only: keeps itself above other windows or not. */
+  setNotesOnTop: (onTop: boolean) => invoke<null>("set_notes_on_top", { onTop }),
   /** Notes window only: the one way to ask something of the main window (notesBridge.ts). */
   notesToMain: (message: NotesMessage) => invoke<null>("notes_to_main", { message }),
 

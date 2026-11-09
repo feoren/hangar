@@ -18,6 +18,7 @@ import { EditorSelection, EditorState, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
+  highlightSpecialChars,
   keymap,
   placeholder,
   ViewPlugin,
@@ -86,6 +87,17 @@ const theme = EditorView.theme({
   },
   ".cm-placeholder": { color: "var(--muted)" },
 });
+
+/**
+ * Invisible characters the editor draws as a marker, so a note cannot read one way and run
+ * another once sent to a session. CodeMirror's default set (@codemirror/view 6.43) already has
+ * C0 and C1 controls, U+200B, U+200E, U+200F, U+202D, U+202E, U+2066, U+2067, U+2069 and the
+ * byte order mark; this adds the other bidi embeddings and isolates (U+202A to U+202C, U+2068)
+ * and the word joiner and invisible operators (U+2060 to U+2064), the rest of src/invisible.ts.
+ * U+200C and U+200D stay unmarked: they join emoji and letters in Persian or Indic scripts, and
+ * a marker would break that text. The send warning (appPaste.ts) still names them.
+ */
+const MORE_SPECIAL_CHARS = /[\u202a-\u202c\u2068\u2060-\u2064]/;
 
 class TaskWidget extends WidgetType {
   constructor(
@@ -224,6 +236,7 @@ export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions
         ]),
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(highlight),
+        highlightSpecialChars({ addSpecialChars: MORE_SPECIAL_CHARS }),
         taskPlugin(options.taskLabel),
         EditorView.lineWrapping,
         placeholder(options.placeholder),

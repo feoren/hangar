@@ -377,6 +377,14 @@ export class SessionTerminal {
       .catch(ignore);
   }
 
+  /**
+   * Whether the program has turned on bracketed paste (DECSET 2004). Without it `term.paste`
+   * turns line breaks into carriage returns, so pasted lines run (appPaste.ts).
+   */
+  bracketedPaste(): boolean {
+    return this.term.modes.bracketedPasteMode;
+  }
+
   /** Text from the app (dropped paths): the same path as pasting, with bracketed paste. */
   pasteText(text: string): void {
     const clean = sanitizePaste(text);
