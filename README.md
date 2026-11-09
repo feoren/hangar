@@ -88,6 +88,9 @@ The check suite (everything must pass before a commit):
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo fmt --manifest-path crates/hangar-team-protocol/Cargo.toml --check
+cargo clippy --manifest-path crates/hangar-team-protocol/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
 pnpm format:check && pnpm lint && pnpm test && pnpm build
 ```
 

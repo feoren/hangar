@@ -23,6 +23,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages, comparison rules (sources: 2, updated: 2026-11-08)
 
 ## Concepts
+- [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
 - [[claude-http-hook-measurement]]: measurement: Claude Code 2.1.319 http hooks via `--settings`: request shape, deny reaches the model, timeout and connection failure fail open, SessionStart takes no http hooks, UserPromptSubmit context works (updated: 2026-11-09)
@@ -46,7 +47,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
-- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims) and B (agent gate) as built (sources: 2, updated: 2026-11-09)
+- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate) and C (protocol crate) as built (sources: 2, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window) and the notes UI as built (sources: 0, updated: 2026-11-09)

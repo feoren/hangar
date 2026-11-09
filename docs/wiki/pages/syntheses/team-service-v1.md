@@ -335,6 +335,56 @@ let the edit through. The setting's help text says so.
   hold the 8 unknown-client slots and so make new hooks fail open; accepted, since such a program
   can also edit the files itself.
 
+### Step C as built (2026-11-09)
+
+Protocol crate `crates/hangar-team-protocol` (MIT), described in [[team-protocol]]. Not wired
+into the app yet; the separate relay will use it as a path dependency.
+
+- **Standalone, no workspace:** its own `Cargo.toml` (with an empty `[workspace]` table) and
+  `Cargo.lock`. A workspace at the repository root would move `src-tauri/target` to `target/` and
+  change the paths `tauri build`, the release tool, CI and the dev instance rely on; a workspace
+  under `src-tauri` would make the relay build Tauri's tree. CI runs its fmt, clippy and tests as
+  a separate step.
+- **Dependencies:** serde, serde_json (with `raw_value`), thiserror (already in the app), hmac 0.13
+  and sha2 0.11 (RustCrypto, MIT/Apache-2.0, both already in the app's lock file through Tauri,
+  with their `zeroize` features), hkdf 0.13 (RustCrypto, MIT/Apache-2.0, in the app's lock file),
+  zeroize 1 (MIT/Apache-2.0, in the app's tree) and unicode-normalization 0.1 (unicode-rs,
+  (MIT OR Apache-2.0) AND Unicode-3.0 for its data tables, a documented license exception like
+  `notify`'s CC0: Unicode-3.0 is permissive and only asks that its notice travels with the data,
+  and unicode-ident in every Rust build carries it too; its one dependency tinyvec is in the
+  app's tree). No async runtime, no I/O, no clock.
+- **Content:** `wire` (envelope and all messages of section 4, `deny_unknown_fields` on every
+  struct, version checked before the body, limits), `hash` (matching key per epoch, keyed hashes
+  of task ids, repositories and folder levels, normalization), `reservation` (state machine and
+  the relay's authority, timing from ADR 0005), `overlap` (same area and same file by hash
+  equality between devices), `log` (sequence numbers, replay window, resync, op id retries),
+  `ids` (opaque identifiers, `Ciphertext`, `Epoch`, `Sealed`).
+- **Owner's input during the step:** teams are the website's projects, members its users; ids are
+  opaque strings; `hello` carries the website's Ed25519 ticket unchanged and the relay verifies
+  it; roles owner, admin, member.
+- **Decisions beyond the plan:** repository identity = root commit (no URL normalization); case
+  folding per repository for the whole team (default on); `task.rekey` after a key rotation;
+  presence and overlaps are not logged; overlapping lines are refined by clients from the
+  encrypted detail; one device's sessions are left to step A.
+- **Rework after the acceptance and security reviews:** time events of a book operation are
+  returned apart from the intent's outcome (`Applied`), so a refused intent no longer swallows a
+  warning or an expiry, and every operation applies time to all entries first (a rekey onto an
+  expired hold works); release requests time out (10 min), can be withdrawn
+  (`task.release_withdraw`) and are followed by a 10 minute cooldown per task and requester;
+  owners and admins can force a release (`task.force_release`); presence counts connections;
+  `remove_device`; a handover respects the requester's reservation limit; rekeying needs an
+  old-epoch hold and a new hash; during a 30 minute grace after a rotation `task.reserve` carries
+  the task's old hashes (`prev`) so an offline holder keeps the task; `staleEpoch` error code and
+  `check_epoch` for every epoch-bound payload; separate matching and sealing keys per epoch via
+  HKDF; NFC, the case rule in the hash input and refusal of format and separator characters;
+  only the first folder hash per file (`area`) instead of every level; the encrypted claim detail
+  is passed on in `claim.overlap`; overlaps compare member and device; op retries keyed by
+  sender, team and op id with a body digest; the version is read before the envelope; bodies are
+  parsed straight from raw JSON (duplicate keys refused); a client frame without a team is never
+  built; task ids and paths never show in `Debug`. A threat model section is in [[team-protocol]].
+- **Not built yet:** the relay (step D), the crypto behind `Sealed` (step E), the app side
+  (step F).
+
 ## Still to verify by measurement
 - Claude Code http hook: a connection failure and a timeout fail open (measured,
   [[claude-http-hook-measurement]]); still open whether sub-agent tool calls pass `PreToolUse`

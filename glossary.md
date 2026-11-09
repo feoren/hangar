@@ -131,5 +131,15 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Geteilter Ordner                                | shared folder                     | several sessions in one folder share its changes                       |
 | Sperre vor dem Bearbeiten                       | gate                              | `gate.ts`; holds an agent's edit of a file another session is changing |
 | Offene Entscheidung                             | pending decision                  | `PendingDecision`; allow once, allow for this file or deny             |
+| Reservierung (Aufgabe)                          | reservation                       | `reservation.rs` (protocol crate); first wins, expires when idle       |
+| Freigabe-Anfrage                                | release request                   | asks the holder of a reservation to hand the task over                 |
+| Halter (einer Reservierung)                     | holder                            | member and device holding a reservation                                |
+| Schlüssel-Hash                                  | keyed hash                        | HMAC-SHA256 under the team's matching key; compared by equality only   |
+| Abgleichschlüssel                               | matching key                      | `MatchKey`, derived per epoch from the team key                        |
+| Epoche (Teamschlüssel)                          | epoch                             | generation of the team key; new on every leave                         |
+| Chiffrat                                        | ciphertext                        | opaque encrypted bytes, base64url; format in step E                    |
+| Ereignisprotokoll, Sequenznummer                | event log, sequence number        | per team; replay window, `resync_required`                             |
+| Operations-ID                                   | op id                             | per client intent; a retry carries the same one                        |
+| Protokoll-Crate                                 | protocol crate                    | `crates/hangar-team-protocol`                                          |
 | Programm-Editor                                 | profile editor                    | `ProfileEditor.tsx`; Settings, Programs                                |
 | Anpassen (eingebauter Eintrag)                  | customize                         | saving a catalog or WSL entry as the user's own profile                |

@@ -8,6 +8,8 @@ export default tseslint.config(
       "dist",
       "node_modules",
       "src-tauri",
+      // Build output of standalone crates (rustdoc writes JavaScript there).
+      "crates/*/target",
       "docs",
       "tools",
       ".claude",

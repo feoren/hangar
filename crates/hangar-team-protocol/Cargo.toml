@@ -1,0 +1,39 @@
+[package]
+name = "hangar-team-protocol"
+version = "0.1.0"
+description = "Wire types, keyed hashes and state machines of the Hangar team protocol (no I/O)"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+# Standalone on purpose: a workspace at the repository root would move the app's target folder
+# and change the paths `tauri build`, the release tool and CI rely on. The empty table stops
+# Cargo from looking for a workspace further up.
+[workspace]
+
+[dependencies]
+# Wire types (JSON). MIT/Apache-2.0, the de facto standard, already used by the app.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+# Error types of the public API. MIT/Apache-2.0, already used by the app.
+thiserror = "2"
+# Keyed hashes (HMAC-SHA256) for content-free matching. RustCrypto, MIT/Apache-2.0, no_std,
+# pure Rust; both versions are already in the app's lock file (through Tauri's dependencies).
+# The `zeroize` features wipe the hash state of keys when it is dropped.
+hmac = { version = "0.13", features = ["zeroize"] }
+sha2 = { version = "0.11", features = ["zeroize"] }
+# Separate matching and sealing keys from one epoch secret (RFC 5869). RustCrypto, MIT/Apache-2.0,
+# depends only on hmac; 0.13 is already in the app's lock file.
+hkdf = "0.13"
+# Wipes derived key bytes on drop. MIT/Apache-2.0, no dependencies, already in the app's tree.
+zeroize = "1"
+# NFC for task ids and paths, so names macOS stores decomposed match their composed spelling on
+# Windows and Linux. unicode-rs, (MIT OR Apache-2.0) AND Unicode-3.0: a documented exception to
+# MIT/Apache-2.0, like notify's CC0 in the app. Unicode-3.0 covers the Unicode data tables, is
+# permissive and only asks that its notice travels with copies of the data (the crate ships it);
+# unicode-ident, already in every Rust build through proc-macro2, carries the same license. One
+# dependency (tinyvec, Zlib OR Apache-2.0 OR MIT, already in the app's tree), about 600 KB of
+# source, most of it tables. Alternatives: the standard library has no normalization, and a
+# hand-written table would be a second copy of the same Unicode data to keep current.
+unicode-normalization = "0.1"

@@ -151,3 +151,17 @@ waits for the first gate setting. Pages changed: [[claude-settings-file-measurem
 A profile or resume that already passes `--settings` now starts without the gate (status
 `profileSettings`), since merging two `--settings` is not measured. Pages changed:
 [[team-service-v1]].
+
+## [2026-11-09] ingest | Step C protocol crate
+Built the protocol crate `crates/hangar-team-protocol` (step C): wire types with strict decoding,
+keyed hashes with independent test vectors, reservation and overlap state machines, event log
+sequencing. Filed its design as a concept page. Pages changed: [[team-protocol]],
+[[team-service-v1]].
+
+## [2026-11-09] ingest | Step C rework after reviews
+Reworked the protocol crate after the acceptance and security reviews: time events apart from the
+outcome, release request timeout, withdrawal and cooldown, force release, connection counted
+presence, device removal, rekey grace with old hashes in `task.reserve`, `staleEpoch`, HKDF key
+separation, NFC and format character checks, area-only path hashes, claim detail delivery,
+stricter decoding and op retry keys. Added a threat model. Pages changed: [[team-protocol]],
+[[team-service-v1]].
