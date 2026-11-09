@@ -21,25 +21,19 @@ background, with its full scrollback.
 
 ## Features
 
-- **Sessions that keep running.** Switch freely; nothing stops when a session is out of view.
-- **Knows your agents.** A built-in catalog of 22 agent CLIs detects what is installed, shows the
-  version and offers only what you can start. Any other program can be added as a profile.
-- **Tells you when an agent is waiting for you.** Sessions that go quiet, ring the bell or exit get
-  a subtle pulse in the sidebar, and the taskbar button flashes while Hangar is in the background;
-  jump to the next waiting session with `Ctrl+Shift+A`.
-- **Picks up where you left off.** Sessions, their order and their scrollback are restored after a
-  restart, and agents that support it resume their last conversation.
-- **Notes per project folder.** A tabbed Markdown notepad next to the terminal, saved automatically
-  and attached to the working folder, not to a single session.
-- **Program updates.** Shows when a newer version of an installed agent is available and runs the
-  update in its own visible session on request. Hangar never installs anything on its own.
-- **Real terminal.** xterm.js with truecolor, Unicode and emoji, OSC 8 links, bracketed paste and a
-  real PTY (ConPTY on Windows), so agent CLIs behave exactly as in any other terminal.
-- **Stays smooth under load.** Output is batched with backpressure, so even heavy agent output never
-  freezes the UI.
-- **Light and dark themes, 12 languages,** keyboard-driven menus and shortcuts that never steal keys
-  from your shell (`Ctrl+<letter>` alone always goes to the program).
-- **Signed auto-updates** for Hangar itself.
+- **All your agents in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more are
+  found automatically. Every session keeps running while you look at another one.
+- **Never miss a question.** When an agent waits for you, Hangar shows it clearly and can play a
+  sound or send a notification. `Ctrl+Shift+A` jumps to the next waiting session.
+- **Two or four at once.** Show several sessions side by side and arrange them by dragging.
+- **Agents that don't get in each other's way.** Give a session its own copy of the project, see
+  what it changed, and get a warning when two sessions touch the same file.
+- **Notes next to the terminal.** Quick notes with checklists (`Ctrl+Shift+N`), and you can send a
+  note to an agent with one click.
+- **Picks up where you left off.** After a restart your sessions come back, with their history.
+- **Updates with one click.** For Hangar itself and for your agents.
+- **Teams (coming soon).** See what your teammates' agents are working on, end-to-end encrypted.
+- **Light and dark, 12 languages,** and shortcuts that never take keys away from your programs.
 
 ## Platforms
 
@@ -94,14 +88,16 @@ cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
 cargo fmt --manifest-path crates/hangar-team-crypto/Cargo.toml --check
 cargo clippy --manifest-path crates/hangar-team-crypto/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path crates/hangar-team-crypto/Cargo.toml
-python3 crates/hangar-team-crypto/test_vectors.py  # Windows: py -3
+python3 crates/hangar-team-protocol/test_vectors.py  # Windows: py -3
+python3 crates/hangar-team-crypto/test_vectors.py
 pnpm format:check && pnpm lint && pnpm test && pnpm build
 ```
 
 ## Profiles
 
-Custom programs are defined in `profiles.toml` in the app's config folder. **Settings > Terminals &
-agents > Open profile file** opens it in your editor (and creates it if it is missing); **Help >
+Custom programs can be edited under **Settings > Terminals & agents**, with API keys kept in the
+system keychain. They are stored in `profiles.toml` in the app's config folder; **Open profile
+file** in the same place opens it in your editor (and creates it if it is missing); **Help >
 About Hangar** shows the exact path.
 
 ```toml
