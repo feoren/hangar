@@ -12,7 +12,7 @@ background, with its full scrollback.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code, Codex CLI, Aider and PowerShell sessions in the sidebar" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code and Codex CLI side by side, and Aider waiting for an answer in the sidebar" src="docs/images/hangar-dark.png">
 </picture>
 
 [![CI](https://github.com/feoren/hangar/actions/workflows/ci.yml/badge.svg)](https://github.com/feoren/hangar/actions/workflows/ci.yml)
