@@ -252,10 +252,14 @@ let the edit through. The setting's help text says so.
   with a path containing spaces ([[claude-settings-file-measurement]]). When that path holds a
   character cmd.exe would interpret, or the file cannot be written, the session starts without
   the gate. `SessionInfo.gate` tells the window: `none` (not for this program, gate off, update
-  session), `active`, `noEndpoint` (the endpoint did not start) or `launcher` (no settings file);
-  the last two show as a quiet muted marker next to the session's title and a line in its
-  tooltip. Sessions inside WSL cannot reach the
-  endpoint on the Windows loopback and get no gate (WSL entries have no capabilities).
+  session), `active`, `noEndpoint` (the endpoint did not start), `launcher` (no settings file) or
+  `profileSettings` (the start arguments of the profile or the resume already hold `--settings`
+  or `--settings=`); the last three show as a quiet muted marker next to the session's title and
+  a line in its tooltip. Whether Claude Code merges two `--settings` or keeps only one is not
+  measured, so Hangar adds no second one and that session runs without the gate (neither the
+  argument nor the token, nothing registered); the user's own settings stay untouched. Sessions
+  inside WSL cannot reach the endpoint on the Windows loopback and get no gate (WSL entries have
+  no capabilities).
 - **Restore order:** the window's restore waits until the first `configure_gate` has settled
   (at most 3 s, `gateSetup` in `src/gate.ts`), so restored Claude Code sessions do not start
   before the backend knows the gate is on.

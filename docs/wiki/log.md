@@ -146,3 +146,8 @@ device paths, names as JSON literals in reasons and facts, a per-session decisio
 "ask" when full, a settings file for `claude.cmd`, a gate status per session, and a restore that
 waits for the first gate setting. Pages changed: [[claude-settings-file-measurement]],
 [[team-service-v1]].
+
+## [2026-11-09] ingest | Step B: profiles with their own --settings
+A profile or resume that already passes `--settings` now starts without the gate (status
+`profileSettings`), since merging two `--settings` is not measured. Pages changed:
+[[team-service-v1]].

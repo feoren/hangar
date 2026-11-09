@@ -139,8 +139,19 @@ impl GatePlan {
 /// under the session lock when that process is gone or the session closed, so a restart that
 /// follows can never lose its new registration to the old process's end.
 pub trait LaunchGate: Send + Sync {
+    /// Whether a start of `agent` would get the gate now (program and setting), without
+    /// registering anything or starting the endpoint.
+    fn applies(&self, agent: &Agent) -> bool;
     fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan;
     fn ended(&self, session: SessionId);
+}
+
+/// Whether the start arguments already carry Claude Code's `--settings`. Hangar's own would be a
+/// second one, and whether Claude Code merges both or keeps one is not measured, so such a start
+/// goes without the gate instead of risking the user's settings or a silently missing hook.
+pub fn has_own_settings(args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| arg == "--settings" || arg.starts_with("--settings="))
 }
 
 /// Receiver of a session's events (a Tauri channel in production, a closure in tests).
@@ -1080,6 +1091,9 @@ fn spawn(
     let mut args = launch.args.to_vec();
     // Update sessions never get the gate: they run an installer, not the agent.
     let plan = match (launch.kind, shared.launch_gate()) {
+        (SessionKind::Agent, Some(gate)) if has_own_settings(&args) && gate.applies(agent) => {
+            GatePlan::Unavailable(GateStatus::ProfileSettings)
+        }
         (SessionKind::Agent, Some(gate)) => gate.prepare(id, agent, &program),
         _ => GatePlan::Skip,
     };
@@ -1308,6 +1322,21 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_settings_are_found_in_both_spellings_only() {
+        let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        assert!(has_own_settings(&args(&[
+            "--model",
+            "x",
+            "--settings",
+            "a.json"
+        ])));
+        assert!(has_own_settings(&args(&["--settings={}"])));
+        assert!(!has_own_settings(&args(&["--setting-sources", "user"])));
+        assert!(!has_own_settings(&args(&["--settingsx", "-settings"])));
+        assert!(!has_own_settings(&args(&[])));
+    }
 
     #[test]
     fn argv_line_is_dimmed_and_plain() {

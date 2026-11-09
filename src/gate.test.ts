@@ -223,6 +223,7 @@ describe("gateHint", () => {
   it("names why a session's edits are not paused, and stays quiet otherwise", () => {
     expect(gateHint("noEndpoint", t)).toBe(t("gate.noEndpoint"));
     expect(gateHint("launcher", t)).toBe(t("gate.launcher"));
+    expect(gateHint("profileSettings", t)).toBe(t("gate.profileSettings"));
     expect(gateHint("active", t)).toBeNull();
     expect(gateHint("none", t)).toBeNull();
     expect(gateHint(undefined, t)).toBeNull();

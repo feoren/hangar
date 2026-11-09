@@ -170,6 +170,8 @@ export function gateHint(status: GateStatus | undefined, t: Translate): string |
       return t("gate.noEndpoint");
     case "launcher":
       return t("gate.launcher");
+    case "profileSettings":
+      return t("gate.profileSettings");
     case "active":
     case "none":
     case undefined:

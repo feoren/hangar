@@ -38,6 +38,9 @@ pub enum GateStatus {
     /// A cmd.exe launcher (npm's `claude.cmd`): the hooks' settings file could not be written to
     /// a path cmd.exe passes on unchanged.
     Launcher,
+    /// The start arguments (profile or resume) already pass `--settings`; Hangar adds no second
+    /// one ([`crate::manager::has_own_settings`]).
+    ProfileSettings,
 }
 
 /// What the frontend learns about a session. The profile's environment (`env`) is left out

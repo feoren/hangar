@@ -142,6 +142,8 @@ const de = {
     "Änderungen werden in dieser Session nicht angehalten: Hangar konnte seinen lokalen Hook-Endpunkt nicht starten.",
   "gate.launcher":
     "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Datenordner enthält Zeichen, die cmd.exe auswerten würde.",
+  "gate.profileSettings":
+    "Änderungen werden in dieser Session nicht angehalten: Das Profil übergibt schon eigene --settings, deshalb fügt Hangar keine hinzu.",
   "settings.subAgentExcerpts": "Textauszüge von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
     "Zeigt den letzten Text jedes Sub-Agents. Erkennbare Schlüssel und Passwörter werden ausgeblendet, gespeichert wird nichts davon.",
@@ -873,6 +875,8 @@ const en: Record<MessageKey, string> = {
     "Edits are not paused in this session: Hangar could not start its local hook endpoint.",
   "gate.launcher":
     "Edits are not paused in this session: the path of Hangar's data folder contains characters cmd.exe would interpret.",
+  "gate.profileSettings":
+    "Edits are not paused in this session: its profile already passes its own --settings, so Hangar adds none.",
   "settings.subAgentExcerpts": "Show sub-agent text excerpts",
   "settings.subAgentExcerptsHelp":
     "Shows each sub-agent's latest text. Recognizable keys and passwords are hidden, and none of it is stored.",
@@ -1587,6 +1591,8 @@ const el: Record<MessageKey, string> = {
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το Hangar δεν μπόρεσε να ξεκινήσει το τοπικό σημείο για hooks.",
   "gate.launcher":
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του φακέλου δεδομένων του Hangar περιέχει χαρακτήρες που θα ερμήνευε το cmd.exe.",
+  "gate.profileSettings":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το προφίλ της περνά ήδη δικές του --settings, γι' αυτό το Hangar δεν προσθέτει άλλες.",
   "settings.subAgentExcerpts": "Εμφάνιση αποσπασμάτων κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
     "Δείχνει το τελευταίο κείμενο κάθε υπο-πράκτορα. Αναγνωρίσιμα κλειδιά και κωδικοί αποκρύπτονται και τίποτα δεν αποθηκεύεται.",
@@ -2324,6 +2330,8 @@ const es: Record<MessageKey, string> = {
     "En esta sesión los cambios no se detienen: Hangar no pudo iniciar su punto de conexión local para hooks.",
   "gate.launcher":
     "En esta sesión los cambios no se detienen: la ruta de la carpeta de datos de Hangar contiene caracteres que cmd.exe interpretaría.",
+  "gate.profileSettings":
+    "En esta sesión los cambios no se detienen: su perfil ya pasa sus propios --settings, así que Hangar no añade otros.",
   "settings.subAgentExcerpts": "Mostrar extractos de texto de los subagentes",
   "settings.subAgentExcerptsHelp":
     "Muestra el último texto de cada subagente. Las claves y contraseñas reconocibles se ocultan y no se guarda nada.",
@@ -3052,6 +3060,8 @@ const fr: Record<MessageKey, string> = {
     "Les modifications ne sont pas retenues dans cette session : Hangar n'a pas pu démarrer son point d'accès local pour les hooks.",
   "gate.launcher":
     "Les modifications ne sont pas retenues dans cette session : le chemin du dossier de données de Hangar contient des caractères que cmd.exe interpréterait.",
+  "gate.profileSettings":
+    "Les modifications ne sont pas retenues dans cette session : son profil transmet déjà ses propres --settings, Hangar n'en ajoute donc pas.",
   "settings.subAgentExcerpts": "Afficher les extraits de texte des sous-agents",
   "settings.subAgentExcerptsHelp":
     "Affiche le dernier texte de chaque sous-agent. Les clés et mots de passe reconnaissables sont masqués et rien n'est enregistré.",
@@ -3788,6 +3798,8 @@ const it: Record<MessageKey, string> = {
     "In questa sessione le modifiche non vengono fermate: Hangar non è riuscito ad avviare il suo endpoint locale per gli hook.",
   "gate.launcher":
     "In questa sessione le modifiche non vengono fermate: il percorso della cartella dati di Hangar contiene caratteri che cmd.exe interpreterebbe.",
+  "gate.profileSettings":
+    "In questa sessione le modifiche non vengono fermate: il suo profilo passa già i propri --settings, quindi Hangar non ne aggiunge altri.",
   "settings.subAgentExcerpts": "Mostra estratti di testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
     "Mostra l'ultimo testo di ogni sotto-agente. Chiavi e password riconoscibili vengono nascoste e non viene salvato nulla.",
@@ -4517,6 +4529,8 @@ const ja: Record<MessageKey, string> = {
     "このセッションでは変更は一時停止されません。Hangar がローカルのフック用エンドポイントを開始できませんでした。",
   "gate.launcher":
     "このセッションでは変更は一時停止されません。Hangar のデータフォルダーのパスに cmd.exe が解釈する文字が含まれています。",
+  "gate.profileSettings":
+    "このセッションでは変更は一時停止されません。プロファイルが独自の --settings を既に渡しているため、Hangar は追加しません。",
   "settings.subAgentExcerpts": "サブエージェントのテキスト抜粋を表示",
   "settings.subAgentExcerptsHelp":
     "各サブエージェントの最新のテキストを表示します。認識できるキーやパスワードは隠され、何も保存されません。",
@@ -5244,6 +5258,8 @@ const pl: Record<MessageKey, string> = {
     "W tej sesji zmiany nie są wstrzymywane: Hangar nie mógł uruchomić lokalnego punktu dla hooków.",
   "gate.launcher":
     "W tej sesji zmiany nie są wstrzymywane: ścieżka folderu danych Hangara zawiera znaki, które cmd.exe by zinterpretował.",
+  "gate.profileSettings":
+    "W tej sesji zmiany nie są wstrzymywane: jej profil przekazuje już własne --settings, więc Hangar nie dodaje kolejnych.",
   "settings.subAgentExcerpts": "Pokazuj fragmenty tekstu podagentów",
   "settings.subAgentExcerptsHelp":
     "Pokazuje ostatni tekst każdego podagenta. Rozpoznawalne klucze i hasła są ukrywane, a nic nie jest zapisywane.",
@@ -5966,6 +5982,8 @@ const pt: Record<MessageKey, string> = {
     "Nesta sessão as alterações não são pausadas: o Hangar não conseguiu iniciar seu endpoint local de hooks.",
   "gate.launcher":
     "Nesta sessão as alterações não são pausadas: o caminho da pasta de dados do Hangar contém caracteres que o cmd.exe interpretaria.",
+  "gate.profileSettings":
+    "Nesta sessão as alterações não são pausadas: o perfil dela já passa os próprios --settings, então o Hangar não adiciona outros.",
   "settings.subAgentExcerpts": "Mostrar trechos de texto dos subagentes",
   "settings.subAgentExcerptsHelp":
     "Mostra o texto mais recente de cada subagente. Chaves e senhas reconhecíveis ficam ocultas e nada é salvo.",
@@ -6695,6 +6713,8 @@ const ru: Record<MessageKey, string> = {
     "В этой сессии изменения не приостанавливаются: Hangar не смог запустить локальную точку для хуков.",
   "gate.launcher":
     "В этой сессии изменения не приостанавливаются: путь к папке данных Hangar содержит символы, которые cmd.exe стал бы интерпретировать.",
+  "gate.profileSettings":
+    "В этой сессии изменения не приостанавливаются: её профиль уже передаёт собственные --settings, поэтому Hangar не добавляет свои.",
   "settings.subAgentExcerpts": "Показывать фрагменты текста субагентов",
   "settings.subAgentExcerptsHelp":
     "Показывает последний текст каждого субагента. Распознанные ключи и пароли скрываются, ничего не сохраняется.",
@@ -7411,6 +7431,8 @@ const tr: Record<MessageKey, string> = {
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar yerel hook uç noktasını başlatamadı.",
   "gate.launcher":
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar'ın veri klasörünün yolu, cmd.exe'nin yorumlayacağı karakterler içeriyor.",
+  "gate.profileSettings":
+    "Bu oturumda değişiklikler duraklatılmıyor: profili zaten kendi --settings değerini iletiyor, bu yüzden Hangar ek bir tane eklemiyor.",
   "settings.subAgentExcerpts": "Alt ajan metin alıntılarını göster",
   "settings.subAgentExcerptsHelp":
     "Her alt ajanın son metnini gösterir. Tanınabilen anahtarlar ve parolalar gizlenir, hiçbiri kaydedilmez.",
@@ -8125,6 +8147,8 @@ const zh: Record<MessageKey, string> = {
   "settings.gateNeedsClaims": "需要开启“{setting}”。",
   "gate.noEndpoint": "此会话中的修改不会暂停：Hangar 无法启动本地钩子端点。",
   "gate.launcher": "此会话中的修改不会暂停：Hangar 数据文件夹的路径包含 cmd.exe 会解释的字符。",
+  "gate.profileSettings":
+    "此会话中的修改不会暂停：其配置文件已传入自己的 --settings，因此 Hangar 不再添加。",
   "settings.subAgentExcerpts": "显示子代理文本摘录",
   "settings.subAgentExcerptsHelp":
     "显示每个子代理的最新文本。可识别的密钥和密码会被隐藏，不会保存任何内容。",

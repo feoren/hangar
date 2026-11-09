@@ -260,8 +260,12 @@ fn port_in_use(port: u16) -> bool {
 }
 
 impl LaunchGate for GateService {
+    fn applies(&self, agent: &Agent) -> bool {
+        agent.capabilities.gate() && lock(&self.inner.gate).enabled()
+    }
+
     fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan {
-        if !agent.capabilities.gate() || !lock(&self.inner.gate).enabled() {
+        if !self.applies(agent) {
             return GatePlan::Skip;
         }
         let port = match self.ensure_server() {

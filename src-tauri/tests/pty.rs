@@ -1285,6 +1285,10 @@ struct RecordingGate {
 }
 
 impl LaunchGate for RecordingGate {
+    fn applies(&self, agent: &hangar_lib::agent_catalog::Agent) -> bool {
+        agent.id() != "plain"
+    }
+
     fn prepare(
         &self,
         session: u64,
@@ -1293,7 +1297,7 @@ impl LaunchGate for RecordingGate {
     ) -> GatePlan {
         self.prepared.lock().unwrap().push(session);
         match agent.id() {
-            "gated" => GatePlan::Launch(GateLaunch {
+            "gated" | "own-settings" => GatePlan::Launch(GateLaunch {
                 args: vec!["gate-arg-marker".into()],
                 env: vec![(
                     hangar_lib::gate::TOKEN_ENV.into(),
@@ -1401,4 +1405,45 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
     // Closing tells the gate as well.
     manager.close(plain.id).unwrap();
     assert!(gate.ended.lock().unwrap().contains(&plain.id));
+}
+
+#[test]
+fn a_profile_with_its_own_settings_gets_no_second_one() {
+    // Both spellings Claude Code accepts; the probe prints every argument after its own.
+    let spaced = with_args(gate_probe("own-settings"), &["--settings", "user.json"]);
+    let joined = {
+        let mut probe = with_args(gate_probe("own-settings"), &["--settings=user.json"]);
+        probe.id = "own-settings-joined".into();
+        probe
+    };
+    let manager = SessionManager::new(vec![spaced, joined], Vec::new(), std::env::temp_dir());
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+
+    for id in ["own-settings", "own-settings-joined"] {
+        let (tx, rx) = channel();
+        let info = manager
+            .create(id, None, SIZE, move |e| tx.send(e).unwrap_or(()))
+            .unwrap();
+        assert_eq!(info.gate, GateStatus::ProfileSettings, "{id}");
+        let (output, _) = collect_until_exit(&manager, info.id, &rx);
+        // Neither the gate's argument nor its token reach the child; the profile's value stays.
+        assert!(!output.contains("gate-arg-marker"), "{id}: {output:?}");
+        assert!(output.contains("TOKEN=profile-value"), "{id}: {output:?}");
+        assert!(output.contains("user.json"), "{id}: {output:?}");
+        // Nothing was registered for this session.
+        assert!(!gate.prepared.lock().unwrap().contains(&info.id), "{id}");
+    }
+}
+
+/// Appends `extra` to the probe's arguments so the probe prints them (on Unix `sh -c` takes the
+/// first one as `$0`, so the placeholder goes).
+fn with_args(mut probe: Profile, extra: &[&str]) -> Profile {
+    if cfg!(unix) {
+        probe.args.pop();
+        let script = probe.args.pop().unwrap_or_default();
+        probe.args.push(script.replace("ARGS=$0", "ARGS=\"$0 $*\""));
+    }
+    probe.args.extend(extra.iter().map(|arg| (*arg).to_owned()));
+    probe
 }

@@ -86,9 +86,9 @@ export interface SessionInfo {
 
 /**
  * Rust `GateStatus`: "none" (not for this program, gate off, update session), "active", or why a
- * program that could take the gate does not get it ("noEndpoint", "launcher").
+ * program that could take the gate does not get it ("noEndpoint", "launcher", "profileSettings").
  */
-export type GateStatus = "none" | "active" | "noEndpoint" | "launcher";
+export type GateStatus = "none" | "active" | "noEndpoint" | "launcher" | "profileSettings";
 
 export type SessionKind = "agent" | "update";
 
