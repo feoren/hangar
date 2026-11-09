@@ -175,8 +175,12 @@ mod imp {
 mod imp {
     use super::NotifyError;
 
+    /// A private field instead of a unit struct, so callers build it with `default()` on every
+    /// platform (clippy rejects `default()` on a unit struct).
     #[derive(Default)]
-    pub struct Notifier;
+    pub struct Notifier {
+        _private: (),
+    }
 
     impl Notifier {
         /// Not supported yet: the window keeps its own attention signals.
