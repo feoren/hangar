@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  focusCycleStep,
+  nextFocusZone,
   formatShortcut,
   ignoresRepeat,
   isReloadKey,
@@ -37,10 +39,10 @@ describe("matchShortcut", () => {
   });
 
   it("notes with Ctrl+Shift+N, Ctrl+N stays with the process", () => {
-    expect(matchShortcut(key("N", "KeyN", { shift: true }))).toBe("toggleNotes");
+    expect(matchShortcut(key("N", "KeyN", { shift: true }))).toBe("quickNote");
     expect(matchShortcut(key("n", "KeyN"))).toBeNull();
     expect(matchShortcut(key("N", "KeyN", { shift: true, alt: true }))).toBeNull();
-    expect(formatShortcut(SHORTCUT_LABELS.toggleNotes, createTranslator("de"))).toBe(
+    expect(formatShortcut(SHORTCUT_LABELS.quickNote, createTranslator("de"))).toBe(
       "Strg+Umschalt+N",
     );
   });
@@ -173,5 +175,25 @@ describe("rowMoveStep", () => {
 
   it("is never also an app shortcut", () => {
     expect(matchShortcut(key("ArrowUp", "ArrowUp", alt))).toBeNull();
+  });
+});
+
+describe("focus cycle", () => {
+  it("is F6 forward and Shift+F6 back, without other modifiers", () => {
+    expect(focusCycleStep(key("F6", "F6", { ctrl: false }))).toBe(1);
+    expect(focusCycleStep(key("F6", "F6", { ctrl: false, shift: true }))).toBe(-1);
+    expect(focusCycleStep(key("F6", "F6"))).toBeNull();
+    expect(focusCycleStep(key("F6", "F6", { ctrl: false, alt: true }))).toBeNull();
+    expect(focusCycleStep(key("F5", "F5", { ctrl: false }))).toBeNull();
+  });
+
+  it("goes round terminal, list and editor", () => {
+    const zones = ["terminal", "list", "editor"] as const;
+    expect(nextFocusZone(zones, "terminal", 1)).toBe("list");
+    expect(nextFocusZone(zones, "editor", 1)).toBe("terminal");
+    expect(nextFocusZone(zones, "terminal", -1)).toBe("editor");
+    expect(nextFocusZone(zones, null, 1)).toBe("terminal");
+    expect(nextFocusZone(["terminal", "list"], "editor", 1)).toBe("terminal");
+    expect(nextFocusZone([], "list", 1)).toBeNull();
   });
 });

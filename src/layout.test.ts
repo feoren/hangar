@@ -9,6 +9,8 @@ import {
   FOOTER_HEIGHT,
   isGroupOpen,
   NOTES_WIDTH,
+  OVERLAY_BELOW,
+  OVERLAY_GAP,
   parseLayout,
   placeNotes,
   SESSION_LIST_MIN,
@@ -49,25 +51,26 @@ describe("limits", () => {
 
 describe("placeNotes", () => {
   it("docks next to the terminal while both minimum widths fit", () => {
-    expect(placeNotes(380, 1200)).toEqual({ mode: "docked", width: 380 });
+    expect(placeNotes(380, 1200, 1472)).toEqual({ mode: "docked", width: 380 });
     // Preferred width too wide: the terminal keeps 320 px.
-    expect(placeNotes(900, 800)).toEqual({ mode: "docked", width: 800 - TERMINAL_MIN_WIDTH });
-    expect(placeNotes(380, TERMINAL_MIN_WIDTH + NOTES_WIDTH.min)).toEqual({
+    expect(placeNotes(900, 800, 1072)).toEqual({ mode: "docked", width: 800 - TERMINAL_MIN_WIDTH });
+    expect(placeNotes(380, TERMINAL_MIN_WIDTH + NOTES_WIDTH.min, 1000)).toEqual({
       mode: "docked",
       width: NOTES_WIDTH.min,
     });
   });
 
-  it("overlays the terminal when both do not fit side by side", () => {
+  it("lies over the window below 900 px or when both do not fit", () => {
+    expect(placeNotes(380, 628, OVERLAY_BELOW - 1)).toEqual({ mode: "overlay", width: 380 });
     const tight = TERMINAL_MIN_WIDTH + NOTES_WIDTH.min - 1;
-    expect(placeNotes(380, tight)).toEqual({ mode: "overlay", width: 380 });
-    expect(placeNotes(380, 300)).toEqual({ mode: "overlay", width: 300 });
-    expect(placeNotes(100, 500)).toEqual({ mode: "overlay", width: NOTES_WIDTH.min });
+    expect(placeNotes(380, tight, 1200)).toEqual({ mode: "overlay", width: 380 });
+    expect(placeNotes(380, 200, 300)).toEqual({ mode: "overlay", width: 300 - OVERLAY_GAP });
+    expect(placeNotes(100, 500, 720)).toEqual({ mode: "overlay", width: NOTES_WIDTH.min });
   });
 
   it("tolerates nonsensical widths", () => {
-    expect(placeNotes(380, -50)).toEqual({ mode: "overlay", width: 0 });
-    expect(placeNotes(Number.NaN, 1000).mode).toBe("docked");
+    expect(placeNotes(380, -50, 0)).toEqual({ mode: "overlay", width: 0 });
+    expect(placeNotes(Number.NaN, 1000, 1300).mode).toBe("docked");
   });
 });
 
@@ -89,7 +92,8 @@ describe("parseLayout", () => {
       collapsed: true,
       closedGroups: [],
       fontSize: 16,
-      notesOpen: false,
+      sideOpen: false,
+      sideTab: "notes",
       notesWidth: NOTES_WIDTH.default,
       snapLayout: "single",
     });
@@ -97,18 +101,22 @@ describe("parseLayout", () => {
 
   it("replaces wrong types individually", () => {
     const layout = parseLayout(
-      JSON.stringify({ sidebarWidth: "wide", collapsed: "yes", notesOpen: 1, notesWidth: "x" }),
+      JSON.stringify({ sidebarWidth: "wide", collapsed: "yes", sideOpen: 1, notesWidth: "x" }),
     );
     expect(layout.sidebarWidth).toBe(DEFAULT_LAYOUT.sidebarWidth);
     expect(layout.collapsed).toBe(false);
-    expect(layout.notesOpen).toBe(false);
+    expect(layout.sideOpen).toBe(false);
     expect(layout.notesWidth).toBe(NOTES_WIDTH.default);
   });
 
-  it("remembers the notes panel", () => {
+  it("remembers the right panel and reads the older notes flag", () => {
     const layout = parseLayout(JSON.stringify({ notesOpen: true, notesWidth: 520 }));
-    expect(layout.notesOpen).toBe(true);
+    expect(layout.sideOpen).toBe(true);
+    expect(layout.sideTab).toBe("notes");
     expect(layout.notesWidth).toBe(520);
+    const changes = parseLayout(JSON.stringify({ sideOpen: true, sideTab: "changes" }));
+    expect(changes.sideTab).toBe("changes");
+    expect(parseLayout(JSON.stringify({ sideTab: "files" })).sideTab).toBe("notes");
   });
 
   it("remembers the snap layout and ignores unknown ones", () => {
@@ -144,8 +152,6 @@ describe("sidebar groups", () => {
     expect(isGroupOpen(one, "newSession")).toBe(false);
     const both = toggleGroup(one, "sessions");
     expect(both.closedGroups).toEqual(["sessions", "newSession"]);
-    const all = toggleGroup(both, "notes");
-    expect(all.closedGroups).toEqual(["sessions", "notes", "newSession"]);
     expect(toggleGroup(both, "newSession").closedGroups).toEqual(["sessions"]);
   });
 
@@ -153,7 +159,8 @@ describe("sidebar groups", () => {
     const read = (closedGroups: unknown) =>
       parseLayout(JSON.stringify({ closedGroups })).closedGroups;
     expect(read(["newSession", "memos", "newSession", 3])).toEqual(["newSession"]);
-    expect(read(["newSession", "notes"])).toEqual(["notes", "newSession"]);
+    // The notes group of 0.2 is gone: the right panel is the one place for notes.
+    expect(read(["newSession", "notes", "sessions"])).toEqual(["sessions", "newSession"]);
     expect(read("sessions")).toEqual([]);
     expect(read(null)).toEqual([]);
     expect(parseLayout(JSON.stringify({ fontSize: 12 })).closedGroups).toEqual([]);

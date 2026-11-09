@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, usability, new-session, folders, worktree, right-side]
 sources: []
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Usability test: notes panel and starting a session
@@ -96,3 +96,48 @@ Backend needs: a capability and window configuration for the detached notes wind
 - After `program-update-result`: a notice with the outcome (updated from X to Y, still running,
   failed with exit code, another copy earlier on PATH with the copies, unchanged), "Show session";
   a good result fades after 12 s, a problem stays. Versions are queried again.
+
+## As built: notes and the right panel (N1 to N15)
+- **Quick note (N1, N6, N10):** Ctrl+Shift+N (`quickNote` in `src/shortcuts.ts`) opens the right
+  panel with a new quick note and focuses it, from the terminal or anywhere else; pressed while the
+  focus is in the notes it closes them and the terminal gets the focus back. A quick note exists
+  in the backend only once it has content; one that ends up empty is moved to the trash on leaving.
+  Existing notes open with the cursor at the end. Only notes created in this run (or still named
+  "Note n") take their title from the first line, and only on leaving the note (back to the list,
+  another note, focus out of the panel, closing). A title you chose stays.
+- **List instead of tabs (N2, N3, N11, N14):** chips "This project" (follows the active session;
+  hidden without one), "All", "General", plus a removable chip for another project opened from
+  quick access. Rows show title, an excerpt, checklist progress and relative time, sorted by last
+  change; in "All" and in search results the project name comes first, the path is the tooltip.
+  The search field searches all notes through `search_notes` (200 ms after the last keystroke).
+  Opening a note folds the list into a bar (back, title, progress, More). The sidebar's notes
+  group is gone: the panel is the one navigation.
+- **Checklists (N4, N12):** `- [ ]` and `- [x]` show as checkboxes in the editor (bullet hidden,
+  click toggles the text) and as real checkboxes in the preview (click or Space). Progress "2/5"
+  in the bar and the list, with an icon and a screen reader text. Tab and Shift+Tab indent list
+  items; elsewhere Tab still leaves the editor. F6 and Shift+F6 cycle terminal, list, editor while
+  the notes are open (`focusCycleStep`, `nextFocusZone`); otherwise F6 stays with the program.
+- **Send to terminal (N5):** "Send to <session>" in the footer sends the selection or the whole
+  note through `SessionTerminal.pasteText` (bracketed paste when the program enabled it, never
+  Enter), then shows that session with the focus in it. A chevron picks another running session.
+  The terminal context menu has "Add selection to note": into the open note, otherwise into a new
+  quick note, as a code block below a line with time and session.
+- **One right panel (N7, N8):** `SidePanel.tsx` with the tabs "Notes | Changes", detach and close.
+  Below 900 px window width, or when terminal and panel do not fit side by side, it lies over the
+  window with a scrim; a click on the scrim or Escape closes it (`placeNotes` in `src/layout.ts`).
+- **Delete, trash, More (N9, N15):** delete lives in the labeled "More" menu (Rename, Copy as
+  Markdown, Export …, Show in Explorer or Finder, Delete note). Deleting goes to the trash at once;
+  an overlay toast offers Undo (`restore_note`). The list's More menu has "Recently deleted"
+  (`list_trash` for the scopes shown, Restore per row) and "Open folder".
+- **Detach:** "Open in own window" calls `open_notes_window` with the remembered "Always on top";
+  `src/main.tsx` renders `NotesWindow.tsx` for `?window=notes`. Details in [[notes]].
+- **Preview and footer (N13):** the preview toggle is remembered per note while Hangar runs and
+  renders again after each typing pause; the footer shows the word count (`Intl.Segmenter`).
+- **Attention follow-ups:** a waiting session scrolled out of the sidebar list shows "1 waiting
+  below" or "above" at that edge (IntersectionObserver, `src/waitingHint.ts`); a click scrolls to
+  the nearest one. `attentionEdges` in `src/attentionLook.ts` keeps edge, ring and chip at 3 : 1
+  against the sidebar in both themes: the dark theme lightens a color that is too dark, the light
+  theme darkens as before.
+- Checked headless (Edge, mocked backend, 1280 and 720 px, dark and light): the tasks above as a
+  person would do them. Not checked in the real window: the detached window (creation, on top,
+  closing it docks the notes back), bracketed paste in real shells, Explorer and the save dialog.

@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   cleanTitle,
-  folderLabel,
-  isAutoTitle,
-  moveNote,
-  neighbourAfterDelete,
+  byLastChange,
+  isUntitled,
+  noteKey,
   parseNoteFolders,
   parseNotes,
+  parseSearchHits,
+  parseTrash,
   sameFolder,
+  sameNote,
   titleFromText,
   untitledTitle,
 } from "./notes";
@@ -53,11 +55,6 @@ describe("scopes", () => {
     expect(sameFolder({ path: null }, { path: null })).toBe(true);
     expect(sameFolder({ path: null }, { path: "/" })).toBe(false);
   });
-
-  it("are labeled with the short folder name or General", () => {
-    expect(folderLabel({ path: "C:\\Users\\x\\hangar" }, "General")).toBe("x/hangar");
-    expect(folderLabel({ path: null }, "General")).toBe("General");
-  });
 });
 
 describe("titles", () => {
@@ -71,21 +68,6 @@ describe("titles", () => {
     expect(cleanTitle("   ")).toBeNull();
     expect(cleanTitle("a\nb")).toBeNull();
     expect(cleanTitle("x".repeat(201))).toBeNull();
-  });
-});
-
-describe("tab order", () => {
-  it("moves to the target position", () => {
-    expect(moveNote(["a", "b", "c"], "a", 2)).toEqual(["b", "c", "a"]);
-    expect(moveNote(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
-    expect(moveNote(["a", "b", "c"], "b", 9)).toEqual(["a", "c", "b"]);
-    expect(moveNote(["a", "b"], "x", 0)).toEqual(["a", "b"]);
-  });
-
-  it("selects the right neighbour after deleting, otherwise the left one", () => {
-    expect(neighbourAfterDelete(["a", "b", "c"], "b")).toBe("c");
-    expect(neighbourAfterDelete(["a", "b", "c"], "c")).toBe("b");
-    expect(neighbourAfterDelete(["a"], "a")).toBeNull();
   });
 });
 
@@ -111,19 +93,67 @@ describe("titleFromText", () => {
   });
 });
 
-describe("isAutoTitle", () => {
+describe("isUntitled", () => {
   const bases = ["Notiz", "Note"];
 
   it("recognizes names of new notes in every language", () => {
-    expect(isAutoTitle("Notiz 1", bases, "")).toBe(true);
-    expect(isAutoTitle("note 12", bases, "")).toBe(true);
-    expect(isAutoTitle("Notizen", bases, "")).toBe(false);
-    expect(isAutoTitle("Notiz 1a", bases, "")).toBe(false);
+    expect(isUntitled("Notiz 1", bases)).toBe(true);
+    expect(isUntitled("note 12", bases)).toBe(true);
+    expect(isUntitled("Notizen", bases)).toBe(false);
+    expect(isUntitled("Notiz 1a", bases)).toBe(false);
+    expect(isUntitled("Shopping", bases)).toBe(false);
+  });
+});
+
+describe("lists", () => {
+  it("sort by last change, notes without a time last", () => {
+    const notes = [
+      { title: "b", updatedAt: 1 },
+      { title: "a", updatedAt: null },
+      { title: "c", updatedAt: 9 },
+      { title: "d", updatedAt: 1 },
+    ];
+    expect(byLastChange(notes).map((n) => n.title)).toEqual(["c", "b", "d", "a"]);
   });
 
-  it("follows the text while the title is derived from it", () => {
-    expect(isAutoTitle("Shopping", bases, "# Shopping\nMilk")).toBe(true);
-    expect(isAutoTitle("My list", bases, "# Shopping\nMilk")).toBe(false);
-    expect(isAutoTitle("Shopping", bases, "")).toBe(false);
+  it("tell notes of different scopes apart", () => {
+    const a = { folder: { path: "C:\\p" }, id: "1" };
+    expect(sameNote(a, { folder: { path: "c:/p" }, id: "1" })).toBe(true);
+    expect(sameNote(a, { folder: { path: null }, id: "1" })).toBe(false);
+    expect(noteKey(a)).not.toBe(noteKey({ folder: { path: null }, id: "1" }));
+  });
+});
+
+describe("parseSearchHits", () => {
+  it("keeps valid hits with their scope", () => {
+    expect(
+      parseSearchHits([
+        { folderKey: "general", path: null, id: "1", title: "A", excerpt: "x", updatedAt: 3 },
+        { folderKey: "k", path: "/p", id: "2", title: "B" },
+        { folderKey: "", path: null, id: "3", title: "C" },
+        { folderKey: "k", path: 1, id: "4", title: "D" },
+        "nonsense",
+      ]),
+    ).toEqual([
+      {
+        folderKey: "general",
+        folder: { path: null },
+        id: "1",
+        title: "A",
+        excerpt: "x",
+        updatedAt: 3,
+      },
+      { folderKey: "k", folder: { path: "/p" }, id: "2", title: "B", excerpt: "", updatedAt: null },
+    ]);
+    expect(parseSearchHits(null)).toEqual([]);
+  });
+});
+
+describe("parseTrash", () => {
+  it("keeps entries with ID and title", () => {
+    expect(
+      parseTrash([{ id: "1", title: "Gone", deletedAt: 5 }, { id: "", title: "x" }, { id: "2" }]),
+    ).toEqual([{ id: "1", title: "Gone", deletedAt: 5 }]);
+    expect(parseTrash({})).toEqual([]);
   });
 });

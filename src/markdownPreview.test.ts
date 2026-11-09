@@ -41,3 +41,22 @@ describe("renderMarkdown", () => {
     expect(html).toBe("<p>[x](javascript:alert(1))</p>\n");
   });
 });
+
+describe("task items", () => {
+  it("become checkboxes that know their source line", () => {
+    const html = renderMarkdown(
+      "# Plan\n\n- [ ] write\n- [x] **done**\n- plain\n\n```\n- [ ] code\n```",
+    );
+    expect(html).toContain('<input type="checkbox" class="md-task" data-line="2"> write');
+    expect(html).toContain(
+      '<input type="checkbox" class="md-task" data-line="3" checked> <strong>done</strong>',
+    );
+    expect(html).toContain("<li>plain</li>");
+    expect(html.match(/md-task/g)).toHaveLength(2);
+    expect(html).toContain('class="task-item"');
+  });
+
+  it("leaves brackets elsewhere alone", () => {
+    expect(renderMarkdown("[ ] not a list")).not.toContain("checkbox");
+  });
+});

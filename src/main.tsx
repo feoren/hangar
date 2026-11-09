@@ -5,6 +5,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { NotesWindow } from "./NotesWindow";
 import { detectLanguage } from "./i18n";
 import { loadSettings } from "./settings";
 import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
@@ -17,8 +18,7 @@ applyDocumentTheme(
 const root = document.getElementById("root");
 if (!root) throw new Error("Element #root missing in index.html");
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// The backend opens the detached notes window with `?window=notes` (notes_window.rs).
+const notesOnly = new URLSearchParams(window.location.search).get("window") === "notes";
+
+createRoot(root).render(<StrictMode>{notesOnly ? <NotesWindow /> : <App />}</StrictMode>);

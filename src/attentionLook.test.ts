@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { attentionTint, mixColors, textOnColor } from "./attentionLook";
+import { attentionEdges, attentionTint, mixColors, textOnColor } from "./attentionLook";
 import { ATTENTION_PRESETS, DEFAULT_ATTENTION_COLOR } from "./settings";
 import { contrastRatio } from "./theme";
 
@@ -69,5 +69,39 @@ describe("attentionTint", () => {
     expect(attentionTint("not a color", "dark")).toEqual(
       attentionTint(DEFAULT_ATTENTION_COLOR, "dark"),
     );
+  });
+});
+
+describe("attentionEdges", () => {
+  const panels = { dark: "#151a21", light: "#f3f5f8" } as const;
+
+  it("keeps 3 : 1 against the sidebar for any color in both themes", () => {
+    const colors = [...ATTENTION_PRESETS.map((p) => p.color), "#123456", "#202020", "#ffffff"];
+    for (const theme of ["dark", "light"] as const) {
+      for (const color of colors) {
+        const edges = attentionEdges(color, theme);
+        for (const part of [edges.strong, edges.ring, edges.chipBg]) {
+          expect(contrastRatio(part, panels[theme]), `${theme} ${color}`).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+  });
+
+  it("leaves bright colors unchanged in the dark theme and lightens dark ones", () => {
+    expect(attentionEdges("#f2e3c6", "dark").strong).toBe("#f2e3c6");
+    const lifted = attentionEdges("#123456", "dark").strong;
+    expect(lifted).not.toBe("#123456");
+    expect(contrastRatio(lifted, "#ffffff")).toBeLessThan(contrastRatio("#123456", "#ffffff"));
+  });
+
+  it("darkens in the light theme as before", () => {
+    expect(attentionEdges("#f2e3c6", "light").strong).toBe(mixColors("#000000", 45, "#f2e3c6"));
+  });
+
+  it("puts readable text on the chip", () => {
+    for (const theme of ["dark", "light"] as const) {
+      const edges = attentionEdges("#123456", theme);
+      expect(edges.chipFg).toBe(textOnColor(edges.chipBg));
+    }
   });
 });

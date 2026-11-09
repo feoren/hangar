@@ -94,3 +94,10 @@ chime sounds late, together with the next one. `chimeAudio.ts` therefore plays n
 Contrast at the peak of the breathing tint (default and custom colors, both themes): row text at
 least 4.5 : 1, muted text at least 3 : 1; the light theme's "failed" chip text is darkened to
 reach 5.5 : 1. Pages changed: [[agent-workflow-features]].
+
+## [2026-11-09] query | Notes redesign and right panel as built
+Recorded the 0.3.0 notes rework (quick note, list with scope chips and search, checklists, send
+to terminal and terminal selection to note, one right panel with Notes and Changes tabs, overlay
+below 900 px, More menu with trash, detached window over localStorage and `notes-command`), the
+waiting edge hint in the sidebar and the 3 : 1 edge colors of `attentionEdges`. Pages changed:
+[[notes-and-start-usability]], [[notes]].

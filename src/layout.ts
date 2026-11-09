@@ -1,5 +1,5 @@
 // Adjustable layout: sidebar width, height of the profile area, collapsed state, collapsed groups,
-// font size, notes panel, split view.
+// font size, right panel (notes and changes), split view.
 // Remembered per machine in localStorage; without storage, the defaults apply.
 
 export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
@@ -8,7 +8,7 @@ export const FOOTER_HEIGHT = { min: 110, default: 330 } as const;
 /** At least this much room stays for the session list above the profile area. */
 export const SESSION_LIST_MIN = 140;
 export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
-/** Width of the notes panel to the right of the terminal. */
+/** Width of the right panel (notes, changes) next to the terminal. */
 export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
 
 import { migrateLayoutId, type LayoutId } from "./snapLayouts";
@@ -16,7 +16,7 @@ import { migrateLayoutId, type LayoutId } from "./snapLayouts";
 const STORAGE_KEY = "hangar.layout";
 
 /** Collapsible groups of the sidebar, top to bottom. New ones are added here. */
-export const SIDEBAR_GROUPS = ["sessions", "notes", "newSession"] as const;
+export const SIDEBAR_GROUPS = ["sessions", "newSession"] as const;
 export type SidebarGroup = (typeof SIDEBAR_GROUPS)[number];
 
 export function isSidebarGroup(value: unknown): value is SidebarGroup {
@@ -30,8 +30,10 @@ export interface Layout {
   /** Collapsed groups; only their title row remains. */
   closedGroups: SidebarGroup[];
   fontSize: number;
-  /** Notes panel visible to the right of the terminal. */
-  notesOpen: boolean;
+  /** Right panel visible next to the terminal. */
+  sideOpen: boolean;
+  /** Which tab the right panel shows. */
+  sideTab: SideTab;
   notesWidth: number;
   /** Snap layout of the panes area (snapLayouts.ts). */
   snapLayout: LayoutId;
@@ -43,10 +45,13 @@ export const DEFAULT_LAYOUT: Layout = {
   collapsed: false,
   closedGroups: [],
   fontSize: FONT_SIZE.default,
-  notesOpen: false,
+  sideOpen: false,
+  sideTab: "notes",
   notesWidth: NOTES_WIDTH.default,
   snapLayout: "single",
 };
+
+export type SideTab = "notes" | "changes";
 
 export function isGroupOpen(layout: Layout, group: SidebarGroup): boolean {
   return !layout.closedGroups.includes(group);
@@ -86,23 +91,35 @@ export function clampNotesWidth(width: number, available = Infinity): number {
   return clamp(width, NOTES_WIDTH.min, Math.min(NOTES_WIDTH.max, available - TERMINAL_MIN_WIDTH));
 }
 
+/** Below this window width the right panel lies over the terminal, with a scrim. */
+export const OVERLAY_BELOW = 900;
+/** In overlay mode this much of the window stays visible left of the panel (click to close). */
+export const OVERLAY_GAP = 48;
+
 export interface NotesPlacement {
-  /** `docked`: next to the terminal; `overlay`: on top of the terminal, which keeps its width. */
+  /** `docked`: next to the terminal; `overlay`: over the window with a scrim. */
   mode: "docked" | "overlay";
   width: number;
 }
 
 /**
- * Where the notes panel sits and how wide it is. `available` is the width right of the sidebar. If
- * terminal (320 px) and notes (240 px) do not fit side by side, the notes lie on top of the terminal
- * instead of squeezing it to 0 px; the remembered preferred width stays untouched.
+ * Where the right panel sits and how wide it is. `available` is the width right of the
+ * sidebar, `windowWidth` the whole window. In a narrow window (below 900 px), or when terminal
+ * (320 px) and panel (240 px) do not fit side by side, the panel lies over the window instead of
+ * squeezing the terminal to a few columns; the remembered preferred width stays untouched.
  */
-export function placeNotes(desired: number, available: number): NotesPlacement {
+export function placeNotes(
+  desired: number,
+  available: number,
+  windowWidth: number = Infinity,
+): NotesPlacement {
   const room = Math.max(0, Math.floor(available));
-  if (room - TERMINAL_MIN_WIDTH >= NOTES_WIDTH.min) {
+  if (windowWidth >= OVERLAY_BELOW && room - TERMINAL_MIN_WIDTH >= NOTES_WIDTH.min) {
     return { mode: "docked", width: clampNotesWidth(desired, room) };
   }
-  const width = Math.min(room, clamp(desired, NOTES_WIDTH.min, NOTES_WIDTH.max));
+  const window = Number.isFinite(windowWidth) ? Math.max(0, Math.floor(windowWidth)) : room;
+  const limit = Math.max(Math.min(NOTES_WIDTH.min, window), window - OVERLAY_GAP);
+  const width = Math.min(limit, clamp(desired, NOTES_WIDTH.min, NOTES_WIDTH.max));
   return { mode: "overlay", width };
 }
 
@@ -122,7 +139,10 @@ export function parseLayout(text: string | null): Layout {
   };
   const collapsed: unknown = "collapsed" in raw ? raw.collapsed : undefined;
   const closed: unknown = "closedGroups" in raw ? raw.closedGroups : undefined;
-  const notesOpen: unknown = "notesOpen" in raw ? raw.notesOpen : undefined;
+  // Before 0.3 the panel only held notes and was stored as `notesOpen`.
+  const sideOpen: unknown =
+    "sideOpen" in raw ? raw.sideOpen : "notesOpen" in raw ? raw.notesOpen : undefined;
+  const sideTab: unknown = "sideTab" in raw ? raw.sideTab : undefined;
   // Before 0.3 the layout was stored as `splitMode` ("single", "columns", "grid").
   const snapLayout =
     migrateLayoutId("snapLayout" in raw ? raw.snapLayout : undefined) ??
@@ -135,7 +155,8 @@ export function parseLayout(text: string | null): Layout {
       ? SIDEBAR_GROUPS.filter((group) => closed.includes(group))
       : DEFAULT_LAYOUT.closedGroups,
     fontSize: clampFontSize(number("fontSize", DEFAULT_LAYOUT.fontSize)),
-    notesOpen: typeof notesOpen === "boolean" ? notesOpen : DEFAULT_LAYOUT.notesOpen,
+    sideOpen: typeof sideOpen === "boolean" ? sideOpen : DEFAULT_LAYOUT.sideOpen,
+    sideTab: sideTab === "changes" ? "changes" : "notes",
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
     snapLayout: snapLayout ?? DEFAULT_LAYOUT.snapLayout,
   };

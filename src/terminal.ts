@@ -351,6 +351,11 @@ export class SessionTerminal {
     return this.term.hasSelection();
   }
 
+  /** The selected text, empty without a selection ("Add selection to note"). */
+  selectionText(): string {
+    return this.term.getSelection();
+  }
+
   selectAll(): void {
     this.term.selectAll();
   }
@@ -550,7 +555,7 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    const action = terminalKeyAction(event, this.term.hasSelection());
+    const action = terminalKeyAction(event, this.term.hasSelection(), focusCycleActive);
     switch (action.kind) {
       case "app":
         // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
@@ -572,6 +577,13 @@ export class SessionTerminal {
 
 function ignore(): void {
   // Errors for single keys or acknowledgements are harmless: the session reports its own exit.
+}
+
+/** F6 moves the focus between terminal and notes (App); then no terminal passes it on. */
+let focusCycleActive = false;
+
+export function setFocusCycleActive(active: boolean): void {
+  focusCycleActive = active;
 }
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */

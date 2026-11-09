@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-import type { NoteFolder, Profile } from "./api";
+import type { Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -30,7 +30,6 @@ import {
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import { clampFooterHeight, FOOTER_HEIGHT, SIDEBAR_WIDTH, type SidebarGroup } from "./layout";
-import { folderLabel, sameFolder, type NoteFolderInfo } from "./notes";
 import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
@@ -39,6 +38,7 @@ import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
 import { revealInvisible } from "./invisible";
+import { rowPlace, waitingHints, type EdgeHint, type RowPlace } from "./waitingHint";
 import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
@@ -69,11 +69,6 @@ interface Props {
   updates: ProgramUpdates;
   notesOpen: boolean;
   onToggleNotes: () => void;
-  /** Scopes that contain notes (list_note_folders). */
-  noteFolders: readonly NoteFolderInfo[];
-  /** Scope shown in the notes panel, `null` when the panel is closed. */
-  notesFolder: NoteFolder | null;
-  onOpenNotes: (folder: NoteFolder) => void;
   /** Launchable entries in the chosen order, hidden ones left out. */
   startable: Profile[];
   /** Installed entries exist, but all of them are hidden. */
@@ -251,6 +246,48 @@ export function Sidebar(props: Props) {
       ?.querySelector(`[data-session-row="${String(activeId)}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }, [activeId, collapsed]);
+
+  // Waiting sessions scrolled out of view: a calm hint at that edge of the list (waitingHint.ts).
+  const sessionList = useRef<HTMLUListElement>(null);
+  const [rowPlaces, setRowPlaces] = useState<ReadonlyMap<number, RowPlace>>(new Map());
+  const waitingIds = sessions.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
+  const waitingKey = waitingIds.join(",");
+  const rowOrder = sessions.map((s) => s.id);
+  const rowKey = rowOrder.join(",");
+  useEffect(() => {
+    const list = sessionList.current;
+    if (collapsed || !list || waitingKey === "" || typeof IntersectionObserver === "undefined") {
+      setRowPlaces((places) => (places.size === 0 ? places : new Map()));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setRowPlaces((places) => {
+          const next = new Map(places);
+          for (const entry of entries) {
+            const id = Number(entry.target.getAttribute("data-session-row"));
+            const view = entry.rootBounds ?? list.getBoundingClientRect();
+            next.set(id, rowPlace(entry.boundingClientRect, view));
+          }
+          return next;
+        });
+      },
+      { root: list, threshold: [0, 0.5, 1] },
+    );
+    for (const id of waitingKey.split(",")) {
+      const row = list.querySelector(`[data-session-row="${id}"]`);
+      if (row) observer.observe(row);
+    }
+    return () => {
+      observer.disconnect();
+    };
+  }, [collapsed, waitingKey, rowKey]);
+  const edgeHints = waitingHints(rowOrder, new Set(waitingIds), rowPlaces);
+  const revealRow = (id: number) => {
+    root.current
+      ?.querySelector(`[data-session-row="${String(id)}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+  };
 
   /** Folder menu of the rail, opened from the program picker's first row. */
   const [railFolderMenu, setRailFolderMenu] = useState<{ x: number; y: number } | null>(null);
@@ -552,9 +589,7 @@ export function Sidebar(props: Props) {
   }
 
   const sessionsOpen = open("sessions");
-  const notesGroupOpen = open("notes");
   const newSessionOpen = open("newSession");
-  const withNotes = props.noteFolders.filter((folder) => folder.noteCount > 0);
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
     : t("sidebar.sessionsCount", { count: sessions.length });
@@ -603,7 +638,8 @@ export function Sidebar(props: Props) {
           ) : null
         }
       >
-        <ul className="session-list" data-session-list="">
+        <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
+        <ul className="session-list" data-session-list="" ref={sessionList}>
           {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
           {sessions.map((session) => (
             <SessionItem
@@ -627,6 +663,7 @@ export function Sidebar(props: Props) {
             />
           ))}
         </ul>
+        <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </GroupSection>
 
       <UpdateNotice
@@ -635,45 +672,6 @@ export function Sidebar(props: Props) {
         onInstall={props.onInstallUpdate}
         onDismiss={props.onDismissUpdate}
       />
-
-      <GroupSection
-        group="notes"
-        title={
-          notesGroupOpen ? t("sidebar.notes") : t("sidebar.notesCount", { count: withNotes.length })
-        }
-        open={notesGroupOpen}
-        className="notes-group"
-        onToggle={props.onToggleGroup}
-      >
-        <ul className="note-folder-list">
-          {withNotes.length === 0 && <li className="hint">{t("sidebar.noNotes")}</li>}
-          {withNotes.map((info) => {
-            const folder: NoteFolder = { path: info.path };
-            const label = folderLabel(folder, t("notes.general"));
-            const current = props.notesFolder !== null && sameFolder(props.notesFolder, folder);
-            return (
-              <li key={info.folderKey}>
-                <button
-                  type="button"
-                  className={current ? "note-folder current" : "note-folder"}
-                  title={info.path ?? t("notes.general")}
-                  aria-current={current ? "true" : undefined}
-                  aria-label={t("sidebar.noteFolder", { folder: label, count: info.noteCount })}
-                  onClick={() => {
-                    props.onOpenNotes(folder);
-                  }}
-                >
-                  <NotesIcon size={14} />
-                  <span className="note-folder-name">{label}</span>
-                  <span className="note-folder-count" aria-hidden="true">
-                    {info.noteCount}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </GroupSection>
 
       {/* Space can only be shared between two open groups. */}
       {sessionsOpen && newSessionOpen && (
@@ -891,10 +889,48 @@ function GroupSection({
   );
 }
 
+/** "1 waiting" above or below the session list while such a session is out of view. */
+function WaitingEdge({
+  edge,
+  hint,
+  onReveal,
+}: {
+  edge: "above" | "below";
+  hint: EdgeHint | null;
+  onReveal: (id: number) => void;
+}) {
+  const t = useT();
+  if (hint === null) return null;
+  const text = t(edge === "above" ? "sidebar.waitingAbove" : "sidebar.waitingBelow", {
+    count: hint.count,
+  });
+  return (
+    <button
+      type="button"
+      className={`waiting-edge ${edge}`}
+      title={t("sidebar.waitingReveal")}
+      onClick={() => {
+        onReveal(hint.targetId);
+      }}
+    >
+      <span className="dot attention" aria-hidden="true" />
+      <span>{text}</span>
+      <ChevronIcon size={12} />
+    </button>
+  );
+}
+
+function reducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /** Show and hide the notes panel; state via aria-pressed. */
 function NotesButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const t = useT();
-  const label = `${open ? t("notes.hide") : t("notes.show")} (${formatShortcut(SHORTCUT_LABELS.toggleNotes, t)})`;
+  const label = `${open ? t("notes.hide") : t("notes.show")}\n${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) })}`;
   return (
     <button
       type="button"

@@ -70,3 +70,54 @@ export function attentionTint(color: string, theme: Theme): AttentionTint {
   }
   return { low: Math.round(high * LOW_SHARE), high };
 }
+
+/** Edge, ring and chip of a waiting session; non-text parts need 3 : 1 against the sidebar. */
+const EDGE_CONTRAST = 3;
+
+export interface AttentionEdges {
+  /** Edge, dot and outline of a waiting row (`--attention-strong`). */
+  strong: string;
+  /** Thin ring around the row, already mixed onto the sidebar color (`--attention-ring`). */
+  ring: string;
+  chipBg: string;
+  chipFg: string;
+}
+
+/**
+ * Moves `color` toward `target` (white in the dark theme, black in the light one) in small steps
+ * until it reaches 3 : 1 against `panel`. Colors that already reach it stay unchanged.
+ */
+function towardContrast(color: string, target: string, panel: string): string {
+  for (let share = 0; share <= 100; share += 5) {
+    const candidate = mixColors(target, share, color);
+    if (contrastRatio(candidate, panel) >= EDGE_CONTRAST) return candidate;
+  }
+  return target;
+}
+
+/** The weakest mix of `color` onto `panel`, from `start` percent, that still reaches 3 : 1. */
+function ringOnPanel(color: string, start: number, panel: string): string {
+  for (let percent = start; percent <= 100; percent += 5) {
+    const candidate = mixColors(color, percent, panel);
+    if (contrastRatio(candidate, panel) >= EDGE_CONTRAST) return candidate;
+  }
+  return color;
+}
+
+/**
+ * Colors for edge, ring and chip that stay visible on the sidebar in both themes: the light theme
+ * darkens the attention color (as before, 45 % black, more if needed), the dark theme lightens a
+ * color that is too dark for its sidebar. Light presets in the dark theme stay as chosen.
+ */
+export function attentionEdges(color: string, theme: Theme): AttentionEdges {
+  const base = normalizeColor(color) ?? DEFAULT_ATTENTION_COLOR;
+  const panel = ROW_COLORS[theme].panel;
+  const strong =
+    theme === "light"
+      ? towardContrast(mixColors("#000000", 45, base), "#000000", panel)
+      : towardContrast(base, WHITE, panel);
+  const ring = ringOnPanel(strong, theme === "light" ? 70 : 55, panel);
+  // Dark theme: the chip keeps the chosen color when it is bright enough, else the lightened one.
+  const chipBg = strong;
+  return { strong, ring, chipBg, chipFg: textOnColor(chipBg) };
+}

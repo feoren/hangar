@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Notes (contract)
@@ -96,3 +96,24 @@ Capabilities:
   one emitted by another webview; the narrowed capability is the protection. The main window
   should still only act on `tray-quit` and on `notes-message`, whose payload the backend has
   checked.
+
+## Notes UI (frontend, as built)
+- `src/NotesPanel.tsx` serves both the right panel and the detached window. List per scope
+  (`src/notesScope.ts`), search, trash, one note in the CodeMirror editor (`src/markdownEditor.ts`,
+  checkbox widget on `TaskMarker` nodes) or the preview (`src/markdownPreview.ts`, task boxes with
+  `data-line`). Text logic in `src/noteText.ts` (progress, toggling, excerpt, word count, captured
+  output). Writes are debounced 500 ms and flushed on leaving a note and on quit (`flushNotes`).
+- Detached window: the main window writes `hangar.notesWindow` (`{ detached, onTop }`, per
+  machine) and `hangar.notesContext` (active session's folder, running sessions) to localStorage,
+  which both windows share; the notes window follows them through the `storage` event. The main
+  window sends commands as event `notes-command` (`quickNote`, `capture`, `refresh`, `flush`,
+  `close`) with `emitTo("notes", …)`; the notes window checks each payload
+  (`parseNotesCommand`). The notes window only listens and answers through `notes_to_main`:
+  `sendToTerminal` (then `showMain`), and `notesChanged` after a change, which the main window also
+  takes as the reply to `flush` on quit (it waits at most the usual quit timeout). The main window
+  checks every `notes-message` again (`parseNotesMessage`) before it pastes.
+- The notes window toggles "Always on top" itself (`core:window:allow-set-always-on-top`);
+  `set_notes_on_top` stays unused. Closing the notes window (its own close button) sets
+  `detached` to false on `pagehide`, so the notes are back in the right panel; on quit the
+  `flush` command keeps `detached`, and the next start opens the window again. If the window
+  vanished without a word, the main window finds out on focus (`Window.getByLabel`).

@@ -1,8 +1,8 @@
 import { getVersion } from "@tauri-apps/api/app";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
-import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
+import { getCurrentWindow, UserAttentionType, Window } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exit } from "@tauri-apps/plugin-process";
 import {
@@ -34,7 +34,7 @@ import {
   type AttentionReason,
   type AttentionState,
 } from "./attention";
-import { attentionTint, textOnColor } from "./attentionLook";
+import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
 import { chimeFor, ChimeScheduler } from "./chime";
 import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
@@ -88,10 +88,30 @@ import {
   SIDEBAR_RAIL_WIDTH,
   toggleGroup,
   type Layout,
+  type SideTab,
   type SidebarGroup,
 } from "./layout";
-import { folderId, parseNoteFolders, type NoteFolderInfo } from "./notes";
-import { flushNotes, NotesPanel, type NoteScope } from "./NotesPanel";
+import { parseNoteFolders, type NoteFolderInfo } from "./notes";
+import {
+  loadWindowPrefs,
+  NOTES_COMMAND,
+  NOTES_MESSAGE,
+  NOTES_WINDOW_LABEL,
+  parseNotesMessage,
+  saveContext,
+  saveWindowPrefs,
+  WINDOW_PREFS_KEY,
+  type NotesCommand,
+  type NotesWindowPrefs,
+} from "./notesBridge";
+import {
+  flushNotes,
+  NotesPanel,
+  type NotesHandle,
+  type NotesRequest,
+  type SendTarget,
+} from "./NotesPanel";
+import { SidePanel } from "./SidePanel";
 import { dropText, shellKind } from "./pathQuote";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
@@ -135,10 +155,12 @@ import {
 import { hasStoredSettings, loadSettings, saveSettings, type Settings } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
 import {
+  focusCycleStep,
   formatShortcut,
   ignoresRepeat,
   isReloadKey,
   matchShortcut,
+  nextFocusZone,
   SHORTCUT_LABELS,
   shortcutKeys,
   type AppAction,
@@ -149,7 +171,7 @@ import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
-import { SessionTerminal, terminals } from "./terminal";
+import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
 import { schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import {
@@ -425,10 +447,15 @@ export function App() {
     });
   });
   const [tray] = useState(() => new TrayState(api.configureTray));
-  const [noteScope, setNoteScope] = useState<NoteScope>({ follow: true });
-  const [notesFocusToken, setNotesFocusToken] = useState(0);
-  /** Changes panel (Ctrl+Shift+D); shares the right side with the notes, one at a time. */
-  const [changesOpen, setChangesOpen] = useState(false);
+  /** Request for the notes panel (quick note, focus, terminal output); a new token each time. */
+  const [notesRequest, setNotesRequest] = useState<NotesRequest | null>(null);
+  const notesTokens = useRef(0);
+  /** Goes up when the notes window changed notes: the docked panel reloads. */
+  const [notesRefresh, setNotesRefresh] = useState(0);
+  const notesHandle = useRef<NotesHandle | null>(null);
+  /** Notes in their own window, kept on top; remembered per machine. */
+  const [notesWindow, setNotesWindow] = useState<NotesWindowPrefs>(loadWindowPrefs);
+  /** Changes tab of the right panel (Ctrl+Shift+D): focus on opening. */
   const [changesFocusToken, setChangesFocusToken] = useState(0);
   /** Short confirmation after Ctrl+Shift+T: which program starts where. */
   const [startHint, setStartHint] = useState<string | null>(null);
@@ -675,6 +702,12 @@ export function App() {
     style.setProperty("--on-attention", textOnColor(settings.attentionColor));
     style.setProperty("--attention-pulse-low", `${String(tint.low)}%`);
     style.setProperty("--attention-pulse-high", `${String(tint.high)}%`);
+    // Edge, ring and chip keep 3 : 1 against the sidebar in both themes (attentionLook.ts).
+    const edges = attentionEdges(settings.attentionColor, theme);
+    style.setProperty("--attention-strong", edges.strong);
+    style.setProperty("--attention-ring", edges.ring);
+    style.setProperty("--attention-chip-bg", edges.chipBg);
+    style.setProperty("--attention-chip-fg", edges.chipFg);
   }, [settings.attentionColor, theme]);
 
   useEffect(() => {
@@ -761,9 +794,17 @@ export function App() {
   });
   const running = runningProjects(state.sessions);
   const sessionFolder: NoteFolder | null = activeSession ? { path: activeSession.cwd } : null;
-  const notesFolder: NoteFolder = noteScope.follow
-    ? (sessionFolder ?? { path: null })
-    : noteScope.folder;
+  /** Running sessions that can receive text from a note. */
+  const sendTargets = useMemo(
+    (): SendTarget[] =>
+      state.sessions
+        .filter((session) => session.status !== "exited")
+        .map((session) => ({ id: session.id, title: session.title })),
+    [state.sessions],
+  );
+  // Detached: the button and menu bring the notes window to the front, they hide nothing.
+  const notesShown = !notesWindow.detached && layout.sideOpen && layout.sideTab === "notes";
+  const changesShown = layout.sideOpen && layout.sideTab === "changes";
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
@@ -776,14 +817,6 @@ export function App() {
   // The sub-agent view belongs to the active session: another one becoming active, or the
   // session closing, ends it (and with it the watch).
   if (subAgentsOf !== null && subAgentsOf !== state.activeId) setSubAgentsOf(null);
-
-  // New active session: the notes follow its working folder again (adjusted during render,
-  // not in an effect, so no intermediate state with the old folder becomes visible).
-  const [scopeSession, setScopeSession] = useState(state.activeId);
-  if (scopeSession !== state.activeId) {
-    setScopeSession(state.activeId);
-    if (!noteScope.follow) setNoteScope({ follow: true });
-  }
 
   /**
    * Focus back to the terminal after a menu, dialog or rename. If another element has taken
@@ -1529,7 +1562,17 @@ export function App() {
 
   /** Save everything that would be lost on quit; waits at most QUIT_SAVE_TIMEOUT_MS. */
   const persistAll = useCallback(async () => {
+    // The notes window saves its pending input too and says so (or the timeout ends the wait).
+    const notesWindowSaved = loadWindowPrefs().detached
+      ? new Promise<void>((resolve) => {
+          notesSavedRef.current = resolve;
+          emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "flush" }).catch(() => {
+            resolve();
+          });
+        })
+      : Promise.resolve();
     const work = Promise.all([
+      notesWindowSaved,
       flushNotes().catch(() => undefined),
       saveWorkspaceNow().catch(() => undefined),
       saveScrollbacks(true).catch(() => undefined),
@@ -1736,6 +1779,13 @@ export function App() {
   }, [updateResult]);
 
   /** After an update session: a calm notice with the outcome, and fresh versions. */
+  /** Notes window events: the current handlers, for the listener attached once below. */
+  const notesChangedRef = useRef<() => void>(() => undefined);
+  const sendFromNotesRef = useRef<(text: string, sessionId: number | null) => void>(
+    () => undefined,
+  );
+  /** Resolves the wait on quit once the notes window reports that it saved. */
+  const notesSavedRef = useRef<(() => void) | null>(null);
   const updateResultRef = useRef<(outcome: UpdateOutcome) => void>(() => undefined);
   useEffect(() => {
     updateResultRef.current = (outcome) => {
@@ -1764,6 +1814,19 @@ export function App() {
         .then(keep)
         .catch(() => undefined);
       listen(TRAY_QUIT, () => void quitRef.current())
+        .then(keep)
+        .catch(() => undefined);
+      listen(NOTES_MESSAGE, (event) => {
+        // Checked by the backend (notes_to_main) and here again before anything happens.
+        const message = parseNotesMessage(event.payload);
+        if (message?.kind === "sendToTerminal") {
+          sendFromNotesRef.current(message.text, message.sessionId);
+        } else if (message?.kind === "notesChanged") {
+          notesSavedRef.current?.();
+          notesSavedRef.current = null;
+          notesChangedRef.current();
+        }
+      })
         .then(keep)
         .catch(() => undefined);
       listen(PROGRAM_UPDATE_RESULT, (event) => {
@@ -1847,6 +1910,63 @@ export function App() {
     refreshNoteFolders();
   }, [refreshNoteFolders]);
 
+  useEffect(() => {
+    notesChangedRef.current = () => {
+      refreshNoteFolders();
+      setNotesRefresh((value) => value + 1);
+    };
+  });
+
+  /** Notes changed here: the notes window reloads too. */
+  const notesChangedHere = useCallback(() => {
+    refreshNoteFolders();
+    if (loadWindowPrefs().detached) {
+      emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "refresh" }).catch(() => undefined);
+    }
+  }, [refreshNoteFolders]);
+
+  // The notes window reads the sessions from here: "This project" and "Send to …".
+  const activeCwd = activeSession?.cwd ?? null;
+  useEffect(() => {
+    saveContext({
+      sessionFolder: activeCwd,
+      activeId: state.activeId,
+      sessions: sendTargets,
+    });
+  }, [activeCwd, state.activeId, sendTargets]);
+
+  // Closing the notes window (its own close button) brings the notes back here.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === WINDOW_PREFS_KEY) setNotesWindow(loadWindowPrefs());
+    };
+    // A window that closed without telling (crash): the notes are docked again.
+    const onFocus = () => {
+      if (!loadWindowPrefs().detached) return;
+      Window.getByLabel(NOTES_WINDOW_LABEL)
+        .then((found) => {
+          if (found === null) {
+            const next = { ...loadWindowPrefs(), detached: false };
+            saveWindowPrefs(next);
+            setNotesWindow(next);
+          }
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  // Detached last time: the notes window comes back with the app.
+  useEffect(() => {
+    const prefs = loadWindowPrefs();
+    if (prefs.detached) api.openNotesWindow(prefs.onTop).catch(() => undefined);
+  }, []);
+
   /** A folder from the menu or the dialog: it applies to the next start (startTarget.ts). */
   const selectCwd = useCallback((path: string) => {
     setChosenCwd(path);
@@ -1875,39 +1995,152 @@ export function App() {
     setLayout((current) => ({ ...current, collapsed: !current.collapsed }));
   };
 
+  const askNotes = (make: (token: number) => NotesRequest) => {
+    notesTokens.current += 1;
+    setNotesRequest(make(notesTokens.current));
+  };
+
+  /** Command for the detached notes window; the window opens (or comes to the front) first. */
+  const toNotesWindow = (command: NotesCommand | null) => {
+    api
+      .openNotesWindow(notesWindow.onTop)
+      .then(() => (command ? emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, command) : undefined))
+      .catch(showError);
+  };
+
+  const openSide = (tab: SideTab) => {
+    setLayout((current) =>
+      current.sideOpen && current.sideTab === tab
+        ? current
+        : { ...current, sideOpen: true, sideTab: tab },
+    );
+  };
+
+  const closeSide = () => {
+    setLayout((current) => (current.sideOpen ? { ...current, sideOpen: false } : current));
+    focusTerminal();
+  };
+
+  /** Is the focus in the notes of the right panel right now? */
+  const focusInNotes = () =>
+    document.activeElement?.closest("#side-body-notes, .side-tab") != null &&
+    layout.sideTab === "notes";
+
   /**
-   * Opening gives focus to the editor, closing gives it to the terminal. Notes and changes share
-   * the right side: opening one closes the other.
+   * Ctrl+Shift+N: a new quick note, wherever you are. Pressed again inside the notes, it closes
+   * them and the terminal gets the focus back.
    */
-  const toggleNotes = () => {
-    if (layout.notesOpen) {
-      setLayout((current) => ({ ...current, notesOpen: false }));
-      focusTerminal();
-    } else {
-      setChangesOpen(false);
-      setLayout((current) => ({ ...current, notesOpen: true }));
-      setNotesFocusToken((token) => token + 1);
+  const quickNote = () => {
+    if (notesWindow.detached) {
+      toNotesWindow({ kind: "quickNote" });
+      return;
     }
+    if (layout.sideOpen && focusInNotes()) {
+      closeSide();
+      return;
+    }
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "quick" }));
+  };
+
+  /** Show or hide the notes (menu, sidebar button): opening focuses the list or open note. */
+  const toggleNotes = () => {
+    if (notesWindow.detached) {
+      toNotesWindow(null);
+      return;
+    }
+    if (layout.sideOpen && layout.sideTab === "notes") {
+      closeSide();
+      return;
+    }
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "focus" }));
   };
 
   const toggleChanges = () => {
-    if (changesOpen) {
-      setChangesOpen(false);
-      focusTerminal();
-    } else {
-      setLayout((current) => (current.notesOpen ? { ...current, notesOpen: false } : current));
-      setChangesOpen(true);
-      setChangesFocusToken((token) => token + 1);
+    if (layout.sideOpen && layout.sideTab === "changes") {
+      closeSide();
+      return;
     }
+    openSide("changes");
+    setChangesFocusToken((token) => token + 1);
   };
 
-  /** Click on a notes scope in the sidebar. */
+  /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
-    const follow = sessionFolder !== null && folderId(sessionFolder) === folderId(folder);
-    setChangesOpen(false);
-    setNoteScope(follow ? { follow: true } : { follow: false, folder });
-    setLayout((current) => (current.notesOpen ? current : { ...current, notesOpen: true }));
-    setNotesFocusToken((token) => token + 1);
+    if (notesWindow.detached) {
+      toNotesWindow(null);
+      return;
+    }
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "openFolder", folder }));
+  };
+
+  const updateNotesWindow = (next: NotesWindowPrefs) => {
+    setNotesWindow(next);
+    saveWindowPrefs(next);
+  };
+
+  /** "Open in own window": the notes move into a window of their own. */
+  const detachNotes = () => {
+    void flushNotes().then(() => {
+      updateNotesWindow({ ...notesWindow, detached: true });
+      setLayout((current) => ({ ...current, sideOpen: false }));
+      toNotesWindow(null);
+    });
+  };
+
+  /** "Bring back": the notes window closes, the notes are in the right panel again. */
+  const bringBackNotes = () => {
+    updateNotesWindow({ ...notesWindow, detached: false });
+    emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "close" }).catch(() => undefined);
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "focus" }));
+  };
+
+  /** Text from a note into a session, as pasted (bracketed paste, no Enter); that session shows. */
+  const sendFromNotes = (text: string, sessionId: number | null) => {
+    const id = sessionId ?? activeIdRef.current;
+    if (id === null) return;
+    const terminal = terminals.get(id);
+    if (!terminal) return;
+    terminal.pasteText(text);
+    if (id !== activeIdRef.current) dispatch({ type: "activated", id });
+    focusTerminal();
+  };
+
+  useEffect(() => {
+    sendFromNotesRef.current = sendFromNotes;
+  });
+
+  /** "Add selection to note": into the open note, otherwise a new quick note. */
+  const captureSelection = () => {
+    const terminal = activeTerminal();
+    const text = terminal?.selectionText() ?? "";
+    if (text.trim() === "") return;
+    const source = activeSession?.title ?? "";
+    if (notesWindow.detached) {
+      toNotesWindow({ kind: "capture", text, source });
+      return;
+    }
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "capture", text, source }));
+  };
+
+  /**
+   * F6 and Shift+F6 while the notes are open: terminal, list, editor. Returns whether it moved
+   * the focus (otherwise F6 stays with the program in the terminal).
+   */
+  const cycleFocus = (step: 1 | -1, fromTerminal: boolean): boolean => {
+    const panel = notesHandle.current;
+    if (!layout.sideOpen || layout.sideTab !== "notes" || notesWindow.detached || !panel) {
+      return false;
+    }
+    const zones = ["terminal" as const, ...panel.zones()];
+    const zone = nextFocusZone(zones, fromTerminal ? "terminal" : panel.zone(), step);
+    if (zone === "terminal" || zone === null) focusTerminal();
+    else panel.focusZone(zone);
+    return true;
   };
 
   /** Inline rename in the sidebar; a collapsed sidebar expands for it. */
@@ -2154,8 +2387,8 @@ export function App() {
       case "toggleSidebar":
         toggleSidebar();
         break;
-      case "toggleNotes":
-        toggleNotes();
+      case "quickNote":
+        quickNote();
         break;
       case "toggleChanges":
         toggleChanges();
@@ -2223,15 +2456,27 @@ export function App() {
   // The key listener is attached to the window once and always calls the current version.
   const performRef = useRef(perform);
   const openTerminalMenuRef = useRef(openTerminalMenu);
+  const cycleFocusRef = useRef(cycleFocus);
   useEffect(() => {
     performRef.current = perform;
     openTerminalMenuRef.current = openTerminalMenu;
+    cycleFocusRef.current = cycleFocus;
   });
+  // Same condition as cycleFocus: while it holds, F6 in a terminal is for the app alone.
+  const notesDocked = layout.sideOpen && layout.sideTab === "notes" && !notesWindow.detached;
+  useEffect(() => {
+    setFocusCycleActive(notesDocked);
+  }, [notesDocked]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Reloading disconnects the UI from all sessions. In the terminal, the keys belong to the shell.
       if (isReloadKey(event) && !inTerminal(event.target)) {
         event.preventDefault();
+        return;
+      }
+      const step = focusCycleStep(event);
+      if (step !== null && !modalRef.current) {
+        if (cycleFocusRef.current(step, inTerminal(event.target))) event.preventDefault();
         return;
       }
       const action = matchShortcut(event);
@@ -2454,13 +2699,18 @@ export function App() {
         },
         {
           type: "action",
-          label: layout.notesOpen ? t("notes.hide") : t("notes.show"),
-          shortcut: keys("toggleNotes"),
+          label: t("notes.quickNoteMenu"),
+          shortcut: keys("quickNote"),
+          run: quickNote,
+        },
+        {
+          type: "action",
+          label: notesShown ? t("notes.hide") : t("notes.show"),
           run: toggleNotes,
         },
         {
           type: "action",
-          label: changesOpen ? t("changes.hide") : t("changes.show"),
+          label: changesShown ? t("changes.hide") : t("changes.show"),
           shortcut: keys("toggleChanges"),
           run: toggleChanges,
         },
@@ -2575,7 +2825,7 @@ export function App() {
 
   const sidebarColumn = layout.collapsed ? SIDEBAR_RAIL_WIDTH : layout.sidebarWidth;
   const workspaceWidth = viewportWidth - sidebarColumn;
-  const notesPlacement = placeNotes(layout.notesWidth, workspaceWidth);
+  const notesPlacement = placeNotes(layout.notesWidth, workspaceWidth, viewportWidth);
   const runningOrphans = orphans.filter((session) => session.status !== "exited").length;
   const closingSession =
     closingId === null ? undefined : state.sessions.find((s) => s.id === closingId);
@@ -2602,6 +2852,13 @@ export function App() {
       key: "selectAll",
       label: t("menu.selectAll"),
       run: () => activeTerminal()?.selectAll(),
+    },
+    {
+      type: "action",
+      key: "toNote",
+      label: t("notes.addSelection"),
+      disabled: activeTerminal()?.hasSelection() !== true,
+      run: captureSelection,
     },
     { type: "separator", key: "sep" },
     {
@@ -2703,7 +2960,7 @@ export function App() {
       canInsert,
       snapLayout: layout.snapLayout,
       canBroadcast: broadcastable.length > 0,
-      changesOpen,
+      changesOpen: changesShown,
       t,
       badge: (profileId) => <Badge look={badgeFor(profileId)} />,
       notesIcon: <NotesIcon size={14} />,
@@ -2755,11 +3012,8 @@ export function App() {
           badgeFor={badgeFor}
           versions={programs.versions}
           updates={programUpdates.updates}
-          notesOpen={layout.notesOpen}
+          notesOpen={notesShown}
           onToggleNotes={toggleNotes}
-          noteFolders={noteFolders}
-          notesFolder={layout.notesOpen ? notesFolder : null}
-          onOpenNotes={openNotes}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
@@ -3110,7 +3364,7 @@ export function App() {
                     )}
                     <Keys shortcut={SHORTCUT_LABELS.launcher} t={t} /> {t("empty.launcherHint")}
                     <br />
-                    <Keys shortcut={SHORTCUT_LABELS.toggleNotes} t={t} /> {t("empty.notesHint")}
+                    <Keys shortcut={SHORTCUT_LABELS.quickNote} t={t} /> {t("empty.notesHint")}
                     <br />
                     <Keys shortcut={SHORTCUT_LABELS.toggleSidebar} t={t} /> {t("empty.sidebarHint")}
                     <br />
@@ -3119,13 +3373,13 @@ export function App() {
                 </div>
               )}
             </div>
-            {(layout.notesOpen || changesOpen) && notesPlacement.mode === "docked" && (
+            {layout.sideOpen && notesPlacement.mode === "docked" && (
               <Splitter
                 orientation="vertical"
                 className="notes-edge"
                 value={layout.notesWidth}
                 direction={-1}
-                label={changesOpen ? t("changes.width") : t("notes.width")}
+                label={t("side.width")}
                 onChange={(width) => {
                   setLayout((current) => ({
                     ...current,
@@ -3137,30 +3391,64 @@ export function App() {
                 }}
               />
             )}
-            {changesOpen && (
-              <ChangesPanel
-                cwd={activeSession?.cwd ?? null}
-                trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
+            {layout.sideOpen && (
+              <SidePanel
+                tab={layout.sideTab}
+                onTab={(tab) => {
+                  openSide(tab);
+                  if (tab === "changes") setChangesFocusToken((token) => token + 1);
+                }}
+                mode={notesPlacement.mode}
                 width={notesPlacement.width}
-                overlay={notesPlacement.mode === "overlay"}
-                focusToken={changesFocusToken}
-                onClose={toggleChanges}
-                onFocusTerminal={focusTerminal}
-              />
-            )}
-            {layout.notesOpen && !changesOpen && (
-              <NotesPanel
-                folder={notesFolder}
-                following={noteScope.follow}
-                sessionFolder={sessionFolder}
-                folders={noteFolders}
-                width={notesPlacement.width}
-                overlay={notesPlacement.mode === "overlay"}
-                focusToken={notesFocusToken}
-                onScope={setNoteScope}
-                onChanged={refreshNoteFolders}
-                onClose={toggleNotes}
-                onFocusTerminal={focusTerminal}
+                detached={notesWindow.detached}
+                onDetach={detachNotes}
+                onClose={closeSide}
+                onEscape={focusTerminal}
+                notes={
+                  notesWindow.detached ? (
+                    <div className="notes-detached">
+                      <p>{t("notes.detached")}</p>
+                      <div className="link-actions">
+                        <button type="button" className="primary-button" onClick={bringBackNotes}>
+                          {t("notes.bringBack")}
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            toNotesWindow(null);
+                          }}
+                        >
+                          {t("notes.showWindow")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <NotesPanel
+                      language={settings.language}
+                      sessionFolder={sessionFolder}
+                      folders={noteFolders}
+                      sessions={sendTargets}
+                      activeSessionId={state.activeId}
+                      request={notesRequest}
+                      refreshToken={notesRefresh}
+                      handle={notesHandle}
+                      onSend={sendFromNotes}
+                      onChanged={notesChangedHere}
+                      onEscape={() => {
+                        if (notesPlacement.mode === "overlay") closeSide();
+                        else focusTerminal();
+                      }}
+                    />
+                  )
+                }
+                changes={
+                  <ChangesPanel
+                    cwd={activeSession?.cwd ?? null}
+                    trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
+                    focusToken={changesFocusToken}
+                  />
+                }
               />
             )}
           </div>

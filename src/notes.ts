@@ -1,8 +1,7 @@
 // Notes per working folder (ADR 0004): validate backend responses, name scopes, find titles for
-// new notes, reorder tabs. Pure logic without the backend.
+// new notes, sort and search. Pure logic without the backend.
 
 import type { NoteFolder } from "./api";
-import { shortPath } from "./format";
 
 export interface NoteFolderInfo {
   folderKey: string;
@@ -93,11 +92,6 @@ export function sameFolder(a: NoteFolder, b: NoteFolder): boolean {
   return folderId(a) === folderId(b);
 }
 
-/** Short name for tabs and sidebar: the last two folders, "General" without a folder. */
-export function folderLabel(folder: NoteFolder, general: string): string {
-  return folder.path === null ? general : shortPath(folder.path);
-}
-
 /** "Note 1", "Note 2" …: the smallest free number, so titles do not repeat. */
 export function untitledTitle(base: string, existing: readonly string[]): string {
   const taken = new Set(existing.map((title) => title.trim().toLowerCase()));
@@ -117,22 +111,6 @@ export function cleanTitle(text: string): string | null {
     if (code < 0x20 || code === 0x7f) return null;
   }
   return title;
-}
-
-/** Moves `id` to position `target` (0 to length - 1). Unknown IDs change nothing. */
-export function moveNote(ids: readonly string[], id: string, target: number): string[] {
-  const index = ids.indexOf(id);
-  if (index < 0) return [...ids];
-  const rest = ids.filter((other) => other !== id);
-  const position = Math.min(Math.max(Math.round(target), 0), rest.length);
-  return [...rest.slice(0, position), id, ...rest.slice(position)];
-}
-
-/** Which tab becomes active after deleting: the right neighbor, otherwise the left one. */
-export function neighbourAfterDelete(ids: readonly string[], id: string): string | null {
-  const index = ids.indexOf(id);
-  if (index < 0) return ids[0] ?? null;
-  return ids[index + 1] ?? ids[index - 1] ?? null;
 }
 
 /** Longest title Hangar derives from the text itself; the tab truncates anyway. */
@@ -165,21 +143,96 @@ export function titleFromText(text: string): string | null {
 }
 
 /**
- * Does the title still come from Hangar? Yes if it is named like a new note ("Note 3" in any
- * language) or matches exactly what would be derived from the previous text. Then it follows
- * the first line; a title the user chose stays.
+ * Is the title still the one Hangar gave a new note ("Note 3" in any language)? Then it may
+ * follow the first line; a title the user chose stays.
  */
-export function isAutoTitle(
-  title: string,
-  untitledBases: readonly string[],
-  previousText: string,
-): boolean {
-  const trimmed = title.trim();
-  const lower = trimmed.toLocaleLowerCase();
-  for (const base of untitledBases) {
+export function isUntitled(title: string, untitledBases: readonly string[]): boolean {
+  const lower = title.trim().toLocaleLowerCase();
+  return untitledBases.some((base) => {
     const prefix = `${base.toLocaleLowerCase()} `;
-    if (lower.startsWith(prefix) && /^\d+$/.test(lower.slice(prefix.length))) return true;
+    return lower.startsWith(prefix) && /^\d+$/.test(lower.slice(prefix.length));
+  });
+}
+
+/** A note together with its scope: the list "All" and the search mix scopes. */
+export interface NoteRef {
+  folder: NoteFolder;
+  id: string;
+  title: string;
+  updatedAt: number | null;
+}
+
+export interface SearchHit extends NoteRef {
+  folderKey: string;
+  excerpt: string;
+}
+
+export interface TrashItem {
+  id: string;
+  title: string;
+  deletedAt: number | null;
+}
+
+/** Same note (same scope, same ID). */
+export function sameNote(
+  a: { folder: NoteFolder; id: string },
+  b: { folder: NoteFolder; id: string },
+) {
+  return a.id === b.id && sameFolder(a.folder, b.folder);
+}
+
+/** Key of a note for maps and React lists. */
+export function noteKey(note: { folder: NoteFolder; id: string }): string {
+  return `${folderId(note.folder)}
+${note.id}`;
+}
+
+/** Most recent change first; notes without a time last, then by title. */
+export function byLastChange<T extends { updatedAt: number | null; title: string }>(
+  notes: readonly T[],
+): T[] {
+  return [...notes].sort((a, b) => {
+    const diff = (b.updatedAt ?? -1) - (a.updatedAt ?? -1);
+    return diff !== 0 ? diff : a.title.localeCompare(b.title);
+  });
+}
+
+export function parseSearchHits(value: unknown): SearchHit[] {
+  if (!Array.isArray(value)) return [];
+  const result: SearchHit[] = [];
+  for (const item of value) {
+    const entry = record(item);
+    if (!entry) continue;
+    const folderKey = field(entry, "folderKey");
+    const path = field(entry, "path");
+    const id = field(entry, "id");
+    const title = field(entry, "title");
+    const excerpt = field(entry, "excerpt");
+    if (typeof folderKey !== "string" || folderKey === "") continue;
+    if (path !== null && typeof path !== "string") continue;
+    if (typeof id !== "string" || id === "" || typeof title !== "string") continue;
+    result.push({
+      folderKey,
+      folder: { path },
+      id,
+      title,
+      excerpt: typeof excerpt === "string" ? excerpt : "",
+      updatedAt: optionalTime(field(entry, "updatedAt")),
+    });
   }
-  const derived = titleFromText(previousText);
-  return derived !== null && derived === trimmed;
+  return result;
+}
+
+export function parseTrash(value: unknown): TrashItem[] {
+  if (!Array.isArray(value)) return [];
+  const result: TrashItem[] = [];
+  for (const item of value) {
+    const entry = record(item);
+    if (!entry) continue;
+    const id = field(entry, "id");
+    const title = field(entry, "title");
+    if (typeof id !== "string" || id === "" || typeof title !== "string") continue;
+    result.push({ id, title, deletedAt: optionalTime(field(entry, "deletedAt")) });
+  }
+  return result;
 }

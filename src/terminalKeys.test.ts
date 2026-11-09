@@ -62,4 +62,12 @@ describe("terminal keys", () => {
       kind: "app",
     });
   });
+
+  it("keeps F6 away from the process only while it moves the focus to the notes", () => {
+    const f6 = { ...key("F6"), key: "F6" };
+    expect(terminalKeyAction(f6, false)).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(f6, false, true)).toEqual({ kind: "app" });
+    expect(terminalKeyAction({ ...f6, shiftKey: true }, false, true)).toEqual({ kind: "app" });
+    expect(terminalKeyAction({ ...f6, ctrlKey: true }, false, true)).toEqual({ kind: "terminal" });
+  });
 });

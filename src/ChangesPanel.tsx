@@ -15,7 +15,7 @@ import {
   type GitDiff,
 } from "./gitDiff";
 import { useT } from "./i18n";
-import { ChevronIcon, CloseIcon, RestartIcon } from "./icons";
+import { ChevronIcon, RestartIcon } from "./icons";
 import { hasInvisible, revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 
@@ -27,13 +27,8 @@ interface Props {
    * that finished a step usually changed files).
    */
   trigger: string;
-  width: number;
-  /** Above the terminal instead of beside it (window too narrow, see placeNotes). */
-  overlay: boolean;
   /** Goes up when the panel should take the focus (opened via shortcut or menu). */
   focusToken: number;
-  onClose: () => void;
-  onFocusTerminal: () => void;
 }
 
 type Load =
@@ -43,7 +38,7 @@ type Load =
   | { kind: "done"; result: GitDiff };
 
 /**
- * Changes of the active session's folder against the last commit, to the right of the terminal
+ * Changes of the active session's folder against the last commit, the second tab of the right panel
  * (Ctrl+Shift+D). Read again on open, on a new session, on "Refresh" and whenever the session's
  * attention state changes. Large diffs show a page of lines per file, more on request.
  */
@@ -53,7 +48,7 @@ export function ChangesPanel(props: Props) {
   const [manual, setManual] = useState(0);
   /** Last answer, with the request it belongs to. */
   const [answer, setAnswer] = useState<{ key: string; cwd: string; load: Load } | null>(null);
-  const panel = useRef<HTMLElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const latest = useRef("");
   const key = `${cwd ?? ""}\n${trigger}\n${String(manual)}`;
 
@@ -98,28 +93,17 @@ export function ChangesPanel(props: Props) {
   }, [props.focusToken]);
 
   return (
-    <aside
-      ref={panel}
-      tabIndex={-1}
-      className={props.overlay ? "changes floating" : "changes"}
-      style={{ width: props.width }}
-      aria-label={t("changes.title")}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          props.onFocusTerminal();
-        }
-      }}
-    >
+    <div ref={panel} tabIndex={-1} className="changes">
       <div className="changes-header">
-        <h2 className="changes-title">
-          {t("changes.title")}
-          {cwd !== null && (
+        <p className="changes-title">
+          {cwd !== null ? (
             <span className="changes-folder" title={revealInvisible(cwd)}>
               <Revealed text={folderName(cwd)} />
             </span>
+          ) : (
+            <span className="changes-folder">{t("changes.title")}</span>
           )}
-        </h2>
+        </p>
         <button
           type="button"
           className={refreshing ? "icon-button changes-refresh spinning" : "icon-button"}
@@ -132,18 +116,9 @@ export function ChangesPanel(props: Props) {
         >
           <RestartIcon />
         </button>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label={t("changes.hide")}
-          title={t("changes.hide")}
-          onClick={props.onClose}
-        >
-          <CloseIcon />
-        </button>
       </div>
       <ChangesBody cwd={cwd} load={load} />
-    </aside>
+    </div>
   );
 }
 

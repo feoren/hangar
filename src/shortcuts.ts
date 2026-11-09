@@ -15,7 +15,7 @@ export type AppAction =
   | "nextSession"
   | "prevSession"
   | "toggleSidebar"
-  | "toggleNotes"
+  | "quickNote"
   | "toggleChanges"
   | "closeSession"
   | "fontBigger"
@@ -34,8 +34,8 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   if (event.key === "Tab") return event.shiftKey ? "prevSession" : "nextSession";
   if (event.shiftKey && event.code === "KeyB") return "toggleSidebar";
   if (event.shiftKey && event.code === "KeyW") return "closeSession";
-  // Notes: Ctrl+Shift+N. Ctrl+N alone stays with shell and agent (e.g. history forward).
-  if (event.shiftKey && event.code === "KeyN") return "toggleNotes";
+  // Quick note: Ctrl+Shift+N. Ctrl+N alone stays with shell and agent (e.g. history forward).
+  if (event.shiftKey && event.code === "KeyN") return "quickNote";
   // Changes of the session's folder (D for diff). Ctrl+D alone is end of input in every shell.
   if (event.shiftKey && event.code === "KeyD") return "toggleChanges";
   // To the next session waiting for you (A for attention).
@@ -71,6 +71,31 @@ export function rowMoveStep(event: KeyInfo): -1 | 1 | null {
   return null;
 }
 
+/** Places F6 moves the focus between while the notes are open, in this order. */
+export type FocusZone = "terminal" | "list" | "editor";
+
+/**
+ * F6 and Shift+F6 move the focus between terminal, notes list and editor, as F6 moves between
+ * panes in Windows programs. Only while the notes panel is open: otherwise F6 stays with the
+ * program in the terminal (a few TUIs such as Midnight Commander use it).
+ */
+export function focusCycleStep(event: KeyInfo): 1 | -1 | null {
+  if (event.key !== "F6" || event.ctrlKey || event.altKey || event.metaKey) return null;
+  return event.shiftKey ? -1 : 1;
+}
+
+/** The next zone from `current` among those available; unknown or none: the first one. */
+export function nextFocusZone(
+  zones: readonly FocusZone[],
+  current: FocusZone | null,
+  step: 1 | -1,
+): FocusZone | null {
+  if (zones.length === 0) return null;
+  const index = current === null ? -1 : zones.indexOf(current);
+  if (index < 0) return step === 1 ? (zones[0] ?? null) : (zones[zones.length - 1] ?? null);
+  return zones[(index + step + zones.length) % zones.length] ?? null;
+}
+
 /**
  * Keys that make the WebView reload the page (F5, Ctrl+F5, Ctrl+R, Ctrl+Shift+R). A reload
  * disconnects the UI from all running sessions; the app therefore intercepts these keys, but only
@@ -92,7 +117,7 @@ export function ignoresRepeat(action: AppAction): boolean {
     action === "newSession" ||
     action === "closeSession" ||
     action === "toggleSidebar" ||
-    action === "toggleNotes" ||
+    action === "quickNote" ||
     action === "toggleChanges" ||
     action === "openSettings" ||
     action === "find" ||
@@ -112,7 +137,7 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   nextSession: { mods: ["ctrl"], key: "Tab" },
   prevSession: { mods: ["ctrl", "shift"], key: "Tab" },
   toggleSidebar: { mods: ["ctrl", "shift"], key: "B" },
-  toggleNotes: { mods: ["ctrl", "shift"], key: "N" },
+  quickNote: { mods: ["ctrl", "shift"], key: "N" },
   toggleChanges: { mods: ["ctrl", "shift"], key: "D" },
   closeSession: { mods: ["ctrl", "shift"], key: "W" },
   fontBigger: { mods: ["ctrl"], key: "Plus" },

@@ -9,11 +9,12 @@ interface Props {
   text: string;
   label: string;
   onChange: (text: string) => void;
+  onSelection: (selected: boolean) => void;
   onEscape: () => void;
   /** The editor now shows the content for `loadKey`. */
   onLoaded: (loadKey: string) => void;
-  /** Receives the focus function once the editor is ready. */
-  focusRef: React.RefObject<(() => void) | null>;
+  /** Receives the editor once it is ready, `null` when it is gone. */
+  editorRef: React.RefObject<MarkdownEditor | null>;
 }
 
 /**
@@ -21,38 +22,42 @@ interface Props {
  * loaded, so typing does not trigger setting the content again (cursor and history stay).
  */
 export function NoteEditor(props: Props) {
-  const { loadKey, text, label, onChange, onEscape, onLoaded, focusRef } = props;
+  const { loadKey, text, label, onChange, onSelection, onEscape, onLoaded, editorRef } = props;
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
-  const editor = useRef<MarkdownEditor | null>(null);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
   /** `loadKey` whose content is in the editor. */
   const loaded = useRef<string | null>(null);
   // Current values for the editor, which receives its callbacks only once.
-  const latest = useRef({ text, label, loadKey, onChange, onEscape, onLoaded });
+  const latest = useRef({ text, label, loadKey, onChange, onSelection, onEscape, onLoaded });
   useEffect(() => {
-    latest.current = { text, label, loadKey, onChange, onEscape, onLoaded };
+    latest.current = { text, label, loadKey, onChange, onSelection, onEscape, onLoaded };
   });
 
   useEffect(() => {
     let cancelled = false;
+    let editor: MarkdownEditor | null = null;
     import("./markdownEditor")
       .then(({ createMarkdownEditor }) => {
         const element = host.current;
         if (cancelled || !element) return;
-        editor.current = createMarkdownEditor(element, {
+        editor = createMarkdownEditor(element, {
           text: latest.current.text,
           label: latest.current.label,
           placeholder: t("notes.placeholder"),
+          taskLabel: t("notes.task"),
           onChange: (next) => {
             latest.current.onChange(next);
+          },
+          onSelection: (selected) => {
+            latest.current.onSelection(selected);
           },
           onEscape: () => {
             latest.current.onEscape();
           },
         });
-        focusRef.current = () => editor.current?.focus();
+        editorRef.current = editor;
         loaded.current = latest.current.loadKey;
         latest.current.onLoaded(latest.current.loadKey);
         setReady(true);
@@ -62,9 +67,8 @@ export function NoteEditor(props: Props) {
       });
     return () => {
       cancelled = true;
-      focusRef.current = null;
-      editor.current?.destroy();
-      editor.current = null;
+      editorRef.current = null;
+      editor?.destroy();
     };
     // Once per mount; text and label come in via `loadKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,9 +78,9 @@ export function NoteEditor(props: Props) {
   useEffect(() => {
     if (!ready || loaded.current === loadKey) return;
     loaded.current = loadKey;
-    editor.current?.load(latest.current.text, latest.current.label);
+    editorRef.current?.load(latest.current.text, latest.current.label);
     latest.current.onLoaded(loadKey);
-  }, [loadKey, ready]);
+  }, [loadKey, ready, editorRef]);
 
   if (failed) return <p className="notes-message error-text">{t("notes.editorFailed")}</p>;
   return (

@@ -10,6 +10,7 @@ import {
   formatShortTime,
   shortPath,
   statusText,
+  relativeTime,
 } from "./format";
 import { contrastRatio } from "./theme";
 
@@ -128,5 +129,23 @@ describe("formatShortTime", () => {
     expect(de).toContain("07.11.");
     expect(de).toContain("16:40");
     expect(formatShortTime(date, "en")).toContain("11/07");
+  });
+});
+
+describe("relativeTime", () => {
+  const now = new Date(2026, 10, 9, 12, 0).getTime();
+
+  it("names recent times relative to now", () => {
+    expect(relativeTime(now - 5_000, now, "en")).toBe("now");
+    expect(relativeTime(now + 60_000, now, "en")).toBe("now");
+    expect(relativeTime(now - 5 * 60_000, now, "en")).toBe("5 minutes ago");
+    expect(relativeTime(now - 3 * 3_600_000, now, "en")).toBe("3 hours ago");
+    expect(relativeTime(now - 26 * 3_600_000, now, "en")).toBe("yesterday");
+    expect(relativeTime(now - 26 * 3_600_000, now, "de")).toBe("gestern");
+  });
+
+  it("shows a date after a week, with the year only for other years", () => {
+    expect(relativeTime(new Date(2026, 9, 1).getTime(), now, "en")).toBe("Oct 1");
+    expect(relativeTime(new Date(2025, 9, 1).getTime(), now, "en")).toBe("Oct 1, 2025");
   });
 });

@@ -287,3 +287,60 @@ export function AlertIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Magnifier: search. */
+export function SearchIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.2 10.2l3.3 3.3" />
+    </Svg>
+  );
+}
+
+/** Three dots: "More" menu. */
+export function MoreIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 8h.01M8 8h.01M12.5 8h.01" strokeWidth="2.6" />
+    </Svg>
+  );
+}
+
+/** Arrow into a prompt: send to the terminal. */
+export function SendIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 8h9M8 4.5L11.5 8 8 11.5M13.5 3.5v9" />
+    </Svg>
+  );
+}
+
+/** Box with an arrow out of it: open in its own window. */
+export function DetachIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9.5 2.5h4v4M13.5 2.5L8 8" />
+      <path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
+    </Svg>
+  );
+}
+
+/** Pin: keep the window on top. */
+export function PinIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 2.5h4M7 2.5v4L4.5 9.5h7L9 6.5v-4M8 9.5v4" />
+    </Svg>
+  );
+}
+
+/** Ticked box: checklist progress. */
+export function TaskIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" />
+      <path d="M5.3 8.2l1.9 1.9 3.6-4" />
+    </Svg>
+  );
+}

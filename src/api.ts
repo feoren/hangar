@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { t } from "./i18n";
+import type { NotesMessage } from "./notesBridge";
 
 export type SessionStatus = "starting" | "running" | "exited";
 
@@ -213,6 +214,21 @@ export const api = {
   reorderNotes: (folder: NoteFolder, ids: string[]) =>
     invoke<null>("reorder_notes", { folder, ids }),
   revealNotesFolder: (folder: NoteFolder) => invoke<null>("reveal_notes_folder", { folder }),
+  /** Check with `parseSearchHits`. */
+  searchNotes: (query: string) => invoke<unknown>("search_notes", { query }),
+  /** Check with `parseTrash`. */
+  listTrash: (folder: NoteFolder) => invoke<unknown>("list_trash", { folder }),
+  /** ID of the restored note (a string; check it). */
+  restoreNote: (folder: NoteFolder, id: string) => invoke<unknown>("restore_note", { folder, id }),
+  /** The backend asks where to save; the path written, `null` when cancelled (check it). */
+  exportNote: (folder: NoteFolder, id: string) => invoke<unknown>("export_note", { folder, id }),
+  revealNote: (folder: NoteFolder, id: string) => invoke<null>("reveal_note", { folder, id }),
+  /** Main window only: opens the notes window or brings it to the front. */
+  openNotesWindow: (alwaysOnTop: boolean) => invoke<null>("open_notes_window", { alwaysOnTop }),
+  /** Main window only; `false` if the notes window is not open. */
+  setNotesOnTop: (onTop: boolean) => invoke<unknown>("set_notes_on_top", { onTop }),
+  /** Notes window only: the one way to ask something of the main window (notesBridge.ts). */
+  notesToMain: (message: NotesMessage) => invoke<null>("notes_to_main", { message }),
 
   /**
    * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
