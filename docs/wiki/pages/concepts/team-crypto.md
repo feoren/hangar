@@ -160,7 +160,11 @@ A.2.1 test.
 
 - Store a rotation's secret in the OS keychain before sending `key.rotate`.
 - Store `SendCounter::last` before sending a record and `ReplayGuard::marks` after accepting
-  one.
+  one. The app (step F part 2a) also resumes the counter from at least Unix milliseconds times
+  1024 on every start, so a lost or restored state file cannot repeat a counter; a failed write
+  of the state file ends the connection before the record leaves.
+- Show a member about to be added again (`TeamState::departed_at` while the member is not
+  listed) before the person confirms.
 - Delete fetched wrapped keys it no longer needs once the epoch secret is in the keychain, and
   wipe the device identity from the keychain when the log removes the device (L4).
 - Show who added a device (`TeamState::added_by`) and warn that granted history reaches every
@@ -170,6 +174,22 @@ A.2.1 test.
   `memberlog.append`.
 - Rotating a device's own X25519 key is future work (L4): today a device keeps its keys until it
   is removed and added again under a new id.
+
+## Trust of relay events in the app
+
+The relay's events are not signed; the app trusts each only for what a lying relay could do
+anyway (delay, drop, disconnect), never for deleting keys or raising rights:
+
+| Event | Trusted for |
+| --- | --- |
+| `memberlog.appended`, `key.rotated`, `key.wrapped` | a hint to fetch the log or the key; what counts is the verified log and `unwrap_any` against its commitment |
+| `key.rotated` with `wrapped` | kept only for epochs above the verified current one, at most 4, dropped on every `hello` |
+| `device.removed`, `member.removed` | a log fetch; keys go only when the verified log removed this device |
+| `member.removed` naming this member, close 4404 | a check of the website's project list (authenticated HTTPS); keys go and sharing turns off only when the project is gone there |
+| `member.role_changed` | a reread of the website's project list; the role comes from the website, capped by the log |
+| close 4403 | stop with "removed", keys kept (a relay can only disconnect) |
+| close 4401, `err forbidden` on `hello` | a fresh ticket; one immediate retry per settled connection |
+| `memberlog.entries` with `more` | only with at least one entry (progress), else the connection ends |
 
 ## Threat model
 

@@ -61,7 +61,28 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # notification to cancel the device flow's wait, and its timer. Tauri's async runtime is tokio
 # and both features are already on in the tree (through tauri and reqwest), so this adds no code;
 # MIT, maintained by the tokio-rs org.
-tokio = { version = "1", default-features = false, features = ["sync", "time"] }
+tokio = { version = "1", default-features = false, features = ["sync", "time", "net"] }
+# Team connection (team_*.rs, step F part 2a): the wire types and checks of the team protocol and
+# the end-to-end cryptography, both MIT and in this repository (crates/). Path dependencies, not
+# a workspace: a workspace at the repository root would move `src-tauri/target`, which the
+# release tool, CI and `tauri build` rely on. Both crates are pure (no I/O); the crypto crate adds
+# hpke, ed25519-dalek, chacha20poly1305, hkdf, sha2 0.11 and getrandom 0.4 (MIT, Apache-2.0 or
+# BSD-3-Clause, one RustCrypto and dalek generation, listed in its own manifest).
+hangar-team-protocol = { path = "../crates/hangar-team-protocol" }
+hangar-team-crypto = { path = "../crates/hangar-team-crypto" }
+# The relay's WebSocket. tokio-tungstenite is the de facto standard WebSocket for tokio
+# (MIT, snapview org, maintained); only the handshake feature: TCP comes from tokio and
+# TLS from tokio-rustls with the platform verifier below, the same stack reqwest uses, so no
+# second TLS setup or root store. Adds tungstenite, tokio-tungstenite, sha1 and rand 0.9 (masking
+# keys), all MIT/Apache-2.0. Alternative: a hand-written RFC 6455 client, more code to get right.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# TLS for the relay with the operating system's certificate verification. Both already in the
+# tree through reqwest (MIT/Apache-2.0, rustls org), so they add no code.
+tokio-rustls = { version = "0.26", default-features = false }
+rustls-platform-verifier = "0.7"
+# Splitting the WebSocket into a reader and a writer (Stream/Sink). Already in the tree through
+# reqwest and tokio-tungstenite; MIT/Apache-2.0, rust-lang.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 # Local claims (claims_service.rs): file events per session worktree, only as a trigger for a git
 # rescan. The de facto standard watcher (ReadDirectoryChangesW, inotify, FSEvents), maintained
 # by the notify-rs org; alternatives were a hand-written watcher per platform or polling alone

@@ -217,3 +217,20 @@ per sender, target and epoch). A member has at most 16 devices and a team at mos
 requires that a device's keys in the log are the keys that device registered itself, replay
 marks are kept per holder and signing key, and the state shows a re-admitted member. Pages
 changed: [[team-crypto]], [[team-protocol]], [[team-service-v1]].
+
+## [2026-11-09] ingest | Team service step F part 2a as built (team connection)
+Hangar connects a shared project to the team relay: device identity, epoch secrets and the
+verified log head in the keychain, the event log cursor and replay marks in a state file, a
+WebSocket with ticket renewal, the relay's close codes and jittered backoff, team creation, the
+first epoch, confirmation of new devices and members by safety number, key wrapping and rotation
+after a removal, and a "history does not match" state for a forked or rewritten log. Tested
+against an in-test relay built from both crates. Pages changed: [[team-service-v1]].
+
+## [2026-11-09] ingest | Team connection hardened after security and acceptance review
+Relay events no longer wipe keys on their own: removals need the verified log or the website;
+4404 asks the website first; every wipe turns sharing off. Team state and `team.json` are kept per
+keychain service; a lock file keeps a team to one window; a sign-out stops the teams at once and a sign-in restarts them; a server change stops the old server's workers; the backoff resets only after a
+settled connection; the reader queue is bounded; the send counter has a clock floor; unreadable
+device entries and state files stop instead of starting over. The confirmation panel shows one
+request at a time with an arming delay, an inline question before rejecting and a re-admission
+warning. Pages changed: [[team-service-v1]], [[team-crypto]].

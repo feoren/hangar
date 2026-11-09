@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-reject"
+description = "Enables the team_reject command without any pre-configured scope."
+commands.allow = ["team_reject"]
+
+[[permission]]
+identifier = "deny-team-reject"
+description = "Denies the team_reject command without any pre-configured scope."
+commands.deny = ["team_reject"]

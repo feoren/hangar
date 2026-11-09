@@ -32,6 +32,8 @@ use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
+use crate::team::{PendingConfirmation, TeamError, TeamStatus};
+use crate::team_service::TeamService;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
@@ -1089,6 +1091,49 @@ pub fn account_open(
     page: AccountPage,
 ) -> Result<(), AccountError> {
     account.open(page)
+}
+
+// Team connection (team.rs, team_engine.rs, team_service.rs; step F part 2a). Every change is
+// also emitted as `team-changed` with a `TeamSnapshot`.
+
+/// The connection state of one project ("Share with team" off when never turned on).
+#[tauri::command]
+pub fn team_status(team: State<'_, TeamService>, project_id: String) -> TeamStatus {
+    team.status(&project_id)
+}
+
+/// Turns "Share with team" on for a project of the signed-in account.
+#[tauri::command]
+pub async fn team_enable(
+    team: State<'_, TeamService>,
+    project_id: String,
+) -> Result<TeamStatus, TeamError> {
+    team.enable(&project_id).await
+}
+
+#[tauri::command]
+pub async fn team_disable(
+    team: State<'_, TeamService>,
+    project_id: String,
+) -> Result<TeamStatus, TeamError> {
+    team.disable(&project_id).await
+}
+
+/// Devices that wait for this device's confirmation, in every shared project.
+#[tauri::command]
+pub fn team_pending_confirmations(team: State<'_, TeamService>) -> Vec<PendingConfirmation> {
+    team.pending()
+}
+
+/// Confirms a waiting device after the person compared its safety number.
+#[tauri::command]
+pub async fn team_confirm(team: State<'_, TeamService>, request: String) -> Result<(), TeamError> {
+    team.confirm(&request).await
+}
+
+#[tauri::command]
+pub async fn team_reject(team: State<'_, TeamService>, request: String) -> Result<(), TeamError> {
+    team.reject(&request).await
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

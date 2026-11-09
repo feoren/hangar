@@ -2071,6 +2071,9 @@ fn a_readmitted_member_shows_and_its_reused_device_id_starts_a_fresh_counter() {
     )
     .expect("remove");
     let removed_at = team.state().head().index;
+    // Before it is added again, the app can tell that confirming would re-admit it.
+    assert!(team.state().member(&member_id).is_none());
+    assert_eq!(team.state().departed_at(&member_id), Some(removed_at));
     let again = Device::new("member", "laptop");
     team.submit(
         Who::Owner,

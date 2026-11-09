@@ -472,9 +472,135 @@ behavior: [[hangar-account-api]]. Nothing of the team service shows without sign
   measured poll gaps, decline, expiry, cancel, foreign page, one refresh for two concurrent
   callers, rotation without reuse, `invalid_grant`, problem documents, invite pages, sign-out,
   server switch, relay ticket), Vitest for `src/account.ts`.
-- **Not built yet:** the relay ticket in use (step D), creating projects and inviting from inside
+- **Not built yet:** creating projects and inviting from inside
   Hangar (the website does it), the Team entry in the collapsed rail, reloading projects on a
   timer.
+
+### Step F as built (part 2a, 2026-11-09)
+
+Team connection: a signed-in person turns on "Share with team" for a project in the sidebar's
+Team group; Hangar then keeps one WebSocket to the team relay for it, verifies the membership log
+and holds the current epoch's secret. Teammates' status and claims are part 2b. Not run against a
+real relay yet; tested against an in-test relay built from both crates.
+
+- **Wiring:** both crates are path dependencies of `src-tauri` (no workspace, which would move
+  `src-tauri/target` that the release tool, CI and `tauri build` use); the release tool's lock
+  rewrite matches only the `hangar` package. New dependencies: `tokio-tungstenite` 0.29 with the
+  handshake feature only (adds `tungstenite`, `sha1`, `rand` 0.9), TCP from tokio (`net`), TLS
+  from `tokio-rustls` with `rustls-platform-verifier` (both already in the tree through reqwest),
+  `futures-util`. No proxy support for the relay yet.
+- **Modules:** `team.rs` (pure: the window's view, reconnect policy, connection clock, stored
+  formats), `team_engine.rs` (the protocol without I/O; returns ordered effects), `team_relay.rs`
+  (socket, TLS, handshake, 1 MiB message limit), `team_service.rs` (one worker per project,
+  keychain off the async threads), commands in `commands.rs`. Types mirror in `src/team.ts`.
+- **Device identity per server and project:** `DeviceIdentity` generated on first use, device id
+  16 random bytes in hex; stored in the keychain (service `hangar-team`, debug builds
+  `hangar-team-dev`) as `device/<key>`, where `<key>` is a hash of server address and project id,
+  before the relay sees it. Never in a file or a log.
+- **Epoch secrets and the verified log head** live in the keychain as well (`keys/<key>`, the
+  newest eight secrets, under 700 of the 1280 UTF-16 units the Windows store allows). Chosen over
+  an encrypted local file: the OS already protects the entry, there is no second key and file
+  format to get right, and the head's integrity matters as much as the secrets' confidentiality.
+  The event log cursor, the send counter, the replay marks and rejected requests (nothing secret)
+  are in `<local data>/team/<service>/<key>.json`, the enabled projects in `<config>/team.json`
+  under `enabledByService.<service>`: debug and release builds have separate keychain services,
+  so they are separate devices and must not share cursor, counter or marks. A missing device entry
+  creates a new device; one that is there but does not decode stops with "keychain" and is never
+  overwritten. A state file that exists but does not parse stops with `storage` instead of
+  starting empty.
+- **Send counter:** stored before its record, and on every start raised to at least Unix
+  milliseconds times 1024, so a lost or restored state file cannot repeat a counter (it would
+  take 1024 records in one millisecond, or a clock set back while the file is lost).
+- **One window per team:** a worker holds `<local data>/team/<service>/<key>.lock` (an OS file
+  lock) while it runs. A second Hangar window shows `needsAttention { otherInstance }`, retries
+  every 5 s and takes over once the first one ends.
+- **Order of storage:** the engine returns effects in order and a failed keychain or state file
+  write drops everything after it (the keychain stops with "keychain", the state file ends the
+  connection), so a rotation's secret is stored before `key.rotate` leaves, and a record counter
+  before its record (`reserve_counter`, ready for part 2b). A keys entry that no longer decodes
+  stops with "keychain" instead of starting without the verified log head.
+- **Connection:** a fresh ticket (`relay_ticket`) for every connection, `hello` with ticket,
+  device, protocol range and the stored cursor; `welcome` or `resync_required`; `ticket.renew`
+  with a fresh ticket every 5 minutes; a ping every 25 s; nothing heard for 60 s counts as lost;
+  a reconnect of its own at 540 s, before the relay's 600 s connection age; the cursor is stored
+  after every logged event, so a reconnect replays instead of resyncing. One worker and one
+  connection per project; quitting sends close 1000 and waits up to 2 s.
+- **Reconnect policy:** 4401 a fresh ticket at once; `err forbidden` on `hello` one immediate
+  retry with a fresh ticket, a second one stops (`refused`); 4403 stops with "removed" and keeps
+  the device's keys; 4404 asks the website first: only when the project is gone there does it
+  stop with "project deleted", delete the team's keychain entries and state file and turn sharing
+  off (the website still listing it stops with `refused`, keys kept; no answer backs off and
+  retries); 1008 and every other ending back off with equal jitter from 1 s doubling to 60 s.
+  One immediate reconnect is available only after a connection settled (its log check finished,
+  or it lasted 30 s), not after a mere `welcome`, so a relay that accepts `hello` and keeps
+  closing cannot make Hangar spin. Frames are read into a queue of 32; a full queue stops reading
+  the socket. A log page with `more` and no entry ends the connection.
+- **Bootstrap on every `welcome`:** `device.keys` with the proof, then the whole log through
+  `memberlog.get` (paged) into a fresh `LogVerifier`. A refused entry, or a log that no longer
+  contains the stored head at its index (fork, rewind, rewrite), stops with "the team's history
+  does not match". Then: an empty log and the website role owner creates the team (entry 1 with
+  this device) and the first epoch; a device not in the log waits for confirmation and shows its
+  safety number (also a member while the owner has not shared yet); a device in the log without
+  the epoch's secret takes the wrapped key from `key.rotated`, else `key.get`, through
+  `unwrap_any` against the log's commitment; a secret that does not match the commitment (its own
+  plan of a rotation another device won) is dropped. An owner or admin device (the lower of log
+  and website role) rotates when no epoch exists or the log says a rotation is due, without a
+  history link; devices whose key could not be wrapped are handed it with `key.wrap` later.
+- **Confirmations:** devices that sent `device.keys` but are not in the log come from
+  `devices.get` (every 30 s and after each log sync). Another device of the same person becomes
+  an add device entry endorsed by this device; for an owner or admin, a new member's first
+  device becomes an add member entry with role member. Only entries the verified state accepts
+  are offered. Confirming appends the entry and then wraps the current key to the device
+  (`key.wrap`, which the relay answers with `key.wrapped` to that device). Rejecting hides the
+  request for good (stored). The person compares the safety numbers on both screens.
+- **Removal and trust of relay events:** the relay's events are not signed. `device.removed`
+  and `member.removed` only start a log fetch; the keys go when the verified log removed this
+  device, or (for `member.removed` naming this member, and 4404) when the website no longer lists
+  the project. `member.role_changed` only rereads the project list; the role comes from the
+  website. Every wipe also turns sharing off, so the next start does not register a new identity
+  unasked. `remove_member` and `remove_device` exist in the service (removal through
+  `device.remove` with its signed entry) but are not commands yet.
+- **Account changes:** the team service subscribes to the account (`AccountService::subscribe`).
+  A sign-out (or a sign-in the server ended) stops the running teams at once with "signed out",
+  instead of at the next ticket renewal; a sign-in restarts them; a server change stops and
+  forgets the old server's workers and starts the new server's enabled ones.
+- **Interface:** commands `team_status(projectId)`, `team_enable(projectId)`,
+  `team_disable(projectId)`, `team_pending_confirmations()`, `team_confirm(request)`,
+  `team_reject(request)` (main window only); event `team-changed` with `TeamSnapshot { teams:
+  { projectId, status }[], pending: PendingConfirmation[] }`; `TeamStatus` is `off`,
+  `connecting { retrying }`, `connected { epoch, members, devices }`, `waitingForConfirmation
+  { safetyNumber }` (six groups of five digits), `needsAttention { reason }` (`historyMismatch`,
+  `signedOut`, `keychain`, `needsUpdate`, `refused`, `storage`, `otherInstance`), `removed`,
+  `projectDeleted`; `PendingConfirmation` carries `readmitted` (the log removed this member
+  before); errors `{ kind, detail }`.
+- **UI:** a "Share with team" switch per project in the Team group with the state below it and,
+  while waiting, the safety number in groups; a "Confirm new device" panel that shows one request
+  at a time ("1 of N"), with its safety number, a warning for a re-admitted member, Confirm and
+  Reject disabled for 1 s whenever the shown request changes, focus on the panel after an answer
+  (never on a Confirm button; after the last one on the Team group's heading), and Reject asking inline first. The account API offers no member
+  names, so the member shows as its shortened id.
+- **Tests:** unit tests for the reconnect policy (close codes, the one retry after a stale
+  ticket, backoff and jitter, one immediate reconnect per `hello`), the connection clock (renewal
+  every 5 minutes, the age reconnect, pings, silence) and the stored formats; engine tests against
+  an in-memory relay (team creation with the secret stored before `key.rotate`, a waiting member,
+  an endorsed second device, an added member, a rejected request, rotation after a removal, a
+  rewritten history, `hello` errors, resume cursor and gap); an integration test
+  (`tests/team.rs`) with real WebSockets against a relay on 127.0.0.1 that uses `EventLog`,
+  `LogVerifier::admit`, `admit_rotation`, `admit_device_remove`, `check_wrap` and
+  `check_registered_keys`, and the account service against a mock account API: the owner creates
+  the team, a second device of the same member joins and gets the key, a second member is added,
+  a removal rotates and wipes the removed device, reconnect with resume (no resync), ticket
+  renewal, a stale ticket retried once, 4401, 4403, 4404 with and without the website agreeing,
+  unreadable keys entry, device entry and state file, relay removal events that wipe nothing, a
+  refused keys write that sends no `key.rotate`, a failed state write that ends the connection, a
+  rewritten history, sign-out and sign-in, a server change and a second window. Engine tests add
+  a partial rotation completed with `key.wrap`, the re-admission mark, the bounded wrapped keys
+  of `key.rotated` and the counter floor.
+- **Not built yet:** teammates' presence and claims (part 2b), removing devices and members from
+  the UI, the "added by" note for current members, granting history on a rotation, comparing log
+  safety numbers in the UI, the recovery code, a proxy for the relay. A device removed with
+  `device.remove` keeps its keys (4403 follows at once and the log fetch is not answered) until
+  the person turns sharing off.
 
 ## Still to verify by measurement
 - Claude Code http hook: a connection failure and a timeout fail open (measured,

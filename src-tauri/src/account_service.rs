@@ -78,6 +78,9 @@ struct Inner {
     store: Arc<dyn SecretStore>,
     emit: Emit,
     open: Opener,
+    /// Other parts of the backend that follow the account (the team connections), told after
+    /// the window with the same view.
+    listeners: Mutex<Vec<Emit>>,
     options: Options,
     core: Mutex<Core>,
     /// Held across every refresh and every change of the stored tokens.
@@ -270,6 +273,7 @@ impl AccountService {
                 store,
                 emit,
                 open,
+                listeners: Mutex::new(Vec::new()),
                 options,
                 core: Mutex::new(Core {
                     base,
@@ -336,9 +340,19 @@ impl AccountService {
             .map_err(|error| AccountError::Config(error.to_string()))?
     }
 
+    /// Calls `listener` with every view the window gets from now on. It runs on the caller's
+    /// thread with no lock of the account held, and must not block.
+    pub fn subscribe(&self, listener: Emit) {
+        lock(&self.inner.listeners).push(listener);
+    }
+
     fn publish(&self) {
         let view = self.view();
         (self.inner.emit)(&view);
+        let listeners = lock(&self.inner.listeners).clone();
+        for listener in listeners {
+            listener(&view);
+        }
     }
 
     /// The current state; reads the keychain once per server first, so a stored sign-in counts.

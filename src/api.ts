@@ -318,6 +318,17 @@ export const api = {
   /** Opens one of the account's own pages; the window never passes a URL. */
   accountOpen: (page: AccountPage) => invoke<null>("account_open", { page }),
 
+  // Team connection per project. Answers and errors are checked in team.ts
+  // (`parseTeamStatus`, `parsePendingConfirmations`, `parseTeamError`).
+  teamStatus: (projectId: string) => invoke<unknown>("team_status", { projectId }),
+  /** Turns "Share with team" on; the backend keeps the choice. */
+  teamEnable: (projectId: string) => invoke<unknown>("team_enable", { projectId }),
+  teamDisable: (projectId: string) => invoke<unknown>("team_disable", { projectId }),
+  /** New devices waiting for this device's confirmation. */
+  teamPendingConfirmations: () => invoke<unknown>("team_pending_confirmations"),
+  teamConfirm: (request: string) => invoke<unknown>("team_confirm", { request }),
+  teamReject: (request: string) => invoke<unknown>("team_reject", { request }),
+
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),
@@ -340,6 +351,8 @@ export const CLAIMS_CHANGED = "claims-changed";
 export const GATE_CHANGED = "gate-changed";
 /** Event with the newest account state (`parseAccountView` in account.ts). */
 export const ACCOUNT_CHANGED = "account-changed";
+/** Event with every project's team connection and the pending confirmations (`parseTeamSnapshot`). */
+export const TEAM_CHANGED = "team-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
 export function parseActivatedSession(payload: unknown): number | null {

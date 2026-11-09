@@ -70,6 +70,12 @@ const COMMANDS: &[&str] = &[
     "account_projects",
     "account_set_base_url",
     "account_open",
+    "team_status",
+    "team_enable",
+    "team_disable",
+    "team_pending_confirmations",
+    "team_confirm",
+    "team_reject",
 ];
 
 fn main() {

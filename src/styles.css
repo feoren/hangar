@@ -5409,3 +5409,218 @@ body.session-dragging .session-actions {
   padding: 0;
   text-decoration: underline;
 }
+
+/* Team connection: "Share with team" per project, its state, safety numbers and confirmations. */
+
+.team-share {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.team-share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team-share-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-share-row .switch {
+  flex: none;
+}
+
+.team-share-row .switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.team-status {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* The mark's shape tells the state apart as well as its color: dot, ring, diamond, bar. */
+.team-status-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translateY(-1px);
+}
+
+.team-status.tone-ok .team-status-mark {
+  background: var(--ok);
+}
+
+.team-status.tone-busy .team-status-mark {
+  border: 1.5px solid var(--accent);
+}
+
+.team-status.tone-problem {
+  color: var(--text);
+}
+
+.team-status.tone-problem .team-status-mark {
+  border-radius: 1px;
+  background: var(--warn);
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.team-status.tone-stopped .team-status-mark {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: translateY(-3px);
+}
+
+.team-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.safety-number {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 2px 12px;
+  align-self: flex-start;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  user-select: text;
+}
+
+.team-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 8px 8px;
+  padding: 8px;
+  background: var(--panel-raised);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 6px;
+}
+
+.team-confirm:focus {
+  outline: none;
+}
+
+.team-confirm:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.team-confirm-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.team-confirm-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* "1 of 3": quiet, so the queue never competes with the request itself. */
+.team-confirm-position {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.team-confirm-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* A removed member asks to come back: the text says it, the tint only draws the eye. */
+.team-confirm-warning {
+  margin: 2px 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 5px;
+}
+
+.team-confirm-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.team-confirm-ask .team-help {
+  color: var(--text);
+}
+
+.team-confirm-kind {
+  font-size: 12px;
+}
+
+.team-confirm-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.team-confirm-project {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-confirm-meta span:not(.team-confirm-project) {
+  font-family: var(--mono);
+}
+
+.team-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.team-confirm-actions button {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.team-confirm-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

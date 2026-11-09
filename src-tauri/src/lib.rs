@@ -31,6 +31,10 @@ pub mod resolve;
 pub mod secrets;
 pub mod session;
 pub mod subagents;
+pub mod team;
+pub mod team_engine;
+pub mod team_relay;
+pub mod team_service;
 #[cfg(test)]
 mod test_support;
 pub mod text;
@@ -95,6 +99,25 @@ pub fn run() -> tauri::Result<()> {
                     ..account_service::Options::default()
                 },
             ));
+            // Team connections: one worker per project with "Share with team" on; started
+            // here so shared projects reconnect without the window.
+            let events = app.handle().clone();
+            let team = team_service::TeamService::new(
+                app.state::<account_service::AccountService>()
+                    .inner()
+                    .clone(),
+                std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
+                std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
+                    let _ = events.emit_to(notes_window::MAIN_LABEL, team::EVENT, snapshot);
+                }),
+                team_service::Options {
+                    config_dir: Some(config_dir.clone()),
+                    state_dir: Some(app.path().app_local_data_dir()?),
+                    ..team_service::Options::default()
+                },
+            );
+            team.start_enabled();
+            app.manage(team);
             app.manage(ProfileLoad {
                 error: Mutex::new(error),
                 dir: config_dir,
@@ -235,6 +258,12 @@ pub fn run() -> tauri::Result<()> {
             commands::account_projects,
             commands::account_set_base_url,
             commands::account_open,
+            commands::team_status,
+            commands::team_enable,
+            commands::team_disable,
+            commands::team_pending_confirmations,
+            commands::team_confirm,
+            commands::team_reject,
         ])
         .build(tauri::generate_context!())?;
 
@@ -242,6 +271,8 @@ pub fn run() -> tauri::Result<()> {
         if let RunEvent::Exit = event {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
+            // Team connections close with a close frame.
+            handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.
             handle.state::<gate_service::GateService>().stop();
             handle.state::<claims_service::ClaimsService>().stop();

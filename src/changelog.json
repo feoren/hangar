@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Schalte „Mit Team teilen“ ein: Das Projekt verbindet sich Ende-zu-Ende-verschlüsselt mit dem Teamserver. Neue Geräte bestätigst du per Sicherheitsnummer.",
+        "en": "Turn on \"Share with team\": the project connects to the team server, end to end encrypted. You confirm new devices by comparing a safety number.",
+        "el": "Ενεργοποίησε την «Κοινή χρήση με την ομάδα»: το έργο συνδέεται κρυπτογραφημένα από άκρο σε άκρο. Οι νέες συσκευές επιβεβαιώνονται με αριθμό ασφαλείας.",
+        "es": "Activa «Compartir con el equipo»: el proyecto se conecta cifrado de extremo a extremo. Confirmas dispositivos nuevos con un número de seguridad.",
+        "fr": "Active « Partager avec l'équipe » : le projet se connecte, chiffré de bout en bout. Tu confirmes les nouveaux appareils par un numéro de sécurité.",
+        "it": "Attiva «Condividi con il team»: il progetto si collega al server del team con crittografia end to end. Confermi i nuovi dispositivi con un numero di sicurezza.",
+        "ja": "「チームと共有」をオンにすると、プロジェクトがエンドツーエンド暗号化でチームサーバーに接続します。新しいデバイスはセキュリティ番号を照合して確認します。",
+        "pl": "Włącz „Udostępnij zespołowi”: projekt łączy się z serwerem zespołu z szyfrowaniem end to end. Nowe urządzenia potwierdzasz, porównując numer bezpieczeństwa.",
+        "pt": "Ative \"Compartilhar com a equipe\": o projeto se conecta com criptografia de ponta a ponta. Novos dispositivos são confirmados por um número de segurança.",
+        "ru": "Включи «Делиться с командой»: проект подключится к серверу команды со сквозным шифрованием. Новые устройства подтверждаются сравнением номера безопасности.",
+        "tr": "\"Ekiple paylaş\"ı aç: proje ekip sunucusuna uçtan uca şifreli bağlanır. Yeni cihazları bir güvenlik numarasını karşılaştırarak onaylarsın.",
+        "zh": "打开“与团队共享”：项目以端到端加密方式连接到团队服务器。新设备通过核对安全码来确认。"
+      },
+      {
         "de": "Melde dich in den Einstellungen mit deinem Hangar-Konto an: Die Seitenleiste zeigt deine Projekte mit Rolle, Tarif und Plätzen.",
         "en": "Sign in with your Hangar account in Settings: the sidebar shows your projects with role, plan and seats.",
         "el": "Συνδέσου με τον λογαριασμό Hangar στις Ρυθμίσεις: η πλαϊνή στήλη δείχνει τα έργα σου με ρόλο, πρόγραμμα και θέσεις.",

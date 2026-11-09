@@ -895,6 +895,12 @@ impl TeamState {
             .map(|p| &p.added_by)
     }
 
+    /// The log index of the last remove member entry for `member`, if the log removed it before.
+    /// For a member not listed now, it tells the app that adding it again re-admits it.
+    pub fn departed_at(&self, member: &MemberId) -> Option<u64> {
+        self.departed.get(member).copied()
+    }
+
     /// The newest epoch, if the team has one yet.
     pub fn current_epoch(&self) -> Option<&EpochRecord> {
         self.epochs.last()

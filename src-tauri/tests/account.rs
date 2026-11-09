@@ -767,7 +767,11 @@ fn declined_sign_in_fails_with_a_reason() {
 #[test]
 fn polling_stops_when_the_code_expires() {
     let harness = Harness::new();
-    harness.mock.state().expires_in = 20;
+    // Not on a poll boundary: each poll's own request shifts the next one by its duration, and
+    // with 20 a few milliseconds of drift on a busy machine dropped the poll at 15. With 19 the
+    // third poll stays due below 19 - 5 = 14 units of elapsed time (40 ms of drift allowed), and
+    // a fourth can never fit (15 + 5 >= 19).
+    harness.mock.state().expires_in = 19;
     run(async {
         harness.service.sign_in().await.unwrap();
         let state = harness
@@ -778,7 +782,7 @@ fn polling_stops_when_the_code_expires() {
             AccountState::Failed { reason } if reason.kind == FailKind::Expired
         ));
     });
-    // Polls at 5, 10 and 15; none at or after 20.
+    // Polls at 5, 10 and 15; none at or after 19.
     assert_eq!(harness.mock.state().poll_times.len(), 3);
 }
 

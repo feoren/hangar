@@ -84,6 +84,13 @@ fn commands_are_registered_allowed_and_wired() {
         "account_projects",
         "account_set_base_url",
         "account_open",
+        // The team connection: sharing a project and confirming devices is the main window's.
+        "team_status",
+        "team_enable",
+        "team_disable",
+        "team_pending_confirmations",
+        "team_confirm",
+        "team_reject",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));

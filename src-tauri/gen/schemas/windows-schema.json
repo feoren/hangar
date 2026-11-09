@@ -561,6 +561,42 @@
           "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-confirm",
+          "markdownDescription": "Enables the team_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_disable command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-disable",
+          "markdownDescription": "Enables the team_disable command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-enable",
+          "markdownDescription": "Enables the team_enable command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_pending_confirmations command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-pending-confirmations",
+          "markdownDescription": "Enables the team_pending_confirmations command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_reject command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-reject",
+          "markdownDescription": "Enables the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-status",
+          "markdownDescription": "Enables the team_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the unwatch_sub_agents command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unwatch-sub-agents",
@@ -967,6 +1003,42 @@
           "type": "string",
           "const": "deny-set-profile-secret",
           "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-confirm",
+          "markdownDescription": "Denies the team_confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_disable command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-disable",
+          "markdownDescription": "Denies the team_disable command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-enable",
+          "markdownDescription": "Denies the team_enable command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_pending_confirmations command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-pending-confirmations",
+          "markdownDescription": "Denies the team_pending_confirmations command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_reject command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-reject",
+          "markdownDescription": "Denies the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-status",
+          "markdownDescription": "Denies the team_status command without any pre-configured scope."
         },
         {
           "description": "Denies the unwatch_sub_agents command without any pre-configured scope.",

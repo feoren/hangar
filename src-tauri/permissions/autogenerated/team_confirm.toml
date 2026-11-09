@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-confirm"
+description = "Enables the team_confirm command without any pre-configured scope."
+commands.allow = ["team_confirm"]
+
+[[permission]]
+identifier = "deny-team-confirm"
+description = "Denies the team_confirm command without any pre-configured scope."
+commands.deny = ["team_confirm"]
