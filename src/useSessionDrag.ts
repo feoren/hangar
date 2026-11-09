@@ -41,6 +41,13 @@ const SELECTOR = {
   snapBar: ".snap-bar",
 } as const;
 
+/**
+ * Listener options for the capture phase. An object, not the boolean shorthand: some Node
+ * versions (the tests run there) do not match `removeEventListener(type, fn, true)` to a
+ * listener added with `true`, so the click guard stayed up after a drag.
+ */
+const CAPTURE: AddEventListenerOptions = { capture: true };
+
 /** Ghost offset from the pointer (px), so the pointer still sees what lies under it. */
 const GHOST_OFFSET = 14;
 
@@ -163,7 +170,7 @@ export class SessionDrag {
       element.removeEventListener("pointerup", onUp);
       element.removeEventListener("pointercancel", onCancel);
       element.removeEventListener("lostpointercapture", onCancel);
-      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keydown", onKey, CAPTURE);
       window.removeEventListener("blur", onCancel);
       try {
         if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
@@ -172,9 +179,9 @@ export class SessionDrag {
       }
       if (!current.started) return;
       document.body.classList.remove("session-dragging");
-      window.addEventListener("click", swallowClick, true);
+      window.addEventListener("click", swallowClick, CAPTURE);
       const unswallow = () => {
-        window.removeEventListener("click", swallowClick, true);
+        window.removeEventListener("click", swallowClick, CAPTURE);
       };
       if (commit) {
         window.setTimeout(unswallow, 0);
@@ -183,17 +190,17 @@ export class SessionDrag {
         // not click the row either. The next release (or a new press, if the release happened
         // outside the window) ends the guard.
         const onRelease = () => {
-          window.removeEventListener("pointerup", onRelease, true);
-          window.removeEventListener("pointerdown", onPress, true);
+          window.removeEventListener("pointerup", onRelease, CAPTURE);
+          window.removeEventListener("pointerdown", onPress, CAPTURE);
           window.setTimeout(unswallow, 0);
         };
         const onPress = () => {
-          window.removeEventListener("pointerup", onRelease, true);
-          window.removeEventListener("pointerdown", onPress, true);
+          window.removeEventListener("pointerup", onRelease, CAPTURE);
+          window.removeEventListener("pointerdown", onPress, CAPTURE);
           unswallow();
         };
-        window.addEventListener("pointerup", onRelease, true);
-        window.addEventListener("pointerdown", onPress, true);
+        window.addEventListener("pointerup", onRelease, CAPTURE);
+        window.addEventListener("pointerdown", onPress, CAPTURE);
       }
       this.onView(null);
       if (commit && current.target !== null) this.drop(current.id, current.target);
@@ -216,7 +223,7 @@ export class SessionDrag {
     element.addEventListener("pointerup", onUp);
     element.addEventListener("pointercancel", onCancel);
     element.addEventListener("lostpointercapture", onCancel);
-    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onKey, CAPTURE);
     window.addEventListener("blur", onCancel);
   };
 
