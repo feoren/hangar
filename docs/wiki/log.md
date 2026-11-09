@@ -198,3 +198,22 @@ membership log bound to team and position, epoch commitments with HPKE wrapping,
 sealed and signed records and the recovery code, with RFC anchored tests and an independent
 Python reference for the vectors. Needs an external cryptographic review. Pages changed:
 [[team-crypto]] (new), [[team-service-v1]].
+
+## [2026-11-09] ingest | Team crypto and protocol hardened after the security review
+The relay now validates every membership log entry with the crypto crate's verifier and takes a
+rotation only as one `key.rotate` with its signed entry. Devices carry a proof of possession and
+need the endorsement of one of their member's devices; recovery devices only restore their
+member; members manage their own devices. Epoch keys bind the rotate entry's log hash, records
+carry the sender's log head and a counter, X25519 keys are validated, a key history verifies
+records of removed devices, and the relay keeps up to four wrapped keys per device and epoch.
+Twenty questions for the external review are filed. Pages changed: [[team-crypto]],
+[[team-protocol]], [[team-service-v1]].
+
+## [2026-11-09] ingest | Team crypto and protocol, second hardening round
+The relay now caps an issuer's rights at the role of its verified ticket (entry 1 only with an
+owner's ticket), takes a device removal only as `device.remove` with its signed log entry, and
+checks `key.wrap` against the verified log in the crypto crate's new `relay` module (one package
+per sender, target and epoch). A member has at most 16 devices and a team at most 512. The relay
+requires that a device's keys in the log are the keys that device registered itself, replay
+marks are kept per holder and signing key, and the state shows a re-admitted member. Pages
+changed: [[team-crypto]], [[team-protocol]], [[team-service-v1]].

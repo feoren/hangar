@@ -101,10 +101,11 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Equality of secret bytes without an early exit, so the time taken does not reveal how many
-/// leading bytes match.
+/// Equality of secret bytes in constant time (`subtle`), so the time taken does not reveal how
+/// many leading bytes match. Only the length, which is public here, may end it early.
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    use subtle::ConstantTimeEq;
+    bool::from(a.ct_eq(b))
 }
 
 /// The bytes as a protocol ciphertext (base64url without padding).

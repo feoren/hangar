@@ -70,14 +70,14 @@ number.
 | `claim.clear` | `session` | `ack`; ended overlaps as `claim.overlap` with level `none` |
 | `blob.put` | `kind` (decision, task, transcript), `content` sealed | `ack` with `blob` |
 | `blob.get` | `blob` | `ack` with `blob` and `content` |
-| `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url | `ack`; replaces the device's keys |
+| `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url; `proof` (the device's proof of possession, 64 bytes as 86 characters) | `ack`; replaces the device's keys |
 | `devices.get` | none | `devices` |
-| `device.remove` | `holder {member, device}` | owner or admin for any other device, a member for another device of its own: `ack`, `device.removed`; the device's holds and claims end and its connections close with 4403; `notFound` for an unknown device |
-| `memberlog.append` | `index` (from 1, no gaps), `prev` (hash of the entry before, null on the first), `entry` (opaque, at most 16 KiB) | `ack`, `memberlog.appended`; `conflict` when the index was taken first |
+| `device.remove` | `holder {member, device}`, `log` (the signed remove device entry as `{index, prev, entry}`) | the relay admits the entry first (`LogVerifier::admit_device_remove`, the log's rule: anyone for another device of its own, the owner for any other device, an admin for a member's device; the entry must remove exactly `holder`), then: `ack`, `memberlog.appended`, `device.removed`; the device's holds and claims end and its connections close with 4403; without `log` the frame does not decode |
+| `memberlog.append` | `index` (from 1, no gaps), `prev` (hash of the entry before, null on the first), `entry` (signed, at most 16 KiB) | the relay verifies the entry with `hangar-team-crypto`'s `LogVerifier::admit` first: `ack`, `memberlog.appended`; `conflict` when the index was taken first; a rotate epoch entry and a remove device entry are refused here; every device an entry adds must carry the keys its holder registered in `device.keys` |
 | `memberlog.get` | `after` (0: from the start) | `memberlog.entries` |
-| `key.rotate` | `epoch` (exactly current + 1), `wrapped` (at most 512 `{holder, data}`, one per holder) | owner or admin only: `ack`, `key.rotated` per device |
-| `key.wrap` | `epoch` (the current one), `wrapped {holder, data}` | `ack`, the target device gets `key.wrapped`; hands the current key to one (newly approved) device; `conflict` when the device already has one in this epoch |
-| `key.get` | `epoch` | `ack` with `content` = `{epoch, data}`, the sender's own wrapped key; `notFound` if none |
+| `key.rotate` | `epoch` (exactly current + 1), `log` (the signed rotate epoch entry as `{index, prev, entry}`), `wrapped` (at most 512 `{holder, data}`, one per holder, each a device of the log) | owner or admin only, entry and keys accepted together or not at all (`LogVerifier::admit_rotation`): `ack`, `memberlog.appended`, `key.rotated` per device |
+| `key.wrap` | `epoch` (the current one), `wrapped {holder, data}` | `ack`, the target device gets `key.wrapped`; hands the current key to one (newly approved) device of the log; one package per sender, device and epoch (`conflict`), up to 4 per device and epoch, first come first kept, then `limit` |
+| `key.get` | `epoch` | `ack` with `keys` = every stored `{epoch, data}` of the sender (at most 4); the device takes the one matching the log's commitment; `notFound` if none |
 | `ping` | none | `ack` |
 
 `presence.set` with `offline` is refused (`badRequest`): only the server reports a device offline.
@@ -122,7 +122,7 @@ relay delivers per device by holder, never by the device id alone.
 | --- | --- | --- |
 | `welcome` | `proto`, `stream`, `head`, `member`, `epoch` | no |
 | `resync_required` | `stream`, `head`, `reason` (noCursor, otherStream, tooOld, ahead) | no |
-| `ack` | `blob`, `content` (both optional) | no |
+| `ack` | `blob`, `content`, `keys` (all optional) | no |
 | `err` | `code`, `retryAfterMs`, `holder` | no |
 | `presence.update` | `holder {member, device}`, `state` (active, idle, away, offline; offline without `status`, when the device's last connection closed), `status`, `at` | no |
 | `task.reserved` | `task`, `holder`, `epoch`, `since`, `expiresAt` (null while it cannot expire), `note` | yes |
@@ -140,7 +140,7 @@ relay delivers per device by holder, never by the device id alone.
 | `key.wrapped` | `epoch`, `holder`; only to that holder's connections | no |
 | `notify` | `topic` (attention), `member` (the recipient), `content` sealed; only to that member's connections | no |
 | `device.removed` | `holder` | yes |
-| `devices` | `devices` (at most 512 `{holder, sign, kem, at}`) | no |
+| `devices` | `devices` (at most 512 `{holder, sign, kem, proof, at}`) | no |
 | `memberlog.entries` | `entries` (at most 256 `{index, hash, entry, by, at}`), `more` | no |
 | `memberlog.appended` | `index`, `hash`, `by` | yes |
 
@@ -204,33 +204,58 @@ is only for a change reported without the new role.
 ## Rights
 
 The relay passes the role from the connection's verified ticket and the holder it bound to the
-connection (ticket `sub` plus `hello.device`) into pure helpers (module `e2e`); nothing a frame
-says about itself counts. The e2e helpers check rights before per-device state, so a refused
-sender does not learn whether a device already has a key. `task.force_release` refuses a task
+connection (ticket `sub` plus `hello.device`) into pure helpers; nothing a frame says about
+itself counts. Rights that depend on the membership log are checked in `hangar-team-crypto`,
+against the verified `TeamState`: the sender acts with the lower of its log role and its ticket
+role, so a downgrade on the website applies at once, and a ticket never raises a role. Entry 1
+of the log needs an owner's ticket. `check_wrap` checks rights before per-device state, so a
+refused sender does not learn how many keys a device has. `task.force_release` refuses a task
 nobody holds with `badRequest` before checking the role, which reveals nothing: holds are in the
 shared log.
 
 | Intent | Allowed for | Refused | Helper |
 | --- | --- | --- | --- |
 | `task.force_release` | owner, admin | `forbidden` | `ReservationBook` |
-| `memberlog.append` | owner, admin (entries are signed by admin devices in step E) | `forbidden` | `check_append_role` |
-| `key.rotate` | owner, admin | `forbidden` | `check_rotate` |
-| `key.wrap` | owner, admin, or another device of the target holder's member (adding one's own new device); never the target itself | `forbidden`; `conflict` when the device already has a wrapped key in the current epoch | `check_wrap` |
-| `device.remove` | owner, admin, or another device of the target holder's member (a lost laptop, from the phone); never the sending device itself | `forbidden`; `notFound` (after the rights check) when the relay does not know the device | `check_device_remove` |
+| `memberlog.append` | per entry kind, as the clients' log rules with the effective role: owner and admin all kinds but rotations and device removals; any member its own new device (endorsed by one of its devices); the entry must be issued by the sending device, and every device it adds must carry the keys its holder registered | the error's `code()` (`forbidden`, `badRequest`, `conflict`, `limit`) | `hangar_team_crypto::relay::check_registered_keys`, then `hangar_team_crypto::memberlog::LogVerifier::admit` |
+| `key.rotate` | owner, admin; the signed rotate epoch entry valid and for the log's next epoch, every wrapped key for a distinct device of the log | `forbidden`, `staleEpoch`, `badRequest` | `check_rotate`, then `LogVerifier::admit_rotation` |
+| `key.wrap` | a device of the log: an owner or admin for any other device of the log, a member for another device of its own; never the target itself; one package per sender, target and epoch | `forbidden`; `notFound` when the log does not list the target; `conflict` for a second package of the same sender; `limit` when the relay keeps 4 wrapped keys for the device in the current epoch | `hangar_team_crypto::relay::check_wrap` |
+| `device.remove` | the signed remove device entry in `log`: another device of one's own (any role), the owner for any other device, an admin for a member's device; never the sending device itself | the error's `code()` (`forbidden`, `badRequest`, `conflict`) | `LogVerifier::admit_device_remove` |
 
-`check_wrap` takes the `key.wrap` message itself, whose `wrapped.holder` names the target with its
-member, and whether the relay already stores a wrapped key for that holder in the current epoch. A
-wrapped key is never replaced: a new key for a device comes only with a new epoch (`key.rotate`).
-No device wraps for itself, since a key it stored for itself would block the real one for the
-whole epoch.
+`check_wrap` takes the verified `TeamState`, the ticket role, the `key.wrap` message itself, whose
+`wrapped.holder` names the target with its member, and the senders of the wrapped keys the relay
+already keeps for that holder in the current epoch (the one from `key.rotate` included). Stored
+keys are never replaced; the relay keeps up to `MAX_KEY_PACKAGES` (4), at most one per sender,
+first come first kept, and `key.get` returns all of them. HPKE does not authenticate the sender,
+so a member could store garbage for a device first; the device takes the package that matches
+the epoch's commitment in the log, so that blocks nothing, and one sender cannot take all four
+places. No device wraps for itself.
+
+`device.remove` carries its signed log entry, as `key.rotate` does: the relay removes a device
+only together with the entry that removes it, and refuses a remove device entry sent through
+`memberlog.append`, so the log and the relay's directory never disagree. Removing a member
+stays a `memberlog.append`; the relay drops the devices the verifier reports
+(`Admitted::removed`).
+
+Before `admit`, `check_registered_keys` compares the keys of every device an entry adds (create
+team, add member, add device) with the keys that holder sent in `device.keys` over its own
+authenticated connection; recovery devices register nothing and are skipped. So an approver
+cannot write keys of its choice for a holder, and a member id the website hands out again
+(re-admission, shown to the app by `Member::readmitted_after`) comes back only with keys its own
+devices registered.
+
+**The relay depends on `hangar-team-crypto`** (MIT, pure, no secrets) for the membership log: one
+`LogVerifier` per team, rebuilt from the stored entries after a restart, which admits a
+`memberlog.append`, a `key.rotate` or a `device.remove` only when the clients would accept it,
+and the module `relay` for `key.wrap` and registered keys ([[team-crypto]]).
 
 ## Keys and keyed hashes
 
 The relay must tell "same task", "same area" and "same file" without learning names or paths.
 
 - **Keys per epoch:** the epoch secret (step E distributes it) is expanded with HKDF-SHA256
-  (RFC 5869, no salt) into separate keys; `info` is a label, the team id and the epoch, each
-  length-prefixed: `hangar-team/v1/match-key` for keyed hashes, `hangar-team/v1/seal-key` for
+  (RFC 5869, no salt) into separate keys; `info` is a label, the team id, the epoch and the
+  membership log hash of the epoch's rotate entry, each length-prefixed (two sides of a forked
+  log derive different keys): `hangar-team/v1/match-key` for keyed hashes, `hangar-team/v1/seal-key` for
   sealed content. The secret itself never keys anything the relay sees, and the two uses never
   share a key (`EpochKeys`). Key bytes and hash states are wiped on drop (`zeroize`).
   `MatchKey::from_bytes` is crate-internal, so a caller cannot key hashes with the raw secret.
@@ -274,7 +299,9 @@ cryptography itself is step E).
 - **Device keys:** `PublicKey` is exactly 32 bytes as 43 characters of canonical base64url (no
   padding, unused trailing bits zero), so one key has one spelling. Whether the bytes are a valid
   curve point is step E's check. Clients trust a device's keys only when the membership log
-  vouches for them; `devices` is a directory, not a trust anchor.
+  vouches for them; `devices` is a directory, not a trust anchor. `device.keys` also carries the
+  device's proof of possession (`KeyProof`, 64 bytes as 86 characters), which the approving
+  device copies into the log entry.
 - **Membership log hash:** entry `index` hashes to
   `SHA-256(field("hangar-team/v1/memberlog") || field(index, 8 bytes big endian) || field(prev, 32 bytes or empty) || field(entry bytes))`,
   `field(x)` being `x`'s length as 32-bit big endian followed by `x` (as in the keyed hashes).
@@ -289,7 +316,9 @@ cryptography itself is step E).
   verify every received entry against their trusted head (`MemberChain::verify`) and never take
   `hash` from the relay unchecked.
 - **Rotation rule** (`check_rotate`): owner or admin, epoch exactly current + 1 (`staleEpoch`
-  otherwise), at least one wrapped key and at most one per holder. Covering every device is the
+  otherwise), at least one wrapped key and at most one per holder; then the signed rotate entry
+  in `log` and the holders through `LogVerifier::admit_rotation`, stored together with the keys
+  or not at all. Covering every device is the
   rotating client's job. `key.wrap` must name the current epoch (`check_epoch`), follows the
   rights under [Rights](#rights) and never replaces a wrapped key; `key.get` may name any epoch
   the device had.
@@ -454,7 +483,9 @@ What the relay can and cannot do, and what the protocol relies on:
 | `MAX_TICKET_LEN` | 2048 |
 | `MAX_CIPHERTEXT_LEN` (blobs, claim detail in `claim.set` and `claim.overlap`) | 175 000 characters (about 128 KiB) |
 | `MAX_INLINE_CIPHERTEXT_LEN` (status, notes, notify content, wrapped key, membership log entry) | 16 KiB |
-| `MAX_WRAPPED_KEYS` (per `key.rotate`, devices in `devices`) | 512 |
+| `MAX_WRAPPED_KEYS` (per `key.rotate`, devices in `devices`, devices of a team) | 512 |
+| `MAX_DEVICES_PER_MEMBER` (devices of one member, recovery devices included) | 16 |
+| `MAX_KEY_PACKAGES` (wrapped keys kept per device and epoch, in `key.get`'s answer) | 4 |
 | `MAX_LOG_ENTRIES` (per `memberlog.entries`) | 256 |
 | `MAX_CLAIM_FILES` | 1000 (more: `truncated`) |
 | `MAX_HEARTBEAT_TASKS` | 64 |

@@ -10,17 +10,17 @@ derives that epoch's separate matching and sealing keys.
 
 ## Modules
 
-| Module        | Content                                                                                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wire`        | Client and server messages, the JSON envelope, `encode_*` and `decode_*` with size, field and version checks, epoch checks (`check_epoch`), body digests for retries      |
-| `hash`        | `EpochKeys` (HKDF-SHA256), `MatchKey` (HMAC-SHA256), normalization of task ids, repository ids and paths (NFC, case rule), `PathHashes`                                   |
-| `reservation` | `Reservation` state machine and `ReservationBook`, the server's "first wins" authority; time events come apart from the outcome (`Applied`); `BookSnapshot` for a restart |
-| `overlap`     | `ClaimBoard`: same area and same file between sessions of different holders, by hash equality; passes the encrypted detail on                                             |
-| `log`         | `EventLog` (sequence numbers, replay window, resync), `ClientCursor`, `RecentOps` (op id retries per sender and team)                                                     |
-| `e2e`         | What the relay checks for step E without a key: `PublicKey` (device keys), `LogHash`, `MemberChain` and `check_append` (membership log chain), `check_rotate`             |
-| `close`       | WebSocket close codes of the relay and the `hello` deadline                                                                                                               |
-| `ids`         | Identifiers, `Seq`, `UnixMillis`, `Epoch`, `Ciphertext`, `Sealed`                                                                                                         |
-| `limits`      | Size limits both sides enforce                                                                                                                                            |
+| Module        | Content                                                                                                                                                                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wire`        | Client and server messages, the JSON envelope, `encode_*` and `decode_*` with size, field and version checks, epoch checks (`check_epoch`), body digests for retries                                                                     |
+| `hash`        | `EpochKeys` (HKDF-SHA256, bound to the epoch's rotate entry hash), `MatchKey` (HMAC-SHA256), normalization of task ids, repository ids and paths (NFC, case rule), `PathHashes`                                                          |
+| `reservation` | `Reservation` state machine and `ReservationBook`, the server's "first wins" authority; time events come apart from the outcome (`Applied`); `BookSnapshot` for a restart                                                                |
+| `overlap`     | `ClaimBoard`: same area and same file between sessions of different holders, by hash equality; passes the encrypted detail on                                                                                                            |
+| `log`         | `EventLog` (sequence numbers, replay window, resync), `ClientCursor`, `RecentOps` (op id retries per sender and team)                                                                                                                    |
+| `e2e`         | What the relay checks for step E without a key: `PublicKey` (device keys), `KeyProof`, `LogHash`, `MemberChain` and `check_append` (membership log chain), `check_rotate`; checks that need the verified log are in `hangar-team-crypto` |
+| `close`       | WebSocket close codes of the relay and the `hello` deadline                                                                                                                                                                              |
+| `ids`         | Identifiers, `Seq`, `UnixMillis`, `Epoch`, `Ciphertext`, `Sealed`                                                                                                                                                                        |
+| `limits`      | Size limits both sides enforce                                                                                                                                                                                                           |
 
 Identifiers that come from elsewhere (team = the website's project id, member = the website's user
 id, device, blob, stream) are opaque strings: any characters but control, format and line or
@@ -61,6 +61,7 @@ fn on_text(text: &str) {
 cargo fmt --manifest-path crates/hangar-team-protocol/Cargo.toml --check
 cargo clippy --manifest-path crates/hangar-team-protocol/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --manifest-path crates/hangar-team-protocol/Cargo.toml
 py -3 crates/hangar-team-protocol/test_vectors.py
 ```
 
@@ -133,6 +134,66 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
   - `CLOSE_ROLE_CHANGED` (4401) is documented as the exception: a role change with a known new
     role applies silently on the live connection (`ticket.renew`, the website's revocation
     feed) and `member.role_changed` reports it; 4401 only when the new role is unknown.
+
+- **Version 1, changes (2026-11-09), fourth round after the step E security reviews.** Breaking
+  for the relay; nothing is deployed, so the version stays 1. Every role below is the effective
+  one: the lower of the member's role in the verified log and the role of the connection's
+  verified ticket, so a downgrade on the website applies at once.
+  - **The relay validates the membership log.** It now depends on `hangar-team-crypto` (MIT,
+    pure, no secrets) and keeps one `memberlog::LogVerifier` per team, rebuilt from its stored
+    entries with `apply_all` after a restart. Every `memberlog.append` goes first through
+    `hangar_team_crypto::relay::check_registered_keys(append, registered)` (each non-recovery
+    device the entry adds carries the keys that holder sent in `device.keys` over its own
+    authenticated connection; otherwise `KeysNotRegistered`, `forbidden`), then through
+    `LogVerifier::admit(append, sender, ticket_role)` before anything is stored (signature of
+    the sending device, rights per entry kind, team, index, `prev`). Entry 1 (create team)
+    needs an owner's ticket. Refusals answer with `LogError::code()`. `Admitted::removed` lists
+    the devices a remove member entry took out; the relay drops them.
+  - **Removed from `e2e`:** `check_append_role`, `MemberLogForbidden`, `check_wrap`,
+    `KeyWrapError`, `check_device_remove` and `DeviceRemoveForbidden`. They need the verified
+    `TeamState`, which this crate cannot depend on. Members may now append (their own new device
+    with an endorsement); `admit` decides per entry.
+  - **`key.rotate` carries its log entry:** `KeyRotate` gains `log: MemberLogAppend` (the signed
+    rotate epoch entry, within `MAX_INLINE_CIPHERTEXT_LEN`). The relay runs `check_rotate`, then
+    `LogVerifier::admit_rotation(rotate, sender, ticket_role)` (entry valid, its epoch equal to
+    `epoch` and the log's next one, every wrapped holder a distinct device of the log), and
+    stores the entry and the wrapped keys in one step or neither; it emits `memberlog.appended`
+    and `key.rotated`. A rotate epoch entry sent through `memberlog.append` is refused
+    (`RotationOutsideKeyRotate`, `badRequest`).
+  - **`device.remove` carries its log entry:** `DeviceRemove` gains `log: MemberLogAppend` (the
+    signed remove device entry, within `MAX_INLINE_CIPHERTEXT_LEN`); without it the message does
+    not decode (`badRequest`). The relay runs
+    `LogVerifier::admit_device_remove(remove, sender, ticket_role)` (entry valid under the log's
+    rule: anyone removes another device of its own, the owner any other device, an admin a
+    member's device; removing exactly `holder`), stores the entry and only then removes the
+    device (`remove_device`, `clear_device`, keys, close 4403) and emits `memberlog.appended`. A
+    device the log does not list is `badRequest` now, not `notFound`. A remove device entry
+    sent through `memberlog.append` is refused (`RemovalOutsideDeviceRemove`, `badRequest`).
+    Removing a member stays a `memberlog.append`.
+  - **`key.wrap`:** checked after the epoch check with
+    `hangar_team_crypto::relay::check_wrap`, which takes the team's state, the ticket role, the
+    sender, the message and `stored_from`. Sender and target must be devices of the
+    log, an owner or admin wraps for any other device, a member only for another device of its
+    own (`forbidden`); a target the log does not list is `notFound`; one package per sender,
+    target and epoch (`conflict`); up to the new `limits::MAX_KEY_PACKAGES` (4) per target and
+    epoch, the `key.rotate` package included, first come first kept, never replaced (`limit`).
+    `stored_from` lists the senders of the stored packages.
+  - **`key.get` returns every package:** `Ack` gains `keys: Option<Vec<Sealed>>` (at most
+    `MAX_KEY_PACKAGES`, each within `MAX_INLINE_CIPHERTEXT_LEN`); `content` is now for
+    `blob.get` only. The device tries each package against the epoch's commitment.
+  - **`device.keys` and `devices` carry a proof of possession:** `DeviceKeys.proof` and
+    `DeviceInfo.proof` (`e2e::KeyProof`, 64 bytes as 86 characters of canonical base64url). The
+    relay stores it with the keys and lists it.
+  - **Device limits:** new `limits::MAX_DEVICES_PER_MEMBER` (16, recovery devices included).
+    The log refuses an entry that gives a member more than 16 devices or the team more than
+    `MAX_WRAPPED_KEYS` (512): `LogError::TooManyDevices`, `limit`.
+    `memberlog::MAX_DEVICES_PER_ENTRY` drops from 32 to 16.
+  - **`EpochKeys::derive(secret, team, epoch, rotation)`** binds the log hash of the epoch's
+    rotate entry (new vectors `VECTOR_DERIVED_TASK`, `VECTOR_DERIVED_SEAL_KEY`). The relay never
+    derives keys; listed for completeness. New public helper `hash::hkdf_sha256`, which wipes
+    its copy of the pseudorandom key.
+  - `e2e::PublicKey` now implements `PartialOrd` and `Ord` (the clients' replay marks are keyed
+    by holder and signing key).
 
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

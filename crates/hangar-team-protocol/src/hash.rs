@@ -24,8 +24,9 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
+use crate::e2e::LogHash;
 use crate::ids::{Epoch, TeamId};
 use crate::limits::{MAX_PATH_BYTES, MAX_SEGMENT_BYTES, MAX_TASK_ID_BYTES};
 use crate::text::is_hidden;
@@ -396,6 +397,16 @@ impl MatchKey {
     }
 }
 
+/// HKDF-SHA256 without salt over `ikm`. `Hkdf::new` drops its copy of the pseudorandom key
+/// without wiping it; extracting by hand lets that copy be wiped. The copy inside the `Hkdf`
+/// value lives in its HMAC state, which the `zeroize` feature of `hmac` wipes on drop; copies
+/// left on the stack while values move are out of reach.
+pub fn hkdf_sha256(ikm: &[u8]) -> Hkdf<Sha256> {
+    let (mut prk, hkdf) = Hkdf::<Sha256>::extract(None, ikm);
+    prk.as_mut_slice().zeroize();
+    hkdf
+}
+
 /// Lengths are bounded far below 4 GiB by the limits; saturate rather than wrap.
 pub(crate) fn length_prefix(part: &[u8]) -> [u8; 4] {
     u32::try_from(part.len()).unwrap_or(u32::MAX).to_be_bytes()
@@ -419,7 +430,12 @@ impl SealKey {
 }
 
 /// The keys of one team epoch, derived from its secret with HKDF-SHA256 (RFC 5869, no salt),
-/// one per use: `info` is the use's label, the team and the epoch, each length-prefixed.
+/// one per use: `info` is the use's label, the team, the epoch and the membership log hash of
+/// the entry that started the epoch, each length-prefixed.
+///
+/// The log hash commits to the whole log up to the rotation, so two members who were shown
+/// different logs (a relay that forks the log) derive different keys from the same secret: the
+/// fork shows up as records that do not open.
 #[derive(Debug, Clone)]
 pub struct EpochKeys {
     match_key: MatchKey,
@@ -428,13 +444,20 @@ pub struct EpochKeys {
 
 impl EpochKeys {
     /// Derives both keys of `epoch` from the epoch's secret (the caller wipes its own copy).
-    pub fn derive(epoch_secret: &[u8; 32], team: &TeamId, epoch: Epoch) -> Result<Self, KeyError> {
-        let hkdf = Hkdf::<Sha256>::new(None, epoch_secret);
+    /// `rotation` is the membership log hash of the entry that started `epoch` (step E's rotate
+    /// epoch entry) as the client verified it.
+    pub fn derive(
+        epoch_secret: &[u8; 32],
+        team: &TeamId,
+        epoch: Epoch,
+        rotation: &LogHash,
+    ) -> Result<Self, KeyError> {
+        let hkdf = hkdf_sha256(epoch_secret);
         let expand = |label: &[u8]| -> Result<Zeroizing<[u8; 32]>, KeyError> {
             let team = team.as_str().as_bytes();
             let epoch = epoch.0.to_be_bytes();
             let mut info = Vec::new();
-            for part in [label, team, &epoch] {
+            for part in [label, team, &epoch, rotation.as_bytes()] {
                 info.extend_from_slice(&length_prefix(part));
                 info.extend_from_slice(part);
             }
@@ -478,6 +501,11 @@ mod tests {
     }
 
     const REPO: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+    /// A membership log hash of 32 equal bytes (the rotate entry's hash in the vectors).
+    fn rotation(byte: u8) -> LogHash {
+        LogHash::from_bytes([byte; 32])
+    }
 
     fn fold(path: &str) -> RepoPath {
         RepoPath::normalize(path, CaseRule::Fold).unwrap()
@@ -531,7 +559,7 @@ mod tests {
             hex(VECTOR_FILE_NFC)
         );
         let team = TeamId::new("team_1").unwrap();
-        let keys = EpochKeys::derive(&[7u8; 32], &team, Epoch(3)).unwrap();
+        let keys = EpochKeys::derive(&[7u8; 32], &team, Epoch(3), &rotation(9)).unwrap();
         assert_eq!(
             keys.match_key().task(&TaskId::normalize("t-1").unwrap()),
             hex(VECTOR_DERIVED_TASK)
@@ -551,9 +579,9 @@ mod tests {
     const VECTOR_FILE_NFC: &str =
         "293d4c7098d484faf7c0e354831cd8662b7d3c998677b24094137ec36147b282";
     const VECTOR_DERIVED_TASK: &str =
-        "00e4e33da0609cacabc94dc4822294fe0532f3901aef6e222c3b6213cb100cee";
+        "92c04f9c2920826ed0d5b5551b979693eec0f6ec982050d446b14be22dd79ebc";
     const VECTOR_DERIVED_SEAL_KEY: &str =
-        "f90bd8ae0f3ede5516786e3dd6382a14de6fad73988749845234046cf52f36d7";
+        "15705f7133915b4e9efe952d65155172dde9e1324bab10660ba92a0a42fca2a1";
 
     #[test]
     fn same_area_and_same_file_by_equality() {
@@ -587,16 +615,24 @@ mod tests {
     fn epochs_give_different_keys_and_uses_are_separate() {
         let team = TeamId::new("team_1").unwrap();
         let task = TaskId::normalize("t-1").unwrap();
-        let one = EpochKeys::derive(&[7u8; 32], &team, Epoch(1)).unwrap();
-        let two = EpochKeys::derive(&[7u8; 32], &team, Epoch(2)).unwrap();
+        let one = EpochKeys::derive(&[7u8; 32], &team, Epoch(1), &rotation(9)).unwrap();
+        let two = EpochKeys::derive(&[7u8; 32], &team, Epoch(2), &rotation(9)).unwrap();
         assert_ne!(one.match_key().task(&task), two.match_key().task(&task));
         assert_ne!(one.seal_key().expose(), two.seal_key().expose());
         // The matching key is not the sealing key.
         let as_match = MatchKey::from_bytes(one.seal_key().expose()).unwrap();
         assert_ne!(as_match.task(&task), one.match_key().task(&task));
         let other_team = TeamId::new("team_2").unwrap();
-        let three = EpochKeys::derive(&[7u8; 32], &other_team, Epoch(1)).unwrap();
+        let three = EpochKeys::derive(&[7u8; 32], &other_team, Epoch(1), &rotation(9)).unwrap();
         assert_ne!(one.seal_key().expose(), three.seal_key().expose());
+        // The same secret after another log history (a forked log) gives other keys.
+        let forked = EpochKeys::derive(&[7u8; 32], &team, Epoch(1), &rotation(8)).unwrap();
+        assert_ne!(one.seal_key().expose(), forked.seal_key().expose());
+        assert_ne!(one.match_key().task(&task), forked.match_key().task(&task));
+        // Deriving by hand (without `Hkdf::new`) still matches RFC 5869 test case 3.
+        let mut okm = [0u8; 42];
+        hkdf_sha256(&[0x0b; 22]).expand(&[], &mut okm).unwrap();
+        assert_eq!(okm[..4], [0x8d, 0xa4, 0xe7, 0x75]);
         // Keys never show in debug output.
         assert_eq!(
             format!("{one:?}"),

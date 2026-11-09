@@ -25,8 +25,9 @@ hpke = { version = "0.15", default-features = false, features = ["alloc", "x2551
 # pulled by hpke through curve25519-dalek. `zeroize` wipes signing keys on drop.
 ed25519-dalek = { version = "3", default-features = false, features = ["fast", "zeroize"] }
 # XChaCha20-Poly1305 for sealed records and history links (192-bit random nonces).
-# MIT/Apache-2.0, RustCrypto; hpke already depends on the same version.
-chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+# MIT/Apache-2.0, RustCrypto; hpke already depends on the same version. `zeroize` wipes the key
+# and the ChaCha state of every cipher value on drop.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
 # Key derivation (RFC 5869) and hashes with the same versions as hangar-team-protocol.
 # MIT/Apache-2.0, RustCrypto.
 hkdf = "0.13"
@@ -36,6 +37,9 @@ sha2 = "0.11"
 getrandom = "0.4"
 # Wipes secrets on drop. MIT/Apache-2.0, no dependencies.
 zeroize = "1"
+# Constant-time comparison of secrets (commitments, recovery codes). BSD-3-Clause, dalek
+# cryptography, no dependencies; already in the tree through ed25519-dalek and hpke.
+subtle = { version = "2", default-features = false }
 # Error types of the public API. MIT/Apache-2.0, already used by the protocol crate.
 thiserror = "2"
 # Canonical base64url without padding (rejects padding and non-zero trailing bits, so one byte

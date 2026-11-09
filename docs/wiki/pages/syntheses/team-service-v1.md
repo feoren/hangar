@@ -417,13 +417,35 @@ uses it. Needs an external cryptographic review before it protects real data.
   MIT, Apache-2.0 or BSD-3-Clause, one RustCrypto and dalek generation.
 - **Randomness:** through the `Entropy` trait, fallible; `hpke` gets its ephemeral key material
   through a one-shot generator, so a failing generator is an error and never a panic.
-- **Tests:** 39 unit tests (whole-team flows, every log rule and binding, record context, size
-  limits, malformed input, RFC anchors) and `test_vectors.py`, which reimplements every
-  primitive with the Python standard library and recomputes the crate's 13 vectors.
-- **Open for step F part 2:** members cannot append the log entry for removing their own device
-  (the relay allows `device.remove`, the log needs an owner or admin); `TeamState` keeps only
-  current devices, so records of a removed device need a key history in the app; the app
-  re-verifies the log from entry 1; no automatic fork detection.
+- **Hardened after the security review (2026-11-09):** the relay verifies every
+  `memberlog.append` with the crate's `LogVerifier::admit` (so the relay now depends on
+  `hangar-team-crypto`) and accepts a rotation only as one `key.rotate` carrying the signed
+  rotate entry and the wrapped keys (`admit_rotation`); every device in the log carries a proof
+  of possession, and an add device entry the endorsement of one of the member's devices;
+  recovery devices only restore their member and sign no records; any member adds and removes
+  its own devices; epoch keys bind the rotate entry's log hash, and records carry the sender's
+  log head (fork detection) and a counter (`ReplayGuard` with stored high-water marks); X25519
+  keys are validated; `TeamState` keeps a key history per holder; the relay keeps up to four
+  wrapped keys per device and epoch. Breaking protocol changes for the relay are listed in the
+  protocol crate's README changelog (fourth round).
+- **Second hardening round (2026-11-09):** the relay passes the ticket role to `admit`,
+  `admit_rotation` and the new `admit_device_remove`, and the issuer acts with the lower of log
+  role and ticket role (entry 1 only with an owner's ticket); `device.remove` carries its signed
+  remove device entry and the relay removes the device only with it; the relay's `key.wrap`
+  check moved into the crypto crate (`relay::check_wrap`: sender and target devices of the log,
+  one package per sender, target and epoch) and `check_device_remove` was dropped; a member has
+  at most 16 devices and a team at most 512; `relay::check_registered_keys` requires the keys a
+  holder registered over its own connection; `ReplayGuard` marks are kept per holder and signing
+  key; `Member` shows a re-admission (`readmitted_after`, `added_by`, `added_at`).
+- **Tests:** 56 unit tests (whole-team flows where relay and client must agree on every entry,
+  every log rule and binding, proofs and endorsements, relay-only refusals, ticket role caps,
+  device limits, key history, fork and replay detection, record context, size limits, malformed
+  input, RFC anchors) and `test_vectors.py`, which reimplements every primitive with the Python standard library and
+  recomputes the crate's 16 vectors.
+- **Open for step F part 2:** the app's storage duties (secret before `key.rotate`, send counter,
+  replay marks, deleting fetched wrapped keys, wiping a removed device's identity); no persisted
+  `TeamState` (clients and relay re-verify the log from entry 1); no ownership transfer; no KEM
+  key rotation; the external review ([[team-crypto]], questions for the external review).
 
 ### Step F as built (part 1, 2026-11-09)
 

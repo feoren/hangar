@@ -34,17 +34,24 @@
 //! ```
 //!
 //! The key is derived like the protocol crate's `EpochKeys` (same framing, own label), so the
-//! secret itself never keys a cipher.
+//! secret itself never keys a cipher. The link cannot bind the rotate entry's log hash, since it
+//! is part of that entry; the commitment of the previous epoch it is checked against comes from
+//! the verified log.
+//!
+//! # Epoch keys
+//!
+//! The matching and sealing keys come from `EpochKeys::derive(secret, team, epoch, rotation)`,
+//! `rotation` being the log hash of the epoch's rotate entry. A relay that forks the log gives
+//! the two sides different hashes, hence different keys from the same secret.
 
 use std::fmt;
 
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
-use hangar_team_protocol::e2e::PublicKey;
-use hangar_team_protocol::hash::{EpochKeys, KeyError};
+use hangar_team_protocol::e2e::{LogHash, PublicKey};
+use hangar_team_protocol::hash::{hkdf_sha256, EpochKeys, KeyError};
 use hangar_team_protocol::ids::{Ciphertext, Epoch, TeamId};
 use hangar_team_protocol::wire::{Holder, WrappedKey};
-use hkdf::Hkdf;
 use hpke::aead::ChaCha20Poly1305;
 use hpke::kdf::HkdfSha256;
 use hpke::kem::X25519HkdfSha256;
@@ -143,9 +150,15 @@ impl TeamSecret {
         self.0.clone()
     }
 
-    /// The matching and sealing keys of `epoch` (`hangar_team_protocol::hash::EpochKeys`).
-    pub fn epoch_keys(&self, team: &TeamId, epoch: Epoch) -> Result<EpochKeys, KeyError> {
-        EpochKeys::derive(&self.0, team, epoch)
+    /// The matching and sealing keys of `epoch` (`hangar_team_protocol::hash::EpochKeys`);
+    /// `rotation` is the membership log hash of the rotate epoch entry that started it.
+    pub fn epoch_keys(
+        &self,
+        team: &TeamId,
+        epoch: Epoch,
+        rotation: &LogHash,
+    ) -> Result<EpochKeys, KeyError> {
+        EpochKeys::derive(&self.0, team, epoch, rotation)
     }
 
     /// What the membership log records for this secret as `epoch` of `team`.
@@ -167,6 +180,13 @@ impl TeamSecret {
 /// The hash of an epoch's secret in the membership log (see the module docs). Public.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EpochCommitment(pub [u8; 32]);
+
+impl EpochCommitment {
+    /// Equality in constant time: one side is computed from a secret the caller holds.
+    pub fn matches(&self, other: &EpochCommitment) -> bool {
+        crate::encoding::constant_time_eq(&self.0, &other.0)
+    }
+}
 
 impl fmt::Debug for EpochCommitment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -260,10 +280,32 @@ pub fn unwrap(
         .map_err(|_| WrapError::Open)?,
     );
     let secret = secret_from(&plain)?;
-    if secret.commitment(team, epoch) != *commitment {
+    if !secret.commitment(team, epoch).matches(commitment) {
         return Err(WrapError::Commitment(epoch.0));
     }
     Ok(secret)
+}
+
+/// [`unwrap`] for each package `key.get` returned (the relay keeps up to
+/// `MAX_KEY_PACKAGES` per device and epoch, first come first kept): the first that opens and
+/// matches `commitment` wins, so a wrong package stored before the real one blocks nothing.
+/// With none matching, the error of the last package.
+pub fn unwrap_any<'a>(
+    identity: &DeviceIdentity,
+    team: &TeamId,
+    epoch: Epoch,
+    me: &Holder,
+    packages: impl IntoIterator<Item = &'a Ciphertext>,
+    commitment: &EpochCommitment,
+) -> Result<TeamSecret, WrapError> {
+    let mut last = WrapError::UnknownEpoch(epoch.0);
+    for data in packages {
+        match unwrap(identity, team, epoch, me, data, commitment) {
+            Ok(secret) => return Ok(secret),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
 }
 
 fn secret_from(bytes: &[u8]) -> Result<TeamSecret, WrapError> {
@@ -356,7 +398,10 @@ impl HistoryLink {
                 .map_err(|_| WrapError::Open)?,
         );
         let previous = secret_from(&plain)?;
-        if previous.commitment(team, Epoch(previous_epoch)) != *previous_commitment {
+        if !previous
+            .commitment(team, Epoch(previous_epoch))
+            .matches(previous_commitment)
+        {
             return Err(WrapError::Commitment(previous_epoch));
         }
         Ok(previous)
@@ -368,7 +413,7 @@ fn history_cipher(
     team: &TeamId,
     epoch: Epoch,
 ) -> Result<XChaCha20Poly1305, WrapError> {
-    let hkdf = Hkdf::<Sha256>::new(None, secret.bytes());
+    let hkdf = hkdf_sha256(secret.bytes());
     let mut info = Writer::new();
     info.field(LABEL_HISTORY_KEY)
         .field(team.as_str().as_bytes())

@@ -27,24 +27,31 @@
 //! # Flow
 //!
 //! 1. Hangar generates the code, shows it once for printing, derives the identity and adds it to
-//!    the log like a device (`recovery: true`) of the member. The code is never stored.
+//!    the log like a device (`recovery: true`) of the member, with the recovery identity's proof
+//!    of possession and an endorsement of one of the member's devices. The code is never
+//!    stored.
 //! 2. Every rotation wraps the epoch key to the recovery device as well (it is a device of the
 //!    log), so the relay keeps a wrapped key for it.
 //! 3. To recover, the person enters the code on a new installation: Hangar derives the identity,
 //!    finds its holder in the verified log ([`crate::memberlog::TeamState::find_device`]), signs in
 //!    as that device and fetches its wrapped keys (`key.get`), history links giving older epochs.
-//! 4. An owner or admin then adds the new installation as a regular device, removes the used
-//!    recovery device and rotates; the person prints a fresh code.
+//! 4. The recovery device itself adds the new installation as a regular device of its member
+//!    (the one kind of entry a recovery device may issue besides removing its member's other
+//!    devices); the new device removes the used recovery device, and an owner or admin rotates
+//!    (the removal makes a rotation due). The person prints a fresh code.
+//!
+//! A recovery device signs nothing else: no other log entry, and records it signs are refused
+//! (`EpochCipher::open_verified`), so a stolen code cannot speak for the member in the team.
 
 use std::fmt;
 
-use hkdf::Hkdf;
+use hangar_team_protocol::hash::hkdf_sha256;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::encoding::framed;
-use crate::entropy::Entropy;
+use crate::entropy::{Entropy, EntropyError};
 use crate::identity::{DeviceIdentity, IdentityError};
 
 const LABEL_CODE: &[u8] = b"hangar-team/v1/recovery-code";
@@ -105,7 +112,7 @@ fn symbol_value(c: char) -> Option<u8> {
 
 impl RecoveryCode {
     /// A new random code.
-    pub fn generate(entropy: &mut impl Entropy) -> Result<Self, IdentityError> {
+    pub fn generate(entropy: &mut impl Entropy) -> Result<Self, EntropyError> {
         let mut bytes = Zeroizing::new([0u8; ENTROPY_LEN]);
         entropy.fill(bytes.as_mut())?;
         Ok(Self(bytes))
@@ -176,7 +183,7 @@ impl RecoveryCode {
 
     /// The offline device identity this code stands for.
     pub fn identity(&self) -> Result<DeviceIdentity, IdentityError> {
-        let hkdf = Hkdf::<Sha256>::new(None, self.0.as_ref());
+        let hkdf = hkdf_sha256(self.0.as_ref());
         let mut okm = Zeroizing::new([0u8; 64]);
         hkdf.expand(&framed(&[LABEL_IDENTITY]), okm.as_mut())
             .map_err(|_| IdentityError::Key)?;

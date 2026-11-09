@@ -118,7 +118,8 @@ def main() -> int:
             key, b"hangar-team/v1/file", repo, b"fold", nfc("Café/Menu.md".lower())
         ),
     }
-    team_info = (b"team_1", struct.pack(">I", 3))
+    # Label, team, epoch and the membership log hash of the epoch's rotate entry (32 x 0x09).
+    team_info = (b"team_1", struct.pack(">I", 3), bytes([9] * 32))
     secret = bytes([7] * 32)
     match_key = hkdf_sha256(secret, fields(b"hangar-team/v1/match-key", *team_info))
     vectors["DERIVED_TASK"] = keyed(match_key, b"hangar-team/v1/task", b"t-1")

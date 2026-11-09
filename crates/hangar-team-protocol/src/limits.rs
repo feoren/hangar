@@ -30,6 +30,15 @@ pub const MAX_INLINE_CIPHERTEXT_LEN: usize = 16 * 1024;
 /// Wrapped keys in one `key.rotate`: one per device of the team, so also the most devices a
 /// team has and a `devices` answer lists.
 pub const MAX_WRAPPED_KEYS: usize = 512;
+/// Devices one member may have in a team at once, recovery devices included. With
+/// [`MAX_WRAPPED_KEYS`] it bounds what one member can add: the membership log refuses an add
+/// member or add device entry over either limit (`limit`).
+pub const MAX_DEVICES_PER_MEMBER: usize = 16;
+/// Wrapped keys the relay keeps per holder and epoch (`key.rotate` and `key.wrap` together,
+/// first come first kept). A device tries each against the epoch's commitment in the membership
+/// log, so a member who wraps garbage first cannot block the real key; the bound stops one from
+/// filling the relay's storage.
+pub const MAX_KEY_PACKAGES: usize = 4;
 /// Membership log entries in one `memberlog.entries` answer.
 pub const MAX_LOG_ENTRIES: usize = 256;
 /// Files in one `claim.set`; a session with more sends the first ones and sets `truncated`.

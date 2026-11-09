@@ -200,6 +200,7 @@ dependencies = [
  "hkdf",
  "hpke",
  "sha2",
+ "subtle",
  "thiserror",
  "zeroize",
 ]

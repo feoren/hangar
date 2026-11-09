@@ -33,13 +33,20 @@
 //!
 //! The relay passes the role from the connection's verified ticket and the holder it bound to
 //! the connection (ticket subject plus `hello.device`); nothing a frame says about itself counts.
+//! Rights that depend on the membership log are checked in `hangar-team-crypto`, which holds
+//! the verified `TeamState`: a member's effective role is the lower of its role in the log and
+//! its ticket's role, so a downgrade on the website applies at once, before the log follows.
 //!
 //! | Intent | Allowed for | Refused with |
 //! | --- | --- | --- |
-//! | `memberlog.append` | owner, admin ([`check_append_role`]) | `forbidden` |
-//! | `key.rotate` | owner, admin ([`check_rotate`]) | `forbidden` |
-//! | `key.wrap` | owner, admin, or another device of the target device's member ([`check_wrap`]) | `forbidden`; `conflict` when the device already has a key in the epoch |
-//! | `device.remove` | owner, admin, or another device of the target device's member ([`check_device_remove`]) | `forbidden`; `notFound` when the relay does not know the device |
+//! | `memberlog.append` | decided per entry by `hangar_team_crypto::memberlog::LogVerifier::admit` (signature, rights, team, index, `prev`, ticket role); a rotate epoch entry only inside `key.rotate`, a remove device entry only inside `device.remove` | the error's `code()` |
+//! | `key.rotate` | owner, admin ([`check_rotate`]), then the signed rotate epoch entry in `log` by `LogVerifier::admit_rotation` | `forbidden`, `staleEpoch`, `badRequest` |
+//! | `key.wrap` | a device of the log: an owner or admin for any other device of the log, a member for another device of its own; one package per sender, target and epoch (`hangar_team_crypto::relay::check_wrap`) | `forbidden`, `notFound`, `conflict`; `limit` when the relay already keeps [`crate::limits::MAX_KEY_PACKAGES`] for the device in the epoch |
+//! | `device.remove` | the signed remove device entry in `log`, by `LogVerifier::admit_device_remove` | the error's `code()` |
+//!
+//! The relay depends on `hangar-team-crypto` (MIT, pure, no secrets) for the membership log
+//! checks: the same verifier the clients run, so the relay never stores an entry a client would
+//! refuse. Clients still verify every entry themselves.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -50,9 +57,7 @@ use thiserror::Error;
 
 use crate::hash::{hex32, length_prefix, parse_hex32};
 use crate::ids::{Ciphertext, Epoch};
-use crate::wire::{
-    DeviceRemove, ErrorCode, Holder, KeyRotate, KeyWrap, MemberLogAppend, MemberLogEntry, Role,
-};
+use crate::wire::{ErrorCode, KeyRotate, MemberLogAppend, MemberLogEntry, Role};
 
 const LABEL_MEMBERLOG: &[u8] = b"hangar-team/v1/memberlog";
 
@@ -130,7 +135,7 @@ pub struct InvalidPublicKey;
 /// characters of canonical base64url. The crate checks only the encoding and the length;
 /// whether the bytes are a valid curve point is step E's job, and clients trust a key only when
 /// the membership log vouches for it.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PublicKey([u8; PUBLIC_KEY_BYTES]);
 
@@ -172,6 +177,66 @@ impl From<PublicKey> for String {
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PublicKey({})", self.to_base64url())
+    }
+}
+
+/// Bytes of an Ed25519 signature.
+pub const KEY_PROOF_BYTES: usize = 64;
+
+/// Characters of a 64-byte signature as base64url without padding.
+pub const KEY_PROOF_CHARS: usize = 86;
+
+/// Not a 64-byte signature as canonical base64url (86 characters, no padding).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("a key proof is 64 bytes as 86 characters of base64url without padding")]
+pub struct InvalidKeyProof;
+
+/// A device's proof of possession (step E): its Ed25519 signature, made with the `sign` key it
+/// publishes, over the team, its holder and both public keys. The membership log accepts a
+/// device only with this proof, so nobody can enter keys into the log that they do not hold.
+/// The crate checks only the encoding and the length; verifying it is step E's job.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct KeyProof([u8; KEY_PROOF_BYTES]);
+
+impl KeyProof {
+    /// Wraps the raw signature bytes.
+    pub fn from_bytes(bytes: [u8; KEY_PROOF_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    /// The raw signature bytes.
+    pub fn as_bytes(&self) -> &[u8; KEY_PROOF_BYTES] {
+        &self.0
+    }
+
+    /// The 86 base64url characters the wire carries.
+    pub fn to_base64url(&self) -> String {
+        encode_base64url(&self.0)
+    }
+}
+
+impl TryFrom<String> for KeyProof {
+    type Error = InvalidKeyProof;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() != KEY_PROOF_CHARS {
+            return Err(InvalidKeyProof);
+        }
+        let bytes = decode_base64url(&value).ok_or(InvalidKeyProof)?;
+        let bytes: [u8; KEY_PROOF_BYTES] = bytes.try_into().map_err(|_| InvalidKeyProof)?;
+        Ok(Self(bytes))
+    }
+}
+
+impl From<KeyProof> for String {
+    fn from(value: KeyProof) -> String {
+        value.to_base64url()
+    }
+}
+
+impl fmt::Debug for KeyProof {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "KeyProof({})", self.to_base64url())
     }
 }
 
@@ -410,11 +475,14 @@ impl KeyRotateError {
     }
 }
 
-/// The relay's check of a `key.rotate` by a member of `role` while the team is at `current`:
-/// owner or admin only, the epoch exactly `current + 1`, at least one wrapped key and at most
-/// one per holder (the same device id under two members is two devices). Size limits are
-/// checked when the frame is decoded. Whether the wrapped keys cover every device of the team
-/// is the rotating client's job (it reads the membership log).
+/// The relay's first check of a `key.rotate` by a member of `role` while the team is at
+/// `current`: owner or admin only, the epoch exactly `current + 1`, at least one wrapped key and
+/// at most one per holder (the same device id under two members is two devices). Size limits
+/// are checked when the frame is decoded. The relay then hands the whole message to
+/// `hangar_team_crypto::memberlog::LogVerifier::admit_rotation`, which verifies the signed rotate
+/// epoch entry in `rotate.log` (signature, rights, team, index, `prev`, epoch) and that every
+/// wrapped key names a device of the log; it stores the entry and the wrapped keys together or
+/// neither.
 pub fn check_rotate(role: Role, current: Epoch, rotate: &KeyRotate) -> Result<(), KeyRotateError> {
     if !is_owner_or_admin(role) {
         return Err(KeyRotateError::Forbidden);
@@ -440,116 +508,11 @@ fn is_owner_or_admin(role: Role) -> bool {
     matches!(role, Role::Owner | Role::Admin)
 }
 
-/// A member without owner or admin role tried to append to the membership log.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("only an owner or an admin appends to the membership log")]
-pub struct MemberLogForbidden;
-
-impl MemberLogForbidden {
-    /// The `err` code the relay answers with.
-    pub fn code(&self) -> ErrorCode {
-        ErrorCode::Forbidden
-    }
-}
-
-/// The relay's rights check of a `memberlog.append`, before [`check_append`]: only an owner or
-/// an admin (`role` from the ticket) appends, since in step E every entry is signed by an admin
-/// device and an entry from anyone else could never verify.
-pub fn check_append_role(role: Role) -> Result<(), MemberLogForbidden> {
-    if is_owner_or_admin(role) {
-        Ok(())
-    } else {
-        Err(MemberLogForbidden)
-    }
-}
-
-/// A `device.remove` the sender may not make.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("this device may not remove that device")]
-pub struct DeviceRemoveForbidden;
-
-impl DeviceRemoveForbidden {
-    /// The `err` code the relay answers with.
-    pub fn code(&self) -> ErrorCode {
-        ErrorCode::Forbidden
-    }
-}
-
-/// The relay's rights check of a `device.remove`; `role` and `sender` are the connection's (as
-/// for [`check_wrap`]), `remove.holder` the target. An owner or admin removes any other device,
-/// a member only another device of its own (a lost laptop, from the phone). No device removes
-/// itself: it simply disconnects, and removing it for good is the website's business. Rights
-/// come before the relay's lookup of the target, so a member does not learn whether another
-/// member's device exists (`notFound` only after this check passed).
-pub fn check_device_remove(
-    role: Role,
-    sender: &Holder,
-    remove: &DeviceRemove,
-) -> Result<(), DeviceRemoveForbidden> {
-    let target = &remove.holder;
-    if sender == target || (!is_owner_or_admin(role) && sender.member != target.member) {
-        return Err(DeviceRemoveForbidden);
-    }
-    Ok(())
-}
-
-/// Why a `key.wrap` is refused.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum KeyWrapError {
-    /// The sending device wraps for itself (it cannot hold a key it is still waiting for), or
-    /// the sender is neither owner nor admin and the target device belongs to another member.
-    #[error("only an owner, an admin or another device of the same member wraps the team key for a device")]
-    Forbidden,
-    /// The device already has a wrapped key in this epoch. A wrapped key is never replaced;
-    /// a new key for a device comes only with a new epoch (`key.rotate`).
-    #[error("the device already has a wrapped team key in this epoch")]
-    AlreadyWrapped,
-}
-
-impl KeyWrapError {
-    /// The `err` code the relay answers with.
-    pub fn code(&self) -> ErrorCode {
-        match self {
-            KeyWrapError::Forbidden => ErrorCode::Forbidden,
-            KeyWrapError::AlreadyWrapped => ErrorCode::Conflict,
-        }
-    }
-}
-
-/// The relay's rights check of a `key.wrap`, after the epoch check (`check_epoch`):
-///
-/// - `role` and `sender` are the connection's: the ticket's role, and the holder the relay
-///   bound to it (ticket subject and `hello.device`).
-/// - `wrap` is the message; its `wrapped.holder` names the target device with its member.
-/// - `already_wrapped` is whether the relay already stores a wrapped key for that holder in
-///   the current epoch.
-///
-/// An owner or admin may wrap for any other device, a member only for another device of its
-/// own (adding its own new device). No device wraps for itself: one without the key has
-/// nothing to wrap, and a wrapped key it stored for itself would block the real one for the
-/// whole epoch. Rights are checked first, so a member who may not wrap does not learn whether
-/// the device already has a key.
-pub fn check_wrap(
-    role: Role,
-    sender: &Holder,
-    wrap: &KeyWrap,
-    already_wrapped: bool,
-) -> Result<(), KeyWrapError> {
-    let target = &wrap.wrapped.holder;
-    if sender == target || (!is_owner_or_admin(role) && sender.member != target.member) {
-        return Err(KeyWrapError::Forbidden);
-    }
-    if already_wrapped {
-        return Err(KeyWrapError::AlreadyWrapped);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ids::{DeviceId, MemberId, UnixMillis};
-    use crate::wire::WrappedKey;
+    use crate::wire::{Holder, WrappedKey};
 
     // Vectors computed independently with Python's standard library (`test_vectors.py`).
     const LOG_ENTRY_1: &str = "aGFuZ2FyIG1lbWJlciBsb2cgZW50cnkgMQ";
@@ -764,6 +727,7 @@ mod tests {
     fn rotate(epoch: u32, devices: &[&str]) -> KeyRotate {
         KeyRotate {
             epoch: Epoch(epoch),
+            log: append(2, Some(hash(VECTOR_LOG_1)), "AAAA"),
             wrapped: devices
                 .iter()
                 .map(|d| WrappedKey {
@@ -831,113 +795,25 @@ mod tests {
     }
 
     #[test]
-    fn only_owners_and_admins_append_to_the_member_log() {
-        assert_eq!(check_append_role(Role::Owner), Ok(()));
-        assert_eq!(check_append_role(Role::Admin), Ok(()));
-        let error = check_append_role(Role::Member).unwrap_err();
-        assert_eq!(error, MemberLogForbidden);
-        assert_eq!(error.code(), ErrorCode::Forbidden);
-    }
-
-    fn wrap(target: &Holder) -> KeyWrap {
-        KeyWrap {
-            epoch: Epoch(1),
-            wrapped: WrappedKey {
-                holder: target.clone(),
-                data: text("AAAA"),
-            },
-        }
-    }
-
-    #[test]
-    fn key_wrap_rights() {
-        let alice_laptop = device("alice", "laptop");
-        let alice_phone = device("alice", "phone");
-        let bob_laptop = device("bob", "laptop");
-        // Owners and admins wrap for any device.
-        for role in [Role::Owner, Role::Admin] {
+    fn key_proofs_are_64_bytes() {
+        let proof = KeyProof::from_bytes(core::array::from_fn(|i| i as u8));
+        let text = proof.to_base64url();
+        assert_eq!(text.len(), KEY_PROOF_CHARS);
+        assert_eq!(KeyProof::try_from(text.clone()), Ok(proof));
+        let json = serde_json::to_string(&proof).unwrap();
+        assert_eq!(serde_json::from_str::<KeyProof>(&json).unwrap(), proof);
+        for bad in [
+            String::new(),
+            "A".repeat(85),
+            "A".repeat(87),
+            format!("{}=", "A".repeat(85)),
+            // 86 characters whose last one sets an unused bit.
+            format!("{}_", "A".repeat(85)),
+        ] {
             assert_eq!(
-                check_wrap(role, &alice_laptop, &wrap(&bob_laptop), false),
-                Ok(())
-            );
-            assert_eq!(
-                check_wrap(role, &alice_laptop, &wrap(&alice_phone), false),
-                Ok(())
-            );
-        }
-        // A member adds its own new device.
-        assert_eq!(
-            check_wrap(Role::Member, &alice_laptop, &wrap(&alice_phone), false),
-            Ok(())
-        );
-        // But not another member's, even one with the same device id.
-        let error = check_wrap(Role::Member, &alice_laptop, &wrap(&bob_laptop), false).unwrap_err();
-        assert_eq!(error, KeyWrapError::Forbidden);
-        assert_eq!(error.code(), ErrorCode::Forbidden);
-        // No device wraps for itself, whatever its role.
-        for role in [Role::Owner, Role::Admin, Role::Member] {
-            assert_eq!(
-                check_wrap(role, &alice_laptop, &wrap(&alice_laptop), false),
-                Err(KeyWrapError::Forbidden)
-            );
-        }
-    }
-
-    #[test]
-    fn key_wrap_never_replaces_a_wrapped_key() {
-        let alice_laptop = device("alice", "laptop");
-        let alice_phone = device("alice", "phone");
-        for role in [Role::Owner, Role::Admin, Role::Member] {
-            let error = check_wrap(role, &alice_laptop, &wrap(&alice_phone), true).unwrap_err();
-            assert_eq!(error, KeyWrapError::AlreadyWrapped);
-            assert_eq!(error.code(), ErrorCode::Conflict);
-        }
-        // Rights come first: a stranger does not learn whether the device has a key.
-        assert_eq!(
-            check_wrap(
-                Role::Member,
-                &device("bob", "pc"),
-                &wrap(&alice_phone),
-                true
-            ),
-            Err(KeyWrapError::Forbidden)
-        );
-    }
-
-    #[test]
-    fn device_remove_rights() {
-        let alice_laptop = device("alice", "laptop");
-        let alice_phone = device("alice", "phone");
-        let bob_laptop = device("bob", "laptop");
-        let remove = |holder: &Holder| DeviceRemove {
-            holder: holder.clone(),
-        };
-        // Owners and admins remove any other device.
-        for role in [Role::Owner, Role::Admin] {
-            assert_eq!(
-                check_device_remove(role, &alice_laptop, &remove(&bob_laptop)),
-                Ok(())
-            );
-            assert_eq!(
-                check_device_remove(role, &alice_laptop, &remove(&alice_phone)),
-                Ok(())
-            );
-        }
-        // A member removes another device of its own.
-        assert_eq!(
-            check_device_remove(Role::Member, &alice_phone, &remove(&alice_laptop)),
-            Ok(())
-        );
-        // But not another member's, even one with the same device id.
-        let error =
-            check_device_remove(Role::Member, &alice_laptop, &remove(&bob_laptop)).unwrap_err();
-        assert_eq!(error, DeviceRemoveForbidden);
-        assert_eq!(error.code(), ErrorCode::Forbidden);
-        // No device removes itself, whatever its role.
-        for role in [Role::Owner, Role::Admin, Role::Member] {
-            assert_eq!(
-                check_device_remove(role, &alice_laptop, &remove(&alice_laptop)),
-                Err(DeviceRemoveForbidden)
+                KeyProof::try_from(bad.clone()),
+                Err(InvalidKeyProof),
+                "{bad}"
             );
         }
     }

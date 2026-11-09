@@ -33,7 +33,7 @@ use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::e2e::{LogHash, PublicKey};
+use crate::e2e::{KeyProof, LogHash, PublicKey};
 use crate::hash::{KeyedHash, PathHashes};
 use crate::ids::{
     BlobId, Ciphertext, DeviceId, Epoch, MemberId, OpId, Sealed, Seq, SessionKey, StreamId, TeamId,
@@ -41,7 +41,8 @@ use crate::ids::{
 };
 use crate::limits::{
     MAX_CIPHERTEXT_LEN, MAX_CLAIM_FILES, MAX_FRAME_BYTES, MAX_HEARTBEAT_TASKS,
-    MAX_INLINE_CIPHERTEXT_LEN, MAX_LOG_ENTRIES, MAX_PREV_HASHES, MAX_WRAPPED_KEYS,
+    MAX_INLINE_CIPHERTEXT_LEN, MAX_KEY_PACKAGES, MAX_LOG_ENTRIES, MAX_PREV_HASHES,
+    MAX_WRAPPED_KEYS,
 };
 use crate::PROTOCOL_VERSION;
 
@@ -378,9 +379,9 @@ pub struct BlobGet {
     pub blob: BlobId,
 }
 
-/// `device.keys`: the sending device's public keys (step E). Replaces earlier ones; the relay
-/// lists them in `devices`. Clients trust a device's keys only when the membership log vouches
-/// for them, so a relay that swaps keys is caught there.
+/// `device.keys`: the sending device's public keys and its proof of possession (step E).
+/// Replaces earlier ones; the relay lists them in `devices`. Clients trust a device's keys only
+/// when the membership log vouches for them, so a relay that swaps keys is caught there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceKeys {
@@ -388,12 +389,19 @@ pub struct DeviceKeys {
     pub sign: PublicKey,
     /// X25519, receives wrapped team keys (HPKE).
     pub kem: PublicKey,
+    /// The device's signature with `sign` over the frame's team, its holder and both keys
+    /// (format: step E). The device that approves it copies the proof into the membership log
+    /// entry, which is refused without it.
+    pub proof: KeyProof,
 }
 
-/// `memberlog.append`: the next entry of the team's signed membership log. The relay checks
-/// only the chain ([`crate::e2e::check_append`]: `index` the next one from 1, `prev` the hash of
-/// the entry before, `None` on the first); the entry's content and signature are the clients'
-/// business. Answered with `ack`; everyone gets `memberlog.appended`.
+/// `memberlog.append`: the next entry of the team's signed membership log. The relay checks the
+/// chain ([`crate::e2e::check_append`]: `index` the next one from 1, `prev` the hash of the entry
+/// before, `None` on the first) and, before it stores anything, the entry itself with
+/// `hangar_team_crypto::memberlog::LogVerifier::admit`: signature of the sending device, rights
+/// for the entry's kind, team, index and `prev`. A rotate epoch entry is refused here; it travels
+/// only inside `key.rotate` together with its wrapped keys. Answered with `ack`; everyone gets
+/// `memberlog.appended`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemberLogAppend {
@@ -424,23 +432,32 @@ pub struct WrappedKey {
     pub data: Ciphertext,
 }
 
-/// `key.rotate`: start a new epoch, with the new key wrapped to every device of the team (at
-/// most [`MAX_WRAPPED_KEYS`], each device named by its holder). Owner or admin only, `epoch`
-/// exactly the current one plus one, at most one key per holder
-/// ([`crate::e2e::check_rotate`]). Answered with `ack`; every device gets `key.rotated` with only
-/// its own wrapped key, matched by holder.
+/// `key.rotate`: start a new epoch, with the signed rotate epoch entry of the membership log
+/// (`log`) and the new key wrapped to every device of the team (at most [`MAX_WRAPPED_KEYS`],
+/// each device named by its holder). The relay accepts both together or neither: owner or admin
+/// only, `epoch` exactly the current one plus one, at most one key per holder
+/// ([`crate::e2e::check_rotate`]), then the entry and the holders with
+/// `hangar_team_crypto::memberlog::LogVerifier::admit_rotation`. Answered with `ack`; everyone
+/// gets `memberlog.appended`, and every device `key.rotated` with only its own wrapped key,
+/// matched by holder. The rotating client keeps the new secret in its keychain before it sends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyRotate {
     pub epoch: Epoch,
+    /// The rotate epoch entry, appended to the membership log in the same step.
+    pub log: MemberLogAppend,
     pub wrapped: Vec<WrappedKey>,
 }
 
 /// `key.wrap`: hand the current epoch's key to one device (`wrapped.holder`), typically one
 /// just approved in the membership log. `epoch` must be the current one (`staleEpoch`
-/// otherwise). Allowed for an owner or admin and for another device of the target holder's own
-/// member, and never over a key the holder already has in this epoch
-/// ([`crate::e2e::check_wrap`]). Answered with `ack`; the target device gets [`KeyWrapped`].
+/// otherwise). Sender and target must be devices the verified membership log lists; allowed
+/// for an owner or admin (the lower of log role and ticket role) and for another device of the
+/// target holder's own member. The relay keeps one package per sender, target and epoch
+/// (`conflict` for a second) and up to [`MAX_KEY_PACKAGES`] per target and epoch, first come
+/// first kept, never replacing one (`limit` after that). The check is
+/// `hangar_team_crypto::relay::check_wrap`. Answered with `ack`; the target device gets
+/// [`KeyWrapped`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyWrap {
@@ -448,21 +465,27 @@ pub struct KeyWrap {
     pub wrapped: WrappedKey,
 }
 
-/// `key.get`: the sending device's own wrapped key of `epoch` (any epoch it got one for).
-/// Answered with `ack` whose `content` is `Sealed { epoch, data }`, `data` being the wrapped key;
-/// `notFound` when there is none.
+/// `key.get`: the sending device's own wrapped keys of `epoch` (any epoch it got one for).
+/// Answered with `ack` whose `keys` lists every stored package as `Sealed { epoch, data }` in the
+/// order they arrived (at most [`MAX_KEY_PACKAGES`]); the device accepts the one that matches the
+/// epoch's commitment in the membership log. `notFound` when there is none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyGet {
     pub epoch: Epoch,
 }
 
-/// `device.remove`: take one device out of the team (a lost or retired machine). Allowed for an
-/// owner or admin for any device, and for a member for another device of its own
-/// ([`crate::e2e::check_device_remove`]); no device removes itself (it simply disconnects, and
-/// the website removes it for good). Deduplicated by op id. Answered with `ack`, or `notFound`
-/// when the relay does not know the holder in the team. The relay then frees the device's
-/// reservations (`ReservationBook::remove_device`), clears its claims
+/// `device.remove`: take one device out of the team (a lost or retired machine), with the signed
+/// remove device entry of the membership log (`log`), as `key.rotate` carries its rotate epoch
+/// entry. The relay admits the entry first
+/// (`hangar_team_crypto::memberlog::LogVerifier::admit_device_remove`: signature of the sending
+/// device, the log's rule for removing a device, the ticket role, and `holder` equal to the
+/// device the entry removes) and only then removes the device, so the log and the relay's
+/// directory never disagree. A `device.remove` without its entry does not decode
+/// (`badRequest`), and a remove device entry sent through `memberlog.append` is refused. No
+/// device removes itself (it simply disconnects, and the website removes it for good).
+/// Deduplicated by op id. Answered with `ack`; everyone gets `memberlog.appended`. The relay
+/// then frees the device's reservations (`ReservationBook::remove_device`), clears its claims
 /// (`ClaimBoard::clear_device`), forgets its public keys and wrapped keys, logs
 /// [`DeviceRemoved`] and closes the device's connections with
 /// [`crate::close::CLOSE_REMOVED`].
@@ -470,6 +493,8 @@ pub struct KeyGet {
 #[serde(deny_unknown_fields)]
 pub struct DeviceRemove {
     pub holder: Holder,
+    /// The remove device entry, appended to the membership log in the same step.
+    pub log: MemberLogAppend,
 }
 
 /// Everything a client sends. `type` on the wire is the serde name; [`CLIENT_KINDS`] lists them.
@@ -697,12 +722,14 @@ impl ClientMessage {
             ClientMessage::BlobPut(m) => sealed("content", Some(&m.content), MAX_CIPHERTEXT_LEN),
             ClientMessage::MemberLogAppend(m) => cipher("entry", Some(&m.entry)),
             ClientMessage::KeyRotate(m) => {
+                cipher("entry", Some(&m.log.entry))?;
                 count("wrapped", m.wrapped.len(), MAX_WRAPPED_KEYS)?;
                 m.wrapped
                     .iter()
                     .try_for_each(|w| cipher("data", Some(&w.data)))
             }
             ClientMessage::KeyWrap(m) => cipher("data", Some(&m.wrapped.data)),
+            ClientMessage::DeviceRemove(m) => cipher("entry", Some(&m.log.entry)),
             ClientMessage::Hello(_)
             | ClientMessage::TicketRenew(_)
             | ClientMessage::TaskRelease(_)
@@ -714,7 +741,6 @@ impl ClientMessage {
             | ClientMessage::BlobGet(_)
             | ClientMessage::DeviceKeys(_)
             | ClientMessage::DevicesGet
-            | ClientMessage::DeviceRemove(_)
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyGet(_)
             | ClientMessage::Ping => Ok(()),
@@ -803,9 +829,11 @@ pub struct ResyncRequired {
 pub struct Ack {
     /// `blob.put`: the stored blob; `blob.get`: the blob asked for.
     pub blob: Option<BlobId>,
-    /// `blob.get`: its content. `key.get`: the device's wrapped key of the asked epoch, as
-    /// `Sealed { epoch, data }`.
+    /// `blob.get`: its content.
     pub content: Option<Sealed>,
+    /// `key.get`: the device's wrapped keys of the asked epoch, each as `Sealed { epoch, data }`
+    /// (at most [`MAX_KEY_PACKAGES`]).
+    pub keys: Option<Vec<Sealed>>,
 }
 
 /// The code of an `err`; clients map it to a message of their own.
@@ -1131,6 +1159,8 @@ pub struct DeviceInfo {
     pub holder: Holder,
     pub sign: PublicKey,
     pub kem: PublicKey,
+    /// The device's proof of possession from its `device.keys`.
+    pub proof: KeyProof,
     /// When the keys were set.
     pub at: UnixMillis,
 }
@@ -1346,7 +1376,12 @@ impl ServerMessage {
 
     fn check_limits(&self) -> Result<(), (&'static str, usize)> {
         match self {
-            ServerMessage::Ack(m) => sealed("content", m.content.as_ref(), MAX_CIPHERTEXT_LEN),
+            ServerMessage::Ack(m) => {
+                sealed("content", m.content.as_ref(), MAX_CIPHERTEXT_LEN)?;
+                let keys = m.keys.as_deref().unwrap_or_default();
+                count("keys", keys.len(), MAX_KEY_PACKAGES)?;
+                keys.iter().try_for_each(|k| inline("keys", Some(k)))
+            }
             ServerMessage::PresenceUpdate(m) => inline("status", m.status.as_ref()),
             ServerMessage::TaskReserved(m) => inline("note", m.note.as_ref()),
             ServerMessage::TaskReleaseRequested(m) => inline("note", m.note.as_ref()),
@@ -1851,6 +1886,7 @@ mod tests {
             ClientMessage::DeviceKeys(DeviceKeys {
                 sign: PublicKey::from_bytes([1; 32]),
                 kem: PublicKey::from_bytes([2; 32]),
+                proof: KeyProof::from_bytes([3; 64]),
             }),
             ClientMessage::DevicesGet,
             ClientMessage::DeviceRemove(DeviceRemove {
@@ -1858,6 +1894,7 @@ mod tests {
                     member: MemberId::new("m1").unwrap(),
                     device: DeviceId::new("d2").unwrap(),
                 },
+                log: rotate_entry(8),
             }),
             ClientMessage::MemberLogAppend(MemberLogAppend {
                 index: 2,
@@ -1867,6 +1904,7 @@ mod tests {
             ClientMessage::MemberLogGet(MemberLogGet { after: 0 }),
             ClientMessage::KeyRotate(KeyRotate {
                 epoch: Epoch(3),
+                log: rotate_entry(8),
                 wrapped: vec![wrapped("d1"), wrapped("d2")],
             }),
             ClientMessage::KeyWrap(KeyWrap {
@@ -1885,6 +1923,15 @@ mod tests {
                 device: DeviceId::new(device).unwrap(),
             },
             data: Ciphertext::new("A".repeat(110)).unwrap(),
+        }
+    }
+
+    /// A rotate epoch entry of `len` base64url characters, as `key.rotate` carries it.
+    fn rotate_entry(len: usize) -> MemberLogAppend {
+        MemberLogAppend {
+            index: 4,
+            prev: Some(LogHash::from_bytes([4; 32])),
+            entry: Ciphertext::new("A".repeat(len)).unwrap(),
         }
     }
 
@@ -1919,6 +1966,7 @@ mod tests {
             ServerMessage::Ack(Ack {
                 blob: Some(BlobId::new("b1").unwrap()),
                 content: None,
+                keys: None,
             }),
             ServerMessage::Err(ErrorBody {
                 code: ErrorCode::StaleEpoch,
@@ -2010,6 +2058,7 @@ mod tests {
                     holder: holder(),
                     sign: PublicKey::from_bytes([1; 32]),
                     kem: PublicKey::from_bytes([2; 32]),
+                    proof: KeyProof::from_bytes([3; 64]),
                     at: UnixMillis(5),
                 }],
             }),
@@ -2023,6 +2072,52 @@ mod tests {
                 by: holder(),
             }),
         ]
+    }
+
+    #[test]
+    fn key_get_answers_with_every_stored_package() {
+        let ack = |n: usize| {
+            ServerMessage::Ack(Ack {
+                blob: None,
+                content: None,
+                keys: Some(vec![sealed_text(110); n]),
+            })
+        };
+        let text = encode_server(&server(ack(MAX_KEY_PACKAGES))).unwrap();
+        assert_eq!(decode_server(&text).unwrap().message, ack(MAX_KEY_PACKAGES));
+        assert_eq!(
+            encode_server(&server(ack(MAX_KEY_PACKAGES + 1))),
+            Err(EncodeError::Limit {
+                field: "keys",
+                max: MAX_KEY_PACKAGES
+            })
+        );
+    }
+
+    #[test]
+    fn a_rotation_carries_its_log_entry() {
+        let rotate = |len: usize| {
+            ClientMessage::KeyRotate(KeyRotate {
+                epoch: Epoch(3),
+                log: rotate_entry(len),
+                wrapped: vec![],
+            })
+        };
+        let text = encode_client(&client(rotate(8))).unwrap();
+        assert!(
+            text.contains(&format!(
+                r#""body":{{"epoch":3,"log":{{"index":4,"prev":"{}","entry":"AAAAAAAA"}},"wrapped":[]}}"#,
+                "04".repeat(32)
+            )),
+            "{text}"
+        );
+        assert_eq!(
+            encode_client(&client(rotate(MAX_INLINE_CIPHERTEXT_LEN + 1))),
+            Err(EncodeError::Limit {
+                field: "entry",
+                max: MAX_INLINE_CIPHERTEXT_LEN
+            })
+        );
     }
 
     #[test]
@@ -2564,23 +2659,34 @@ mod tests {
 
     #[test]
     fn device_remove_and_removed() {
-        let remove = ClientMessage::DeviceRemove(DeviceRemove {
-            holder: Holder {
-                member: MemberId::new("m1").unwrap(),
-                device: DeviceId::new("d2").unwrap(),
-            },
-        });
+        let remove_with = |len: usize| {
+            ClientMessage::DeviceRemove(DeviceRemove {
+                holder: Holder {
+                    member: MemberId::new("m1").unwrap(),
+                    device: DeviceId::new("d2").unwrap(),
+                },
+                log: rotate_entry(len),
+            })
+        };
+        let remove = remove_with(8);
         assert!(remove.deduplicated());
         assert_eq!(remove.check_epoch(Epoch(9)), Ok(()));
         let text = encode_client(&client(remove)).unwrap();
+        let log = format!(
+            r#""log":{{"index":4,"prev":"{}","entry":"AAAAAAAA"}}"#,
+            "04".repeat(32)
+        );
         assert_eq!(
             text,
-            r#"{"v":1,"id":"op-1","team":"t1","type":"device.remove","body":{"holder":{"member":"m1","device":"d2"}}}"#
+            format!(
+                r#"{{"v":1,"id":"op-1","team":"t1","type":"device.remove","body":{{"holder":{{"member":"m1","device":"d2"}},{log}}}}}"#
+            )
         );
+        assert!(decode_client(&text).is_ok());
         // A bare device id does not name a device.
         let bare = text.replace(
-            r#"{"holder":{"member":"m1","device":"d2"}}"#,
-            r#"{"device":"d2"}"#,
+            r#""holder":{"member":"m1","device":"d2"}"#,
+            r#""device":"d2""#,
         );
         assert!(matches!(
             decode_client(&bare),
@@ -2589,6 +2695,23 @@ mod tests {
                 ..
             })
         ));
+        // A removal without its signed log entry is refused.
+        let without_entry = text.replace(&format!(",{log}"), "");
+        assert!(matches!(
+            decode_client(&without_entry),
+            Err(DecodeError::Body {
+                kind: "device.remove",
+                ..
+            })
+        ));
+        // The entry is bound by the inline limit like every log entry.
+        assert_eq!(
+            encode_client(&client(remove_with(MAX_INLINE_CIPHERTEXT_LEN + 1))),
+            Err(EncodeError::Limit {
+                field: "entry",
+                max: MAX_INLINE_CIPHERTEXT_LEN
+            })
+        );
         let removed = ServerMessage::DeviceRemoved(DeviceRemoved { holder: holder() });
         assert!(removed.loggable());
         assert_eq!(removed.recipient(), None);
@@ -2713,12 +2836,23 @@ mod tests {
         );
         // Keys are 32 bytes of canonical base64url; log hashes lowercase hex.
         let key = PublicKey::from_bytes([1; 32]).to_base64url();
+        let proof = KeyProof::from_bytes([3; 64]).to_base64url();
         let keys = |sign: &str| {
             format!(
-                r#"{{"v":1,"id":"o","team":"t","type":"device.keys","body":{{"sign":"{sign}","kem":"{key}"}}}}"#
+                r#"{{"v":1,"id":"o","team":"t","type":"device.keys","body":{{"sign":"{sign}","kem":"{key}","proof":"{proof}"}}}}"#
             )
         };
         assert!(decode_client(&keys(&key)).is_ok());
+        // Without the proof of possession `device.keys` is refused.
+        assert!(matches!(
+            decode_client(&format!(
+                r#"{{"v":1,"id":"o","team":"t","type":"device.keys","body":{{"sign":"{key}","kem":"{key}"}}}}"#
+            )),
+            Err(DecodeError::Body {
+                kind: "device.keys",
+                ..
+            })
+        ));
         for bad in [&key[..42], "AAAA", &format!("{key}A")] {
             assert!(matches!(
                 decode_client(&keys(bad)),
@@ -2751,6 +2885,7 @@ mod tests {
         let rotate = |n: usize, len: usize| {
             ClientMessage::KeyRotate(KeyRotate {
                 epoch: Epoch(3),
+                log: rotate_entry(8),
                 wrapped: (0..n)
                     .map(|i| WrappedKey {
                         holder: Holder {
@@ -2825,6 +2960,7 @@ mod tests {
             holder: holder(),
             sign: PublicKey::from_bytes([1; 32]),
             kem: PublicKey::from_bytes([2; 32]),
+            proof: KeyProof::from_bytes([3; 64]),
             at: UnixMillis(5),
         };
         let devices = ServerMessage::Devices(DeviceList {
@@ -2845,6 +2981,7 @@ mod tests {
         // keys of 1.7 KiB (HPKE output for a 32-byte key is about 110 characters).
         let rotate = ClientMessage::KeyRotate(KeyRotate {
             epoch: Epoch(u32::MAX),
+            log: rotate_entry(MAX_INLINE_CIPHERTEXT_LEN),
             wrapped: (0..MAX_WRAPPED_KEYS)
                 .map(|i| WrappedKey {
                     holder: Holder {
@@ -2867,6 +3004,7 @@ mod tests {
                     holder: long_holder.clone(),
                     sign: PublicKey::from_bytes([1; 32]),
                     kem: PublicKey::from_bytes([2; 32]),
+                    proof: KeyProof::from_bytes([3; 64]),
                     at: UnixMillis(u64::MAX),
                 };
                 MAX_WRAPPED_KEYS
@@ -3069,6 +3207,7 @@ mod tests {
         // The next epoch of a rotation and an old epoch of key.get are expected.
         let rotate = ClientMessage::KeyRotate(KeyRotate {
             epoch: Epoch(3),
+            log: rotate_entry(8),
             wrapped: vec![wrapped("d1")],
         });
         assert_eq!(rotate.check_epoch(current), Ok(()));

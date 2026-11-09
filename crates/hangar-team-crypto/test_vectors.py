@@ -336,6 +336,14 @@ def check_anchors():
     )
     assert out.hex().endswith("c0875924c1c7987947deafd8780acf49"), "XChaCha draft A.3.1 tag"
     assert out.hex().startswith("bd6d179d3e83d43b9576579493c0e939"), "XChaCha draft A.3.1"
+    for low in (
+        "00" * 32,
+        "01" + "00" * 31,
+        "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+        "5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+        "ec" + "ff" * 30 + "7f",
+    ):
+        assert x25519(counting(0x21, 32), h(low)) == b"\x00" * 32, "low order " + low
     okm = hkdf_expand(
         hkdf_extract(h("000102030405060708090a0b0c"), h("0b" * 22)),
         h("f0f1f2f3f4f5f6f7f8f9"),
@@ -384,6 +392,13 @@ def entry_hash(index, prev, entry):
     ).digest()
 
 
+def statement(label, holder, sign_pub, kem_pub):
+    """What a device's proof of possession and an endorsement sign (recovery flag 0)."""
+    return framed(
+        b"hangar-team/v1/" + label, TEAM, holder[0], holder[1], sign_pub, kem_pub, b"\x00"
+    )
+
+
 def entry_header(index, prev, issued_at, tag):
     return framed(
         b"hangar-team/v1/memberlog-entry",
@@ -420,7 +435,13 @@ def compute():
         ).digest()
     )
 
-    device = framed(OWNER[1], sign_pub, kem_pub, b"\x00")
+    device = framed(
+        OWNER[1],
+        sign_pub,
+        kem_pub,
+        b"\x00",
+        ed25519_sign(sign_seed, statement(b"device-proof", OWNER, sign_pub, kem_pub)),
+    )
     create = entry_header(1, b"", ISSUED_AT, 1) + field(struct.pack(">I", 1)) + device
     create_entry = create + ed25519_sign(sign_seed, create)
     create_hash = entry_hash(1, b"", create_entry)
@@ -436,7 +457,36 @@ def compute():
         entry_header(2, create_hash, ISSUED_AT + 1, 7)
         + framed(struct.pack(">I", 1), commitment, b"")
     )
-    out["VECTOR_ROTATE_ENTRY"] = b64(rotate + ed25519_sign(sign_seed, rotate))
+    rotate_entry = rotate + ed25519_sign(sign_seed, rotate)
+    rotate_hash = entry_hash(2, create_hash, rotate_entry)
+    out["VECTOR_ROTATE_ENTRY"] = b64(rotate_entry)
+    out["VECTOR_ROTATE_HASH"] = rotate_hash.hex()
+
+    # Entry 3: the owner's laptop adds the owner's phone (its own proof, the laptop's
+    # endorsement).
+    phone_seeds = counting(0x60, 64)
+    phone_seed = phone_seeds[:32]
+    phone_sign, phone_kem = ed25519_public(phone_seed), x25519_public(_clamp(phone_seeds[32:]))
+    phone = (OWNER[0], b"phone")
+    add = (
+        entry_header(3, rotate_hash, ISSUED_AT + 2, 3)
+        + field(OWNER[0])
+        + framed(
+            phone[1],
+            phone_sign,
+            phone_kem,
+            b"\x00",
+            ed25519_sign(phone_seed, statement(b"device-proof", phone, phone_sign, phone_kem)),
+        )
+        + framed(
+            OWNER[1],
+            ed25519_sign(sign_seed, statement(b"device-endorse", phone, phone_sign, phone_kem)),
+        )
+    )
+    add_entry = add + ed25519_sign(sign_seed, add)
+    add_hash = entry_hash(3, rotate_hash, add_entry)
+    out["VECTOR_ADD_DEVICE_ENTRY"] = b64(add_entry)
+    out["VECTOR_ADD_DEVICE_HASH"] = add_hash.hex()
 
     info = framed(b"hangar-team/v1/wrap", TEAM, struct.pack(">I", 1), OWNER[0], OWNER[1])
     enc, ct = hpke_seal_base(kem_pub, info, b"", secret, counting(0x80, 32))
@@ -456,7 +506,14 @@ def compute():
     out["VECTOR_HISTORY"] = (b"\x01" + nonce + sealed).hex()
 
     # hangar-team-protocol EpochKeys: the sealing key of epoch 1.
-    seal_key = hkdf(secret, framed(b"hangar-team/v1/seal-key", TEAM, struct.pack(">I", 1)), 32)
+    # hangar-team-protocol EpochKeys binds the log hash of the epoch's rotate entry.
+    seal_key = hkdf(
+        secret,
+        framed(b"hangar-team/v1/seal-key", TEAM, struct.pack(">I", 1), rotate_hash),
+        32,
+    )
+    head = struct.pack(">Q", 3), add_hash
+    counter = struct.pack(">Q", 7)
     aad = framed(
         b"hangar-team/v1/record",
         b"\x01",
@@ -466,13 +523,18 @@ def compute():
         b"task-hash",
         OWNER[0],
         OWNER[1],
+        head[0],
+        head[1],
+        counter,
     )
     nonce = counting(0xE0, 24)
     ciphertext = xchacha20poly1305_seal(seal_key, nonce, b"hello team", aad)
     signature = ed25519_sign(
         sign_seed, framed(b"hangar-team/v1/record-sig", aad, nonce, ciphertext)
     )
-    out["VECTOR_RECORD"] = b64(b"\x01" + nonce + ciphertext + signature)
+    out["VECTOR_RECORD"] = b64(
+        b"\x01" + head[0] + head[1] + counter + nonce + ciphertext + signature
+    )
 
     entropy = counting(0x10, 16)
     check = hashlib.sha256(framed(b"hangar-team/v1/recovery-code", b"\x01", entropy)).digest()
@@ -485,7 +547,10 @@ def compute():
 
 def main():
     check_anchors()
-    print("anchors: RFC 8032, RFC 7748, RFC 9180 A.2.1, XChaCha draft A.3.1, RFC 5869 ok")
+    print(
+        "anchors: RFC 8032, RFC 7748, RFC 9180 A.2.1, XChaCha draft A.3.1, RFC 5869, "
+        "X25519 low-order points ok"
+    )
     source = SRC.read_text(encoding="utf-8")
     failed = False
     for name, value in compute().items():
