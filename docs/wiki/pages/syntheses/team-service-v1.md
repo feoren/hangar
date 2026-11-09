@@ -98,7 +98,7 @@ Consequences:
 - Storage: SQLite (WAL) via sqlx 0.9 for self-hosting and for the hosted service in version 1;
   Postgres only when several nodes are needed.
 - Login: OAuth device flow (the app shows a code, the browser confirms), magic links, later
-  passkeys and OIDC (GitHub and other forges). Opaque, hashed, rotating tokens; in the app in the keychain.
+  passkeys and OIDC (GitHub, self-hosted forges). Opaque, hashed, rotating tokens; in the app in the keychain.
   Self-hosting works without mail through admin invite links.
 - Seats: joining a team is one transaction that checks the seat count. License keys are signed
   documents (Ed25519, `ed25519-dalek`, BSD-3-Clause) with a key id so the signing key can rotate;
