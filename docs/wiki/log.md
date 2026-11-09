@@ -271,3 +271,21 @@ old key of a re-admitted device id cannot get the honest device set aside. Live 
 key period, then counter, and go along with every state file write. The teammate path lookup
 for the agent's context is bounded to 50 ms (checked before every file system call), follows no
 reparse point, skips worktrees below one and non-fixed drives, and runs outside the gate's lock. Pages changed: [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-09] ingest | Relay interop run and task reservations
+Filed the interop run against a self-hosted relay (live protocol compatible; its account API
+differs from the website API, reported to the relay's maintainers) and recorded the mismatch in
+the account API page. Task reservations as built: sealed notes, first wins with a waiting
+attempt, release requests with the holder's card, expiry warnings, reservations in the gate and
+the agent's context, trust rows for the reservation events. Pages changed:
+[[relay-interop-measurement]], [[hangar-account-api]], [[team-service-v1]], [[team-crypto]],
+[[overview]].
+
+## [2026-11-09] ingest | Task reservations: review fixes
+A blocked attempt pauses its own linked session; only shared sessions can be linked; the note
+record id is fixed in the crypto crate (`task_record_id`); a conflict with an unlisted holder
+waits for the next log fetch. Note marks are stored and survive the end of a hold, resyncs and
+restarts; notes must hash to their task and carry a plain name; the holder's card needs a signed
+request and answers it once; notices need a matching hold or request; `prev` names only old
+holds; unknown holders fetch the log at most every 5 s. Accepted risks recorded. Pages changed:
+[[team-service-v1]], [[team-crypto]].

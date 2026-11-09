@@ -175,9 +175,39 @@ function linkRepo(
   });
 }
 
+/** The busy key of a command on one task of a project (`task`: its hash, or the form's "new"). */
+export function taskKey(projectId: string, task: string): string {
+  return [projectId, "task", task].join("\u0000");
+}
+
+function taskCommand(
+  projectId: string,
+  task: string,
+  run: () => Promise<unknown>,
+): Promise<TeamProblem | null> {
+  return command(taskKey(projectId, task), async () => {
+    await run();
+    return true;
+  });
+}
+
 export const team = {
   setSharing: toggle,
   linkRepo,
+  /** Reserves a task; the backend's next `team-changed` shows whether it went through. */
+  reserveTask: (
+    projectId: string,
+    title: string,
+    sessionId: number | null,
+    area: string | null,
+  ): Promise<TeamProblem | null> =>
+    taskCommand(projectId, "new", () => api.teamReserveTask(projectId, title, sessionId, area)),
+  releaseTask: (projectId: string, task: string) =>
+    taskCommand(projectId, task, () => api.teamReleaseTask(projectId, task)),
+  askRelease: (projectId: string, task: string) =>
+    taskCommand(projectId, task, () => api.teamAskRelease(projectId, task)),
+  answerRelease: (projectId: string, task: string, requester: string, accept: boolean) =>
+    taskCommand(projectId, task, () => api.teamAnswerRelease(projectId, task, requester, accept)),
   confirm: (request: string) => answer(request, true),
   reject: (request: string) => answer(request, false),
 };

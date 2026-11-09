@@ -19,6 +19,7 @@ import {
   type TeamActivity,
   type TeamProblem,
 } from "./team";
+import { TeamTasksView, type TaskSession } from "./TeamTasksView";
 import { linkKey, team } from "./useTeam";
 
 /** Files of one teammate session listed before "show more". */
@@ -35,6 +36,8 @@ export function TeamActivityView(props: {
   activity: TeamActivity;
   /** Repository folders of this device's running sessions. */
   repos: readonly RepoRef[];
+  /** This device's running sessions, for linking a reservation to one. */
+  sessions: readonly TaskSession[];
   busy: ReadonlySet<string>;
 }) {
   const t = useT();
@@ -47,6 +50,12 @@ export function TeamActivityView(props: {
 
   return (
     <div className="team-activity">
+      <TeamTasksView
+        projectId={props.projectId}
+        activity={props.activity}
+        sessions={props.sessions}
+        busy={props.busy}
+      />
       <section className="team-repos" aria-labelledby={reposId}>
         <h4 id={reposId} className="team-activity-title">
           {t("team.activity.repos")}

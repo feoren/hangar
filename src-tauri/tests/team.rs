@@ -27,17 +27,22 @@ use hangar_lib::team_share::{LocalSession, SessionState};
 use hangar_team_crypto::identity::DevicePublicKeys;
 use hangar_team_crypto::memberlog::LogVerifier;
 use hangar_team_protocol::e2e::ChainHead;
+use hangar_team_protocol::hash::KeyedHash;
 use hangar_team_protocol::ids::{
     Ciphertext, DeviceId, Epoch, MemberId, Sealed, StreamId, TeamId, UnixMillis,
 };
 use hangar_team_protocol::log::{EventLog, Replay};
 use hangar_team_protocol::overlap::{ClaimBoard, OverlapNotice, SessionClaims};
+use hangar_team_protocol::reservation::{
+    Intent, Policy, ReservationBook, ReservationEvent, ReservationState,
+};
 use hangar_team_protocol::wire::{
     decode_client, encode_server, Ack, ClientMessage, Cursor, DeviceInfo, DeviceList,
     DeviceRemoved, ErrorBody, ErrorCode, Holder, KeyRotated, KeyWrapped, MemberLogAppend,
     MemberLogAppended, MemberLogEntries, MemberLogEntry, MemberRemoved, MemberRoleChanged,
-    PresenceState, PresenceUpdate, ResyncRequired, Role, ServerFrame, ServerMessage, SessionRef,
-    Welcome,
+    PresenceState, PresenceUpdate, ReservationExpired, ReservationExpiring, ResyncRequired, Role,
+    ServerFrame, ServerMessage, SessionRef, TaskReleaseAnswered, TaskReleaseRequestEnded,
+    TaskReleaseRequested, TaskReleased, TaskReserved, Welcome,
 };
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -353,6 +358,23 @@ struct RelayState {
     board: ClaimBoard,
     /// `claim.set` frames received.
     claim_sets: u32,
+    /// Reservations, decided as the real relay decides them.
+    book: ReservationBook,
+    /// The note of the newest applied `task.reserve` per task, with its sender.
+    notes: HashMap<KeyedHash, (Holder, Option<Sealed>)>,
+    request_notes: HashMap<KeyedHash, Option<Sealed>>,
+}
+
+fn now() -> UnixMillis {
+    UnixMillis(
+        u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap(),
+    )
 }
 
 #[derive(Clone)]
@@ -458,6 +480,8 @@ impl RelayState {
 
     /// A device's last connection closed: it is offline and its claims end.
     fn gone(&mut self, holder: &Holder) {
+        let events = self.book.presence(holder, false, now());
+        self.log_tasks(events);
         if self.conns.values().any(|c| c.holder == *holder) {
             return;
         }
@@ -471,6 +495,146 @@ impl RelayState {
         self.others(holder, &offline);
         let notices = self.board.clear_device(holder);
         self.deliver(notices);
+    }
+
+    fn reserved(
+        &self,
+        task: KeyedHash,
+        hold: &hangar_team_protocol::reservation::Hold,
+    ) -> ServerMessage {
+        ServerMessage::TaskReserved(TaskReserved {
+            task,
+            holder: hold.holder.clone(),
+            epoch: hold.epoch,
+            since: hold.since,
+            expires_at: hold.deadline(&Policy::default()),
+            note: self
+                .notes
+                .get(&task)
+                .filter(|(by, _)| *by == hold.holder)
+                .and_then(|(_, note)| note.clone()),
+        })
+    }
+
+    fn task_message(&self, task: KeyedHash, event: ReservationEvent) -> ServerMessage {
+        match event {
+            ReservationEvent::Reserved {
+                holder,
+                epoch,
+                since,
+                expires_at,
+            } => ServerMessage::TaskReserved(TaskReserved {
+                task,
+                note: self
+                    .notes
+                    .get(&task)
+                    .filter(|(by, _)| *by == holder)
+                    .and_then(|(_, note)| note.clone()),
+                holder,
+                epoch,
+                since,
+                expires_at,
+            }),
+            ReservationEvent::Released { holder, reason } => {
+                ServerMessage::TaskReleased(TaskReleased {
+                    task,
+                    holder,
+                    reason,
+                })
+            }
+            ReservationEvent::Expiring { holder, expires_at } => {
+                ServerMessage::ReservationExpiring(ReservationExpiring {
+                    task,
+                    holder,
+                    expires_at,
+                })
+            }
+            ReservationEvent::Expired { holder } => {
+                ServerMessage::ReservationExpired(ReservationExpired { task, holder })
+            }
+            ReservationEvent::ReleaseRequested { holder, requester } => {
+                ServerMessage::TaskReleaseRequested(TaskReleaseRequested {
+                    task,
+                    holder,
+                    requester: requester.member,
+                    note: self.request_notes.get(&task).cloned().flatten(),
+                })
+            }
+            ReservationEvent::ReleaseAnswered {
+                holder,
+                requester,
+                accepted,
+            } => ServerMessage::TaskReleaseAnswered(TaskReleaseAnswered {
+                task,
+                holder,
+                requester: requester.member,
+                accepted,
+            }),
+            ReservationEvent::ReleaseRequestEnded {
+                holder,
+                requester,
+                reason,
+            } => ServerMessage::TaskReleaseRequestEnded(TaskReleaseRequestEnded {
+                task,
+                holder,
+                requester: requester.member,
+                reason,
+            }),
+        }
+    }
+
+    fn log_tasks(&mut self, events: Vec<(KeyedHash, ReservationEvent)>) {
+        for (task, event) in events {
+            let message = self.task_message(task, event);
+            self.log_event(message);
+        }
+    }
+
+    /// Applies a reservation intent and answers it like the real relay: the time events and
+    /// the intent's events in the log, `ack` or `err` (with the holder on a conflict).
+    fn task_intent(&mut self, sender: &Holder, intent: Intent) -> ServerMessage {
+        let applied = self.book.apply(sender, intent, now());
+        let (events, rejection) = applied.into_events();
+        self.log_tasks(events);
+        match rejection {
+            None => ack(None),
+            Some(rejection) => ServerMessage::Err(ErrorBody {
+                code: rejection.code(),
+                retry_after_ms: rejection.retry_after_ms(now()),
+                holder: rejection.holder().cloned(),
+            }),
+        }
+    }
+
+    /// The snapshot of the reservations after `resync_required`, as events without `seq`.
+    fn task_snapshot(&self) -> Vec<ServerMessage> {
+        let mut messages = Vec::new();
+        for (task, entry) in self.book.iter() {
+            match entry.state() {
+                ReservationState::Held { hold } => messages.push(self.reserved(*task, hold)),
+                ReservationState::Expiring { hold, .. } => {
+                    messages.push(self.reserved(*task, hold));
+                    if let Some(expires_at) = hold.deadline(&Policy::default()) {
+                        messages.push(ServerMessage::ReservationExpiring(ReservationExpiring {
+                            task: *task,
+                            holder: hold.holder.clone(),
+                            expires_at,
+                        }));
+                    }
+                }
+                ReservationState::ReleaseRequested { hold, request, .. } => {
+                    messages.push(self.reserved(*task, hold));
+                    messages.push(ServerMessage::TaskReleaseRequested(TaskReleaseRequested {
+                        task: *task,
+                        holder: hold.holder.clone(),
+                        requester: request.requester.member.clone(),
+                        note: self.request_notes.get(task).cloned().flatten(),
+                    }));
+                }
+                ReservationState::Free | ReservationState::Expired { .. } => {}
+            }
+        }
+        messages
     }
 
     fn removed(&mut self, holders: &[Holder]) {
@@ -504,6 +668,9 @@ impl Relay {
             presence: BTreeMap::new(),
             board: ClaimBoard::new(),
             claim_sets: 0,
+            book: ReservationBook::new(Policy::default(), Epoch(0)),
+            notes: HashMap::new(),
+            request_notes: HashMap::new(),
         }));
         let shared = Arc::clone(&state);
         tauri::async_runtime::spawn(async move {
@@ -653,7 +820,9 @@ fn handle(
             .collect();
         match replay {
             Ok(events) => {
-                state.hellos.push((holder, hello.last_seq.clone(), false));
+                state
+                    .hellos
+                    .push((holder.clone(), hello.last_seq.clone(), false));
                 reply(welcome);
                 for (seq, event) in events {
                     let _ = out.send(text(None, Some(seq), &team, event));
@@ -663,18 +832,25 @@ fn handle(
                 }
             }
             Err(reason) => {
-                state.hellos.push((holder, hello.last_seq.clone(), true));
+                state
+                    .hellos
+                    .push((holder.clone(), hello.last_seq.clone(), true));
                 reply(ServerMessage::ResyncRequired(ResyncRequired {
                     stream: state.stream.clone(),
                     head: state.log.head(),
                     reason,
                 }));
+                for message in state.task_snapshot() {
+                    let _ = out.send(text(None, None, &team, message));
+                }
                 reply(welcome);
                 for update in presence {
                     let _ = out.send(text(None, None, &team, update));
                 }
             }
         }
+        let events = state.book.presence(&holder, true, now());
+        state.log_tasks(events);
         return;
     }
     if matches!(frame.message, ClientMessage::Ping) {
@@ -761,6 +937,8 @@ fn handle(
                         ));
                     }
                     state.epoch = rotate.epoch;
+                    let events = state.book.rotate(rotate.epoch, now()).unwrap_or_default();
+                    state.log_tasks(events);
                     reply(ack(None));
                     state.store(&rotate.log, admitted.head, &sender);
                     state.log_event(ServerMessage::KeyRotated(KeyRotated {
@@ -868,6 +1046,54 @@ fn handle(
                 session: clear.session,
             });
             state.deliver(notices);
+        }
+        ClientMessage::TaskReserve(reserve) => {
+            let before = state
+                .notes
+                .insert(reserve.task, (sender.clone(), reserve.note.clone()));
+            let intent = Intent::Reserve {
+                task: reserve.task,
+                epoch: reserve.epoch,
+                prev: reserve.prev,
+            };
+            let answer = state.task_intent(&sender, intent);
+            if matches!(answer, ServerMessage::Err(_)) {
+                match before {
+                    Some(before) => state.notes.insert(reserve.task, before),
+                    None => state.notes.remove(&reserve.task),
+                };
+            }
+            reply(answer);
+        }
+        ClientMessage::TaskRelease(task) => {
+            reply(state.task_intent(&sender, Intent::Release { task: task.task }));
+        }
+        ClientMessage::Heartbeat(beat) => {
+            reply(state.task_intent(&sender, Intent::Heartbeat { tasks: beat.tasks }));
+        }
+        ClientMessage::TaskReleaseRequest(request) => {
+            let before = state.request_notes.insert(request.task, request.note);
+            let answer = state.task_intent(&sender, Intent::RequestRelease { task: request.task });
+            if matches!(answer, ServerMessage::Err(_)) {
+                match before {
+                    Some(before) => state.request_notes.insert(request.task, before),
+                    None => state.request_notes.remove(&request.task),
+                };
+            }
+            reply(answer);
+        }
+        ClientMessage::TaskReleaseWithdraw(task) => {
+            reply(state.task_intent(&sender, Intent::WithdrawRelease { task: task.task }));
+        }
+        ClientMessage::TaskReleaseAnswer(answer) => {
+            reply(state.task_intent(
+                &sender,
+                Intent::AnswerRelease {
+                    task: answer.task,
+                    requester: answer.requester,
+                    accept: answer.accept,
+                },
+            ));
         }
         _ => reply(ack(None)),
     }
@@ -1775,5 +2001,133 @@ fn an_unreadable_state_file_stops_instead_of_starting_empty() {
             "the file is left for the person"
         );
         a1.team.shutdown();
+    });
+}
+
+/// The team's view of the project on a device.
+fn activity(device: &Device) -> Option<hangar_lib::team_share::TeamActivity> {
+    device
+        .team
+        .snapshot()
+        .teams
+        .into_iter()
+        .find(|t| t.project_id == PROJECT)
+        .map(|t| t.activity)
+}
+
+#[test]
+fn a_reservation_goes_to_the_first_and_is_handed_over_on_request() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        {
+            let mut mock = guard(&website.state);
+            mock.roles.insert("alice".to_owned(), "owner");
+            mock.roles.insert("bob".to_owned(), "member");
+        }
+        let a1 = Device::new(&website, "alice", "t-a1");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        let b1 = Device::new(&website, "bob", "t-b1");
+        b1.team.enable(PROJECT).await.unwrap();
+        b1.waiting().await;
+        let pending = a1.pending(1).await;
+        a1.team.confirm(&pending[0].id).await.unwrap();
+        b1.connected(1, 2, 2).await;
+        let root = "a".repeat(40);
+        a1.team.set_local(vec![local(
+            1,
+            "Claude Code",
+            &root,
+            &[("src/pay/a.rs", 1, 2)],
+        )]);
+        b1.team
+            .set_local(vec![local(5, "Codex", &root, &[("docs/x.md", 1, 1)])]);
+        a1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+        b1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+
+        // Alice reserves a task for her session, with the folder it covers.
+        let task = hangar_lib::team_service::Task {
+            title: "Fix checkout".to_owned(),
+            session: Some(1),
+            area: Some("src/pay".to_owned()),
+        };
+        a1.team.reserve_task(PROJECT, task).await.unwrap();
+        until("bob sees alice's reservation", || {
+            activity(&b1).is_some_and(|a| a.tasks.iter().any(|t| t.title == "Fix checkout"))
+        })
+        .await;
+        // The gate on Bob's device pauses an edit in that folder of a linked clone only.
+        let tasks = b1.team.team_tasks(&root, FOLDER);
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].area.as_deref(), Some("src/pay"));
+        assert!(!tasks[0].mine);
+        assert!(b1.team.team_tasks(&root, FORK).is_empty());
+
+        // Bob wants the same task: Alice was first.
+        let task = hangar_lib::team_service::Task {
+            title: "fix checkout".to_owned(),
+            session: None,
+            area: None,
+        };
+        b1.team.reserve_task(PROJECT, task).await.unwrap();
+        until("bob waits for alice", || {
+            activity(&b1).is_some_and(|a| {
+                a.attempts.len() == 1
+                    && a.attempts[0].state == hangar_lib::team_tasks::AttemptState::Blocked
+            })
+        })
+        .await;
+        let hash = activity(&b1).unwrap().attempts[0].task.clone();
+        // Bob asks; Alice gets the request and hands the task over.
+        b1.team.ask_release(PROJECT, &hash).await.unwrap();
+        until("alice is asked", || {
+            activity(&a1).is_some_and(|a| a.tasks.iter().any(|t| t.request.is_some()))
+        })
+        .await;
+        a1.team
+            .answer_release(PROJECT, &hash, "bob", true)
+            .await
+            .unwrap();
+        until("bob holds the task", || {
+            activity(&b1).is_some_and(|a| a.tasks.len() == 1 && a.tasks[0].mine)
+        })
+        .await;
+        let notices = activity(&b1).unwrap().notices;
+        assert!(notices
+            .iter()
+            .any(|n| n.kind == hangar_lib::team_tasks::NoticeKind::ReleaseAccepted));
+        until("alice reads bob's note", || {
+            activity(&a1).is_some_and(|a| {
+                a.tasks.len() == 1
+                    && a.tasks[0].member == "bob"
+                    && a.tasks[0].title == "fix checkout"
+            })
+        })
+        .await;
+
+        // Bob's sharing off and on: a new engine takes the relay's snapshot and knows its hold.
+        b1.team.disable(PROJECT).await.unwrap();
+        b1.team.enable(PROJECT).await.unwrap();
+        b1.connected(1, 2, 2).await;
+        until("bob's hold back from the snapshot", || {
+            activity(&b1).is_some_and(|a| {
+                a.tasks.len() == 1 && a.tasks[0].mine && a.tasks[0].title == "fix checkout"
+            })
+        })
+        .await;
+        assert!(
+            relay.state().hellos.last().unwrap().2,
+            "the new engine resynced"
+        );
+        // Released: gone everywhere.
+        b1.team.release_task(PROJECT, &hash).await.unwrap();
+        until("released", || {
+            activity(&a1).is_some_and(|a| a.tasks.is_empty())
+                && activity(&b1).is_some_and(|a| a.tasks.is_empty())
+        })
+        .await;
+        a1.team.shutdown();
+        b1.team.shutdown();
     });
 }

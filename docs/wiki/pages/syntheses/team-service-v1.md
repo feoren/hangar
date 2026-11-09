@@ -2,7 +2,7 @@
 title: "Team service version 1: research results and build plan"
 type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
-sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]"]
+sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]"]
 created: 2026-11-09
 updated: 2026-11-09
 ---
@@ -523,7 +523,9 @@ real relay yet; tested against an in-test relay built from both crates.
   device, protocol range and the stored cursor; `welcome` or `resync_required`; `ticket.renew`
   with a fresh ticket every 5 minutes; a ping every 25 s; nothing heard for 60 s counts as lost;
   a reconnect of its own at 540 s, before the relay's 600 s connection age; the cursor is stored
-  after every logged event, so a reconnect replays instead of resyncing. One worker and one
+  after every logged event, so a reconnect replays instead of resyncing (since the task
+  reservations of part 2b, the first `hello` after an app start sends no cursor and takes the
+  relay's snapshot; later reconnects of the same engine resume). One worker and one
   connection per project; quitting sends close 1000 and waits up to 2 s.
 - **Reconnect policy:** 4401 a fresh ticket at once; `err forbidden` on `hello` one immediate
   retry with a fresh ticket, a second one stops (`refused`); 4403 stops with "removed" and keeps
@@ -605,9 +607,12 @@ real relay yet; tested against an in-test relay built from both crates.
 ### Step F as built (part 2b, 2026-11-09)
 
 See your team: the teammates' sessions, the files they change, and their collisions with your own
-sessions, with the agent gate of step B pausing on a teammate's file. Not run against a real
-relay yet; tested against the in-test relays of `team_engine.rs` and `tests/team.rs`, which pass
-presence on and compare claims with the protocol crate's `ClaimBoard`.
+sessions, with the agent gate of step B pausing on a teammate's file, and task reservations. Run
+once against a self-hosted relay ([[relay-interop-measurement]]: the live protocol was
+compatible, its account API was not; reservations were not part of that run); otherwise tested
+against the in-test relays of `team_engine.rs` and `tests/team.rs`, which pass presence on,
+compare claims with the protocol crate's `ClaimBoard` and decide reservations with its
+`ReservationBook`.
 
 - **Review items of part 2a:** the device identity is bound to the account of its first
   `welcome` (`StoredDevice` format `v2 <device> <member in hex> <identity>`; `v1` entries are bound
@@ -785,8 +790,96 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   refined lines, teammate files for the gate, offline after sharing is turned off; two people on
   one keychain; an unreadable `team.json`; sign-out and sign-in three times without
   `otherInstance`). Vitest for the new parsing and texts in `src/team.ts` and the gate's teammates.
-- **Not built yet:** task reservation (`task.reserve`, release requests and their cards, expiry
-  warnings) and with it the reservations in the agent's context; shared decisions; a "Wait" answer
+- **Task reservations ("I'm working on ...", built since):**
+  - **What is shared:** a task is a short title (at most 120 characters); its keyed hash is the
+    protocol's `TaskId` (trimmed, NFC, ASCII lower case), so "Fix login" and "fix LOGIN" are one
+    task. `task.reserve` carries a sealed reservation note (record id:
+    `record::task_record_id`, the hash's 64 lowercase hex digits) with the title as typed, the person's display name and, when the person linked a running
+    shared session, its repository's root commit, an optional folder of it (the area, checked
+    like a team path) and the session key. A release request carries a sealed note with the
+    asking person's name. The relay sees only the hash (`team_tasks.rs`, pure).
+  - **First wins:** nothing is applied before the relay's event. `err conflict` names the holder:
+    the attempt shows "Anna #3f9a2c1b… was first. Your agent waits." (without a linked session
+    only "… was first.") with "Ask to release" and "Cancel". A holder the log does not list yet
+    shows the attempt as still reserving; listed after the next log fetch it counts, otherwise the
+    attempt ends with a notice. A session can be linked only when the project shares it
+    (`TeamActivity.sessions`). When the hold ends by release or expiry (not a handover) the waiting attempt tries
+    again by itself. A handover carries no note of the new holder, so the new holder sends its
+    `task.reserve` again (activity) and the team reads the title in the new holder's spelling.
+  - **Holder's card:** a release request for a task this device holds shows one card at a time
+    above the device confirmations, with Release and Keep disabled for 1 s whenever the shown
+    request changes, but only when a listed device of the requester signed the request note (and
+    the note was not shown before); a request on the relay's word alone shows a quiet
+    "Unconfirmed release request" line without buttons. The answer names the requester the card
+    showed (`team_answer_release` refuses another), goes out once and hides the card until the
+    relay's event (an error brings it back). The requester gets a notice (handed over, kept, no
+    answer in time, asked too soon or already asked) only when its attempt had asked.
+  - **Expiry:** the relay runs a hold only while its device is offline (`Policy::default`); the
+    Team view shows "runs out at 14:05 without activity" from `expiresAt`, and the person gets a
+    notice on any of its devices at `reservation.expiring`, then at `reservation.expired`.
+    Heartbeats go out at most once a minute while a shared session's claims change. After a key
+    rotation (and on every new connection) the device reserves its holds again under the current
+    hash with the older ones in `prev`; `prev` names only hashes under which a hold of an earlier
+    epoch stands (this device's own, or a teammate's who keeps the task while offline), never
+    every old hash of the title, which would only tell the relay which hashes of two epochs
+    belong together. Expired and force released notices come only when a hold was there.
+  - **Restart:** reservations are kept in memory only, the note marks in the state file
+    (`noteMarks`, `noteFloors`: per device and note, at most 64 with a floor, like the claim
+    details); the first `hello` of an engine sends no cursor, so the relay's snapshot (`task.reserved` per hold, plus `reservation.expiring` and
+    `task.release_requested`) restores them; later reconnects of the same engine resume. Attempts
+    that waited for someone else are forgotten on a restart; own holds come back with their note.
+  - **Gate and context:** `gate::assess_with_tasks` pauses an edit inside the area of a
+    teammate's reservation (same root commit, path within the folder, compared as the team
+    compares paths) in a clone linked to that project, like a teammate's file
+    (`PendingDecision.reserved`, level `sameArea`); the person's own reservations never pause.
+    An attempt of this device that a teammate's hold blocks pauses every edit of its linked
+    session (inside the attempt's folder when it named one) until it is won or cancelled; the
+    card shows the task as reserved. Without a linked session nothing pauses.
+    The prompt context lists at most 10 reservations before the files (at most half of the 4000
+    characters, the rest counted as `moreTasks`): `{"task":..,"reservedBy":..,"area":..}`,
+    `"reservedByUser":true` for the person's own, `"wantedByThisSession":true` for an attempt
+    of that session a teammate's hold blocks; every string a `literal()`.
+  - **Trust:** see the relay event table in [[team-crypto]] (listed holders only, in order and
+    once, waiting for the next log fetch at most 1024 events and fetching for them at most every
+    5 s, at most 32 holds per member, notes only from the holder, a note whose title does not hash
+    to the task or whose name has control, invisible or reordering characters refused, a note
+    shown before or of a hold that ended refused, also after a resync or a restart).
+  - **Accepted risks:** release, expiry and handover are not signed by the holder: the relay
+    decides first wins and can end a hold or hand it over (a member could ask an honest relay
+    for the same, owners and admins can force a release). A broad area (such as `src`) pauses
+    the teammates' agents in all of it, but only with a question to their person, and it runs
+    out like any hold while its device is offline.
+  - **Interface:** commands `team_reserve_task(projectId, title, sessionId or null, area or
+    null)`, `team_release_task(projectId, task)` (also cancels an attempt and withdraws its
+    request), `team_ask_release(projectId, task)`, `team_answer_release(projectId, task, requester, accept)`
+    (main window only; `task` is the hash from the view); `TeamActivity` adds `tasks: TaskView[]`,
+    `attempts: AttemptView[]`, `notices: TaskNotice[]`, `sessions` (the linkable session ids);
+    `RequestView.confirmed`; error kinds `invalidTask`, `unknownTask`,
+    `taskLimit`. Types mirror in `src/team.ts`.
+  - **UI:** "Tasks" at the top of a connected project's Team view (`TeamTasksView.tsx`): one
+    "Reserve task" button that opens a small form (title, optional session, a folder once a
+    session is chosen), the waiting attempts, and every reservation with its holder, since when,
+    when it runs out, its folder and one action (Release or Ask to release). Notices show once
+    in the window and, in the background, as a desktop notification at most once a minute.
+  - **Protocol wishes (not built, nothing invented on the wire):** `task.release_requested` names
+    only the requester's member, so the app tries the requester's listed devices to open the note
+    (a holder would let it check one); a handover's `task.reserved` carries no note (the new
+    holder sends its own).
+  - **Tests:** `team_tasks.rs` (notes, request notes, areas), engine tests against the in-memory
+    relay with the protocol crate's `ReservationBook` (first wins and the blocked attempt names
+    the holder, a request declined then refused by the cooldown then accepted with the title read
+    again, an offline holder warned then expired and the waiting attempt winning, an older note,
+    a duplicate `seq`, an unlisted holder and a note moved to another task ignored, the first
+    `hello` without a cursor, a conflict with an unlisted holder, a note of an ended hold after
+    a resync and a restart, notices without a matching hold or request, a card only for a signed
+    request answered once, a note naming another task or a reordering name, `prev` only for old
+    holds, the throttled log fetch for unknown holders), gate tests (a reserved area pauses, the
+    person's own does not, a blocked attempt pauses only its own linked session, context lines as
+    bounded literals), and `tests/team.rs` (two people over real WebSockets:
+    reserve with an area, the gate's view on the other device, first wins, ask and hand over,
+    sharing off and on restores the hold from the snapshot, release). Vitest for parsing, texts
+    and the release request list.
+- **Not built yet:** shared decisions; a "Wait" answer
   of the gate; the gate for other agents than Claude Code; naming the area of a `sameArea`
   overlap (the relay sends only hashes); removing devices and members from the UI; a hint in the
   Team view when local claims are turned off (then no repository is offered).

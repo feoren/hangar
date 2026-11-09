@@ -78,6 +78,10 @@ const COMMANDS: &[&str] = &[
     "team_reject",
     "team_session_states",
     "team_link_repo",
+    "team_reserve_task",
+    "team_release_task",
+    "team_ask_release",
+    "team_answer_release",
 ];
 
 fn main() {

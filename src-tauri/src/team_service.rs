@@ -53,6 +53,7 @@ use crate::team_engine::{Effect, Engine, EngineSetup};
 use crate::team_share::{
     self, LocalSession, LocalShare, SessionLabel, SessionState, TeamActivity, TeammateFile,
 };
+use crate::team_tasks::TeamTask;
 
 /// Where this device's sessions come from: the claims' worktrees and the session list.
 pub type LocalSource = Box<dyn Fn() -> (Arc<Vec<WorktreeClaims>>, Vec<SessionLabel>) + Send + Sync>;
@@ -99,7 +100,21 @@ enum Command {
     RemoveDevice(Holder, oneshot::Sender<Result<(), TeamError>>),
     /// What the project shares from this device now (part 2b).
     Share(LocalShare),
+    /// Reserves a task (title, linked session, folder of its repository).
+    ReserveTask(Task, oneshot::Sender<Result<(), TeamError>>),
+    ReleaseTask(String, oneshot::Sender<Result<(), TeamError>>),
+    AskRelease(String, oneshot::Sender<Result<(), TeamError>>),
+    /// Task, the requester the card showed, accept.
+    AnswerRelease(String, String, bool, oneshot::Sender<Result<(), TeamError>>),
     Stop,
+}
+
+/// A task to reserve, as the window names it.
+#[derive(Debug, Clone)]
+pub struct Task {
+    pub title: String,
+    pub session: Option<SessionId>,
+    pub area: Option<String>,
 }
 
 /// What the reader of one connection hands the worker.
@@ -114,6 +129,8 @@ struct Team {
     activity: TeamActivity,
     /// The teammates' files, for the agent gate and the agent's context.
     files: Vec<TeammateFile>,
+    /// The team's reservations, for the agent gate and the agent's context.
+    tasks: Vec<TeamTask>,
     /// The share last handed to the worker.
     shared: Option<LocalShare>,
     tx: Option<mpsc::UnboundedSender<Command>>,
@@ -456,6 +473,68 @@ impl TeamService {
             .collect()
     }
 
+    /// The reservations of the running teams of the current server whose project this device
+    /// linked the clone at `folder` of the repository `repo` to: those without an area and
+    /// those of this repository.
+    pub fn team_tasks(&self, repo: &str, folder: &str) -> Vec<TeamTask> {
+        let base = self.base();
+        let config = self.config().unwrap_or_default();
+        let service = self.service_name();
+        lock(&self.inner.teams)
+            .iter()
+            .filter(|((b, project), _)| {
+                *b == base
+                    && config
+                        .linked(service, &base, project)
+                        .iter()
+                        .any(|r| r.shares(repo, folder))
+            })
+            .flat_map(|(_, team)| team.tasks.iter())
+            .filter(|task| task.repo.as_deref().is_none_or(|r| r == repo))
+            .cloned()
+            .collect()
+    }
+
+    /// Reserves a task in a shared project ("I'm working on ..."); the relay decides who holds
+    /// it, the Team view shows the outcome.
+    pub async fn reserve_task(&self, project: &str, task: Task) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        Self::send_command(tx, move |reply| Command::ReserveTask(task, reply)).await
+    }
+
+    /// Releases a task this device holds, or gives up an attempt that someone else's hold
+    /// blocks.
+    pub async fn release_task(&self, project: &str, task: &str) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let task = task.to_owned();
+        Self::send_command(tx, move |reply| Command::ReleaseTask(task, reply)).await
+    }
+
+    /// Asks the holder of a task to hand it over.
+    pub async fn ask_release(&self, project: &str, task: &str) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let task = task.to_owned();
+        Self::send_command(tx, move |reply| Command::AskRelease(task, reply)).await
+    }
+
+    /// The holder's answer to the release request of `requester` (the member the card showed):
+    /// hand the task over, or keep it.
+    pub async fn answer_release(
+        &self,
+        project: &str,
+        task: &str,
+        requester: &str,
+        accept: bool,
+    ) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let task = task.to_owned();
+        let requester = requester.to_owned();
+        Self::send_command(tx, move |reply| {
+            Command::AnswerRelease(task, requester, accept, reply)
+        })
+        .await
+    }
+
     fn turn(&self, base: &str, project: &str) -> Turn {
         let mut turns = lock(&self.inner.turns);
         Arc::clone(
@@ -522,6 +601,7 @@ impl TeamService {
                     team.pending.clear();
                     team.activity = TeamActivity::default();
                     team.files.clear();
+                    team.tasks.clear();
                     changed = true;
                 }
             }
@@ -653,6 +733,7 @@ impl TeamService {
                 team.pending.clear();
                 team.activity = TeamActivity::default();
                 team.files.clear();
+                team.tasks.clear();
                 if let Some(tx) = team.tx.take() {
                     let _ = tx.send(Command::Stop);
                 }
@@ -706,6 +787,7 @@ impl TeamService {
                     pending: Vec::new(),
                     activity: TeamActivity::default(),
                     files: Vec::new(),
+                    tasks: Vec::new(),
                     shared: None,
                     tx: None,
                     worker: None,
@@ -719,6 +801,7 @@ impl TeamService {
             team.pending.clear();
             team.activity = TeamActivity::default();
             team.files.clear();
+            team.tasks.clear();
             team.shared = None;
             team.tx = Some(tx);
         }
@@ -827,6 +910,7 @@ impl TeamService {
                     team.pending = view.pending;
                     team.activity = view.activity;
                     team.files = view.files;
+                    team.tasks = view.tasks;
                     changed
                 }
                 _ => false,
@@ -848,6 +932,7 @@ impl TeamService {
                     team.pending.clear();
                     team.activity = TeamActivity::default();
                     team.files.clear();
+                    team.tasks.clear();
                     team.tx = None;
                     team.worker = None;
                 }
@@ -882,6 +967,7 @@ struct View {
     pending: Vec<PendingConfirmation>,
     activity: TeamActivity,
     files: Vec<TeammateFile>,
+    tasks: Vec<TeamTask>,
 }
 
 struct Worker {
@@ -930,6 +1016,7 @@ impl Worker {
                 pending: engine.pending(),
                 activity: engine.activity(),
                 files: engine.teammate_files(),
+                tasks: engine.team_tasks(),
             },
             None => View {
                 status: TeamStatus::Connecting {
@@ -938,6 +1025,7 @@ impl Worker {
                 pending: Vec::new(),
                 activity: TeamActivity::default(),
                 files: Vec::new(),
+                tasks: Vec::new(),
             },
         };
         self.service
@@ -954,6 +1042,7 @@ impl Worker {
                 pending: Vec::new(),
                 activity: TeamActivity::default(),
                 files: Vec::new(),
+                tasks: Vec::new(),
             },
         );
     }
@@ -1097,7 +1186,11 @@ impl Worker {
             Command::Confirm(_, reply)
             | Command::Reject(_, reply)
             | Command::RemoveMember(_, reply)
-            | Command::RemoveDevice(_, reply) => {
+            | Command::RemoveDevice(_, reply)
+            | Command::ReserveTask(_, reply)
+            | Command::ReleaseTask(_, reply)
+            | Command::AskRelease(_, reply)
+            | Command::AnswerRelease(_, _, _, reply) => {
                 let _ = reply.send(Err(TeamError::Busy));
                 false
             }
@@ -1419,6 +1512,15 @@ impl Worker {
             Command::Reject(id, reply) => (engine.reject(&id), reply),
             Command::RemoveMember(member, reply) => (engine.remove_member(&member), reply),
             Command::RemoveDevice(holder, reply) => (engine.remove_device(&holder), reply),
+            Command::ReserveTask(task, reply) => (
+                engine.reserve_task(&task.title, task.session, task.area.as_deref()),
+                reply,
+            ),
+            Command::ReleaseTask(task, reply) => (engine.release_task(&task), reply),
+            Command::AskRelease(task, reply) => (engine.ask_release(&task), reply),
+            Command::AnswerRelease(task, requester, accept, reply) => {
+                (engine.answer_release(&task, &requester, accept), reply)
+            }
         };
         match effects {
             Ok(effects) => {

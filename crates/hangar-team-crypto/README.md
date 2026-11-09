@@ -106,6 +106,9 @@ fn new_device() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Changelog
 
+- **Unreleased:** `record::task_record_id` names the record id of reservation and release
+  request notes: the task's keyed hash as 64 lowercase hex digits, so every client opens the
+  others' notes.
 - **Unreleased:** `EpochCipher::open_verified` checks the sender's keys and signature before the
   log head's hash. A record with a known head index and a different hash now reports
   `OpenError::Fork` only when its signature verifies; otherwise it fails with `Signature`,

@@ -161,3 +161,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Zustand (Session, fürs Team)                    | session state                     | working, waiting, idle; `SessionState`                                      |
 | Anderes Konto (Teamgerät)                       | other account                     | `otherAccount`; a team device acts only for the account it was bound to     |
 | Abweichende Historie (Teamgerät)                | divergent device                  | `DivergentDevice`; set aside after signing another history                  |
+| Aufgabe (im Team reserviert)                    | task                              | a short title the team reserves; the relay sees only its keyed hash         |
+| Reservierungsnotiz                              | reservation note                  | sealed title, name, area and session of a reservation, signed by the holder |
+| Reservierungsversuch                            | attempt                           | `AttemptView`; this device's reservation the relay has not granted (yet)    |
+| Reservierter Bereich                            | reserved area                     | a folder a reservation covers; teammates' agents pause there (gate)         |

@@ -850,7 +850,10 @@ export function Sidebar(props: Props) {
           className={teamOpen ? "team-group" : "team-group closed"}
           onToggle={props.onToggleGroup}
         >
-          <TeamProjects snapshot={accountSnapshot} />
+          <TeamProjects
+            snapshot={accountSnapshot}
+            sessions={sessions.map((session) => ({ id: session.id, title: session.title }))}
+          />
         </GroupSection>
       )}
 

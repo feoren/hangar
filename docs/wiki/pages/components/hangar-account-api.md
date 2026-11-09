@@ -2,7 +2,7 @@
 title: "Hangar account API (sign-in, account, projects)"
 type: component
 tags: [collaboration, teams, account, oauth, device-flow, keychain, api]
-sources: []
+sources: ["[[relay-interop-measurement]]"]
 version: "API v1 (base /api/v1), as of 2026-11-09"
 license: "service API; client code in this repository is MIT"
 repo: "website of the official service (not public); client in src-tauri/src/account*.rs"
@@ -19,8 +19,17 @@ Built in step F, part 1 ([[team-service-v1]]); licensing in [[0005-team-collabor
 
 > [!question] Unverified
 > The endpoint behavior below is the service's own documentation as handed to the app team on
-> 2026-11-09, not a measurement against the live service. The client was tested only against an
-> in-test mock (`src-tauri/tests/account.rs`).
+> 2026-11-09, not a measurement against the live official service. The client was tested against
+> an in-test mock (`src-tauri/tests/account.rs`).
+
+> [!warning] Contradiction
+> A self-hosted relay measured on 2026-11-09 ([[relay-interop-measurement]]) does not serve this
+> API: OAuth at the root and the API under `/v1`, `/oauth/device_authorization` instead of
+> `/oauth/device`, form bodies only (415 for JSON), client id `hangar` instead of
+> `hangar-desktop`, no `/projects`, `/v1/tickets` `{team}` -> `{ticket, expiresIn, live}` instead
+> of `/relay-ticket`, no `/oauth/revoke`, errors not RFC 9457, `/me` without `name`, no
+> `invite_url`, no `/account/devices`. The documentation above stays the app's contract; the
+> mismatch is reported to the relay's maintainers. Its live WebSocket protocol was compatible.
 
 ## Endpoints
 

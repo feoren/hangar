@@ -561,6 +561,18 @@
           "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_answer_release command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-answer-release",
+          "markdownDescription": "Enables the team_answer_release command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_ask_release command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-ask-release",
+          "markdownDescription": "Enables the team_ask_release command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_confirm command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-confirm",
@@ -595,6 +607,18 @@
           "type": "string",
           "const": "allow-team-reject",
           "markdownDescription": "Enables the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_release_task command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-release-task",
+          "markdownDescription": "Enables the team_release_task command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_reserve_task command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-reserve-task",
+          "markdownDescription": "Enables the team_reserve_task command without any pre-configured scope."
         },
         {
           "description": "Enables the team_session_states command without any pre-configured scope.",
@@ -1017,6 +1041,18 @@
           "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Denies the team_answer_release command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-answer-release",
+          "markdownDescription": "Denies the team_answer_release command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_ask_release command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-ask-release",
+          "markdownDescription": "Denies the team_ask_release command without any pre-configured scope."
+        },
+        {
           "description": "Denies the team_confirm command without any pre-configured scope.",
           "type": "string",
           "const": "deny-team-confirm",
@@ -1051,6 +1087,18 @@
           "type": "string",
           "const": "deny-team-reject",
           "markdownDescription": "Denies the team_reject command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_release_task command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-release-task",
+          "markdownDescription": "Denies the team_release_task command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_reserve_task command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-reserve-task",
+          "markdownDescription": "Denies the team_reserve_task command without any pre-configured scope."
         },
         {
           "description": "Denies the team_session_states command without any pre-configured scope.",

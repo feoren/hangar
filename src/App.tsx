@@ -207,8 +207,15 @@ import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { useTeam } from "./useTeam";
 import {
+  clockTime,
+  freshTaskNotices,
   freshTeammateOverlaps,
+  personTag,
+  releaseRequestKey,
+  releaseRequests,
   rememberSeen,
+  taskNoticeText,
+  taskTitle,
   sessionStates,
   teammateMarkerText,
   teammateNotice,
@@ -517,6 +524,8 @@ export function App() {
   const [planChanged, setPlanChanged] = useState<string | null>(null);
   /** A worktree is being created (checking out can take a while). */
   const [creatingWorktree, setCreatingWorktree] = useState(false);
+  /** The newest notice about the person's reservations ("Anna handed it over to you"). */
+  const [taskNotice, setTaskNotice] = useState<{ text: string; key: number } | null>(null);
   /** What stayed after closing a worktree session, with its path to copy. */
   const [worktreeNotice, setWorktreeNotice] = useState<
     (WorktreeNotice & { copied: boolean }) | null
@@ -931,6 +940,56 @@ export function App() {
       `#${String(first.sessionId)}`;
     const text = teammateNotice(first, session, createTranslator(current.language));
     api.notifySession(first.sessionId, text.title, text.body).catch(() => undefined);
+  }, [teamStore.activities]);
+  // Reservations: each notice once in the window, and a release request for a task this device
+  // holds or a warning as a desktop notification while Hangar is in the background, at most once
+  // per TEAMMATE_NOTICE_GAP_MS like the teammates' overlaps.
+  const seenTaskNotices = useRef(new Set<string>());
+  const seenRequests = useRef(new Set<string>());
+  const taskNotifiedAt = useRef<number | null>(null);
+  useEffect(() => {
+    const translate = createTranslator(settingsRef.current.language);
+    const notices = freshTaskNotices(seenTaskNotices.current, teamStore.activities);
+    rememberSeen(
+      seenTaskNotices.current,
+      notices.map((entry) => entry.key),
+    );
+    const requests = releaseRequests(teamStore.activities).filter(
+      (entry) => !seenRequests.current.has(releaseRequestKey(entry.projectId, entry.task)),
+    );
+    rememberSeen(
+      seenRequests.current,
+      requests.map((entry) => releaseRequestKey(entry.projectId, entry.task)),
+    );
+    const notice = notices[notices.length - 1]?.notice;
+    const now = Date.now();
+    if (notice !== undefined) {
+      setTaskNotice({ text: taskNoticeText(notice, translate, clockTime), key: now });
+    }
+    const request = requests[0]?.task;
+    let desktop: { title: string; body: string; session: number | null } | null = null;
+    if (request?.request) {
+      desktop = {
+        title: translate("team.request.title"),
+        body: translate("team.request.text", {
+          person: personTag(request.request, translate),
+          title: taskTitle(request.title, translate),
+        }),
+        session: null,
+      };
+    } else if (notice !== undefined) {
+      desktop = {
+        title: translate("team.tasks.title"),
+        body: taskNoticeText(notice, translate, clockTime),
+        session: notice.sessionId,
+      };
+    }
+    const current = settingsRef.current;
+    if (desktop === null || !current.notifyDesktop || !current.attentionEnabled) return;
+    if (document.hasFocus() || !teammateNoticeDue(taskNotifiedAt.current, now)) return;
+    taskNotifiedAt.current = now;
+    const session = desktop.session ?? stateRef.current.activeId ?? 0;
+    api.notifySession(session, desktop.title, desktop.body).catch(() => undefined);
   }, [teamStore.activities]);
   // What each session does goes into the team's presence (only for sessions in repositories
   // linked to a shared project; the backend picks them). At most once per second, always the
@@ -3916,6 +3975,25 @@ export function App() {
             {creatingWorktree && (
               <div className="link-notice" role="status">
                 <span>{t("worktree.creating")}</span>
+              </div>
+            )}
+            {taskNotice !== null && (
+              <div key={taskNotice.key} className="link-notice" role="status">
+                <span>{taskNotice.text}</span>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setTaskNotice(null);
+                      focusActive();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
             )}
             {worktreeNotice !== null && (

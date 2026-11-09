@@ -36,6 +36,7 @@ pub mod team_engine;
 pub mod team_relay;
 pub mod team_service;
 pub mod team_share;
+pub mod team_tasks;
 #[cfg(test)]
 mod test_support;
 pub mod text;
@@ -195,6 +196,14 @@ pub fn run() -> tauri::Result<()> {
                     .state::<team_service::TeamService>()
                     .teammate_files(repo, folder)
             });
+            // Reservations of the team: their areas pause edits like a teammate's file, and the
+            // agent's context names them.
+            let reserved = app.handle().clone();
+            gate.set_team_tasks(move |repo, folder| {
+                reserved
+                    .state::<team_service::TeamService>()
+                    .team_tasks(repo, folder)
+            });
             app.manage(gate);
             let source = app.handle().clone();
             app.state::<team_service::TeamService>()
@@ -301,6 +310,10 @@ pub fn run() -> tauri::Result<()> {
             commands::team_reject,
             commands::team_session_states,
             commands::team_link_repo,
+            commands::team_reserve_task,
+            commands::team_release_task,
+            commands::team_ask_release,
+            commands::team_answer_release,
         ])
         .build(tauri::generate_context!())?;
 

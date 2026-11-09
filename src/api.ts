@@ -338,6 +338,22 @@ export const api = {
    */
   teamLinkRepo: (projectId: string, root: string, folder: string | null, on: boolean) =>
     invoke<unknown>("team_link_repo", { projectId, root, folder, on }),
+  /** Reserves a task in a shared project; the relay decides who holds it (`team-changed`). */
+  teamReserveTask: (
+    projectId: string,
+    title: string,
+    sessionId: number | null,
+    area: string | null,
+  ) => invoke<unknown>("team_reserve_task", { projectId, title, sessionId, area }),
+  /** Releases a task this device holds, or gives up a waiting attempt (`task`: its hash). */
+  teamReleaseTask: (projectId: string, task: string) =>
+    invoke<unknown>("team_release_task", { projectId, task }),
+  /** Asks the holder of a task to hand it over. */
+  teamAskRelease: (projectId: string, task: string) =>
+    invoke<unknown>("team_ask_release", { projectId, task }),
+  /** The holder's answer to the release request of `requester` (the member the card showed). */
+  teamAnswerRelease: (projectId: string, task: string, requester: string, accept: boolean) =>
+    invoke<unknown>("team_answer_release", { projectId, task, requester, accept }),
 
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>

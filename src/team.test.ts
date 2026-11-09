@@ -24,6 +24,14 @@ import {
   teamErrorText,
   withoutRequest,
   activitiesOf,
+  attemptText,
+  canAskRelease,
+  linkableSessions,
+  freshTaskNotices,
+  holderName,
+  releaseRequests,
+  taskNoticeText,
+  taskTitle,
   EMPTY_ACTIVITY,
   folderLabel,
   freshTeammateOverlaps,
@@ -86,11 +94,53 @@ const OVERLAP: TeammateOverlap = {
   files: 1,
 };
 
+const HASH = "ab".repeat(32);
+
+const TASK = {
+  task: HASH,
+  title: "Fix login",
+  area: "src/auth",
+  member: "anna-0123456789abcdef",
+  device: "device-1",
+  name: "Anna",
+  mine: true,
+  own: false,
+  since: 1_762_700_000_000,
+  expiresAt: null,
+  expiring: false,
+  request: { member: "ben-0123456789abcdef", name: "Ben", mine: false, confirmed: true },
+};
+
+const ATTEMPT = {
+  task: "cd".repeat(32),
+  title: "Docs",
+  state: "blocked",
+  member: "anna-0123456789abcdef",
+  device: "device-1",
+  name: "Anna",
+  asked: true,
+  sessionId: 3,
+};
+
+const NOTICE = {
+  id: 1_762_700_000_000_001,
+  kind: "releaseDeclined",
+  title: "Docs",
+  member: "anna-0123456789abcdef",
+  name: "Anna",
+  at: null,
+  sessionId: null,
+};
+
 const ACTIVITY = {
   linked: [{ root: "a".repeat(40), folder: "c:/src/shop/.git", name: "shop" }],
   peers: [PEER],
   overlaps: [OVERLAP],
   divergent: [{ member: "carol-0123456789abcdef", device: "device-0123456789", name: "Carol" }],
+  tasks: [TASK],
+  attempts: [ATTEMPT],
+  notices: [NOTICE],
+  sessions: [3],
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -488,6 +538,10 @@ describe("teammates", () => {
     peers: [],
     overlaps,
     divergent: [],
+    tasks: [],
+    attempts: [],
+    notices: [],
+    sessions: [],
   });
 
   it("maps the attention states to the team's session states", () => {
@@ -625,5 +679,125 @@ describe("teammates", () => {
     expect(teamErrorText(parseTeamError({ kind: "unknownRepository", detail: null }), t)).toBe(
       "No session runs in that repository any more.",
     );
+  });
+});
+
+describe("reservations", () => {
+  const snapshot = (activity: unknown) =>
+    parseTeamSnapshot({
+      teams: [
+        {
+          projectId: "p",
+          status: { state: "connected", epoch: 1, members: 2, devices: 2 },
+          activity,
+        },
+      ],
+      pending: [],
+      repos: [],
+    });
+
+  it("refuses malformed reservations and drops notices of an unknown kind", () => {
+    expect(snapshot({ ...ACTIVITY, tasks: [{ ...TASK, task: "XYZ" }] })).toBeNull();
+    expect(snapshot({ ...ACTIVITY, tasks: [{ ...TASK, expiresAt: -1 }] })).toBeNull();
+    expect(snapshot({ ...ACTIVITY, tasks: [{ ...TASK, request: { member: "" } }] })).toBeNull();
+    expect(snapshot({ ...ACTIVITY, attempts: [{ ...ATTEMPT, state: "won" }] })).toBeNull();
+    const later = snapshot({ ...ACTIVITY, notices: [NOTICE, { ...NOTICE, id: 2, kind: "later" }] });
+    expect(later?.teams[0]?.activity.notices).toEqual([NOTICE]);
+    // An older backend sends no reservations at all.
+    const old = snapshot({ linked: [], peers: [], overlaps: [] });
+    expect(old?.teams[0]?.activity.tasks).toEqual([]);
+  });
+
+  it("lists the release requests for this device and who may be asked", () => {
+    const activities = new Map([
+      [
+        "p",
+        { ...EMPTY_ACTIVITY, tasks: [TASK, { ...TASK, task: "ef".repeat(32), request: null }] },
+      ],
+    ]);
+    const requests = releaseRequests(activities);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.projectId).toBe("p");
+    expect(canAskRelease({ ...TASK, mine: false, request: null })).toBe(true);
+    expect(canAskRelease(TASK)).toBe(false);
+    expect(canAskRelease({ ...TASK, mine: false, own: true, request: null })).toBe(false);
+    expect(canAskRelease({ ...TASK, mine: false, request: null, title: "" })).toBe(false);
+  });
+
+  it("names holders and titles and announces each notice once", () => {
+    expect(holderName({ ...TASK, mine: true }, t)).toBe("You");
+    expect(holderName({ ...TASK, mine: false }, t)).toBe("Anna #anna-012…");
+    expect(taskTitle("  ", t)).toBe("A task (not readable yet)");
+    const parsed = { ...NOTICE, kind: "releaseDeclined" as const };
+    expect(taskNoticeText(parsed, t, () => "14:05")).toBe("Anna #anna-012… keeps “Docs”.");
+    expect(taskNoticeText({ ...parsed, kind: "expiring", at: 5 }, t, () => "14:05")).toContain(
+      "14:05",
+    );
+    const activities = new Map([["p", { ...EMPTY_ACTIVITY, notices: [parsed] }]]);
+    const fresh = freshTaskNotices(new Set(), activities);
+    expect(fresh).toHaveLength(1);
+    expect(freshTaskNotices(new Set(fresh.map((entry) => entry.key)), activities)).toEqual([]);
+  });
+});
+
+describe("reservation review fixes", () => {
+  const blocked = {
+    task: "cd".repeat(32),
+    title: "Docs",
+    state: "blocked" as const,
+    member: "anna-0123456789abcdef",
+    device: "device-1",
+    name: "Anna",
+    asked: false,
+    sessionId: 3,
+  };
+
+  it("says the agent waits only for an attempt linked to a session", () => {
+    expect(attemptText(blocked, t)).toBe("Anna #anna-012… was first. Your agent waits.");
+    expect(attemptText({ ...blocked, sessionId: null }, t)).toBe("Anna #anna-012… was first.");
+    expect(attemptText({ ...blocked, state: "reserving", member: null }, t)).toBe("Reserving …");
+  });
+
+  it("offers only the sessions the project shares", () => {
+    const sessions = [
+      { id: 1, title: "one" },
+      { id: 3, title: "three" },
+    ];
+    const activity = { ...EMPTY_ACTIVITY, sessions: [3] };
+    expect(linkableSessions(sessions, activity).map((s) => s.id)).toEqual([3]);
+    expect(linkableSessions(sessions, EMPTY_ACTIVITY)).toEqual([]);
+  });
+
+  it("reads the linkable sessions and shows no card for an unconfirmed request", () => {
+    const parsed = parseTeamSnapshot({
+      teams: [
+        {
+          projectId: "p",
+          status: { state: "connected", epoch: 1, members: 2, devices: 2 },
+          activity: ACTIVITY,
+        },
+      ],
+      pending: [],
+      repos: [],
+    });
+    expect(parsed?.teams[0]?.activity.sessions).toEqual([3]);
+    expect(
+      parseTeamSnapshot({
+        teams: [
+          {
+            projectId: "p",
+            status: { state: "connected", epoch: 1, members: 2, devices: 2 },
+            activity: { ...ACTIVITY, sessions: ["x"] },
+          },
+        ],
+        pending: [],
+        repos: [],
+      }),
+    ).toBeNull();
+    const unconfirmed = {
+      ...EMPTY_ACTIVITY,
+      tasks: [{ ...TASK, request: { ...TASK.request, confirmed: false } }],
+    };
+    expect(releaseRequests(new Map([["p", unconfirmed]]))).toEqual([]);
   });
 });

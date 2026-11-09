@@ -182,6 +182,16 @@ pub enum TeamError {
     Busy,
     #[error("No running session works in that repository")]
     UnknownRepository,
+    /// A task title the team cannot take (empty, too long, invisible characters), or a folder
+    /// it refuses as an area.
+    #[error("The task title or folder is not valid")]
+    InvalidTask,
+    /// No such reservation (any more), or not one this device may change.
+    #[error("Unknown task")]
+    UnknownTask,
+    /// This device already tries to reserve as many tasks as the team allows.
+    #[error("Too many tasks")]
+    TaskLimit,
 }
 
 impl TeamError {
@@ -194,6 +204,9 @@ impl TeamError {
             Self::Config(_) => "config",
             Self::Busy => "busy",
             Self::UnknownRepository => "unknownRepository",
+            Self::InvalidTask => "invalidTask",
+            Self::UnknownTask => "unknownTask",
+            Self::TaskLimit => "taskLimit",
         }
     }
 
@@ -769,6 +782,13 @@ pub struct LocalState {
     pub detail_marks: Vec<DetailMark>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub detail_floors: Vec<HolderMark>,
+    /// Per teammate device and note (a task's reservation note, or `request/` and the task for a
+    /// release request note): the newest counter shown. A note of a hold that ended counts as
+    /// shown once more, so the relay cannot bring it back; kept across resyncs and restarts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub note_marks: Vec<DetailMark>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub note_floors: Vec<HolderMark>,
     #[serde(default)]
     pub rejected: Vec<String>,
 }

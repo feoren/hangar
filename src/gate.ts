@@ -9,7 +9,8 @@ import { field, formatLines, isCount, list, parseRange, type LineRange } from ".
 import type { Translate } from "./i18n";
 import { revealInvisible } from "./invisible";
 
-export type GateLevel = "sameFile" | "overlappingLines";
+/** `sameArea`: only a teammate's reserved folder covers the file. */
+export type GateLevel = "sameArea" | "sameFile" | "overlappingLines";
 
 export type GateAnswer = "allowOnce" | "allowFile" | "deny";
 
@@ -27,6 +28,8 @@ export interface PendingDecision {
   otherSessions: number[];
   /** Teammates changing the file ("Anna (Claude Code)"), from a shared project's presence. */
   teammates: string[];
+  /** Teammates' reservations whose folder covers the file ("Anna #3f9a2c1b…", "Fix login"). */
+  reserved: { who: string; title: string }[];
   level: GateLevel;
   /** Lines the other sessions changed in that file; empty: whole file or unknown. */
   lines: LineRange[];
@@ -43,7 +46,14 @@ export interface GateSnapshot {
 
 export const EMPTY_GATE: GateSnapshot = { enabled: false, pending: [] };
 
-const LEVELS: readonly GateLevel[] = ["sameFile", "overlappingLines"];
+const LEVELS: readonly GateLevel[] = ["sameArea", "sameFile", "overlappingLines"];
+
+function parseReserved(item: unknown): { who: string; title: string } | null {
+  const who = field(item, "who");
+  const title = field(item, "title");
+  if (typeof who !== "string" || typeof title !== "string" || title === "") return null;
+  return { who, title };
+}
 
 function parseDecision(value: unknown): PendingDecision | null {
   const id = field(value, "id");
@@ -58,6 +68,8 @@ function parseDecision(value: unknown): PendingDecision | null {
     teammatesValue === undefined
       ? []
       : list(teammatesValue, (item) => (typeof item === "string" && item !== "" ? item : null));
+  const reservedValue = field(value, "reserved");
+  const reserved = reservedValue === undefined ? [] : list(reservedValue, parseReserved);
   const level = LEVELS.find((entry) => entry === field(value, "level"));
   const lines = list(field(value, "lines"), parseRange);
   const createdAt = field(value, "createdAt");
@@ -65,11 +77,23 @@ function parseDecision(value: unknown): PendingDecision | null {
   if (typeof path !== "string" || path === "" || level === undefined || lines === null) {
     return null;
   }
-  // Someone else changes the file: one of the user's sessions or a teammate, at least one.
-  if (otherSessions === null || teammates === null) return null;
-  if (otherSessions.length === 0 && teammates.length === 0) return null;
+  // Someone else changes the file or reserved its folder: one of the user's sessions or a
+  // teammate, at least one.
+  if (otherSessions === null || teammates === null || reserved === null) return null;
+  if (otherSessions.length === 0 && teammates.length === 0 && reserved.length === 0) return null;
   if (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0) return null;
-  return { id, sessionId, tool, path, otherSessions, teammates, level, lines, createdAt };
+  return {
+    id,
+    sessionId,
+    tool,
+    path,
+    otherSessions,
+    teammates,
+    reserved,
+    level,
+    lines,
+    createdAt,
+  };
 }
 
 /** Checks the backend's snapshot; `null` if anything is malformed or an id repeats. */
@@ -134,6 +158,14 @@ export function decisionText(
   t: Translate,
 ): DecisionText {
   const others = [...decision.otherSessions.map(nameOf), ...decision.teammates].join(", ");
+  const tasks = decision.reserved
+    .map((entry) =>
+      t("gate.reservedTask", {
+        title: revealInvisible(entry.title),
+        person: revealInvisible(entry.who),
+      }),
+    )
+    .join(", ");
   const lines =
     decision.level === "overlappingLines" && decision.lines.length > 0
       ? formatLines(decision.lines, t)
@@ -143,7 +175,16 @@ export function decisionText(
       session: nameOf(decision.sessionId),
       path: revealInvisible(decision.path),
     }),
-    detail: lines === "" ? t("gate.also", { others }) : t("gate.alsoLines", { others, lines }),
+    detail: [
+      others === ""
+        ? ""
+        : lines === ""
+          ? t("gate.also", { others })
+          : t("gate.alsoLines", { others, lines }),
+      tasks === "" ? "" : t("gate.reserved", { tasks }),
+    ]
+      .filter((part) => part !== "")
+      .join(" · "),
   };
 }
 

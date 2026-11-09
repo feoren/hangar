@@ -55,28 +55,35 @@
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use hangar_team_crypto::identity::{safety_number, DeviceIdentity, DevicePublicKeys};
 use hangar_team_crypto::memberlog::{
     DeviceEntry, Endorsement, EntryBody, EntryKind, LogVerifier, TeamState,
 };
 use hangar_team_crypto::record::{
-    EpochCipher, OpenError, Opened, RecordContext, RecordKind, ReplayGuard, SendCounter,
+    task_record_id as record_task_id, EpochCipher, OpenError, Opened, RecordContext, RecordKind,
+    ReplayGuard, SendCounter,
 };
 use hangar_team_crypto::rotation::{plan_rotation, wrap_for_device};
 use hangar_team_crypto::{Entropy, EntropyError};
 use hangar_team_protocol::e2e::{ChainHead, PublicKey};
-use hangar_team_protocol::hash::{KeyedHash, RepoId};
+use hangar_team_protocol::hash::{KeyedHash, RepoId, TaskId};
 use hangar_team_protocol::ids::{
     Ciphertext, DeviceId, Epoch, MemberId, OpId, Sealed, SessionKey, TeamId, Ticket, UnixMillis,
+};
+use hangar_team_protocol::limits::{
+    MAX_HEARTBEAT_TASKS, MAX_PREV_HASHES, MAX_RESERVATIONS_PER_MEMBER,
 };
 use hangar_team_protocol::log::{ClientCursor, Observed};
 use hangar_team_protocol::wire::{
     check_welcome, decode_server, ClaimClear, ClaimOverlap, ClaimSet, ClientFrame, ClientMessage,
-    DeviceInfo, DeviceRemove, ErrorCode, Hello, Holder, KeyGet, MatchLevel, MemberLogEntries,
-    MemberLogGet, PresenceSet, PresenceState, PresenceUpdate, ProtoRange, Role, ServerFrame,
-    ServerMessage, SessionRef, TicketRenew,
+    DeviceInfo, DeviceRemove, ErrorBody, ErrorCode, Heartbeat, Hello, Holder, KeyGet, MatchLevel,
+    MemberLogEntries, MemberLogGet, PresenceSet, PresenceState, PresenceUpdate, ProtoRange,
+    ReleaseReason, RequestEndReason, ReservationExpiring, Role, ServerFrame, ServerMessage,
+    SessionRef, TaskRef, TaskReleaseAnswer, TaskReleaseAnswered, TaskReleaseRequest,
+    TaskReleaseRequestEnded, TaskReleaseRequested, TaskReleased, TaskReserve, TaskReserved,
+    TicketRenew,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -90,6 +97,10 @@ use crate::team::{
 use crate::team_share::{
     self, DivergentDevice, LocalShare, OtherDetail, PeerStatus, PeerView, SessionState,
     TeamActivity, TeammateFile, TeammateOverlap,
+};
+use crate::team_tasks::{
+    self, AttemptState, AttemptView, NoticeKind, RequestView, TaskNote, TaskNotice, TaskView,
+    TeamTask, MAX_NOTICES, MAX_TITLE_CHARS,
 };
 
 /// What the worker does, in this order.
@@ -137,7 +148,83 @@ enum Op {
     Rotate(Epoch),
     Wrap,
     Remove,
+    /// `task.reserve` of the attempt with this normalized task id.
+    Reserve(String),
+    /// `task.release_request` for this task.
+    AskRelease(KeyedHash),
+    /// `task.release_answer` for this task.
+    Answer(KeyedHash),
     Quiet,
+}
+
+/// A log fetch for task events of holders the log does not list yet goes out at most this often;
+/// the next ping fetches for those that wait.
+const UNKNOWN_FETCH_EVERY_MS: u64 = 5_000;
+
+/// Task events held back until the verified log can vouch for their holders, in arrival order;
+/// beyond this the device reconnects and takes the relay's snapshot instead.
+const MAX_TASK_QUEUE: usize = 1024;
+
+/// Heartbeats for this device's reservations go out at most this often while its agents change
+/// files.
+const HEARTBEAT_EVERY_MS: u64 = 60_000;
+
+/// A reservation in the team, as the relay reported it.
+#[derive(Debug, Clone)]
+struct Hold {
+    holder: Holder,
+    epoch: Epoch,
+    since: UnixMillis,
+    expires_at: Option<UnixMillis>,
+    /// The relay warned that the hold runs out.
+    expiring: bool,
+    /// The holder's note while it cannot be opened yet (a log entry or epoch this device does
+    /// not have yet); tried again after the next log fetch.
+    unopened: Option<Sealed>,
+    /// The holder's signed note: the only source of the title and the area.
+    note: Option<TaskNote>,
+    request: Option<HoldRequest>,
+}
+
+#[derive(Debug, Clone)]
+struct HoldRequest {
+    requester: MemberId,
+    /// The requester's listed device whose note for this task opened (and was not shown
+    /// before); `None`: the relay's word alone, which shows no card.
+    signer: Option<Holder>,
+    /// From the requester's signed note; empty without one.
+    name: String,
+    /// This device sent its answer; the card is gone until the relay's event or an error.
+    answered: bool,
+}
+
+/// A task this device reserved or tries to reserve.
+#[derive(Debug, Clone)]
+struct Attempt {
+    title: String,
+    session: Option<SessionId>,
+    repo: Option<String>,
+    area: Option<String>,
+    /// The task's keyed hash under the epoch it was last sent with.
+    hash: Option<KeyedHash>,
+    /// Someone else holds the task (first wins).
+    blocked: Option<Holder>,
+    /// This person's release request is open.
+    asked: bool,
+    /// The note went out again after a handover (which carries none of this device's).
+    renoted: bool,
+    /// `blocked` names a holder the verified log listed when the relay named it; one it did not
+    /// list yet waits for the next log fetch.
+    verified: bool,
+}
+
+/// How opening a reservation note went.
+enum NoteOpen {
+    Note(TaskNote),
+    Later,
+    Fork,
+    /// Not readable, or older than the note shown: the hold keeps what it had.
+    Keep,
 }
 
 /// Wrapped keys from `key.rotated` kept for epochs whose log entry is not verified yet; more are
@@ -222,6 +309,66 @@ struct LiveMarks {
     /// Per device: the highest stamp of a detail mark dropped to stay within bounds; a detail of
     /// a session without a mark must be newer.
     floors: BTreeMap<Holder, Stamp>,
+    /// Reservation and release request notes per device and record ([`note_key`]), bounded
+    /// like the details with a floor of their own: a note shown once, or of a hold that ended,
+    /// never comes back as new, also after a resync or a restart.
+    notes: BTreeMap<(Holder, String), Stamp>,
+    note_floors: BTreeMap<Holder, Stamp>,
+}
+
+/// Which note a mark belongs to: the reservation note of a task (its record id), or the release
+/// request note of it.
+fn note_key(kind: RecordKind, task: &KeyedHash) -> String {
+    let id = record_task_id(task);
+    match kind {
+        RecordKind::ReleaseRequestNote => format!("request/{id}"),
+        _ => id,
+    }
+}
+
+/// A mark per device and key, at most [`MAX_DETAIL_SESSIONS`] per device: beyond that the lowest
+/// goes and raises the device's floor, which a key without a mark must exceed.
+fn bounded_mark(
+    marks: &mut BTreeMap<(Holder, String), Stamp>,
+    floors: &mut BTreeMap<Holder, Stamp>,
+    holder: &Holder,
+    key: &str,
+    record: Stamp,
+) -> Mark {
+    let entry = (holder.clone(), key.to_owned());
+    if let Some(mark) = marks.get_mut(&entry) {
+        return LiveMarks::raise(mark, record);
+    }
+    let floor = floors.get(holder).copied().unwrap_or_default();
+    if record <= floor.against(record) {
+        return Mark::Stale;
+    }
+    marks.insert(entry, record);
+    // The device's marks are adjacent in the map: count them and find the lowest without
+    // walking every other device's (at most MAX_DETAIL_SESSIONS + 1 entries).
+    let mut count = 0;
+    let mut lowest: Option<(&String, Stamp)> = None;
+    for ((_, held), at) in marks
+        .range((holder.clone(), String::new())..)
+        .take_while(|((h, _), _)| h == holder)
+    {
+        count += 1;
+        let at = at.against(record);
+        if lowest.is_none_or(|(_, low)| at < low) {
+            lowest = Some((held, at));
+        }
+    }
+    if count > MAX_DETAIL_SESSIONS {
+        if let Some((dropped, at)) = lowest.map(|(s, at)| (s.clone(), at)) {
+            marks.remove(&(holder.clone(), dropped.clone()));
+            let floor = floors.entry(holder.clone()).or_default();
+            *floor = (*floor).against(at).max(at);
+            if dropped == key {
+                return Mark::Stale;
+            }
+        }
+    }
+    Mark::Raised
 }
 
 impl LiveMarks {
@@ -260,6 +407,28 @@ impl LiveMarks {
                     (m.holder.clone(), stamp)
                 })
                 .collect(),
+            notes: local
+                .note_marks
+                .iter()
+                .map(|m| {
+                    let stamp = Stamp {
+                        period: m.period,
+                        counter: m.counter,
+                    };
+                    ((m.holder.clone(), m.session.clone()), stamp)
+                })
+                .collect(),
+            note_floors: local
+                .note_floors
+                .iter()
+                .map(|m| {
+                    let stamp = Stamp {
+                        period: m.period,
+                        counter: m.counter,
+                    };
+                    (m.holder.clone(), stamp)
+                })
+                .collect(),
         }
     }
 
@@ -281,6 +450,33 @@ impl LiveMarks {
             })
             .collect();
         local.detail_floors = self.floors.iter().map(holder_mark).collect();
+        local.note_marks = self
+            .notes
+            .iter()
+            .map(|((holder, key), stamp)| DetailMark {
+                holder: holder.clone(),
+                session: key.clone(),
+                period: stamp.period,
+                counter: stamp.counter,
+            })
+            .collect();
+        local.note_floors = self.note_floors.iter().map(holder_mark).collect();
+    }
+
+    fn note(&mut self, holder: &Holder, key: &str, record: Stamp) -> Mark {
+        bounded_mark(&mut self.notes, &mut self.note_floors, holder, key, record)
+    }
+
+    /// The hold this note stood for ended: the same note shown again is old from now on (a new
+    /// reservation always seals a new note, with a higher counter). `true` when a mark rose.
+    fn consume_note(&mut self, holder: &Holder, key: &str) -> bool {
+        match self.notes.get_mut(&(holder.clone(), key.to_owned())) {
+            Some(mark) => {
+                mark.counter = mark.counter.saturating_add(1);
+                true
+            }
+            None => false,
+        }
     }
 
     fn raise(mark: &mut Stamp, record: Stamp) -> Mark {
@@ -300,50 +496,27 @@ impl LiveMarks {
     }
 
     fn detail(&mut self, holder: &Holder, session: &str, record: Stamp) -> Mark {
-        let key = (holder.clone(), session.to_owned());
-        if let Some(mark) = self.detail.get_mut(&key) {
-            return Self::raise(mark, record);
-        }
-        let floor = self.floors.get(holder).copied().unwrap_or_default();
-        if record <= floor.against(record) {
-            return Mark::Stale;
-        }
-        self.detail.insert(key, record);
-        // The device's marks are adjacent in the map: count them and find the lowest without
-        // walking every other device's (at most MAX_DETAIL_SESSIONS + 1 entries).
-        let mut count = 0;
-        let mut lowest: Option<(&String, Stamp)> = None;
-        for ((_, held), at) in self
-            .detail
-            .range((holder.clone(), String::new())..)
-            .take_while(|((h, _), _)| h == holder)
-        {
-            count += 1;
-            let at = at.against(record);
-            if lowest.is_none_or(|(_, low)| at < low) {
-                lowest = Some((held, at));
-            }
-        }
-        if count > MAX_DETAIL_SESSIONS {
-            if let Some((dropped, at)) = lowest.map(|(s, at)| (s.clone(), at)) {
-                self.detail.remove(&(holder.clone(), dropped.clone()));
-                let floor = self.floors.entry(holder.clone()).or_default();
-                *floor = (*floor).against(at).max(at);
-                if dropped == session {
-                    return Mark::Stale;
-                }
-            }
-        }
-        Mark::Raised
+        bounded_mark(&mut self.detail, &mut self.floors, holder, session, record)
     }
 
     /// Drops the marks of devices `known` does not vouch for; `true` when any went.
     fn retain(&mut self, known: impl Fn(&Holder) -> bool) -> bool {
-        let before = (self.presence.len(), self.detail.len(), self.floors.len());
+        let count = |m: &Self| {
+            (
+                m.presence.len(),
+                m.detail.len(),
+                m.floors.len(),
+                m.notes.len(),
+                m.note_floors.len(),
+            )
+        };
+        let before = count(self);
         self.presence.retain(|holder, _| known(holder));
         self.detail.retain(|(holder, _), _| known(holder));
         self.floors.retain(|holder, _| known(holder));
-        before != (self.presence.len(), self.detail.len(), self.floors.len())
+        self.notes.retain(|(holder, _), _| known(holder));
+        self.note_floors.retain(|holder, _| known(holder));
+        before != count(self)
     }
 }
 
@@ -472,6 +645,24 @@ pub struct Engine {
     peers: BTreeMap<Holder, Peer>,
     overlaps: Overlaps,
     stashed: Vec<ServerMessage>,
+    // Reservations (part 2b, tasks); kept across connections of this engine: a reconnect
+    // replays the events after the cursor.
+    holds: BTreeMap<KeyedHash, Hold>,
+    /// By normalized task id.
+    attempts: BTreeMap<String, Attempt>,
+    task_queue: Vec<ServerMessage>,
+    /// A note mark (in [`LiveMarks`]) rose while handling a task event; stored after it.
+    note_marks_rose: bool,
+    notices: VecDeque<TaskNotice>,
+    notice_seq: u64,
+    /// This engine took the relay's state of the reservations once (a resync on its first
+    /// connection); until then `hello` sends no cursor, since the reservations of before a
+    /// restart are not stored.
+    book_known: bool,
+    /// When the last heartbeat went out (clock milliseconds).
+    heartbeat_at: Option<u64>,
+    /// When the last log fetch for an unknown holder went out (clock milliseconds).
+    unknown_fetch_at: Option<u64>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -570,6 +761,15 @@ impl Engine {
             peers: BTreeMap::new(),
             overlaps: BTreeMap::new(),
             stashed: Vec::new(),
+            holds: BTreeMap::new(),
+            attempts: BTreeMap::new(),
+            task_queue: Vec::new(),
+            note_marks_rose: false,
+            notices: VecDeque::new(),
+            notice_seq: 0,
+            book_known: false,
+            heartbeat_at: None,
+            unknown_fetch_at: None,
         }
     }
 
@@ -641,7 +841,8 @@ impl Engine {
     // Connection
     // -----------------------------------------------------------------------------------------
 
-    /// A new connection: forget the last one's ops and send `hello` with the stored cursor.
+    /// A new connection: forget the last one's ops and send `hello`, with the cursor once this
+    /// engine took the relay's snapshot (the reservations live in memory only), else without.
     pub fn hello(&mut self, ticket: Ticket) -> Vec<Effect> {
         self.me = None;
         self.ops.clear();
@@ -664,11 +865,18 @@ impl Engine {
         self.peers.clear();
         self.overlaps.clear();
         self.stashed.clear();
+        // Without the reservations of this engine's own connections, a replay would miss every
+        // hold from before the start: the first connection takes the relay's snapshot.
+        let last_seq = if self.book_known {
+            self.cursor.cursor().cloned()
+        } else {
+            None
+        };
         let hello = ClientMessage::Hello(Hello {
             ticket,
             device: self.device.clone(),
             proto: ProtoRange::CURRENT,
-            last_seq: self.cursor.cursor().cloned(),
+            last_seq,
         });
         let mut effects = self.flush_marks();
         effects.push(self.frame(Op::Hello, hello));
@@ -733,6 +941,11 @@ impl Engine {
     pub fn ping(&mut self) -> Vec<Effect> {
         let mut effects = self.flush_marks();
         effects.push(self.frame(Op::Quiet, ClientMessage::Ping));
+        // Task events that wait for a holder the log does not list yet.
+        if !self.task_queue.is_empty() && self.synced && !self.syncing {
+            self.unknown_fetch_at = Some((self.now)());
+            effects.extend(self.sync_log());
+        }
         effects
     }
 
@@ -812,6 +1025,7 @@ impl Engine {
                 self.cursor
                     .welcome(&welcome.stream, welcome.head, self.resyncing);
                 self.resyncing = false;
+                self.book_known = true;
                 self.local.cursor = self.cursor.cursor().cloned();
                 let me = Holder {
                     member: welcome.member,
@@ -824,12 +1038,15 @@ impl Engine {
                 effects.extend(self.sync_log());
             }
             ServerMessage::ResyncRequired(_) => {
-                // The state events without `seq` that follow are not needed: the log is fetched
-                // anew after the welcome that ends the snapshot.
+                // Of the state events without `seq` that follow, only the reservations count:
+                // the log is fetched anew after the welcome that ends the snapshot, presence
+                // arrives anew.
                 self.cursor.resync();
                 self.resyncing = true;
+                self.reset_tasks();
+                effects.push(Effect::Changed);
             }
-            ServerMessage::Err(err) => effects.extend(self.on_err(op, err.code)),
+            ServerMessage::Err(err) => effects.extend(self.on_err(op, err)),
             ServerMessage::Ack(ack) => effects.extend(self.on_ack(op, ack.keys)),
             ServerMessage::MemberLogEntries(page) => effects.extend(self.on_entries(page)),
             ServerMessage::Devices(list) => {
@@ -874,13 +1091,22 @@ impl Engine {
             }
             ServerMessage::PresenceUpdate(update) => effects.extend(self.on_presence(update, true)),
             ServerMessage::ClaimOverlap(overlap) => effects.extend(self.on_overlap(overlap, true)),
-            // Reservations and notifications are not built yet.
+            message @ (ServerMessage::TaskReserved(_)
+            | ServerMessage::TaskReleased(_)
+            | ServerMessage::ReservationExpiring(_)
+            | ServerMessage::ReservationExpired(_)
+            | ServerMessage::TaskReleaseRequested(_)
+            | ServerMessage::TaskReleaseAnswered(_)
+            | ServerMessage::TaskReleaseRequestEnded(_)) => effects.extend(self.on_task(message)),
+            // `notify` is the relay's cue to tell a person out of band; the events it stands for
+            // reach every device of the person in the log (warnings, release requests).
             _ => {}
         }
         effects
     }
 
-    fn on_err(&mut self, op: Option<Op>, code: ErrorCode) -> Vec<Effect> {
+    fn on_err(&mut self, op: Option<Op>, err: ErrorBody) -> Vec<Effect> {
+        let code = err.code;
         match op {
             Some(Op::Hello) => match code {
                 ErrorCode::Forbidden => vec![Effect::End(SessionEnd::HelloForbidden)],
@@ -916,6 +1142,24 @@ impl Engine {
             Some(Op::Wrap) | Some(Op::Remove) => {
                 eprintln!("hangar: team key or device change refused ({code:?})");
                 self.sync_log()
+            }
+            Some(Op::Reserve(key)) => self.reserve_refused(&key, err),
+            Some(Op::AskRelease(task)) => self.ask_refused(&task, code),
+            Some(Op::Answer(task)) => {
+                eprintln!("hangar: team release answer refused ({code:?})");
+                let me = self.me.clone();
+                match self
+                    .holds
+                    .get_mut(&task)
+                    .filter(|h| Some(&h.holder) == me.as_ref())
+                    .and_then(|h| h.request.as_mut())
+                {
+                    Some(request) => {
+                        request.answered = false;
+                        vec![Effect::Changed]
+                    }
+                    None => Vec::new(),
+                }
             }
             Some(Op::DeviceKeys) | Some(Op::Quiet) | None => {
                 eprintln!("hangar: team relay refused a request ({code:?})");
@@ -1053,6 +1297,7 @@ impl Engine {
         effects.extend(self.reconcile());
         effects.extend(self.poll_devices());
         effects.extend(self.retry_stashed());
+        effects.extend(self.drain_tasks());
         effects
     }
 
@@ -1524,7 +1769,8 @@ impl Engine {
         let Some((cipher, head, epoch)) = self.current_cipher() else {
             return Vec::new();
         };
-        if self.shared_epoch != Some(epoch) {
+        let new_epoch = self.shared_epoch != Some(epoch);
+        if new_epoch {
             self.sent_claims.clear();
             self.sent_presence = None;
             self.shared_epoch = Some(epoch);
@@ -1638,12 +1884,25 @@ impl Engine {
             self.overlaps.remove(&id);
         }
 
+        // The agents changed files: the reservations of this device count as active.
+        if sends
+            .iter()
+            .any(|m| matches!(m, ClientMessage::ClaimSet(_)))
+        {
+            sends.extend(self.heartbeat());
+        }
+
         let mut effects = Vec::new();
         if sealed_any {
             effects.push(Effect::StoreLocal);
         }
         for message in sends {
             effects.push(self.frame(Op::Quiet, message));
+        }
+        // A new connection or a new epoch: reservations of an earlier epoch move to the current
+        // hash (`prev`), and attempts whose answer was lost with a connection go again.
+        if new_epoch {
+            effects.extend(self.resend_attempts(epoch));
         }
         effects
     }
@@ -1656,11 +1915,24 @@ impl Engine {
         sender: &Holder,
         sealed: &Sealed,
     ) -> Open {
+        self.open_record(kind, record, sender, sealed, false)
+    }
+
+    /// [`Engine::open_sealed`]; `older`: a record of an earlier epoch whose key this device
+    /// still has opens too (a reservation's note stands while its hold was not rekeyed).
+    fn open_record(
+        &self,
+        kind: RecordKind,
+        record: &[u8],
+        sender: &Holder,
+        sealed: &Sealed,
+        older: bool,
+    ) -> Open {
         let Some(state) = self.verifier.state() else {
             return Open::Later;
         };
         let current = state.current_epoch().map_or(0, |e| e.epoch.0);
-        if sealed.epoch.0 < current {
+        if sealed.epoch.0 < current && !older {
             // Live state is sealed under the current epoch; an older one is from before a
             // rotation (perhaps by a device removed since) and is not shown.
             return Open::Failed;
@@ -2067,6 +2339,10 @@ impl Engine {
             peers,
             overlaps: self.teammate_overlaps(),
             divergent,
+            tasks: self.task_views(),
+            attempts: self.attempt_views(),
+            sessions: self.share.sessions.iter().map(|s| s.id).collect(),
+            notices: self.notices.iter().cloned().collect(),
         }
     }
 
@@ -2221,6 +2497,1159 @@ impl Engine {
     }
 
     // -----------------------------------------------------------------------------------------
+    // Reservations ("I'm working on ...")
+    //
+    // The relay decides who holds a task, in arrival order (first wins); this device never
+    // applies a reservation of its own before the relay's event says so. The relay's events are
+    // not signed: a hold counts only for a holder the verified log lists, its title and area come
+    // only from the note the holder signed (bound to the task's hash), and an older note shown
+    // again is ignored. Events whose holder the log does not list yet wait for the next log
+    // fetch, in order; then they are dropped.
+    // -----------------------------------------------------------------------------------------
+
+    /// Starts over with the relay's snapshot (`resync_required`): the holds go, this device's
+    /// attempts stay and learn again who holds what. The note marks stay: the snapshot must not
+    /// bring back a note of a hold that ended.
+    fn reset_tasks(&mut self) {
+        self.holds.clear();
+        self.task_queue.clear();
+        for attempt in self.attempts.values_mut() {
+            attempt.blocked = None;
+            attempt.asked = false;
+            attempt.verified = false;
+        }
+    }
+
+    /// The normalized id of this device's attempt whose last hash is `task`.
+    fn attempt_key(&self, task: &KeyedHash) -> Option<String> {
+        self.attempts
+            .iter()
+            .find(|(_, a)| a.hash.as_ref() == Some(task))
+            .map(|(key, _)| key.clone())
+    }
+
+    fn parse_task(task: &str) -> Result<KeyedHash, TeamError> {
+        KeyedHash::try_from(task.to_owned()).map_err(|_| TeamError::UnknownTask)
+    }
+
+    /// The task's hashes under the earlier epochs whose keys this device still has, newest
+    /// first, but only those a hold of an earlier epoch stands under (this device's own, moved
+    /// by the reserve, or a teammate's, who keeps the task while offline during a rotation): a
+    /// hash nobody holds would only tell the relay which hashes of two epochs belong together.
+    fn prev_hashes(&self, id: &TaskId, epoch: Epoch) -> Vec<KeyedHash> {
+        let Some(state) = self.verifier.state() else {
+            return Vec::new();
+        };
+        self.keys
+            .epochs
+            .iter()
+            .rev()
+            .filter(|(old, _)| **old < epoch)
+            .filter_map(|(old, secret)| EpochCipher::for_epoch(state, secret, *old).ok())
+            .map(|cipher| cipher.match_key().task(id))
+            .filter(|hash| self.holds.get(hash).is_some_and(|h| h.epoch < epoch))
+            .take(MAX_PREV_HASHES)
+            .collect()
+    }
+
+    /// Reserves a task in the person's name: `title` as the person typed it, optionally linked
+    /// to one of this device's shared sessions and a folder of its repository. The relay decides;
+    /// the Team view shows the attempt until its answer.
+    pub fn reserve_task(
+        &mut self,
+        title: &str,
+        session: Option<SessionId>,
+        area: Option<&str>,
+    ) -> Result<Vec<Effect>, TeamError> {
+        let title = title.trim();
+        if title.chars().count() > MAX_TITLE_CHARS {
+            return Err(TeamError::InvalidTask);
+        }
+        let id = TaskId::normalize(title).map_err(|_| TeamError::InvalidTask)?;
+        let linked = match session {
+            Some(id) => Some(
+                self.share
+                    .sessions
+                    .iter()
+                    .find(|s| s.id == id)
+                    .cloned()
+                    .ok_or(TeamError::UnknownRepository)?,
+            ),
+            None => None,
+        };
+        let area = match area.map(str::trim).filter(|a| !a.is_empty()) {
+            // A folder means something only in the repository of a linked session.
+            Some(raw) if linked.is_some() => {
+                Some(team_tasks::normalize_area(raw).ok_or(TeamError::InvalidTask)?)
+            }
+            Some(_) => return Err(TeamError::InvalidTask),
+            None => None,
+        };
+        if self.current_cipher().is_none() {
+            return Err(TeamError::Busy);
+        }
+        let key = id.as_str().to_owned();
+        if !self.attempts.contains_key(&key) && self.attempts.len() >= MAX_RESERVATIONS_PER_MEMBER {
+            return Err(TeamError::TaskLimit);
+        }
+        self.attempts.insert(
+            key.clone(),
+            Attempt {
+                title: title.to_owned(),
+                session,
+                repo: linked.map(|s| s.repo),
+                area,
+                hash: None,
+                blocked: None,
+                asked: false,
+                renoted: false,
+                verified: false,
+            },
+        );
+        let mut effects = self.send_reserve(&key);
+        effects.push(Effect::Changed);
+        Ok(effects)
+    }
+
+    /// `task.reserve` for an attempt, with its note sealed under the current epoch; the record
+    /// counter is stored first.
+    fn send_reserve(&mut self, key: &str) -> Vec<Effect> {
+        let Some((cipher, head, epoch)) = self.current_cipher() else {
+            return Vec::new();
+        };
+        let Some(attempt) = self.attempts.get(key).cloned() else {
+            return Vec::new();
+        };
+        let Ok(id) = TaskId::normalize(&attempt.title) else {
+            return Vec::new();
+        };
+        let task = cipher.match_key().task(&id);
+        let prev = self.prev_hashes(&id, epoch);
+        let note = TaskNote {
+            title: attempt.title.clone(),
+            name: self.share.person.clone(),
+            repo: attempt.repo.clone(),
+            area: attempt.area.clone(),
+            session: attempt
+                .session
+                .and_then(|s| self.session_keys.get(&s))
+                .map(|k| k.as_str().to_owned()),
+        };
+        let plaintext = team_tasks::note_plaintext(&note);
+        let record = record_task_id(&task);
+        let Some(sealed) = self.seal(
+            &cipher,
+            &head,
+            RecordKind::ReservationNote,
+            record.as_bytes(),
+            &plaintext,
+        ) else {
+            return Vec::new();
+        };
+        if let Some(attempt) = self.attempts.get_mut(key) {
+            attempt.hash = Some(task);
+        }
+        vec![
+            Effect::StoreLocal,
+            self.frame(
+                Op::Reserve(key.to_owned()),
+                ClientMessage::TaskReserve(TaskReserve {
+                    task,
+                    epoch,
+                    prev,
+                    note: Some(sealed),
+                }),
+            ),
+        ]
+    }
+
+    /// After a new connection or epoch: every attempt not blocked and not held under the current
+    /// epoch goes again (the holder's own repeat only counts as activity).
+    fn resend_attempts(&mut self, epoch: Epoch) -> Vec<Effect> {
+        let me = self.me.clone();
+        let keys: Vec<String> = self
+            .attempts
+            .iter()
+            .filter(|(_, a)| a.blocked.is_none())
+            .filter(|(_, a)| {
+                let held = a
+                    .hash
+                    .and_then(|hash| self.holds.get(&hash))
+                    .is_some_and(|h| Some(&h.holder) == me.as_ref() && h.epoch == epoch);
+                !held
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.iter().flat_map(|key| self.send_reserve(key)).collect()
+    }
+
+    /// The reservations this device holds, as a heartbeat, at most every
+    /// [`HEARTBEAT_EVERY_MS`].
+    fn heartbeat(&mut self) -> Option<ClientMessage> {
+        let me = self.me.clone()?;
+        let tasks: Vec<KeyedHash> = self
+            .holds
+            .iter()
+            .filter(|(_, h)| h.holder == me)
+            .map(|(task, _)| *task)
+            .take(MAX_HEARTBEAT_TASKS)
+            .collect();
+        if tasks.is_empty() {
+            return None;
+        }
+        let now = (self.now)();
+        if self
+            .heartbeat_at
+            .is_some_and(|at| now >= at && now - at < HEARTBEAT_EVERY_MS)
+        {
+            return None;
+        }
+        self.heartbeat_at = Some(now);
+        Some(ClientMessage::Heartbeat(Heartbeat { tasks }))
+    }
+
+    /// Releases a task this device holds, or gives up an attempt (withdrawing its release
+    /// request).
+    pub fn release_task(&mut self, task: &str) -> Result<Vec<Effect>, TeamError> {
+        let task = Self::parse_task(task)?;
+        let me = self.me.clone().ok_or(TeamError::Busy)?;
+        let key = self.attempt_key(&task);
+        let mut effects = Vec::new();
+        if self.holds.get(&task).is_some_and(|h| h.holder == me) {
+            effects.push(self.frame(Op::Quiet, ClientMessage::TaskRelease(TaskRef { task })));
+        } else {
+            let attempt = key
+                .as_ref()
+                .and_then(|key| self.attempts.get(key))
+                .ok_or(TeamError::UnknownTask)?;
+            if attempt.asked {
+                effects.push(self.frame(
+                    Op::Quiet,
+                    ClientMessage::TaskReleaseWithdraw(TaskRef { task }),
+                ));
+            }
+        }
+        if let Some(key) = key {
+            self.attempts.remove(&key);
+        }
+        effects.push(Effect::Changed);
+        Ok(effects)
+    }
+
+    /// Asks the holder of a task to hand it over (`task.release_request`, with this person's
+    /// name sealed for the holder's card).
+    pub fn ask_release(&mut self, task: &str) -> Result<Vec<Effect>, TeamError> {
+        let task = Self::parse_task(task)?;
+        let me = self.me.clone().ok_or(TeamError::Busy)?;
+        let hold = self
+            .holds
+            .get(&task)
+            .cloned()
+            .ok_or(TeamError::UnknownTask)?;
+        if hold.holder.member == me.member {
+            return Err(TeamError::UnknownTask);
+        }
+        if hold.request.is_some() {
+            return Err(TeamError::Busy);
+        }
+        let key = match self.attempt_key(&task) {
+            Some(key) => key,
+            None => {
+                // Asked from the list: an accepted request makes the task this device's, and its
+                // title must be known to show it and to move it on a rotation.
+                let note = hold.note.clone().ok_or(TeamError::UnknownTask)?;
+                let id = TaskId::normalize(&note.title).map_err(|_| TeamError::UnknownTask)?;
+                if self.attempts.len() >= MAX_RESERVATIONS_PER_MEMBER {
+                    return Err(TeamError::TaskLimit);
+                }
+                let key = id.as_str().to_owned();
+                self.attempts.insert(
+                    key.clone(),
+                    Attempt {
+                        title: note.title,
+                        session: None,
+                        repo: None,
+                        area: None,
+                        hash: Some(task),
+                        blocked: Some(hold.holder.clone()),
+                        asked: false,
+                        renoted: false,
+                        verified: true,
+                    },
+                );
+                key
+            }
+        };
+        let (cipher, head, _) = self.current_cipher().ok_or(TeamError::Busy)?;
+        let plaintext = team_tasks::request_plaintext(&self.share.person);
+        let record = record_task_id(&task);
+        let note = self.seal(
+            &cipher,
+            &head,
+            RecordKind::ReleaseRequestNote,
+            record.as_bytes(),
+            &plaintext,
+        );
+        if let Some(attempt) = self.attempts.get_mut(&key) {
+            attempt.asked = true;
+        }
+        Ok(vec![
+            Effect::StoreLocal,
+            self.frame(
+                Op::AskRelease(task),
+                ClientMessage::TaskReleaseRequest(TaskReleaseRequest { task, note }),
+            ),
+            Effect::Changed,
+        ])
+    }
+
+    /// The holder's answer to the open release request of a task this device holds. `requester`
+    /// is the member the card showed; the answer goes only to that request, only when one of its
+    /// listed devices signed it, and only once (the card is gone until the relay's word).
+    pub fn answer_release(
+        &mut self,
+        task: &str,
+        requester: &str,
+        accept: bool,
+    ) -> Result<Vec<Effect>, TeamError> {
+        let task = Self::parse_task(task)?;
+        let me = self.me.clone().ok_or(TeamError::Busy)?;
+        let request = self
+            .holds
+            .get_mut(&task)
+            .filter(|h| h.holder == me)
+            .and_then(|h| h.request.as_mut())
+            .filter(|r| r.signer.is_some() && !r.answered && r.requester.as_str() == requester)
+            .ok_or(TeamError::UnknownTask)?;
+        request.answered = true;
+        let requester = request.requester.clone();
+        Ok(vec![
+            self.frame(
+                Op::Answer(task),
+                ClientMessage::TaskReleaseAnswer(TaskReleaseAnswer {
+                    task,
+                    requester,
+                    accept,
+                }),
+            ),
+            Effect::Changed,
+        ])
+    }
+
+    fn reserve_refused(&mut self, key: &str, err: ErrorBody) -> Vec<Effect> {
+        let Some(attempt) = self.attempts.get(key) else {
+            return Vec::new();
+        };
+        let (title, session) = (attempt.title.clone(), attempt.session);
+        match err.code {
+            // First wins: someone else holds the task. The relay names the holder; it counts as
+            // soon as the verified log lists it, and one it does not list yet waits for the next
+            // log fetch (`drain_tasks`).
+            ErrorCode::Conflict => {
+                let Some(holder) = err.holder else {
+                    self.attempts.remove(key);
+                    self.notice(NoticeKind::ReserveFailed, title, None, None, session);
+                    return vec![Effect::Changed];
+                };
+                let verified = self.listed(&holder);
+                if let Some(attempt) = self.attempts.get_mut(key) {
+                    attempt.blocked = Some(holder);
+                    attempt.verified = verified;
+                }
+                let mut effects = vec![Effect::Changed];
+                if !verified {
+                    effects.extend(self.sync_log());
+                }
+                effects
+            }
+            ErrorCode::Limit => {
+                self.attempts.remove(key);
+                self.notice(NoticeKind::Limit, title, None, None, session);
+                vec![Effect::Changed]
+            }
+            // Another epoch began meanwhile: the attempt goes again with it.
+            ErrorCode::StaleEpoch => Vec::new(),
+            code => {
+                eprintln!("hangar: team reservation refused ({code:?})");
+                self.attempts.remove(key);
+                self.notice(NoticeKind::ReserveFailed, title, None, None, session);
+                vec![Effect::Changed]
+            }
+        }
+    }
+
+    fn ask_refused(&mut self, task: &KeyedHash, code: ErrorCode) -> Vec<Effect> {
+        eprintln!("hangar: team release request refused ({code:?})");
+        let Some(key) = self.attempt_key(task) else {
+            return Vec::new();
+        };
+        let (title, session) = match self.attempts.get_mut(&key) {
+            Some(attempt) => {
+                attempt.asked = false;
+                (attempt.title.clone(), attempt.session)
+            }
+            None => return Vec::new(),
+        };
+        if matches!(code, ErrorCode::Conflict | ErrorCode::RateLimited) {
+            let holder = self.holds.get(task).map(|h| h.holder.clone());
+            self.notice(
+                NoticeKind::AskRefused,
+                title,
+                holder.as_ref(),
+                None,
+                session,
+            );
+        }
+        vec![Effect::Changed]
+    }
+
+    /// A notice for the window, once; the same warning for the same deadline is not repeated.
+    fn notice(
+        &mut self,
+        kind: NoticeKind,
+        title: String,
+        other: Option<&Holder>,
+        at: Option<UnixMillis>,
+        session_id: Option<SessionId>,
+    ) {
+        let at = at.map(|a| a.0);
+        if self
+            .notices
+            .iter()
+            .any(|n| n.kind == kind && n.title == title && n.at == at && at.is_some())
+        {
+            return;
+        }
+        self.notice_seq += 1;
+        let (member, name) = match other {
+            Some(holder) => (holder.member.as_str().to_owned(), self.name_of(holder)),
+            None => (String::new(), String::new()),
+        };
+        self.notices.push_back(TaskNotice {
+            id: (self.now)()
+                .saturating_mul(1000)
+                .saturating_add(self.notice_seq % 1000),
+            kind,
+            title,
+            member,
+            name,
+            at,
+            session_id,
+        });
+        while self.notices.len() > MAX_NOTICES {
+            self.notices.pop_front();
+        }
+    }
+
+    /// The display name a device of the team gave: its hold's note, else its presence.
+    fn name_of(&self, holder: &Holder) -> String {
+        self.holds
+            .values()
+            .filter(|h| h.holder.member == holder.member)
+            .find_map(|h| h.note.as_ref().map(|n| n.name.clone()))
+            .or_else(|| {
+                self.peers
+                    .iter()
+                    .find(|(h, _)| h.member == holder.member)
+                    .map(|(_, p)| p.status.name.clone())
+            })
+            .unwrap_or_default()
+    }
+
+    /// A relay event about a reservation: applied once the verified log can vouch for its holder,
+    /// in the order the relay sent them.
+    fn on_task(&mut self, message: ServerMessage) -> Vec<Effect> {
+        if !self.synced || self.syncing || !self.task_queue.is_empty() {
+            return self.queue_task(message);
+        }
+        self.apply_task(message, true)
+    }
+
+    fn queue_task(&mut self, message: ServerMessage) -> Vec<Effect> {
+        if self.task_queue.len() >= MAX_TASK_QUEUE {
+            // Too far behind to keep the order: start over from the relay's snapshot.
+            eprintln!("hangar: team reservations fell behind; taking a new snapshot");
+            self.reset_tasks();
+            self.book_known = false;
+            return vec![Effect::End(SessionEnd::Gap)];
+        }
+        self.task_queue.push(message);
+        self.fetch_for_unknown()
+    }
+
+    /// A log fetch for events that wait for an unknown holder, at most every
+    /// [`UNKNOWN_FETCH_EVERY_MS`] (the next ping fetches otherwise), so a relay naming made-up
+    /// holders cannot make this device fetch the log for every event.
+    fn fetch_for_unknown(&mut self) -> Vec<Effect> {
+        if !self.synced || self.syncing {
+            return Vec::new();
+        }
+        let now = (self.now)();
+        if self
+            .unknown_fetch_at
+            .is_some_and(|at| now >= at && now - at < UNKNOWN_FETCH_EVERY_MS)
+        {
+            return Vec::new();
+        }
+        self.unknown_fetch_at = Some(now);
+        self.sync_log()
+    }
+
+    /// The waiting task events after a log fetch, then the attempts that waited for their
+    /// holder, then the notes that could not be opened.
+    fn drain_tasks(&mut self) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        // Holds of devices the log no longer lists go.
+        let gone: Vec<KeyedHash> = self
+            .holds
+            .iter()
+            .filter(|(_, h)| !self.listed(&h.holder))
+            .map(|(task, _)| *task)
+            .collect();
+        for task in &gone {
+            self.holds.remove(task);
+        }
+        if !gone.is_empty() {
+            effects.push(Effect::Changed);
+        }
+        for message in std::mem::take(&mut self.task_queue) {
+            effects.extend(self.apply_task(message, false));
+        }
+        // A conflict named a holder the log did not list: listed now, it counts; still not
+        // listed, the relay's word was empty and the attempt ends with a notice.
+        let waiting: Vec<(String, Holder)> = self
+            .attempts
+            .iter()
+            .filter(|(_, a)| !a.verified)
+            .filter_map(|(key, a)| Some((key.clone(), a.blocked.clone()?)))
+            .collect();
+        for (key, holder) in waiting {
+            if self.listed(&holder) {
+                if let Some(attempt) = self.attempts.get_mut(&key) {
+                    attempt.verified = true;
+                }
+            } else if let Some(attempt) = self.attempts.remove(&key) {
+                self.notice(
+                    NoticeKind::ReserveFailed,
+                    attempt.title,
+                    None,
+                    None,
+                    attempt.session,
+                );
+            }
+            effects.push(Effect::Changed);
+        }
+        let unopened: Vec<(KeyedHash, Holder, Sealed)> = self
+            .holds
+            .iter()
+            .filter_map(|(task, h)| Some((*task, h.holder.clone(), h.unopened.clone()?)))
+            .collect();
+        for (task, holder, sealed) in unopened {
+            let opened = self.open_note(&task, &holder, &sealed);
+            let Some(hold) = self.holds.get_mut(&task) else {
+                continue;
+            };
+            match opened {
+                NoteOpen::Note(note) => {
+                    hold.note = Some(note);
+                    hold.unopened = None;
+                    effects.push(Effect::Changed);
+                }
+                NoteOpen::Fork => {
+                    hold.unopened = None;
+                    effects.extend(self.diverged(&holder));
+                }
+                NoteOpen::Later | NoteOpen::Keep => hold.unopened = None,
+            }
+        }
+        effects.extend(self.marks_raised_if_dirty());
+        effects
+    }
+
+    /// The live marks rose while handling task events: stored like any other rise.
+    fn marks_raised_if_dirty(&mut self) -> Vec<Effect> {
+        if self.note_marks_rose {
+            self.note_marks_rose = false;
+            return self.marks_raised();
+        }
+        Vec::new()
+    }
+
+    fn task_holder(message: &ServerMessage) -> Option<&Holder> {
+        match message {
+            ServerMessage::TaskReserved(m) => Some(&m.holder),
+            ServerMessage::TaskReleased(m) => Some(&m.holder),
+            ServerMessage::ReservationExpiring(m) => Some(&m.holder),
+            ServerMessage::ReservationExpired(m) => Some(&m.holder),
+            ServerMessage::TaskReleaseRequested(m) => Some(&m.holder),
+            ServerMessage::TaskReleaseAnswered(m) => Some(&m.holder),
+            ServerMessage::TaskReleaseRequestEnded(m) => Some(&m.holder),
+            _ => None,
+        }
+    }
+
+    /// `can_wait`: a holder the log does not list yet may be one added since the last fetch;
+    /// the event waits for the next fetch once.
+    fn apply_task(&mut self, message: ServerMessage, can_wait: bool) -> Vec<Effect> {
+        let Some(holder) = Self::task_holder(&message).cloned() else {
+            return Vec::new();
+        };
+        if !self.listed(&holder) {
+            if can_wait {
+                self.task_queue.push(message);
+                return self.fetch_for_unknown();
+            }
+            // A device the log does not vouch for holds nothing here; the end of a hold it had
+            // before its removal still ends it.
+            let ended = match &message {
+                ServerMessage::TaskReleased(m) => Some(m.task),
+                ServerMessage::ReservationExpired(m) => Some(m.task),
+                _ => None,
+            };
+            if let Some(task) = ended {
+                if self.holds.get(&task).is_some_and(|h| h.holder == holder) {
+                    self.holds.remove(&task);
+                    return vec![Effect::Changed];
+                }
+            }
+            return Vec::new();
+        }
+        let mut effects = match message {
+            ServerMessage::TaskReserved(m) => self.on_reserved(m),
+            ServerMessage::TaskReleased(m) => self.on_released(m),
+            ServerMessage::ReservationExpiring(m) => self.on_expiring(m),
+            ServerMessage::ReservationExpired(m) => {
+                self.hold_ended(m.task, &m.holder, Some(NoticeKind::Expired), true)
+            }
+            ServerMessage::TaskReleaseRequested(m) => self.on_requested(m),
+            ServerMessage::TaskReleaseAnswered(m) => self.on_answered(m),
+            ServerMessage::TaskReleaseRequestEnded(m) => self.on_request_ended(m),
+            _ => Vec::new(),
+        };
+        effects.extend(self.marks_raised_if_dirty());
+        effects
+    }
+
+    /// Whether `holder` may hold one more task here: at most
+    /// [`MAX_RESERVATIONS_PER_MEMBER`] per member, and only as many members as the log lists.
+    fn room_for(&self, holder: &Holder) -> bool {
+        let members = self.verifier.state().map_or(0, |s| s.members().len());
+        let of_member = self
+            .holds
+            .values()
+            .filter(|h| h.holder.member == holder.member)
+            .count();
+        of_member < MAX_RESERVATIONS_PER_MEMBER
+            && self.holds.len() < members.saturating_mul(MAX_RESERVATIONS_PER_MEMBER)
+    }
+
+    /// A name a note may carry: no control, invisible or reordering character (it could hide
+    /// or reorder what the person reads next to it).
+    fn plain_name(name: &str) -> bool {
+        !name
+            .chars()
+            .any(|c| c.is_control() || crate::text::is_invisible(c))
+    }
+
+    /// Opens the holder's reservation note of `task`: signed by the holder for this task, not
+    /// older than a note shown before, a title the team takes whose keyed hash under the note's
+    /// epoch is the task's, and a plain name.
+    fn open_note(&mut self, task: &KeyedHash, holder: &Holder, sealed: &Sealed) -> NoteOpen {
+        let record = record_task_id(task);
+        let opened = match self.open_record(
+            RecordKind::ReservationNote,
+            record.as_bytes(),
+            holder,
+            sealed,
+            true,
+        ) {
+            Open::Opened(opened) => opened,
+            Open::Later => return NoteOpen::Later,
+            Open::Fork => return NoteOpen::Fork,
+            Open::Failed => return NoteOpen::Keep,
+        };
+        let stamp = self.stamp(holder, &opened);
+        match self
+            .live
+            .note(holder, &note_key(RecordKind::ReservationNote, task), stamp)
+        {
+            Mark::Stale => return NoteOpen::Keep,
+            Mark::Seen => {}
+            Mark::Raised => self.note_marks_rose = true,
+        }
+        let Some(note) = team_tasks::parse_note(&opened.plaintext) else {
+            return NoteOpen::Keep;
+        };
+        if !Self::plain_name(&note.name) || !self.title_matches(&note.title, task, sealed.epoch) {
+            eprintln!("hangar: a team reservation note does not fit its task");
+            return NoteOpen::Keep;
+        }
+        NoteOpen::Note(note)
+    }
+
+    /// Whether `title` is the task `task` names: its keyed hash under `epoch`'s key.
+    fn title_matches(&self, title: &str, task: &KeyedHash, epoch: Epoch) -> bool {
+        let (Some(state), Some(secret)) = (self.verifier.state(), self.keys.epochs.get(&epoch))
+        else {
+            return false;
+        };
+        let Ok(id) = TaskId::normalize(title) else {
+            return false;
+        };
+        EpochCipher::for_epoch(state, secret, epoch)
+            .is_ok_and(|cipher| cipher.match_key().task(&id) == *task)
+    }
+
+    fn on_reserved(&mut self, m: TaskReserved) -> Vec<Effect> {
+        let mut effects = vec![Effect::Changed];
+        let same = self
+            .holds
+            .get(&m.task)
+            .is_some_and(|h| h.holder == m.holder);
+        if !same && !self.room_for(&m.holder) {
+            return Vec::new();
+        }
+        if !same {
+            // Another holder took the task: the note of the one before stood for a hold that
+            // ended.
+            if let Some(before) = self.holds.get(&m.task).map(|h| h.holder.clone()) {
+                let key = note_key(RecordKind::ReservationNote, &m.task);
+                self.note_marks_rose |= self.live.consume_note(&before, &key);
+            }
+        }
+        let mut hold = match self.holds.get(&m.task).filter(|_| same) {
+            Some(hold) => hold.clone(),
+            None => Hold {
+                holder: m.holder.clone(),
+                epoch: m.epoch,
+                since: m.since,
+                expires_at: None,
+                expiring: false,
+                unopened: None,
+                note: None,
+                request: None,
+            },
+        };
+        hold.epoch = m.epoch;
+        hold.since = m.since;
+        hold.expires_at = m.expires_at;
+        // A new deadline (activity, the holder back online) ends a warning.
+        hold.expiring = false;
+        if let Some(sealed) = &m.note {
+            match self.open_note(&m.task, &m.holder, sealed) {
+                NoteOpen::Note(note) => {
+                    hold.note = Some(note);
+                    hold.unopened = None;
+                }
+                NoteOpen::Later => hold.unopened = Some(sealed.clone()),
+                NoteOpen::Fork => effects.extend(self.diverged(&m.holder)),
+                NoteOpen::Keep => {}
+            }
+        }
+        let has_note = hold.note.is_some();
+        let note = hold.note.clone();
+        self.holds.insert(m.task, hold);
+        if self.me.as_ref() == Some(&m.holder) {
+            match self.attempt_key(&m.task) {
+                Some(key) => {
+                    let mut renote = false;
+                    if let Some(attempt) = self.attempts.get_mut(&key) {
+                        attempt.blocked = None;
+                        attempt.asked = false;
+                        attempt.verified = true;
+                        // A handover carries no note of this device's: it goes out again, so
+                        // the team reads the title.
+                        renote = !has_note && !attempt.renoted;
+                        attempt.renoted |= renote;
+                    }
+                    if renote {
+                        effects.extend(self.send_reserve(&key));
+                    }
+                }
+                // Held from before a restart: its note says what it is.
+                None => {
+                    if let Some(note) = note {
+                        if let Ok(id) = TaskId::normalize(&note.title) {
+                            if self.attempts.len() < MAX_RESERVATIONS_PER_MEMBER {
+                                self.attempts.insert(
+                                    id.as_str().to_owned(),
+                                    Attempt {
+                                        title: note.title,
+                                        session: None,
+                                        repo: note.repo,
+                                        area: note.area,
+                                        hash: Some(m.task),
+                                        blocked: None,
+                                        asked: false,
+                                        renoted: true,
+                                        verified: true,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let Some(key) = self.attempt_key(&m.task) {
+            if let Some(attempt) = self.attempts.get_mut(&key) {
+                if attempt.blocked.as_ref() != Some(&m.holder) {
+                    attempt.asked = false;
+                }
+                attempt.blocked = Some(m.holder.clone());
+                attempt.verified = true;
+            }
+        }
+        effects
+    }
+
+    fn on_released(&mut self, m: TaskReleased) -> Vec<Effect> {
+        let notice =
+            (m.reason == ReleaseReason::ForceReleased).then_some(NoticeKind::ForceReleased);
+        // A handover is followed by the requester's `task.reserved`: nobody else may try first.
+        let retry = m.reason != ReleaseReason::HandedOver;
+        self.hold_ended(m.task, &m.holder, notice, retry)
+    }
+
+    /// A hold ended: released, expired or handed over. Its note counts as shown once more, so
+    /// the relay cannot bring the hold back with it. `notice` goes to this person when a hold of
+    /// theirs ended; with `retry`, this device's attempt that waited for the task tries again
+    /// (first wins once more).
+    fn hold_ended(
+        &mut self,
+        task: KeyedHash,
+        holder: &Holder,
+        notice: Option<NoticeKind>,
+        retry: bool,
+    ) -> Vec<Effect> {
+        let removed = match self.holds.get(&task) {
+            Some(hold) if hold.holder == *holder => self.holds.remove(&task),
+            _ => None,
+        };
+        let Some(removed) = removed else {
+            // No such hold here: nothing ended that this device showed.
+            return Vec::new();
+        };
+        let key = note_key(RecordKind::ReservationNote, &task);
+        self.note_marks_rose |= self.live.consume_note(holder, &key);
+        if let Some(signer) = removed.request.as_ref().and_then(|r| r.signer.as_ref()) {
+            let key = note_key(RecordKind::ReleaseRequestNote, &task);
+            self.note_marks_rose |= self.live.consume_note(signer, &key);
+        }
+        let mut effects = vec![Effect::Changed];
+        let attempt_key = self.attempt_key(&task);
+        let title = removed
+            .note
+            .as_ref()
+            .map(|n| n.title.clone())
+            .or_else(|| {
+                attempt_key
+                    .as_ref()
+                    .and_then(|k| self.attempts.get(k))
+                    .map(|a| a.title.clone())
+            })
+            .unwrap_or_default();
+        let session = attempt_key
+            .as_ref()
+            .and_then(|k| self.attempts.get(k))
+            .and_then(|a| a.session);
+        if let Some(kind) = notice {
+            if self.member.as_ref() == Some(&holder.member) {
+                self.notice(kind, title, None, None, session);
+            }
+        }
+        if self.me.as_ref() == Some(holder) {
+            if let Some(key) = attempt_key {
+                self.attempts.remove(&key);
+            }
+            return effects;
+        }
+        if let Some(key) = attempt_key {
+            let waiting = self
+                .attempts
+                .get(&key)
+                .is_some_and(|a| a.blocked.as_ref() == Some(holder));
+            if waiting && retry {
+                if let Some(attempt) = self.attempts.get_mut(&key) {
+                    attempt.blocked = None;
+                    attempt.asked = false;
+                    attempt.verified = false;
+                }
+                effects.extend(self.send_reserve(&key));
+            }
+        }
+        effects
+    }
+
+    fn on_expiring(&mut self, m: ReservationExpiring) -> Vec<Effect> {
+        let Some(hold) = self.holds.get_mut(&m.task).filter(|h| h.holder == m.holder) else {
+            return Vec::new();
+        };
+        hold.expiring = true;
+        hold.expires_at = Some(m.expires_at);
+        let title = hold
+            .note
+            .as_ref()
+            .map(|n| n.title.clone())
+            .unwrap_or_default();
+        if self.member.as_ref() == Some(&m.holder.member) {
+            let session = self
+                .attempt_key(&m.task)
+                .and_then(|k| self.attempts.get(&k))
+                .and_then(|a| a.session);
+            self.notice(
+                NoticeKind::Expiring,
+                title,
+                None,
+                Some(m.expires_at),
+                session,
+            );
+        }
+        vec![Effect::Changed]
+    }
+
+    fn on_requested(&mut self, m: TaskReleaseRequested) -> Vec<Effect> {
+        let Some(state) = self.verifier.state() else {
+            return Vec::new();
+        };
+        // The requester must be a member the log lists; its name, and the holder's card, come
+        // only from a note one of its listed devices signed for this task, not shown before.
+        if state.member(&m.requester).is_none() {
+            return Vec::new();
+        }
+        if !self
+            .holds
+            .get(&m.task)
+            .is_some_and(|h| h.holder == m.holder)
+        {
+            return Vec::new();
+        }
+        let devices: Vec<Holder> = state
+            .devices()
+            .filter(|(h, _)| h.member == m.requester)
+            .map(|(h, _)| h)
+            .collect();
+        let record = record_task_id(&m.task);
+        let opened = m.note.as_ref().and_then(|sealed| {
+            devices.iter().find_map(|device| {
+                match self.open_sealed(
+                    RecordKind::ReleaseRequestNote,
+                    record.as_bytes(),
+                    device,
+                    sealed,
+                ) {
+                    Open::Opened(opened) => Some((device.clone(), opened)),
+                    _ => None,
+                }
+            })
+        });
+        let mut signer = None;
+        let mut name = String::new();
+        if let Some((device, opened)) = opened {
+            let stamp = self.stamp(&device, &opened);
+            let key = note_key(RecordKind::ReleaseRequestNote, &m.task);
+            let mark = self.live.note(&device, &key, stamp);
+            if mark == Mark::Raised {
+                self.note_marks_rose = true;
+            }
+            let parsed = team_tasks::parse_request(&opened.plaintext)
+                .filter(|parsed| Self::plain_name(parsed));
+            if let (true, Some(parsed)) = (mark != Mark::Stale, parsed) {
+                signer = Some(device);
+                name = parsed;
+            }
+        }
+        let Some(hold) = self.holds.get_mut(&m.task) else {
+            return Vec::new();
+        };
+        hold.request = Some(HoldRequest {
+            requester: m.requester.clone(),
+            signer,
+            name,
+            answered: false,
+        });
+        if self.member.as_ref() == Some(&m.requester) {
+            if let Some(key) = self.attempt_key(&m.task) {
+                if let Some(attempt) = self.attempts.get_mut(&key) {
+                    attempt.asked = true;
+                }
+            }
+        }
+        vec![Effect::Changed]
+    }
+
+    /// The open request of a task ended; `kind`: the notice for the requester, given only when
+    /// this device's attempt had asked for the task.
+    fn request_ended(
+        &mut self,
+        task: KeyedHash,
+        holder: &Holder,
+        requester: &MemberId,
+        kind: Option<NoticeKind>,
+    ) -> Vec<Effect> {
+        let mut signer = None;
+        let title = match self.holds.get_mut(&task).filter(|h| h.holder == *holder) {
+            Some(hold) => {
+                signer = hold.request.take().and_then(|r| r.signer);
+                hold.note.as_ref().map(|n| n.title.clone())
+            }
+            None => None,
+        };
+        // The request note stood for this request: shown again, it is old.
+        if let Some(signer) = signer {
+            let key = note_key(RecordKind::ReleaseRequestNote, &task);
+            self.note_marks_rose |= self.live.consume_note(&signer, &key);
+        }
+        if self.member.as_ref() != Some(requester) {
+            return vec![Effect::Changed];
+        }
+        let key = self.attempt_key(&task);
+        let attempt = key.as_ref().and_then(|k| self.attempts.get_mut(k));
+        let Some(attempt) = attempt.filter(|a| a.asked) else {
+            return vec![Effect::Changed];
+        };
+        attempt.asked = false;
+        let title = title.unwrap_or_else(|| attempt.title.clone());
+        let session = attempt.session;
+        if let Some(kind) = kind {
+            self.notice(kind, title, Some(holder), None, session);
+        }
+        vec![Effect::Changed]
+    }
+
+    fn on_answered(&mut self, m: TaskReleaseAnswered) -> Vec<Effect> {
+        let kind = if m.accepted {
+            NoticeKind::ReleaseAccepted
+        } else {
+            NoticeKind::ReleaseDeclined
+        };
+        self.request_ended(m.task, &m.holder, &m.requester, Some(kind))
+    }
+
+    fn on_request_ended(&mut self, m: TaskReleaseRequestEnded) -> Vec<Effect> {
+        let kind = (m.reason == RequestEndReason::TimedOut).then_some(NoticeKind::ReleaseTimedOut);
+        self.request_ended(m.task, &m.holder, &m.requester, kind)
+    }
+
+    fn task_views(&self) -> Vec<TaskView> {
+        let mut list: Vec<TaskView> = self
+            .holds
+            .iter()
+            .map(|(task, hold)| TaskView {
+                task: task.to_hex(),
+                title: hold
+                    .note
+                    .as_ref()
+                    .map(|n| n.title.clone())
+                    .unwrap_or_default(),
+                area: hold.note.as_ref().and_then(|n| n.area.clone()),
+                member: hold.holder.member.as_str().to_owned(),
+                device: hold.holder.device.as_str().to_owned(),
+                name: hold
+                    .note
+                    .as_ref()
+                    .map(|n| n.name.clone())
+                    .unwrap_or_default(),
+                mine: self.me.as_ref() == Some(&hold.holder),
+                own: self.me.as_ref() != Some(&hold.holder)
+                    && self.member.as_ref() == Some(&hold.holder.member),
+                since: hold.since.0,
+                expires_at: hold.expires_at.map(|at| at.0),
+                expiring: hold.expiring,
+                // Answered here: gone until the relay's word, so nobody answers twice.
+                request: hold
+                    .request
+                    .as_ref()
+                    .filter(|r| !r.answered)
+                    .map(|r| RequestView {
+                        member: r.requester.as_str().to_owned(),
+                        name: r.name.clone(),
+                        mine: self.member.as_ref() == Some(&r.requester),
+                        confirmed: r.signer.is_some(),
+                    }),
+            })
+            .collect();
+        list.sort_by(|a, b| (a.since, &a.task).cmp(&(b.since, &b.task)));
+        list
+    }
+
+    fn attempt_views(&self) -> Vec<AttemptView> {
+        let me = self.me.as_ref();
+        self.attempts
+            .values()
+            .filter(|a| {
+                // Held by this device: the list of reservations shows it.
+                !a.hash
+                    .and_then(|hash| self.holds.get(&hash))
+                    .is_some_and(|h| Some(&h.holder) == me)
+            })
+            .map(|a| {
+                // A holder the log does not list yet is not shown: the attempt still waits.
+                let blocked = a.blocked.as_ref().filter(|_| a.verified);
+                AttemptView {
+                    task: a.hash.map(|h| h.to_hex()).unwrap_or_default(),
+                    title: a.title.clone(),
+                    state: if blocked.is_some() {
+                        AttemptState::Blocked
+                    } else {
+                        AttemptState::Reserving
+                    },
+                    member: blocked.map(|h| h.member.as_str().to_owned()),
+                    device: blocked.map(|h| h.device.as_str().to_owned()),
+                    name: blocked.map(|h| self.name_of(h)).unwrap_or_default(),
+                    asked: a.asked,
+                    session_id: a.session,
+                }
+            })
+            .collect()
+    }
+
+    /// The reservations for the agent gate and the agent's context: only those whose note the
+    /// holder signed, and this device's attempts that a listed teammate's hold blocks (they
+    /// pause their own linked session).
+    pub fn team_tasks(&self) -> Vec<TeamTask> {
+        let mut tasks = Vec::new();
+        for (task, hold) in &self.holds {
+            let Some(note) = &hold.note else {
+                continue;
+            };
+            let mine = self.member.as_ref() == Some(&hold.holder.member);
+            let session = (self.me.as_ref() == Some(&hold.holder))
+                .then(|| self.attempt_key(task))
+                .flatten()
+                .and_then(|key| self.attempts.get(&key))
+                .and_then(|a| a.session);
+            tasks.push(TeamTask {
+                title: note.title.clone(),
+                who: if mine {
+                    String::new()
+                } else {
+                    team_share::person_tag(&note.name, hold.holder.member.as_str())
+                },
+                mine,
+                repo: note.repo.clone(),
+                area: note.area.clone(),
+                session,
+                wanted: false,
+            });
+        }
+        for attempt in self.attempts.values().filter(|a| a.verified) {
+            let Some(holder) = &attempt.blocked else {
+                continue;
+            };
+            tasks.push(TeamTask {
+                title: attempt.title.clone(),
+                who: team_share::person_tag(&self.name_of(holder), holder.member.as_str()),
+                mine: false,
+                repo: attempt.repo.clone(),
+                area: attempt.area.clone(),
+                session: attempt.session,
+                wanted: true,
+            });
+        }
+        tasks
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Record counters
     // -----------------------------------------------------------------------------------------
 
@@ -2283,8 +3712,10 @@ mod tests {
         }
     }
     use hangar_team_protocol::overlap::{ClaimBoard, SessionClaims as BoardClaims};
+    use hangar_team_protocol::reservation::{Intent, Policy, ReservationBook, ReservationEvent};
     use hangar_team_protocol::wire::{
-        encode_server, Ack, ErrorBody, KeyRotated, MemberLogAppended, MemberLogEntry, Welcome,
+        encode_server, Ack, ErrorBody, KeyRotated, MemberLogAppended, MemberLogEntry,
+        ReservationExpired, Welcome,
     };
 
     /// A relay in memory, enough to drive engines through the bootstrap: it applies every
@@ -2301,6 +3732,18 @@ mod tests {
         board: ClaimBoard,
         /// `claim.set` frames received.
         claim_sets: usize,
+        /// Reservations, decided as the real relay decides them.
+        book: ReservationBook,
+        /// The note of the newest `task.reserve` per task, with the device that sent it.
+        notes: HashMap<KeyedHash, (Holder, Option<Sealed>)>,
+        /// The note of the open release request per task.
+        request_notes: HashMap<KeyedHash, Option<Sealed>>,
+        /// The relay's clock, Unix milliseconds.
+        clock: u64,
+        /// Logged task events sent, in order.
+        task_events: Vec<String>,
+        /// Every `task.reserve` received.
+        reserves: Vec<TaskReserve>,
     }
 
     fn team() -> TeamId {
@@ -2326,7 +3769,135 @@ mod tests {
                 seq: 0,
                 board: ClaimBoard::new(),
                 claim_sets: 0,
+                book: ReservationBook::new(Policy::default(), Epoch(0)),
+                notes: HashMap::new(),
+                request_notes: HashMap::new(),
+                clock: 10_000_000,
+                task_events: Vec::new(),
+                reserves: Vec::new(),
             }
+        }
+
+        /// A book event as the relay logs and sends it.
+        fn task_message(&self, task: KeyedHash, event: ReservationEvent) -> ServerMessage {
+            match event {
+                ReservationEvent::Reserved {
+                    holder,
+                    epoch,
+                    since,
+                    expires_at,
+                } => {
+                    // The note goes along only with the hold of the device that sent it.
+                    let note = self
+                        .notes
+                        .get(&task)
+                        .filter(|(by, _)| *by == holder)
+                        .and_then(|(_, note)| note.clone());
+                    ServerMessage::TaskReserved(TaskReserved {
+                        task,
+                        holder,
+                        epoch,
+                        since,
+                        expires_at,
+                        note,
+                    })
+                }
+                ReservationEvent::Released { holder, reason } => {
+                    ServerMessage::TaskReleased(TaskReleased {
+                        task,
+                        holder,
+                        reason,
+                    })
+                }
+                ReservationEvent::Expiring { holder, expires_at } => {
+                    ServerMessage::ReservationExpiring(ReservationExpiring {
+                        task,
+                        holder,
+                        expires_at,
+                    })
+                }
+                ReservationEvent::Expired { holder } => {
+                    ServerMessage::ReservationExpired(ReservationExpired { task, holder })
+                }
+                ReservationEvent::ReleaseRequested { holder, requester } => {
+                    ServerMessage::TaskReleaseRequested(TaskReleaseRequested {
+                        task,
+                        holder,
+                        requester: requester.member,
+                        note: self.request_notes.get(&task).cloned().flatten(),
+                    })
+                }
+                ReservationEvent::ReleaseAnswered {
+                    holder,
+                    requester,
+                    accepted,
+                } => ServerMessage::TaskReleaseAnswered(TaskReleaseAnswered {
+                    task,
+                    holder,
+                    requester: requester.member,
+                    accepted,
+                }),
+                ReservationEvent::ReleaseRequestEnded {
+                    holder,
+                    requester,
+                    reason,
+                } => ServerMessage::TaskReleaseRequestEnded(TaskReleaseRequestEnded {
+                    task,
+                    holder,
+                    requester: requester.member,
+                    reason,
+                }),
+            }
+        }
+
+        /// Logs book events with the next sequence numbers.
+        fn log_tasks(&mut self, events: Vec<(KeyedHash, ReservationEvent)>) -> Vec<String> {
+            let mut texts = Vec::new();
+            for (task, event) in events {
+                let message = self.task_message(task, event);
+                self.seq += 1;
+                let text = self.text(None, Some(self.seq), message);
+                self.task_events.push(text.clone());
+                texts.push(text);
+            }
+            texts
+        }
+
+        /// The relay's clock moves on: warnings and expiry, for everyone.
+        fn tick(&mut self, ms: u64) -> Vec<String> {
+            self.clock += ms;
+            let events = self.book.tick(UnixMillis(self.clock));
+            self.log_tasks(events)
+        }
+
+        /// A device's last connection closed (its holds start to run) or opened again.
+        fn presence_of(&mut self, holder: &Holder, online: bool) -> Vec<String> {
+            let events = self.book.presence(holder, online, UnixMillis(self.clock));
+            self.log_tasks(events)
+        }
+
+        fn apply_intent(
+            &mut self,
+            id: OpId,
+            sender: &Holder,
+            intent: Intent,
+        ) -> (Vec<String>, Vec<String>) {
+            let applied = self.book.apply(sender, intent, UnixMillis(self.clock));
+            let (events, rejection) = applied.into_events();
+            let all = self.log_tasks(events);
+            let own = match rejection {
+                None => vec![self.ack(id, None)],
+                Some(rejection) => vec![self.text(
+                    Some(id),
+                    None,
+                    ServerMessage::Err(ErrorBody {
+                        code: rejection.code(),
+                        retry_after_ms: rejection.retry_after_ms(UnixMillis(self.clock)),
+                        holder: rejection.holder().cloned(),
+                    }),
+                )],
+            };
+            (own, all)
         }
 
         fn text(&self, id: Option<OpId>, seq: Option<u64>, message: ServerMessage) -> String {
@@ -2376,17 +3947,20 @@ mod tests {
             let mut all = Vec::new();
             let mut targeted = Vec::new();
             match frame.message {
-                ClientMessage::Hello(_) => own.push(self.text(
-                    Some(id),
-                    None,
-                    ServerMessage::Welcome(Welcome {
-                        proto: 1,
-                        stream: StreamId::new("s").unwrap(),
-                        head: Seq(self.seq),
-                        member: sender.member.clone(),
-                        epoch: Epoch(0),
-                    }),
-                )),
+                ClientMessage::Hello(_) => {
+                    own.push(self.text(
+                        Some(id),
+                        None,
+                        ServerMessage::Welcome(Welcome {
+                            proto: 1,
+                            stream: StreamId::new("s").unwrap(),
+                            head: Seq(self.seq),
+                            member: sender.member.clone(),
+                            epoch: Epoch(0),
+                        }),
+                    ));
+                    all.extend(self.presence_of(sender, true));
+                }
                 ClientMessage::DeviceKeys(keys) => {
                     self.devices.retain(|d| d.holder != *sender);
                     self.devices.push(DeviceInfo {
@@ -2445,6 +4019,11 @@ mod tests {
                     match self.verifier.admit_rotation(&rotate, sender, role) {
                         Ok(admitted) => {
                             self.store(&rotate.log, admitted.head, sender);
+                            let events = self
+                                .book
+                                .rotate(rotate.epoch, UnixMillis(self.clock))
+                                .unwrap();
+                            let rotated = self.log_tasks(events);
                             for wrapped in &rotate.wrapped {
                                 self.wrapped.push((
                                     wrapped.holder.clone(),
@@ -2454,6 +4033,7 @@ mod tests {
                                 ));
                             }
                             own.push(self.ack(id, None));
+                            all.extend(rotated);
                             all.push(self.appended(admitted.head, sender));
                             self.seq += 1;
                             all.push(self.text(
@@ -2561,6 +4141,74 @@ mod tests {
                             self.text(None, None, ServerMessage::ClaimOverlap(notice.overlap));
                         targeted.push((notice.to.holder, text));
                     }
+                }
+                ClientMessage::TaskReserve(reserve) => {
+                    self.reserves.push(reserve.clone());
+                    let note = (sender.clone(), reserve.note.clone());
+                    let intent = Intent::Reserve {
+                        task: reserve.task,
+                        epoch: reserve.epoch,
+                        prev: reserve.prev,
+                    };
+                    // The note goes with the hold only when the reserve is applied.
+                    let before = self.notes.insert(reserve.task, note);
+                    let (mine, events) = self.apply_intent(id, sender, intent);
+                    let applied = mine.iter().any(|t| t.contains("\"ack\""));
+                    if !applied {
+                        match before {
+                            Some(before) => self.notes.insert(reserve.task, before),
+                            None => self.notes.remove(&reserve.task),
+                        };
+                    }
+                    own.extend(mine);
+                    all.extend(events);
+                }
+                ClientMessage::TaskRelease(task) => {
+                    let (mine, events) =
+                        self.apply_intent(id, sender, Intent::Release { task: task.task });
+                    own.extend(mine);
+                    all.extend(events);
+                }
+                ClientMessage::Heartbeat(beat) => {
+                    let (mine, events) =
+                        self.apply_intent(id, sender, Intent::Heartbeat { tasks: beat.tasks });
+                    own.extend(mine);
+                    all.extend(events);
+                }
+                ClientMessage::TaskReleaseRequest(request) => {
+                    let before = self.request_notes.insert(request.task, request.note);
+                    let (mine, events) = self.apply_intent(
+                        id,
+                        sender,
+                        Intent::RequestRelease { task: request.task },
+                    );
+                    if !mine.iter().any(|t| t.contains("\"ack\"")) {
+                        match before {
+                            Some(before) => self.request_notes.insert(request.task, before),
+                            None => self.request_notes.remove(&request.task),
+                        };
+                    }
+                    own.extend(mine);
+                    all.extend(events);
+                }
+                ClientMessage::TaskReleaseWithdraw(task) => {
+                    let (mine, events) =
+                        self.apply_intent(id, sender, Intent::WithdrawRelease { task: task.task });
+                    own.extend(mine);
+                    all.extend(events);
+                }
+                ClientMessage::TaskReleaseAnswer(answer) => {
+                    let (mine, events) = self.apply_intent(
+                        id,
+                        sender,
+                        Intent::AnswerRelease {
+                            task: answer.task,
+                            requester: answer.requester,
+                            accept: answer.accept,
+                        },
+                    );
+                    own.extend(mine);
+                    all.extend(events);
                 }
                 _ => own.push(self.ack(id, None)),
             }
@@ -4296,5 +5944,648 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert_eq!(lines("src/a.rs"), [range(1, 2)]);
         assert_eq!(lines("src/b.rs"), [range(5, 6)]);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Reservations
+    // -----------------------------------------------------------------------------------------
+
+    /// Alice and Bob connected with a shared session each (their names go into the notes).
+    fn team_sharing() -> (Relay, Client, Client) {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let a = a1
+            .engine
+            .set_share(share("Alice", 1, "Claude Code", &[("src/a.rs", 1, 2)]));
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("docs/b.md", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, a), (1, b)]);
+        (relay, a1, b1)
+    }
+
+    /// Delivers frames the relay made outside a client's request (time, presence) to everyone.
+    fn deliver(relay: &mut Relay, clients: &mut [&mut Client], texts: Vec<String>) {
+        for client in clients.iter_mut() {
+            client.inbox.extend(texts.iter().cloned());
+        }
+        run(relay, clients, Vec::new());
+    }
+
+    fn reserve(
+        relay: &mut Relay,
+        clients: &mut [&mut Client],
+        at: usize,
+        title: &str,
+        area: Option<&str>,
+    ) {
+        let session = area.map(|_| if at == 0 { 1 } else { 7 });
+        let effects = clients[at]
+            .engine
+            .reserve_task(title, session, area)
+            .unwrap();
+        run(relay, clients, vec![(at, effects)]);
+    }
+
+    #[test]
+    fn the_first_reservation_wins_and_the_second_waits_with_the_holder_named() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            0,
+            "Fix login",
+            Some("src/auth"),
+        );
+        let mine = a1.engine.activity().tasks;
+        assert_eq!(mine.len(), 1);
+        assert!(mine[0].mine);
+        assert_eq!(mine[0].title, "Fix login");
+        assert_eq!(mine[0].area.as_deref(), Some("src/auth"));
+        assert!(
+            a1.engine.activity().attempts.is_empty(),
+            "held, not waiting"
+        );
+
+        // Bob asks for the same task (the title compares normalized): the relay says Alice
+        // holds it; nothing is applied on Bob's side before the relay's word.
+        let effects = b1.engine.reserve_task("  fix LOGIN ", None, None).unwrap();
+        assert!(b1.engine.activity().attempts[0].state == AttemptState::Reserving);
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, effects)]);
+        let seen = b1.engine.activity();
+        assert_eq!(seen.tasks.len(), 1);
+        assert_eq!(seen.tasks[0].title, "Fix login");
+        assert_eq!(seen.tasks[0].name, "Alice");
+        assert!(!seen.tasks[0].mine && !seen.tasks[0].own);
+        assert_eq!(seen.attempts.len(), 1);
+        assert_eq!(seen.attempts[0].state, AttemptState::Blocked);
+        assert_eq!(seen.attempts[0].member.as_deref(), Some("alice"));
+        assert_eq!(seen.attempts[0].name, "Alice");
+
+        // The gate and the context: Alice's area pauses Bob's edits there; Bob's own wish is
+        // named as wanted, Alice's own reservation as hers.
+        let tasks = b1.engine.team_tasks();
+        let held = tasks.iter().find(|t| !t.wanted).unwrap();
+        assert_eq!(held.who, "Alice #alice");
+        assert!(!held.mine);
+        assert_eq!(held.area.as_deref(), Some("src/auth"));
+        assert_eq!(held.repo.as_deref(), Some("a".repeat(40).as_str()));
+        assert!(tasks.iter().any(|t| t.wanted && t.who == "Alice #alice"));
+        assert!(a1
+            .engine
+            .team_tasks()
+            .iter()
+            .all(|t| t.mine && t.session == Some(1)));
+
+        // The relay never saw the title, the name or the area.
+        assert!(relay
+            .task_events
+            .iter()
+            .all(|t| !t.contains("Fix login") && !t.contains("src/auth") && !t.contains("Alice")));
+    }
+
+    #[test]
+    fn a_release_request_is_declined_then_accepted_and_the_requester_hears_both() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 1, "Fix login", None);
+        let task = b1.engine.activity().attempts[0].task.clone();
+
+        let ask = b1.engine.ask_release(&task).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ask)]);
+        assert!(b1.engine.activity().attempts[0].asked);
+        let card = a1.engine.activity().tasks[0].request.clone().unwrap();
+        assert_eq!(card.member, "bob");
+        assert_eq!(card.name, "Bob", "the requester's signed note names him");
+
+        // Declined: the hold stays, Bob hears it.
+        let keep = a1.engine.answer_release(&task, "bob", false).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, keep)]);
+        assert!(a1.engine.activity().tasks[0].request.is_none());
+        assert!(a1.engine.activity().tasks[0].mine);
+        let notices = b1.engine.activity().notices;
+        assert_eq!(notices.last().unwrap().kind, NoticeKind::ReleaseDeclined);
+        assert_eq!(notices.last().unwrap().title, "Fix login");
+        assert_eq!(notices.last().unwrap().name, "Alice");
+        assert!(!b1.engine.activity().attempts[0].asked);
+        // Asking again at once is refused by the relay's cooldown; Bob hears that too.
+        let ask = b1.engine.ask_release(&task).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ask)]);
+        assert_eq!(
+            b1.engine.activity().notices.last().unwrap().kind,
+            NoticeKind::AskRefused
+        );
+
+        // After the cooldown: accepted, the task is Bob's, and the team reads its title again.
+        relay.clock += 11 * 60_000;
+        let ask = b1.engine.ask_release(&task).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ask)]);
+        let hand = a1.engine.answer_release(&task, "bob", true).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hand)]);
+        let bobs = b1.engine.activity();
+        assert_eq!(bobs.tasks.len(), 1);
+        assert!(bobs.tasks[0].mine);
+        assert!(bobs.attempts.is_empty());
+        assert_eq!(
+            bobs.notices.last().unwrap().kind,
+            NoticeKind::ReleaseAccepted
+        );
+        let alices = a1.engine.activity();
+        assert_eq!(alices.tasks[0].member, "bob");
+        assert_eq!(
+            alices.tasks[0].title, "Fix login",
+            "Bob's own note after the handover"
+        );
+        assert_eq!(alices.tasks[0].name, "Bob");
+        assert!(
+            a1.engine.answer_release(&task, "bob", true).is_err(),
+            "no longer hers"
+        );
+    }
+
+    #[test]
+    fn an_offline_holders_reservation_warns_first_then_expires_and_the_waiting_one_gets_it() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 1, "Fix login", None);
+        // Alice's device goes offline: her hold starts to run (30 minutes without activity).
+        let alice = a1.holder.clone();
+        let offline = relay.presence_of(&alice, false);
+        deliver(&mut relay, &mut [&mut a1, &mut b1], offline);
+        let expires = b1.engine.activity().tasks[0].expires_at.unwrap();
+        assert_eq!(expires, relay.clock + 30 * 60_000);
+
+        // Five minutes before: the warning, for Alice (she sees it on any of her devices).
+        let warned = relay.tick(26 * 60_000);
+        deliver(&mut relay, &mut [&mut a1, &mut b1], warned);
+        let notice = a1.engine.activity().notices.last().cloned().unwrap();
+        assert_eq!(notice.kind, NoticeKind::Expiring);
+        assert_eq!(notice.at, Some(expires));
+        assert!(b1.engine.activity().tasks[0].expiring);
+        assert!(b1
+            .engine
+            .activity()
+            .notices
+            .iter()
+            .all(|n| n.kind != NoticeKind::Expiring));
+
+        // Then it expires: Alice is told, Bob's waiting attempt tries again and wins.
+        let expired = relay.tick(5 * 60_000);
+        deliver(&mut relay, &mut [&mut a1, &mut b1], expired);
+        assert_eq!(
+            a1.engine.activity().notices.last().unwrap().kind,
+            NoticeKind::Expired
+        );
+        let bobs = b1.engine.activity();
+        assert_eq!(bobs.tasks.len(), 1);
+        assert!(bobs.tasks[0].mine);
+        assert!(bobs.attempts.is_empty());
+    }
+
+    /// Re-sends a logged frame with the next sequence number.
+    fn again(relay: &mut Relay, text: &str) -> String {
+        let mut frame = decode_server(text).unwrap();
+        relay.seq += 1;
+        frame.seq = Some(Seq(relay.seq));
+        encode_server(&frame).unwrap()
+    }
+
+    #[test]
+    fn reservations_of_unlisted_devices_replays_and_older_notes_are_ignored() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            0,
+            "Fix login",
+            Some("src/old"),
+        );
+        let first = relay.task_events.last().cloned().unwrap();
+        reserve(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            0,
+            "Fix login",
+            Some("src/new"),
+        );
+        assert_eq!(
+            b1.engine.activity().tasks[0].area.as_deref(),
+            Some("src/new")
+        );
+        // The relay shows the older note again (with a new seq): the newer stays.
+        let old = again(&mut relay, &first);
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![old]);
+        assert_eq!(
+            b1.engine.activity().tasks[0].area.as_deref(),
+            Some("src/new")
+        );
+        // The same frame again (same seq) is a duplicate.
+        let same = relay.task_events.last().cloned().unwrap();
+        let before = b1.engine.activity().tasks.len();
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![same]);
+        assert_eq!(b1.engine.activity().tasks.len(), before);
+
+        // A holder the verified log does not list holds nothing here.
+        relay.seq += 1;
+        let made_up = relay.text(
+            None,
+            Some(relay.seq),
+            ServerMessage::TaskReserved(TaskReserved {
+                task: KeyedHash::from_bytes([7; 32]),
+                holder: holder("mallory", "m1"),
+                epoch: Epoch(1),
+                since: UnixMillis(1),
+                expires_at: None,
+                note: None,
+            }),
+        );
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![made_up]);
+        assert_eq!(b1.engine.activity().tasks.len(), 1);
+        // A note moved to another task does not open there: no title, no area for the gate.
+        let mut frame = decode_server(&first).unwrap();
+        if let ServerMessage::TaskReserved(m) = &mut frame.message {
+            m.task = KeyedHash::from_bytes([9; 32]);
+        }
+        relay.seq += 1;
+        frame.seq = Some(Seq(relay.seq));
+        let moved = encode_server(&frame).unwrap();
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![moved]);
+        let tasks = b1.engine.activity().tasks;
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.iter().any(|t| t.title.is_empty() && t.area.is_none()));
+        assert_eq!(b1.engine.team_tasks().len(), 1, "only the signed one");
+    }
+
+    #[test]
+    fn the_first_connection_of_an_engine_takes_a_snapshot_and_the_next_one_resumes() {
+        let (_relay, mut a1, _b1) = team_sharing();
+        let mut fresh = client("carol", "c1", Role::Member);
+        let hello = fresh.engine.hello(ticket());
+        let Effect::Send(ClientFrame {
+            message: ClientMessage::Hello(first),
+            ..
+        }) = hello.iter().find(|e| matches!(e, Effect::Send(_))).unwrap()
+        else {
+            panic!("hello not sent");
+        };
+        assert!(
+            first.last_seq.is_none(),
+            "no cursor before the first snapshot"
+        );
+        // A welcomed engine resumes from its cursor.
+        let hello = a1.engine.hello(ticket());
+        let Effect::Send(ClientFrame {
+            message: ClientMessage::Hello(next),
+            ..
+        }) = hello.iter().find(|e| matches!(e, Effect::Send(_))).unwrap()
+        else {
+            panic!("hello not sent");
+        };
+        assert!(next.last_seq.is_some());
+    }
+
+    /// The op id of the `task.reserve` among `effects`.
+    fn reserve_op(effects: &[Effect]) -> OpId {
+        effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(ClientFrame {
+                    id,
+                    message: ClientMessage::TaskReserve(_),
+                    ..
+                }) => Some(id.clone()),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn the_activity_lists_the_sessions_a_reservation_can_be_linked_to() {
+        let (_relay, a1, _b1) = team_sharing();
+        assert_eq!(a1.engine.activity().sessions, [1]);
+        // A session outside the share is refused.
+        let mut a1 = a1;
+        assert!(matches!(
+            a1.engine.reserve_task("x", Some(9), None),
+            Err(TeamError::UnknownRepository)
+        ));
+    }
+
+    #[test]
+    fn a_conflict_naming_an_unknown_holder_waits_for_the_log_then_fails() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        let effects = a1.engine.reserve_task("Fix login", None, None).unwrap();
+        let id = reserve_op(&effects);
+        // The relay answers with a holder the log does not list.
+        let refused = relay.text(
+            Some(id),
+            None,
+            ServerMessage::Err(ErrorBody {
+                code: ErrorCode::Conflict,
+                retry_after_ms: None,
+                holder: Some(holder("mallory", "m1")),
+            }),
+        );
+        let after = a1.engine.on_text(&refused);
+        // Not shown as blocked by an unknown device: it still waits, and the log is fetched.
+        let attempt = &a1.engine.activity().attempts[0];
+        assert_eq!(attempt.state, AttemptState::Reserving);
+        assert!(attempt.member.is_none());
+        assert!(
+            a1.engine.team_tasks().is_empty(),
+            "no pause for the relay's word"
+        );
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, after)]);
+        // The log still does not list it: the attempt ends, with a notice.
+        let activity = a1.engine.activity();
+        assert!(activity.attempts.is_empty());
+        assert_eq!(
+            activity.notices.last().unwrap().kind,
+            NoticeKind::ReserveFailed
+        );
+    }
+
+    #[test]
+    fn a_note_of_an_ended_hold_never_comes_back_also_after_a_resync_or_a_restart() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            0,
+            "Fix login",
+            Some("src/auth"),
+        );
+        let noted = relay.task_events.last().cloned().unwrap();
+        let task = a1.engine.activity().tasks[0].task.clone();
+        let release = a1.engine.release_task(&task).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, release)]);
+        assert!(b1.engine.activity().tasks.is_empty());
+        // The relay brings the hold back with its old note: no title, no area, no pause.
+        let old = again(&mut relay, &noted);
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![old]);
+        let shown = b1.engine.activity().tasks;
+        assert_eq!(shown.len(), 1);
+        assert!(shown[0].title.is_empty() && shown[0].area.is_none());
+        assert!(b1.engine.team_tasks().is_empty());
+        // After resync_required and its snapshot: still old.
+        relay.seq += 1;
+        let resync = relay.text(
+            None,
+            None,
+            ServerMessage::ResyncRequired(hangar_team_protocol::wire::ResyncRequired {
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(relay.seq),
+                reason: hangar_team_protocol::wire::ResyncReason::TooOld,
+            }),
+        );
+        let mut snapshot = decode_server(&noted).unwrap();
+        snapshot.seq = None;
+        let snapshot = encode_server(&snapshot).unwrap();
+        let welcome = relay.text(
+            None,
+            None,
+            ServerMessage::Welcome(Welcome {
+                proto: 1,
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(relay.seq),
+                member: b1.holder.member.clone(),
+                epoch: Epoch(0),
+            }),
+        );
+        b1.inbox.extend([resync, snapshot, welcome]);
+        run(&mut relay, &mut [&mut a1, &mut b1], Vec::new());
+        assert!(b1
+            .engine
+            .activity()
+            .tasks
+            .iter()
+            .all(|t| t.title.is_empty()));
+        assert!(b1.engine.team_tasks().is_empty());
+        // Across a restart: the marks are in the state file.
+        let flushed = b1.engine.flush_marks();
+        drop(flushed);
+        let local = b1.engine.local_to_store().clone();
+        let text = serde_json::to_string(&local).unwrap();
+        let restored: LocalState = serde_json::from_str(&text).unwrap();
+        assert!(!restored.note_marks.is_empty());
+        let mut marks = LiveMarks::from_local(&restored);
+        let alice = a1.holder.clone();
+        let key = note_key(
+            RecordKind::ReservationNote,
+            &KeyedHash::try_from(task).unwrap(),
+        );
+        let mark = *marks.notes.get(&(alice.clone(), key.clone())).unwrap();
+        let old = Stamp {
+            period: mark.period,
+            counter: mark.counter - 1,
+        };
+        assert_eq!(marks.note(&alice, &key, old), Mark::Stale);
+    }
+
+    #[test]
+    fn notices_come_only_with_a_matching_hold_or_request() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let task = KeyedHash::try_from(a1.engine.activity().tasks[0].task.clone()).unwrap();
+        let before = a1.engine.activity().notices.len();
+        // An expiry of a hold another device of the relay's choosing never had: nothing.
+        relay.seq += 1;
+        let expired = relay.text(
+            None,
+            Some(relay.seq),
+            ServerMessage::ReservationExpired(ReservationExpired {
+                task: KeyedHash::from_bytes([3; 32]),
+                holder: a1.holder.clone(),
+            }),
+        );
+        // An answer to a request Bob never made.
+        relay.seq += 1;
+        let answered = relay.text(
+            None,
+            Some(relay.seq),
+            ServerMessage::TaskReleaseAnswered(TaskReleaseAnswered {
+                task,
+                holder: a1.holder.clone(),
+                requester: b1.holder.member.clone(),
+                accepted: true,
+            }),
+        );
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![expired, answered]);
+        assert_eq!(a1.engine.activity().notices.len(), before);
+        assert!(b1.engine.activity().notices.is_empty());
+    }
+
+    #[test]
+    fn only_a_signed_request_gets_a_card_and_it_is_answered_once() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let hex = a1.engine.activity().tasks[0].task.clone();
+        let task = KeyedHash::try_from(hex.clone()).unwrap();
+        // The relay's word alone (no note): no card, no answer.
+        relay.seq += 1;
+        let unsigned = relay.text(
+            None,
+            Some(relay.seq),
+            ServerMessage::TaskReleaseRequested(TaskReleaseRequested {
+                task,
+                holder: a1.holder.clone(),
+                requester: b1.holder.member.clone(),
+                note: None,
+            }),
+        );
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![unsigned]);
+        let request = a1.engine.activity().tasks[0].request.clone().unwrap();
+        assert!(!request.confirmed);
+        assert!(matches!(
+            a1.engine.answer_release(&hex, "bob", true),
+            Err(TeamError::UnknownTask)
+        ));
+        // Ended, then Bob asks for real: a card for Bob only, answered once.
+        relay.seq += 1;
+        let ended = relay.text(
+            None,
+            Some(relay.seq),
+            ServerMessage::TaskReleaseRequestEnded(TaskReleaseRequestEnded {
+                task,
+                holder: a1.holder.clone(),
+                requester: b1.holder.member.clone(),
+                reason: RequestEndReason::Withdrawn,
+            }),
+        );
+        deliver(&mut relay, &mut [&mut a1, &mut b1], vec![ended]);
+        let ask = b1.engine.ask_release(&hex).unwrap();
+        // Delivered by hand, so the answer can be checked before the relay sees it.
+        for effect in ask {
+            if let Effect::Send(frame) = effect {
+                let (own, all, _) = relay.handle(&b1.holder.clone(), Role::Member, frame);
+                b1.inbox.extend(own);
+                a1.inbox.extend(all.iter().cloned());
+                b1.inbox.extend(all);
+            }
+        }
+        run(&mut relay, &mut [&mut a1, &mut b1], Vec::new());
+        let request = a1.engine.activity().tasks[0].request.clone().unwrap();
+        assert!(request.confirmed);
+        assert!(matches!(
+            a1.engine.answer_release(&hex, "carol", false),
+            Err(TeamError::UnknownTask)
+        ));
+        let answer = a1.engine.answer_release(&hex, "bob", false).unwrap();
+        assert!(
+            a1.engine.activity().tasks[0].request.is_none(),
+            "the card is gone"
+        );
+        assert!(a1.engine.answer_release(&hex, "bob", false).is_err());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, answer)]);
+        assert_eq!(
+            b1.engine.activity().notices.last().unwrap().kind,
+            NoticeKind::ReleaseDeclined
+        );
+    }
+
+    /// A reservation note a1 signs for `task` with any plaintext, as the relay would carry it.
+    fn forged_note(client: &mut Client, task: &KeyedHash, plaintext: &[u8]) -> Sealed {
+        let (cipher, head, _) = client.engine.current_cipher().unwrap();
+        let record = record_task_id(task);
+        client
+            .engine
+            .seal(
+                &cipher,
+                &head,
+                RecordKind::ReservationNote,
+                record.as_bytes(),
+                plaintext,
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_note_must_name_its_own_task_and_a_plain_name() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let task = KeyedHash::try_from(a1.engine.activity().tasks[0].task.clone()).unwrap();
+        let note = |title: &str, name: &str| {
+            team_tasks::note_plaintext(&TaskNote {
+                title: title.into(),
+                name: name.into(),
+                ..TaskNote::default()
+            })
+        };
+        // Signed by the holder for this hash, but the title is another task's.
+        let other = forged_note(&mut a1, &task, &note("Something else", "Alice"));
+        // The right title with a name that reorders text.
+        let bidi = forged_note(&mut a1, &task, &note("Fix login", "Al\u{202E}ice"));
+        for sealed in [other, bidi] {
+            relay.seq += 1;
+            let text = relay.text(
+                None,
+                Some(relay.seq),
+                ServerMessage::TaskReserved(TaskReserved {
+                    task,
+                    holder: a1.holder.clone(),
+                    epoch: Epoch(1),
+                    since: UnixMillis(1),
+                    expires_at: None,
+                    note: Some(sealed),
+                }),
+            );
+            deliver(&mut relay, &mut [&mut a1, &mut b1], vec![text]);
+            let shown = &b1.engine.activity().tasks[0];
+            assert_eq!(shown.title, "Fix login", "the earlier note stays");
+            assert_eq!(shown.name, "Alice");
+        }
+    }
+
+    #[test]
+    fn prev_hashes_go_only_for_holds_of_an_earlier_epoch() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        // Bob leaves: Alice's device rotates to epoch 2 and moves its hold with `prev`.
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, remove)]);
+        assert_eq!(connected(&a1).0, 2);
+        let moved = relay.reserves.last().unwrap();
+        assert_eq!(moved.epoch, Epoch(2));
+        assert_eq!(moved.prev.len(), 1, "the old hash of its own hold");
+        // A task nobody held under the old epoch names no old hash.
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Brand new", None);
+        assert!(relay.reserves.last().unwrap().prev.is_empty());
+    }
+
+    #[test]
+    fn unknown_holders_fetch_the_log_at_most_every_few_seconds() {
+        let (relay, mut a1, _b1) = team_sharing();
+        let mut fetches = 0;
+        for n in 0..5u8 {
+            let text = relay.text(
+                None,
+                None,
+                ServerMessage::TaskReserved(TaskReserved {
+                    task: KeyedHash::from_bytes([n; 32]),
+                    holder: holder("mallory", &format!("m{n}")),
+                    epoch: Epoch(1),
+                    since: UnixMillis(1),
+                    expires_at: None,
+                    note: None,
+                }),
+            );
+            fetches += a1
+                .engine
+                .on_text(&text)
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e,
+                        Effect::Send(ClientFrame {
+                            message: ClientMessage::MemberLogGet(_),
+                            ..
+                        })
+                    )
+                })
+                .count();
+        }
+        assert_eq!(fetches, 1);
     }
 }

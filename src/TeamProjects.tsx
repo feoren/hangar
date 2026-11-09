@@ -9,6 +9,7 @@ import {
 } from "./account";
 import { useT } from "./i18n";
 import { TeamActivityView } from "./TeamActivityView";
+import type { TaskSession } from "./TeamTasksView";
 import {
   ARM_DELAY_MS,
   EMPTY_ACTIVITY,
@@ -17,18 +18,23 @@ import {
   confirmationKindText,
   isArmed,
   isSharing,
+  personTag,
+  releaseRequestKey,
+  releaseRequests,
   requestPosition,
   shortId,
   shownRequest,
   statusFor,
   statusLine,
+  taskTitle,
   teamErrorText,
   type PendingConfirmation,
+  type TaskView,
   type TeamProblem,
   type TeamStatus,
 } from "./team";
 import { account, loadProjects, type AccountSnapshot } from "./useAccount";
-import { loadTeamStatuses, team, useTeam } from "./useTeam";
+import { loadTeamStatuses, taskKey, team, useTeam } from "./useTeam";
 
 /**
  * Body of the sidebar's Team group: new devices waiting for confirmation (only when there are
@@ -37,7 +43,14 @@ import { loadTeamStatuses, team, useTeam } from "./useTeam";
  * shared repositories and the teammates' sessions, and "Invite people" for owners and admins.
  * Shown only while signed in.
  */
-export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
+export function TeamProjects({
+  snapshot,
+  sessions,
+}: {
+  snapshot: AccountSnapshot;
+  /** This device's running sessions, for linking a reservation to one. */
+  sessions: readonly TaskSession[];
+}) {
   const t = useT();
   const teamStore = useTeam();
   const [problem, setProblem] = useState<AccountProblem | null>(null);
@@ -66,6 +79,12 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
         projects={projects ?? []}
         busy={teamStore.busy}
       />
+    ) : null;
+
+  const requests = releaseRequests(teamStore.activities);
+  const release =
+    requests.length > 0 ? (
+      <ReleaseRequests requests={requests} projects={projects ?? []} busy={teamStore.busy} />
     ) : null;
 
   const reload = (
@@ -139,6 +158,7 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
                   projectId={project.id}
                   activity={teamStore.activities.get(project.id) ?? EMPTY_ACTIVITY}
                   repos={teamStore.repos}
+                  sessions={sessions}
                   busy={teamStore.busy}
                 />
               )}
@@ -167,6 +187,7 @@ export function TeamProjects({ snapshot }: { snapshot: AccountSnapshot }) {
 
   return (
     <>
+      {release}
       {pending}
       {body}
       {problem !== null && (
@@ -441,6 +462,151 @@ function PendingRequest(props: {
           </button>
         </div>
       )}
+      {problem !== null && (
+        <p className="team-help error-text" role="alert">
+          {teamErrorText(problem, t)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Release requests for tasks this device holds, one at a time like the device confirmations: the
+ * same request stays while it is open, Release and Keep stay disabled for a moment whenever the
+ * shown request changes, and an answer never lands on the next request's buttons.
+ */
+function ReleaseRequests(props: {
+  requests: readonly { projectId: string; task: TaskView }[];
+  projects: readonly Project[];
+  busy: ReadonlySet<string>;
+}) {
+  const t = useT();
+  const titleId = useId();
+  const sectionRef = useRef<HTMLElement>(null);
+  const [shownKey, setShownKey] = useState<string | null>(null);
+  const keyed = props.requests.map((entry) => ({
+    ...entry,
+    key: releaseRequestKey(entry.projectId, entry.task),
+  }));
+  const shown = keyed.find((entry) => entry.key === shownKey) ?? keyed[0] ?? null;
+  const nextKey = shown?.key ?? null;
+  if (nextKey !== shownKey) setShownKey(nextKey);
+  if (shown === null) return null;
+  const index = keyed.indexOf(shown) + 1;
+  const projectName = props.projects.find((project) => project.id === shown.projectId)?.name;
+
+  return (
+    <section ref={sectionRef} className="team-confirm" aria-labelledby={titleId} tabIndex={-1}>
+      <div className="team-confirm-head">
+        <h3 id={titleId} className="team-confirm-title">
+          {t("team.request.title")}
+        </h3>
+        {keyed.length > 1 && (
+          <span className="team-confirm-position">
+            {t("team.confirm.position", { index, count: keyed.length })}
+          </span>
+        )}
+      </div>
+      <ReleaseRequest
+        key={shown.key}
+        projectId={shown.projectId}
+        task={shown.task}
+        projectName={projectName}
+        busy={props.busy.has(taskKey(shown.projectId, shown.task.task))}
+        onAnswered={() => {
+          requestAnimationFrame(() => {
+            if (sectionRef.current?.isConnected === true) sectionRef.current.focus();
+          });
+        }}
+      />
+    </section>
+  );
+}
+
+function ReleaseRequest(props: {
+  projectId: string;
+  task: TaskView;
+  projectName: string | undefined;
+  busy: boolean;
+  onAnswered: () => void;
+}) {
+  const t = useT();
+  const { task } = props;
+  const [armed, setArmed] = useState(false);
+  const [problem, setProblem] = useState<TeamProblem | null>(null);
+  const [sent, setSent] = useState(false);
+
+  // Keyed by the request: every new request starts disarmed for ARM_DELAY_MS.
+  useEffect(() => {
+    const shownAt = performance.now();
+    let timer = 0;
+    const check = () => {
+      const now = performance.now();
+      if (isArmed(shownAt, now)) setArmed(true);
+      else timer = window.setTimeout(check, armDelayLeft(shownAt, now));
+    };
+    timer = window.setTimeout(check, ARM_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  const request = task.request;
+  const answer = (accept: boolean) => {
+    if (request === null || sent) return;
+    // One answer per card: the buttons stay disabled until the backend says otherwise.
+    setSent(true);
+    setProblem(null);
+    team
+      .answerRelease(props.projectId, task.task, request.member, accept)
+      .then((next) => {
+        if (next !== null && next.kind !== "unknownTask") {
+          setProblem(next);
+          setSent(false);
+          return;
+        }
+        props.onAnswered();
+      })
+      .catch(() => undefined);
+  };
+  const person = request === null ? "" : personTag(request, t);
+  const disabled = props.busy || !armed || sent;
+
+  return (
+    <div className="team-confirm-item">
+      {props.projectName !== undefined && (
+        <div className="team-confirm-meta">
+          <span className="team-confirm-project" title={props.projectName}>
+            {props.projectName}
+          </span>
+        </div>
+      )}
+      <p className="team-help team-request-text">
+        {t("team.request.text", { person, title: taskTitle(task.title, t) })}
+      </p>
+      <div className="team-confirm-actions">
+        <button
+          type="button"
+          className="primary-button"
+          disabled={disabled}
+          onClick={() => {
+            answer(true);
+          }}
+        >
+          {t("team.request.release")}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={disabled}
+          onClick={() => {
+            answer(false);
+          }}
+        >
+          {t("team.request.keep")}
+        </button>
+      </div>
       {problem !== null && (
         <p className="team-help error-text" role="alert">
           {teamErrorText(problem, t)}

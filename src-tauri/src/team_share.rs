@@ -559,6 +559,14 @@ pub struct TeamActivity {
     pub peers: Vec<PeerView>,
     pub overlaps: Vec<TeammateOverlap>,
     pub divergent: Vec<DivergentDevice>,
+    /// The team's reservations (`team_tasks.rs`), oldest first.
+    pub tasks: Vec<crate::team_tasks::TaskView>,
+    /// This device's reservations that did not go through (yet).
+    pub attempts: Vec<crate::team_tasks::AttemptView>,
+    /// The newest notices about this person's reservations and requests.
+    pub notices: Vec<crate::team_tasks::TaskNotice>,
+    /// This device's sessions shared with the project: the ones a reservation can be linked to.
+    pub sessions: Vec<SessionId>,
 }
 
 /// A file a teammate's session is changing, for the agent gate and the agent's context.

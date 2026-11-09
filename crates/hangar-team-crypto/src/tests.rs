@@ -2682,3 +2682,14 @@ fn xchacha20_poly1305_matches_the_cfrg_draft() {
         )
     );
 }
+
+#[test]
+fn a_task_note_is_named_by_the_hash_as_lowercase_hex_and_opens_only_under_it() {
+    use crate::record::task_record_id;
+    use hangar_team_protocol::hash::KeyedHash;
+    let task = KeyedHash::from_bytes([0xAB; 32]);
+    let id = task_record_id(&task);
+    assert_eq!(id, "ab".repeat(32));
+    assert_eq!(id, task.to_hex(), "the spelling the wire carries");
+    assert_ne!(task_record_id(&KeyedHash::from_bytes([0xAC; 32])), id);
+}

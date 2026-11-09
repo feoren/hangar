@@ -54,7 +54,7 @@ use std::fmt;
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use hangar_team_protocol::e2e::{ChainHead, LogHash, PublicKey};
-use hangar_team_protocol::hash::{EpochKeys, KeyError, MatchKey};
+use hangar_team_protocol::hash::{EpochKeys, KeyError, KeyedHash, MatchKey};
 use hangar_team_protocol::ids::{Epoch, Sealed, TeamId};
 use hangar_team_protocol::limits::{MAX_CIPHERTEXT_LEN, MAX_INLINE_CIPHERTEXT_LEN};
 use hangar_team_protocol::wire::{BlobKind, Holder};
@@ -230,6 +230,14 @@ impl fmt::Debug for Opened {
             .field("len", &self.plaintext.len())
             .finish()
     }
+}
+
+/// The record id of a reservation note and of a release request note
+/// ([`RecordKind::ReservationNote`], [`RecordKind::ReleaseRequestNote`]): the task's keyed hash
+/// as its 64 lowercase hex digits, the spelling the wire carries, as UTF-8 bytes of that text.
+/// Every client must use this one convention, or the notes of one never open on another.
+pub fn task_record_id(task: &KeyedHash) -> String {
+    task.to_hex()
 }
 
 /// Where a record belongs: the opener names the same values it got from the relay's event and

@@ -5514,6 +5514,80 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
+/* Reservations ("I'm working on ..."): one entry to reserve, then one line per task. */
+
+.team-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team-task-reserve {
+  align-self: flex-start;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.team-task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.team-task-field {
+  font-size: 12px;
+}
+
+.team-task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-task + .team-task {
+  margin-top: 4px;
+}
+
+.team-task-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.team-task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-task-head .link-button {
+  flex: none;
+  font-size: 11px;
+}
+
+.team-task-meta {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.team-task-area {
+  font-family: var(--mono);
+}
+
+/* The text says it runs out; the tint only draws the eye. */
+.team-task.expiring .team-task-meta {
+  color: var(--text);
+}
+
+.team-request-text {
+  color: var(--text);
+}
+
 .team-repo-list,
 .team-legacy-list,
 .team-peer-list,

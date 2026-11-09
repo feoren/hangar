@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Reserviere im Team eine Aufgabe („Ich arbeite an …“). Wer zuerst reserviert, hat sie; die anderen können mit einem Klick um Freigabe bitten.",
+        "en": "Reserve a task in your team (\"I'm working on ...\"). Whoever reserves first has it; the others can ask for it with one click.",
+        "el": "Δέσμευσε μια εργασία στην ομάδα σου («Δουλεύω σε …»). Όποιος τη δεσμεύσει πρώτος την έχει· οι άλλοι μπορούν να τη ζητήσουν με ένα κλικ.",
+        "es": "Reserva una tarea en tu equipo («Estoy con …»). Quien la reserva primero la tiene; los demás pueden pedirla con un clic.",
+        "fr": "Réserve une tâche dans ton équipe (« Je travaille sur … »). Le premier qui la réserve l'a ; les autres peuvent la demander en un clic.",
+        "it": "Riserva un'attività nel tuo team («Ci sto lavorando …»). Chi la riserva per primo la tiene; gli altri possono chiederla con un clic.",
+        "ja": "チームでタスクを予約できます（「これに取り組んでいます」）。最初に予約した人が持ち、他の人はワンクリックで解放を依頼できます。",
+        "pl": "Zarezerwuj zadanie w zespole („Pracuję nad …”). Kto zarezerwuje pierwszy, ten je ma; inni mogą jednym kliknięciem poprosić o zwolnienie.",
+        "pt": "Reserve uma tarefa na sua equipe (\"Estou trabalhando em …\"). Quem reserva primeiro fica com ela; os outros podem pedi-la com um clique.",
+        "ru": "Резервируй задачу в команде («Я работаю над …»). Кто зарезервировал первым, тот её и держит; остальные могут попросить её одним кликом.",
+        "tr": "Ekibinde bir görev rezerve et (\"Şunun üzerinde çalışıyorum …\"). İlk rezerve eden alır; diğerleri tek tıkla bırakmasını isteyebilir.",
+        "zh": "在团队中预留任务（“我在做……”）。先预留的人持有它；其他人可以一键请求释放。"
+      },
+      {
         "de": "Sieh, woran dein Team arbeitet. Ändert jemand dieselbe Datei, warnt Hangar dich und hält Claude Code vor dem Bearbeiten an.",
         "en": "See what your team is working on. When a teammate changes the same file, Hangar warns you and pauses Claude Code before it edits.",
         "el": "Δες σε τι δουλεύει η ομάδα σου. Αν κάποιος αλλάζει το ίδιο αρχείο, το Hangar σε προειδοποιεί και σταματά το Claude Code πριν την αλλαγή.",

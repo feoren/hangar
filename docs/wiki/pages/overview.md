@@ -41,3 +41,9 @@ Hangar watches each running session's worktree and warns when two of the user's 
 the same file or lines; git decides, the watcher only triggers rescans ([[team-service-v1]],
 [[claims-rescan-measurement]]). Open: cost and watcher limits on macOS and Linux (inotify watch
 limit, FSEvents), committed but unmerged branch changes, configurable areas.
+
+## Team relay interop (team service step F)
+One run against a self-hosted relay showed the live protocol compatible and its account API
+different from the website API the app speaks ([[relay-interop-measurement]],
+[[hangar-account-api]]). Open: a run that includes task reservations, and an account API the
+self-hosted relay and the app share.

@@ -1176,6 +1176,60 @@ pub fn team_link_repo(
     }
 }
 
+/// Reserves a task in a shared project ("I'm working on ..."): a short title, optionally linked
+/// to a running session in a shared repository and a folder of it. The relay decides who holds
+/// the task (first wins); `team-changed` shows the outcome.
+#[tauri::command]
+pub async fn team_reserve_task(
+    team: State<'_, TeamService>,
+    project_id: String,
+    title: String,
+    session_id: Option<SessionId>,
+    area: Option<String>,
+) -> Result<(), TeamError> {
+    let task = crate::team_service::Task {
+        title,
+        session: session_id,
+        area,
+    };
+    team.reserve_task(&project_id, task).await
+}
+
+/// Releases a task this device holds, or gives up an attempt someone else's hold blocks. `task`
+/// is the task's keyed hash from `team-changed`.
+#[tauri::command]
+pub async fn team_release_task(
+    team: State<'_, TeamService>,
+    project_id: String,
+    task: String,
+) -> Result<(), TeamError> {
+    team.release_task(&project_id, &task).await
+}
+
+/// Asks the holder of a task to hand it over.
+#[tauri::command]
+pub async fn team_ask_release(
+    team: State<'_, TeamService>,
+    project_id: String,
+    task: String,
+) -> Result<(), TeamError> {
+    team.ask_release(&project_id, &task).await
+}
+
+/// The holder's answer to a release request: `requester` is the member the card showed (a
+/// request of anyone else is refused with `unknownTask`), `accept` hands the task over.
+#[tauri::command]
+pub async fn team_answer_release(
+    team: State<'_, TeamService>,
+    project_id: String,
+    task: String,
+    requester: String,
+    accept: bool,
+) -> Result<(), TeamError> {
+    team.answer_release(&project_id, &task, &requester, accept)
+        .await
+}
+
 // Export (export.rs) and notification area icon (tray.rs).
 
 /// Saves a session's content: the backend opens the save dialog itself, so the window never

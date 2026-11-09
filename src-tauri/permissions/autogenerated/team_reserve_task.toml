@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-reserve-task"
+description = "Enables the team_reserve_task command without any pre-configured scope."
+commands.allow = ["team_reserve_task"]
+
+[[permission]]
+identifier = "deny-team-reserve-task"
+description = "Denies the team_reserve_task command without any pre-configured scope."
+commands.deny = ["team_reserve_task"]

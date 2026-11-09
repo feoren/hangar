@@ -41,6 +41,7 @@ use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
 use crate::session::{GateStatus, SessionId};
 use crate::team_share::TeammateFile;
+use crate::team_tasks::TeamTask;
 
 /// Event to the main window with the newest [`GateSnapshot`].
 pub const EVENT: &str = "gate-changed";
@@ -87,6 +88,8 @@ type Emit = Box<dyn Fn(&GateSnapshot) + Send + Sync>;
 /// The files teammates' sessions are changing in the repository with a root commit (first) for
 /// the clone at a git common folder (second): only teams that clone is linked to count.
 type Teammates = Box<dyn Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync>;
+/// The team's reservations for the same clone (`TeamService::team_tasks`).
+type TeamTasks = Box<dyn Fn(&str, &str) -> Vec<TeamTask> + Send + Sync>;
 
 struct Inner {
     gate: Mutex<Gate<Waiter>>,
@@ -102,6 +105,8 @@ struct Inner {
     emit: Emit,
     /// The teammates' live claims, once a team service exists (step F part 2b).
     teammates: Mutex<Option<Teammates>>,
+    /// The team's reservations, once a team service exists.
+    team_tasks: Mutex<Option<TeamTasks>>,
 }
 
 /// Tauri state of the agent gate; clones share one gate.
@@ -142,6 +147,7 @@ impl GateService {
                 titles: Box::new(titles),
                 emit: Box::new(emit),
                 teammates: Mutex::new(None),
+                team_tasks: Mutex::new(None),
             }),
         }
     }
@@ -153,6 +159,15 @@ impl GateService {
         teammates: impl Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync + 'static,
     ) {
         *lock(&self.inner.teammates) = Some(Box::new(teammates));
+    }
+
+    /// Where the team's reservations come from: an edit inside the area of a teammate's
+    /// reservation pauses like a teammate's file, and the agent's context lists them.
+    pub fn set_team_tasks(
+        &self,
+        tasks: impl Fn(&str, &str) -> Vec<TeamTask> + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.team_tasks) = Some(Box::new(tasks));
     }
 
     /// The window's setting. Turning it off lets every waiting edit through.
@@ -622,6 +637,21 @@ impl Inner {
             .unwrap_or_default()
     }
 
+    /// The team's reservations for the clone of `session`'s worktree.
+    fn tasks_of(&self, session: SessionId, worktrees: &[WorktreeClaims]) -> Vec<TeamTask> {
+        let Some((repo, folder)) = worktrees
+            .iter()
+            .find(|w| w.sessions.contains(&session))
+            .and_then(|w| Some((w.root_commit.as_deref()?, w.repo.as_str())))
+        else {
+            return Vec::new();
+        };
+        lock(&self.team_tasks)
+            .as_ref()
+            .map(|tasks| tasks(repo, folder))
+            .unwrap_or_default()
+    }
+
     fn context(&self, session: SessionId, conversation: Option<&str>) -> String {
         if !lock(&self.gate).enabled() {
             return String::new();
@@ -629,9 +659,10 @@ impl Inner {
         let worktrees = (self.worktrees)();
         let titles = (self.titles)();
         let teammates = self.teammates_of(session, &worktrees);
+        let tasks = self.tasks_of(session, &worktrees);
         // Built before the gate's lock: it may look into the worktree for up to 50 ms, and
         // other sessions' edits wait on that lock.
-        let Some(text) = gate::context_facts_with_team(session, &worktrees, &titles, &teammates)
+        let Some(text) = gate::context_facts_full(session, &worktrees, &titles, &teammates, &tasks)
         else {
             return String::new();
         };
@@ -657,7 +688,9 @@ impl Inner {
         };
         let candidates = path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key));
         let teammates = self.teammates_of(session, &worktrees);
-        let Some(conflict) = gate::assess_with_team(session, &candidates, &worktrees, &teammates)
+        let tasks = self.tasks_of(session, &worktrees);
+        let Some(conflict) =
+            gate::assess_with_tasks(session, &candidates, &worktrees, &teammates, &tasks)
         else {
             return Outcome::Allow;
         };
@@ -667,6 +700,12 @@ impl Inner {
             .iter()
             .map(|id| titles.get(id).cloned().unwrap_or_else(|| format!("#{id}")))
             .chain(conflict.teammates.iter().cloned())
+            .chain(
+                conflict
+                    .reserved
+                    .iter()
+                    .map(|r| format!("{}: {}", r.who, r.title)),
+            )
             .collect();
         let shown_path = conflict.path.clone();
         let (tx, rx) = sync_channel(1);

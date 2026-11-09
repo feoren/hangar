@@ -129,15 +129,99 @@ export interface DivergentDevice {
   name: string;
 }
 
+/** Someone who asked the holder to hand a task over (Rust: `RequestView`). */
+export interface TaskRequest {
+  member: string;
+  /** From the asking person's signed note; empty without one. */
+  name: string;
+  /** This person asked. */
+  mine: boolean;
+  /** One of the requester's listed devices signed it: only then the holder gets a card. */
+  confirmed: boolean;
+}
+
+/** A reservation in the team (Rust: `TaskView`). */
+export interface TaskView {
+  /** The task's keyed hash: what the commands name; never shown. */
+  task: string;
+  /** Empty while the holder's note is not readable. */
+  title: string;
+  area: string | null;
+  member: string;
+  device: string;
+  name: string;
+  /** Held by this device: only it releases it or answers a request. */
+  mine: boolean;
+  /** Held by another device of this person. */
+  own: boolean;
+  /** Unix ms, the relay's clock. */
+  since: number;
+  /** When the hold runs out without activity; `null` while it cannot. */
+  expiresAt: number | null;
+  expiring: boolean;
+  request: TaskRequest | null;
+}
+
+/** A reservation of this device that did not go through (yet) (Rust: `AttemptView`). */
+export interface AttemptView {
+  task: string;
+  title: string;
+  /** `blocked`: someone else was first. */
+  state: "reserving" | "blocked";
+  member: string | null;
+  device: string | null;
+  name: string;
+  /** This person's release request is open. */
+  asked: boolean;
+  sessionId: number | null;
+}
+
+export type TaskNoticeKind =
+  | "releaseAccepted"
+  | "releaseDeclined"
+  | "releaseTimedOut"
+  | "expiring"
+  | "expired"
+  | "forceReleased"
+  | "limit"
+  | "askRefused"
+  | "reserveFailed";
+
+/** Something about this person's reservations, announced once (Rust: `TaskNotice`). */
+export interface TaskNotice {
+  id: number;
+  kind: TaskNoticeKind;
+  title: string;
+  member: string;
+  name: string;
+  /** `expiring`: when the hold ends (Unix ms). */
+  at: number | null;
+  sessionId: number | null;
+}
+
 /** What the Team view shows of one shared project (Rust: `TeamActivity`). */
 export interface TeamActivity {
   linked: RepoRef[];
   peers: PeerView[];
   overlaps: TeammateOverlap[];
   divergent: DivergentDevice[];
+  tasks: TaskView[];
+  attempts: AttemptView[];
+  notices: TaskNotice[];
+  /** This device's sessions shared with the project: the ones a reservation can be linked to. */
+  sessions: number[];
 }
 
-export const EMPTY_ACTIVITY: TeamActivity = { linked: [], peers: [], overlaps: [], divergent: [] };
+export const EMPTY_ACTIVITY: TeamActivity = {
+  linked: [],
+  peers: [],
+  overlaps: [],
+  divergent: [],
+  tasks: [],
+  attempts: [],
+  notices: [],
+  sessions: [],
+};
 
 export interface TeamEntry {
   projectId: string;
@@ -158,6 +242,9 @@ export type TeamErrorKind =
   | "unknownProject"
   | "unknownRequest"
   | "unknownRepository"
+  | "invalidTask"
+  | "unknownTask"
+  | "taskLimit"
   | "keychain"
   | "config"
   | "busy"
@@ -185,6 +272,9 @@ const ERROR_KINDS: readonly TeamErrorKind[] = [
   "unknownProject",
   "unknownRequest",
   "unknownRepository",
+  "invalidTask",
+  "unknownTask",
+  "taskLimit",
   "keychain",
   "config",
   "busy",
@@ -368,16 +458,142 @@ function parseDivergent(value: unknown): DivergentDevice | null {
   return { member, device, name };
 }
 
+const TASK_HASH = /^[0-9a-f]{64}$/;
+
+function isTime(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function nullableText(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return isText(value) ? value : undefined;
+}
+
+function parseRequest(value: unknown): TaskRequest | null | undefined {
+  if (value === null) return null;
+  const member = text(field(value, "member"));
+  const name = field(value, "name");
+  const mine = field(value, "mine");
+  const confirmed = field(value, "confirmed");
+  if (member === null || !isText(name) || typeof mine !== "boolean") return undefined;
+  // Missing counts as unconfirmed: without the requester's signature no card is shown.
+  return { member, name, mine, confirmed: confirmed === true };
+}
+
+function parseTask(value: unknown): TaskView | null {
+  const task = field(value, "task");
+  const title = field(value, "title");
+  const area = nullableText(field(value, "area"));
+  const member = text(field(value, "member"));
+  const device = text(field(value, "device"));
+  const name = field(value, "name");
+  const mine = field(value, "mine");
+  const own = field(value, "own");
+  const since = field(value, "since");
+  const expiresAtValue = field(value, "expiresAt");
+  const expiring = field(value, "expiring");
+  const request = parseRequest(field(value, "request"));
+  if (typeof task !== "string" || !TASK_HASH.test(task) || !isText(title)) return null;
+  if (area === undefined || member === null || device === null || !isText(name)) return null;
+  if (typeof mine !== "boolean" || typeof own !== "boolean" || typeof expiring !== "boolean") {
+    return null;
+  }
+  if (!isTime(since) || (expiresAtValue !== null && !isTime(expiresAtValue))) return null;
+  if (request === undefined) return null;
+  return {
+    task,
+    title,
+    area,
+    member,
+    device,
+    name,
+    mine,
+    own,
+    since,
+    expiresAt: expiresAtValue,
+    expiring,
+    request,
+  };
+}
+
+function parseAttempt(value: unknown): AttemptView | null {
+  const task = field(value, "task");
+  const title = text(field(value, "title"));
+  const state = field(value, "state");
+  const member = nullableText(field(value, "member"));
+  const device = nullableText(field(value, "device"));
+  const name = field(value, "name");
+  const asked = field(value, "asked");
+  const sessionId = field(value, "sessionId");
+  // An attempt not sent yet has no hash; the window then only shows it.
+  if (typeof task !== "string" || (task !== "" && !TASK_HASH.test(task)) || title === null) {
+    return null;
+  }
+  if (state !== "reserving" && state !== "blocked") return null;
+  if (member === undefined || device === undefined || !isText(name)) return null;
+  if (typeof asked !== "boolean" || (sessionId !== null && !isCount(sessionId))) return null;
+  return { task, title, state, member, device, name, asked, sessionId };
+}
+
+const NOTICE_KINDS: readonly TaskNoticeKind[] = [
+  "releaseAccepted",
+  "releaseDeclined",
+  "releaseTimedOut",
+  "expiring",
+  "expired",
+  "forceReleased",
+  "limit",
+  "askRefused",
+  "reserveFailed",
+];
+
+/** A notice of a kind this Hangar does not know is dropped (`null` from `list` would drop all). */
+function parseNotice(value: unknown): TaskNotice | null | "skip" {
+  const id = field(value, "id");
+  const kindValue = field(value, "kind");
+  const title = field(value, "title");
+  const member = field(value, "member");
+  const name = field(value, "name");
+  const at = field(value, "at");
+  const sessionId = field(value, "sessionId");
+  if (!isCount(id) || typeof kindValue !== "string" || !isText(title)) return null;
+  if (!isText(member) || !isText(name)) return null;
+  if ((at !== null && !isTime(at)) || (sessionId !== null && !isCount(sessionId))) return null;
+  const kind = NOTICE_KINDS.find((entry) => entry === kindValue);
+  if (kind === undefined) return "skip";
+  return { id, kind, title, member, name, at, sessionId };
+}
+
+function parseNotices(value: unknown): TaskNotice[] | null {
+  const parsed = list(value, (item) => {
+    const notice = parseNotice(item);
+    return notice === null ? null : { notice };
+  });
+  if (parsed === null) return null;
+  return parsed.flatMap(({ notice }) => (notice === "skip" ? [] : [notice]));
+}
+
+/** An optional list: absent (an older backend) is empty, malformed is `null`. */
+function optionalList<T>(value: unknown, parse: (value: unknown) => T[] | null): T[] | null {
+  return value === undefined ? [] : parse(value);
+}
+
 /** The activity of a team; absent counts as empty (an older backend), malformed as `null`. */
 function parseActivity(value: unknown): TeamActivity | null {
   if (value === undefined) return EMPTY_ACTIVITY;
   const linked = list(field(value, "linked"), parseLinked);
   const peers = list(field(value, "peers"), parsePeer);
   const overlaps = list(field(value, "overlaps"), parseTeammateOverlap);
-  const divergentValue = field(value, "divergent");
-  const divergent = divergentValue === undefined ? [] : list(divergentValue, parseDivergent);
+  const divergent = optionalList(field(value, "divergent"), (v) => list(v, parseDivergent));
+  const tasks = optionalList(field(value, "tasks"), (v) => list(v, parseTask));
+  const attempts = optionalList(field(value, "attempts"), (v) => list(v, parseAttempt));
+  const notices = optionalList(field(value, "notices"), parseNotices);
+  const sessions = optionalList(field(value, "sessions"), (v) =>
+    list(v, (item) => (isCount(item) ? item : null)),
+  );
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
-  return { linked, peers, overlaps, divergent };
+  if (tasks === null || attempts === null || notices === null || sessions === null) return null;
+  return { linked, peers, overlaps, divergent, tasks, attempts, notices, sessions };
 }
 
 function parseTeamEntry(value: unknown): TeamEntry | null {
@@ -522,6 +738,9 @@ const ERROR_TEXTS: Record<TeamErrorKind, MessageKey> = {
   unknownProject: "team.error.unknownProject",
   unknownRequest: "team.error.unknownRequest",
   unknownRepository: "team.error.unknownRepository",
+  invalidTask: "team.error.invalidTask",
+  unknownTask: "team.error.unknownTask",
+  taskLimit: "team.error.taskLimit",
   keychain: "team.status.keychain",
   config: "account.error.config",
   busy: "team.error.busy",
@@ -832,4 +1051,111 @@ export function teammateNotice(
     }),
     body: lines === "" ? path : `${path}, ${lines}`,
   };
+}
+
+// -------------------------------------------------------------------------------------------
+// Reservations ("I'm working on ...")
+// -------------------------------------------------------------------------------------------
+
+/** The holder of a reservation as the Team view names it: "You" on this device. */
+export function holderName(task: TaskView, t: Translate): string {
+  if (task.mine) return t("team.tasks.you");
+  return personTag(task, t);
+}
+
+/** A reservation's title; one whose note is not readable yet says so. */
+export function taskTitle(title: string, t: Translate): string {
+  const shown = revealInvisible(title.trim());
+  return shown === "" ? t("team.tasks.untitled") : shown;
+}
+
+/**
+ * What a waiting attempt says: being reserved, or who was first; "your agent waits" only when the
+ * attempt is linked to a session (the gate pauses that session, nothing else).
+ */
+export function attemptText(attempt: AttemptView, t: Translate): string {
+  if (attempt.state !== "blocked" || attempt.member === null) return t("team.tasks.reserving");
+  const person = personTag({ name: attempt.name, member: attempt.member }, t);
+  return attempt.sessionId === null
+    ? t("team.tasks.blockedNoSession", { person })
+    : t("team.tasks.blocked", { person });
+}
+
+/** The running sessions a reservation can be linked to: those the project shares. */
+export function linkableSessions<T extends { id: number }>(
+  sessions: readonly T[],
+  activity: TeamActivity,
+): T[] {
+  return sessions.filter((session) => activity.sessions.includes(session.id));
+}
+
+/** The release requests waiting for this device's answer, oldest reservation first. */
+export function releaseRequests(
+  activities: ReadonlyMap<string, TeamActivity>,
+): { projectId: string; task: TaskView }[] {
+  const requests: { projectId: string; task: TaskView }[] = [];
+  for (const [projectId, activity] of activities) {
+    for (const task of activity.tasks) {
+      // Only a request one of the requester's listed devices signed gets a card.
+      if (task.mine && task.request?.confirmed === true) requests.push({ projectId, task });
+    }
+  }
+  return requests;
+}
+
+/** Same for every announcement of one release request. */
+export function releaseRequestKey(projectId: string, task: TaskView): string {
+  return [projectId, task.task, task.request?.member ?? ""].join("\u0000");
+}
+
+/** Whether "Ask to release" fits: someone else's readable reservation without an open request. */
+export function canAskRelease(task: TaskView): boolean {
+  return !task.mine && !task.own && task.request === null && task.title.trim() !== "";
+}
+
+const NOTICE_TEXTS: Record<TaskNoticeKind, MessageKey> = {
+  releaseAccepted: "team.notice.releaseAccepted",
+  releaseDeclined: "team.notice.releaseDeclined",
+  releaseTimedOut: "team.notice.releaseTimedOut",
+  expiring: "team.notice.expiring",
+  expired: "team.notice.expired",
+  forceReleased: "team.notice.forceReleased",
+  limit: "team.notice.limit",
+  askRefused: "team.notice.askRefused",
+  reserveFailed: "team.notice.reserveFailed",
+};
+
+/** The text of a notice; `time` formats the deadline of a warning. */
+export function taskNoticeText(
+  notice: TaskNotice,
+  t: Translate,
+  time: (ms: number) => string,
+): string {
+  return t(NOTICE_TEXTS[notice.kind], {
+    title: taskTitle(notice.title, t),
+    person: personTag(notice, t),
+    time: notice.at === null ? "" : time(notice.at),
+  });
+}
+
+/** Notices of every shared project not announced yet; the caller adds their keys to `seen`. */
+export function freshTaskNotices(
+  seen: ReadonlySet<string>,
+  activities: ReadonlyMap<string, TeamActivity>,
+): { key: string; notice: TaskNotice }[] {
+  const fresh: { key: string; notice: TaskNotice }[] = [];
+  for (const [projectId, activity] of activities) {
+    for (const notice of activity.notices) {
+      const key = `${projectId}\u0000${String(notice.id)}`;
+      if (!seen.has(key)) fresh.push({ key, notice });
+    }
+  }
+  return fresh;
+}
+
+/** A time of day in the window's locale ("14:05"), for reservation deadlines. */
+export function clockTime(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(
+    new Date(ms),
+  );
 }

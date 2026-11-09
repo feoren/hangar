@@ -39,7 +39,7 @@ const rawDecision = {
 };
 
 function decision(overrides: Partial<PendingDecision> = {}): PendingDecision {
-  return { ...rawDecision, level: "overlappingLines", ...overrides };
+  return { ...rawDecision, reserved: [], level: "overlappingLines", ...overrides };
 }
 
 describe("parseGateSnapshot", () => {
@@ -93,8 +93,9 @@ describe("parseGateSnapshot", () => {
       { enabled: true, pending: [{ ...rawDecision, otherSessions: [2, "3"] }] },
       { enabled: true, pending: [{ ...rawDecision, teammates: [""] }] },
       { enabled: true, pending: [{ ...rawDecision, teammates: [1] }] },
-      { enabled: true, pending: [{ ...rawDecision, level: "sameArea" }] },
       { enabled: true, pending: [{ ...rawDecision, level: "none" }] },
+      { enabled: true, pending: [{ ...rawDecision, reserved: [{ who: "Anna", title: "" }] }] },
+      { enabled: true, pending: [{ ...rawDecision, reserved: [{ who: 1, title: "Fix" }] }] },
       { enabled: true, pending: [{ ...rawDecision, lines: [{ start: 5, end: 2 }] }] },
       { enabled: true, pending: [{ ...rawDecision, lines: [{ start: 1 }] }] },
       { enabled: true, pending: [{ ...rawDecision, lines: null }] },
@@ -316,5 +317,25 @@ describe("gateSetup", () => {
     await setup.configure(true);
     await setup.configure(false);
     expect(sent).toEqual([true, false]);
+  });
+});
+
+describe("reserved folders", () => {
+  it("shows a decision that only a teammate's reservation causes", () => {
+    const raw = {
+      ...rawDecision,
+      otherSessions: [],
+      level: "sameArea",
+      reserved: [{ who: "Anna #3f9a2c1b…", title: "Fix login" }],
+    };
+    const parsed = parseGateSnapshot({ enabled: true, pending: [raw] });
+    const shown = parsed?.pending[0];
+    expect(shown?.reserved).toEqual(raw.reserved);
+    if (shown === undefined) return;
+    expect(decisionText(shown, nameOf, t).detail).toBe(
+      "In the folder of a reserved task: “Fix login” by Anna #3f9a2c1b…",
+    );
+    // Nobody else at all: malformed.
+    expect(parseGateSnapshot({ enabled: true, pending: [{ ...raw, reserved: [] }] })).toBeNull();
   });
 });
