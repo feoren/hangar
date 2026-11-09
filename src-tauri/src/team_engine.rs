@@ -62,8 +62,8 @@ use hangar_team_crypto::memberlog::{
     DeviceEntry, Endorsement, EntryBody, EntryKind, LogVerifier, TeamState,
 };
 use hangar_team_crypto::record::{
-    task_record_id as record_task_id, EpochCipher, OpenError, Opened, RecordContext, RecordKind,
-    ReplayGuard, SendCounter,
+    sealed_header, task_record_id as record_task_id, EpochCipher, OpenError, Opened, RecordContext,
+    RecordKind, ReplayGuard, SendCounter,
 };
 use hangar_team_crypto::rotation::{plan_rotation, wrap_for_device};
 use hangar_team_crypto::{Entropy, EntropyError};
@@ -160,6 +160,12 @@ enum Op {
 /// A log fetch for task events of holders the log does not list yet goes out at most this often;
 /// the next ping fetches for those that wait.
 const UNKNOWN_FETCH_EVERY_MS: u64 = 5_000;
+
+/// How far ahead of this device's clock the unverified counter of a note that never opened may
+/// set its mark: send counters follow their device's clock ([`crate::team::counter_floor`]), so a
+/// relay that forges a huge counter cannot make that holder's notes for the task look old for
+/// longer than this, while a sender whose clock runs a little ahead is still marked in full.
+const HEADER_COUNTER_SLACK_MS: u64 = 10 * 60 * 1_000;
 
 /// Task events held back until the verified log can vouch for their holders, in arrival order;
 /// beyond this the device reconnects and takes the relay's snapshot instead.
@@ -327,13 +333,16 @@ fn note_key(kind: RecordKind, task: &KeyedHash) -> String {
 }
 
 /// A mark per device and key, at most [`MAX_DETAIL_SESSIONS`] per device: beyond that the lowest
-/// goes and raises the device's floor, which a key without a mark must exceed.
+/// key `protected` does not name goes and raises the device's floor, which a key without a mark
+/// must exceed. Protected keys (the notes of holds that still run) never go, so a restart or a
+/// resync cannot make a running hold's note look old; they are bounded by the holds themselves.
 fn bounded_mark(
     marks: &mut BTreeMap<(Holder, String), Stamp>,
     floors: &mut BTreeMap<Holder, Stamp>,
     holder: &Holder,
     key: &str,
     record: Stamp,
+    protected: &dyn Fn(&str) -> bool,
 ) -> Mark {
     let entry = (holder.clone(), key.to_owned());
     if let Some(mark) = marks.get_mut(&entry) {
@@ -353,6 +362,9 @@ fn bounded_mark(
         .take_while(|((h, _), _)| h == holder)
     {
         count += 1;
+        if protected(held) {
+            continue;
+        }
         let at = at.against(record);
         if lowest.is_none_or(|(_, low)| at < low) {
             lowest = Some((held, at));
@@ -463,8 +475,45 @@ impl LiveMarks {
         local.note_floors = self.note_floors.iter().map(holder_mark).collect();
     }
 
-    fn note(&mut self, holder: &Holder, key: &str, record: Stamp) -> Mark {
-        bounded_mark(&mut self.notes, &mut self.note_floors, holder, key, record)
+    /// `protected`: the keys of this holder's notes that stand for a hold or request still
+    /// running ([`Engine::running_notes`]); their marks are never dropped to stay within bounds.
+    fn note(
+        &mut self,
+        holder: &Holder,
+        key: &str,
+        record: Stamp,
+        protected: &BTreeSet<String>,
+    ) -> Mark {
+        bounded_mark(
+            &mut self.notes,
+            &mut self.note_floors,
+            holder,
+            key,
+            record,
+            &|k| protected.contains(k),
+        )
+    }
+
+    /// Raises the mark of a note to `record` at least (a note that never opened, whose hold
+    /// ended: the same record shown again is old). `true` when it rose. The record comes from
+    /// an unverified header, so it never takes the place of another mark and never raises the
+    /// floor: with the device's marks full, or at or below its floor, nothing changes.
+    fn note_at_least(&mut self, holder: &Holder, key: &str, record: Stamp) -> bool {
+        let entry = (holder.clone(), key.to_owned());
+        if let Some(mark) = self.notes.get_mut(&entry) {
+            return Self::raise(mark, record) == Mark::Raised;
+        }
+        let count = self
+            .notes
+            .range((holder.clone(), String::new())..)
+            .take_while(|((h, _), _)| h == holder)
+            .count();
+        let floor = self.note_floors.get(holder).copied().unwrap_or_default();
+        if count >= MAX_DETAIL_SESSIONS || record <= floor.against(record) {
+            return false;
+        }
+        self.notes.insert(entry, record);
+        true
     }
 
     /// The hold this note stood for ended: the same note shown again is old from now on (a new
@@ -496,7 +545,14 @@ impl LiveMarks {
     }
 
     fn detail(&mut self, holder: &Holder, session: &str, record: Stamp) -> Mark {
-        bounded_mark(&mut self.detail, &mut self.floors, holder, session, record)
+        bounded_mark(
+            &mut self.detail,
+            &mut self.floors,
+            holder,
+            session,
+            record,
+            &|_| false,
+        )
     }
 
     /// Drops the marks of devices `known` does not vouch for; `true` when any went.
@@ -653,6 +709,8 @@ pub struct Engine {
     task_queue: Vec<ServerMessage>,
     /// A note mark (in [`LiveMarks`]) rose while handling a task event; stored after it.
     note_marks_rose: bool,
+    /// The holds before a `resync_required`, checked against the snapshot after it.
+    before_resync: BTreeMap<KeyedHash, Hold>,
     notices: VecDeque<TaskNotice>,
     notice_seq: u64,
     /// This engine took the relay's state of the reservations once (a resync on its first
@@ -765,6 +823,7 @@ impl Engine {
             attempts: BTreeMap::new(),
             task_queue: Vec::new(),
             note_marks_rose: false,
+            before_resync: BTreeMap::new(),
             notices: VecDeque::new(),
             notice_seq: 0,
             book_known: false,
@@ -942,7 +1001,11 @@ impl Engine {
         let mut effects = self.flush_marks();
         effects.push(self.frame(Op::Quiet, ClientMessage::Ping));
         // Task events that wait for a holder the log does not list yet.
-        if !self.task_queue.is_empty() && self.synced && !self.syncing {
+        let unverified = self
+            .attempts
+            .values()
+            .any(|a| a.blocked.is_some() && !a.verified);
+        if (!self.task_queue.is_empty() || unverified) && self.synced && !self.syncing {
             self.unknown_fetch_at = Some((self.now)());
             effects.extend(self.sync_log());
         }
@@ -2511,7 +2574,11 @@ impl Engine {
     /// attempts stay and learn again who holds what. The note marks stay: the snapshot must not
     /// bring back a note of a hold that ended.
     fn reset_tasks(&mut self) {
-        self.holds.clear();
+        // Holds missing from the snapshot ended meanwhile: their notes are old after it.
+        // A second resync before the first one's snapshot was checked keeps the first holds.
+        for (task, hold) in std::mem::take(&mut self.holds) {
+            self.before_resync.entry(task).or_insert(hold);
+        }
         self.task_queue.clear();
         for attempt in self.attempts.values_mut() {
             attempt.blocked = None;
@@ -2858,7 +2925,7 @@ impl Engine {
                 }
                 let mut effects = vec![Effect::Changed];
                 if !verified {
-                    effects.extend(self.sync_log());
+                    effects.extend(self.fetch_for_unknown());
                 }
                 effects
             }
@@ -3015,6 +3082,23 @@ impl Engine {
         for message in std::mem::take(&mut self.task_queue) {
             effects.extend(self.apply_task(message, false));
         }
+        // After a resync's snapshot: a hold from before that is gone (or another device's now)
+        // ended while this device did not hear it; its note is old from now on. A log answer
+        // in the middle of the snapshot waits: holds still to come are not gone.
+        let before = if self.resyncing {
+            BTreeMap::new()
+        } else {
+            std::mem::take(&mut self.before_resync)
+        };
+        for (task, hold) in before {
+            let still = self
+                .holds
+                .get(&task)
+                .is_some_and(|h| h.holder == hold.holder);
+            if !still {
+                self.mark_ended(&task, &hold);
+            }
+        }
         // A conflict named a holder the log did not list: listed now, it counts; still not
         // listed, the relay's word was empty and the attempt ends with a notice.
         let waiting: Vec<(String, Holder)> = self
@@ -3059,7 +3143,10 @@ impl Engine {
                     hold.unopened = None;
                     effects.extend(self.diverged(&holder));
                 }
-                NoteOpen::Later | NoteOpen::Keep => hold.unopened = None,
+                // Still waiting for a log entry or an epoch: kept (one per hold), so its
+                // hold's end can mark it old.
+                NoteOpen::Later => {}
+                NoteOpen::Keep => hold.unopened = None,
             }
         }
         effects.extend(self.marks_raised_if_dirty());
@@ -3168,11 +3255,17 @@ impl Engine {
             Open::Fork => return NoteOpen::Fork,
             Open::Failed => return NoteOpen::Keep,
         };
+        // The last counter of all could not be marked as shown once more when its hold ends.
+        if opened.counter == u64::MAX {
+            return NoteOpen::Keep;
+        }
         let stamp = self.stamp(holder, &opened);
-        match self
-            .live
-            .note(holder, &note_key(RecordKind::ReservationNote, task), stamp)
-        {
+        match self.live.note(
+            holder,
+            &note_key(RecordKind::ReservationNote, task),
+            stamp,
+            &self.running_notes(holder),
+        ) {
             Mark::Stale => return NoteOpen::Keep,
             Mark::Seen => {}
             Mark::Raised => self.note_marks_rose = true,
@@ -3329,12 +3422,7 @@ impl Engine {
             // No such hold here: nothing ended that this device showed.
             return Vec::new();
         };
-        let key = note_key(RecordKind::ReservationNote, &task);
-        self.note_marks_rose |= self.live.consume_note(holder, &key);
-        if let Some(signer) = removed.request.as_ref().and_then(|r| r.signer.as_ref()) {
-            let key = note_key(RecordKind::ReleaseRequestNote, &task);
-            self.note_marks_rose |= self.live.consume_note(signer, &key);
-        }
+        self.mark_ended(&task, &removed);
         let mut effects = vec![Effect::Changed];
         let attempt_key = self.attempt_key(&task);
         let title = removed
@@ -3378,6 +3466,69 @@ impl Engine {
             }
         }
         effects
+    }
+
+    /// The keys of `device`'s notes that stand for something still running here: the
+    /// reservation note of each of its holds, and the request note of each open request it
+    /// signed. [`LiveMarks::note`] never drops their marks.
+    fn running_notes(&self, device: &Holder) -> BTreeSet<String> {
+        let mut keys = BTreeSet::new();
+        // During a resync the holds from before come back one by one: theirs count until then.
+        for (task, hold) in self.holds.iter().chain(&self.before_resync) {
+            if hold.holder == *device {
+                keys.insert(note_key(RecordKind::ReservationNote, task));
+            }
+            if hold.request.as_ref().and_then(|r| r.signer.as_ref()) == Some(device) {
+                keys.insert(note_key(RecordKind::ReleaseRequestNote, task));
+            }
+        }
+        keys
+    }
+
+    /// A hold ended (or vanished from a snapshot): its note, and the note of its open request,
+    /// count as shown once more. A note that never opened (its key or log entry had not come)
+    /// gets a mark from its header, so it cannot come back as new once the key arrives; the
+    /// header is unverified, so its counter counts at most [`HEADER_COUNTER_SLACK_MS`] ahead of
+    /// this device's clock.
+    fn mark_ended(&mut self, task: &KeyedHash, hold: &Hold) {
+        let key = note_key(RecordKind::ReservationNote, task);
+        if !self.live.consume_note(&hold.holder, &key) {
+            if let Some(stamp) = hold
+                .unopened
+                .as_ref()
+                .and_then(|sealed| self.header_stamp(&hold.holder, sealed))
+            {
+                let ceiling = crate::team::counter_floor(
+                    (self.now)().saturating_add(HEADER_COUNTER_SLACK_MS),
+                );
+                let next = Stamp {
+                    counter: stamp.counter.min(ceiling).saturating_add(1),
+                    ..stamp
+                };
+                self.note_marks_rose |= self.live.note_at_least(&hold.holder, &key, next);
+            }
+        } else {
+            self.note_marks_rose = true;
+        }
+        if let Some(signer) = hold.request.as_ref().and_then(|r| r.signer.as_ref()) {
+            let key = note_key(RecordKind::ReleaseRequestNote, task);
+            self.note_marks_rose |= self.live.consume_note(signer, &key);
+        }
+    }
+
+    /// The stamp a sealed record's header names (unverified: used only to raise a mark), with
+    /// the key period the log gives the sender at that head. `None` when no period of the
+    /// sender covers it: a mark without a period would count against every period.
+    fn header_stamp(&self, sender: &Holder, sealed: &Sealed) -> Option<Stamp> {
+        let (head, counter) = sealed_header(sealed)?;
+        let period = self
+            .verifier
+            .state()?
+            .key_periods(sender)
+            .iter()
+            .find(|p| p.covers(head.index))?
+            .added_at;
+        Some(Stamp { period, counter })
     }
 
     fn on_expiring(&mut self, m: ReservationExpiring) -> Vec<Effect> {
@@ -3447,7 +3598,8 @@ impl Engine {
         if let Some((device, opened)) = opened {
             let stamp = self.stamp(&device, &opened);
             let key = note_key(RecordKind::ReleaseRequestNote, &m.task);
-            let mark = self.live.note(&device, &key, stamp);
+            let protected = self.running_notes(&device);
+            let mark = self.live.note(&device, &key, stamp, &protected);
             if mark == Mark::Raised {
                 self.note_marks_rose = true;
             }
@@ -3458,6 +3610,20 @@ impl Engine {
                 name = parsed;
             }
         }
+        let previous = self.holds.get(&m.task).and_then(|h| h.request.clone());
+        // The same request again (the relay repeats it): an answer already sent stays sent.
+        let answered = previous
+            .as_ref()
+            .is_some_and(|p| p.requester == m.requester && p.signer == signer && p.answered);
+        // Another request replaces an open one: the note of that one is old from now on.
+        if let Some(old) = previous
+            .as_ref()
+            .filter(|p| p.requester != m.requester || p.signer != signer)
+            .and_then(|p| p.signer.clone())
+        {
+            let key = note_key(RecordKind::ReleaseRequestNote, &m.task);
+            self.note_marks_rose |= self.live.consume_note(&old, &key);
+        }
         let Some(hold) = self.holds.get_mut(&m.task) else {
             return Vec::new();
         };
@@ -3465,7 +3631,7 @@ impl Engine {
             requester: m.requester.clone(),
             signer,
             name,
-            answered: false,
+            answered,
         });
         if self.member.as_ref() == Some(&m.requester) {
             if let Some(key) = self.attempt_key(&m.task) {
@@ -3636,6 +3802,15 @@ impl Engine {
             let Some(holder) = &attempt.blocked else {
                 continue;
             };
+            // Only while the hold that blocks it is known here: a conflict without a hold, or a
+            // hold that ended, pauses nothing.
+            let blocking = attempt
+                .hash
+                .and_then(|hash| self.holds.get(&hash))
+                .is_some_and(|h| h.holder == *holder);
+            if !blocking {
+                continue;
+            }
             tasks.push(TeamTask {
                 title: attempt.title.clone(),
                 who: team_share::person_tag(&self.name_of(holder), holder.member.as_str()),
@@ -6378,7 +6553,7 @@ mod tests {
             period: mark.period,
             counter: mark.counter - 1,
         };
-        assert_eq!(marks.note(&alice, &key, old), Mark::Stale);
+        assert_eq!(marks.note(&alice, &key, old, &BTreeSet::new()), Mark::Stale);
     }
 
     #[test]
@@ -6587,5 +6762,462 @@ mod tests {
                 .count();
         }
         assert_eq!(fetches, 1);
+    }
+
+    /// `resync_required`, the given snapshot events (without `seq`) and the `welcome` to `client`.
+    fn resync_with(relay: &mut Relay, clients: &mut [&mut Client], at: usize, snapshot: &[String]) {
+        let resync = relay.text(
+            None,
+            None,
+            ServerMessage::ResyncRequired(hangar_team_protocol::wire::ResyncRequired {
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(relay.seq),
+                reason: hangar_team_protocol::wire::ResyncReason::TooOld,
+            }),
+        );
+        let welcome = relay.text(
+            None,
+            None,
+            ServerMessage::Welcome(Welcome {
+                proto: 1,
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(relay.seq),
+                member: clients[at].holder.member.clone(),
+                epoch: Epoch(0),
+            }),
+        );
+        let mut texts = vec![resync];
+        for text in snapshot {
+            let mut frame = decode_server(text).unwrap();
+            frame.seq = None;
+            texts.push(encode_server(&frame).unwrap());
+        }
+        texts.push(welcome);
+        clients[at].inbox.extend(texts);
+        run(relay, clients, Vec::new());
+    }
+
+    #[test]
+    fn marks_of_running_holds_survive_many_old_marks_and_a_resync() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        let mut latest = Vec::new();
+        for n in 0..32 {
+            reserve(
+                &mut relay,
+                &mut [&mut a1, &mut b1],
+                0,
+                &format!("Task {n}"),
+                None,
+            );
+            latest.push(relay.task_events.last().cloned().unwrap());
+        }
+        assert_eq!(b1.engine.activity().tasks.len(), 32);
+        // 33 newer marks of Alice's device for notes that do not run any more.
+        let alice = a1.holder.clone();
+        let top = b1
+            .engine
+            .live
+            .notes
+            .iter()
+            .filter(|((h, _), _)| *h == alice)
+            .map(|(_, s)| *s)
+            .max()
+            .unwrap();
+        for n in 0..33u64 {
+            let protected = b1.engine.running_notes(&alice);
+            let stamp = Stamp {
+                period: top.period,
+                counter: top.counter + 100 + n,
+            };
+            b1.engine
+                .live
+                .note(&alice, &format!("old/{n}"), stamp, &protected);
+        }
+        // Through the state file (a restart) and a resync with the same holds: all 32 stay.
+        let restored = LiveMarks::from_local(b1.engine.local_to_store());
+        for task in b1.engine.holds.keys() {
+            let key = note_key(RecordKind::ReservationNote, task);
+            assert!(restored.notes.contains_key(&(alice.clone(), key)));
+        }
+        resync_with(&mut relay, &mut [&mut a1, &mut b1], 1, &latest);
+        let tasks = b1.engine.activity().tasks;
+        assert_eq!(tasks.len(), 32);
+        assert!(tasks.iter().all(|t| !t.title.is_empty()), "{tasks:?}");
+    }
+
+    #[test]
+    fn a_blocked_attempt_pauses_only_while_the_blocking_hold_is_known() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        // A conflict naming a listed holder, but no hold behind it: nothing pauses.
+        let effects = b1.engine.reserve_task("Ghost", Some(7), None).unwrap();
+        let id = reserve_op(&effects);
+        let refused = relay.text(
+            Some(id),
+            None,
+            ServerMessage::Err(ErrorBody {
+                code: ErrorCode::Conflict,
+                retry_after_ms: None,
+                holder: Some(a1.holder.clone()),
+            }),
+        );
+        let _ = b1.engine.on_text(&refused);
+        assert_eq!(
+            b1.engine.activity().attempts[0].state,
+            AttemptState::Blocked
+        );
+        assert!(b1.engine.team_tasks().iter().all(|t| !t.wanted));
+        // A real hold blocks and pauses Bob's session; its release ends the pause.
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let effects = b1.engine.reserve_task("Fix login", Some(7), None).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, effects)]);
+        assert!(b1
+            .engine
+            .team_tasks()
+            .iter()
+            .any(|t| t.wanted && t.session == Some(7)));
+        let task = a1
+            .engine
+            .activity()
+            .tasks
+            .iter()
+            .find(|t| t.title == "Fix login")
+            .unwrap()
+            .task
+            .clone();
+        let release = a1.engine.release_task(&task).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, release)]);
+        assert!(b1
+            .engine
+            .team_tasks()
+            .iter()
+            .all(|t| !(t.wanted && t.title == "Fix login")));
+    }
+
+    #[test]
+    fn a_repeated_request_keeps_its_answer_and_a_replaced_one_is_old() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let hex = a1.engine.activity().tasks[0].task.clone();
+        let ask = b1.engine.ask_release(&hex).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ask)]);
+        let requested = relay
+            .task_events
+            .iter()
+            .rev()
+            .find(|t| t.contains("task.release_requested"))
+            .cloned()
+            .unwrap();
+        let _answer = a1.engine.answer_release(&hex, "bob", false).unwrap();
+        // The relay repeats the request: the card does not come back.
+        let repeat = again(&mut relay, &requested);
+        let _ = a1.engine.on_text(&repeat);
+        assert!(a1.engine.activity().tasks[0].request.is_none());
+        // Replaced by an unsigned one, then the signed one again: old now, no card.
+        let mut frame = decode_server(&requested).unwrap();
+        if let ServerMessage::TaskReleaseRequested(m) = &mut frame.message {
+            m.note = None;
+        }
+        relay.seq += 1;
+        frame.seq = Some(Seq(relay.seq));
+        let unsigned = encode_server(&frame).unwrap();
+        let _ = a1.engine.on_text(&unsigned);
+        let back = again(&mut relay, &requested);
+        let _ = a1.engine.on_text(&back);
+        let request = a1.engine.activity().tasks[0].request.clone().unwrap();
+        assert!(!request.confirmed);
+    }
+
+    #[test]
+    fn a_hold_missing_from_a_snapshot_has_an_old_note_afterwards() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let noted = relay.task_events.last().cloned().unwrap();
+        // The hold ended while Bob did not hear it: the snapshot has no hold.
+        resync_with(&mut relay, &mut [&mut a1, &mut b1], 1, &[]);
+        assert!(b1.engine.activity().tasks.is_empty());
+        let old = again(&mut relay, &noted);
+        let _ = b1.engine.on_text(&old);
+        let tasks = b1.engine.activity().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert!(tasks[0].title.is_empty());
+    }
+
+    #[test]
+    fn a_note_never_opened_is_old_once_its_hold_ended() {
+        let (_relay, mut a1, mut b1) = team_sharing();
+        let task = KeyedHash::from_bytes([5; 32]);
+        let sealed = forged_note(
+            &mut a1,
+            &task,
+            &team_tasks::note_plaintext(&TaskNote {
+                title: "Fix login".into(),
+                name: "Alice".into(),
+                ..TaskNote::default()
+            }),
+        );
+        // A hold whose note waited for a key, then ended.
+        b1.engine.holds.insert(
+            task,
+            Hold {
+                holder: a1.holder.clone(),
+                epoch: Epoch(1),
+                since: UnixMillis(1),
+                expires_at: None,
+                expiring: false,
+                unopened: Some(sealed.clone()),
+                note: None,
+                request: None,
+            },
+        );
+        let alice = a1.holder.clone();
+        let _ = b1.engine.hold_ended(task, &alice, None, false);
+        let key = note_key(RecordKind::ReservationNote, &task);
+        let mark = *b1.engine.live.notes.get(&(alice.clone(), key)).unwrap();
+        let (_, counter) = sealed_header(&sealed).unwrap();
+        assert_eq!(mark.counter, counter + 1);
+        // Shown again: older than the mark.
+        assert!(matches!(
+            b1.engine.open_note(&task, &alice, &sealed),
+            NoteOpen::Keep
+        ));
+    }
+
+    #[test]
+    fn a_forged_huge_header_counter_marks_only_up_to_the_clock() {
+        let (_relay, mut a1, mut b1) = team_sharing();
+        let task = KeyedHash::from_bytes([6; 32]);
+        let note = team_tasks::note_plaintext(&TaskNote {
+            title: "Fix login".into(),
+            name: "Alice".into(),
+            ..TaskNote::default()
+        });
+        a1.engine.counter = SendCounter::resume(u64::MAX / 2);
+        let forged = forged_note(&mut a1, &task, &note);
+        b1.engine.holds.insert(
+            task,
+            Hold {
+                holder: a1.holder.clone(),
+                epoch: Epoch(1),
+                since: UnixMillis(1),
+                expires_at: None,
+                expiring: false,
+                unopened: Some(forged),
+                note: None,
+                request: None,
+            },
+        );
+        let alice = a1.holder.clone();
+        let _ = b1.engine.hold_ended(task, &alice, None, false);
+        let key = note_key(RecordKind::ReservationNote, &task);
+        let ceiling = crate::team::counter_floor(1_000 + HEADER_COUNTER_SLACK_MS);
+        let mark = *b1.engine.live.notes.get(&(alice.clone(), key)).unwrap();
+        assert_eq!(mark.counter, ceiling + 1);
+        // A note Alice seals once her clock is past the ceiling is newer than the mark (its
+        // made-up task fails only the title check after that).
+        a1.engine.counter = SendCounter::resume(ceiling + 10);
+        let later = forged_note(&mut a1, &task, &note);
+        let _ = b1.engine.open_note(&task, &alice, &later);
+        let key = note_key(RecordKind::ReservationNote, &task);
+        let mark = *b1.engine.live.notes.get(&(alice.clone(), key)).unwrap();
+        assert_eq!(mark.counter, ceiling + 11);
+    }
+
+    #[test]
+    fn a_resync_does_not_drop_the_mark_of_a_hold_that_comes_back_later_in_the_snapshot() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let first = relay.task_events.last().cloned().unwrap();
+        let alice = a1.holder.clone();
+        let low = *b1
+            .engine
+            .live
+            .notes
+            .iter()
+            .find(|((h, _), _)| *h == alice)
+            .unwrap()
+            .1;
+        // 63 marks of ended notes, all newer than the running hold's: 64 marks in all.
+        for n in 0..63u64 {
+            let protected = b1.engine.running_notes(&alice);
+            let stamp = Stamp {
+                period: low.period,
+                counter: low.counter + 1 + n,
+            };
+            b1.engine
+                .live
+                .note(&alice, &format!("old/{n}"), stamp, &protected);
+        }
+        // A newer hold Bob did not hear about, first in the snapshot after a resync.
+        a1.engine.counter = SendCounter::resume(a1.engine.counter.last() + 1_000);
+        reserve(&mut relay, &mut [&mut a1], 0, "Write docs", None);
+        let second = relay.task_events.last().cloned().unwrap();
+        resync_with(&mut relay, &mut [&mut a1, &mut b1], 1, &[second, first]);
+        let tasks = b1.engine.activity().tasks;
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.iter().all(|t| !t.title.is_empty()), "{tasks:?}");
+    }
+
+    /// A hold of `holder` on `task` whose note `sealed` never opened.
+    fn unopened_hold(holder: &Holder, sealed: Sealed) -> Hold {
+        Hold {
+            holder: holder.clone(),
+            epoch: Epoch(1),
+            since: UnixMillis(1),
+            expires_at: None,
+            expiring: false,
+            unopened: Some(sealed),
+            note: None,
+            request: None,
+        }
+    }
+
+    #[test]
+    fn a_header_mark_needs_a_key_period_room_and_never_raises_the_floor() {
+        let (_relay, mut a1, mut b1) = team_sharing();
+        let note = team_tasks::note_plaintext(&TaskNote {
+            title: "Fix login".into(),
+            name: "Alice".into(),
+            ..TaskNote::default()
+        });
+        // A device without any key period in the log: no mark (it would count in every period).
+        let mallory = holder("mallory", "m1");
+        let task = KeyedHash::from_bytes([7; 32]);
+        let sealed = forged_note(&mut a1, &task, &note);
+        b1.engine
+            .holds
+            .insert(task, unopened_hold(&mallory, sealed));
+        let _ = b1.engine.hold_ended(task, &mallory, None, false);
+        assert!(b1.engine.live.notes.keys().all(|(h, _)| *h != mallory));
+        // Alice's marks full: a header mark takes no other's place and leaves the floor alone.
+        let alice = a1.holder.clone();
+        for n in 0..MAX_DETAIL_SESSIONS as u64 {
+            let stamp = Stamp {
+                period: 0,
+                counter: 10 + n,
+            };
+            b1.engine
+                .live
+                .note(&alice, &format!("old/{n}"), stamp, &BTreeSet::new());
+        }
+        let before = (
+            b1.engine.live.notes.clone(),
+            b1.engine.live.note_floors.clone(),
+        );
+        let task = KeyedHash::from_bytes([8; 32]);
+        let sealed = forged_note(&mut a1, &task, &note);
+        b1.engine.holds.insert(task, unopened_hold(&alice, sealed));
+        let _ = b1.engine.hold_ended(task, &alice, None, false);
+        assert_eq!(
+            (
+                b1.engine.live.notes.clone(),
+                b1.engine.live.note_floors.clone()
+            ),
+            before
+        );
+    }
+
+    #[test]
+    fn a_note_waiting_for_its_key_stays_with_its_hold_after_a_log_fetch() {
+        let (_relay, mut a1, mut b1) = team_sharing();
+        let task = KeyedHash::from_bytes([10; 32]);
+        let mut sealed = forged_note(&mut a1, &task, &TaskNote::default().title.into_bytes());
+        // An epoch this device holds no key for yet.
+        sealed.epoch = Epoch(sealed.epoch.0 + 1);
+        let alice = a1.holder.clone();
+        b1.engine.holds.insert(task, unopened_hold(&alice, sealed));
+        let _ = b1.engine.drain_tasks();
+        assert!(b1.engine.holds[&task].unopened.is_some());
+    }
+
+    #[test]
+    fn a_log_answer_inside_a_snapshot_does_not_end_the_holds_still_to_come() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let noted = relay.task_events.last().cloned().unwrap();
+        let answer = relay.text(
+            None,
+            None,
+            ServerMessage::MemberLogEntries(MemberLogEntries {
+                entries: Vec::new(),
+                more: false,
+            }),
+        );
+        let mut answer = decode_server(&answer).unwrap();
+        answer.seq = None;
+        // The answer is the first event after `resync_required`, before the hold comes back.
+        resync_with(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            1,
+            &[encode_server(&answer).unwrap(), noted],
+        );
+        let tasks = b1.engine.activity().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Fix login");
+    }
+
+    #[test]
+    fn a_note_with_the_last_counter_of_all_is_never_shown() {
+        let (_relay, mut a1, mut b1) = team_sharing();
+        let task = KeyedHash::from_bytes([9; 32]);
+        a1.engine.counter = SendCounter::resume(u64::MAX - 1);
+        let note = team_tasks::note_plaintext(&TaskNote {
+            title: "Fix login".into(),
+            name: "Alice".into(),
+            ..TaskNote::default()
+        });
+        let sealed = forged_note(&mut a1, &task, &note);
+        let alice = a1.holder.clone();
+        assert!(matches!(
+            b1.engine.open_note(&task, &alice, &sealed),
+            NoteOpen::Keep
+        ));
+        let key = note_key(RecordKind::ReservationNote, &task);
+        assert!(!b1.engine.live.notes.contains_key(&(alice, key)));
+    }
+
+    #[test]
+    fn conflicts_with_unknown_holders_fetch_the_log_at_most_every_few_seconds() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        let mut fetches = Vec::new();
+        for title in ["One", "Two"] {
+            let effects = b1.engine.reserve_task(title, None, None).unwrap();
+            let id = reserve_op(&effects);
+            let refused = relay.text(
+                Some(id),
+                None,
+                ServerMessage::Err(ErrorBody {
+                    code: ErrorCode::Conflict,
+                    retry_after_ms: None,
+                    holder: Some(holder("mallory", "m1")),
+                }),
+            );
+            let after = b1.engine.on_text(&refused);
+            fetches.push(
+                after
+                    .iter()
+                    .filter(|e| {
+                        matches!(
+                            e,
+                            Effect::Send(ClientFrame {
+                                message: ClientMessage::MemberLogGet(_),
+                                ..
+                            })
+                        )
+                    })
+                    .count(),
+            );
+            run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, after)]);
+        }
+        // The clock of the test stands still: the second conflict waits for the next ping.
+        assert_eq!(fetches, [1, 0]);
+        let ping = b1.engine.ping();
+        assert!(ping.iter().any(|e| matches!(
+            e,
+            Effect::Send(ClientFrame {
+                message: ClientMessage::MemberLogGet(_),
+                ..
+            })
+        )));
     }
 }

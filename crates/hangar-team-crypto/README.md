@@ -106,6 +106,8 @@ fn new_device() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Changelog
 
+- **Unreleased:** `record::sealed_header` reads the log head and counter a sealed record names
+  without a key and without checking it, for high-water marks of records not opened yet.
 - **Unreleased:** `record::task_record_id` names the record id of reservation and release
   request notes: the task's keyed hash as 64 lowercase hex digits, so every client opens the
   others' notes.

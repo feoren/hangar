@@ -401,6 +401,16 @@ fn rotation_reaches_every_device_and_records_open_across_them() {
     assert_eq!(opened.plaintext.as_slice(), b"on it");
     assert_eq!(opened.counter, 1);
     assert_eq!(opened.head, *state.head());
+    // The header names the same head and counter without a key (and without checking them).
+    assert_eq!(
+        crate::record::sealed_header(&sealed),
+        Some((*state.head(), 1))
+    );
+    let garbage = Sealed {
+        epoch: sealed.epoch,
+        data: hangar_team_protocol::ids::Ciphertext::new("AAAA").expect("text"),
+    };
+    assert_eq!(crate::record::sealed_header(&garbage), None);
     assert_eq!(counter.last(), 1);
     let mut guard = ReplayGuard::new();
     guard.check(&opened).expect("first time");

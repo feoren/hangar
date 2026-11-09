@@ -289,3 +289,13 @@ restarts; notes must hash to their task and carry a plain name; the holder's car
 request and answers it once; notices need a matching hold or request; `prev` names only old
 holds; unknown holders fetch the log at most every 5 s. Accepted risks recorded. Pages changed:
 [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-09] ingest | Task reservations: last low findings
+Note marks of running holds and signed requests are never dropped to stay within bounds; a
+blocked attempt pauses its session only while the blocking hold is known; a repeated release
+request keeps its answer and a replaced one makes the old note stale; holds missing from a
+resync's snapshot (checked only once the snapshot is complete) and holds whose note never
+opened leave a mark when they end (new `record::sealed_header` in the crypto crate; such a mark
+needs a key period of the sender, counts at most 10 minutes ahead of the clock and never drops
+another mark or raises the floor); conflicts with unknown holders fetch the log at
+most every 5 s. Pages changed: [[team-service-v1]], [[team-crypto]].

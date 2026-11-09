@@ -240,6 +240,17 @@ pub fn task_record_id(task: &KeyedHash) -> String {
     task.to_hex()
 }
 
+/// The log head and the counter a sealed record names, read without a key and **without**
+/// checking the signature or the epoch: never a reason to trust anything. For bookkeeping only,
+/// such as a high-water mark for a record that could not be opened yet whose occasion ended, so
+/// the same record shown again later is refused. `None` for data that is not a record of this
+/// version.
+pub fn sealed_header(sealed: &Sealed) -> Option<(ChainHead, u64)> {
+    let data = from_ciphertext(&sealed.data)?;
+    let parsed = parse(&data).ok()?;
+    Some((parsed.head, parsed.counter))
+}
+
 /// Where a record belongs: the opener names the same values it got from the relay's event and
 /// its own context, and a record from anywhere else does not open.
 #[derive(Debug, Clone, Copy)]

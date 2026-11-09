@@ -812,7 +812,8 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     the note was not shown before); a request on the relay's word alone shows a quiet
     "Unconfirmed release request" line without buttons. The answer names the requester the card
     showed (`team_answer_release` refuses another), goes out once and hides the card until the
-    relay's event (an error brings it back). The requester gets a notice (handed over, kept, no
+    relay's event (an error brings it back; the same request repeated by the relay keeps it
+    answered, and a request that replaces another makes the other's note old). The requester gets a notice (handed over, kept, no
     answer in time, asked too soon or already asked) only when its attempt had asked.
   - **Expiry:** the relay runs a hold only while its device is offline (`Policy::default`); the
     Team view shows "runs out at 14:05 without activity" from `expiresAt`, and the person gets a
@@ -825,7 +826,13 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     belong together. Expired and force released notices come only when a hold was there.
   - **Restart:** reservations are kept in memory only, the note marks in the state file
     (`noteMarks`, `noteFloors`: per device and note, at most 64 with a floor, like the claim
-    details); the first `hello` of an engine sends no cursor, so the relay's snapshot (`task.reserved` per hold, plus `reservation.expiring` and
+    details, but the marks of holds and signed requests that still run are never the ones
+    dropped); a hold that is missing from the snapshot after a resync counts as ended, and a hold
+    whose note never opened gets a mark from the note's header (`record::sealed_header`) when it
+    ends (only under a key period the log gives the holder, its counter at most 10 minutes ahead
+    of this device's clock, and only while the device has room for another mark: a header is
+    not checked, so it never drops a mark or raises the floor); a log answer inside the snapshot
+    waits with that check until the snapshot is complete; the first `hello` of an engine sends no cursor, so the relay's snapshot (`task.reserved` per hold, plus `reservation.expiring` and
     `task.release_requested`) restores them; later reconnects of the same engine resume. Attempts
     that waited for someone else are forgotten on a restart; own holds come back with their note.
   - **Gate and context:** `gate::assess_with_tasks` pauses an edit inside the area of a
@@ -833,8 +840,9 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     compares paths) in a clone linked to that project, like a teammate's file
     (`PendingDecision.reserved`, level `sameArea`); the person's own reservations never pause.
     An attempt of this device that a teammate's hold blocks pauses every edit of its linked
-    session (inside the attempt's folder when it named one) until it is won or cancelled; the
-    card shows the task as reserved. Without a linked session nothing pauses.
+    session (inside the attempt's folder when it named one) while the blocking hold is known here
+    (a conflict without a hold, or a hold that ended, pauses nothing); the card shows the task as
+    reserved. Without a linked session nothing pauses.
     The prompt context lists at most 10 reservations before the files (at most half of the 4000
     characters, the rest counted as `moreTasks`): `{"task":..,"reservedBy":..,"area":..}`,
     `"reservedByUser":true` for the person's own, `"wantedByThisSession":true` for an attempt
