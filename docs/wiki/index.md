@@ -43,6 +43,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
+- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server) and the build plan in steps A to G (sources: 0, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window) and the notes UI as built (sources: 0, updated: 2026-11-09)

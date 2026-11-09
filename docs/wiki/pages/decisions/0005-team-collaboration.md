@@ -6,7 +6,7 @@ superseded_by:
 tags: [collaboration, teams, agents, server, e2e, git, worktree]
 sources: []
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # ADR 0005: Team collaboration of people and agents
@@ -91,6 +91,8 @@ Option 2 as the backbone, with Git as the source of truth for code and as an off
 reservations, and peer to peer as a later transport. Version 1 scope as in the table.
 
 ## Open questions (research before building)
+Answered by desk research on 2026-11-09 in [[team-service-v1]], which also holds the build plan.
+
 - **Pausing an agent:** which CLIs allow Hangar to block an edit before it happens (e.g. Claude Code
   hooks such as PreToolUse, MCP tools) and how Codex CLI, Gemini CLI and others can be paused.
   Without a hook Hangar can only warn and stop the process; the catalog needs a per-agent

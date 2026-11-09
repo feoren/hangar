@@ -107,3 +107,9 @@ Recorded the send warning for app text without bracketed paste (`src/appPaste.ts
 invisible characters in the editor, the `onCloseRequested` close of the notes window (the API
 awaits the handler, then calls `destroy()`) and `set_notes_on_top` as a notes window command.
 Pages changed: [[notes]].
+
+## [2026-11-09] query | Team service version 1
+Filed the desk research on the open questions of ADR 0005: pre-edit hooks per agent CLI, change
+observation with git as the oracle and two-stage conflict detection, team key epochs instead of
+MLS, a single Rust server with WebSocket and SQLite, and the build plan in steps A to G.
+Pages changed: [[team-service-v1]], [[0005-team-collaboration]].
