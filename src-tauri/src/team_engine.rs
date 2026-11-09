@@ -30,15 +30,28 @@
 //! (status) and per teammate session (detail) and refuse anything older; an equal counter is the
 //! same record sent again and passes. The marks live in the state file and survive the relay's
 //! unsigned `offline`, a reconnect and a restart, so the relay cannot bring back an old status or
-//! detail. Records of an epoch older than the current one are refused too.
+//! detail. Records of an epoch older than the current one are refused too. The marks are written
+//! at most every [`MARKS_STORE_EVERY_MS`] (and on the next ping, a new connection and the end of
+//! one), all together, so the file always holds a consistent earlier snapshot.
 //!
 //! There is no age limit on top: a status is sent only when it changes (no periodic re-seal), so
 //! a quiet teammate's newest status may be hours old and still current.
 //!
+//! An overlap counts only for a session the teammate's newest signed status lists: after
+//! `claim.clear` the relay could send the last detail of an ended session again, or name a session
+//! key it made up. Without a status from that device, an overlap shows as the same area at most.
+//!
+//! A signed live record whose log head has another hash at an index this device verified is a
+//! fork only that sender (or the relay towards it) shows: the sending device is set aside
+//! ([`DivergentDevice`] in the Team view) and its live records are ignored until this device's
+//! verified log changes. The team stops ([`AttentionReason::HistoryMismatch`]) only when this
+//! device's own log fetch contradicts what it verified before, so a single device cannot stop
+//! everyone else's sharing.
+//!
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use hangar_team_crypto::identity::{safety_number, DeviceIdentity, DevicePublicKeys};
 use hangar_team_crypto::memberlog::{
@@ -63,7 +76,7 @@ use hangar_team_protocol::wire::{
 };
 use sha2::{Digest as _, Sha256};
 
-use crate::claims::OverlapLevel;
+use crate::claims::{LineRange, OverlapLevel};
 use crate::session::SessionId;
 use crate::team::{
     hex, safety_groups, AttentionReason, DetailMark, HolderMark, LocalState, PendingConfirmation,
@@ -71,8 +84,8 @@ use crate::team::{
     TeamStatus,
 };
 use crate::team_share::{
-    self, LocalShare, OtherDetail, PeerStatus, PeerView, SessionState, TeamActivity, TeammateFile,
-    TeammateOverlap,
+    self, DivergentDevice, LocalShare, OtherDetail, PeerStatus, PeerView, SessionState,
+    TeamActivity, TeammateFile, TeammateOverlap,
 };
 
 /// What the worker does, in this order.
@@ -138,11 +151,18 @@ const MAX_DETAIL_SESSIONS: usize = 64;
 /// view (and the notices it raises) without bound by inventing session keys.
 const MAX_OVERLAPS_PER_DEVICE: usize = 64;
 
+/// The live marks go to the state file at most this often while they rise; the next ping, a new
+/// connection and the end of one write what is left.
+const MARKS_STORE_EVERY_MS: u64 = 5_000;
+
 /// A teammate device's presence as last reported.
 #[derive(Debug, Clone)]
 struct Peer {
     presence: PresenceState,
     status: PeerStatus,
+    /// `status` is a signed status this device opened, not the empty one of a presence the
+    /// relay reported without (or with an unreadable) status: only a signed one ends overlaps.
+    signed: bool,
 }
 
 /// How a live record's counter compares with the newest one shown.
@@ -157,12 +177,16 @@ enum Mark {
 }
 
 /// High-water marks of the teammates' live state shown on this device: presence status per
-/// device and signing key, claim detail per device and session key. Never cleared by `offline`,
-/// `hello` or a restart (they are stored with [`LocalState`]); trimmed to the devices the
-/// verified log lists and to [`MAX_DETAIL_SESSIONS`] sessions per device.
+/// device, claim detail per device and session key. Never cleared by `offline`, `hello` or a
+/// restart (they are stored with [`LocalState`]); trimmed to the devices the verified log lists
+/// and to [`MAX_DETAIL_SESSIONS`] sessions per device.
+///
+/// The presence mark is per device, not per signing key: a device id admitted again comes with
+/// new keys, but its counter continues above the old ones (`team::counter_floor`), so a status
+/// signed with the old key stays older than anything shown since.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct LiveMarks {
-    presence: BTreeMap<(Holder, PublicKey), u64>,
+    presence: BTreeMap<Holder, u64>,
     detail: BTreeMap<(Holder, String), u64>,
     /// Per device: the highest counter of a detail mark dropped to stay within bounds; a detail of
     /// a session without a mark must be newer.
@@ -171,12 +195,15 @@ struct LiveMarks {
 
 impl LiveMarks {
     fn from_local(local: &LocalState) -> Self {
+        // A file of the first format may hold several marks per device (one per signing key):
+        // the highest one counts.
+        let mut presence: BTreeMap<Holder, u64> = BTreeMap::new();
+        for mark in &local.presence_marks {
+            let counter = presence.entry(mark.holder.clone()).or_insert(0);
+            *counter = (*counter).max(mark.counter);
+        }
         Self {
-            presence: local
-                .presence_marks
-                .iter()
-                .map(|m| ((m.holder.clone(), m.sign), m.counter))
-                .collect(),
+            presence,
             detail: local
                 .detail_marks
                 .iter()
@@ -194,9 +221,8 @@ impl LiveMarks {
         local.presence_marks = self
             .presence
             .iter()
-            .map(|((holder, sign), counter)| ReplayMark {
+            .map(|(holder, counter)| HolderMark {
                 holder: holder.clone(),
-                sign: *sign,
                 counter: *counter,
             })
             .collect();
@@ -230,8 +256,8 @@ impl LiveMarks {
         }
     }
 
-    fn presence(&mut self, holder: &Holder, sign: PublicKey, counter: u64) -> Mark {
-        let mark = self.presence.entry((holder.clone(), sign)).or_insert(0);
+    fn presence(&mut self, holder: &Holder, counter: u64) -> Mark {
+        let mark = self.presence.entry(holder.clone()).or_insert(0);
         Self::raise(mark, counter)
     }
 
@@ -244,15 +270,22 @@ impl LiveMarks {
             return Mark::Stale;
         }
         self.detail.insert(key, counter);
-        let lowest = self
+        // The device's marks are adjacent in the map: count them and find the lowest without
+        // walking every other device's (at most MAX_DETAIL_SESSIONS + 1 entries).
+        let mut count = 0;
+        let mut lowest: Option<(&String, u64)> = None;
+        for ((_, held), at) in self
             .detail
-            .iter()
-            .filter(|((h, _), _)| h == holder)
-            .min_by_key(|(_, counter)| **counter)
-            .map(|((_, session), counter)| (session.clone(), *counter));
-        let count = self.detail.keys().filter(|(h, _)| h == holder).count();
+            .range((holder.clone(), String::new())..)
+            .take_while(|((h, _), _)| h == holder)
+        {
+            count += 1;
+            if lowest.is_none_or(|(_, low)| *at < low) {
+                lowest = Some((held, *at));
+            }
+        }
         if count > MAX_DETAIL_SESSIONS {
-            if let Some((dropped, at)) = lowest {
+            if let Some((dropped, at)) = lowest.map(|(s, at)| (s.clone(), at)) {
                 self.detail.remove(&(holder.clone(), dropped.clone()));
                 let floor = self.floors.entry(holder.clone()).or_insert(0);
                 *floor = (*floor).max(at);
@@ -264,12 +297,12 @@ impl LiveMarks {
         Mark::Raised
     }
 
-    /// Drops the marks of devices `listed` does not vouch for; `true` when any went.
-    fn retain(&mut self, listed: impl Fn(&Holder) -> bool) -> bool {
+    /// Drops the marks of devices `known` does not vouch for; `true` when any went.
+    fn retain(&mut self, known: impl Fn(&Holder) -> bool) -> bool {
         let before = (self.presence.len(), self.detail.len(), self.floors.len());
-        self.presence.retain(|(holder, _), _| listed(holder));
-        self.detail.retain(|(holder, _), _| listed(holder));
-        self.floors.retain(|holder, _| listed(holder));
+        self.presence.retain(|holder, _| known(holder));
+        self.detail.retain(|(holder, _), _| known(holder));
+        self.floors.retain(|holder, _| known(holder));
         before != (self.presence.len(), self.detail.len(), self.floors.len())
     }
 }
@@ -284,12 +317,25 @@ struct OverlapEntry {
     detail: Option<OtherDetail>,
 }
 
+/// The overlaps per session of this device, then per teammate session: one session's count is
+/// one map's length.
+type Overlaps = BTreeMap<SessionId, BTreeMap<SessionRef, OverlapEntry>>;
+
+/// A teammate device that reports a different team history (see the module comment).
+#[derive(Debug, Clone)]
+struct Divergent {
+    /// This device's verified log head index when it happened; a later head clears it.
+    at: u64,
+    /// The display name it sent last, for the Team view.
+    name: String,
+}
+
 /// How opening a sealed record went.
 enum Open {
     Opened(Opened),
     /// The sender names a newer log or epoch: fetch the log and try once more.
     Later,
-    /// The sender's log differs from this device's: the relay shows two histories.
+    /// The signed sender's log differs from this device's at an index both verified.
     Fork,
     Failed,
 }
@@ -345,6 +391,13 @@ pub struct Engine {
     guard: ReplayGuard,
     /// The teammates' newest live state shown; kept across connections.
     live: LiveMarks,
+    /// Marks rose since [`Engine::local`] last took them.
+    marks_dirty: bool,
+    /// When the marks last went into [`Engine::local`] (clock milliseconds).
+    marks_stored_at: Option<u64>,
+    /// Teammate devices set aside for a different history; kept across connections until the
+    /// verified log changes.
+    divergent: BTreeMap<Holder, Divergent>,
     cursor: ClientCursor,
     // Per connection.
     me: Option<Holder>,
@@ -377,7 +430,7 @@ pub struct Engine {
     /// The epoch the shared state was sent under; a new one sends everything again.
     shared_epoch: Option<Epoch>,
     peers: BTreeMap<Holder, Peer>,
-    overlaps: BTreeMap<(SessionId, SessionRef), OverlapEntry>,
+    overlaps: Overlaps,
     stashed: Vec<ServerMessage>,
 }
 
@@ -441,6 +494,9 @@ impl Engine {
             counter: SendCounter::resume(setup.local.counter.max(floor)),
             guard: ReplayGuard::from_marks(marks),
             live: LiveMarks::from_local(&setup.local),
+            marks_dirty: false,
+            marks_stored_at: None,
+            divergent: BTreeMap::new(),
             project: setup.project,
             team: setup.team,
             device: setup.device,
@@ -574,7 +630,42 @@ impl Engine {
             proto: ProtoRange::CURRENT,
             last_seq: self.cursor.cursor().cloned(),
         });
-        vec![self.frame(Op::Hello, hello), Effect::Changed]
+        let mut effects = self.flush_marks();
+        effects.push(self.frame(Op::Hello, hello));
+        effects.push(Effect::Changed);
+        effects
+    }
+
+    /// The live marks that rose since they were last stored; the worker calls it when a
+    /// connection ends, so a restart does not forget them.
+    pub fn flush_marks(&mut self) -> Vec<Effect> {
+        if !self.marks_dirty {
+            return Vec::new();
+        }
+        self.store_marks();
+        vec![Effect::StoreLocal]
+    }
+
+    fn store_marks(&mut self) {
+        self.live.store(&mut self.local);
+        self.marks_dirty = false;
+        self.marks_stored_at = Some((self.now)());
+    }
+
+    /// A mark rose: stored at once when the last store is [`MARKS_STORE_EVERY_MS`] ago (or the
+    /// clock went back), otherwise left for the next ping or the end of the connection.
+    fn marks_raised(&mut self) -> Vec<Effect> {
+        let now = (self.now)();
+        let due = self
+            .marks_stored_at
+            .is_none_or(|at| now < at || now - at >= MARKS_STORE_EVERY_MS);
+        if due {
+            self.store_marks();
+            vec![Effect::StoreLocal]
+        } else {
+            self.marks_dirty = true;
+            Vec::new()
+        }
     }
 
     /// `ticket.renew` with a fresh website ticket, once welcomed.
@@ -588,8 +679,11 @@ impl Engine {
         )]
     }
 
+    /// A `ping`, and the live marks left from the last few seconds.
     pub fn ping(&mut self) -> Vec<Effect> {
-        vec![self.frame(Op::Quiet, ClientMessage::Ping)]
+        let mut effects = self.flush_marks();
+        effects.push(self.frame(Op::Quiet, ClientMessage::Ping));
+        effects
     }
 
     /// Asks the relay for devices that may wait for this device's confirmation.
@@ -882,6 +976,17 @@ impl Engine {
                 self.keys.head = Some(head);
                 effects.push(Effect::StoreKeys);
             }
+        }
+        // A device set aside for a different history is heard again once the log moved on (it
+        // may have caught up), or goes with its entry.
+        let index = head.map(|h| h.index);
+        let before = self.divergent.len();
+        let state = self.verifier.state();
+        self.divergent.retain(|holder, divergent| {
+            Some(divergent.at) == index && state.is_some_and(|s| s.device(holder).is_some())
+        });
+        if self.divergent.len() != before {
+            effects.push(Effect::Changed);
         }
         if let (Some(state), Some(me)) = (self.verifier.state(), &self.me) {
             let removed = state
@@ -1480,7 +1585,7 @@ impl Engine {
                     sends.push(ClientMessage::ClaimClear(ClaimClear { session: key }));
                 }
             }
-            self.overlaps.retain(|(session, _), _| *session != id);
+            self.overlaps.remove(&id);
         }
 
         let mut effects = Vec::new();
@@ -1554,28 +1659,58 @@ impl Engine {
             .is_some_and(|state| state.device(holder).is_some())
     }
 
+    /// Keeps the overlaps `keep` accepts; `true` when any went.
+    fn retain_overlaps(&mut self, mut keep: impl FnMut(&SessionRef) -> bool) -> bool {
+        let mut changed = false;
+        self.overlaps.retain(|_, others| {
+            let before = others.len();
+            others.retain(|other, _| keep(other));
+            changed |= others.len() != before;
+            !others.is_empty()
+        });
+        changed
+    }
+
+    fn remove_overlap(&mut self, session: SessionId, other: &SessionRef) -> bool {
+        let Some(others) = self.overlaps.get_mut(&session) else {
+            return false;
+        };
+        let removed = others.remove(other).is_some();
+        if others.is_empty() {
+            self.overlaps.remove(&session);
+        }
+        removed
+    }
+
     fn retry_stashed(&mut self) -> Vec<Effect> {
         let mut effects = Vec::new();
         // The log changed: devices it no longer vouches for leave the view.
-        let (peers, overlaps) = (self.peers.len(), self.overlaps.len());
-        let listed: Vec<Holder> = self
+        let unlisted: BTreeSet<Holder> = self
             .peers
             .keys()
-            .chain(self.overlaps.keys().map(|(_, other)| &other.holder))
-            .filter(|holder| self.listed(holder))
+            .chain(
+                self.overlaps
+                    .values()
+                    .flat_map(|others| others.keys().map(|other| &other.holder)),
+            )
+            .filter(|holder| !self.listed(holder))
             .cloned()
             .collect();
-        self.peers.retain(|holder, _| listed.contains(holder));
-        self.overlaps
-            .retain(|(_, other), _| listed.contains(&other.holder));
-        if peers != self.peers.len() || overlaps != self.overlaps.len() {
+        let peers = self.peers.len();
+        self.peers.retain(|holder, _| !unlisted.contains(holder));
+        let overlaps = self.retain_overlaps(|other| !unlisted.contains(&other.holder));
+        if peers != self.peers.len() || overlaps {
             effects.push(Effect::Changed);
         }
-        // Marks of devices the log no longer lists go too: they bound the state file, and a
-        // device added again comes with new keys and new session keys.
+        // Marks of devices the log never listed go too: they bound the state file. A device the
+        // log removed keeps its marks, so the same device id admitted again before the next
+        // rotation cannot have its old records shown as new.
         if let Some(state) = self.verifier.state() {
-            if self.live.retain(|holder| state.device(holder).is_some()) {
-                self.live.store(&mut self.local);
+            if self
+                .live
+                .retain(|holder| !state.key_periods(holder).is_empty())
+            {
+                self.store_marks();
                 effects.push(Effect::StoreLocal);
             }
         }
@@ -1595,15 +1730,13 @@ impl Engine {
 
     /// A teammate device's presence. `first`: not a retry of a stashed one.
     fn on_presence(&mut self, update: PresenceUpdate, first: bool) -> Vec<Effect> {
-        if self.me.as_ref() == Some(&update.holder) {
+        if self.me.as_ref() == Some(&update.holder) || self.divergent.contains_key(&update.holder) {
             return Vec::new();
         }
         if update.state == PresenceState::Offline {
             let had = self.peers.remove(&update.holder).is_some();
-            let before = self.overlaps.len();
-            self.overlaps
-                .retain(|(_, other), _| other.holder != update.holder);
-            return if had || before != self.overlaps.len() {
+            let overlaps = self.retain_overlaps(|other| other.holder != update.holder);
+            return if had || overlaps {
                 vec![Effect::Changed]
             } else {
                 Vec::new()
@@ -1617,42 +1750,48 @@ impl Engine {
                 Vec::new()
             };
         }
-        let mut status = self
-            .peers
-            .get(&update.holder)
-            .map(|p| p.status.clone())
-            .unwrap_or_default();
+        let previous = self.peers.get(&update.holder);
+        let mut status = previous.map(|p| p.status.clone()).unwrap_or_default();
+        let mut signed = previous.is_some_and(|p| p.signed);
         let mut effects = Vec::new();
-        match &update.status {
-            None => status = PeerStatus::default(),
-            Some(sealed) => {
-                match self.open_sealed(RecordKind::PresenceStatus, b"", &update.holder, sealed) {
-                    Open::Opened(opened) => {
-                        match self
-                            .live
-                            .presence(&update.holder, opened.sign, opened.counter)
-                        {
-                            // An old status shown again (after `offline`, a reconnect or a
-                            // restart): the newer one stays.
-                            Mark::Stale => return Vec::new(),
-                            Mark::Seen => {}
-                            Mark::Raised => {
-                                self.live.store(&mut self.local);
-                                effects.push(Effect::StoreLocal);
+        // No status: the relay's word on the state alone (active, idle, away); the sessions stay
+        // as the newest signed status listed them. Only `offline` ends them.
+        if let Some(sealed) = &update.status {
+            match self.open_sealed(RecordKind::PresenceStatus, b"", &update.holder, sealed) {
+                Open::Opened(opened) => {
+                    match self.live.presence(&update.holder, opened.counter) {
+                        // An old status shown again (after `offline`, a reconnect or a
+                        // restart): the newer one stays.
+                        Mark::Stale => return Vec::new(),
+                        Mark::Seen => {}
+                        Mark::Raised => effects.extend(self.marks_raised()),
+                    }
+                    match team_share::parse_status(&opened.plaintext) {
+                        Some(parsed) => {
+                            // Overlaps of sessions this status no longer lists have ended.
+                            let ended = {
+                                let keys: BTreeSet<&str> =
+                                    parsed.sessions.iter().map(|s| s.key.as_str()).collect();
+                                self.retain_overlaps(|other| {
+                                    other.holder != update.holder
+                                        || keys.contains(other.session.as_str())
+                                })
+                            };
+                            if ended {
+                                effects.push(Effect::Changed);
                             }
+                            status = parsed;
+                            signed = true;
                         }
-                        match team_share::parse_status(&opened.plaintext) {
-                            Some(parsed) => status = parsed,
-                            None => eprintln!("hangar: a teammate's status was not readable"),
-                        }
+                        None => eprintln!("hangar: a teammate's status was not readable"),
                     }
-                    Open::Later if first => {
-                        return self.stash(ServerMessage::PresenceUpdate(update));
-                    }
-                    // Only a record the listed sender signed reports a fork (`open_verified`).
-                    Open::Fork => return vec![Self::stop(AttentionReason::HistoryMismatch)],
-                    Open::Later | Open::Failed => {}
                 }
+                Open::Later if first => {
+                    return self.stash(ServerMessage::PresenceUpdate(update));
+                }
+                // Only a record the listed sender signed reports a fork (`open_verified`).
+                Open::Fork => return self.diverged(&update.holder),
+                Open::Later | Open::Failed => {}
             }
         }
         // At most one entry per device the log lists (`listed` above keeps out the others).
@@ -1664,6 +1803,7 @@ impl Engine {
             Peer {
                 presence: update.state,
                 status,
+                signed,
             },
         );
         effects.push(Effect::Changed);
@@ -1686,9 +1826,11 @@ impl Engine {
         else {
             return Vec::new();
         };
-        let key = (session, overlap.other.clone());
+        if self.divergent.contains_key(&overlap.other.holder) {
+            return Vec::new();
+        }
         if overlap.level == MatchLevel::None {
-            return if self.overlaps.remove(&key).is_some() {
+            return if self.remove_overlap(session, &overlap.other) {
                 vec![Effect::Changed]
             } else {
                 Vec::new()
@@ -1701,15 +1843,39 @@ impl Engine {
                 Vec::new()
             };
         }
-        if !self.overlaps.contains_key(&key) {
+        // The teammate's newest signed status names its sessions: an overlap of any other session
+        // key (ended, or made up by the relay) does not count.
+        let signed = self
+            .peers
+            .get(&overlap.other.holder)
+            .filter(|peer| peer.signed);
+        let unlisted = signed.is_some_and(|peer| {
+            !peer
+                .status
+                .sessions
+                .iter()
+                .any(|s| s.key == overlap.other.session.as_str())
+        });
+        if unlisted {
+            return if self.remove_overlap(session, &overlap.other) {
+                vec![Effect::Changed]
+            } else {
+                Vec::new()
+            };
+        }
+        let known = self
+            .overlaps
+            .get(&session)
+            .and_then(|others| others.get(&overlap.other));
+        if known.is_none() {
             let cap = self.device_count().saturating_mul(MAX_OVERLAPS_PER_DEVICE);
-            let held = self.overlaps.keys().filter(|(s, _)| *s == session).count();
+            let held = self.overlaps.get(&session).map_or(0, BTreeMap::len);
             if held >= cap {
                 return Vec::new();
             }
         }
         let mut effects = Vec::new();
-        let mut detail = self.overlaps.get(&key).and_then(|e| e.detail.clone());
+        let mut detail = known.and_then(|e| e.detail.clone());
         if let Some(sealed) = &overlap.detail {
             let record = overlap.other.session.as_str().as_bytes();
             match self.open_sealed(
@@ -1725,8 +1891,7 @@ impl Engine {
                         opened.counter,
                     );
                     if mark == Mark::Raised {
-                        self.live.store(&mut self.local);
-                        effects.push(Effect::StoreLocal);
+                        effects.extend(self.marks_raised());
                     }
                     // An older detail shown again keeps the newer one.
                     if mark != Mark::Stale {
@@ -1738,15 +1903,15 @@ impl Engine {
                 Open::Later if first => {
                     return self.stash(ServerMessage::ClaimOverlap(overlap));
                 }
-                Open::Fork => return vec![Self::stop(AttentionReason::HistoryMismatch)],
+                Open::Fork => return self.diverged(&overlap.other.holder),
                 Open::Later | Open::Failed => {}
             }
         }
         let hint = overlap
             .file
             .and_then(|file| self.path_of_hash(session, &file));
-        self.overlaps.insert(
-            key,
+        self.overlaps.entry(session).or_default().insert(
+            overlap.other,
             OverlapEntry {
                 level: overlap.level,
                 files: overlap.files,
@@ -1756,6 +1921,24 @@ impl Engine {
         );
         effects.push(Effect::Changed);
         effects
+    }
+
+    /// `holder` signed a live record naming another log at an index this device verified: it
+    /// (or the relay towards it) sees a different team history. Only that device is set aside,
+    /// with a notice in the Team view, until this device's verified log changes; its marks stay,
+    /// since they only refuse records older than ones verified against this device's log.
+    fn diverged(&mut self, holder: &Holder) -> Vec<Effect> {
+        eprintln!("hangar: a team device reports a different membership history");
+        let at = self.verifier.state().map_or(0, |s| s.head().index);
+        let name = self
+            .peers
+            .remove(holder)
+            .map(|peer| peer.status.name)
+            .unwrap_or_default();
+        self.retain_overlaps(|other| other.holder != *holder);
+        self.divergent
+            .insert(holder.clone(), Divergent { at, name });
+        vec![Effect::Changed]
     }
 
     /// This device's spelling of a file the relay names by its keyed hash.
@@ -1786,10 +1969,20 @@ impl Engine {
                 sessions: peer.status.sessions.clone(),
             })
             .collect();
+        let divergent = self
+            .divergent
+            .iter()
+            .map(|(holder, divergent)| DivergentDevice {
+                member: holder.member.as_str().to_owned(),
+                device: holder.device.as_str().to_owned(),
+                name: divergent.name.clone(),
+            })
+            .collect();
         TeamActivity {
             linked: Vec::new(),
             peers,
             overlaps: self.teammate_overlaps(),
+            divergent,
         }
     }
 
@@ -1797,15 +1990,22 @@ impl Engine {
         let mut list: Vec<TeammateOverlap> = self
             .overlaps
             .iter()
-            .filter_map(|((session, other), entry)| {
-                let mine = self.share.sessions.iter().find(|s| s.id == *session)?;
+            .flat_map(|(session, others)| others.iter().map(move |entry| (*session, entry)))
+            .filter_map(|(session, (other, entry))| {
+                let mine = self.share.sessions.iter().find(|s| s.id == session)?;
                 let peer = self.peers.get(&other.holder);
-                let peer_session = peer.and_then(|p| {
+                let signed = peer.filter(|p| p.signed);
+                let peer_session = signed.and_then(|p| {
                     p.status
                         .sessions
                         .iter()
                         .find(|s| s.key == other.session.as_str())
                 });
+                // A teammate whose newest signed status does not list the session has ended it
+                // (or the relay made the key up).
+                if signed.is_some() && peer_session.is_none() {
+                    return None;
+                }
                 let (name, agent, title) = match &entry.detail {
                     Some(d) => (d.name.clone(), d.agent.clone(), d.title.clone()),
                     None => (
@@ -1839,8 +2039,19 @@ impl Engine {
                         MatchLevel::None => return None,
                     },
                 };
+                // Without a status from that device nothing vouches that the session still runs
+                // (a replayed detail, or a key the relay made up): the same area at most, which
+                // raises no notice.
+                let (level, path, lines, files) = if peer_session.is_none() {
+                    (level.min(OverlapLevel::SameArea), None, Vec::new(), 0)
+                } else {
+                    (level, path, lines, files)
+                };
+                if level == OverlapLevel::None {
+                    return None;
+                }
                 Some(TeammateOverlap {
-                    session_id: *session,
+                    session_id: session,
                     member: other.holder.member.as_str().to_owned(),
                     device: other.holder.device.as_str().to_owned(),
                     other_session: other.session.as_str().to_owned(),
@@ -1879,16 +2090,29 @@ impl Engine {
     /// where a claim detail reached this device: what the agent gate and the agent's context
     /// read.
     pub fn teammate_files(&self) -> Vec<TeammateFile> {
+        // Each teammate session's detail once, its paths normalized once (the first detail per
+        // session, as several of this device's sessions may overlap with it).
+        let mut details: HashMap<(&Holder, &str), HashMap<String, &[LineRange]>> = HashMap::new();
+        for (other, entry) in self.overlaps.values().flatten() {
+            let Some(detail) = &entry.detail else {
+                continue;
+            };
+            details
+                .entry((&other.holder, other.session.as_str()))
+                .or_insert_with(|| {
+                    let mut by_path = HashMap::new();
+                    for claim in &detail.claims {
+                        if let Some(key) = team_share::team_path(&claim.path) {
+                            by_path.entry(key).or_insert(claim.ranges.as_slice());
+                        }
+                    }
+                    by_path
+                });
+        }
         let mut files = Vec::new();
         for (holder, peer) in &self.peers {
             for session in &peer.status.sessions {
-                let detail = self
-                    .overlaps
-                    .iter()
-                    .find(|((_, other), _)| {
-                        other.holder == *holder && other.session.as_str() == session.key
-                    })
-                    .and_then(|(_, entry)| entry.detail.as_ref());
+                let detail = details.get(&(holder, session.key.as_str()));
                 let person = team_share::person_tag(&peer.status.name, holder.member.as_str());
                 let who = team_share::who(&person, &session.agent);
                 for path in &session.files {
@@ -1896,12 +2120,8 @@ impl Engine {
                         continue;
                     };
                     let lines = detail
-                        .and_then(|d| {
-                            d.claims
-                                .iter()
-                                .find(|c| team_share::team_path(&c.path).as_ref() == Some(&key))
-                        })
-                        .map(|c| c.ranges.clone())
+                        .and_then(|by_path| by_path.get(&key))
+                        .map(|ranges| ranges.to_vec())
                         .unwrap_or_default();
                     files.push(TeammateFile {
                         repo: session.repo.clone(),
@@ -3265,6 +3485,8 @@ mod tests {
         );
         let _ = a1.engine.on_text(&replay);
         assert_eq!(a1.engine.activity().overlaps[0], now);
+        // Stored with the next ping or the end of the connection at the latest.
+        let _ = a1.engine.ping();
         assert!(!a1.engine.local().detail_marks.is_empty());
     }
 
@@ -3297,25 +3519,55 @@ mod tests {
             hint: Some("src/auth.rs".to_owned()),
             detail,
         };
+        // Bob's newest signed status lists the session.
         a1.engine
-            .overlaps
-            .insert((1, other.clone()), entry(Some(detail("docs/x.md"))));
+            .peers
+            .insert(b1.holder.clone(), peer_with_sessions(&["k"]));
+        let put = |engine: &mut Engine, entry: OverlapEntry| {
+            engine
+                .overlaps
+                .entry(1)
+                .or_default()
+                .insert(other.clone(), entry);
+        };
+        put(&mut a1.engine, entry(Some(detail("docs/x.md"))));
         let shown = &a1.engine.activity().overlaps[0];
         assert_eq!(shown.level, OverlapLevel::SameArea);
         assert_eq!(shown.path, None);
         // Without a detail the relay's word stands; with a shared file the detail decides.
-        a1.engine.overlaps.insert((1, other.clone()), entry(None));
+        put(&mut a1.engine, entry(None));
         assert_eq!(
             a1.engine.activity().overlaps[0].level,
             OverlapLevel::SameFile
         );
-        a1.engine
-            .overlaps
-            .insert((1, other), entry(Some(detail("SRC/Auth.rs"))));
+        put(&mut a1.engine, entry(Some(detail("SRC/Auth.rs"))));
         assert_eq!(
             a1.engine.activity().overlaps[0].path.as_deref(),
             Some("src/auth.rs")
         );
+    }
+
+    /// A teammate's presence whose signed status lists sessions with these keys.
+    fn peer_with_sessions(keys: &[&str]) -> Peer {
+        Peer {
+            presence: PresenceState::Active,
+            status: PeerStatus {
+                name: "Bob".to_owned(),
+                sessions: keys
+                    .iter()
+                    .map(|key| team_share::PeerSession {
+                        key: (*key).to_owned(),
+                        agent: "Codex".to_owned(),
+                        title: String::new(),
+                        state: SessionState::Working,
+                        repo: "a".repeat(40),
+                        files: Vec::new(),
+                        more_files: 0,
+                    })
+                    .collect(),
+            },
+            signed: true,
+        }
     }
 
     #[test]
@@ -3326,6 +3578,8 @@ mod tests {
             .set_share(share("Alice", 1, "Claude Code", &[("src/auth.rs", 10, 12)]));
         let repo = claim_set(&a).repo;
         let mine = a1.engine.session_keys.get(&1).unwrap().clone();
+        // Without a status from bob's device the overlaps are kept (at most as the same area).
+        a1.engine.peers.clear();
         for n in 0..500 {
             let text = relay.text(
                 None,
@@ -3345,7 +3599,14 @@ mod tests {
             );
             let _ = a1.engine.on_text(&text);
         }
-        assert_eq!(a1.engine.overlaps.len(), 2 * MAX_OVERLAPS_PER_DEVICE);
+        assert_eq!(a1.engine.overlaps.len(), 1);
+        assert_eq!(a1.engine.overlaps[&1].len(), 2 * MAX_OVERLAPS_PER_DEVICE);
+        assert!(a1
+            .engine
+            .activity()
+            .overlaps
+            .iter()
+            .all(|o| o.level == OverlapLevel::SameArea && o.path.is_none()));
     }
 
     #[test]
@@ -3473,5 +3734,340 @@ mod tests {
         assert_eq!(a1.engine.inline.keys().next(), Some(&Epoch(16)));
         let _ = a1.engine.hello(ticket());
         assert!(a1.engine.inline.is_empty());
+    }
+
+    /// Carol joins the team of `a1` (owner) and `b1`: the verified log moves on.
+    fn carol_joins(relay: &mut Relay, a1: &mut Client, b1: &mut Client) {
+        let mut c1 = client("carol", "c1", Role::Member);
+        let hello = c1.engine.hello(ticket());
+        run(relay, &mut [&mut *a1, &mut *b1, &mut c1], vec![(2, hello)]);
+        let poll = a1.engine.poll_devices();
+        run(relay, &mut [&mut *a1, &mut *b1, &mut c1], vec![(0, poll)]);
+        let carol = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&carol.id).unwrap();
+        run(
+            relay,
+            &mut [&mut *a1, &mut *b1, &mut c1],
+            vec![(0, confirm)],
+        );
+    }
+
+    #[test]
+    fn a_device_signing_another_history_is_set_aside_without_stopping_the_team() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("x.rs", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, b)]);
+        assert_eq!(peer_files(&a1), Some(vec!["x.rs".to_owned()]));
+
+        // Bob's device signs a status naming the verified head index with another hash.
+        let (cipher, head, _) = b1.engine.current_cipher().unwrap();
+        let forked = ChainHead {
+            index: head.index,
+            hash: hangar_team_protocol::e2e::LogHash::from_bytes([7; 32]),
+        };
+        let status = br#"{"v":1,"name":"Bob","sessions":[]}"#;
+        let sealed = b1
+            .engine
+            .seal(&cipher, &forked, RecordKind::PresenceStatus, b"", status)
+            .unwrap();
+        let effects = a1
+            .engine
+            .on_text(&presence_text(&relay, &b1.holder, Some(sealed)));
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::End(_))),
+            "{effects:?}"
+        );
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(a1.ended.is_none(), "{:?}", a1.ended);
+        assert_eq!(connected(&a1), (1, 2, 2), "the team goes on");
+        let activity = a1.engine.activity();
+        assert!(activity.peers.is_empty());
+        assert_eq!(
+            activity.divergent,
+            [DivergentDevice {
+                member: "bob".to_owned(),
+                device: "b1".to_owned(),
+                name: "Bob".to_owned(),
+            }]
+        );
+        assert!(a1.engine.teammate_files().is_empty());
+
+        // Bob's records are ignored meanwhile, also over a new connection with the same log.
+        let again = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("y.rs", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, again)]);
+        assert_eq!(peer_files(&a1), None);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        assert_eq!(a1.engine.activity().divergent.len(), 1);
+
+        // The log moves on: bob's device is heard again.
+        carol_joins(&mut relay, &mut a1, &mut b1);
+        assert!(a1.engine.activity().divergent.is_empty());
+        let later = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("z.rs", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, later)]);
+        assert_eq!(peer_files(&a1), Some(vec!["z.rs".to_owned()]));
+        assert!(a1.ended.is_none());
+    }
+
+    #[test]
+    fn presence_marks_are_kept_per_device_and_read_from_per_key_marks() {
+        let bob = holder("bob", "b1");
+        // A state file of the first format: one mark per signing key of the same device.
+        let local = LocalState {
+            presence_marks: vec![
+                HolderMark {
+                    holder: bob.clone(),
+                    counter: 9,
+                },
+                HolderMark {
+                    holder: bob.clone(),
+                    counter: 7,
+                },
+            ],
+            ..LocalState::default()
+        };
+        let mut marks = LiveMarks::from_local(&local);
+        assert_eq!(marks.presence.len(), 1);
+        assert_eq!(marks.presence[&bob], 9);
+        // Whatever key signed it: an older status stays refused.
+        assert_eq!(marks.presence(&bob, 8), Mark::Stale);
+        assert_eq!(marks.presence(&bob, 9), Mark::Seen);
+        assert_eq!(marks.presence(&bob, 10), Mark::Raised);
+    }
+
+    #[test]
+    fn a_removed_device_keeps_its_presence_mark() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("x.rs", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, b)]);
+        let shown = a1.engine.live.presence[&b1.holder];
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, remove)]);
+        assert_eq!(connected(&a1), (2, 1, 1));
+        assert!(a1.engine.activity().peers.is_empty());
+        // Admitted again with the same device id before a rotation, its old status stays old.
+        assert_eq!(a1.engine.live.presence.get(&b1.holder), Some(&shown));
+    }
+
+    #[test]
+    fn overlaps_count_only_for_sessions_the_teammates_status_lists() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let a = a1
+            .engine
+            .set_share(share("Alice", 1, "Claude Code", &[("src/auth.rs", 10, 12)]));
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/auth.rs", 14, 15)]));
+        let old = claim_set(&b);
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, a), (1, b)]);
+        assert_eq!(a1.engine.activity().overlaps.len(), 1);
+
+        // Bob's session ends: claim.clear and a status without it.
+        let ended = b1.engine.set_share(LocalShare {
+            person: "Bob".to_owned(),
+            sessions: Vec::new(),
+        });
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ended)]);
+        assert!(a1.engine.activity().overlaps.is_empty());
+
+        // The relay sends the ended session's last detail again, and a session key it made up.
+        let mine = a1.engine.session_keys.get(&1).unwrap().clone();
+        let overlap = |session: SessionKey, detail: Option<Sealed>| {
+            relay.text(
+                None,
+                None,
+                ServerMessage::ClaimOverlap(ClaimOverlap {
+                    repo: old.repo,
+                    session: mine.clone(),
+                    other: SessionRef {
+                        holder: b1.holder.clone(),
+                        session,
+                    },
+                    level: MatchLevel::SameFile,
+                    file: Some(old.files[0].file),
+                    files: 1,
+                    detail,
+                }),
+            )
+        };
+        let replay = overlap(old.session.clone(), old.detail.clone());
+        let invented = overlap(SessionKey::new("made-up").unwrap(), None);
+        let _ = a1.engine.on_text(&replay);
+        let _ = a1.engine.on_text(&invented);
+        assert!(a1.engine.activity().overlaps.is_empty());
+        assert!(a1.engine.overlaps.is_empty());
+
+        // Without any status from bob's device: kept, but the same area at most (no notice).
+        a1.engine.peers.clear();
+        let _ = a1.engine.on_text(&invented);
+        let shown = a1.engine.activity().overlaps;
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].level, OverlapLevel::SameArea);
+        assert_eq!(shown[0].path, None);
+        // A presence the relay reports without a status vouches for no session either: still
+        // the same area at most, not dropped as if a signed status had ended the session.
+        let away = relay.text(
+            None,
+            None,
+            ServerMessage::PresenceUpdate(PresenceUpdate {
+                holder: b1.holder.clone(),
+                state: PresenceState::Away,
+                status: None,
+                at: UnixMillis(3),
+            }),
+        );
+        let _ = a1.engine.on_text(&away);
+        let _ = a1.engine.on_text(&invented);
+        let shown = a1.engine.activity().overlaps;
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].level, OverlapLevel::SameArea);
+        // Bob's next status, without that key, ends it.
+        let status = b1
+            .engine
+            .set_share(share("Bob", 8, "Codex", &[("docs/x.md", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, status)]);
+        assert!(a1
+            .engine
+            .activity()
+            .overlaps
+            .iter()
+            .all(|o| o.other_session != "made-up"));
+    }
+
+    #[test]
+    fn a_presence_without_a_status_keeps_the_sessions() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("x.rs", 1, 1)]));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, b)]);
+        let away = relay.text(
+            None,
+            None,
+            ServerMessage::PresenceUpdate(PresenceUpdate {
+                holder: b1.holder.clone(),
+                state: PresenceState::Away,
+                status: None,
+                at: UnixMillis(2),
+            }),
+        );
+        let _ = a1.engine.on_text(&away);
+        assert_eq!(peer_files(&a1), Some(vec!["x.rs".to_owned()]));
+        assert_eq!(a1.engine.activity().peers[0].presence, "away");
+        assert_eq!(a1.engine.teammate_files().len(), 1);
+    }
+
+    #[test]
+    fn rising_marks_are_stored_at_most_every_few_seconds() {
+        let (relay, mut a1, mut b1) = team_of_two();
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(10_000_000));
+        let read = Arc::clone(&clock);
+        a1.engine.now = Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst));
+        let advance = |ms: u64| {
+            clock.fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+        };
+        let stores = |effects: &[Effect]| {
+            effects
+                .iter()
+                .filter(|e| matches!(e, Effect::StoreLocal))
+                .count()
+        };
+        let mut status = |file: &str| {
+            let effects = b1
+                .engine
+                .set_share(share("Bob", 7, "Codex", &[(file, 1, 1)]));
+            presence_text(&relay, &b1.holder, Some(presence_status(&effects)))
+        };
+        let one = status("one.rs");
+        let two = status("two.rs");
+        let three = status("three.rs");
+
+        assert_eq!(
+            stores(&a1.engine.on_text(&one)),
+            1,
+            "the first rise is stored"
+        );
+        advance(1_000);
+        assert_eq!(
+            stores(&a1.engine.on_text(&two)),
+            0,
+            "a second later: not yet"
+        );
+        let stored = a1.engine.local().presence_marks.clone();
+        assert_ne!(LiveMarks::from_local(a1.engine.local()), a1.engine.live);
+        // The next ping writes what is left, all marks together.
+        assert_eq!(stores(&a1.engine.ping()), 1);
+        assert_ne!(a1.engine.local().presence_marks, stored);
+        assert_eq!(LiveMarks::from_local(a1.engine.local()), a1.engine.live);
+        assert_eq!(stores(&a1.engine.ping()), 0, "nothing left");
+        advance(MARKS_STORE_EVERY_MS);
+        assert_eq!(stores(&a1.engine.on_text(&three)), 1);
+        assert!(a1.engine.flush_marks().is_empty());
+    }
+
+    #[test]
+    fn teammate_files_read_each_sessions_lines_from_its_first_detail() {
+        let (_relay, mut a1, b1) = team_of_two();
+        let mut peer = peer_with_sessions(&["k"]);
+        peer.status.sessions[0].files = vec!["src/a.rs".to_owned(), "SRC/B.rs".to_owned()];
+        a1.engine.peers.clear();
+        a1.engine.peers.insert(b1.holder.clone(), peer);
+        let other = SessionRef {
+            holder: b1.holder.clone(),
+            session: SessionKey::new("k").unwrap(),
+        };
+        let detail = |claims: &[(&str, u32, u32)]| OverlapEntry {
+            level: MatchLevel::SameFile,
+            files: 1,
+            hint: None,
+            detail: Some(OtherDetail {
+                name: "Bob".to_owned(),
+                agent: "Codex".to_owned(),
+                title: String::new(),
+                base: None,
+                claims: claims
+                    .iter()
+                    .map(|&(path, start, end)| crate::claims::Claim {
+                        path: path.to_owned(),
+                        kind: crate::claims::ChangeKind::Modified,
+                        whole_file: false,
+                        ranges: vec![range(start, end)],
+                        area: crate::claims::area_of(path),
+                    })
+                    .collect(),
+            }),
+        };
+        // Two of this device's sessions overlap with the same session of bob's.
+        a1.engine.overlaps.entry(1).or_default().insert(
+            other.clone(),
+            detail(&[("src/a.rs", 1, 2), ("src/b.rs", 5, 6)]),
+        );
+        a1.engine
+            .overlaps
+            .entry(2)
+            .or_default()
+            .insert(other, detail(&[("src/a.rs", 9, 9)]));
+        let files = a1.engine.teammate_files();
+        let lines = |key: &str| {
+            files
+                .iter()
+                .find(|f| f.key == key)
+                .map(|f| f.lines.clone())
+                .unwrap()
+        };
+        assert_eq!(files.len(), 2);
+        assert_eq!(lines("src/a.rs"), [range(1, 2)]);
+        assert_eq!(lines("src/b.rs"), [range(5, 6)]);
     }
 }

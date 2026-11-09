@@ -118,14 +118,26 @@ export interface RepoRef {
   name: string;
 }
 
+/**
+ * A teammate's device that reports a different team history (Rust: `DivergentDevice`): it signed
+ * a record naming another membership log. Its sessions stay hidden until the history changes.
+ */
+export interface DivergentDevice {
+  member: string;
+  device: string;
+  /** The display name it sent last; empty when none arrived. */
+  name: string;
+}
+
 /** What the Team view shows of one shared project (Rust: `TeamActivity`). */
 export interface TeamActivity {
   linked: RepoRef[];
   peers: PeerView[];
   overlaps: TeammateOverlap[];
+  divergent: DivergentDevice[];
 }
 
-export const EMPTY_ACTIVITY: TeamActivity = { linked: [], peers: [], overlaps: [] };
+export const EMPTY_ACTIVITY: TeamActivity = { linked: [], peers: [], overlaps: [], divergent: [] };
 
 export interface TeamEntry {
   projectId: string;
@@ -348,14 +360,24 @@ function parseRepo(value: unknown): RepoRef | null {
   return repo === null || repo.folder === null ? null : repo;
 }
 
+function parseDivergent(value: unknown): DivergentDevice | null {
+  const member = text(field(value, "member"));
+  const device = text(field(value, "device"));
+  const name = field(value, "name");
+  if (member === null || device === null || !isText(name)) return null;
+  return { member, device, name };
+}
+
 /** The activity of a team; absent counts as empty (an older backend), malformed as `null`. */
 function parseActivity(value: unknown): TeamActivity | null {
   if (value === undefined) return EMPTY_ACTIVITY;
   const linked = list(field(value, "linked"), parseLinked);
   const peers = list(field(value, "peers"), parsePeer);
   const overlaps = list(field(value, "overlaps"), parseTeammateOverlap);
-  if (linked === null || peers === null || overlaps === null) return null;
-  return { linked, peers, overlaps };
+  const divergentValue = field(value, "divergent");
+  const divergent = divergentValue === undefined ? [] : list(divergentValue, parseDivergent);
+  if (linked === null || peers === null || overlaps === null || divergent === null) return null;
+  return { linked, peers, overlaps, divergent };
 }
 
 function parseTeamEntry(value: unknown): TeamEntry | null {
@@ -624,6 +646,11 @@ export function needsRelink(linked: readonly RepoRef[], running: readonly RepoRe
   );
 }
 
+/** Links from before folders were bound: they share nothing, and the person may remove them. */
+export function legacyLinks(linked: readonly RepoRef[]): RepoRef[] {
+  return linked.filter((repo) => repo.folder === null);
+}
+
 /** A clone's folder as the person knows it: the git folder's parent (`c:/src/shop/.git`). */
 export function folderLabel(folder: string): string {
   return folder.replace(/\/\.git$/i, "");
@@ -662,6 +689,14 @@ export function personWithAgent(
   const name = personTag(person, t);
   const agent = revealInvisible(person.agent.trim());
   return agent === "" ? name : `${name} (${agent})`;
+}
+
+/** "Anna #3f9a2c1b…, device 9c41d0e2…, reports a different team history. …" */
+export function divergentText(device: DivergentDevice, t: Translate): string {
+  return t("team.activity.divergent", {
+    person: personTag(device, t),
+    device: shortId(device.device),
+  });
 }
 
 const STATE_TEXTS: Record<SessionState, MessageKey> = {

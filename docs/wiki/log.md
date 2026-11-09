@@ -252,3 +252,12 @@ desktop notices about teammates throttled; repositories are linked per clone fol
 links share nothing until a folder is ticked again); the e-mail address no longer leaves the
 device; names carry the short member id; git ignores replace refs. Pages changed:
 [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-09] ingest | Team service step F part 2b: security follow-up
+A signed fork in a teammate's live record now sets only that device aside (named in the Team
+view) until the verified log moves on; the team stops only when this device's own log
+contradicts its verified head. Presence marks are kept per device (not per signing key) and
+for removed devices; overlaps count only for sessions the teammate's newest signed status lists;
+a status-less presence keeps the sessions; marks are written at most every 5 s; the root commit
+cache is checked per scan; teammate paths in the agent's context use this device's spelling;
+old root-only links can be removed. Pages changed: [[team-service-v1]], [[team-crypto]].

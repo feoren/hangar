@@ -4,7 +4,9 @@ import { useT } from "./i18n";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import {
+  divergentText,
   folderLabel,
+  legacyLinks,
   needsRelink,
   personName,
   repoChoices,
@@ -41,6 +43,7 @@ export function TeamActivityView(props: {
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const choices = repoChoices(props.activity.linked, props.repos);
   const relink = needsRelink(props.activity.linked, props.repos);
+  const legacy = legacyLinks(props.activity.linked);
 
   return (
     <div className="team-activity">
@@ -89,6 +92,29 @@ export function TeamActivityView(props: {
           </ul>
         )}
         {relink && <p className="team-help">{t("team.activity.relink")}</p>}
+        {legacy.length > 0 && (
+          <ul className="team-legacy-list">
+            {legacy.map((repo) => (
+              <li key={repo.root}>
+                <button
+                  type="button"
+                  className="link-button"
+                  title={repo.root}
+                  disabled={props.busy.has(linkKey(props.projectId, repo.root, null))}
+                  onClick={() => {
+                    setProblem(null);
+                    team
+                      .linkRepo(props.projectId, repo.root, null, false)
+                      .then(setProblem)
+                      .catch(() => undefined);
+                  }}
+                >
+                  {t("team.activity.removeLegacy", { name: revealInvisible(repo.name) })}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="team-help">{t("team.activity.reposHelp")}</p>
         {problem !== null && (
           <p className="team-help error-text" role="alert">
@@ -100,6 +126,16 @@ export function TeamActivityView(props: {
         <h4 id={peopleId} className="team-activity-title">
           {t("team.activity.people")}
         </h4>
+        {props.activity.divergent.map((device) => (
+          <p
+            key={`${device.member}\u0000${device.device}`}
+            className="team-help error-text"
+            role="status"
+            title={`${device.member} · ${device.device}`}
+          >
+            {divergentText(device, t)}
+          </p>
+        ))}
         {props.activity.peers.length === 0 ? (
           <p className="team-help">{t("team.activity.nobody")}</p>
         ) : (

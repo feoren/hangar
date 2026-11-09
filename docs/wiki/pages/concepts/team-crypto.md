@@ -105,17 +105,23 @@ A.2.1 test.
   (`AheadOfLog`) and refuses a head from before the epoch. `Fork` is reported only after the
   sender's signature verified with its keys valid at that index: anyone can write a head with a
   wrong hash, and an unsigned record must not make the app stop trusting the team (otherwise it
-  fails with `Signature`, `UnknownSender` or `SenderNotValid`). A signed fork still stops the
-  team (`HistoryMismatch`): a listed device signed a head this device's log does not have, so the
-  relay shows the two devices different logs, and only the people comparing log safety numbers
-  can tell which one is real. `TeamState::log_safety_number_at`
+  fails with `Signature`, `UnknownSender` or `SenderNotValid`). A signed fork in a live record
+  sets only that sending device aside: the app hides its presence and overlaps, ignores its live
+  records until this device's verified log changes, and names it in the Team view ("reports a
+  different team history"). It does not stop the team: one listed device (compromised, buggy, or
+  shown another log by the relay) could otherwise stop everyone's sharing with a single record,
+  and this device's own log is still the one it verified. The team stops (`HistoryMismatch`) only
+  when this device's own log fetch contradicts the head it verified before; which side of a fork
+  is real only the people comparing log safety numbers can tell. `TeamState::log_safety_number_at`
   gives the safety number at any verified index, so two people compare at an entry both have.
 - **Freshness** (M5). Each device numbers its records with a 64-bit counter in the signed
   context (`SendCounter`, stored before each send). `ReplayGuard` keeps the highest counter per
   sender and signing key, refuses anything at or below it, and exports its marks for the app to
   store, so a restart does not reopen the window. Keying by the signing key too (N3) gives a
-  device id that was removed and added again with new keys a fresh mark, since its counter
-  starts at 1 again. It is meant for records that arrive once and in order (the live stream);
+  device id that was removed and added again with new keys a fresh mark. The app resumes every
+  counter at a clock floor (Unix milliseconds times 1024), so such a device continues above its
+  old counters; Hangar's live marks are therefore kept per device alone, which also refuses its
+  records signed with the old keys before the next rotation. It is meant for records that arrive once and in order (the live stream);
   state the relay sends again after a resync is opened without it.
 - **Key validation** (L1). X25519 keys must be canonical (below `2^255 - 19`, bit 255 clear) and
   not one of the five canonical low-order points; Ed25519 keys valid points of large order.
@@ -196,8 +202,8 @@ anyway (delay, drop, disconnect), never for deleting keys or raising rights:
 | close 4403 | stop with "removed", keys kept (a relay can only disconnect) |
 | close 4401, `err forbidden` on `hello` | a fresh ticket; one immediate retry per settled connection |
 | `memberlog.entries` with `more` | only with at least one entry (progress), else the connection ends |
-| `presence.update` | shown only for a device the verified log lists (one fetch and retry for an unknown one); the status only when it opens with `open_verified` under the current epoch or a newer one and its counter is not below the newest one shown for that device and key (marks in the state file, kept across `offline`, reconnects and restarts); `offline` (unsigned) only hides the device; at most one entry per listed device |
-| `claim.overlap` | for one of this device's own session keys and a listed device; the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and listed device; desktop notices at most once a minute |
+| `presence.update` | shown only for a device the verified log lists (one fetch and retry for an unknown one); the status only when it opens with `open_verified` under the current epoch or a newer one and its counter is not below the newest one shown for that device (marks in the state file, kept across `offline`, reconnects and restarts, and for removed devices the log still knows); without a status the sessions stay as last signed; `offline` (unsigned) only hides the device; at most one entry per listed device; a signed fork sets only that device aside |
+| `claim.overlap` | for one of this device's own session keys and a listed device, and only for a session the device's newest signed status lists (without any status: at most "same area", no notice); the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and listed device; desktop notices at most once a minute |
 
 ## Threat model
 

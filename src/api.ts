@@ -332,8 +332,11 @@ export const api = {
   /** What each session does (team.ts `sessionStates`), for the team's presence. */
   teamSessionStates: (states: { sessionId: number; state: SessionState }[]) =>
     invoke<undefined>("team_session_states", { states }),
-  /** Links a repository folder (root commit and clone folder) to a shared project, or unlinks it. */
-  teamLinkRepo: (projectId: string, root: string, folder: string, on: boolean) =>
+  /**
+   * Links a repository folder (root commit and clone folder) to a shared project, or unlinks it.
+   * `folder: null` removes a link from before folders were bound (`on` must be false).
+   */
+  teamLinkRepo: (projectId: string, root: string, folder: string | null, on: boolean) =>
     invoke<unknown>("team_link_repo", { projectId, root, folder, on }),
 
   /** Adds, updates (texts) or removes the notification area icon. */

@@ -716,8 +716,12 @@ pub struct DetailMark {
     pub counter: u64,
 }
 
-/// The highest counter of a teammate's claim details whose session marks were dropped to stay
-/// within bounds: a detail of a session without a mark must be newer.
+/// A counter per teammate device: the newest presence status shown (`presence_marks`), or the
+/// highest counter of claim details whose session marks were dropped to stay within bounds
+/// (`detail_floors`: a detail of a session without a mark must be newer).
+///
+/// Presence marks of the first format also carried the signing key; reading such a file ignores
+/// the key, and the engine keeps the highest counter per device.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HolderMark {
     pub holder: Holder,
@@ -730,6 +734,11 @@ pub struct HolderMark {
 ///
 /// The counter only rises: besides this file, every start raises it to [`counter_floor`] of the
 /// clock, so a backup put back or a file that went missing cannot make the device repeat one.
+///
+/// The live marks are written at most every few seconds (and when the connection ends), always
+/// all of them together: the file holds a consistent earlier snapshot, never a dropped detail
+/// mark without the floor that replaced it. Losing the newest marks (a crash) only lets the relay
+/// show again a teammate's record that a newer one replaced within those seconds.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalState {
@@ -740,11 +749,13 @@ pub struct LocalState {
     pub counter: u64,
     #[serde(default)]
     pub marks: Vec<ReplayMark>,
-    /// Per teammate device and signing key: the newest presence status counter shown. Live
-    /// state the relay may send again, so equal counters pass; older ones never do, also after an
-    /// `offline` event, a reconnect or a restart.
+    /// Per teammate device: the newest presence status counter shown. Live state the relay may
+    /// send again, so equal counters pass; older ones never do, also after an `offline` event, a
+    /// reconnect or a restart. Keyed by the device alone, not its signing key: a device id
+    /// admitted again with new keys continues its counter above the old ones ([`counter_floor`]),
+    /// so a status signed with its old key cannot come back as "new" before the next rotation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub presence_marks: Vec<ReplayMark>,
+    pub presence_marks: Vec<HolderMark>,
     /// Per teammate device and session key: the newest claim detail counter shown.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub detail_marks: Vec<DetailMark>,
@@ -1320,6 +1331,37 @@ mod tests {
             config.linked("svc", "https://a", "1"),
             std::slice::from_ref(&folder)
         );
+        // The person can also remove the old link without ticking a folder; folder links stay.
+        let mut config: TeamConfig = serde_json::from_str(text).unwrap();
+        assert!(config.link("svc", "https://a", "1", &folder_of_other(&folder), true));
+        assert!(config.link("svc", "https://a", "1", &legacy, false));
+        assert!(!config.link("svc", "https://a", "1", &legacy, false));
+        assert_eq!(
+            config.linked("svc", "https://a", "1"),
+            [folder_of_other(&folder)]
+        );
+    }
+
+    /// A folder link of another repository.
+    fn folder_of_other(repo: &LinkedRepo) -> LinkedRepo {
+        LinkedRepo {
+            root: "bbbb".to_owned(),
+            ..repo.clone()
+        }
+    }
+
+    #[test]
+    fn presence_marks_of_the_first_format_are_read_without_their_signing_key() {
+        let text = r#"{"counter":3,"marks":[],"presenceMarks":[
+            {"holder":{"member":"m","device":"d"},"sign":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","counter":7},
+            {"holder":{"member":"m","device":"d"},"sign":"BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","counter":9}],
+            "rejected":[]}"#;
+        let state: LocalState = serde_json::from_str(text).unwrap();
+        assert_eq!(state.presence_marks.len(), 2);
+        assert_eq!(state.presence_marks[1].counter, 9);
+        // Written back without the key.
+        let again = serde_json::to_string(&state).unwrap();
+        assert!(!again.contains("sign"), "{again}");
     }
 
     #[test]

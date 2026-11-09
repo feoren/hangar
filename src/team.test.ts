@@ -6,6 +6,7 @@ import {
   armDelayLeft,
   canToggle,
   confirmationKindText,
+  divergentText,
   isArmed,
   isSharing,
   parsePendingConfirmations,
@@ -27,6 +28,7 @@ import {
   folderLabel,
   freshTeammateOverlaps,
   isTeammateFileOverlap,
+  legacyLinks,
   needsRelink,
   personName,
   personTag,
@@ -88,6 +90,7 @@ const ACTIVITY = {
   linked: [{ root: "a".repeat(40), folder: "c:/src/shop/.git", name: "shop" }],
   peers: [PEER],
   overlaps: [OVERLAP],
+  divergent: [{ member: "carol-0123456789abcdef", device: "device-0123456789", name: "Carol" }],
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -264,6 +267,26 @@ describe("parseTeamSnapshot", () => {
       }),
     );
     expect(future?.teams[0]?.activity.peers[0]?.sessions[0]?.state).toBe("idle");
+    // A device reporting another history must name who it is.
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, divergent: [{ member: "", device: "d", name: "" }] })),
+    ).toBeNull();
+    expect(parseTeamSnapshot(team({ ...ACTIVITY, divergent: null }))).toBeNull();
+    // An older backend without the list: none.
+    const older = parseTeamSnapshot(team({ linked: [], peers: [], overlaps: [] }));
+    expect(older?.teams[0]?.activity.divergent).toEqual([]);
+  });
+
+  it("names a device that reports a different team history", () => {
+    const device = ACTIVITY.divergent[0];
+    if (device === undefined) throw new Error("fixture");
+    const text = divergentText(device, t);
+    expect(text).toContain("Carol #carol-01…");
+    expect(text).toContain("device device-0…");
+    expect(text).toContain("different team history");
+    // Without a name the member id stands in; invisible characters show as marks.
+    expect(divergentText({ ...device, name: "" }, t)).toContain("Member carol-01…");
+    expect(divergentText({ ...device, name: "Ca‮rol" }, t)).not.toContain("‮");
   });
 
   it("rejects malformed snapshots", () => {
@@ -464,6 +487,7 @@ describe("teammates", () => {
     linked: [],
     peers: [],
     overlaps,
+    divergent: [],
   });
 
   it("maps the attention states to the team's session states", () => {
@@ -504,6 +528,9 @@ describe("teammates", () => {
     expect(needsRelink([legacy, shop], [shop])).toBe(false);
     expect(needsRelink([legacy], [])).toBe(false);
     expect(needsRelink([shop], [shop])).toBe(false);
+    // The old link can be removed on its own; folder links are not listed for that.
+    expect(legacyLinks([legacy, shop])).toEqual([legacy]);
+    expect(legacyLinks([shop])).toEqual([]);
   });
 
   it("names people by their name, their id or as the own other device", () => {

@@ -30,11 +30,14 @@
 //! safety numbers. The head also dates the record in log time: a device's signature counts only
 //! for heads at which the log vouched for its keys.
 //!
-//! **Counter.** Every device numbers its records (all kinds, all epochs of the team) from 1
-//! upward ([`SendCounter`]); the counter is signed. [`ReplayGuard`] keeps the highest counter seen
-//! per sender and signing key and refuses anything at or below it, across restarts when the app
-//! stores [`ReplayGuard::marks`]. A device id used again after its removal comes with new keys
-//! and a counter that starts at 1 again, so it gets a fresh mark.
+//! **Counter.** Every device numbers its records (all kinds, all epochs of the team) upward
+//! ([`SendCounter`], resumable at any value); the counter is signed. [`ReplayGuard`] keeps the
+//! highest counter seen per sender and signing key and refuses anything at or below it, across
+//! restarts when the app stores [`ReplayGuard::marks`]. A device id used again after its removal
+//! comes with new keys, so the guard gives it a fresh mark. The app resumes every device's
+//! counter at a floor taken from the clock (Hangar: Unix milliseconds times 1024), so the counter
+//! of a device id used again continues above its old one; marks kept per device alone (as
+//! Hangar's live marks are) then also refuse records signed with the old keys.
 //!
 //! Order when opening ([`EpochCipher::open_verified`]): format, a head index this device verified,
 //! the sender's keys at that index, epoch, signature, then the head's hash (fork), the epoch's

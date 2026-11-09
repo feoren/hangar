@@ -539,6 +539,18 @@ pub struct TeammateOverlap {
     pub files: u32,
 }
 
+/// A teammate's device that signed a record naming another membership log at an index this
+/// device verified: it reports a different team history. Its presence and claims stay hidden
+/// until this device's verified log changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DivergentDevice {
+    pub member: String,
+    pub device: String,
+    /// The display name it sent last; empty when none reached this device.
+    pub name: String,
+}
+
 /// What the Team view shows of one shared project.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -546,6 +558,7 @@ pub struct TeamActivity {
     pub linked: Vec<crate::team::LinkedRepo>,
     pub peers: Vec<PeerView>,
     pub overlaps: Vec<TeammateOverlap>,
+    pub divergent: Vec<DivergentDevice>,
 }
 
 /// A file a teammate's session is changing, for the agent gate and the agent's context.

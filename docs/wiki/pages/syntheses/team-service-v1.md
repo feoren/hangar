@@ -635,7 +635,10 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   folders were bound (`folder` missing) share nothing; the Team view asks to tick the folders
   again when a running folder of such a repository is offered, and ticking one replaces the old
   link. This is the safer migration: binding them to whatever folders run now could pick a fork
-  the person never meant. Nothing of an unlinked folder leaves the device; the device's presence
+  the person never meant. The person can also remove such a link on its own ("Remove old link",
+  `team_link_repo` with `folder: null` and `on: false`). A fork whose root commit equals the
+  linked one, checked out at the linked folder path, counts as the linked clone by design: the
+  team names a repository by its root commit, and the folder is the person's choice. Nothing of an unlinked folder leaves the device; the device's presence
   still goes out (with no sessions), so teammates see it is connected. `team_link_repo` takes
   only a project id the team protocol accepts (`TeamId::new`), links only to a project with
   sharing on (`unknownProject` otherwise), and only a folder of a running session.
@@ -643,7 +646,10 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   `rev-list --max-parents=0 HEAD --` through `Git::run` after the first scan with a base commit and
   keeps the smallest root (`RepoId`); `Git::run` sets `GIT_NO_REPLACE_OBJECTS=1`, so a replace
   ref cannot graft another root onto the history; a failure, a timeout or cut output is remembered as unknown
-  for the app run (a huge history is not walked again). `WorktreeClaims` carries it with the
+  while the repository is in use (a huge history is not walked again). The cached root is checked
+  with every scan (`git cat-file -e <root>^{commit}`, one cheap git call) and found again when the
+  commit is gone, and the cache entry goes when no worktree uses the repository any more, so a
+  clone replaced at the same path is never shared under the old one's identity. `WorktreeClaims` carries it with the
   folder name and the truncation flag. Its cost on a very large history is not measured.
 - **What is shared** (`team_share.rs`, pure): per linked session the agent's program name, the
   session title, its state (working, waiting, idle from the window's attention logic, sent with
@@ -663,13 +669,20 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
 - **What is shown:** `presence.update` and the detail in `claim.overlap` are opened with
   `EpochCipher::open_verified` against the verified log. Both are live state the relay repeats
   after a reconnect, so they bypass the `ReplayGuard` (which would refuse the second delivery).
-  High-water marks take its place (`LiveMarks` in `team_engine.rs`): per teammate device and
-  signing key the newest status counter shown, per device and session key the newest detail
-  counter; a record below its mark is ignored, an equal one (the same record again) passes. The
-  marks are stored in the team's state file (`presenceMarks`, `detailMarks`, `detailFloors`) and
-  are never cleared by the relay's unsigned `offline`, a reconnect or a restart, so the relay can
-  no longer bring back an older authentic status or detail. They stay bounded: marks of devices
-  the verified log no longer lists go after every log fetch, and a device keeps at most 64
+  High-water marks take its place (`LiveMarks` in `team_engine.rs`): per teammate device the
+  newest status counter shown (not per signing key: a device id admitted again continues its
+  counter above the old ones thanks to the clock floor, so its old-key status stays old; marks of
+  the first format are read as the highest per device), per device and session key the newest
+  detail counter; a record below its mark is ignored, an equal one (the same record again)
+  passes. The marks are stored in the team's state file (`presenceMarks`, `detailMarks`,
+  `detailFloors`) and are never cleared by the relay's unsigned `offline`, a reconnect or a
+  restart, so the relay can no longer bring back an older authentic status or detail. They are
+  written at most every 5 s while they rise, and otherwise with the next ping, a new connection
+  and the end of a connection (turning sharing off, quitting), always all together: the file holds
+  a consistent earlier snapshot, never a dropped detail mark without its floor, so losing the
+  newest seconds (a crash) only lets the relay show again a record that a newer one replaced
+  within them. They stay bounded: marks of devices the verified log never listed go after every
+  log fetch (a removed device keeps its marks, the log keeps its key history), and a device keeps at most 64
   session marks (beyond that the oldest goes and raises a floor that unknown sessions must
   exceed). Only records of the current epoch or a newer one are opened. No age limit on top: a
   status is sent only when it changes (no periodic re-seal), so a quiet teammate's newest status
@@ -681,20 +694,30 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   and devices the log no longer lists leave the view after every fetch. A record naming a log
   entry or
   an epoch this device does not have yet is kept (at most 64) and retried once after the next log
-  fetch; a fork (`OpenError::Fork`) stops with `historyMismatch`. Since the crypto crate checks
-  the sender's signature before the head's hash, only a record a listed device signed over a
-  head this device's log does not have can report a fork; a record anyone could write (wrong
-  hash, no valid signature) is dropped and the connection stays. The stop for a signed fork stays
-  on purpose: the relay shows two devices different logs, which only comparing log safety numbers
-  can settle, and trusting either side meanwhile could hand content to the wrong one. Unknown fields or versions in a
-  document are refused; names, titles and lists are cut when read. `offline` removes the device and
-  its overlaps.
+  fetch. Since the crypto crate checks the sender's signature before the head's hash, only a
+  record a listed device signed over a head this device's log does not have can report a fork
+  (`OpenError::Fork`); a record anyone could write (wrong hash, no valid signature) is dropped and
+  the connection stays. A signed fork in a live record sets only the sending device aside: its
+  presence and overlaps go, its live records are ignored until this device's verified log head
+  changes (the device may have caught up, or a later entry settles it), and the Team view says
+  "Anna #3f9a2c1b… (device 9c41d0e2…) reports a different team history" (`activity.divergent`).
+  The earlier stop of the whole team was dropped: one listed device, faulty or shown another log
+  by the relay, could stop everyone's sharing with one record, while this device's own log is
+  still the one it verified. The team still stops with `historyMismatch` when this device's own
+  log fetch contradicts the head it verified before (fork, rewind, rewrite). The device's marks
+  stay: they only refuse records older than ones verified against this device's log. Unknown
+  fields or versions in a document are refused; names, titles and lists are cut when read. A
+  `presence.update` without a status changes only the state (active, idle, away); the sessions
+  stay as last signed. `offline` removes the device and its overlaps.
 - **Teammate overlaps:** the relay's `sameFile` is refined locally with step A's rule (same base
   commit, ranges within 3 lines: overlapping lines) from the teammate's detail; a detail that
   names no file of ours wins over the relay's word and leaves at most `sameArea`. Without a detail
   the relay's file hash is matched against this device's own claims to name the file. At most 64
   overlaps are kept per own session and device in the log, so invented session keys cannot grow
-  the view. Each
+  the view. An overlap counts only for a session the teammate's newest signed status lists: after
+  `claim.clear` the relay could send the ended session's last detail again, or name a session key
+  it made up; a new status drops overlaps of sessions it no longer lists. Without any status from
+  that device an overlap shows as `sameArea` at most, without a file, so it raises no notice. Each
   overlap names our session, the teammate, agent and title, the level, our spelling of the file
   and the lines. The window shows the worst one in the session's sidebar marker when no local
   overlap is there, a block "Overlaps with your team" in the Changes tab ("Anna (Codex) is changing
@@ -712,11 +735,15 @@ presence on and compare claims with the protocol crate's `ClaimBoard`.
   enough (`otherSessions` may then be empty). The card names the file as this device spells it
   (its own claim, else the edited path), never in the teammate's spelling. The answers and the deny reasons are those of step
   B, with the teammates' names as JSON literals. The prompt hook's context adds one line per
-  teammate file (`{"file":..,"teammates":[..],"lines":".."}`) under the same caps.
+  teammate file (`{"file":..,"teammates":[..],"lines":".."}`) under the same caps; the file is
+  named as this device spells it when one of its sessions changes it or it exists in the worktree
+  (each part as the folder lists it, looked up only for lines that can still be listed and not on
+  network folders), else in the teammate's spelling cut to 200 characters (`literal` cuts further
+  and marks control, invisible and reordering characters, also in the names).
 - **Interface:** commands `team_session_states(states: {sessionId, state}[])` and
-  `team_link_repo(projectId, root, folder, on)` (main window only); `team-changed` adds per team
+  `team_link_repo(projectId, root, folder or null, on)` (main window only); `team-changed` adds per team
   `activity { linked: {root, folder or null, name}[], peers: PeerView[], overlaps:
-  TeammateOverlap[] }` and `repos: {root, folder, name}[]` (the running sessions' repository
+  TeammateOverlap[], divergent: {member, device, name}[] }` and `repos: {root, folder, name}[]` (the running sessions' repository
   folders). `PeerView { member, device, name, own, presence, sessions: {key, agent, title, state,
   files, moreFiles}[] }` (`key`: the session key, unique per device, the row's React key),
   `TeammateOverlap

@@ -154,15 +154,19 @@ async function answer(request: string, confirm: boolean): Promise<TeamProblem | 
   return problem;
 }
 
-/** The busy key of linking the clone at `folder` of `root` to `projectId`. */
-export function linkKey(projectId: string, root: string, folder: string): string {
-  return [projectId, root, folder].join("\u0000");
+/**
+ * The busy key of linking the clone at `folder` of `root` to `projectId`; `null` names a link
+ * from before folders were bound.
+ */
+export function linkKey(projectId: string, root: string, folder: string | null): string {
+  return [projectId, root, folder ?? ""].join("\u0000");
 }
 
+/** Links or unlinks a folder; a link from before folders were bound (`null`) can only go. */
 function linkRepo(
   projectId: string,
   root: string,
-  folder: string,
+  folder: string | null,
   on: boolean,
 ): Promise<TeamProblem | null> {
   return command(linkKey(projectId, root, folder), async () => {

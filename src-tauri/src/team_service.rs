@@ -415,6 +415,24 @@ impl TeamService {
         Ok(())
     }
 
+    /// Removes a link of `project` from before folders were bound (root commit only). Such a
+    /// link shares nothing; the person may drop it without ticking a folder of that repository.
+    pub fn unlink_legacy_repo(&self, project: &str, root: &str) -> Result<(), TeamError> {
+        TeamId::new(project).map_err(|_| TeamError::UnknownProject)?;
+        let base = self.base();
+        let Some(legacy) = self
+            .linked(&base, project)
+            .into_iter()
+            .find(|r| r.root == root && r.folder.is_none())
+        else {
+            return Ok(());
+        };
+        let service = self.service_name().to_owned();
+        self.update_config(|config| config.link(&service, &base, project, &legacy, false))?;
+        self.publish();
+        Ok(())
+    }
+
     /// Every file a teammate's session is changing in the repository with root commit `repo`,
     /// over the running teams of the current server whose project this device linked the clone
     /// at `folder` to. A teammate of another project, or of a project only another clone is
@@ -1356,6 +1374,14 @@ impl Worker {
             // Long enough to count as settled even if the log check never finished.
             self.policy.settled();
         }
+        // The live marks of the last few seconds (they are stored at most every few seconds),
+        // also when the window turns sharing off or the app quits.
+        let marks = self
+            .engine
+            .as_mut()
+            .map(Engine::flush_marks)
+            .unwrap_or_default();
+        let _ = self.apply(&mut writer, marks).await;
         // Closing: a close frame (1000) when Hangar ends the connection itself.
         let closing = CloseFrame {
             code: CloseCode::Normal,

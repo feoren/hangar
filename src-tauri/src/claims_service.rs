@@ -12,7 +12,7 @@
 //! Before a worktree is removed, [`ClaimsService::release`] closes its watcher and waits for a
 //! git call in it, because Windows keeps a watched folder open.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -277,6 +277,39 @@ pub fn root_commit(git: &Git, top: &Path) -> Result<Option<String>, GitError> {
             (id.len() == 40 || id.len() == 64) && id.bytes().all(|b| b.is_ascii_hexdigit())
         })
         .min())
+}
+
+/// Whether the commit `id` still exists in the repository at `top` (`git cat-file -e`). A clone
+/// replaced at the same path (deleted and cloned again, or another repository moved there) no
+/// longer has the root commit cached for the folder; `false` also when git fails.
+pub fn has_commit(git: &Git, top: &Path, id: &str) -> bool {
+    if git::check_folder(top).is_err() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return false;
+    }
+    let deadline = Instant::now() + git::TIMEOUT;
+    let object = format!("{id}^{{commit}}");
+    git.run(top, ["cat-file", "-e", object.as_str()], deadline, 1024)
+        .is_ok_and(|output| output.success)
+}
+
+/// The root commit for the folder's cache entry `cached`: kept while the commit is still in the
+/// repository, found again otherwise. `None` (git could not tell before) is not asked again; a
+/// replaced clone resolves to a new repository key only if its git folder moved, so the check
+/// runs with every scan. A fork with the same root commit at the linked path counts as the same
+/// repository by design: the team protocol names a repository by its root commit.
+pub fn refresh_root_commit(
+    git: &Git,
+    top: &Path,
+    cached: Option<&Option<String>>,
+) -> Option<String> {
+    match cached {
+        Some(Some(id)) if has_commit(git, top, id) => Some(id.clone()),
+        Some(None) => None,
+        _ => root_commit(git, top).unwrap_or_else(|error| {
+            eprintln!("hangar: root commit not read: {error}");
+            None
+        }),
+    }
 }
 
 /// Whether a file event at `path` can change the claims. Inside a git folder only `HEAD`,
@@ -554,9 +587,10 @@ struct Worker {
     places: HashMap<PathBuf, Place>,
     /// Per worktree key.
     roots: HashMap<String, Root>,
-    /// Root commit per repository key, found once per app run (it never changes once the
-    /// repository has a commit).
-    /// `None` once git could not tell (timed out on a huge history, failed): not asked again.
+    /// Root commit per repository key, found once while a worktree of the repository is in use
+    /// and checked with every scan ([`refresh_root_commit`]); dropped when no worktree uses the
+    /// repository any more. `None` once git could not tell (timed out on a huge history,
+    /// failed): not asked again meanwhile.
     root_commits: HashMap<String, Option<String>>,
     /// Sessions observed in the last check, in the session list's order.
     active: Vec<WatchedSession>,
@@ -716,6 +750,11 @@ impl Worker {
         self.roots.retain(|key, _| used.contains(key));
         self.dirty |= self.roots.len() != before;
         lock(&self.shared.watchers).retain(|key, _| used.contains(key));
+        // A repository no worktree uses any more is looked up again when it comes back: the
+        // clone at that path may have been replaced meanwhile.
+        let repos: HashSet<&str> = self.roots.values().map(|r| r.info.repo.as_str()).collect();
+        self.root_commits
+            .retain(|repo, _| repos.contains(repo.as_str()));
     }
 
     /// What `cwd` is, asked under the scan gate so a release waits for this git call too.
@@ -864,15 +903,17 @@ impl Worker {
                 *lock(&root.ignored) =
                     ignored_dirs(&git, &root.info.top, deadline).unwrap_or_default();
             }
-            // The repository's identity for the team, once per repository with a commit.
+            // The repository's identity for the team: found once per repository with a commit,
+            // and checked with every scan, so a clone replaced at the same path is not shared
+            // under the old one's identity.
             let has_base = matches!(&result, Ok(scan) if scan.base.is_some());
-            if has_base && !self.root_commits.contains_key(&root.info.repo) {
-                let id = root_commit(&git, &root.info.top).unwrap_or_else(|error| {
-                    eprintln!("hangar: root commit not read: {error}");
-                    None
-                });
-                self.dirty |= id.is_some();
-                self.root_commits.insert(root.info.repo.clone(), id);
+            if has_base {
+                let cached = self.root_commits.get(&root.info.repo);
+                let id = refresh_root_commit(&git, &root.info.top, cached);
+                if cached != Some(&id) {
+                    self.dirty = true;
+                    self.root_commits.insert(root.info.repo.clone(), id);
+                }
             }
             drop(gate);
             let finished = Instant::now();
@@ -1169,6 +1210,36 @@ mod tests {
         );
         git_ok(&git, &repo, &["replace", "--graft", "HEAD", &other]);
         assert_eq!(root_commit(&git, &repo).unwrap(), Some(root));
+    }
+
+    #[test]
+    fn a_clone_replaced_at_the_same_path_gets_its_own_root_commit() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("claims-replaced");
+        let repo = tmp.path().join("repo");
+        repo_with_commit(&git, &repo);
+        let first = refresh_root_commit(&git, &repo, None).unwrap();
+        // Cached and still there: kept.
+        let cached = Some(first.clone());
+        assert_eq!(
+            refresh_root_commit(&git, &repo, Some(&cached)),
+            Some(first.clone())
+        );
+        assert!(has_commit(&git, &repo, &first));
+        // Another repository at the same path: its own root commit, not the cached one.
+        fs::remove_dir_all(&repo).unwrap();
+        init_repo(&git, &repo);
+        write(&repo.join("other.txt"), "other\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "another history"]);
+        assert!(!has_commit(&git, &repo, &first));
+        let second = refresh_root_commit(&git, &repo, Some(&cached)).unwrap();
+        assert_ne!(second, first);
+        assert_eq!(Some(second), root_commit(&git, &repo).unwrap());
+        // Not a commit id at all: never handed to git.
+        assert!(!has_commit(&git, &repo, "HEAD"));
+        // Git could not tell before: not asked again while cached.
+        assert_eq!(refresh_root_commit(&git, &repo, Some(&None)), None);
     }
 
     #[test]

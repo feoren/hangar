@@ -160,3 +160,4 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Überschneidung mit dem Team                     | teammate overlap                  | `TeammateOverlap`; the relay's `claim.overlap`, refined locally             |
 | Zustand (Session, fürs Team)                    | session state                     | working, waiting, idle; `SessionState`                                      |
 | Anderes Konto (Teamgerät)                       | other account                     | `otherAccount`; a team device acts only for the account it was bound to     |
+| Abweichende Historie (Teamgerät)                | divergent device                  | `DivergentDevice`; set aside after signing another history                  |

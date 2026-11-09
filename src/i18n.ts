@@ -886,6 +886,9 @@ const de = {
   "team.activity.noSessions": "Keine geteilte Session",
   "team.activity.files": "Geänderte Dateien: {count}",
   "team.activity.away": "abwesend",
+  "team.activity.divergent":
+    "{person} (Gerät {device}) meldet eine andere Historie des Teams. Seine Sessions bleiben ausgeblendet, bis sich die Historie ändert. Sprich mit der Person.",
+  "team.activity.removeLegacy": "Alte Verknüpfung entfernen: {name}",
   "team.state.working": "arbeitet",
   "team.state.waiting": "wartet",
   "team.state.idle": "ruhig",
@@ -1725,6 +1728,9 @@ const en: Record<MessageKey, string> = {
   "team.activity.noSessions": "No shared session",
   "team.activity.files": "Changed files: {count}",
   "team.activity.away": "away",
+  "team.activity.divergent":
+    "{person} (device {device}) reports a different team history. Its sessions stay hidden until the history changes. Talk to them.",
+  "team.activity.removeLegacy": "Remove old link: {name}",
   "team.state.working": "working",
   "team.state.waiting": "waiting",
   "team.state.idle": "idle",
@@ -2590,6 +2596,9 @@ const el: Record<MessageKey, string> = {
   "team.activity.noSessions": "Καμία κοινόχρηστη συνεδρία",
   "team.activity.files": "Αλλαγμένα αρχεία: {count}",
   "team.activity.away": "εκτός",
+  "team.activity.divergent":
+    "{person} (συσκευή {device}) αναφέρει διαφορετικό ιστορικό ομάδας. Οι συνεδρίες της μένουν κρυφές μέχρι να αλλάξει το ιστορικό. Μίλησε με αυτό το άτομο.",
+  "team.activity.removeLegacy": "Αφαίρεση παλιάς σύνδεσης: {name}",
   "team.state.working": "δουλεύει",
   "team.state.waiting": "περιμένει",
   "team.state.idle": "σε αδράνεια",
@@ -3443,6 +3452,9 @@ const es: Record<MessageKey, string> = {
   "team.activity.noSessions": "Ninguna sesión compartida",
   "team.activity.files": "Archivos cambiados: {count}",
   "team.activity.away": "ausente",
+  "team.activity.divergent":
+    "{person} (dispositivo {device}) informa de un historial del equipo distinto. Sus sesiones quedan ocultas hasta que cambie el historial. Habla con esa persona.",
+  "team.activity.removeLegacy": "Quitar enlace antiguo: {name}",
   "team.state.working": "trabajando",
   "team.state.waiting": "esperando",
   "team.state.idle": "inactiva",
@@ -4305,6 +4317,9 @@ const fr: Record<MessageKey, string> = {
   "team.activity.noSessions": "Aucune session partagée",
   "team.activity.files": "Fichiers modifiés : {count}",
   "team.activity.away": "absent",
+  "team.activity.divergent":
+    "{person} (appareil {device}) signale un historique d'équipe différent. Ses sessions restent masquées jusqu'à ce que l'historique change. Parles-en avec cette personne.",
+  "team.activity.removeLegacy": "Retirer l'ancien lien : {name}",
   "team.state.working": "au travail",
   "team.state.waiting": "en attente",
   "team.state.idle": "inactive",
@@ -5160,6 +5175,9 @@ const it: Record<MessageKey, string> = {
   "team.activity.noSessions": "Nessuna sessione condivisa",
   "team.activity.files": "File modificati: {count}",
   "team.activity.away": "assente",
+  "team.activity.divergent":
+    "{person} (dispositivo {device}) segnala una cronologia del team diversa. Le sue sessioni restano nascoste finché la cronologia non cambia. Parlane con questa persona.",
+  "team.activity.removeLegacy": "Rimuovi il vecchio collegamento: {name}",
   "team.state.working": "al lavoro",
   "team.state.waiting": "in attesa",
   "team.state.idle": "inattiva",
@@ -6015,6 +6033,9 @@ const ja: Record<MessageKey, string> = {
   "team.activity.noSessions": "共有中のセッションはありません",
   "team.activity.files": "変更されたファイル: {count}",
   "team.activity.away": "離席中",
+  "team.activity.divergent":
+    "{person}（デバイス {device}）が異なるチームの履歴を報告しています。履歴が変わるまで、そのセッションは非表示です。本人と話してください。",
+  "team.activity.removeLegacy": "古いリンクを削除: {name}",
   "team.state.working": "作業中",
   "team.state.waiting": "待機中",
   "team.state.idle": "アイドル",
@@ -6862,6 +6883,9 @@ const pl: Record<MessageKey, string> = {
   "team.activity.noSessions": "Brak udostępnionej sesji",
   "team.activity.files": "Zmienione pliki: {count}",
   "team.activity.away": "nieobecny",
+  "team.activity.divergent":
+    "{person} (urządzenie {device}) zgłasza inną historię zespołu. Jego sesje pozostają ukryte, dopóki historia się nie zmieni. Porozmawiaj z tą osobą.",
+  "team.activity.removeLegacy": "Usuń stare powiązanie: {name}",
   "team.state.working": "pracuje",
   "team.state.waiting": "czeka",
   "team.state.idle": "bezczynna",
@@ -7716,6 +7740,9 @@ const pt: Record<MessageKey, string> = {
   "team.activity.noSessions": "Nenhuma sessão compartilhada",
   "team.activity.files": "Arquivos alterados: {count}",
   "team.activity.away": "ausente",
+  "team.activity.divergent":
+    "{person} (dispositivo {device}) informa um histórico da equipe diferente. As sessões dele ficam ocultas até o histórico mudar. Fale com essa pessoa.",
+  "team.activity.removeLegacy": "Remover vínculo antigo: {name}",
   "team.state.working": "trabalhando",
   "team.state.waiting": "aguardando",
   "team.state.idle": "ociosa",
@@ -8559,6 +8586,9 @@ const ru: Record<MessageKey, string> = {
   "team.activity.noSessions": "Нет общей сессии",
   "team.activity.files": "Изменённые файлы: {count}",
   "team.activity.away": "нет на месте",
+  "team.activity.divergent":
+    "{person} (устройство {device}) сообщает другую историю команды. Его сессии скрыты, пока история не изменится. Поговори с этим человеком.",
+  "team.activity.removeLegacy": "Удалить старую привязку: {name}",
   "team.state.working": "работает",
   "team.state.waiting": "ждёт",
   "team.state.idle": "простаивает",
@@ -9400,6 +9430,9 @@ const tr: Record<MessageKey, string> = {
   "team.activity.noSessions": "Paylaşılan oturum yok",
   "team.activity.files": "Değişen dosyalar: {count}",
   "team.activity.away": "uzakta",
+  "team.activity.divergent":
+    "{person} (cihaz {device}) farklı bir ekip geçmişi bildiriyor. Geçmiş değişene kadar oturumları gizli kalır. Bu kişiyle konuş.",
+  "team.activity.removeLegacy": "Eski bağlantıyı kaldır: {name}",
   "team.state.working": "çalışıyor",
   "team.state.waiting": "bekliyor",
   "team.state.idle": "boşta",
@@ -10202,6 +10235,9 @@ const zh: Record<MessageKey, string> = {
   "team.activity.noSessions": "没有共享的会话",
   "team.activity.files": "修改的文件：{count}",
   "team.activity.away": "离开",
+  "team.activity.divergent":
+    "{person}（设备 {device}）报告了不同的团队历史记录。在历史记录变化之前，它的会话保持隐藏。请与对方沟通。",
+  "team.activity.removeLegacy": "移除旧链接：{name}",
   "team.state.working": "工作中",
   "team.state.waiting": "等待中",
   "team.state.idle": "空闲",

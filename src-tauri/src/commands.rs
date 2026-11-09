@@ -1159,16 +1159,21 @@ pub fn team_session_states(team: State<'_, TeamService>, states: Vec<SessionStat
 
 /// Links or unlinks a repository folder (its root commit and clone folder, from `team-changed`'s
 /// `repos`) to a shared project: its sessions' presence and changed files go to the team from
-/// now on.
+/// now on. `folder: null` names a link from before folders were bound, which can only be
+/// removed (`on: false`).
 #[tauri::command]
 pub fn team_link_repo(
     team: State<'_, TeamService>,
     project_id: String,
     root: String,
-    folder: String,
+    folder: Option<String>,
     on: bool,
 ) -> Result<(), TeamError> {
-    team.link_repo(&project_id, &root, &folder, on)
+    match (folder, on) {
+        (Some(folder), on) => team.link_repo(&project_id, &root, &folder, on),
+        (None, false) => team.unlink_legacy_repo(&project_id, &root),
+        (None, true) => Err(TeamError::UnknownRepository),
+    }
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

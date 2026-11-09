@@ -1546,6 +1546,23 @@ fn teammates_see_each_others_sessions_and_a_shared_file_down_to_the_lines() {
         );
         assert_eq!(a1.team.snapshot().teams[0].activity.linked[0].name, "shop");
 
+        // A link from before folders were bound (root commit only) can be removed on its own;
+        // the folder link stays.
+        let config_dir = a1.dir.0.join("config");
+        let mut config = TeamConfig::load(&config_dir).unwrap();
+        let legacy = team::LinkedRepo {
+            root: "d".repeat(40),
+            folder: None,
+            name: "old".to_owned(),
+        };
+        config.link(team::KEYCHAIN_SERVICE, &a1.base, PROJECT, &legacy, true);
+        config.save(&config_dir).unwrap();
+        assert_eq!(a1.team.snapshot().teams[0].activity.linked.len(), 2);
+        a1.team.unlink_legacy_repo(PROJECT, &legacy.root).unwrap();
+        let linked = a1.team.snapshot().teams[0].activity.linked.clone();
+        assert_eq!(linked.len(), 1, "{linked:?}");
+        assert_eq!(linked[0].folder.as_deref(), Some(FOLDER));
+
         // Bob turns sharing off: his device goes offline, the overlap ends on Alice's device.
         b1.team.disable(PROJECT).await.unwrap();
         until("bob gone", || {

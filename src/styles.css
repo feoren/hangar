@@ -5515,6 +5515,7 @@ body.session-dragging .session-actions {
 }
 
 .team-repo-list,
+.team-legacy-list,
 .team-peer-list,
 .team-session-list {
   margin: 0;
