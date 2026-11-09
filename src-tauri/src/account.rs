@@ -9,6 +9,7 @@
 //!
 //! No token ever appears in `Debug`, `Display`, an error, a log line or an event.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
@@ -172,20 +173,48 @@ fn is_loopback(url: &Url) -> bool {
     matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
 }
 
-/// What `account.json` holds: the chosen server and the servers whose sign-in is in the keychain
-/// (the keychain cannot list its entries; Settings names them after a sign-out).
+/// What `account.json` holds: the chosen server and, per keychain service, the servers whose
+/// sign-in is in the keychain (the keychain cannot list its entries; Settings names them after a
+/// sign-out). Debug and release builds share the file but not their keychain entries
+/// ([`KEYCHAIN_SERVICE`]), so each keeps its own list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AccountConfig {
     pub base: BaseUrl,
-    pub signed_in: Vec<BaseUrl>,
+    pub signed_in: BTreeMap<String, Vec<BaseUrl>>,
 }
 
+impl AccountConfig {
+    /// The servers with a stored sign-in in the keychain service `service`.
+    pub fn signed_in_for(&self, service: &str) -> &[BaseUrl] {
+        self.signed_in.get(service).map_or(&[], Vec::as_slice)
+    }
+
+    /// Notes whether `base` has a sign-in in `service`; `true` when the list changed.
+    pub fn note_sign_in(&mut self, service: &str, base: &BaseUrl, stored: bool) -> bool {
+        let list = self.signed_in.entry(service.to_owned()).or_default();
+        let changed = list.contains(base) != stored;
+        if changed {
+            if stored {
+                list.push(base.clone());
+            } else {
+                list.retain(|other| other != base);
+            }
+        }
+        if list.is_empty() {
+            self.signed_in.remove(service);
+        }
+        changed
+    }
+}
+
+/// The file's form. `signedIn`, the single list of the first versions that mixed debug and
+/// release builds, is no longer read: each build lists its server again on its next keychain read.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawAccountConfig {
     base_url: String,
     #[serde(default)]
-    signed_in: Vec<String>,
+    signed_in_by_service: BTreeMap<String, Vec<String>>,
 }
 
 /// The stored settings; the official server and no sign-ins when the file is missing or broken.
@@ -197,10 +226,16 @@ pub fn load_config(config_dir: &Path) -> AccountConfig {
     let Ok(raw) = serde_json::from_str::<RawAccountConfig>(&text) else {
         return AccountConfig::default();
     };
-    let mut signed_in: Vec<BaseUrl> = Vec::new();
-    for base in raw.signed_in.iter().filter_map(|t| BaseUrl::parse(t).ok()) {
-        if !signed_in.contains(&base) {
-            signed_in.push(base);
+    let mut signed_in = BTreeMap::new();
+    for (service, texts) in raw.signed_in_by_service {
+        let mut list: Vec<BaseUrl> = Vec::new();
+        for base in texts.iter().filter_map(|t| BaseUrl::parse(t).ok()) {
+            if !list.contains(&base) {
+                list.push(base);
+            }
+        }
+        if !list.is_empty() {
+            signed_in.insert(service, list);
         }
     }
     AccountConfig {
@@ -218,10 +253,13 @@ pub fn save_config(config_dir: &Path, config: &AccountConfig) -> std::io::Result
     std::fs::create_dir_all(config_dir)?;
     let raw = RawAccountConfig {
         base_url: config.base.as_str().to_owned(),
-        signed_in: config
+        signed_in_by_service: config
             .signed_in
             .iter()
-            .map(|base| base.as_str().to_owned())
+            .map(|(service, list)| {
+                let list = list.iter().map(|base| base.as_str().to_owned()).collect();
+                (service.clone(), list)
+            })
             .collect(),
     };
     let text = serde_json::to_vec_pretty(&raw).map_err(std::io::Error::other)?;
@@ -726,8 +764,9 @@ pub struct FailReason {
 pub enum IdleNotice {
     /// The person signed out, and the server removed this device from the account.
     SignedOut,
-    /// The person signed out on this device, but the server could not be told; the device stays
-    /// listed on the account page until it is removed there.
+    /// The person signed out on this device, but the server did not confirm the revocation
+    /// (unreachable, or it refused); the device may stay listed on the account page until it is
+    /// removed there.
     SignedOutLocally,
     /// The server no longer accepts the refresh token (revoked device, reuse, expiry).
     SessionEnded,
@@ -1007,24 +1046,37 @@ mod tests {
         let dir = temp.path();
         assert_eq!(load_base(dir), BaseUrl::official());
         let custom = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
-        let config = AccountConfig {
+        let mut config = AccountConfig {
             base: custom.clone(),
-            signed_in: vec![custom.clone(), BaseUrl::official()],
+            signed_in: BTreeMap::new(),
         };
+        assert!(config.note_sign_in("release", &custom, true));
+        assert!(config.note_sign_in("release", &BaseUrl::official(), true));
+        assert!(config.note_sign_in("dev", &custom, true));
         save_config(dir, &config).unwrap();
         assert_eq!(load_config(dir), config);
         assert_eq!(load_base(dir), custom);
-        // The file of the first version has no list; broken and repeated entries are dropped.
+        assert_eq!(
+            load_config(dir).signed_in_for("release"),
+            [custom.clone(), BaseUrl::official()]
+        );
+        // Broken and repeated entries are dropped; the single list of the first versions is not
+        // read, it mixed both builds.
         std::fs::write(
             dir.join(CONFIG_FILE),
             r#"{"baseUrl":"https://team.example.test/api/v1",
-                "signedIn":["http://example.test","https://a.example.test","https://a.example.test/"]}"#,
+                "signedIn":["https://b.example.test"],
+                "signedInByService":{"dev":["http://example.test","https://a.example.test",
+                    "https://a.example.test/"],"release":["http://example.test"]}}"#,
         )
         .unwrap();
+        let loaded = load_config(dir);
         assert_eq!(
-            load_config(dir).signed_in,
+            loaded.signed_in_for("dev"),
             [BaseUrl::parse("https://a.example.test").unwrap()]
         );
+        assert!(loaded.signed_in_for("release").is_empty());
+        assert_eq!(loaded.signed_in.len(), 1, "an emptied list is dropped");
         std::fs::write(
             dir.join(CONFIG_FILE),
             r#"{"baseUrl":"https://team.example.test/api/v1"}"#,
@@ -1039,6 +1091,26 @@ mod tests {
         assert_eq!(load_base(dir), BaseUrl::official());
         std::fs::write(dir.join(CONFIG_FILE), "broken").unwrap();
         assert_eq!(load_base(dir), BaseUrl::official());
+    }
+
+    #[test]
+    fn sign_in_lists_change_per_keychain_service() {
+        let mut config = AccountConfig::default();
+        let base = BaseUrl::official();
+        assert!(config.note_sign_in("release", &base, true));
+        assert!(
+            !config.note_sign_in("release", &base, true),
+            "already listed"
+        );
+        assert!(!config.note_sign_in("dev", &base, false), "never listed");
+        assert!(config.signed_in_for("dev").is_empty());
+        assert!(config.note_sign_in("dev", &base, true));
+        assert!(config.note_sign_in("release", &base, false));
+        assert_eq!(config.signed_in_for("dev"), [base]);
+        assert!(
+            !config.signed_in.contains_key("release"),
+            "an emptied list leaves no key"
+        );
     }
 
     #[test]

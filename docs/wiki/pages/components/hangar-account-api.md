@@ -71,9 +71,9 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
 - **Server address:** https, or http only on `localhost`, `127.0.0.1` or `[::1]`; no user info,
   query or fragment; at most 512 characters. Stored in `account.json` in the config folder. The
   official address is the default; Settings can change it for self-hosting.
-- **State machine** (`AccountState`): `idle` (optional notice `signedOut` or `sessionEnded`),
-  `waitingForUser` (`userCode`, `verificationUri`, `verificationUriComplete`, `expiresAt`,
-  `interval`), `signedIn` (`user` once `/me` answered), `failed` (`denied`, `expired`,
+- **State machine** (`AccountState`): `idle` (optional notice `signedOut`, `signedOutLocally`
+  or `sessionEnded`), `waitingForUser` (`userCode`, `verificationUri`, `verificationUriComplete`,
+  `expiresAt`, `interval`), `signedIn` (`user` once `/me` answered), `failed` (`denied`, `expired`,
   `refused`, `network`, `server`, `foreignPage`, `keychain`, `badResponse`, with the server's
   cleaned text). A refresh token in the keychain at start means `signedIn`.
 - **Polling:** waits `interval` seconds (default 5, clamped to 1 to 120), adds 5 s on
@@ -100,8 +100,13 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   build) each have their own gate. A refresh therefore also holds the lock file `account.lock` in
   the config folder (`std::fs::File::try_lock`, polled, at most 40 s) and reads the keychain under
   it: a token another process stored is redeemed instead of the remembered, spent one. A missing
-  entry means another process signed out: `sessionEnded`. Test: two services on one store and one
-  config folder refresh at the same time, the mock sees no reuse and no grace use.
+  entry means another process signed out: `sessionEnded`. Every other write of the keychain entry
+  (storing a confirmed sign-in, signing out, ending the session after a second 401) and every
+  write of `account.json` holds the lock too, always taken after the in-process gate. Storing a
+  sign-in, signing out, ending a session and changing the server go ahead without it when it
+  cannot be had in time (logged); only the list update after a keychain read is skipped then.
+  Test: two services on one store and one config folder refresh at the same time, the mock sees
+  no reuse and no grace use.
 - **Lost answers:** a refresh that fails transiently (network, timeout, 5xx, 429) is repeated once
   after a second with the same token, which the server's grace answers with a fresh pair. Should
   that fail too, a later attempt presents a spent token and the device is revoked.
@@ -111,10 +116,16 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   revokes the device (logged, not shown).
 - **Sign-out:** revokes the newest refresh token through `/oauth/revoke` (form, 5 s at most), then
   deletes it locally. Success: notice `signedOut` (the device is gone from the account). Any
-  failure still signs out locally, with notice `signedOutLocally` and a link to the devices page.
-- **Other servers:** `account.json` lists the servers with a stored sign-in (`signedIn`), since the
-  keychain cannot list its entries. The view carries `otherSignIns`; after a sign-out Settings
-  names those hosts and says to switch there to sign out.
+  failure (unreachable, or refused, for example `invalid_client`) still signs out locally, with
+  notice `signedOutLocally`, worded neutrally ("the server did not confirm the sign-out"), and a
+  link to the devices page.
+- **Other servers:** `account.json` lists the servers with a stored sign-in per keychain service
+  (`signedInByService`, for example `hangar-account` and `hangar-account-dev`), since the keychain
+  cannot list its entries and debug and release builds share the file but not their entries. The
+  file is reread under the process lock before each write, so another process's list is kept; the
+  single `signedIn` list of the first versions is ignored. Tests: two services on one config
+  folder, and two processes of one build that write in turn. The view carries `otherSignIns`;
+  after a sign-out Settings names those hosts and says to switch there to sign out.
 - **Server text:** problem texts, project names, plans and the person's name reach the window
   without control characters and bidirectional marks (they could reorder what is read), at most
   300 characters.

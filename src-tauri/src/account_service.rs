@@ -7,9 +7,11 @@
 //! - Refreshes are single-flight: the server rotates the refresh token and revokes the whole
 //!   device when an old one is used again, and two concurrent refreshes count as such a reuse.
 //!   Every refresh, sign-in, sign-out and server change holds `refresh_gate`. Across processes
-//!   (the installed app and a second instance on the same keychain entry), a refresh also holds
-//!   the lock file [`account::LOCK_FILE`] and reads the keychain first, so it redeems the newest
-//!   token another process stored instead of the one it remembers.
+//!   (the installed app and a second instance on the same keychain entry), every write of the
+//!   keychain entry or of `account.json` also holds the lock file [`account::LOCK_FILE`], taken
+//!   after the gate. A refresh reads the keychain under it first, so it redeems the newest token
+//!   another process stored instead of the one it remembers; `account.json` is reread before it
+//!   is written, so another process's list of sign-ins is kept.
 //! - A refresh whose answer was lost (network error, timeout, 5xx) is repeated once with the same
 //!   token: the server's grace gives a fresh pair for a just-rotated token whose successor is
 //!   unused.
@@ -48,6 +50,9 @@ pub struct Options {
     pub unit: Duration,
     /// Where `account.json` (the chosen server) is written; `None` keeps it in memory only.
     pub config_dir: Option<PathBuf>,
+    /// The keychain service the store writes to ([`account::KEYCHAIN_SERVICE`]); `account.json`
+    /// keeps the list of stored sign-ins per service.
+    pub keychain_service: String,
     pub device_name: String,
     pub platform: String,
 }
@@ -57,6 +62,7 @@ impl Default for Options {
         Self {
             unit: Duration::from_secs(1),
             config_dir: None,
+            keychain_service: account::KEYCHAIN_SERVICE.to_owned(),
             device_name: account::device_name(),
             platform: account::platform().to_owned(),
         }
@@ -253,7 +259,11 @@ impl AccountService {
         let signed_in = options
             .config_dir
             .as_deref()
-            .map(|dir| account::load_config(dir).signed_in)
+            .map(|dir| {
+                account::load_config(dir)
+                    .signed_in_for(&options.keychain_service)
+                    .to_vec()
+            })
             .unwrap_or_default();
         Self {
             inner: Arc::new(Inner {
@@ -283,29 +293,38 @@ impl AccountService {
         lock(&self.inner.core).view()
     }
 
-    /// Notes in `account.json` whether `base` has a sign-in in the keychain.
-    fn remember(&self, base: &BaseUrl, stored: bool) {
-        let config = {
+    /// Notes in `account.json` whether `base` has a sign-in in this build's keychain service.
+    /// Rereads the file first, so what another Hangar process wrote since is kept; the caller
+    /// holds the process lock (`_held`) for that read and write.
+    fn remember(&self, base: &BaseUrl, stored: bool, _held: &ProcessLock) {
+        let service = &self.inner.options.keychain_service;
+        let Some(dir) = &self.inner.options.config_dir else {
             let mut core = lock(&self.inner.core);
-            let known = core.signed_in.contains(base);
-            if known == stored {
-                return;
-            }
-            if stored {
-                core.signed_in.push(base.clone());
-            } else {
-                core.signed_in.retain(|other| other != base);
-            }
-            account::AccountConfig {
-                base: core.base.clone(),
-                signed_in: core.signed_in.clone(),
-            }
+            let mut config = account::AccountConfig::default();
+            config
+                .signed_in
+                .insert(service.clone(), core.signed_in.clone());
+            config.note_sign_in(service, base, stored);
+            core.signed_in = config.signed_in_for(service).to_vec();
+            return;
         };
-        if let Some(dir) = &self.inner.options.config_dir {
+        let mut config = account::load_config(dir);
+        if config.note_sign_in(service, base, stored) {
             if let Err(error) = account::save_config(dir, &config) {
                 eprintln!("hangar: account settings not saved: {error}");
             }
         }
+        lock(&self.inner.core).signed_in = config.signed_in_for(service).to_vec();
+    }
+
+    /// The process lock, or none when it cannot be had within [`PROCESS_LOCK_WAIT`]: for steps
+    /// that must happen anyway (storing a confirmed sign-in, signing out, ending a refused
+    /// session, changing the server); the in-process gate still holds.
+    async fn process_lock_or_none(&self, step: &str) -> ProcessLock {
+        self.process_lock().await.unwrap_or_else(|error| {
+            eprintln!("hangar: account {step} without the lock: {error}");
+            ProcessLock(None)
+        })
     }
 
     async fn process_lock(&self) -> Result<ProcessLock, AccountError> {
@@ -379,7 +398,10 @@ impl AccountService {
             }
         };
         if let Ok(base) = BaseUrl::parse(&account) {
-            self.remember(&base, found);
+            match self.process_lock().await {
+                Ok(held) => self.remember(&base, found, &held),
+                Err(error) => eprintln!("hangar: account settings not updated: {error}"),
+            }
         }
         found
     }
@@ -544,7 +566,13 @@ impl AccountService {
             );
             return;
         };
-        let _gate = self.inner.refresh_gate.lock().await;
+        let gate = self.inner.refresh_gate.lock().await;
+        if !self.flow_current(flow) {
+            return;
+        }
+        // The server already issued the pair, so it is stored even without the other processes'
+        // lock; with it, no other process reads or rotates the entry halfway.
+        let process = self.process_lock_or_none("sign-in").await;
         let (account, base) = {
             let core = lock(&self.inner.core);
             if core.flow != flow {
@@ -586,8 +614,9 @@ impl AccountService {
             }
             return;
         }
-        self.remember(&base, true);
-        drop(_gate);
+        self.remember(&base, true, &process);
+        drop(process);
+        drop(gate);
         self.publish();
         self.fetch_me().await;
     }
@@ -622,10 +651,7 @@ impl AccountService {
         self.inner.cancel.notify_waiters();
         let _gate = self.inner.refresh_gate.lock().await;
         // Signing out must always work here, with or without the other processes' lock.
-        let process = self.process_lock().await.unwrap_or_else(|error| {
-            eprintln!("hangar: account sign-out without the lock: {error}");
-            ProcessLock(None)
-        });
+        let process = self.process_lock_or_none("sign-out").await;
         let (account, base, memory, api, behind) = {
             let mut core = lock(&self.inner.core);
             let memory = match &core.tokens {
@@ -673,10 +699,10 @@ impl AccountService {
         };
         lock(&self.inner.core).clear(notice);
         let deleted = self.keychain_delete(account).await;
-        drop(process);
         if deleted.is_ok() {
-            self.remember(&base, false);
+            self.remember(&base, false, &process);
         }
+        drop(process);
         drop(_gate);
         self.publish();
         deleted
@@ -685,8 +711,8 @@ impl AccountService {
     }
 
     /// Signs out locally because the server no longer accepts the tokens of `generation`.
-    /// Called with `refresh_gate` held.
-    async fn end_session(&self, generation: u64) {
+    /// Called with `refresh_gate` and then the process lock (`held`) held.
+    async fn end_session(&self, generation: u64, held: &ProcessLock) {
         let (account, base) = {
             let mut core = lock(&self.inner.core);
             let current = matches!(&core.tokens, Slot::Present(t) if t.generation == generation);
@@ -697,7 +723,7 @@ impl AccountService {
             (core.base.as_str().to_owned(), core.base.clone())
         };
         match self.keychain_delete(account).await {
-            Ok(()) => self.remember(&base, false),
+            Ok(()) => self.remember(&base, false, held),
             Err(error) => {
                 eprintln!("hangar: ended account sign-in not removed from the keychain: {error}");
             }
@@ -745,14 +771,14 @@ impl AccountService {
                 _ => return Err(core.signed_out_error()),
             }
         };
-        let _process = self.process_lock().await?;
+        let process = self.process_lock().await?;
         let refresh = match self.keychain_get(account.clone()).await {
             // Another Hangar may have rotated the token since this one read it.
             Ok(Some(stored)) if !lock(&self.inner.core).keychain_behind => stored,
             Ok(Some(_)) => memory,
             Ok(None) => {
                 // Another Hangar signed out, which also revoked the device on the server.
-                self.end_session(generation).await;
+                self.end_session(generation, &process).await;
                 return Err(AccountError::SessionEnded);
             }
             Err(error) => {
@@ -799,7 +825,7 @@ impl AccountService {
                 Ok((access, generation, api))
             }
             Err(ApiError::OAuth(OAuthCode::InvalidGrant, _) | ApiError::Unauthorized) => {
-                self.end_session(generation).await;
+                self.end_session(generation, &process).await;
                 Err(AccountError::SessionEnded)
             }
             Err(error) => Err(error.into()),
@@ -822,7 +848,9 @@ impl AccountService {
         match call(api, token).await {
             Err(ApiError::Unauthorized) => {
                 let _gate = self.inner.refresh_gate.lock().await;
-                self.end_session(generation).await;
+                // The server refused twice: the sign-in ends here even without the lock.
+                let process = self.process_lock_or_none("session end").await;
+                self.end_session(generation, &process).await;
                 Err(AccountError::SessionEnded)
             }
             other => other.map_err(AccountError::from),
@@ -897,11 +925,17 @@ impl AccountService {
         self.inner.cancel.notify_waiters();
         {
             let _gate = self.inner.refresh_gate.lock().await;
-            let config = account::AccountConfig {
-                base: base.clone(),
-                signed_in: lock(&self.inner.core).signed_in.clone(),
-            };
+            let process = self.process_lock_or_none("server change").await;
+            let mut signed_in = None;
             if let Some(dir) = &self.inner.options.config_dir {
+                // Reread under the lock: the lists of other processes and builds stay as they are.
+                let mut config = account::load_config(dir);
+                config.base = base.clone();
+                signed_in = Some(
+                    config
+                        .signed_in_for(&self.inner.options.keychain_service)
+                        .to_vec(),
+                );
                 if let Err(error) = account::save_config(dir, &config) {
                     // The waiting flow was already stopped above; do not leave its code on screen.
                     let ended = {
@@ -919,7 +953,11 @@ impl AccountService {
                     return Err(AccountError::Config(error.to_string()));
                 }
             }
+            drop(process);
             let mut core = lock(&self.inner.core);
+            if let Some(signed_in) = signed_in {
+                core.signed_in = signed_in;
+            }
             core.base = base;
             core.api = None;
             core.tokens = Slot::Unloaded;

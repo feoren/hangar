@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use hangar_lib::account::{
-    AccountError, AccountPage, AccountState, AccountView, BaseUrl, FailKind, IdleNotice,
+    load_config, AccountError, AccountPage, AccountState, AccountView, BaseUrl, FailKind,
+    IdleNotice, KEYCHAIN_SERVICE,
 };
 use hangar_lib::account_api::AccountApi;
 use hangar_lib::account_service::{AccountService, Options};
@@ -58,6 +59,8 @@ struct MockState {
     access_valid: HashSet<String>,
     issued: u32,
     projects_failure: Option<(u16, String)>,
+    /// `/projects` refuses every access token, even a fresh one.
+    projects_always_unauthorized: bool,
     /// The last rotation, for the server's 30 s grace.
     rotation: Option<Rotation>,
     /// A just-rotated refresh token was presented again and got a fresh pair (grace).
@@ -456,7 +459,7 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
         }
         ("GET", "/api/v1/projects") => {
             let state = guard(shared);
-            if !authorized(&state, &request) {
+            if !authorized(&state, &request) || state.projects_always_unauthorized {
                 drop(state);
                 problem(&mut stream, 401, "unauthorized", "Sign in again");
             } else if let Some((status, detail)) = state.projects_failure.clone() {
@@ -507,11 +510,43 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
 #[derive(Default)]
 struct MemoryStore {
     values: Mutex<HashMap<String, Zeroizing<String>>>,
+    /// When set, every write checks that a Hangar process holds this lock file.
+    lock_file: Option<std::path::PathBuf>,
+    /// Writes (`set`, `delete`) made while nobody held [`Self::lock_file`].
+    unlocked_writes: Mutex<Vec<&'static str>>,
 }
 
 impl MemoryStore {
+    /// A store that records every write made without the account lock file in `dir`.
+    fn watching(dir: &std::path::Path) -> Self {
+        Self {
+            lock_file: Some(dir.join(hangar_lib::account::LOCK_FILE)),
+            ..Self::default()
+        }
+    }
+
     fn value(&self, account: &str) -> Option<String> {
         guard(&self.values).get(account).map(|v| v.to_string())
+    }
+
+    fn unlocked_writes(&self) -> Vec<&'static str> {
+        guard(&self.unlocked_writes).clone()
+    }
+
+    /// A handle of its own stands for another process: it gets the lock only when nobody holds it.
+    fn check_locked(&self, write: &'static str) {
+        let Some(path) = &self.lock_file else { return };
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .unwrap();
+        if file.try_lock().is_ok() {
+            guard(&self.unlocked_writes).push(write);
+            file.unlock().unwrap();
+        }
     }
 }
 
@@ -525,11 +560,13 @@ impl SecretStore for MemoryStore {
     }
 
     fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
+        self.check_locked("set");
         guard(&self.values).insert(account.to_owned(), Zeroizing::new(value.to_owned()));
         Ok(())
     }
 
     fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.check_locked("delete");
         guard(&self.values).remove(account);
         Ok(())
     }
@@ -557,6 +594,16 @@ impl Harness {
         store: Arc<MemoryStore>,
         config_dir: Option<std::path::PathBuf>,
     ) -> Self {
+        Self::configured_as(mock, store, config_dir, KEYCHAIN_SERVICE)
+    }
+
+    /// A service whose store stands for the keychain service `keychain_service`.
+    fn configured_as(
+        mock: Mock,
+        store: Arc<MemoryStore>,
+        config_dir: Option<std::path::PathBuf>,
+        keychain_service: &str,
+    ) -> Self {
         let opened = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(Vec::new()));
         let record = Arc::clone(&opened);
@@ -574,6 +621,7 @@ impl Harness {
             Options {
                 unit: UNIT,
                 config_dir,
+                keychain_service: keychain_service.to_owned(),
                 device_name: "Test machine".to_owned(),
                 platform: "test".to_owned(),
             },
@@ -594,7 +642,8 @@ impl Harness {
     /// A sign-in as Hangar finds it at start: only a refresh token in the keychain.
     fn stored_sign_in(&self) {
         let token = "hgrt_mock_stored";
-        self.store.set(&self.account(), token).unwrap();
+        // Put there before Hangar runs, so not a write of the service under test.
+        guard(&self.store.values).insert(self.account(), Zeroizing::new(token.to_owned()));
         self.mock.state().refresh_valid = Some(token.to_owned());
     }
 
@@ -974,6 +1023,7 @@ fn a_server_change_that_cannot_be_saved_ends_the_waiting_flow() {
         Options {
             unit: UNIT,
             config_dir: Some(blocked),
+            keychain_service: KEYCHAIN_SERVICE.to_owned(),
             device_name: "Test machine".to_owned(),
             platform: "test".to_owned(),
         },
@@ -1192,4 +1242,125 @@ fn the_window_gets_the_checked_verification_page() {
         );
         harness.service.cancel_sign_in();
     });
+}
+
+#[test]
+fn debug_and_release_builds_keep_their_own_sign_in_lists() {
+    // A release and a debug build share the config folder but use separate keychain services.
+    let dir = temp_dir("account-two-services");
+    let (release_mock, dev_mock) = (Mock::start(), Mock::start());
+    let release = Harness::configured_as(
+        release_mock.clone(),
+        Arc::new(MemoryStore::default()),
+        Some(dir.clone()),
+        "hangar-account",
+    );
+    let dev = Harness::configured_as(
+        dev_mock.clone(),
+        Arc::new(MemoryStore::default()),
+        Some(dir.clone()),
+        "hangar-account-dev",
+    );
+    release.stored_sign_in();
+    dev.stored_sign_in();
+    run(async {
+        release.service.status().await;
+        dev.service.status().await;
+    });
+    let config = load_config(&dir);
+    assert_eq!(
+        config.signed_in_for("hangar-account"),
+        [release_mock.base()]
+    );
+    assert_eq!(
+        config.signed_in_for("hangar-account-dev"),
+        [dev_mock.base()]
+    );
+    run(async {
+        // Each build names only the sign-ins in its own keychain service.
+        let view = release
+            .service
+            .set_base_url(Some(dev.account()))
+            .await
+            .unwrap();
+        assert!(matches!(view.state, AccountState::Idle { notice: None }));
+        assert_eq!(view.other_sign_ins, [release.account()]);
+        let view = dev
+            .service
+            .set_base_url(Some(release.account()))
+            .await
+            .unwrap();
+        assert_eq!(view.other_sign_ins, [dev.account()]);
+    });
+    let config = load_config(&dir);
+    assert_eq!(config.base, release_mock.base(), "the last chosen server");
+    assert_eq!(
+        config.signed_in_for("hangar-account"),
+        [release_mock.base()]
+    );
+    assert_eq!(
+        config.signed_in_for("hangar-account-dev"),
+        [dev_mock.base()]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_sign_in_list_written_by_another_process_is_kept() {
+    // Two processes of one build, started before either wrote the list.
+    let dir = temp_dir("account-list-reload");
+    let store = Arc::new(MemoryStore::default());
+    let (first_mock, second_mock) = (Mock::start(), Mock::start());
+    let first = Harness::configured(first_mock.clone(), Arc::clone(&store), Some(dir.clone()));
+    let second = Harness::configured(second_mock.clone(), Arc::clone(&store), Some(dir.clone()));
+    first.stored_sign_in();
+    second.stored_sign_in();
+    run(async {
+        first.service.status().await;
+        second.service.status().await;
+    });
+    assert_eq!(
+        load_config(&dir).signed_in_for(KEYCHAIN_SERVICE),
+        [first_mock.base(), second_mock.base()]
+    );
+    // The second process learned the first one's entry when it wrote.
+    assert_eq!(second.service.view().other_sign_ins, [first.account()]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_sign_in_is_stored_under_the_process_lock() {
+    let dir = temp_dir("account-sign-in-lock");
+    let store = Arc::new(MemoryStore::watching(&dir));
+    let harness = Harness::configured(Mock::start(), Arc::clone(&store), Some(dir.clone()));
+    harness.mock.state().script = VecDeque::from([Poll::Tokens]);
+    run(async {
+        harness.service.sign_in().await.unwrap();
+        harness.until("signed in", signed_in_with_user).await;
+    });
+    assert!(harness.store.value(&harness.account()).is_some());
+    assert_eq!(store.unlocked_writes(), Vec::<&str>::new());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_second_refusal_ends_the_session_under_the_process_lock() {
+    let dir = temp_dir("account-end-session-lock");
+    let store = Arc::new(MemoryStore::watching(&dir));
+    let harness = Harness::configured(Mock::start(), Arc::clone(&store), Some(dir.clone()));
+    harness.stored_sign_in();
+    harness.mock.state().projects_always_unauthorized = true;
+    run(async {
+        // 401, one refresh, 401 again: the sign-in ends.
+        assert_eq!(
+            harness.service.projects().await.unwrap_err(),
+            AccountError::SessionEnded
+        );
+    });
+    // One refresh for the first access token, one after the first 401.
+    assert_eq!(harness.mock.state().refreshes, 2);
+    assert!(harness.store.value(&harness.account()).is_none());
+    assert_eq!(store.unlocked_writes(), Vec::<&str>::new());
+    assert!(load_config(&dir).signed_in_for(KEYCHAIN_SERVICE).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
 }

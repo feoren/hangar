@@ -24,7 +24,8 @@ export interface FailReason {
 
 /**
  * `signedOut`: signed out and removed from the account on the server; `signedOutLocally`: signed
- * out here, but the server could not be told; `sessionEnded`: the server refused the sign-in.
+ * out here, but the server did not confirm the sign-out; `sessionEnded`: the server refused the
+ * sign-in.
  */
 export type IdleNotice = "signedOut" | "signedOutLocally" | "sessionEnded";
 

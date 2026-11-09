@@ -185,3 +185,9 @@ The client now holds a cross-process lock and rereads the keychain before a refr
 lost refresh answer once, keeps a separate keychain entry in debug builds, revokes on sign-out,
 lists other servers' stored sign-ins, bypasses proxies for loopback servers, sends normalized
 pages to the window and checks relay addresses. Pages changed: [[hangar-account-api]].
+
+## [2026-11-09] ingest | Step F part 1 follow-ups: per-build sign-in lists and lock coverage
+`account.json` keeps the list of stored sign-ins per keychain service and is reread under the
+process lock before each write. Storing a confirmed sign-in and ending the session after a second
+401 now hold the process lock as well. The `signedOutLocally` notice no longer claims the server
+was unreachable. Pages changed: [[hangar-account-api]].

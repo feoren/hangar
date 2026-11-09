@@ -785,7 +785,7 @@ const de = {
   "account.devicesPage": "Verbundene Geräte öffnen",
   "account.signedOut": "Du bist abgemeldet, und dieses Gerät wurde aus deinem Konto entfernt.",
   "account.signedOutLocally":
-    "Du bist auf diesem Gerät abgemeldet. Der Server war nicht erreichbar, deshalb bleibt das Gerät in deinem Konto, bis du es dort entfernst.",
+    "Du bist auf diesem Gerät abgemeldet. Der Server hat die Abmeldung nicht bestätigt. Du kannst das Gerät auf der Kontoseite entfernen.",
   "account.otherSignIns":
     "Anmeldungen für andere Server bleiben auf diesem Gerät gespeichert: {hosts}. Wechsle zum Server, um dich dort abzumelden.",
   "account.sessionEnded":
@@ -1563,7 +1563,7 @@ const en: Record<MessageKey, string> = {
   "account.devicesPage": "Open connected devices",
   "account.signedOut": "You are signed out, and this device was removed from your account.",
   "account.signedOutLocally":
-    "You are signed out on this device. The server could not be reached, so the device stays in your account until you remove it there.",
+    "You are signed out on this device. The server did not confirm the sign-out. You can remove the device on the account page.",
   "account.otherSignIns":
     "Sign-ins for other servers stay stored on this device: {hosts}. Switch to a server to sign out there.",
   "account.sessionEnded": "Your sign-in expired or was revoked. Please sign in again.",
@@ -2362,7 +2362,7 @@ const el: Record<MessageKey, string> = {
   "account.devicesPage": "Άνοιγμα συνδεδεμένων συσκευών",
   "account.signedOut": "Αποσυνδέθηκες και αυτή η συσκευή αφαιρέθηκε από τον λογαριασμό σου.",
   "account.signedOutLocally":
-    "Αποσυνδέθηκες σε αυτή τη συσκευή. Ο διακομιστής δεν ήταν προσβάσιμος, οπότε η συσκευή μένει στον λογαριασμό σου μέχρι να την αφαιρέσεις εκεί.",
+    "Αποσυνδέθηκες σε αυτή τη συσκευή. Ο διακομιστής δεν επιβεβαίωσε την αποσύνδεση. Μπορείς να αφαιρέσεις τη συσκευή στη σελίδα του λογαριασμού.",
   "account.otherSignIns":
     "Οι συνδέσεις για άλλους διακομιστές μένουν αποθηκευμένες σε αυτή τη συσκευή: {hosts}. Άλλαξε διακομιστή για να αποσυνδεθείς εκεί.",
   "account.sessionEnded": "Η σύνδεσή σου έληξε ή ανακλήθηκε. Συνδέσου ξανά.",
@@ -3152,7 +3152,7 @@ const es: Record<MessageKey, string> = {
   "account.devicesPage": "Abrir dispositivos conectados",
   "account.signedOut": "Has cerrado sesión y este dispositivo se ha quitado de tu cuenta.",
   "account.signedOutLocally":
-    "Has cerrado sesión en este dispositivo. No se pudo contactar con el servidor, así que el dispositivo sigue en tu cuenta hasta que lo quites allí.",
+    "Has cerrado sesión en este dispositivo. El servidor no confirmó el cierre de sesión. Puedes quitar el dispositivo en la página de tu cuenta.",
   "account.otherSignIns":
     "Los inicios de sesión de otros servidores siguen guardados en este dispositivo: {hosts}. Cambia a ese servidor para cerrar sesión allí.",
   "account.sessionEnded": "Tu sesión caducó o fue revocada. Vuelve a iniciar sesión.",
@@ -3950,7 +3950,7 @@ const fr: Record<MessageKey, string> = {
   "account.devicesPage": "Ouvrir les appareils connectés",
   "account.signedOut": "Tu es déconnecté et cet appareil a été retiré de ton compte.",
   "account.signedOutLocally":
-    "Tu es déconnecté sur cet appareil. Le serveur était injoignable, l'appareil reste donc dans ton compte jusqu'à ce que tu l'y retires.",
+    "Tu es déconnecté sur cet appareil. Le serveur n'a pas confirmé la déconnexion. Tu peux retirer l'appareil sur la page de ton compte.",
   "account.otherSignIns":
     "Les connexions à d'autres serveurs restent enregistrées sur cet appareil : {hosts}. Passe sur ce serveur pour t'y déconnecter.",
   "account.sessionEnded": "Ta connexion a expiré ou a été révoquée. Reconnecte-toi.",
@@ -4742,7 +4742,7 @@ const it: Record<MessageKey, string> = {
   "account.devicesPage": "Apri dispositivi collegati",
   "account.signedOut": "Sei uscito e questo dispositivo è stato rimosso dal tuo account.",
   "account.signedOutLocally":
-    "Sei uscito su questo dispositivo. Il server non era raggiungibile, quindi il dispositivo resta nel tuo account finché non lo rimuovi lì.",
+    "Sei uscito su questo dispositivo. Il server non ha confermato la disconnessione. Puoi rimuovere il dispositivo nella pagina del tuo account.",
   "account.otherSignIns":
     "Gli accessi ad altri server restano salvati su questo dispositivo: {hosts}. Passa a quel server per uscire lì.",
   "account.sessionEnded": "Il tuo accesso è scaduto o è stato revocato. Accedi di nuovo.",
@@ -5532,7 +5532,7 @@ const ja: Record<MessageKey, string> = {
   "account.devicesPage": "接続済みデバイスを開く",
   "account.signedOut": "サインアウトしました。このデバイスはアカウントから削除されました。",
   "account.signedOutLocally":
-    "このデバイスでサインアウトしました。サーバーに接続できなかったため、アカウントページで削除するまでデバイスはアカウントに残ります。",
+    "このデバイスでサインアウトしました。サーバーがサインアウトを確認しませんでした。アカウントページでデバイスを削除できます。",
   "account.otherSignIns":
     "ほかのサーバーのサインインはこのデバイスに保存されたままです: {hosts}。そのサーバーに切り替えるとサインアウトできます。",
   "account.sessionEnded":
@@ -6317,7 +6317,7 @@ const pl: Record<MessageKey, string> = {
   "account.devicesPage": "Otwórz połączone urządzenia",
   "account.signedOut": "Wylogowano, a to urządzenie zostało usunięte z twojego konta.",
   "account.signedOutLocally":
-    "Wylogowano na tym urządzeniu. Serwer był nieosiągalny, więc urządzenie pozostaje na twoim koncie, dopóki go tam nie usuniesz.",
+    "Wylogowano na tym urządzeniu. Serwer nie potwierdził wylogowania. Możesz usunąć urządzenie na stronie konta.",
   "account.otherSignIns":
     "Logowania do innych serwerów pozostają zapisane na tym urządzeniu: {hosts}. Przełącz się na ten serwer, aby się tam wylogować.",
   "account.sessionEnded": "Twoje logowanie wygasło lub zostało cofnięte. Zaloguj się ponownie.",
@@ -7107,7 +7107,7 @@ const pt: Record<MessageKey, string> = {
   "account.devicesPage": "Abrir dispositivos conectados",
   "account.signedOut": "Você saiu e este dispositivo foi removido da sua conta.",
   "account.signedOutLocally":
-    "Você saiu neste dispositivo. Não foi possível falar com o servidor, então o dispositivo continua na sua conta até você removê-lo lá.",
+    "Você saiu neste dispositivo. O servidor não confirmou a saída. Você pode remover o dispositivo na página da sua conta.",
   "account.otherSignIns":
     "Os logins de outros servidores continuam salvos neste dispositivo: {hosts}. Troque para esse servidor para sair lá.",
   "account.sessionEnded": "Seu login expirou ou foi revogado. Entre novamente.",
@@ -7885,7 +7885,7 @@ const ru: Record<MessageKey, string> = {
   "account.devicesPage": "Открыть подключённые устройства",
   "account.signedOut": "Выход выполнен, и это устройство удалено из аккаунта.",
   "account.signedOutLocally":
-    "Выход выполнен на этом устройстве. Сервер недоступен, поэтому устройство остаётся в аккаунте, пока ты не удалишь его там.",
+    "Выход выполнен на этом устройстве. Сервер не подтвердил выход. Ты можешь удалить устройство на странице аккаунта.",
   "account.otherSignIns":
     "Входы на другие серверы остаются сохранёнными на этом устройстве: {hosts}. Переключись на сервер, чтобы выйти там.",
   "account.sessionEnded": "Вход истёк или был отозван. Войди снова.",
@@ -8664,7 +8664,7 @@ const tr: Record<MessageKey, string> = {
   "account.devicesPage": "Bağlı cihazları aç",
   "account.signedOut": "Oturumun kapatıldı ve bu cihaz hesabından kaldırıldı.",
   "account.signedOutLocally":
-    "Bu cihazda oturumun kapatıldı. Sunucuya ulaşılamadı, bu yüzden cihaz oradan kaldırana kadar hesabında kalır.",
+    "Bu cihazda oturumun kapatıldı. Sunucu oturumun kapatılmasını onaylamadı. Cihazı hesap sayfasından kaldırabilirsin.",
   "account.otherSignIns":
     "Diğer sunucuların oturumları bu cihazda kayıtlı kalır: {hosts}. Orada oturumu kapatmak için o sunucuya geç.",
   "account.sessionEnded": "Oturumunun süresi doldu veya iptal edildi. Yeniden oturum aç.",
@@ -9412,7 +9412,7 @@ const zh: Record<MessageKey, string> = {
   "account.devicesPage": "打开已连接设备",
   "account.signedOut": "你已退出登录，此设备已从你的账户中移除。",
   "account.signedOutLocally":
-    "你已在此设备上退出登录。无法连接服务器，因此在账户页面移除之前，此设备仍会保留在你的账户中。",
+    "你已在此设备上退出登录。服务器未确认退出。你可以在账户页面移除此设备。",
   "account.otherSignIns":
     "其他服务器的登录仍保存在此设备上：{hosts}。切换到该服务器即可在那里退出登录。",
   "account.sessionEnded": "你的登录已过期或被撤销。请重新登录。",
