@@ -44,6 +44,7 @@ describe("parseSettings", () => {
       restoreSessions: false,
       scrollbackLines: 2000,
       subAgentExcerpts: false,
+      claimsEnabled: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
       terminalScheme: "solarized",
       terminalFont: "JetBrains Mono",
@@ -74,6 +75,7 @@ describe("parseSettings", () => {
       restoreSessions: 0,
       scrollbackLines: "many",
       subAgentExcerpts: "off",
+      claimsEnabled: "no",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
@@ -185,6 +187,12 @@ describe("parseSettings", () => {
     expect(parseSettings(JSON.stringify({ subAgentExcerpts: false }), "de").subAgentExcerpts).toBe(
       false,
     );
+  });
+
+  it("detects overlaps between sessions by default, also for older settings", () => {
+    expect(defaultSettings("de").claimsEnabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").claimsEnabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ claimsEnabled: false }), "de").claimsEnabled).toBe(false);
   });
 
   it("keeps the scrollback per session within limits and steps", () => {

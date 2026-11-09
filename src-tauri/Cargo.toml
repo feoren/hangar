@@ -57,6 +57,14 @@ sha2 = "0.10"
 # (rustls with ring, system proxy), so no extra code in the build; MIT/Apache-2.0.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Local claims (claims_service.rs): file events per session worktree, only as a trigger for a git
+# rescan. The de facto standard watcher (ReadDirectoryChangesW, inotify, FSEvents), maintained
+# by the notify-rs org; alternatives were a hand-written watcher per platform or polling alone
+# (seconds of delay, a git call per worktree every few seconds). License CC0-1.0, a documented
+# exception to MIT/Apache-2.0 (public domain dedication, no obligations); notify-types is
+# MIT/Apache-2.0. Adds notify, notify-types and on Linux inotify, on macOS objc2-core-services;
+# walkdir, crossbeam and the rest are already in the tree.
+notify = "8.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

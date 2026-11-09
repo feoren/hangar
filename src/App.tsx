@@ -36,6 +36,7 @@ import {
 } from "./attention";
 import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
 import { chimeFor, ChimeScheduler } from "./chime";
+import { claimsOf, markerText, overlapNotice, overlapsOf, type Overlap } from "./claims";
 import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
@@ -197,11 +198,13 @@ import { useSubAgents } from "./useSubAgents";
 import { planSubAgentPanes } from "./subAgents";
 import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
+import { useClaims } from "./useClaims";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
+import { ClaimNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
 import {
   createErrorText,
@@ -480,6 +483,8 @@ export function App() {
   const [worktreeNotice, setWorktreeNotice] = useState<
     (WorktreeNotice & { copied: boolean }) | null
   >(null);
+  /** A new collision of two sessions on one file (claims.ts), until dismissed or replaced. */
+  const [claimNotice, setClaimNotice] = useState<{ overlap: Overlap; key: number } | null>(null);
   const updater = useUpdater(version, settings.autoUpdate);
   const installed = installedKey(profiles);
   const programs = usePrograms(installed, settings.showVersions, settings.showIcons, startupDone);
@@ -786,6 +791,32 @@ export function App() {
   const activeTerminal = () =>
     state.activeId === null ? undefined : terminals.get(state.activeId);
   const activeSession = state.sessions.find((s) => s.id === state.activeId);
+  /** Session name for the claims texts; a closed session keeps its number. */
+  const sessionName = (id: number) =>
+    state.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
+  // Local claims: a calm notice in the window for each new collision, and a desktop notification
+  // while Hangar is in the background, under the same settings as for waiting sessions.
+  const claims = useClaims(settings.claimsEnabled, (fresh) => {
+    const first = fresh[0];
+    if (first === undefined) return;
+    setClaimNotice({ overlap: first, key: Date.now() });
+    const current = settingsRef.current;
+    if (!current.notifyDesktop || !current.attentionEnabled || document.hasFocus()) return;
+    const name = (id: number) =>
+      stateRef.current.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
+    const text = overlapNotice(first, name, createTranslator(current.language));
+    api.notifySession(first.sessionId, text.title, text.body).catch(() => undefined);
+  });
+  /** Sidebar marker text per session that collides with another one on a file. */
+  const overlapMarkers = useMemo(() => {
+    const name = (id: number) => state.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
+    const markers = new Map<number, string>();
+    for (const session of state.sessions) {
+      const text = markerText(overlapsOf(claims, session.id), name, t);
+      if (text !== null) markers.set(session.id, text);
+    }
+    return markers;
+  }, [claims, state.sessions, t]);
   /** Where the next session starts: the active project, a chosen folder, the last one, home. */
   const target = resolveStartTarget({
     chosen: chosenCwd,
@@ -859,6 +890,13 @@ export function App() {
       },
     [],
   );
+
+  /** Jump from a claims warning or notice to the other session. */
+  const showSession = (id: number) => {
+    if (!state.sessions.some((s) => s.id === id)) return;
+    dispatch({ type: "activated", id });
+    focusTerminal();
+  };
 
   const answerPaste = (send: boolean) => {
     const answer = pasteAnswer.current;
@@ -3093,6 +3131,7 @@ export function App() {
           reasons={reasons}
           activityOf={activityOf}
           branches={branches}
+          overlaps={overlapMarkers}
           language={settings.language}
           renamingId={renamingId}
           onRenameStart={startRename}
@@ -3503,6 +3542,10 @@ export function App() {
                 }
                 changes={
                   <ChangesPanel
+                    claims={activeSession ? claimsOf(claims, activeSession.id) : null}
+                    overlaps={activeSession ? overlapsOf(claims, activeSession.id) : []}
+                    nameOf={sessionName}
+                    onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}
                     trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
                     focusToken={changesFocusToken}
@@ -3634,6 +3677,22 @@ export function App() {
                   </button>
                 </div>
               </div>
+            )}
+            {claimNotice !== null && (
+              <ClaimNoticeView
+                key={claimNotice.key}
+                overlap={claimNotice.overlap}
+                activeId={state.activeId}
+                nameOf={sessionName}
+                onShow={(id) => {
+                  setClaimNotice(null);
+                  showSession(id);
+                }}
+                onDismiss={() => {
+                  setClaimNotice(null);
+                  focusActive();
+                }}
+              />
             )}
             {creatingWorktree && (
               <div className="link-notice" role="status">

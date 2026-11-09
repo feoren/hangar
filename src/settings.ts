@@ -88,6 +88,11 @@ export interface Settings {
    * text at all. The excerpts are never stored, whatever this says.
    */
   subAgentExcerpts: boolean;
+  /**
+   * The backend watches which files each session's agent changes and warns when two sessions
+   * touch the same file or lines (claims.ts). Off: no watcher and no git call for it.
+   */
+  claimsEnabled: boolean;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
   /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
@@ -112,6 +117,7 @@ type Flag =
   | "checkProgramUpdates"
   | "restoreSessions"
   | "subAgentExcerpts"
+  | "claimsEnabled"
   | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
@@ -133,6 +139,7 @@ export function defaultSettings(language: Language): Settings {
     restoreSessions: true,
     scrollbackLines: SCROLLBACK_LINES.default,
     subAgentExcerpts: true,
+    claimsEnabled: true,
     programs: DEFAULT_PROGRAM_PREFS,
     terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
@@ -223,6 +230,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampScrollbackLines(lines)
         : defaults.scrollbackLines,
     subAgentExcerpts: flag("subAgentExcerpts"),
+    claimsEnabled: flag("claimsEnabled"),
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,

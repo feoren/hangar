@@ -117,6 +117,9 @@ const de = {
   "subAgents.unavailable":
     "Für diese Session sind gerade keine Sub-Agents verfügbar. Nach einem Neustart wieder.",
   "subAgents.error": "Sub-Agents lassen sich nicht anzeigen: {error}",
+  "settings.claims": "Überschneidungen zwischen Sessions erkennen",
+  "settings.claimsHelp":
+    "Hangar schaut, welche Dateien die Agenten ändern, und warnt, wenn zwei deiner Sessions dieselbe Datei oder dieselben Zeilen bearbeiten. Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
   "settings.subAgentExcerpts": "Textauszüge von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
     "Zeigt den letzten Text jedes Sub-Agents. Erkennbare Schlüssel und Passwörter werden ausgeblendet, gespeichert wird nichts davon.",
@@ -593,6 +596,21 @@ const de = {
     "Enthält unsichtbare oder richtungsändernde Zeichen, als <U+…> angezeigt. Der Text kann anders wirken, als er ist.",
   "changes.hiddenShort": "Versteckte Zeichen",
   "changes.moreFiles": "Weitere Dateien zeigen (+{count})",
+  "claims.sameFile": "Dieselbe Datei wie {session}: {path}",
+  "claims.sameLines": "Dieselben Zeilen wie {session}: {path}, {lines}",
+  "claims.sameArea": "Derselbe Bereich wie {session}: {area}",
+  "claims.line": "Zeile {line}",
+  "claims.lines": "Zeilen {start} bis {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Überschneidung mit anderen Sessions",
+  "claims.warningHelp": "Beide ändern dasselbe. Beim Zusammenführen kann das einen Konflikt geben.",
+  "claims.showSession": "Session zeigen",
+  "claims.sharedFolder":
+    "Diese Session teilt ihren Ordner mit {sessions}. Die Änderungen gehören dem Ordner, nicht einer einzelnen Session.",
+  "claims.changedLines": "Geänderte Stellen: {count}",
+  "claims.wholeFile": "ganze Datei",
+  "claims.noticeTitle": "{session} und {other} ändern dieselbe Datei",
+  "claims.failed": "Überschneidungen ließen sich nicht prüfen: {error}",
   "profile.movedNotSaved":
     "{name} ist noch nicht gespeichert: Es ist keine normale Variable mehr, und der Schlüsselbund hat den Wert nicht angenommen ({error}). Speichere erneut, sonst geht der Wert verloren.",
   "profile.valueBuiltIn": "Wert des eingebauten Eintrags",
@@ -807,6 +825,9 @@ const en: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Sub-agents are not available for this session right now. They will be after a restart.",
   "subAgents.error": "Cannot show sub-agents: {error}",
+  "settings.claims": "Detect overlaps between sessions",
+  "settings.claimsHelp":
+    "Hangar watches which files the agents change and warns when two of your sessions edit the same file or the same lines. Everything stays on this computer; Hangar reads no file contents for this.",
   "settings.subAgentExcerpts": "Show sub-agent text excerpts",
   "settings.subAgentExcerptsHelp":
     "Shows each sub-agent's latest text. Recognizable keys and passwords are hidden, and none of it is stored.",
@@ -1270,6 +1291,21 @@ const en: Record<MessageKey, string> = {
     "Contains invisible or direction changing characters, shown as <U+…>. The text may read differently than it runs.",
   "changes.hiddenShort": "Hidden characters",
   "changes.moreFiles": "Show more files (+{count})",
+  "claims.sameFile": "Same file as {session}: {path}",
+  "claims.sameLines": "Same lines as {session}: {path}, {lines}",
+  "claims.sameArea": "Same area as {session}: {area}",
+  "claims.line": "line {line}",
+  "claims.lines": "lines {start} to {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Overlaps with other sessions",
+  "claims.warningHelp": "Both change the same thing. Merging them may lead to a conflict.",
+  "claims.showSession": "Show session",
+  "claims.sharedFolder":
+    "This session shares its folder with {sessions}. The changes belong to the folder, not to a single session.",
+  "claims.changedLines": "Changed places: {count}",
+  "claims.wholeFile": "whole file",
+  "claims.noticeTitle": "{session} and {other} change the same file",
+  "claims.failed": "Overlaps could not be checked: {error}",
   "profile.movedNotSaved":
     "{name} is not saved yet: it is no longer a plain variable, and the keychain did not take the value ({error}). Save again, or the value is lost.",
   "profile.valueBuiltIn": "Value of the built-in entry",
@@ -1480,6 +1516,9 @@ const el: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Οι υπο-πράκτορες δεν είναι διαθέσιμοι τώρα για αυτή τη συνεδρία. Θα είναι μετά από επανεκκίνηση.",
   "subAgents.error": "Δεν είναι δυνατή η εμφάνιση υπο-πρακτόρων: {error}",
+  "settings.claims": "Εντοπισμός επικαλύψεων μεταξύ συνεδριών",
+  "settings.claimsHelp":
+    "Το Hangar βλέπει ποια αρχεία αλλάζουν οι πράκτορες και σε προειδοποιεί όταν δύο συνεδρίες σου επεξεργάζονται το ίδιο αρχείο ή τις ίδιες γραμμές. Όλα μένουν σε αυτόν τον υπολογιστή· το Hangar δεν διαβάζει περιεχόμενα αρχείων γι' αυτό.",
   "settings.subAgentExcerpts": "Εμφάνιση αποσπασμάτων κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
     "Δείχνει το τελευταίο κείμενο κάθε υπο-πράκτορα. Αναγνωρίσιμα κλειδιά και κωδικοί αποκρύπτονται και τίποτα δεν αποθηκεύεται.",
@@ -1963,6 +2002,22 @@ const el: Record<MessageKey, string> = {
     "Περιέχει αόρατους χαρακτήρες ή χαρακτήρες αλλαγής κατεύθυνσης, εμφανίζονται ως <U+…>. Το κείμενο μπορεί να διαβάζεται αλλιώς από ό,τι είναι.",
   "changes.hiddenShort": "Κρυφοί χαρακτήρες",
   "changes.moreFiles": "Περισσότερα αρχεία (+{count})",
+  "claims.sameFile": "Ίδιο αρχείο με {session}: {path}",
+  "claims.sameLines": "Ίδιες γραμμές με {session}: {path}, {lines}",
+  "claims.sameArea": "Ίδια περιοχή με {session}: {area}",
+  "claims.line": "γραμμή {line}",
+  "claims.lines": "γραμμές {start} έως {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Επικάλυψη με άλλες συνεδρίες",
+  "claims.warningHelp":
+    "Αλλάζουν και οι δύο το ίδιο σημείο. Η συγχώνευση μπορεί να φέρει σύγκρουση.",
+  "claims.showSession": "Εμφάνιση συνεδρίας",
+  "claims.sharedFolder":
+    "Αυτή η συνεδρία μοιράζεται τον φάκελό της με {sessions}. Οι αλλαγές ανήκουν στον φάκελο, όχι σε μία συνεδρία.",
+  "claims.changedLines": "Αλλαγμένα σημεία: {count}",
+  "claims.wholeFile": "ολόκληρο το αρχείο",
+  "claims.noticeTitle": "Οι {session} και {other} αλλάζουν το ίδιο αρχείο",
+  "claims.failed": "Δεν ήταν δυνατός ο έλεγχος επικαλύψεων: {error}",
   "profile.movedNotSaved":
     "Το {name} δεν αποθηκεύτηκε ακόμα: δεν είναι πια απλή μεταβλητή και η θήκη κλειδιών δεν δέχτηκε την τιμή ({error}). Αποθήκευσε ξανά, αλλιώς η τιμή χάνεται.",
   "profile.valueBuiltIn": "Τιμή της ενσωματωμένης καταχώρισης",
@@ -2175,6 +2230,9 @@ const es: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Los subagentes no están disponibles ahora para esta sesión. Lo estarán tras reiniciarla.",
   "subAgents.error": "No se pueden mostrar los subagentes: {error}",
+  "settings.claims": "Detectar coincidencias entre sesiones",
+  "settings.claimsHelp":
+    "Hangar mira qué archivos cambian los agentes y te avisa cuando dos de tus sesiones editan el mismo archivo o las mismas líneas. Todo queda en este equipo; Hangar no lee el contenido de los archivos para esto.",
   "settings.subAgentExcerpts": "Mostrar extractos de texto de los subagentes",
   "settings.subAgentExcerptsHelp":
     "Muestra el último texto de cada subagente. Las claves y contraseñas reconocibles se ocultan y no se guarda nada.",
@@ -2650,6 +2708,21 @@ const es: Record<MessageKey, string> = {
     "Contiene caracteres invisibles o que cambian la dirección, mostrados como <U+…>. El texto puede leerse distinto de lo que es.",
   "changes.hiddenShort": "Caracteres ocultos",
   "changes.moreFiles": "Mostrar más archivos (+{count})",
+  "claims.sameFile": "Mismo archivo que {session}: {path}",
+  "claims.sameLines": "Mismas líneas que {session}: {path}, {lines}",
+  "claims.sameArea": "Misma área que {session}: {area}",
+  "claims.line": "línea {line}",
+  "claims.lines": "líneas {start} a {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Coincidencias con otras sesiones",
+  "claims.warningHelp": "Ambas cambian lo mismo. Al unirlas puede haber un conflicto.",
+  "claims.showSession": "Mostrar sesión",
+  "claims.sharedFolder":
+    "Esta sesión comparte su carpeta con {sessions}. Los cambios pertenecen a la carpeta, no a una sola sesión.",
+  "claims.changedLines": "Lugares cambiados: {count}",
+  "claims.wholeFile": "archivo completo",
+  "claims.noticeTitle": "{session} y {other} cambian el mismo archivo",
+  "claims.failed": "No se pudieron comprobar las coincidencias: {error}",
   "profile.movedNotSaved":
     "{name} aún no está guardada: ya no es una variable normal y el llavero no aceptó el valor ({error}). Guarda de nuevo o el valor se perderá.",
   "profile.valueBuiltIn": "Valor de la entrada incluida",
@@ -2861,6 +2934,9 @@ const fr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Les sous-agents ne sont pas disponibles pour cette session pour le moment. Ils le seront après un redémarrage.",
   "subAgents.error": "Impossible d'afficher les sous-agents : {error}",
+  "settings.claims": "Détecter les chevauchements entre sessions",
+  "settings.claimsHelp":
+    "Hangar regarde quels fichiers les agents modifient et te prévient quand deux de tes sessions modifient le même fichier ou les mêmes lignes. Tout reste sur cet ordinateur ; Hangar ne lit aucun contenu de fichier pour cela.",
   "settings.subAgentExcerpts": "Afficher les extraits de texte des sous-agents",
   "settings.subAgentExcerptsHelp":
     "Affiche le dernier texte de chaque sous-agent. Les clés et mots de passe reconnaissables sont masqués et rien n'est enregistré.",
@@ -3344,6 +3420,21 @@ const fr: Record<MessageKey, string> = {
     "Contient des caractères invisibles ou qui changent le sens d'écriture, affichés comme <U+…>. Le texte peut se lire autrement qu'il n'est.",
   "changes.hiddenShort": "Caractères cachés",
   "changes.moreFiles": "Afficher plus de fichiers (+{count})",
+  "claims.sameFile": "Même fichier que {session} : {path}",
+  "claims.sameLines": "Mêmes lignes que {session} : {path}, {lines}",
+  "claims.sameArea": "Même zone que {session} : {area}",
+  "claims.line": "ligne {line}",
+  "claims.lines": "lignes {start} à {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Chevauchements avec d'autres sessions",
+  "claims.warningHelp": "Les deux modifient la même chose. La fusion peut provoquer un conflit.",
+  "claims.showSession": "Afficher la session",
+  "claims.sharedFolder":
+    "Cette session partage son dossier avec {sessions}. Les modifications appartiennent au dossier, pas à une seule session.",
+  "claims.changedLines": "Endroits modifiés : {count}",
+  "claims.wholeFile": "fichier entier",
+  "claims.noticeTitle": "{session} et {other} modifient le même fichier",
+  "claims.failed": "Impossible de vérifier les chevauchements : {error}",
   "profile.movedNotSaved":
     "{name} n'est pas encore enregistrée : ce n'est plus une variable ordinaire et le trousseau n'a pas accepté la valeur ({error}). Enregistre à nouveau, sinon la valeur sera perdue.",
   "profile.valueBuiltIn": "Valeur de l'entrée intégrée",
@@ -3555,6 +3646,9 @@ const it: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "I sotto-agenti non sono disponibili ora per questa sessione. Lo saranno dopo un riavvio.",
   "subAgents.error": "Impossibile mostrare i sotto-agenti: {error}",
+  "settings.claims": "Rileva sovrapposizioni tra sessioni",
+  "settings.claimsHelp":
+    "Hangar guarda quali file cambiano gli agenti e ti avvisa quando due tue sessioni modificano lo stesso file o le stesse righe. Tutto resta su questo computer; Hangar non legge il contenuto dei file per farlo.",
   "settings.subAgentExcerpts": "Mostra estratti di testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
     "Mostra l'ultimo testo di ogni sotto-agente. Chiavi e password riconoscibili vengono nascoste e non viene salvato nulla.",
@@ -4031,6 +4125,21 @@ const it: Record<MessageKey, string> = {
     "Contiene caratteri invisibili o che cambiano direzione, mostrati come <U+…>. Il testo può sembrare diverso da com'è.",
   "changes.hiddenShort": "Caratteri nascosti",
   "changes.moreFiles": "Mostra altri file (+{count})",
+  "claims.sameFile": "Stesso file di {session}: {path}",
+  "claims.sameLines": "Stesse righe di {session}: {path}, {lines}",
+  "claims.sameArea": "Stessa area di {session}: {area}",
+  "claims.line": "riga {line}",
+  "claims.lines": "righe da {start} a {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Sovrapposizioni con altre sessioni",
+  "claims.warningHelp": "Entrambe cambiano la stessa cosa. Unirle può causare un conflitto.",
+  "claims.showSession": "Mostra sessione",
+  "claims.sharedFolder":
+    "Questa sessione condivide la cartella con {sessions}. Le modifiche appartengono alla cartella, non a una singola sessione.",
+  "claims.changedLines": "Punti modificati: {count}",
+  "claims.wholeFile": "file intero",
+  "claims.noticeTitle": "{session} e {other} modificano lo stesso file",
+  "claims.failed": "Impossibile controllare le sovrapposizioni: {error}",
   "profile.movedNotSaved":
     "{name} non è ancora salvata: non è più una variabile normale e il portachiavi non ha accettato il valore ({error}). Salva di nuovo, altrimenti il valore va perso.",
   "profile.valueBuiltIn": "Valore della voce integrata",
@@ -4243,6 +4352,9 @@ const ja: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "このセッションでは現在サブエージェントを利用できません。再起動後に利用できます。",
   "subAgents.error": "サブエージェントを表示できません: {error}",
+  "settings.claims": "セッション間の重なりを検出",
+  "settings.claimsHelp":
+    "エージェントが変更するファイルを Hangar が確認し、2 つのセッションが同じファイルや同じ行を編集すると知らせます。すべてこのコンピューター内で行われ、ファイルの内容は読み取りません。",
   "settings.subAgentExcerpts": "サブエージェントのテキスト抜粋を表示",
   "settings.subAgentExcerptsHelp":
     "各サブエージェントの最新のテキストを表示します。認識できるキーやパスワードは隠され、何も保存されません。",
@@ -4718,6 +4830,21 @@ const ja: Record<MessageKey, string> = {
     "不可視文字または文字方向を変える文字を含みます（<U+…> と表示）。見た目と実際の内容が異なる可能性があります。",
   "changes.hiddenShort": "隠し文字",
   "changes.moreFiles": "さらにファイルを表示 (+{count})",
+  "claims.sameFile": "{session} と同じファイル: {path}",
+  "claims.sameLines": "{session} と同じ行: {path}、{lines}",
+  "claims.sameArea": "{session} と同じ領域: {area}",
+  "claims.line": "{line} 行目",
+  "claims.lines": "{start} から {end} 行目",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "ほかのセッションとの重なり",
+  "claims.warningHelp": "両方が同じ箇所を変更しています。統合時に競合する可能性があります。",
+  "claims.showSession": "セッションを表示",
+  "claims.sharedFolder":
+    "このセッションはフォルダーを {sessions} と共有しています。変更は 1 つのセッションではなくフォルダーに属します。",
+  "claims.changedLines": "変更箇所: {count}",
+  "claims.wholeFile": "ファイル全体",
+  "claims.noticeTitle": "{session} と {other} が同じファイルを変更しています",
+  "claims.failed": "重なりを確認できませんでした: {error}",
   "profile.movedNotSaved":
     "{name} はまだ保存されていません。通常の変数ではなくなり、キーチェーンも値を受け付けませんでした（{error}）。もう一度保存しないと値は失われます。",
   "profile.valueBuiltIn": "組み込み項目の値",
@@ -4929,6 +5056,9 @@ const pl: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Podagenci nie są teraz dostępni dla tej sesji. Będą po ponownym uruchomieniu.",
   "subAgents.error": "Nie można pokazać podagentów: {error}",
+  "settings.claims": "Wykrywaj nakładanie się sesji",
+  "settings.claimsHelp":
+    "Hangar sprawdza, które pliki zmieniają agenci, i ostrzega, gdy dwie twoje sesje edytują ten sam plik lub te same wiersze. Wszystko zostaje na tym komputerze; Hangar nie czyta przy tym zawartości plików.",
   "settings.subAgentExcerpts": "Pokazuj fragmenty tekstu podagentów",
   "settings.subAgentExcerptsHelp":
     "Pokazuje ostatni tekst każdego podagenta. Rozpoznawalne klucze i hasła są ukrywane, a nic nie jest zapisywane.",
@@ -5398,6 +5528,21 @@ const pl: Record<MessageKey, string> = {
     "Zawiera niewidoczne znaki lub znaki zmieniające kierunek, pokazane jako <U+…>. Tekst może wyglądać inaczej, niż działa.",
   "changes.hiddenShort": "Ukryte znaki",
   "changes.moreFiles": "Pokaż więcej plików (+{count})",
+  "claims.sameFile": "Ten sam plik co {session}: {path}",
+  "claims.sameLines": "Te same wiersze co {session}: {path}, {lines}",
+  "claims.sameArea": "Ten sam obszar co {session}: {area}",
+  "claims.line": "wiersz {line}",
+  "claims.lines": "wiersze od {start} do {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Nakładanie się z innymi sesjami",
+  "claims.warningHelp": "Obie zmieniają to samo. Przy scalaniu może dojść do konfliktu.",
+  "claims.showSession": "Pokaż sesję",
+  "claims.sharedFolder":
+    "Ta sesja dzieli folder z: {sessions}. Zmiany należą do folderu, a nie do jednej sesji.",
+  "claims.changedLines": "Zmienione miejsca: {count}",
+  "claims.wholeFile": "cały plik",
+  "claims.noticeTitle": "{session} i {other} zmieniają ten sam plik",
+  "claims.failed": "Nie udało się sprawdzić nakładania: {error}",
   "profile.movedNotSaved":
     "{name} nie jest jeszcze zapisana: nie jest już zwykłą zmienną, a pęk kluczy nie przyjął wartości ({error}). Zapisz ponownie, inaczej wartość przepadnie.",
   "profile.valueBuiltIn": "Wartość wbudowanego wpisu",
@@ -5610,6 +5755,9 @@ const pt: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Os subagentes não estão disponíveis agora para esta sessão. Estarão após reiniciá-la.",
   "subAgents.error": "Não foi possível mostrar os subagentes: {error}",
+  "settings.claims": "Detectar sobreposições entre sessões",
+  "settings.claimsHelp":
+    "O Hangar observa quais arquivos os agentes alteram e avisa quando duas sessões suas editam o mesmo arquivo ou as mesmas linhas. Tudo fica neste computador; o Hangar não lê o conteúdo dos arquivos para isso.",
   "settings.subAgentExcerpts": "Mostrar trechos de texto dos subagentes",
   "settings.subAgentExcerptsHelp":
     "Mostra o texto mais recente de cada subagente. Chaves e senhas reconhecíveis ficam ocultas e nada é salvo.",
@@ -6085,6 +6233,21 @@ const pt: Record<MessageKey, string> = {
     "Contém caracteres invisíveis ou que mudam a direção, mostrados como <U+…>. O texto pode parecer diferente do que é.",
   "changes.hiddenShort": "Caracteres ocultos",
   "changes.moreFiles": "Mostrar mais arquivos (+{count})",
+  "claims.sameFile": "Mesmo arquivo que {session}: {path}",
+  "claims.sameLines": "Mesmas linhas que {session}: {path}, {lines}",
+  "claims.sameArea": "Mesma área que {session}: {area}",
+  "claims.line": "linha {line}",
+  "claims.lines": "linhas {start} a {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Sobreposições com outras sessões",
+  "claims.warningHelp": "As duas mudam a mesma coisa. Ao juntar, pode haver um conflito.",
+  "claims.showSession": "Mostrar sessão",
+  "claims.sharedFolder":
+    "Esta sessão compartilha a pasta com {sessions}. As alterações pertencem à pasta, não a uma única sessão.",
+  "claims.changedLines": "Trechos alterados: {count}",
+  "claims.wholeFile": "arquivo inteiro",
+  "claims.noticeTitle": "{session} e {other} alteram o mesmo arquivo",
+  "claims.failed": "Não foi possível verificar sobreposições: {error}",
   "profile.movedNotSaved":
     "{name} ainda não foi salva: não é mais uma variável comum e o chaveiro não aceitou o valor ({error}). Salve de novo, senão o valor se perde.",
   "profile.valueBuiltIn": "Valor da entrada embutida",
@@ -6298,6 +6461,9 @@ const ru: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Субагенты сейчас недоступны для этого сеанса. Они станут доступны после перезапуска.",
   "subAgents.error": "Не удалось показать субагентов: {error}",
+  "settings.claims": "Находить пересечения между сессиями",
+  "settings.claimsHelp":
+    "Hangar следит, какие файлы меняют агенты, и предупреждает, когда две твои сессии правят один файл или одни строки. Всё остаётся на этом компьютере; содержимое файлов Hangar для этого не читает.",
   "settings.subAgentExcerpts": "Показывать фрагменты текста субагентов",
   "settings.subAgentExcerptsHelp":
     "Показывает последний текст каждого субагента. Распознанные ключи и пароли скрываются, ничего не сохраняется.",
@@ -6765,6 +6931,21 @@ const ru: Record<MessageKey, string> = {
     "Содержит невидимые символы или символы смены направления, показанные как <U+…>. Текст может выглядеть не так, как работает.",
   "changes.hiddenShort": "Скрытые символы",
   "changes.moreFiles": "Показать ещё файлы (+{count})",
+  "claims.sameFile": "Тот же файл, что у {session}: {path}",
+  "claims.sameLines": "Те же строки, что у {session}: {path}, {lines}",
+  "claims.sameArea": "Та же область, что у {session}: {area}",
+  "claims.line": "строка {line}",
+  "claims.lines": "строки с {start} по {end}",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Пересечения с другими сессиями",
+  "claims.warningHelp": "Обе меняют одно и то же. При слиянии возможен конфликт.",
+  "claims.showSession": "Показать сессию",
+  "claims.sharedFolder":
+    "Эта сессия делит папку с: {sessions}. Изменения относятся к папке, а не к одной сессии.",
+  "claims.changedLines": "Изменённые места: {count}",
+  "claims.wholeFile": "весь файл",
+  "claims.noticeTitle": "{session} и {other} меняют один и тот же файл",
+  "claims.failed": "Не удалось проверить пересечения: {error}",
   "profile.movedNotSaved":
     "{name} ещё не сохранена: это уже не обычная переменная, а связка ключей не приняла значение ({error}). Сохрани ещё раз, иначе значение пропадёт.",
   "profile.valueBuiltIn": "Значение встроенной записи",
@@ -6973,6 +7154,9 @@ const tr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Bu oturum için alt ajanlar şu anda kullanılamıyor. Yeniden başlattıktan sonra kullanılabilir.",
   "subAgents.error": "Alt ajanlar gösterilemiyor: {error}",
+  "settings.claims": "Oturumlar arasındaki çakışmaları algıla",
+  "settings.claimsHelp":
+    "Hangar ajanların hangi dosyaları değiştirdiğine bakar ve iki oturumun aynı dosyayı ya da aynı satırları düzenlediğinde seni uyarır. Her şey bu bilgisayarda kalır; Hangar bunun için dosya içeriği okumaz.",
   "settings.subAgentExcerpts": "Alt ajan metin alıntılarını göster",
   "settings.subAgentExcerptsHelp":
     "Her alt ajanın son metnini gösterir. Tanınabilen anahtarlar ve parolalar gizlenir, hiçbiri kaydedilmez.",
@@ -7441,6 +7625,21 @@ const tr: Record<MessageKey, string> = {
     "Görünmez ya da yön değiştiren karakterler içeriyor, <U+…> olarak gösteriliyor. Metin olduğundan farklı görünebilir.",
   "changes.hiddenShort": "Gizli karakterler",
   "changes.moreFiles": "Daha fazla dosya göster (+{count})",
+  "claims.sameFile": "{session} ile aynı dosya: {path}",
+  "claims.sameLines": "{session} ile aynı satırlar: {path}, {lines}",
+  "claims.sameArea": "{session} ile aynı alan: {area}",
+  "claims.line": "satır {line}",
+  "claims.lines": "satır {start} ile {end} arası",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "Diğer oturumlarla çakışma",
+  "claims.warningHelp": "İkisi de aynı yeri değiştiriyor. Birleştirirken çakışma olabilir.",
+  "claims.showSession": "Oturumu göster",
+  "claims.sharedFolder":
+    "Bu oturum klasörünü {sessions} ile paylaşıyor. Değişiklikler tek bir oturuma değil, klasöre ait.",
+  "claims.changedLines": "Değişen yerler: {count}",
+  "claims.wholeFile": "tüm dosya",
+  "claims.noticeTitle": "{session} ve {other} aynı dosyayı değiştiriyor",
+  "claims.failed": "Çakışmalar denetlenemedi: {error}",
   "profile.movedNotSaved":
     "{name} henüz kaydedilmedi: artık normal bir değişken değil ve anahtar zinciri değeri almadı ({error}). Yeniden kaydet, yoksa değer kaybolur.",
   "profile.valueBuiltIn": "Yerleşik girdinin değeri",
@@ -7648,6 +7847,9 @@ const zh: Record<MessageKey, string> = {
   "subAgents.none": "暂无子代理。代理启动子代理后会显示在这里。",
   "subAgents.unavailable": "此会话目前无法使用子代理，重新启动后即可使用。",
   "subAgents.error": "无法显示子代理：{error}",
+  "settings.claims": "检测会话之间的重叠",
+  "settings.claimsHelp":
+    "Hangar 会查看代理修改了哪些文件，并在你的两个会话编辑同一文件或相同的行时提醒你。一切都留在这台电脑上，Hangar 不会为此读取文件内容。",
   "settings.subAgentExcerpts": "显示子代理文本摘录",
   "settings.subAgentExcerptsHelp":
     "显示每个子代理的最新文本。可识别的密钥和密码会被隐藏，不会保存任何内容。",
@@ -8095,6 +8297,20 @@ const zh: Record<MessageKey, string> = {
     "包含不可见字符或改变文字方向的字符，显示为 <U+…>。文本的显示可能与实际内容不同。",
   "changes.hiddenShort": "隐藏字符",
   "changes.moreFiles": "显示更多文件 (+{count})",
+  "claims.sameFile": "与 {session} 修改同一文件：{path}",
+  "claims.sameLines": "与 {session} 修改相同的行：{path}，{lines}",
+  "claims.sameArea": "与 {session} 位于同一区域：{area}",
+  "claims.line": "第 {line} 行",
+  "claims.lines": "第 {start} 至 {end} 行",
+  "claims.moreCount": "(+{count})",
+  "claims.warningTitle": "与其他会话重叠",
+  "claims.warningHelp": "两者修改了相同的内容，合并时可能产生冲突。",
+  "claims.showSession": "显示会话",
+  "claims.sharedFolder": "此会话与 {sessions} 共用文件夹。这些更改属于文件夹，而不是某一个会话。",
+  "claims.changedLines": "更改处：{count}",
+  "claims.wholeFile": "整个文件",
+  "claims.noticeTitle": "{session} 和 {other} 正在修改同一文件",
+  "claims.failed": "无法检查重叠：{error}",
   "profile.movedNotSaved":
     "{name} 尚未保存：它已不再是普通变量，而钥匙串也未接受该值（{error}）。请再次保存，否则该值会丢失。",
   "profile.valueBuiltIn": "内置条目的值",

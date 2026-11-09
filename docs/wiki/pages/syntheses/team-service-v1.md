@@ -2,7 +2,7 @@
 title: "Team service version 1: research results and build plan"
 type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
-sources: []
+sources: ["[[claims-rescan-measurement]]"]
 created: 2026-11-09
 updated: 2026-11-09
 ---
@@ -128,10 +128,56 @@ Each step is useful on its own and ships behind a setting until the team parts e
 
 Shipping the team feature needs macOS and Linux builds (ADR 0005, consequences).
 
+### Step A as built (2026-11-09)
+
+Local claims, behind the setting "Detect overlaps between sessions" (on by default). Measurement
+and timing: [[claims-rescan-measurement]].
+
+- **Backend:** `src-tauri/src/claims.rs` (pure: porcelain v2 and `-U0` hunk parsing, claims,
+  overlap levels, coalescer with injected time) and `src-tauri/src/claims_service.rs` (one worker
+  thread, one notify 8.2 watcher per distinct worktree, rescans through `Git::run`).
+- **Which sessions:** running agent sessions of the session manager (no update sessions, no
+  exited ones). Each folder is resolved once with `rev-parse --show-toplevel --git-dir
+  --git-common-dir`; sessions in one worktree share its watcher and its rescan.
+- **Rescan:** filter overrides, `status --porcelain=v2 -z --branch --no-renames`, and only with
+  a base commit and changes `diff -U0 --no-ext-diff --no-textconv --no-renames HEAD --`. Hunk
+  headers only; a pure insertion after line `a` counts as lines `a` to `a + 1`. Whole file: new,
+  deleted, untracked, conflicted, binary, more than 64 hunks, no hunks (mode only), no base, or
+  past the 4 MiB output limit. Never file contents.
+- **Keys:** repository = git common folder, worktree = top folder, both resolved, `/`
+  separators, lower case on Windows and macOS. File paths compare case-insensitively there too.
+- **Overlap levels:** `none`, `sameArea` (same first folder, no shared file in it), `sameFile`,
+  `overlappingLines` (same base commit and ranges within 3 lines). Different bases: file level
+  only. Root files have no area.
+- **Shared folder:** sessions in one worktree are never compared with each other; each lists the
+  others in `sharedWith` and the panel says the changes belong to the folder.
+- **Watcher:** recursive on the worktree; inside a git folder only `HEAD`, `index` and
+  `logs/HEAD` count (commits, checkouts, staging); a linked worktree's own git folder is watched
+  too. Rescan flag, error or a network folder: poll only. A poll that finds unreported changes
+  restarts the watcher (silent unwatch after an overflow on Windows).
+- **Timing:** 750 ms quiet, 3 s maximum wait, gap ten times the last rescan's cost (1 to 30 s),
+  safety poll 60 s (30 s without a watcher). One worker: at most one git call of the claims at a
+  time.
+- **Removal:** `remove_worktree` checks the record, then `ClaimsService::release` closes the
+  worktree's watcher and waits for a running scan before git removes the folder; no watcher or
+  scan starts there again while a session still names it.
+- **Interface:** commands `configure_claims(enabled)` and `claims_snapshot()` (main window only),
+  event `claims-changed` with `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps:
+  Overlap[] }`; each overlap is listed from both sides (`sessionId`, `otherId`). Types mirror in
+  `src/claims.ts`.
+- **UI:** a warm overlap icon in the session row (tooltip and screen reader text "Same file as
+  <session>: <path>", file levels only); in the Changes tab a warning block with every overlap
+  and "Show session", a shared folder note, and a collapsible list of changed places with line
+  ranges; a notice in the window and, in the background, a desktop notification under the
+  existing notification settings, once per session pair and file per app run.
+- **Not built yet:** configurable areas (first folder only), committed but unmerged changes on a
+  session branch (only uncommitted changes against HEAD count), stage 2 with `git merge-tree`.
+
 ## Still to verify by measurement
 - Claude Code http hook: does a connection failure fail open or closed; do sub-agent tool calls
   pass `PreToolUse`.
 - Codex: path shape of `apply_patch` input; Gemini: hook merging with
   `GEMINI_CLI_SYSTEM_SETTINGS_PATH`; Copilot: per-session hooks.
-- Cost of `git status` and `git diff -U0` on a large repository on Windows.
+- Cost of `git status` and `git diff -U0` on a large repository on Windows: measured, see
+  [[claims-rescan-measurement]]. macOS and Linux still open.
 - Exact versions of `chacha20poly1305` and the dalek crates before pinning.

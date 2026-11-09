@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the check_program_updates command without any pre-configured scope."
         },
         {
+          "description": "Enables the claims_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-claims-snapshot",
+          "markdownDescription": "Enables the claims_snapshot command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clear_scrollbacks command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clear-scrollbacks",
@@ -199,6 +205,12 @@
           "type": "string",
           "const": "allow-close-session",
           "markdownDescription": "Enables the close_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the configure_claims command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-configure-claims",
+          "markdownDescription": "Enables the configure_claims command without any pre-configured scope."
         },
         {
           "description": "Enables the configure_tray command without any pre-configured scope.",
@@ -525,6 +537,12 @@
           "markdownDescription": "Denies the check_program_updates command without any pre-configured scope."
         },
         {
+          "description": "Denies the claims_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-claims-snapshot",
+          "markdownDescription": "Denies the claims_snapshot command without any pre-configured scope."
+        },
+        {
           "description": "Denies the clear_scrollbacks command without any pre-configured scope.",
           "type": "string",
           "const": "deny-clear-scrollbacks",
@@ -535,6 +553,12 @@
           "type": "string",
           "const": "deny-close-session",
           "markdownDescription": "Denies the close_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the configure_claims command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-configure-claims",
+          "markdownDescription": "Denies the configure_claims command without any pre-configured scope."
         },
         {
           "description": "Denies the configure_tray command without any pre-configured scope.",

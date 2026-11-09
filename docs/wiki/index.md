@@ -25,6 +25,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Concepts
 
 ## Sources
+- [[claims-rescan-measurement]]: measurement: git status and diff -U0 through Git::run take about 150 ms on 50 000 files, 1.3 s with stale stat data; notify 8.2 on Windows unwatches silently after an overflow (updated: 2026-11-09)
 - [[terminal-grapheme-widths]]: Unicode 11 counts emoji+VS16 as 1 cell, 15-graphemes as 2 like string-width; measured width table, no emoji fonts in the stack (sources: 0, updated: 2026-11-08)
 - [[update-installers]]: research and measurement: detecting npm, winget, uv, brew and native installs from the resolved path, self-updaters, look-alike packages (updated: 2026-11-08)
 - [[resume-id-measurement]]: measurement: `claude --resume <unknown uuid>` exits 1 after about 1 s and creates nothing; `--session-id` refuses an id whose transcript exists (updated: 2026-11-08)
@@ -43,7 +44,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
-- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server) and the build plan in steps A to G (sources: 0, updated: 2026-11-09)
+- [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and step A (local claims) as built (sources: 1, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
 - [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window) and the notes UI as built (sources: 0, updated: 2026-11-09)

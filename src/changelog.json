@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Zwei Agenten an derselben Datei? Hangar merkt es: ein Hinweis an der Session, in „Änderungen“ die betroffenen Zeilen und ein Sprung zur anderen Session.",
+        "en": "Two agents on the same file? Hangar notices: a marker on the session, the affected lines under Changes and a jump to the other session.",
+        "el": "Δύο πράκτορες στο ίδιο αρχείο; Το Hangar το προσέχει: σήμανση στη συνεδρία, οι γραμμές στις Αλλαγές και μετάβαση στην άλλη συνεδρία.",
+        "es": "¿Dos agentes en el mismo archivo? Hangar lo nota: una marca en la sesión, las líneas afectadas en Cambios y un salto a la otra sesión.",
+        "fr": "Deux agents sur le même fichier ? Hangar le remarque : un repère sur la session, les lignes concernées dans Modifications et un saut vers l'autre session.",
+        "it": "Due agenti sullo stesso file? Hangar se ne accorge: un segno sulla sessione, le righe coinvolte in Modifiche e un salto all'altra sessione.",
+        "ja": "2 つのエージェントが同じファイルを変更？ Hangar が気づきます。セッションに目印、「変更」に該当行、もう一方のセッションへすぐ移動。",
+        "pl": "Dwóch agentów w tym samym pliku? Hangar to zauważa: znacznik przy sesji, dotknięte wiersze w Zmianach i przejście do drugiej sesji.",
+        "pt": "Dois agentes no mesmo arquivo? O Hangar percebe: uma marca na sessão, as linhas afetadas em Alterações e um salto para a outra sessão.",
+        "ru": "Два агента в одном файле? Hangar это замечает: значок у сессии, затронутые строки в «Изменениях» и переход к другой сессии.",
+        "tr": "İki ajan aynı dosyada mı? Hangar fark eder: oturumda bir işaret, Değişiklikler'de ilgili satırlar ve diğer oturuma geçiş.",
+        "zh": "两个代理在改同一个文件？Hangar 会发现：会话上有标记，“更改”中列出相关行，并可跳转到另一个会话。"
+      },
+      {
         "de": "Notizen neu: eine ruhige Liste mit Suche über alle Projekte, Checklisten zum Abhaken und mit Strg+Umschalt+N überall eine schnelle Notiz.",
         "en": "Notes, redone: a calm list with search across all projects, checklists you can tick, and a quick note from anywhere with Ctrl+Shift+N.",
         "el": "Νέες σημειώσεις: ήρεμη λίστα με αναζήτηση σε όλα τα έργα, λίστες ελέγχου με τικ και γρήγορη σημείωση από παντού με Ctrl+Shift+N.",

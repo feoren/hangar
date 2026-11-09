@@ -48,6 +48,8 @@ const COMMANDS: &[&str] = &[
     "git_diff",
     "create_worktree",
     "remove_worktree",
+    "configure_claims",
+    "claims_snapshot",
     "save_profile",
     "delete_profile",
     "profile_env",

@@ -124,5 +124,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                             |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                      |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                         |
+| Anspruch (geänderte Datei einer Session)        | claim                             | `claims.rs`; path, kind of change, line ranges on the base side, area  |
+| Überschneidung                                  | overlap                           | `OverlapLevel`: same area, same file, overlapping lines                |
+| Basis-Commit                                    | base commit                       | HEAD of the session's worktree; lines are compared on this side        |
+| Bereich (Claims: erster Ordner eines Pfads)     | area                              | `Claim.area`; configurable per repository later                        |
+| Geteilter Ordner                                | shared folder                     | several sessions in one folder share its changes                       |
 | Programm-Editor                                 | profile editor                    | `ProfileEditor.tsx`; Settings, Programs                                |
 | Anpassen (eingebauter Eintrag)                  | customize                         | saving a catalog or WSL entry as the user's own profile                |

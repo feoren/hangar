@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, errorText } from "./api";
+import type { Overlap, SessionClaims } from "./claims";
+import { ClaimsSection } from "./ClaimsView";
 import { folderName } from "./folders";
 import {
   CHANGE_LABELS,
@@ -29,6 +31,12 @@ interface Props {
   trigger: string;
   /** Goes up when the panel should take the focus (opened via shortcut or menu). */
   focusToken: number;
+  /** The active session's claims (claims.ts); `null` while off or not known yet. */
+  claims: SessionClaims | null;
+  /** Its collisions with other sessions, worst first. */
+  overlaps: readonly Overlap[];
+  nameOf: (id: number) => string;
+  onShowSession: (id: number) => void;
 }
 
 type Load =
@@ -117,6 +125,13 @@ export function ChangesPanel(props: Props) {
           <RestartIcon />
         </button>
       </div>
+      <ClaimsSection
+        key={props.claims?.sessionId ?? "none"}
+        claims={props.claims}
+        overlaps={props.overlaps}
+        nameOf={props.nameOf}
+        onShowSession={props.onShowSession}
+      />
       <ChangesBody cwd={cwd} load={load} />
     </div>
   );

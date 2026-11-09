@@ -19,6 +19,7 @@ import {
   ExpandIcon,
   FolderIcon,
   HangarLogo,
+  OverlapIcon,
   MoonIcon,
   NotesIcon,
   PlusIcon,
@@ -102,6 +103,8 @@ interface Props {
   activityOf: (id: number, now: number) => Activity;
   /** Git branch per working folder; missing or `null`: none shown. */
   branches: ReadonlyMap<string, string | null>;
+  /** Sessions that change a file another session changes too: the marker text (claims.ts). */
+  overlaps: ReadonlyMap<number, string>;
   /** UI language, for the compact durations. */
   language: string;
   /** Session whose name is being edited in the sidebar right now. */
@@ -460,6 +463,7 @@ export function Sidebar(props: Props) {
                   className={className.filter(Boolean).join(" ")}
                   title={[
                     `${session.title} · ${status}`,
+                    props.overlaps.get(session.id) ?? "",
                     detailText(where, t),
                     session.worktree
                       ? t("worktree.sessionHint", {
@@ -478,6 +482,7 @@ export function Sidebar(props: Props) {
                     session.marker?.emoji,
                     session.title,
                     status,
+                    props.overlaps.get(session.id),
                     markerColorText(session.marker, t),
                   ]
                     .filter(Boolean)
@@ -1137,6 +1142,7 @@ function SessionItem({
   onRenameStart,
   onRenameEnd,
   onSessionMenu,
+  overlaps,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -1144,6 +1150,7 @@ function SessionItem({
   const status = lines.status;
   const where = lines.detail;
   const detail = exitDetail(session, t);
+  const overlap = overlaps.get(session.id);
   const className = [
     "session",
     active ? "active" : "",
@@ -1188,6 +1195,7 @@ function SessionItem({
           className="session-main"
           title={[
             waiting ? `${session.title} · ${status}` : "",
+            overlap ?? "",
             detail,
             session.worktree
               ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
@@ -1221,6 +1229,12 @@ function SessionItem({
             <span className="session-title-row">
               <SessionMarker marker={session.marker} />
               <span className="session-title">{session.title}</span>
+              {overlap !== undefined && (
+                <span className="session-overlap">
+                  <OverlapIcon size={12} />
+                  <span className="sr-only">{overlap}</span>
+                </span>
+              )}
             </span>
             <span className="session-meta">
               <span className={`dot ${waiting ? "attention" : session.status}`} />

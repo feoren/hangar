@@ -441,6 +441,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <p id="sub-agent-excerpts-help" className="muted settings-help">
         {t("settings.subAgentExcerptsHelp")}
       </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.claimsEnabled}
+          aria-describedby="claims-help"
+          onChange={(event) => {
+            onChange({ claimsEnabled: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.claims")}</span>
+      </label>
+      <p id="claims-help" className="muted settings-help">
+        {t("settings.claimsHelp")}
+      </p>
     </section>
   );
 }

@@ -60,6 +60,11 @@ fn commands_are_registered_allowed_and_wired() {
             "{command} missing from generate_handler (lib.rs)"
         );
     }
+    // Local claims: the main window turns them on and reads them; the notes window never does
+    // (notes_window_capability_is_narrow allows note commands only).
+    for command in ["configure_claims", "claims_snapshot"] {
+        assert!(commands.iter().any(|c| c == command), "{command} missing");
+    }
     for command in [
         "save_workspace",
         "load_workspace",

@@ -159,6 +159,11 @@ fn remote_prefix(path: &Path) -> Option<String> {
     }
 }
 
+/// The path names a network share or a device rather than a local drive.
+pub fn is_remote(path: &Path) -> bool {
+    remote_prefix(path).is_some()
+}
+
 /// Target of a `.git` file: `gitdir: <path>`.
 pub fn parse_gitdir_file(content: &str) -> Option<PathBuf> {
     content

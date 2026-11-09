@@ -113,3 +113,11 @@ Filed the desk research on the open questions of ADR 0005: pre-edit hooks per ag
 observation with git as the oracle and two-stage conflict detection, team key epochs instead of
 MLS, a single Rust server with WebSocket and SQLite, and the build plan in steps A to G.
 Pages changed: [[team-service-v1]], [[0005-team-collaboration]].
+
+## [2026-11-09] ingest | Claims rescan measurement and step A as built
+Measured `git status --porcelain=v2` and `git diff -U0` through `Git::run` on 382 and 50 000
+files (about 150 ms per rescan, 1.3 s with stale stat data) and read notify 8.2.2's Windows
+completion routine (silent unwatch after an overflow). Built local claims (step A): watcher per
+worktree as a trigger, coalesced git rescans, overlap levels, sidebar marker, warning block in
+the Changes tab, one-time notice. Pages changed: [[claims-rescan-measurement]],
+[[team-service-v1]], [[overview]].

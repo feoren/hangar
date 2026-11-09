@@ -9,6 +9,8 @@ use tauri::ipc::Channel;
 use tauri::{Emitter as _, Manager as _, State};
 
 use crate::agent_catalog::ProfileView;
+use crate::claims::ClaimsSnapshot;
+use crate::claims_service::ClaimsService;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::git::{self, Git, GitDiff, GitError};
@@ -963,18 +965,38 @@ pub async fn create_worktree(
     .map_err(|error| GitError::Task(error.to_string()))?
 }
 
-/// Never forces: what stays is reported in `reason`.
+/// Never forces: what stays is reported in `reason`. The claims let go of the worktree first
+/// (watcher closed, running scan finished), since Windows keeps a watched folder open.
 #[tauri::command]
 pub async fn remove_worktree(
+    app: tauri::AppHandle,
     store: State<'_, Store>,
     worktree: Worktree,
 ) -> Result<Removal, WorktreeError> {
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
+        worktree::check_shape(&worktree)?;
+        worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
+        app.state::<ClaimsService>().release(&worktree.path);
         worktree::remove(&Git::locate()?, &base, &worktree)
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Local claims (claims.rs, claims_service.rs). Contract: team-service-v1.md, step A.
+
+/// Turns the observation of the sessions' changed files on or off. While on, the backend emits
+/// `claims-changed` to the main window with every new [`ClaimsSnapshot`].
+#[tauri::command]
+pub fn configure_claims(claims: State<'_, ClaimsService>, enabled: bool) {
+    claims.configure(enabled);
+}
+
+/// The newest snapshot, for a window that starts listening late.
+#[tauri::command]
+pub fn claims_snapshot(claims: State<'_, ClaimsService>) -> ClaimsSnapshot {
+    claims.snapshot()
 }
 
 // Export (export.rs) and notification area icon (tray.rs).

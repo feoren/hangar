@@ -344,3 +344,13 @@ export function TaskIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Two sessions touch the same file: two overlapping sheets. */
+export function OverlapIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="2.5" width="7.5" height="9" rx="1.2" />
+      <path d="M6.5 11.5v1a1 1 0 0 0 1 1H13a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-3.5" />
+    </Svg>
+  );
+}

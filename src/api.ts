@@ -259,6 +259,13 @@ export const api = {
     invoke<unknown>("create_worktree", { cwd, label }),
   /** Never forces; what stays is named in `reason`. Check with `parseRemoval`. */
   removeWorktree: (worktree: Worktree) => invoke<unknown>("remove_worktree", { worktree }),
+  /**
+   * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
+   * While on, the backend emits `claims-changed` with every new snapshot.
+   */
+  configureClaims: (enabled: boolean) => invoke<null>("configure_claims", { enabled }),
+  /** The newest claims snapshot; check with `parseClaimsSnapshot`. */
+  claimsSnapshot: () => invoke<unknown>("claims_snapshot"),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */
@@ -291,6 +298,8 @@ export interface TrayLabels {
 export const NOTIFICATION_ACTIVATED = "notification-activated";
 /** Event sent by the notification area menu item Quit. */
 export const TRAY_QUIT = "tray-quit";
+/** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
+export const CLAIMS_CHANGED = "claims-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
 export function parseActivatedSession(payload: unknown): number | null {

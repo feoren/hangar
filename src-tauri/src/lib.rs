@@ -2,6 +2,8 @@
 
 pub mod agent_catalog;
 pub mod batch;
+pub mod claims;
+pub mod claims_service;
 pub mod cli_session;
 mod commands;
 pub mod desktop;
@@ -34,7 +36,7 @@ pub mod wsl;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter as _, Manager, RunEvent};
 
 use crate::commands::{ProbeCaches, ProfileLoad};
 use crate::manager::SessionManager;
@@ -95,6 +97,21 @@ pub fn run() -> tauri::Result<()> {
             notes.migrate_legacy_layout();
             app.manage(notes);
             app.manage(persist::Store::new(local_dir));
+            // Local claims: the worker stays idle until the window turns the setting on.
+            let claims = claims_service::ClaimsService::default();
+            let sessions = app.handle().clone();
+            let events = app.handle().clone();
+            let started = claims.start(
+                move || claims_service::watched_sessions(&sessions.state::<SessionManager>()),
+                move |snapshot| {
+                    let _ =
+                        events.emit_to(notes_window::MAIN_LABEL, claims_service::EVENT, snapshot);
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: claims not started: {error}");
+            }
+            app.manage(claims);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -144,6 +161,8 @@ pub fn run() -> tauri::Result<()> {
             commands::git_diff,
             commands::create_worktree,
             commands::remove_worktree,
+            commands::configure_claims,
+            commands::claims_snapshot,
             commands::save_profile,
             commands::delete_profile,
             commands::profile_env,
@@ -161,6 +180,7 @@ pub fn run() -> tauri::Result<()> {
         if let RunEvent::Exit = event {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
+            handle.state::<claims_service::ClaimsService>().stop();
             handle.state::<SessionManager>().shutdown();
         }
     });

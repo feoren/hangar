@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 # Overview
@@ -35,3 +35,9 @@ and whether SimplySign can be automated.
 ## .cmd launcher scripts on Windows
 npm shims get NoDefaultCurrentDirectoryInExePath; characters that are special to cmd.exe in the path or
 arguments are rejected ([[cmd-launcher]]). Open: scripts that pass arguments on via `%~1`.
+
+## Local claims (team service step A)
+Hangar watches each running session's worktree and warns when two of the user's sessions change
+the same file or lines; git decides, the watcher only triggers rescans ([[team-service-v1]],
+[[claims-rescan-measurement]]). Open: cost and watcher limits on macOS and Linux (inotify watch
+limit, FSEvents), committed but unmerged branch changes, configurable areas.
