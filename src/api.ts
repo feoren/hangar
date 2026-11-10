@@ -5,6 +5,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { t } from "./i18n";
 import type { AccountPage } from "./account";
+import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
 import type { NotesMessage } from "./notesBridge";
 import type { SessionState } from "./team";
@@ -248,6 +249,13 @@ export const api = {
    */
   exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
     invoke<unknown>("export_session", { format, content, suggestedName }),
+  /**
+   * Saves the clipboard's image as a PNG in the app's cache folder (removed after a week): its
+   * path, `noImage`, or `busy` while another paste runs. Rejects with a message when reading or
+   * saving fails.
+   */
+  pasteClipboardImage: async (): Promise<ImagePaste> =>
+    parseImagePaste(await invoke<unknown>("paste_clipboard_image")),
 
   /**
    * Desktop notification for a session; `false` when the platform has no support. A click on it

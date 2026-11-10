@@ -406,7 +406,7 @@ pub(crate) fn create_private_dir(dir: &Path) -> io::Result<()> {
     builder.create(dir)
 }
 
-fn create_private_file(path: &Path) -> io::Result<File> {
+pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

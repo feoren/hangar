@@ -1757,6 +1757,8 @@ dependencies = [
 name = "hangar"
 version = "0.4.0"
 dependencies = [
+ "arboard",
+ "clipboard-win",
  "futures-util",
  "hangar-team-crypto",
  "hangar-team-protocol",

@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: []
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-10
 ---
 
 # Agent workflow features (0.3.0)
@@ -35,6 +35,35 @@ Each command is added to `COMMANDS` in `src-tauri/build.rs` and granted in
 Official plugin `tauri-plugin-clipboard-manager`; capabilities `clipboard-manager:allow-read-text`
 and `clipboard-manager:allow-write-text`. Used by the menu items Copy and Paste, which today rely
 on `navigator.clipboard` and fail in WebView2.
+
+Pasting a screenshot (as built, `src/clipboardPaste.ts`, `src-tauri/src/paste_image.rs`,
+`src-tauri/src/clipboard_image.rs`): when a paste carries no text, `paste_clipboard_image` reads
+the clipboard's image, saves it as a PNG under `app_cache_dir()/pastes` (removed after 7 days, at
+most 40 megapixels; on Unix the folder is 0700 and each file 0600) and answers
+`{kind: "saved", path} | {kind: "noImage"} | {kind: "busy"}`; the window pastes the quoted path
+like a dropped file. Text on the clipboard always wins over an image.
+
+- The clipboard image is untrusted input. arboard 3.7.0 decodes the Windows "PNG" format with
+  `image`'s `Limits::no_limits()` and allocates the pixel buffer from the header (read in
+  `src/platform/windows.rs`), so a few kilobytes claiming 65535x65535 pixels abort the app. On
+  Windows Hangar therefore reads "PNG", then `CF_DIBV5`, then `CF_DIB` itself through
+  `clipboard-win` (raw data at most 4 bytes per allowed pixel plus 1 MiB), checks width and
+  height from the IHDR chunk or the bitmap header before decoding, and decodes PNG with
+  `png::Limits` and 24 or 32 bit bitmaps by hand; palettes, 16 bit and compressed bitmaps are
+  refused.
+- On macOS and Linux arboard decodes through `image::ImageReader`, whose default `Limits` cap
+  each allocation at 512 MiB (image 0.25.10, `src/io/limits.rs`); `arboard` is a direct
+  dependency there because the plugin's `read_image` maps `ContentNotAvailable` to an untyped
+  string error.
+
+  > [!question] Unverified
+  > Not tried on a real X11, Wayland or macOS clipboard yet, and the raw transfer from the other
+  > program has no limit of Hangar's own there.
+- One paste at a time: the backend answers `busy` while one runs (`PasteGate`), and each terminal
+  drops repeats while its own paste waits (`imagePasteInFlight`). A held Ctrl+V would otherwise
+  decode a whole screen many times in parallel.
+- Known limit of the quoting (also for drag and drop): it follows the program the profile starts,
+  not a program started inside the session, such as bash inside a cmd session.
 
 ### Notifications
 - `notify_session(id: number, title: string, body: string) -> boolean`: shows a desktop

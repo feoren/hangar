@@ -58,6 +58,20 @@
         "ru": "Субагенты открытой сессии теперь видны деревом на боковой панели. Один клик показывает, чем занят каждый.",
         "tr": "Açık oturumun alt ajanları artık kenar çubuğunda ağaç olarak görünüyor. Bir tık, her birinin ne yaptığını gösterir.",
         "zh": "当前会话的子代理现在以树状显示在侧边栏中。点击即可查看它正在做什么。"
+      },
+      {
+        "de": "Screenshots lassen sich jetzt einfügen: Hangar speichert das Bild aus der Zwischenablage und fügt den Pfad ein, den Agenten als Anhang lesen.",
+        "en": "You can now paste screenshots: Hangar saves the image from the clipboard and pastes its path, which agents read as an attachment.",
+        "el": "Μπορείς τώρα να επικολλάς στιγμιότυπα οθόνης: το Hangar αποθηκεύει την εικόνα και επικολλά τη διαδρομή της, που οι πράκτορες διαβάζουν ως συνημμένο.",
+        "es": "Ahora puedes pegar capturas de pantalla: Hangar guarda la imagen del portapapeles y pega su ruta, que los agentes leen como adjunto.",
+        "fr": "Tu peux maintenant coller des captures d'écran : Hangar enregistre l'image du presse-papiers et colle son chemin, que les agents lisent comme une pièce jointe.",
+        "it": "Ora puoi incollare screenshot: Hangar salva l'immagine dagli appunti e incolla il suo percorso, che gli agenti leggono come allegato.",
+        "ja": "スクリーンショットを貼り付けられるようになりました。Hangar がクリップボードの画像を保存してパスを貼り付け、エージェントは添付ファイルとして読み込みます。",
+        "pl": "Możesz teraz wklejać zrzuty ekranu: Hangar zapisuje obraz ze schowka i wkleja jego ścieżkę, którą agenci odczytują jako załącznik.",
+        "pt": "Agora você pode colar capturas de tela: o Hangar salva a imagem da área de transferência e cola o caminho, que os agentes leem como anexo.",
+        "ru": "Теперь можно вставлять скриншоты: Hangar сохраняет изображение из буфера обмена и вставляет путь к нему, который агенты читают как вложение.",
+        "tr": "Artık ekran görüntüsü yapıştırabilirsin: Hangar panodaki görüntüyü kaydeder ve yolunu yapıştırır, ajanlar bunu ek olarak okur.",
+        "zh": "现在可以粘贴截图：Hangar 会保存剪贴板中的图片并粘贴其路径，智能体会将其作为附件读取。"
       }
     ]
   },

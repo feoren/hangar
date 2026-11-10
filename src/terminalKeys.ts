@@ -15,7 +15,8 @@ type KeyInfo = Pick<
  *   Terminal). The default action is suppressed.
  * - `paste`: xterm ignores the key, but the browser's default action stays. It fires the native
  *   paste event on xterm's textarea, where the terminal sanitizes the text and pastes it
- *   (bracketed paste). Reading the clipboard from script instead fails in WebView2.
+ *   (bracketed paste), or without text the path of the clipboard's image (clipboardPaste.ts).
+ *   Reading the clipboard's text from script instead fails in WebView2.
  * - `terminal`: xterm handles the key as usual (input for the process).
  */
 export type TerminalKeyAction =

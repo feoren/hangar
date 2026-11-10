@@ -114,5 +114,20 @@ windows-sys = { version = "0.61", features = [
 # and the contract asks for one notification per session.
 windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications"] }
 
+# Pasting a screenshot (clipboard_image.rs): the raw "PNG", CF_DIBV5 and CF_DIB clipboard formats,
+# so Hangar checks an image's size in its header before decoding it. arboard, which the clipboard
+# plugin uses, decodes them on Windows without any allocation limit, so a few kilobytes of PNG
+# could abort the app. Already in the tree through arboard with the same feature, so it adds no
+# code; maintained by DoumanAsh. License BSL-1.0 (Boost), a documented exception to
+# MIT/Apache-2.0: permissive, no notice required in binaries, and already shipped through arboard.
+clipboard-win = { version = "5.3", features = ["std"] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Pasting a screenshot on macOS and Linux (clipboard_image.rs): arboard directly, because the
+# clipboard plugin's `read_image` turns "no image on the clipboard" into an untyped string error.
+# `image-data` is the feature that reads images; named here instead of relying on the plugin
+# turning it on. Already in the tree through the plugin; MIT/Apache-2.0, 1Password; adds no code.
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

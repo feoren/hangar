@@ -1,5 +1,11 @@
-// Quoting dropped file paths for the program running in a session. Each shell has its own rules;
-// agent CLIs read the input as text and only need quotes around paths with spaces.
+// Quoting dropped file paths and pasted image paths for the program running in a session. Each
+// shell has its own rules; agent CLIs read the input as text and only need quotes around paths
+// with spaces.
+//
+// Known limit: the kind follows the program the session's profile starts, not whatever runs in
+// the session right now. Bash started inside a cmd session still gets cmd quoting, an agent
+// started from a PowerShell session gets PowerShell quoting. The terminal cannot tell which
+// program reads the input, and both quotings stay readable for an agent.
 
 /**
  * - `powershell`: pwsh, powershell

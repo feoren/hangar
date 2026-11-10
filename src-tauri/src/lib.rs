@@ -8,6 +8,7 @@ pub mod batch;
 pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
+pub mod clipboard_image;
 mod commands;
 pub mod desktop;
 pub mod exe_image;
@@ -24,6 +25,7 @@ pub mod notes;
 pub mod notes_window;
 pub mod notify;
 pub mod output;
+pub mod paste_image;
 pub mod persist;
 pub mod proctree;
 pub mod profile;
@@ -136,6 +138,28 @@ pub fn run() -> tauri::Result<()> {
             if let Err(error) = detection {
                 eprintln!("hangar: WSL detection not started: {error}");
             }
+            // Pasted screenshots older than a week go; the next paste would do that as well,
+            // but without one they would stay. Housekeeping only: an unknown cache folder must
+            // not stop the app from starting.
+            match app.path().app_cache_dir() {
+                Ok(cache) => {
+                    let pastes = cache.join(paste_image::FOLDER);
+                    let cleanup = std::thread::Builder::new()
+                        .name("paste-cleanup".to_owned())
+                        .spawn(move || {
+                            paste_image::cleanup(
+                                &pastes,
+                                std::time::SystemTime::now(),
+                                paste_image::MAX_AGE,
+                            )
+                        });
+                    if let Err(error) = cleanup {
+                        eprintln!("hangar: paste cleanup not started: {error}");
+                    }
+                }
+                Err(error) => eprintln!("hangar: paste cleanup skipped: {error}"),
+            }
+            app.manage(paste_image::PasteGate::default());
             app.manage(ProbeCaches::default());
             app.manage(notify::Notifier::default());
             app.manage(subagents::Watchers::default());
@@ -293,6 +317,7 @@ pub fn run() -> tauri::Result<()> {
             commands::delete_profile_secret,
             commands::profile_secrets,
             commands::export_session,
+            commands::paste_clipboard_image,
             commands::configure_tray,
             commands::watch_sub_agents,
             commands::unwatch_sub_agents,

@@ -312,3 +312,12 @@ released `X.Y.Z-Build`. Added as step 3 of the release steps. Pages changed: [[r
 the SHA-256 of `Hangar_X.Y.Z-Build_x64-setup.exe` and `Hangar-Setup.exe` in `sha256sum` format
 with LF line endings. It is attached to the GitHub release before `latest.json`, which stays last,
 and appears in the printed upload order for `--base-url`. Pages changed: [[release-rollout]].
+
+## [2026-11-10] query | Pasting screenshots
+Screenshots paste as a saved PNG's path; why `arboard` is read directly and where the files live.
+Pages changed: [[agent-workflow-features]].
+
+## [2026-11-10] query | Bounded clipboard image decoding
+arboard decodes the Windows clipboard's PNG without allocation limits, so screenshots are now read
+through `clipboard-win` with the size checked in the header first; files are owner only on Unix
+and one paste runs at a time. Pages changed: [[agent-workflow-features]].

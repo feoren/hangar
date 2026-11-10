@@ -60,6 +60,7 @@ const COMMANDS: &[&str] = &[
     "delete_profile_secret",
     "profile_secrets",
     "export_session",
+    "paste_clipboard_image",
     "configure_tray",
     "watch_sub_agents",
     "unwatch_sub_agents",

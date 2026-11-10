@@ -13,6 +13,7 @@ use crate::account_service::AccountService;
 use crate::agent_catalog::ProfileView;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
+use crate::clipboard_image;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::gate::{Answer, GateSnapshot};
@@ -26,6 +27,7 @@ use crate::notes::{
 };
 use crate::notes_window::{self, NotesMessage, NotesWindowError};
 use crate::notify::{self, Notifier};
+use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
@@ -1262,6 +1264,36 @@ pub async fn export_session(
     })
     .await
     .map_err(|error| ExportError::Task(error.to_string()))?
+}
+
+/// Saves the clipboard's image as a PNG in the app's cache folder and returns its path, for the
+/// window to paste like a dropped file. One paste at a time: while one runs, another answers
+/// `Busy`. Off the main thread: reading the clipboard there may deadlock on Linux.
+#[tauri::command]
+pub async fn paste_clipboard_image(
+    app: tauri::AppHandle,
+    gate: State<'_, PasteGate>,
+) -> Result<PasteOutcome, PasteImageError> {
+    let Some(ticket) = gate.try_start() else {
+        return Ok(PasteOutcome::Busy);
+    };
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| PasteImageError::CacheDir(error.to_string()))?
+        .join(paste_image::FOLDER);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ticket = ticket;
+        let Some(image) = clipboard_image::read()? else {
+            return Ok(PasteOutcome::NoImage);
+        };
+        let path = paste_image::save(&dir, image, std::time::SystemTime::now())?;
+        Ok(PasteOutcome::Saved {
+            path: path.display().to_string(),
+        })
+    })
+    .await
+    .map_err(|error| PasteImageError::Task(error.to_string()))?
 }
 
 /// Adds, updates or removes the notification area icon. Async so the menu is built while the

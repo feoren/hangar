@@ -15,8 +15,10 @@ import {
   type AttentionState,
 } from "./attention";
 import { readClipboard, writeClipboard } from "./clipboard";
+import { pasteFromClipboard } from "./clipboardPaste";
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
+import type { ShellKind } from "./pathQuote";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
@@ -117,6 +119,12 @@ export class SessionTerminal {
   onFallback: ((fallback: SessionFallback) => void) | null = null;
   /** Click on a link (OSC 8) with an allowed address; only http and https get this far. */
   onLink: ((url: string) => void) | null = null;
+  /** The clipboard held an image but no text, and saving the image failed. */
+  onImagePasteFailed: (() => void) | null = null;
+  /** How the program in the session reads a pasted image path; the app knows its profile. */
+  shellKind: () => ShellKind = () => "agent";
+  /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
+  imagePasteInFlight = false;
   /** Active session in a focused window; the app sets it as soon as the ID is known. */
   isWatched: () => boolean = () => false;
   readonly attention: AttentionTracker;
@@ -388,13 +396,20 @@ export class SessionTerminal {
   /**
    * Goes through term.paste so bracketed paste applies when the program has turned it on.
    * Control characters are stripped first (sanitizePaste), or the text could end bracketed paste.
+   * Without text, the path of the clipboard's image goes in (clipboardPaste.ts).
    */
   pasteClipboard(): void {
     readClipboard()
-      .then((text) => {
-        this.pasteText(text);
-      })
+      // Reading text fails when the clipboard holds only an image.
+      .catch(() => "")
+      .then((text) => this.pasteClipboardContent(text))
       .catch(ignore);
+  }
+
+  /** Text pastes synchronously, before the first await; only the image path waits. */
+  private async pasteClipboardContent(text: string): Promise<void> {
+    const result = await pasteFromClipboard(this, text, () => api.pasteClipboardImage());
+    if (result === "failed") this.onImagePasteFailed?.();
   }
 
   /**
@@ -408,7 +423,8 @@ export class SessionTerminal {
   /** Text from the app (dropped paths): the same path as pasting, with bracketed paste. */
   pasteText(text: string): void {
     const clean = sanitizePaste(text);
-    if (clean === "") return;
+    // An image path can arrive after the session was closed.
+    if (clean === "" || this.disposed) return;
     this.attention.typed();
     this.term.paste(clean);
   }
@@ -439,7 +455,7 @@ export class SessionTerminal {
   private handlePaste(event: ClipboardEvent): void {
     event.preventDefault();
     event.stopImmediatePropagation();
-    this.pasteText(event.clipboardData?.getData("text/plain") ?? "");
+    this.pasteClipboardContent(event.clipboardData?.getData("text/plain") ?? "").catch(ignore);
   }
 
   /**
@@ -526,6 +542,7 @@ export class SessionTerminal {
     this.onExit = null;
     this.onFallback = null;
     this.onLink = null;
+    this.onImagePasteFailed = null;
     this.attentionListener = null;
     this.searchListener = null;
     this.attention.dispose();

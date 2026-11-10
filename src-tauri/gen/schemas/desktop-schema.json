@@ -435,6 +435,12 @@
           "markdownDescription": "Enables the open_profile_file command without any pre-configured scope."
         },
         {
+          "description": "Enables the paste_clipboard_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-paste-clipboard-image",
+          "markdownDescription": "Enables the paste_clipboard_image command without any pre-configured scope."
+        },
+        {
           "description": "Enables the profile_env command without any pre-configured scope.",
           "type": "string",
           "const": "allow-profile-env",
@@ -913,6 +919,12 @@
           "type": "string",
           "const": "deny-open-profile-file",
           "markdownDescription": "Denies the open_profile_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the paste_clipboard_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-paste-clipboard-image",
+          "markdownDescription": "Denies the paste_clipboard_image command without any pre-configured scope."
         },
         {
           "description": "Denies the profile_env command without any pre-configured scope.",

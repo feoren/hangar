@@ -1345,6 +1345,15 @@ export function App() {
       terminal.onLink = (url) => {
         setLink({ url, copied: false });
       };
+      // A pasted screenshot's path is quoted like a dropped file, for the session's program.
+      terminal.shellKind = () => {
+        const session = stateRef.current.sessions.find((s) => s.id === id);
+        const profile = profilesRef.current.find((p) => p.id === session?.profileId);
+        return shellKind(profile?.command ?? "");
+      };
+      terminal.onImagePasteFailed = () => {
+        setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
+      };
       // Only state changes arrive here, never individual output chunks. A change of the reason
       // alone (a bell or an exit while already waiting) does not flash or notify again.
       let previous: AttentionState = "idle";
