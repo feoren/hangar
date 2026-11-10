@@ -299,3 +299,10 @@ opened leave a mark when they end (new `record::sealed_header` in the crypto cra
 needs a key period of the sender, counts at most 10 minutes ahead of the clock and never drops
 another mark or raises the floor); conflicts with unknown holders fetch the log at
 most every 5 s. Pages changed: [[team-service-v1]], [[team-crypto]].
+
+## [2026-11-10] query | README screenshots as a release step
+The README screenshots are now a tracked tool, `tools/readme-shots/` (`pnpm readme:shots`): the
+real frontend with a mocked backend and a fictional scene, rendered in headless Edge, Chrome or
+Chromium over the DevTools protocol, written losslessly re-encoded to `docs/images/`. The version
+in the header comes from `src-tauri/tauri.conf.json`, so a run after `tools/release.py` shows the
+released `X.Y.Z-Build`. Added as step 3 of the release steps. Pages changed: [[release-rollout]].

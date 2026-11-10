@@ -11,7 +11,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "readme:shots": "node tools/readme-shots/run.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

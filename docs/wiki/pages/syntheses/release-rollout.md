@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-10
 ---
 
 # Rolling out a release
@@ -42,18 +42,27 @@ collects its items under that same version without a date. `src/versionSync.test
    - builds with `pnpm tauri build` and signs with `%USERPROFILE%\.tauri\hangar.key`
    - creates `release/0.2.0-31/` containing `Hangar_0.2.0-31_x64-setup.exe`, `Hangar-Setup.exe`,
      `latest.json` (its download URL points to the GitHub release `v0.2.0`) and `release-notes.md`
-3. Commit the version change and the dated changelog: `chore: Version 0.2.0-31`.
-4. Publish; the script prints these commands, it never publishes by itself:
+3. Refresh the README screenshots: `pnpm readme:shots`. It renders the real frontend with a mocked
+   backend and a fictional scene (`tools/readme-shots/`) in headless Edge, Chrome or Chromium
+   (`README_SHOTS_BROWSER` picks a specific executable), writes `docs/images/hangar-dark.png` and
+   `hangar-light.png` (1296 x 839, at most 400 KB each) and cleans up after itself (temporary files
+   only under `tests/.tmp/readme-shots`). It runs its own Vite server on a free port and never
+   touches a running Hangar. Run it after `release.py` and not before: the script needs a clean
+   working tree and only then do the files carry `X.Y.Z+Build`, so the header in the screenshots
+   shows exactly the released version. Look at both images before committing.
+4. Commit the version change, the dated changelog and the two screenshots together:
+   `chore: Version 0.2.0-31`.
+5. Publish; the script prints these commands, it never publishes by itself:
    1. `git push origin main`
    2. `gh release create v0.2.0 <the three files> --repo feoren/hangar --target main --title "Hangar 0.2.0-31" --notes-file release/0.2.0-31/release-notes.md --draft`
    3. `gh release edit v0.2.0 --repo feoren/hangar --draft=false --latest`
 
    Draft first, publish last: `/releases/latest` skips drafts, so installed apps see the update only
    once every file is attached.
-5. Transition for old installations (0.1.x only poll the own server): also upload `latest.json` to
+6. Transition for old installations (0.1.x only poll the own server): also upload `latest.json` to
    `https://hangar.feoren.com/download/`. Its URL points to GitHub, so one build serves both. Once
    no 0.1.x installation is left, this step can go.
-6. Create the upcoming version (the script prints the command at the end): `py -3 tools/release.py --next 0.3.0`
+7. Create the upcoming version (the script prints the command at the end): `py -3 tools/release.py --next 0.3.0`
    - sets the three files and `Cargo.lock` to `0.3.0` (without build number)
    - adds `{"version": "0.3.0", "date": null, "items": []}` at the top of `src/changelog.json`
    - aborts if the highest changelog version has no date yet or `0.3.0` is not higher than everything before
