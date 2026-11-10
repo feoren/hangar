@@ -18,6 +18,15 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
+AI coding agents are fast, but running several of them means a pile of terminal windows, questions
+you notice too late and agents that overwrite each other's work. **Hangar is the control room for
+that.** It runs Claude Code, Codex CLI, Gemini CLI, Aider and any other command-line tool in one
+native desktop app, shows you at a glance which agent is working and which one needs you, and keeps
+them out of each other's way.
+
+Hangar brings no model and makes no API calls of its own: it runs the tools you already use, with
+your own accounts, on your own machine. Open source under the MIT license.
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
   <img alt="Hangar with Claude Code and Codex CLI side by side, and Aider waiting for an answer in the sidebar" src="docs/images/hangar-dark.png">
