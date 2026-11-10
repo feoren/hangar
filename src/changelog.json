@@ -130,6 +130,20 @@
         "zh": "在终端中右键单击不再粘贴，只会打开菜单。要粘贴，请使用 Ctrl+V。"
       },
       {
+        "de": "Was du in Claude Code mit der Maus markierst, kannst du jetzt per Rechtsklick kopieren oder mit „Auswahl zur Notiz hinzufügen“ in eine Notiz übernehmen.",
+        "en": "Text you mark with the mouse in Claude Code can now be copied with a right click or added to a note with \"Add selection to note\".",
+        "el": "Ό,τι επισημαίνεις με το ποντίκι στο Claude Code αντιγράφεται τώρα με δεξί κλικ ή μπαίνει σε σημείωση με «Προσθήκη επιλογής σε σημείωση».",
+        "es": "Lo que marcas con el ratón en Claude Code ahora se copia con clic derecho o se añade a una nota con «Añadir selección a una nota».",
+        "fr": "Ce que tu sélectionnes à la souris dans Claude Code se copie maintenant d'un clic droit ou s'ajoute à une note avec « Ajouter la sélection à une note ».",
+        "it": "Ciò che selezioni con il mouse in Claude Code ora si copia con un clic destro o si aggiunge a una nota con «Aggiungi selezione a una nota».",
+        "ja": "Claude Code でマウスで選択したテキストを、右クリックでコピーしたり「選択範囲をメモに追加」でメモに入れたりできるようになりました。",
+        "pl": "Tekst zaznaczony myszą w Claude Code skopiujesz teraz prawym klikiem albo dodasz do notatki przez „Dodaj zaznaczenie do notatki”.",
+        "pt": "O que você marca com o mouse no Claude Code agora pode ser copiado com clique direito ou adicionado a uma nota com “Adicionar seleção a uma nota”.",
+        "ru": "Текст, выделенный мышью в Claude Code, теперь можно скопировать правым щелчком или добавить в заметку через «Добавить выделение в заметку».",
+        "tr": "Claude Code'da fareyle seçtiğin metni artık sağ tıkla kopyalayabilir veya \"Seçimi nota ekle\" ile bir nota ekleyebilirsin.",
+        "zh": "在 Claude Code 中用鼠标选中的文本，现在可以右键复制，或通过“将所选内容添加到笔记”加入笔记。"
+      },
+      {
         "de": "Jeder Status in der Seitenleiste (arbeitet, fertig, fragt, Pause) hat jetzt eigene Farbe, Pulsstärke und Dauer. Einstellbar unter Aufmerksamkeit mit Vorschau.",
         "en": "Each sidebar state (working, done, asks, pause) now has its own color, pulse strength and duration. Set them under Attention with a live preview.",
         "el": "Κάθε κατάσταση στην πλευρική στήλη (εργάζεται, έτοιμο, ρωτά, παύση) έχει δικό της χρώμα, ένταση και διάρκεια παλμού. Ρύθμισέ τα στην Ειδοποίηση.",

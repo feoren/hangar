@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { menuSelection, ProgramSelection, watchPresses } from "./programSelection";
 import { guardSecondaryClick, holdsBackFromTerminal } from "./terminalMouse";
 
 /** A mouse event without a DOM: Node has `Event`, but no `MouseEvent`. */
@@ -48,6 +49,28 @@ describe("terminal mouse", () => {
     element.dispatchEvent(press("mousedown", 1));
     expect(reported).toEqual(["mousedown:0", "mouseup:0", "mousedown:1"]);
     expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selection through the guarded right click that opens the menu", () => {
+    // Wired as in terminal.ts: press watcher, then the guard, then xterm. The xterm stand-in
+    // reports the press to the program, which drops its selection, as Claude Code does.
+    const element = new EventTarget();
+    const selection = new ProgramSelection();
+    watchPresses(element, selection);
+    guardSecondaryClick(element, vi.fn());
+    const program = { selection: "" };
+    element.addEventListener("mousedown", () => {
+      program.selection = "";
+    });
+    element.dispatchEvent(press("mousedown", 0));
+    program.selection = "selected output";
+    selection.clipboardWritten(program.selection);
+
+    element.dispatchEvent(press("mousedown", 2));
+    element.dispatchEvent(press("mouseup", 2));
+
+    expect(program.selection).toBe("selected output");
+    expect(menuSelection("", selection.current)).toBe("selected output");
   });
 
   it("can be removed again", () => {

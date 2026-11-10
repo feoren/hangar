@@ -16,6 +16,12 @@ import {
 } from "./attention";
 import { readClipboard, writeClipboard } from "./clipboard";
 import { pasteFromClipboard } from "./clipboardPaste";
+import {
+  clipboardWriteText,
+  menuSelection,
+  ProgramSelection,
+  watchPresses,
+} from "./programSelection";
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
@@ -89,6 +95,8 @@ export class SessionTerminal {
   private readonly serializeAddon = new SerializeAddon();
   private readonly searchAddon = new SearchAddon({ highlightLimit: SEARCH_HIGHLIGHT_LIMIT });
   private searchListener: ((results: SearchResults) => void) | null = null;
+  /** What a program with mouse tracking selected itself (programSelection.ts). */
+  private readonly programSelection = new ProgramSelection();
   private theme: Theme;
   private look: TerminalLook;
   /** New output since the scrollback was last saved. */
@@ -194,6 +202,14 @@ export class SessionTerminal {
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
       this.attention.typed();
+      this.programSelection.keyTyped();
+    });
+    // xterm has no OSC 52 handler: the clipboard write is only read here, not carried out, and
+    // `false` leaves it to any later handler.
+    this.term.parser.registerOscHandler(52, (data) => {
+      const text = clipboardWriteText(data);
+      if (text !== null) this.programSelection.clipboardWritten(text);
+      return false;
     });
     this.term.onBell(() => {
       this.attention.bell();
@@ -266,6 +282,7 @@ export class SessionTerminal {
       // The right button opens the app's terminal menu and is never reported to the program,
       // which could paste on it (terminalMouse.ts). Lives as long as the terminal's element.
       if (this.term.element) {
+        watchPresses(this.term.element, this.programSelection);
         guardSecondaryClick(this.term.element, () => {
           this.term.focus();
         });
@@ -383,13 +400,17 @@ export class SessionTerminal {
     this.term.clear();
   }
 
+  /** Whether the terminal menu has a selection to copy or add to a note. */
   hasSelection(): boolean {
-    return this.term.hasSelection();
+    return this.selectionText() !== "";
   }
 
-  /** The selected text, empty without a selection ("Add selection to note"). */
+  /**
+   * The selected text, empty without a selection: xterm's own selection, else what a program
+   * with mouse tracking selected itself ("Copy", "Add selection to note").
+   */
   selectionText(): string {
-    return this.term.getSelection();
+    return menuSelection(this.term.getSelection(), this.programSelection.current);
   }
 
   selectAll(): void {
@@ -397,7 +418,7 @@ export class SessionTerminal {
   }
 
   copySelection(): void {
-    const text = this.term.getSelection();
+    const text = this.selectionText();
     if (text) writeClipboard(text).catch(ignore);
   }
 
@@ -542,6 +563,7 @@ export class SessionTerminal {
     this.exitCode = undefined;
     this.fallback = undefined;
     this.attention.reset();
+    this.programSelection.reset();
     this.term.write(`\r\n\x1b[2m${t("terminal.restarted")}\x1b[0m\r\n`);
   }
 
@@ -583,6 +605,7 @@ export class SessionTerminal {
       return;
     }
     this.exitCode = event.code;
+    this.programSelection.reset();
     const code = event.code === null ? t("terminal.unknownCode") : String(event.code);
     this.term.write(`\r\n\x1b[2m${t("terminal.exited", { code })}\x1b[0m\r\n`);
     this.onExit?.(event.code);
