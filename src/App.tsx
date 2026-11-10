@@ -201,8 +201,9 @@ import { useProgramUpdates } from "./useProgramUpdates";
 import { useGitBranches } from "./useGitBranches";
 import { useSessionDrag } from "./useSessionDrag";
 import { useSplitView } from "./useSplitView";
-import { useSubAgents } from "./useSubAgents";
-import { planSubAgentPanes } from "./subAgents";
+import { watchKey } from "./subAgentStore";
+import { useSubAgentSummary, useSubAgentWatch } from "./useSubAgents";
+import { nextViewPeak, subAgentLayout, watchedSession, type ViewPeak } from "./subAgents";
 import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
@@ -469,6 +470,10 @@ export function App() {
    * is the active one; switching sessions or arranging the panes ends the view.
    */
   const [subAgentsOf, setSubAgentsOf] = useState<number | null>(null);
+  /** Most sub-agents seen since the view opened (its layout never shrinks while open). */
+  const [subAgentPeak, setSubAgentPeak] = useState<ViewPeak>({ key: null, count: 0 });
+  /** Sub-agent picked in the sidebar's tree: its pane is highlighted in the open view. */
+  const [subAgentPick, setSubAgentPick] = useState<string | null>(null);
   /** Layout picker (View, quick access) for the active session; `preview` is its chosen zone. */
   const [snapPicker, setSnapPicker] = useState<{ preview: SnapTarget | null } | null>(null);
   /** Screen reader message after a session moved in the sidebar. */
@@ -1159,40 +1164,58 @@ export function App() {
     },
   });
 
-  // Sub-agent view: the watch runs while the view is open and the session has sub-agents; a
-  // restart or resume fallback with a new conversation id starts a new watch.
+  // Sub-agents: one watch, for the open view's session or else the active session while the
+  // sidebar shows its tree; a restart or resume fallback with a new conversation id starts a new
+  // watch. Excerpts only flow while the view shows them; the tree needs none.
   const subAgentSession =
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
     subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
-  const subAgentWatch = useSubAgents(
-    subAgentSession !== undefined && subAgentsAvailable
+  const subAgentTreeShown = !layout.collapsed && !layout.closedGroups.includes("sessions");
+  const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
+  const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
+  const subAgentKey = useSubAgentWatch(
+    watched !== undefined && watched.subAgents === true && !isPlaceholder(watched.id)
       ? {
-          sessionId: subAgentSession.id,
-          cliSessionId: subAgentSession.cliSessionId ?? null,
-          excerpts: settings.subAgentExcerpts,
+          sessionId: watched.id,
+          cliSessionId: watched.cliSessionId ?? null,
+          excerpts: settings.subAgentExcerpts && subAgentsOf !== null,
         }
       : null,
   );
+  // Only counts and states: a snapshot that changes times, tools or excerpts renders the tree and
+  // the panes (they read the store themselves), never the app.
+  const subAgentWatch = useSubAgentSummary(subAgentKey);
+  // The view's layout grows with the most sub-agents seen since it opened (or its conversation
+  // changed), not since the watch started for the tree.
+  const viewPeak = nextViewPeak(
+    subAgentPeak,
+    subAgentSession === undefined
+      ? null
+      : watchKey(subAgentSession.id, subAgentSession.cliSessionId ?? null),
+    subAgentWatch.count,
+  );
+  if (viewPeak !== subAgentPeak) setSubAgentPeak(viewPeak);
+  if (subAgentsOf === null && subAgentPick !== null) setSubAgentPick(null);
   const subAgentNotice =
     subAgentWatch.error !== null
       ? t("subAgents.error", { error: subAgentWatch.error })
       : !subAgentsAvailable
         ? t("subAgents.unavailable")
-        : subAgentWatch.view.located === null
+        : subAgentWatch.located === null
           ? t("subAgents.loading")
-          : !subAgentWatch.view.located
+          : !subAgentWatch.located
             ? t("subAgents.notLocated")
             : t("subAgents.none");
+  const subAgentShowsNotice =
+    subAgentWatch.error !== null || !subAgentsAvailable || subAgentWatch.located !== true;
+  /** Layout of the open view (its panes are planned by SubAgentPanes), `null` while closed. */
   const subAgentPlan =
     subAgentSession === undefined
       ? null
-      : planSubAgentPanes(
-          subAgentWatch.view,
-          subAgentWatch.error !== null ||
-            !subAgentsAvailable ||
-            subAgentWatch.view.located !== true,
-        );
+      : {
+          layout: subAgentLayout(subAgentWatch.count, viewPeak.count, subAgentShowsNotice),
+        };
   // Sessions shown in a pane right now; the chime stays silent for them while the window has focus.
   const shown = new Set<number>(state.activeId === null ? [] : [state.activeId]);
   if (subAgentPlan === null) {
@@ -1258,6 +1281,19 @@ export function App() {
   const closeSubAgents = () => {
     setSubAgentsOf(null);
     focusTerminal();
+  };
+  /**
+   * A row of the sidebar's tree: opens the view (if closed) with this sub-agent highlighted;
+   * `null` ("+N more") opens it without a pick. A mouse click returns to the terminal, the
+   * keyboard stays in the tree.
+   */
+  const showSubAgent = (id: number, agentId: string | null, byKeyboard: boolean) => {
+    if (subAgentsOf !== id) {
+      dispatch({ type: "activated", id });
+      setSubAgentsOf(id);
+    }
+    setSubAgentPick(agentId);
+    if (!byKeyboard) focusTerminal();
   };
 
   /** New place of a session in the sidebar (drag or Alt+arrow); the workspace saves the order. */
@@ -3461,6 +3497,17 @@ export function App() {
           }
           onDragStart={beginSessionDrag}
           onMove={moveSession}
+          subAgentTree={
+            subAgentKey !== null &&
+            watchedId !== null &&
+            watchedId === state.activeId &&
+            subAgentWatch.count > 0
+              ? { sessionId: watchedId, watchKey: subAgentKey }
+              : null
+          }
+          subAgentsOpen={subAgentsOf}
+          subAgentPick={subAgentPick}
+          onShowSubAgent={showSubAgent}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
             const update = updater.state.update;
@@ -3571,10 +3618,12 @@ export function App() {
               {subAgentPlan !== null && subAgentSession !== undefined && (
                 <SubAgentPanes
                   title={subAgentSession.title}
-                  plan={subAgentPlan}
-                  view={subAgentWatch.view}
+                  watchKey={subAgentKey}
+                  peak={viewPeak.count}
+                  showNotice={subAgentShowsNotice}
                   notice={subAgentNotice}
                   excerpts={settings.subAgentExcerpts}
+                  picked={subAgentPick}
                   onClose={closeSubAgents}
                 />
               )}

@@ -111,6 +111,66 @@ export interface SubAgentView {
 export const EMPTY_VIEW: SubAgentView = { located: null, agents: [], history: new Map(), peak: 0 };
 
 /**
+ * The same view without assistant text, for when excerpts are no longer wanted (view closed,
+ * excerpts switched off): nothing of them stays in memory until the next snapshot arrives.
+ */
+export function withoutExcerpts(view: SubAgentView): SubAgentView {
+  if (view.agents.every((agent) => agent.excerpt === null)) return view;
+  return { ...view, agents: view.agents.map((agent) => ({ ...agent, excerpt: null })) };
+}
+
+/** Rows of the sidebar's sub-agent tree under the active session. */
+export const TREE_ROWS = 5;
+
+export interface SubAgentTree {
+  /** In start order. */
+  agents: SubAgent[];
+  /** Sub-agents left out; a "+N more" row opens the view with all of them. */
+  more: number;
+}
+
+/**
+ * The tree stays short: up to `max` sub-agents fit; with more, running and newer ones keep a
+ * row and the last row says how many more there are.
+ */
+export function subAgentTree(agents: readonly SubAgent[], max: number = TREE_ROWS): SubAgentTree {
+  if (agents.length <= max) return { agents: [...agents], more: 0 };
+  const shown = featuredAgents(agents, Math.max(0, max - 1));
+  return { agents: shown, more: agents.length - shown.length };
+}
+
+/**
+ * Session whose sub-agents are watched: the open view's, else the active session's while the
+ * sidebar shows its tree. One at most, since the backend keeps one watch per session and every
+ * watch polls the agent's transcript.
+ */
+export function watchedSession(
+  viewOf: number | null,
+  activeId: number | null,
+  treeShown: boolean,
+): number | null {
+  return viewOf ?? (treeShown ? activeId : null);
+}
+
+/** Most sub-agents seen since the view opened on `key` (session and conversation). */
+export interface ViewPeak {
+  key: string | null;
+  count: number;
+}
+
+/**
+ * Peak for the view's layout: grows with the count while the view stays on the same session and
+ * conversation, starts over when it opens, closes (`key` null) or the conversation changes. The
+ * same object comes back when nothing changed, so a caller can skip the state update.
+ */
+export function nextViewPeak(peak: ViewPeak, key: string | null, count: number): ViewPeak {
+  if (key === null) return peak.key === null && peak.count === 0 ? peak : { key: null, count: 0 };
+  const base = peak.key === key ? peak.count : 0;
+  const next = Math.max(base, count);
+  return peak.key === key && next === peak.count ? peak : { key, count: next };
+}
+
+/**
  * Next view after a snapshot: the snapshot replaces the agents; a sub-agent whose tool changed
  * puts the previous tool name in front of its history.
  */
@@ -154,13 +214,20 @@ export interface SubAgentPlan {
 const MAX_AGENT_ZONES = 3;
 
 /**
- * Two sub-agents worth a pane of their own when there are too many for one each: running ones
- * before the rest, newer before older; shown in start order so they keep their places.
+ * Sub-agents worth a place of their own when there are too many for one each: the `preferred`
+ * one (picked in the sidebar) first, then running ones before the rest, newer before older; shown
+ * in start order so they keep their places.
  */
-export function featuredAgents(agents: readonly SubAgent[], count: number): SubAgent[] {
+export function featuredAgents(
+  agents: readonly SubAgent[],
+  count: number,
+  preferred: string | null = null,
+): SubAgent[] {
   const ranked = agents
     .map((agent, index) => ({ agent, index }))
     .sort((a, b) => {
+      const picked = Number(b.agent.id === preferred) - Number(a.agent.id === preferred);
+      if (picked !== 0) return picked;
       const live = Number(b.agent.status === "running") - Number(a.agent.status === "running");
       return live !== 0 ? live : b.index - a.index;
     })
@@ -169,22 +236,41 @@ export function featuredAgents(agents: readonly SubAgent[], count: number): SubA
 }
 
 /**
+ * Only the layout of `planSubAgentPanes`, from counts alone: the app places the session's
+ * terminal with it and so re-renders only when the count changes, not with every snapshot.
+ */
+export function subAgentLayout(
+  count: number,
+  peak: number,
+  showNotice: boolean,
+): SubAgentPlan["layout"] {
+  if (showNotice || count === 0) return "pair";
+  const zones = Math.max(peak, count);
+  return zones === 1 ? "pair" : zones === 2 ? "mainStack" : "quad";
+}
+
+/**
  * Layout of the view. The session stays in the main zone (zone 0); one sub-agent sits beside
  * it, two stack on the right, three fill a grid. With four or more, the grid shows two featured
  * sub-agents and a list of all of them. The layout follows `peak`, so it never shrinks while
- * the view is open and the session's terminal is resized as rarely as possible.
+ * the view is open and the session's terminal is resized as rarely as possible. A `preferred`
+ * sub-agent (picked in the sidebar) always gets a pane of its own.
  */
-export function planSubAgentPanes(view: SubAgentView, showNotice: boolean): SubAgentPlan {
+export function planSubAgentPanes(
+  view: SubAgentView,
+  showNotice: boolean,
+  preferred: string | null = null,
+): SubAgentPlan {
   const agents = view.agents;
-  if (showNotice || agents.length === 0) return { layout: "pair", panes: [{ kind: "notice" }] };
+  const layout = subAgentLayout(agents.length, view.peak, showNotice);
+  if (showNotice || agents.length === 0) return { layout, panes: [{ kind: "notice" }] };
   const count = Math.max(view.peak, agents.length);
   if (count > MAX_AGENT_ZONES) {
-    const featured = featuredAgents(agents, MAX_AGENT_ZONES - 1);
+    const featured = featuredAgents(agents, MAX_AGENT_ZONES - 1, preferred);
     const panes: SubAgentPane[] = featured.map((agent) => ({ kind: "agent", id: agent.id }));
     while (panes.length < MAX_AGENT_ZONES - 1) panes.push({ kind: "empty" });
-    return { layout: "quad", panes: [...panes, { kind: "list" }] };
+    return { layout, panes: [...panes, { kind: "list" }] };
   }
-  const layout = count === 1 ? "pair" : count === 2 ? "mainStack" : "quad";
   const panes: SubAgentPane[] = [];
   for (let index = 0; index < count; index += 1) {
     const agent = agents[index];

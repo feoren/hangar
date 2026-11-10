@@ -1,12 +1,17 @@
-// Watching one session's sub-agents for the sub-agent view (contract:
+// Watching one session's sub-agents for the sub-agent view and the sidebar's tree (contract:
 // docs/wiki/pages/syntheses/agent-workflow-features.md, item 23). The backend sends at most four
-// snapshots per second, so each one may become a render of the view. The snapshot lives only in
-// this hook's state: it is never written to the workspace, an export, a notification or storage.
+// snapshots per second; they go into an external store (subAgentStore.ts), so only the components
+// that show sub-agents re-render, not the app. The snapshot lives only in that store's memory: it
+// is never written to the workspace, an export, a notification or storage.
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { api, Channel, errorText } from "./api";
-import { applySnapshot, EMPTY_VIEW, parseSubAgentEvent, type SubAgentView } from "./subAgents";
+import { errorOf, SubAgentStore, viewOf, watchKey } from "./subAgentStore";
+import type { SubAgentView } from "./subAgents";
+
+/** The one watch's state; there is at most one watch at a time (watchedSession). */
+const store = new SubAgentStore();
 
 /**
  * Watch and unwatch run one after the other in call order. Otherwise the unwatch of a view that
@@ -33,40 +38,25 @@ interface Target {
   excerpts: boolean;
 }
 
-interface State extends SubAgentWatch {
-  key: string | null;
-}
-
-function targetKey(target: Target | null): string | null {
-  if (target === null) return null;
-  return [String(target.sessionId), target.cliSessionId ?? "", String(target.excerpts)].join(":");
-}
-
-/** `null`: nothing is watched (view closed or sub-agents not available for the session). */
-export function useSubAgents(target: Target | null): SubAgentWatch {
-  const key = targetKey(target);
-  const [state, setState] = useState<State>({ key, view: EMPTY_VIEW, error: null });
-  // Another session or conversation: start empty, so nothing of the previous one shows.
-  if (state.key !== key) setState({ key, view: EMPTY_VIEW, error: null });
-
+/**
+ * Runs the watch for `target` (`null`: nothing is watched, because neither the view nor the
+ * sidebar's tree needs it or sub-agents are not available for the session) and returns its key
+ * for the readers below. Holds no React state: a snapshot never re-renders the caller.
+ */
+export function useSubAgentWatch(target: Target | null): string | null {
+  const key = target === null ? null : watchKey(target.sessionId, target.cliSessionId);
   const sessionId = target?.sessionId ?? null;
-  const excerpts = target?.excerpts ?? true;
+  const excerpts = target?.excerpts ?? false;
   useEffect(() => {
+    store.retarget(key, excerpts);
     if (sessionId === null || key === null) return;
     let live = true;
     const channel = new Channel();
     channel.onmessage = (message) => {
-      if (!live) return;
-      const snapshot = parseSubAgentEvent(message);
-      if (snapshot === null) return;
-      setState((current) =>
-        current.key === key ? { ...current, view: applySnapshot(current.view, snapshot) } : current,
-      );
+      if (live) store.receive(key, excerpts, message);
     };
     serial(() => api.watchSubAgents(sessionId, channel, excerpts)).catch((e: unknown) => {
-      if (!live) return;
-      const text = errorText(e);
-      setState((current) => (current.key === key ? { ...current, error: text } : current));
+      if (live) store.fail(key, errorText(e));
     });
     return () => {
       live = false;
@@ -74,6 +64,32 @@ export function useSubAgents(target: Target | null): SubAgentWatch {
       serial(() => api.unwatchSubAgents(sessionId)).catch(() => undefined);
     };
   }, [key, sessionId, excerpts]);
+  return key;
+}
 
-  return { view: state.view, error: state.error };
+/** Everything of the watch `key`; re-renders the caller with every snapshot. */
+export function useSubAgentView(key: string | null): SubAgentWatch {
+  const state = useSyncExternalStore(store.subscribe, store.current);
+  return { view: viewOf(state, key), error: errorOf(state, key) };
+}
+
+export interface SubAgentSummary {
+  count: number;
+  /** `null` until the first snapshot arrived. */
+  located: boolean | null;
+  error: string | null;
+}
+
+/**
+ * What the app needs for the view's layout and notice. Each part is a primitive, so a snapshot
+ * that only changes times, tools or excerpts does not re-render the caller.
+ */
+export function useSubAgentSummary(key: string | null): SubAgentSummary {
+  const count = useSyncExternalStore(
+    store.subscribe,
+    () => viewOf(store.current(), key).agents.length,
+  );
+  const located = useSyncExternalStore(store.subscribe, () => viewOf(store.current(), key).located);
+  const error = useSyncExternalStore(store.subscribe, () => errorOf(store.current(), key));
+  return { count, located, error };
 }

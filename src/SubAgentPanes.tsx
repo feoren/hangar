@@ -2,7 +2,7 @@
 // placed in the zones of a snap layout (planSubAgentPanes in subAgents.ts). Every text from the
 // transcript is rendered as plain React text, never as HTML, Markdown or a link.
 
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
@@ -11,13 +11,13 @@ import {
   countsText,
   elapsedMs,
   formatElapsed,
+  planSubAgentPanes,
   STATUS_LABELS,
   type SubAgent,
-  type SubAgentPlan,
-  type SubAgentView,
 } from "./subAgents";
 import { paneStyle } from "./TerminalPane";
 import { useClock } from "./useClock";
+import { useSubAgentView } from "./useSubAgents";
 
 /** Running times count in seconds. */
 const TICK_MS = 1000;
@@ -25,18 +25,36 @@ const TICK_MS = 1000;
 interface Props {
   /** Title of the session the sub-agents belong to. */
   title: string;
-  plan: SubAgentPlan;
-  view: SubAgentView;
+  /** The watch to read (useSubAgentWatch); its snapshots re-render these panes only. */
+  watchKey: string | null;
+  /** Most sub-agents seen since the view opened; the app places the terminal by the same plan. */
+  peak: number;
+  /** Not located, none yet, unavailable or an error: one notice pane instead of agents. */
+  showNotice: boolean;
   /** Text for the notice pane (not located, none yet, unavailable, error). */
   notice: string;
   /** Excerpts switched off in Settings: say so instead of "no text yet". */
   excerpts: boolean;
+  /** Sub-agent picked in the sidebar's tree: its pane or list row is highlighted. */
+  picked: string | null;
   onClose: () => void;
 }
 
-export function SubAgentPanes({ title, plan, view, notice, excerpts, onClose }: Props) {
+export function SubAgentPanes({
+  title,
+  watchKey,
+  peak,
+  showNotice,
+  notice,
+  excerpts,
+  picked,
+  onClose,
+}: Props) {
   const t = useT();
   const now = useClock(TICK_MS);
+  const { view: watched } = useSubAgentView(watchKey);
+  const view = { ...watched, peak };
+  const plan = planSubAgentPanes(view, showNotice, picked);
   const byId = new Map(view.agents.map((agent) => [agent.id, agent]));
   // Escape anywhere in the view closes it; the terminal then gets the keyboard back.
   const onKeyDown = (event: KeyboardEvent) => {
@@ -91,6 +109,7 @@ export function SubAgentPanes({ title, plan, view, notice, excerpts, onClose }: 
           key={key}
           style={style}
           agents={view.agents}
+          picked={picked}
           now={now}
           close={close}
           onKeyDown={onKeyDown}
@@ -109,6 +128,7 @@ export function SubAgentPanes({ title, plan, view, notice, excerpts, onClose }: 
         history={view.history.get(agent.id) ?? []}
         now={now}
         excerpts={excerpts}
+        picked={agent.id === picked}
         close={close}
         onKeyDown={onKeyDown}
       />
@@ -145,19 +165,30 @@ interface AgentPaneProps {
   history: readonly string[];
   now: number;
   excerpts: boolean;
+  picked: boolean;
   close: React.ReactNode;
   onKeyDown: (event: KeyboardEvent) => void;
 }
 
-function AgentPane({ style, agent, history, now, excerpts, close, onKeyDown }: AgentPaneProps) {
+function AgentPane({
+  style,
+  agent,
+  history,
+  now,
+  excerpts,
+  picked,
+  close,
+  onKeyDown,
+}: AgentPaneProps) {
   const t = useT();
   const name = agentTitle(agent, t);
   const type = agent.description !== null ? agent.agentType : null;
   return (
     <section
-      className={`subagent ${agent.status}`}
+      className={picked ? `subagent ${agent.status} picked` : `subagent ${agent.status}`}
       style={style}
       aria-label={t("subAgents.paneLabel", { name })}
+      aria-current={picked ? "true" : undefined}
       onKeyDown={onKeyDown}
     >
       <header className="subagent-header">
@@ -192,15 +223,25 @@ function AgentPane({ style, agent, history, now, excerpts, close, onKeyDown }: A
 interface AgentListProps {
   style: React.CSSProperties;
   agents: readonly SubAgent[];
+  picked: string | null;
   now: number;
   close: React.ReactNode;
   onKeyDown: (event: KeyboardEvent) => void;
 }
 
 /** Every sub-agent in one compact list, newest first. */
-function AgentList({ style, agents, now, close, onKeyDown }: AgentListProps) {
+function AgentList({ style, agents, picked, now, close, onKeyDown }: AgentListProps) {
   const t = useT();
   const heading = t("subAgents.all", { count: agents.length });
+  const body = useRef<HTMLDivElement>(null);
+  // The row picked in the sidebar comes into sight once; later snapshots do not scroll.
+  useEffect(() => {
+    if (picked === null) return;
+    const rows = body.current?.querySelectorAll<HTMLElement>("[data-agent]") ?? [];
+    for (const row of rows) {
+      if (row.dataset.agent === picked) row.scrollIntoView({ block: "nearest" });
+    }
+  }, [picked]);
   return (
     <section className="subagent" style={style} aria-label={heading} onKeyDown={onKeyDown}>
       <header className="subagent-header">
@@ -208,12 +249,18 @@ function AgentList({ style, agents, now, close, onKeyDown }: AgentListProps) {
         <span className="subagent-type">{countsText(agents, t)}</span>
         {close}
       </header>
-      <div className="subagent-body" tabIndex={0} aria-label={heading}>
+      <div className="subagent-body" tabIndex={0} aria-label={heading} ref={body}>
         <ul className="subagent-list">
           {[...agents].reverse().map((agent) => {
             const name = agentTitle(agent, t);
+            const isPicked = agent.id === picked;
             return (
-              <li key={agent.id} className="subagent-row">
+              <li
+                key={agent.id}
+                className={isPicked ? "subagent-row picked" : "subagent-row"}
+                data-agent={agent.id}
+                aria-current={isPicked ? "true" : undefined}
+              >
                 <span className="subagent-row-name" title={name}>
                   {name}
                 </span>

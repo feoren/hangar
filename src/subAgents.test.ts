@@ -9,10 +9,16 @@ import {
   EMPTY_VIEW,
   featuredAgents,
   formatElapsed,
+  nextViewPeak,
   parseSubAgentEvent,
   planSubAgentPanes,
   statusCounts,
+  subAgentLayout,
+  subAgentTree,
   TOOL_HISTORY,
+  TREE_ROWS,
+  watchedSession,
+  withoutExcerpts,
   type SubAgent,
   type SubAgentSnapshot,
   type SubAgentStatus,
@@ -201,6 +207,91 @@ describe("featuredAgents", () => {
     expect(
       featuredAgents([agent("x", "finished"), agent("y", "stale")], 2).map((a) => a.id),
     ).toEqual(["x", "y"]);
+  });
+
+  it("puts the sub-agent picked in the sidebar first", () => {
+    const agents = [agent("picked", "finished"), agent("a"), agent("b"), agent("c")];
+    expect(featuredAgents(agents, 2, "picked").map((a) => a.id)).toEqual(["picked", "c"]);
+    expect(featuredAgents(agents, 2, "gone").map((a) => a.id)).toEqual(["b", "c"]);
+  });
+
+  it("gives the picked sub-agent a pane of its own in the grid", () => {
+    const agents = ["a", "b", "c", "d", "e"].map((id) => agent(id));
+    const view = applySnapshot(EMPTY_VIEW, snapshot(agents));
+    expect(planSubAgentPanes(view, false, "a").panes).toEqual([
+      { kind: "agent", id: "a" },
+      { kind: "agent", id: "e" },
+      { kind: "list" },
+    ]);
+  });
+});
+
+describe("subAgentLayout", () => {
+  it("gives the same layout as the full plan, from counts alone", () => {
+    for (const count of [0, 1, 2, 3, 4, 7]) {
+      for (const peak of [0, 2, 5]) {
+        for (const notice of [false, true]) {
+          const agents = Array.from({ length: count }, (_, index) => agent(`a${String(index)}`));
+          const view = { ...applySnapshot(EMPTY_VIEW, snapshot(agents)), peak };
+          expect(subAgentLayout(count, peak, notice)).toBe(planSubAgentPanes(view, notice).layout);
+        }
+      }
+    }
+  });
+});
+
+describe("withoutExcerpts", () => {
+  it("drops every excerpt and keeps the rest", () => {
+    const view = applySnapshot(EMPTY_VIEW, snapshot([agent("a"), agent("b")]));
+    const quiet = withoutExcerpts(view);
+    expect(quiet.agents.map((a) => a.excerpt)).toEqual([null, null]);
+    expect(quiet.agents.map((a) => a.tool)).toEqual(["Grep", "Grep"]);
+    expect(quiet.history).toBe(view.history);
+    expect(withoutExcerpts(quiet)).toBe(quiet);
+  });
+});
+
+describe("subAgentTree", () => {
+  it("lists every sub-agent in start order while they fit", () => {
+    const agents = [agent("a", "finished"), agent("b")];
+    expect(subAgentTree(agents)).toEqual({ agents, more: 0 });
+    expect(subAgentTree([])).toEqual({ agents: [], more: 0 });
+  });
+
+  it("keeps running and newer ones and counts the rest", () => {
+    const agents = [
+      agent("old-running"),
+      agent("f1", "finished"),
+      agent("f2", "finished"),
+      agent("f3", "stale"),
+      agent("f4", "finished"),
+    ];
+    const tree = subAgentTree(agents, 3);
+    expect(tree.agents.map((a) => a.id)).toEqual(["old-running", "f4"]);
+    expect(tree.more).toBe(3);
+    expect(subAgentTree(agents, TREE_ROWS).more).toBe(0);
+  });
+});
+
+describe("nextViewPeak", () => {
+  it("grows while the view stays on one conversation and starts over otherwise", () => {
+    const closed = { key: null, count: 0 };
+    expect(nextViewPeak(closed, null, 7)).toBe(closed);
+    const opened = nextViewPeak(closed, "1:a", 4);
+    expect(opened).toEqual({ key: "1:a", count: 4 });
+    expect(nextViewPeak(opened, "1:a", 2)).toBe(opened);
+    expect(nextViewPeak(opened, "1:a", 5)).toEqual({ key: "1:a", count: 5 });
+    expect(nextViewPeak(opened, "1:b", 1)).toEqual({ key: "1:b", count: 1 });
+    expect(nextViewPeak(opened, null, 4)).toEqual(closed);
+  });
+});
+
+describe("watchedSession", () => {
+  it("watches the open view's session, else the active one while the tree shows", () => {
+    expect(watchedSession(3, 5, false)).toBe(3);
+    expect(watchedSession(null, 5, true)).toBe(5);
+    expect(watchedSession(null, 5, false)).toBeNull();
+    expect(watchedSession(null, null, true)).toBeNull();
   });
 });
 

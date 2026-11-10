@@ -487,7 +487,17 @@ menu paste uses the clipboard plugin.
     says so. Watch and unwatch run one after the other in call order, so the unwatch of a
     closing view never ends the watch that replaces it (restart with a new id, excerpts
     switched). Setting "Show sub-agent text excerpts" (Settings, Sessions, default on) is passed
-    as `excerpts`. Snapshots live only in the hook's state.
+    as `excerpts`. Snapshots live only in memory, in an external store (`src/subAgentStore.ts`)
+    read with `useSyncExternalStore`: the tree and the panes re-render per snapshot, the app only
+    when the count, `located` or the error changes.
+    As built, sidebar tree (`src/SubAgentTree.tsx`, `subAgentTree` and `watchedSession` in
+    `src/subAgents.ts`): one watch at most, for the open view's session, else the active
+    session while the expanded sidebar shows the Sessions group. Without the view it runs with
+    `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
+    key is session plus conversation id only) and dropping excerpts at once when they are no
+    longer wanted. The tree lists up to five sub-agents (running and newer first, in start
+    order, else four plus "N more"); a row opens the view with that sub-agent preferred for a
+    pane and highlighted. The view's layout grows from the count seen since it opened.
     As built, conversation ids (`src/workspace.ts`, `src/sessions.ts`): `cliSessionId` is saved
     per entry (lower case, invalid or duplicate ids dropped to `null`, so the backend never
     refuses the workspace), passed to `create_session` on restore and on restarting a

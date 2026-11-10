@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 
 import type { Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
@@ -57,6 +57,7 @@ import {
 import type { Theme } from "./theme";
 import { sessionChip, type ChipKind } from "./sessionChip";
 import { StatusChip } from "./StatusChip";
+import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
@@ -158,6 +159,14 @@ interface Props {
   /** Settings on the Account section. */
   onOpenAccount: () => void;
   onOpenSettings: () => void;
+  /** Sub-agents of the active session for the tree below its row; `null`: none watched. */
+  subAgentTree: { sessionId: number; watchKey: string } | null;
+  /** Session whose sub-agent view is open, otherwise `null`. */
+  subAgentsOpen: number | null;
+  /** Sub-agent highlighted in the open view. */
+  subAgentPick: string | null;
+  /** A tree row: opens the view with this sub-agent (`null`: without a pick). */
+  onShowSubAgent: (sessionId: number, agentId: string | null, byKeyboard: boolean) => void;
 }
 
 export function Sidebar(props: Props) {
@@ -618,6 +627,7 @@ export function Sidebar(props: Props) {
 
   const sessionsOpen = open("sessions");
   const newSessionOpen = open("newSession");
+  const subAgentTree = props.subAgentTree;
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
     : t("sidebar.sessionsCount", { count: sessions.length });
@@ -650,6 +660,8 @@ export function Sidebar(props: Props) {
           <CollapseIcon />
         </button>
       </div>
+      {/* Decorative: separates the app's own controls from the sessions below. */}
+      <div className="sidebar-rule" aria-hidden="true" />
 
       <GroupSection
         group="sessions"
@@ -669,27 +681,47 @@ export function Sidebar(props: Props) {
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul className="session-list" data-session-list="" ref={sessionList}>
           {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
-          {sessions.map((session) => (
-            <SessionItem
-              key={session.id}
-              lines={lines(session)}
-              session={session}
-              look={badgeFor(session.profileId)}
-              program={programLine(profileById.get(session.profileId), versions)}
-              active={session.id === activeId}
-              state={attention.get(session.id) ?? "idle"}
-              chip={chipOf(session)}
-              editing={props.renamingId === session.id}
-              dragClass={dragClass(session.id)}
-              moveHint={moveHint}
-              {...props}
-              onClose={onClose}
-              onKill={onKill}
-              onRestart={onRestart}
-              onRenameStart={onRename}
-              onRowKey={onRowKey}
-            />
-          ))}
+          {sessions.map((session) => {
+            const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
+            // With a tree below the row, "drop after" draws its line below the tree.
+            const drag = dragClass(session.id);
+            const rowDrag = tree !== null && drag === "drop-after" ? "" : drag;
+            const treeDrag = tree !== null && drag !== "drop-before" ? drag : "";
+            return (
+              <Fragment key={session.id}>
+                <SessionItem
+                  lines={lines(session)}
+                  session={session}
+                  look={badgeFor(session.profileId)}
+                  program={programLine(profileById.get(session.profileId), versions)}
+                  active={session.id === activeId}
+                  state={attention.get(session.id) ?? "idle"}
+                  chip={chipOf(session)}
+                  editing={props.renamingId === session.id}
+                  dragClass={rowDrag}
+                  moveHint={moveHint}
+                  {...props}
+                  onClose={onClose}
+                  onKill={onKill}
+                  onRestart={onRestart}
+                  onRenameStart={onRename}
+                  onRowKey={onRowKey}
+                />
+                {/* The tree belongs to the row above it; as its own item, the row's layout stays. */}
+                {tree !== null && (
+                  <li className={treeDrag ? `subagent-tree-row ${treeDrag}` : "subagent-tree-row"}>
+                    <SubAgentTree
+                      sessionId={session.id}
+                      sessionTitle={session.title}
+                      watchKey={tree.watchKey}
+                      picked={props.subAgentsOpen === session.id ? props.subAgentPick : null}
+                      onShow={props.onShowSubAgent}
+                    />
+                  </li>
+                )}
+              </Fragment>
+            );
+          })}
         </ul>
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </GroupSection>

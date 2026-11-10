@@ -110,6 +110,8 @@ const de = {
   "subAgents.all": "Alle Sub-Agents: {count}",
   "subAgents.counts": "läuft: {running} · fertig: {finished}",
   "subAgents.countStale": "keine Aktivität: {stale}",
+  "subAgents.more": "{count} weitere",
+  "subAgents.treeHint": "Klicken zeigt, was dieser Sub-Agent macht.",
   "subAgents.loading": "Suche Sub-Agents …",
   "subAgents.notLocated":
     "Der Agent hat noch kein Protokoll geschrieben. Sub-Agents erscheinen nach deiner ersten Eingabe.",
@@ -1037,6 +1039,8 @@ const en: Record<MessageKey, string> = {
   "subAgents.all": "All sub-agents: {count}",
   "subAgents.counts": "running: {running} · finished: {finished}",
   "subAgents.countStale": "no activity: {stale}",
+  "subAgents.more": "{count} more",
+  "subAgents.treeHint": "Click to see what this sub-agent is doing.",
   "subAgents.loading": "Looking for sub-agents …",
   "subAgents.notLocated":
     "The agent has not written its transcript yet. Sub-agents show up after your first prompt.",
@@ -1939,6 +1943,8 @@ const el: Record<MessageKey, string> = {
   "subAgents.all": "Όλοι οι υπο-πράκτορες: {count}",
   "subAgents.counts": "εκτελούνται: {running} · ολοκληρώθηκαν: {finished}",
   "subAgents.countStale": "χωρίς δραστηριότητα: {stale}",
+  "subAgents.more": "{count} ακόμη",
+  "subAgents.treeHint": "Κάνε κλικ για να δεις τι κάνει αυτός ο υπο-πράκτορας.",
   "subAgents.loading": "Αναζήτηση υπο-πρακτόρων …",
   "subAgents.notLocated":
     "Ο πράκτορας δεν έχει γράψει ακόμη το αρχείο συνομιλίας. Οι υπο-πράκτορες εμφανίζονται μετά την πρώτη σου εντολή.",
@@ -2870,6 +2876,8 @@ const es: Record<MessageKey, string> = {
   "subAgents.all": "Todos los subagentes: {count}",
   "subAgents.counts": "en ejecución: {running} · terminados: {finished}",
   "subAgents.countStale": "sin actividad: {stale}",
+  "subAgents.more": "{count} más",
+  "subAgents.treeHint": "Haz clic para ver qué hace este subagente.",
   "subAgents.loading": "Buscando subagentes …",
   "subAgents.notLocated":
     "El agente aún no ha escrito su registro. Los subagentes aparecen después de tu primera instrucción.",
@@ -3788,6 +3796,8 @@ const fr: Record<MessageKey, string> = {
   "subAgents.all": "Tous les sous-agents : {count}",
   "subAgents.counts": "en cours : {running} · terminés : {finished}",
   "subAgents.countStale": "aucune activité : {stale}",
+  "subAgents.more": "{count} de plus",
+  "subAgents.treeHint": "Clique pour voir ce que fait ce sous-agent.",
   "subAgents.loading": "Recherche des sous-agents …",
   "subAgents.notLocated":
     "L'agent n'a pas encore écrit son journal. Les sous-agents apparaissent après ta première demande.",
@@ -4719,6 +4729,8 @@ const it: Record<MessageKey, string> = {
   "subAgents.all": "Tutti i sotto-agenti: {count}",
   "subAgents.counts": "in esecuzione: {running} · terminati: {finished}",
   "subAgents.countStale": "nessuna attività: {stale}",
+  "subAgents.more": "altri {count}",
+  "subAgents.treeHint": "Fai clic per vedere cosa sta facendo questo sotto-agente.",
   "subAgents.loading": "Ricerca dei sotto-agenti …",
   "subAgents.notLocated":
     "L'agente non ha ancora scritto il suo registro. I sotto-agenti compaiono dopo la tua prima richiesta.",
@@ -5641,6 +5653,8 @@ const ja: Record<MessageKey, string> = {
   "subAgents.all": "すべてのサブエージェント: {count}",
   "subAgents.counts": "実行中: {running} · 完了: {finished}",
   "subAgents.countStale": "応答なし: {stale}",
+  "subAgents.more": "他 {count} 件",
+  "subAgents.treeHint": "クリックすると、このサブエージェントの作業内容を表示します。",
   "subAgents.loading": "サブエージェントを検索中 …",
   "subAgents.notLocated":
     "エージェントはまだ記録を書き込んでいません。サブエージェントは最初の指示の後に表示されます。",
@@ -6563,6 +6577,8 @@ const pl: Record<MessageKey, string> = {
   "subAgents.all": "Wszyscy podagenci: {count}",
   "subAgents.counts": "działa: {running} · zakończone: {finished}",
   "subAgents.countStale": "brak aktywności: {stale}",
+  "subAgents.more": "jeszcze {count}",
+  "subAgents.treeHint": "Kliknij, aby zobaczyć, co robi ten podagent.",
   "subAgents.loading": "Szukam podagentów …",
   "subAgents.notLocated":
     "Agent nie zapisał jeszcze swojego dziennika. Podagenci pojawią się po twoim pierwszym poleceniu.",
@@ -7477,6 +7493,8 @@ const pt: Record<MessageKey, string> = {
   "subAgents.all": "Todos os subagentes: {count}",
   "subAgents.counts": "em execução: {running} · concluídos: {finished}",
   "subAgents.countStale": "sem atividade: {stale}",
+  "subAgents.more": "mais {count}",
+  "subAgents.treeHint": "Clique para ver o que este subagente está fazendo.",
   "subAgents.loading": "Procurando subagentes …",
   "subAgents.notLocated":
     "O agente ainda não gravou o registro. Os subagentes aparecem depois do seu primeiro pedido.",
@@ -8396,6 +8414,8 @@ const ru: Record<MessageKey, string> = {
   "subAgents.all": "Все субагенты: {count}",
   "subAgents.counts": "работают: {running} · завершены: {finished}",
   "subAgents.countStale": "нет активности: {stale}",
+  "subAgents.more": "ещё {count}",
+  "subAgents.treeHint": "Нажми, чтобы увидеть, что делает этот субагент.",
   "subAgents.loading": "Ищу субагентов …",
   "subAgents.notLocated":
     "Агент ещё не записал журнал. Субагенты появятся после твоего первого запроса.",
@@ -9305,6 +9325,8 @@ const tr: Record<MessageKey, string> = {
   "subAgents.all": "Tüm alt ajanlar: {count}",
   "subAgents.counts": "çalışıyor: {running} · bitti: {finished}",
   "subAgents.countStale": "etkinlik yok: {stale}",
+  "subAgents.more": "{count} tane daha",
+  "subAgents.treeHint": "Bu alt ajanın ne yaptığını görmek için tıkla.",
   "subAgents.loading": "Alt ajanlar aranıyor …",
   "subAgents.notLocated": "Ajan henüz kaydını yazmadı. Alt ajanlar ilk isteğinden sonra görünür.",
   "subAgents.none": "Henüz alt ajan yok. Ajan bir tane başlatır başlatmaz burada görünür.",
@@ -10211,6 +10233,8 @@ const zh: Record<MessageKey, string> = {
   "subAgents.all": "全部子代理：{count}",
   "subAgents.counts": "运行中：{running} · 已完成：{finished}",
   "subAgents.countStale": "无活动：{stale}",
+  "subAgents.more": "另外 {count} 个",
+  "subAgents.treeHint": "点击查看此子代理正在做什么。",
   "subAgents.loading": "正在查找子代理 …",
   "subAgents.notLocated": "代理尚未写入记录。子代理会在你发出第一条指令后出现。",
   "subAgents.none": "暂无子代理。代理启动子代理后会显示在这里。",
