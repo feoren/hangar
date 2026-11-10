@@ -90,26 +90,79 @@ pub fn reveal(file: &Path) -> io::Result<()> {
     spawn_detached(command)
 }
 
-/// Program and arguments that open an http(s) address in the default browser, without a shell.
-/// explorer.exe parses its own command line and splits it at commas, so such an address is
-/// refused on Windows; a serialized URL has no spaces or quotes (they are percent-encoded).
-pub fn url_command(url: &reqwest::Url) -> io::Result<(PathBuf, Vec<std::ffi::OsString>)> {
-    let text = url.as_str();
-    if !matches!(url.scheme(), "https" | "http") || (cfg!(windows) && text.contains([',', '"'])) {
+/// The address as text, if it is a plain http(s) address; nothing else is ever opened.
+pub fn checked_url(url: &reqwest::Url) -> io::Result<&str> {
+    if !matches!(url.scheme(), "https" | "http") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "only plain http(s) addresses open in the browser",
         ));
     }
+    Ok(url.as_str())
+}
+
+/// Program and arguments that open an http(s) address in the default browser, without a shell.
+#[cfg(not(windows))]
+pub fn url_command(url: &reqwest::Url) -> io::Result<(PathBuf, Vec<std::ffi::OsString>)> {
+    let text = checked_url(url)?;
     let (program, _) = command_for(Path::new(""), Target::Folder);
     Ok((program, vec![text.into()]))
 }
 
+/// Opens the address in the default browser.
+///
+/// On Windows through `ShellExecuteW`, not explorer.exe: Explorer parses its own command line and
+/// opened a folder window instead of the browser for addresses such as the sign-in page with
+/// `?code=...`.
 pub fn open_url(url: &reqwest::Url) -> io::Result<()> {
-    let (program, args) = url_command(url)?;
-    let mut command = Command::new(program);
-    command.args(args);
-    spawn_detached(command)
+    #[cfg(windows)]
+    {
+        shell_open(checked_url(url)?)
+    }
+    #[cfg(not(windows))]
+    {
+        let (program, args) = url_command(url)?;
+        let mut command = Command::new(program);
+        command.args(args);
+        spawn_detached(command)
+    }
+}
+
+/// UTF-16 with the terminating zero the Win32 API expects.
+#[cfg(windows)]
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn shell_open(address: &str) -> io::Result<()> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb = wide("open");
+    let file = wide(address);
+    // SAFETY: both buffers are zero-terminated UTF-16 that live until the call returns; the
+    // window handle, parameters and directory may be null according to the ShellExecuteW
+    // documentation.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // Values above 32 mean success; smaller ones are error codes.
+    if result as isize > 32 {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "the browser did not open (ShellExecute {})",
+            result as isize
+        )))
+    }
 }
 
 fn spawn_detached(mut command: Command) -> io::Result<()> {
@@ -184,21 +237,33 @@ mod tests {
     }
 
     #[test]
+    fn only_http_addresses_open() {
+        let url = reqwest::Url::parse("https://example.test/device?code=BCDF-GHJK").unwrap();
+        assert_eq!(checked_url(&url).unwrap(), url.as_str());
+        let comma = reqwest::Url::parse("https://example.test/a,b").unwrap();
+        assert!(checked_url(&comma).is_ok());
+        for refused in ["file:///C:/Windows/notepad.exe", "ftp://example.test/x"] {
+            let url = reqwest::Url::parse(refused).unwrap();
+            assert!(checked_url(&url).is_err(), "{refused}");
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn urls_open_as_one_argument() {
         let url = reqwest::Url::parse("https://example.test/device?user_code=BCDF-GHJK").unwrap();
         let (program, args) = url_command(&url).unwrap();
         assert_eq!(args, [std::ffi::OsString::from(url.as_str())]);
         let name = program.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        assert!(
-            ["explorer.exe", "open", "xdg-open"].contains(&name),
-            "{name}"
-        );
-        for refused in ["file:///C:/Windows/notepad.exe", "ftp://example.test/x"] {
-            let url = reqwest::Url::parse(refused).unwrap();
-            assert!(url_command(&url).is_err(), "{refused}");
-        }
-        let comma = reqwest::Url::parse("https://example.test/a,b").unwrap();
-        assert_eq!(url_command(&comma).is_err(), cfg!(windows));
+        assert!(["open", "xdg-open"].contains(&name), "{name}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn addresses_reach_shell_execute_zero_terminated() {
+        let text = wide("https://example.test/device?code=BCDF-GHJK");
+        assert_eq!(text.last(), Some(&0));
+        assert_eq!(text.iter().filter(|&&unit| unit == 0).count(), 1);
     }
 
     #[test]
