@@ -227,6 +227,10 @@ fn cached_version(agent: &Agent, program: &Path, cache: &VersionCache) -> Option
     if let Some(version) = cache.get(&key) {
         return version;
     }
+    // Not cached: the shim's stamp stays the same when a reinstall repairs the binary behind it.
+    if !crate::exe_image::is_launchable(&program) {
+        return None;
+    }
     let version = probe(&program, &key.1, &agent.profile.env, TIMEOUT);
     cache.insert(key, version.clone());
     version

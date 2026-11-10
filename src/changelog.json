@@ -2,7 +2,22 @@
   {
     "version": "0.4.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Ein unvollständig installiertes Programm (etwa opencode) löst beim Start nicht mehr die Windows-Meldung „Nicht unterstützte 16-Bit-Anwendung“ aus.",
+        "en": "An incompletely installed program (such as opencode) no longer triggers the Windows message \"Unsupported 16-Bit Application\" at startup.",
+        "el": "Ένα ελλιπώς εγκατεστημένο πρόγραμμα (π.χ. opencode) δεν προκαλεί πλέον στην εκκίνηση το μήνυμα των Windows «Μη υποστηριζόμενη εφαρμογή 16 bit».",
+        "es": "Un programa instalado de forma incompleta (como opencode) ya no provoca al iniciar el mensaje de Windows «Aplicación de 16 bits no compatible».",
+        "fr": "Un programme installé de façon incomplète (comme opencode) ne déclenche plus au démarrage le message Windows « Application 16 bits non prise en charge ».",
+        "it": "Un programma installato in modo incompleto (come opencode) non fa più comparire all'avvio il messaggio di Windows «Applicazione a 16 bit non supportata».",
+        "ja": "インストールが不完全なプログラム（opencode など）が原因で、起動時に Windows の「サポートされていない 16 ビット アプリケーション」が表示されることはなくなりました。",
+        "pl": "Niekompletnie zainstalowany program (np. opencode) nie wywołuje już przy starcie komunikatu Windows „Nieobsługiwana aplikacja 16-bitowa”.",
+        "pt": "Um programa instalado de forma incompleta (como o opencode) não provoca mais ao iniciar a mensagem do Windows \"Aplicativo de 16 bits sem suporte\".",
+        "ru": "Не до конца установленная программа (например, opencode) больше не вызывает при запуске сообщение Windows «Неподдерживаемое 16-разрядное приложение».",
+        "tr": "Eksik kurulmuş bir program (örneğin opencode) artık açılışta Windows'un \"Desteklenmeyen 16 Bit Uygulama\" iletisine yol açmıyor.",
+        "zh": "安装不完整的程序（例如 opencode）不再会在启动时触发 Windows 的“不支持的 16 位应用程序”提示。"
+      }
+    ]
   },
   {
     "version": "0.3.1",

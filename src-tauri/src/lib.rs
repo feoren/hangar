@@ -10,6 +10,7 @@ pub mod claims_service;
 pub mod cli_session;
 mod commands;
 pub mod desktop;
+pub mod exe_image;
 pub mod export;
 pub mod filecache;
 pub mod gate;
