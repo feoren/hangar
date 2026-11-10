@@ -321,3 +321,12 @@ Pages changed: [[agent-workflow-features]].
 arboard decodes the Windows clipboard's PNG without allocation limits, so screenshots are now read
 through `clipboard-win` with the size checked in the header first; files are owner only on Unix
 and one paste runs at a time. Pages changed: [[agent-workflow-features]].
+
+## [2026-11-10] query | ADR 0006: encrypted project notes
+Proposed design for notes shared through the repository: `.hangar/notes/` with `vault.json`, one
+`<note id>.note` per note (XChaCha20-Poly1305, per-file HKDF key, vault, note id and key id as
+associated data, padded plaintext, nothing sensitive outside), a notes key ring sealed as a signed
+team record `notes-keys` and re-sealed on every rotation (new key after removals), a solo mode
+with a notes recovery code, main worktree rule, lossless automatic conflict resolution, threat
+model, non-goals, three phases and open questions for the owner. No code changed. Pages changed:
+[[0006-encrypted-project-notes]] (new), [[0004-notes-per-working-folder]].

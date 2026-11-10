@@ -6,7 +6,7 @@ superseded_by:
 tags: [notes, persistence, markdown]
 sources: []
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-10
 ---
 
 # ADR 0004: Notes per working folder
@@ -56,6 +56,8 @@ Option 4. Stored under `app_local_data_dir()/notes/<key>/` (Windows `%LOCALAPPDA
 - The frontend does not need read access to the files; `reveal_notes_folder` opens the folder
   in the file manager (Windows `explorer.exe`, macOS `open`, Linux `xdg-open`, argv without a shell, no plugin).
 - Contract: [[notes]].
+- Notes shared through the repository, encrypted, are a separate kind decided in
+  [[0006-encrypted-project-notes]]; option 2 stays rejected for these private notes.
 
 ## Addendum (2026-11-08): English folder names
 The stored folder names are now English: the key for notes without a folder is `general` (was
