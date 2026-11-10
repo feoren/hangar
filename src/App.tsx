@@ -162,6 +162,7 @@ import {
   type Settings,
 } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
+import type { SettingsSection } from "./settingsSections";
 import {
   focusCycleStep,
   formatShortcut,
@@ -206,6 +207,7 @@ import { SubAgentPanes } from "./SubAgentPanes";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { useTeam } from "./useTeam";
+import { TeamWindow } from "./TeamWindow";
 import {
   clockTime,
   freshTaskNotices,
@@ -404,6 +406,10 @@ export function App() {
   const [version, setVersion] = useState<string | null>(null);
   const [profilePath, setProfilePath] = useState<string | null>(null);
   const [dialog, setDialog] = useState<OpenDialog>(null);
+  /** The section Settings opens on; `null`: the one chosen last. */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  /** The Team window floats over the terminals and is not modal, so it is not a `dialog`. */
+  const [teamOpen, setTeamOpen] = useState(false);
   /** What's New starting at this version; `null` shows all entries (opened from the menu). */
   const [whatsNewSince, setWhatsNewSince] = useState<string | null>(null);
   // Read before the settings are saved for the first time: has Hangar run here before?
@@ -1063,6 +1069,18 @@ export function App() {
       const id = activeIdRef.current;
       if (free && id !== null) terminals.get(id)?.focus();
     });
+  }, []);
+
+  const closeTeam = useCallback(() => {
+    setTeamOpen(false);
+    focusActive();
+  }, [focusActive]);
+
+  /** Settings, on `section` or the section chosen last; the Team window makes way. */
+  const openSettings = useCallback((section: SettingsSection | null = null) => {
+    setTeamOpen(false);
+    setSettingsSection(section);
+    setDialog("settings");
   }, []);
 
   /** After a mouse click on a button: focus back to the terminal, even if the button has it. */
@@ -2741,7 +2759,7 @@ export function App() {
         changeFont(null);
         break;
       case "openSettings":
-        setDialog("settings");
+        openSettings();
         break;
       case "nextWaiting": {
         // A pending decision comes first: its card takes the focus. Pressed again on the card,
@@ -2987,7 +3005,7 @@ export function App() {
           label: t("menu.settings"),
           shortcut: keys("openSettings"),
           run: () => {
-            setDialog("settings");
+            openSettings();
           },
         },
         { type: "separator" },
@@ -3450,6 +3468,17 @@ export function App() {
             void persistAll().then(() => updater.install(update));
           }}
           onDismissUpdate={updater.dismiss}
+          teamOpen={teamOpen}
+          onToggleTeam={() => {
+            if (teamOpen) closeTeam();
+            else setTeamOpen(true);
+          }}
+          onOpenAccount={() => {
+            openSettings("account");
+          }}
+          onOpenSettings={() => {
+            openSettings();
+          }}
         />
         <main className="body">
           {error && (
@@ -4187,8 +4216,15 @@ export function App() {
             onClose={closeDialog}
           />
         )}
+        {teamOpen && (
+          <TeamWindow
+            sessions={state.sessions.map((session) => ({ id: session.id, title: session.title }))}
+            onClose={closeTeam}
+          />
+        )}
         {dialog === "settings" && (
           <SettingsDialog
+            initialSection={settingsSection}
             settings={settings}
             profiles={profiles}
             versions={programs.versions}

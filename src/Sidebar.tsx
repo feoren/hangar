@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-import { isSignedIn } from "./account";
 import type { Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
@@ -47,8 +46,7 @@ import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
-import { TeamProjects } from "./TeamProjects";
-import { useAccount } from "./useAccount";
+import { SidebarFooter } from "./SidebarFooter";
 import {
   detailLine,
   statusLine,
@@ -154,6 +152,12 @@ interface Props {
   onMove: (id: number, index: number) => void;
   onInstallUpdate: () => void;
   onDismissUpdate: () => void;
+  /** The Team window is open (the footer's team pill shows it as expanded). */
+  teamOpen: boolean;
+  onToggleTeam: () => void;
+  /** Settings on the Account section. */
+  onOpenAccount: () => void;
+  onOpenSettings: () => void;
 }
 
 export function Sidebar(props: Props) {
@@ -161,7 +165,6 @@ export function Sidebar(props: Props) {
     props;
   const { startable } = props;
   const t = useT();
-  const accountSnapshot = useAccount();
   const now = useClock(STATUS_TICK_MS);
   /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
   const lines = (session: SessionView) => {
@@ -585,28 +588,36 @@ export function Sidebar(props: Props) {
             }}
           />
         )}
-        {update.kind === "available" && (
-          <button
-            type="button"
-            className="icon-button rail-update"
-            aria-label={t("update.available", {
-              version: displayVersion(update.update.version, t("version.beta")),
-            })}
-            title={t("update.available", {
-              version: displayVersion(update.update.version, t("version.beta")),
-            })}
-            onClick={props.onToggleCollapsed}
-          >
-            <DownloadIcon />
-          </button>
-        )}
+        <div className="rail-bottom">
+          {update.kind === "available" && (
+            <button
+              type="button"
+              className="icon-button rail-update"
+              aria-label={t("update.available", {
+                version: displayVersion(update.update.version, t("version.beta")),
+              })}
+              title={t("update.available", {
+                version: displayVersion(update.update.version, t("version.beta")),
+              })}
+              onClick={props.onToggleCollapsed}
+            >
+              <DownloadIcon />
+            </button>
+          )}
+          <SidebarFooter
+            collapsed
+            teamOpen={props.teamOpen}
+            onToggleTeam={props.onToggleTeam}
+            onOpenAccount={props.onOpenAccount}
+            onOpenSettings={props.onOpenSettings}
+          />
+        </div>
       </aside>
     );
   }
 
   const sessionsOpen = open("sessions");
   const newSessionOpen = open("newSession");
-  const teamOpen = open("team");
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
     : t("sidebar.sessionsCount", { count: sessions.length });
@@ -841,21 +852,13 @@ export function Sidebar(props: Props) {
         </ul>
       </GroupSection>
 
-      {/* Only while signed in: without an account Hangar shows nothing of the team service. */}
-      {isSignedIn(accountSnapshot.view) && (
-        <GroupSection
-          group="team"
-          title={t("team.title")}
-          open={teamOpen}
-          className={teamOpen ? "team-group" : "team-group closed"}
-          onToggle={props.onToggleGroup}
-        >
-          <TeamProjects
-            snapshot={accountSnapshot}
-            sessions={sessions.map((session) => ({ id: session.id, title: session.title }))}
-          />
-        </GroupSection>
-      )}
+      <SidebarFooter
+        collapsed={false}
+        teamOpen={props.teamOpen}
+        onToggleTeam={props.onToggleTeam}
+        onOpenAccount={props.onOpenAccount}
+        onOpenSettings={props.onOpenSettings}
+      />
 
       <Splitter
         orientation="vertical"

@@ -161,6 +161,8 @@ describe("sidebar groups", () => {
     expect(read(["newSession", "memos", "newSession", 3])).toEqual(["newSession"]);
     // The notes group of 0.2 is gone: the right panel is the one place for notes.
     expect(read(["newSession", "notes", "sessions"])).toEqual(["sessions", "newSession"]);
+    // The team group of 0.3 moved into the Team window.
+    expect(read(["team", "sessions"])).toEqual(["sessions"]);
     expect(read("sessions")).toEqual([]);
     expect(read(null)).toEqual([]);
     expect(parseLayout(JSON.stringify({ fontSize: 12 })).closedGroups).toEqual([]);

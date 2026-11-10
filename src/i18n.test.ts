@@ -39,6 +39,13 @@ const SHORT_KEYS = [
   "common.ok",
   "common.cancel",
   "common.close",
+  "teamPill.waiting",
+  "teamPill.problem",
+  "teamPill.off",
+  "teamWindow.tab.now",
+  "teamWindow.tab.people",
+  "teamWindow.tab.requests",
+  "teamWindow.connect",
 ] as const;
 
 describe("dictionaries", () => {

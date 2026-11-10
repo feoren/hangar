@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   accountErrorText,
@@ -8,11 +8,9 @@ import {
   type Project,
 } from "./account";
 import { useT } from "./i18n";
-import { TeamActivityView } from "./TeamActivityView";
-import type { TaskSession } from "./TeamTasksView";
+import { TeamRepos } from "./TeamActivityView";
 import {
   ARM_DELAY_MS,
-  EMPTY_ACTIVITY,
   armDelayLeft,
   canToggle,
   confirmationKindText,
@@ -20,7 +18,6 @@ import {
   isSharing,
   personTag,
   releaseRequestKey,
-  releaseRequests,
   requestPosition,
   shortId,
   shownRequest,
@@ -29,179 +26,187 @@ import {
   taskTitle,
   teamErrorText,
   type PendingConfirmation,
+  type RepoRef,
   type TaskView,
+  type TeamActivity,
   type TeamProblem,
   type TeamStatus,
 } from "./team";
-import { account, loadProjects, type AccountSnapshot } from "./useAccount";
-import { loadTeamStatuses, taskKey, team, useTeam } from "./useTeam";
+import { account } from "./useAccount";
+import { taskKey, team } from "./useTeam";
+
+// The Team window's building blocks: a project's details and share switch, connecting a first
+// project, the waiting help with the safety number, and the requests that wait for an answer
+// (new devices to confirm, tasks to hand over).
 
 /**
- * Body of the sidebar's Team group: new devices waiting for confirmation (only when there are
- * any), then the account's projects with role, plan, seats (per account of the owner), pending
- * invitations, the "Share with team" switch with the team connection's state, while connected the
- * shared repositories and the teammates' sessions, and "Invite people" for owners and admins.
- * Shown only while signed in.
+ * One project in the Team window's "People" tab: role, plan, seats (per account of the owner)
+ * and pending invitations, "Share with team" with the connection's state, while connected the
+ * shared repositories, and "Invite people" for owners and admins.
  */
-export function TeamProjects({
-  snapshot,
-  sessions,
-}: {
-  snapshot: AccountSnapshot;
-  /** This device's running sessions, for linking a reservation to one. */
-  sessions: readonly TaskSession[];
+export function ProjectDetails(props: {
+  project: Project;
+  status: TeamStatus;
+  activity: TeamActivity;
+  repos: readonly RepoRef[];
+  busy: ReadonlySet<string>;
 }) {
   const t = useT();
-  const teamStore = useTeam();
-  const [problem, setProblem] = useState<AccountProblem | null>(null);
-  const [shareProblems, setShareProblems] = useState<ReadonlyMap<string, TeamProblem>>(
-    () => new Map(),
-  );
-  const { projects, projectsError, loadingProjects } = snapshot;
-
-  useEffect(() => {
-    if (projects !== null) loadTeamStatuses(projects.map((project) => project.id));
-  }, [projects]);
-
-  const setShareProblem = (projectId: string, next: TeamProblem | null) => {
-    setShareProblems((previous) => {
-      const map = new Map(previous);
-      if (next === null) map.delete(projectId);
-      else map.set(projectId, next);
-      return map;
-    });
-  };
-
-  const pending =
-    teamStore.pending.length > 0 ? (
-      <PendingConfirmations
-        pending={teamStore.pending}
-        projects={projects ?? []}
-        busy={teamStore.busy}
-      />
-    ) : null;
-
-  const requests = releaseRequests(teamStore.activities);
-  const release =
-    requests.length > 0 ? (
-      <ReleaseRequests requests={requests} projects={projects ?? []} busy={teamStore.busy} />
-    ) : null;
-
-  const reload = (
-    <button
-      type="button"
-      className="link-button team-reload"
-      disabled={loadingProjects}
-      onClick={() => {
-        void loadProjects();
-      }}
-    >
-      {t("team.reload")}
-    </button>
-  );
-
-  let body: ReactNode;
-  if (projectsError !== null) {
-    body = (
-      <p className="hint group-hint team-hint" role="status">
-        {projectsError.kind === "sessionEnded"
-          ? t("account.sessionEnded")
-          : accountErrorText(projectsError, t)}{" "}
-        {projectsError.kind !== "sessionEnded" && reload}
-      </p>
-    );
-  } else if (projects === null) {
-    body = <p className="hint group-hint team-hint">{t("team.loading")}</p>;
-  } else if (projects.length === 0) {
-    body = (
-      <p className="hint group-hint team-hint">
-        {t("team.empty")} {reload}
-      </p>
-    );
-  } else {
-    body = (
-      <ul className="team-list">
-        {projects.map((project) => {
-          const role = roleText(project.role, t);
-          const meta = projectMeta(project, t);
-          const status = statusFor(teamStore.statuses, project.id);
-          return (
-            <li key={project.id} className="team-project">
-              <div className="team-project-head">
-                <span className="team-project-name" title={project.name}>
-                  {project.name}
-                </span>
-                {role !== null && <span className="team-role">{role}</span>}
-              </div>
-              {meta.length > 0 && (
-                <div className="team-project-meta" title={t("team.seatsHelp")}>
-                  {meta.join(" · ")}
-                </div>
-              )}
-              <ShareSwitch
-                project={project}
-                status={status}
-                busy={teamStore.busy.has(project.id)}
-                problem={shareProblems.get(project.id) ?? null}
-                onToggle={(on) => {
-                  setShareProblem(project.id, null);
-                  team
-                    .setSharing(project.id, on)
-                    .then((next) => {
-                      setShareProblem(project.id, next);
-                    })
-                    .catch(() => undefined);
-                }}
-              />
-              {status.state === "connected" && (
-                <TeamActivityView
-                  projectId={project.id}
-                  activity={teamStore.activities.get(project.id) ?? EMPTY_ACTIVITY}
-                  repos={teamStore.repos}
-                  sessions={sessions}
-                  busy={teamStore.busy}
-                />
-              )}
-              {project.canInvite && (
-                <button
-                  type="button"
-                  className="secondary-button team-invite"
-                  title={t("team.inviteHelp")}
-                  onClick={() => {
-                    setProblem(null);
-                    account
-                      .open({ kind: "invite", projectId: project.id })
-                      .then(setProblem)
-                      .catch(() => undefined);
-                  }}
-                >
-                  {t("team.invite")}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
+  const { project, status } = props;
+  const [shareProblem, setShareProblem] = useState<TeamProblem | null>(null);
+  const [inviteProblem, setInviteProblem] = useState<AccountProblem | null>(null);
+  const role = roleText(project.role, t);
+  const meta = projectMeta(project, t);
 
   return (
-    <>
-      {release}
-      {pending}
-      {body}
-      {problem !== null && (
-        <p className="hint group-hint error-text" role="alert">
-          {accountErrorText(problem, t)}
+    <div className="team-project">
+      <div className="team-project-head">
+        <span className="team-project-name" title={project.name}>
+          {project.name}
+        </span>
+        {role !== null && <span className="team-role">{role}</span>}
+      </div>
+      {meta.length > 0 && (
+        <div className="team-project-meta" title={t("team.seatsHelp")}>
+          {meta.join(" · ")}
+        </div>
+      )}
+      <ShareSwitch
+        status={status}
+        busy={props.busy.has(project.id)}
+        problem={shareProblem}
+        onToggle={(on) => {
+          setShareProblem(null);
+          team
+            .setSharing(project.id, on)
+            .then(setShareProblem)
+            .catch(() => undefined);
+        }}
+      />
+      {status.state === "connected" && (
+        <TeamRepos
+          projectId={project.id}
+          activity={props.activity}
+          repos={props.repos}
+          busy={props.busy}
+        />
+      )}
+      {project.canInvite && (
+        <button
+          type="button"
+          className="secondary-button team-invite"
+          title={t("team.inviteHelp")}
+          onClick={() => {
+            setInviteProblem(null);
+            account
+              .open({ kind: "invite", projectId: project.id })
+              .then(setInviteProblem)
+              .catch(() => undefined);
+          }}
+        >
+          {t("team.invite")}
+        </button>
+      )}
+      {inviteProblem !== null && (
+        <p className="team-help error-text" role="alert">
+          {accountErrorText(inviteProblem, t)}
         </p>
       )}
-    </>
+    </div>
+  );
+}
+
+/**
+ * Signed in, nothing shared yet: every project with one "Connect" button, which turns its
+ * "Share with team" on.
+ */
+export function ConnectList(props: {
+  projects: readonly Project[];
+  statuses: ReadonlyMap<string, TeamStatus>;
+  busy: ReadonlySet<string>;
+}) {
+  return (
+    <ul className="team-connect-list">
+      {props.projects.map((project) => (
+        <ConnectRow
+          key={project.id}
+          project={project}
+          status={statusFor(props.statuses, project.id)}
+          busy={props.busy.has(project.id)}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function ConnectRow(props: { project: Project; status: TeamStatus; busy: boolean }) {
+  const t = useT();
+  const [problem, setProblem] = useState<TeamProblem | null>(null);
+  const { project } = props;
+  const role = roleText(project.role, t);
+  const details = [role, ...projectMeta(project, t)].filter((part) => part !== null);
+  const line = statusLine(props.status, t);
+  return (
+    <li className="team-connect-row">
+      <div className="team-connect-text">
+        <span className="team-project-name" title={project.name}>
+          {project.name}
+        </span>
+        {details.length > 0 && <span className="team-project-meta">{details.join(" · ")}</span>}
+        {line !== null && (
+          <span className={`team-status tone-${line.tone}`} role="status">
+            <span className="team-status-mark" aria-hidden="true" />
+            <span>{line.text}</span>
+          </span>
+        )}
+        {problem !== null && (
+          <span className="team-help error-text" role="alert">
+            {teamErrorText(problem, t)}
+          </span>
+        )}
+      </div>
+      <ConnectButton
+        projectId={project.id}
+        projectName={project.name}
+        busy={props.busy}
+        disabled={!canToggle(props.status)}
+        onProblem={setProblem}
+      />
+    </li>
+  );
+}
+
+/** "Connect": turns "Share with team" on for one project. */
+export function ConnectButton(props: {
+  projectId: string;
+  projectName: string;
+  busy: boolean;
+  disabled?: boolean;
+  onProblem: (problem: TeamProblem | null) => void;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="primary-button team-connect"
+      aria-label={t("teamWindow.connectProject", { name: props.projectName })}
+      aria-busy={props.busy}
+      disabled={props.busy || props.disabled === true}
+      onClick={() => {
+        props.onProblem(null);
+        team
+          .setSharing(props.projectId, true)
+          .then(props.onProblem)
+          .catch(() => undefined);
+      }}
+    >
+      {t("teamWindow.connect")}
+    </button>
   );
 }
 
 /** "Share with team" with the team connection's state below it. */
-function ShareSwitch(props: {
-  project: Project;
+export function ShareSwitch(props: {
   status: TeamStatus;
   busy: boolean;
   problem: TeamProblem | null;
@@ -237,12 +242,6 @@ function ShareSwitch(props: {
           <span>{line.text}</span>
         </div>
       )}
-      {status.state === "waitingForConfirmation" && (
-        <>
-          <p className="team-help">{t("team.status.waitingHelp")}</p>
-          <SafetyNumber groups={status.safetyNumber} />
-        </>
-      )}
       {props.problem !== null && (
         <p className="team-help error-text" role="alert">
           {teamErrorText(props.problem, t)}
@@ -252,8 +251,23 @@ function ShareSwitch(props: {
   );
 }
 
+/**
+ * This device waits until another device of the person, or an owner or admin, confirms it: what
+ * to do, and the safety number to compare, large.
+ */
+export function WaitingHelp({ safetyNumber }: { safetyNumber: readonly string[] }) {
+  const t = useT();
+  return (
+    <div className="team-waiting">
+      <p className="team-waiting-title">{t("team.status.waiting")}</p>
+      <p className="team-help">{t("team.status.waitingHelp")}</p>
+      <SafetyNumber groups={safetyNumber} />
+    </div>
+  );
+}
+
 /** The 6 groups of a safety number, monospaced in a 3 by 2 grid for comparing at a glance. */
-function SafetyNumber({ groups }: { groups: readonly string[] }) {
+export function SafetyNumber({ groups }: { groups: readonly string[] }) {
   const t = useT();
   return (
     <div className="safety-number" role="group" aria-label={t("team.safetyNumber")}>
@@ -269,25 +283,17 @@ function SafetyNumber({ groups }: { groups: readonly string[] }) {
  * New devices waiting for this device's confirmation, one at a time: the same request stays while
  * it is pending, the next one follows once it has been answered or withdrawn.
  */
-function PendingConfirmations(props: {
+export function PendingConfirmations(props: {
   pending: readonly PendingConfirmation[];
   projects: readonly Project[];
   busy: ReadonlySet<string>;
+  /** After the last answer the panel is gone: the caller takes the focus. */
+  onLastAnswered: () => void;
 }) {
   const t = useT();
   const titleId = useId();
   const sectionRef = useRef<HTMLElement>(null);
-  // The Team group's heading button, found while the panel is mounted: after the last answer
-  // the panel is gone, and the focus would otherwise fall back to the page body.
-  const headingRef = useRef<HTMLElement | null>(null);
   const [shownId, setShownId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const heading = sectionRef.current
-      ?.closest(".sidebar-group")
-      ?.querySelector<HTMLElement>(".group-toggle");
-    if (heading !== undefined && heading !== null) headingRef.current = heading;
-  });
 
   const request = shownRequest(props.pending, shownId);
   const nextId = request?.id ?? null;
@@ -319,10 +325,10 @@ function PendingConfirmations(props: {
         onAnswered={() => {
           // Keep the keyboard in the panel, but never on the next request's Confirm button: a
           // second Enter must not confirm a device whose safety number nobody compared. After the
-          // last request the panel is gone; the Team group's heading takes the focus instead.
+          // last request the panel is gone; the caller takes the focus instead.
           requestAnimationFrame(() => {
-            const target = sectionRef.current ?? headingRef.current;
-            if (target?.isConnected === true) target.focus();
+            if (sectionRef.current?.isConnected === true) sectionRef.current.focus();
+            else props.onLastAnswered();
           });
         }}
       />
@@ -476,10 +482,12 @@ function PendingRequest(props: {
  * same request stays while it is open, Release and Keep stay disabled for a moment whenever the
  * shown request changes, and an answer never lands on the next request's buttons.
  */
-function ReleaseRequests(props: {
+export function ReleaseRequests(props: {
   requests: readonly { projectId: string; task: TaskView }[];
   projects: readonly Project[];
   busy: ReadonlySet<string>;
+  /** After the last answer the panel is gone: the caller takes the focus. */
+  onLastAnswered: () => void;
 }) {
   const t = useT();
   const titleId = useId();
@@ -517,6 +525,7 @@ function ReleaseRequests(props: {
         onAnswered={() => {
           requestAnimationFrame(() => {
             if (sectionRef.current?.isConnected === true) sectionRef.current.focus();
+            else props.onLastAnswered();
           });
         }}
       />

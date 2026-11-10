@@ -354,3 +354,35 @@ export function OverlapIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Gear: settings. */
+export function GearIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12.70 6.31 14.46 6.64 14.46 9.36 12.70 9.69 12.52 10.13 13.53 11.61 11.61 13.53 10.13 12.52 9.69 12.70 9.36 14.46 6.64 14.46 6.31 12.70 5.87 12.52 4.39 13.53 2.47 11.61 3.48 10.13 3.30 9.69 1.54 9.36 1.54 6.64 3.30 6.31 3.48 5.87 2.47 4.39 4.39 2.47 5.87 3.48 6.31 3.30 6.64 1.54 9.36 1.54 9.69 3.30 10.13 3.48 11.61 2.47 13.53 4.39 12.52 5.87Z" />
+      <circle cx="8" cy="8" r="2.1" />
+    </Svg>
+  );
+}
+
+/** One person: an account without a name or picture, or signing in. */
+export function PersonIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="5.6" r="2.6" />
+      <path d="M2.8 13.6c.6-2.5 2.7-4 5.2-4s4.6 1.5 5.2 4" />
+    </Svg>
+  );
+}
+
+/** Two people: the team. */
+export function TeamIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="6" cy="5.8" r="2.3" />
+      <path d="M1.8 13.4c.5-2.2 2.1-3.5 4.2-3.5s3.7 1.3 4.2 3.5" />
+      <path d="M10.4 3.7a2.3 2.3 0 0 1 0 4.3" />
+      <path d="M11.6 9.9c1.4.4 2.3 1.6 2.6 3.5" />
+    </Svg>
+  );
+}

@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Unten in der Seitenleiste: du, dein Team und die Einstellungen in einer Zeile. Ein Klick aufs Team öffnet ein Fenster, das die Terminals frei lässt.",
+        "en": "The bottom of the sidebar now shows you, your team and Settings in one row. Clicking the team opens a window that leaves your terminals in view.",
+        "el": "Στο κάτω μέρος της πλευρικής στήλης: εσύ, η ομάδα σου και οι Ρυθμίσεις σε μία γραμμή. Η ομάδα ανοίγει ένα παράθυρο που αφήνει ορατά τα τερματικά.",
+        "es": "Abajo en la barra lateral: tú, tu equipo y la Configuración en una sola fila. Al pulsar el equipo se abre una ventana que deja ver las terminales.",
+        "fr": "En bas de la barre latérale : toi, ton équipe et les Paramètres sur une ligne. Un clic sur l'équipe ouvre une fenêtre qui laisse voir les terminaux.",
+        "it": "In fondo alla barra laterale: tu, il tuo team e le Impostazioni in una riga. Un clic sul team apre una finestra che lascia visibili i terminali.",
+        "ja": "サイドバーの下部に、あなた、チーム、設定を 1 行で表示します。チームをクリックすると、ターミナルを隠さないウィンドウが開きます。",
+        "pl": "Na dole paska bocznego: ty, twój zespół i Ustawienia w jednym wierszu. Kliknięcie zespołu otwiera okno, które nie zasłania terminali.",
+        "pt": "No fim da barra lateral: você, sua equipe e as Configurações em uma linha. Clicar na equipe abre uma janela que deixa os terminais à vista.",
+        "ru": "Внизу боковой панели: ты, твоя команда и настройки в одной строке. Клик по команде открывает окно, которое не закрывает терминалы.",
+        "tr": "Kenar çubuğunun altında artık sen, ekibin ve Ayarlar tek satırda. Ekibe tıklamak, terminalleri açıkta bırakan bir pencere açar.",
+        "zh": "侧边栏底部现在在一行中显示你、你的团队和设置。点击团队会打开一个不遮挡终端的窗口。"
+      },
+      {
         "de": "Ein unvollständig installiertes Programm (etwa opencode) löst beim Start nicht mehr die Windows-Meldung „Nicht unterstützte 16-Bit-Anwendung“ aus.",
         "en": "An incompletely installed program (such as opencode) no longer triggers the Windows message \"Unsupported 16-Bit Application\" at startup.",
         "el": "Ένα ελλιπώς εγκατεστημένο πρόγραμμα (π.χ. opencode) δεν προκαλεί πλέον στην εκκίνηση το μήνυμα των Windows «Μη υποστηριζόμενη εφαρμογή 16 bit».",

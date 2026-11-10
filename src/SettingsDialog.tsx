@@ -53,6 +53,8 @@ import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
 interface Props {
+  /** The section to open on; `null`: the one chosen last. */
+  initialSection: SettingsSection | null;
   settings: Settings;
   profiles: Profile[];
   versions: ProgramVersions;
@@ -153,7 +155,7 @@ let lastSection: SettingsSection = "general";
  */
 export function SettingsDialog(props: Props) {
   const t = useT();
-  const [section, setSection] = useState<SettingsSection>(lastSection);
+  const [section, setSection] = useState<SettingsSection>(props.initialSection ?? lastSection);
   const tabs = useRef(new Map<SettingsSection, HTMLButtonElement>());
   const narrow = useSyncExternalStore(subscribeNarrow, isNarrow);
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   accountErrorText,
@@ -31,20 +31,41 @@ type Register = (target: FocusTarget) => (element: HTMLButtonElement | null) => 
 export function AccountSettings() {
   const t = useT();
   const { view, unavailable } = useAccount();
+  return (
+    <>
+      <p className="muted settings-intro">{t("account.intro")}</p>
+      {view === null ? (
+        // Nothing while the first status loads; a text only when it failed.
+        unavailable && <p className="muted">{t("account.unavailable")}</p>
+      ) : (
+        <AccountStateSection view={view} titled />
+      )}
+      {view !== null && <ServerField view={view} />}
+    </>
+  );
+}
+
+/**
+ * The sign-in block of a view: sign in, the code to confirm, the signed-in person or what
+ * failed. Settings shows it with its heading; the Team window shows it bare, below its own
+ * sentence.
+ */
+export function AccountStateSection({ view, titled }: { view: AccountView; titled: boolean }) {
+  const t = useT();
+  const titleId = useId();
   const [problem, setProblem] = useState<AccountProblem | null>(null);
   const [busy, setBusy] = useState(false);
   const buttons = useRef(new Map<FocusTarget, HTMLButtonElement>());
   const previousKind = useRef<AccountState["kind"] | null>(null);
   const pendingFocus = useRef<FocusTarget | null>(null);
   const section = useRef<HTMLElement>(null);
-  const kind = view?.state.kind ?? null;
+  const kind = view.state.kind;
 
   // A new block replaces the button that had the focus: move it to the new block's main button,
   // once that button is enabled again (it is disabled while the command that changed the state
   // still runs). A change from the backend while the focus is elsewhere (say, in the server
   // field) leaves it there.
   useEffect(() => {
-    if (kind === null) return;
     const target = focusAfterChange(previousKind.current, kind);
     previousKind.current = kind;
     const active = document.activeElement;
@@ -76,27 +97,25 @@ export function AccountSettings() {
   };
 
   return (
-    <>
-      <p className="muted settings-intro">{t("account.intro")}</p>
-      {view === null ? (
-        // Nothing while the first status loads; a text only when it failed.
-        unavailable && <p className="muted">{t("account.unavailable")}</p>
-      ) : (
-        <section ref={section} className="settings-section" aria-labelledby="account-state">
-          <h4 id="account-state" className="settings-subtitle">
-            {t("account.title")}
-          </h4>
-          <StateBlock view={view} busy={busy} run={run} register={register} />
-          {problem !== null && (
-            <p className="muted error-text" role="alert">
-              {accountErrorText(problem, t)}
-              {problem.detail !== null && problem.kind === "server" && <> {problem.detail}</>}
-            </p>
-          )}
-        </section>
+    <section
+      ref={section}
+      className="settings-section account-state"
+      aria-labelledby={titled ? titleId : undefined}
+      aria-label={titled ? undefined : t("account.title")}
+    >
+      {titled && (
+        <h4 id={titleId} className="settings-subtitle">
+          {t("account.title")}
+        </h4>
       )}
-      {view !== null && <ServerField view={view} />}
-    </>
+      <StateBlock view={view} busy={busy} run={run} register={register} />
+      {problem !== null && (
+        <p className="muted error-text" role="alert">
+          {accountErrorText(problem, t)}
+          {problem.detail !== null && problem.kind === "server" && <> {problem.detail}</>}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -255,12 +274,13 @@ function WaitingBlock({
 }) {
   const t = useT();
   const now = useClock(15_000);
+  const labelId = useId();
   const [copied, setCopied] = useState(false);
 
   return (
     <div className="account-waiting">
-      <p id="account-code-label">{t("account.codeIntro")}</p>
-      <output className="account-code" aria-labelledby="account-code-label">
+      <p id={labelId}>{t("account.codeIntro")}</p>
+      <output className="account-code" aria-labelledby={labelId}>
         {state.userCode}
       </output>
       <p className="muted account-manual">
