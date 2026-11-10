@@ -50,7 +50,7 @@ public spaces.
 ## Enforcement
 
 Instances of abusive, harassing or otherwise unacceptable behavior may be reported to the maintainers
-through the contact options on [hangar.feoren.com](https://hangar.feoren.com). All complaints will be
+through the [contact form on hangar.feoren.com](https://hangar.feoren.com/contact). All complaints will be
 reviewed and investigated promptly and fairly. The maintainers respect the privacy and security of
 the reporter of any incident.
 
