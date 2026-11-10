@@ -9,6 +9,7 @@ import {
   GearIcon,
   MonitorIcon,
   MoonIcon,
+  NotesIcon,
   PersonIcon,
   SignOutIcon,
   SunIcon,
@@ -30,7 +31,7 @@ import { account, useAccount } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
 /**
- * The sidebar's last row: who is signed in (opens a small menu with the account, the color mode
+ * The sidebar's last row: who is signed in (opens a small menu with the notes, the color mode
  * and signing in or out), the team pill (who is online and whether something needs the person;
  * opens the Team window) and Settings. The rail shows the same as three icons.
  */
@@ -38,7 +39,10 @@ export function SidebarFooter(props: {
   collapsed: boolean;
   teamOpen: boolean;
   onToggleTeam: () => void;
+  /** Settings on the Account section: where a refused sign out says why. */
   onOpenAccount: () => void;
+  notesOpen: boolean;
+  onToggleNotes: () => void;
   onOpenSettings: () => void;
   themeSetting: ThemeSetting;
   onSetTheme: (theme: ThemeSetting) => void;
@@ -68,20 +72,21 @@ export function SidebarFooter(props: {
   const accountLabel = signedIn ? t("sidebar.account", { name }) : t("account.signIn");
   const accountTitle = signedIn ? accountLabel : t("sidebar.signInHint");
 
-  const items = accountMenuEntries(signedIn, props.themeSetting).map((entry): PopupItem =>
-    menuItem(entry, t, {
-      account: props.onOpenAccount,
-      signIn: () => {
-        if (!props.teamOpen) props.onToggleTeam();
-      },
-      signOut: () => {
-        // A refused sign out shows its reason where signing out lives: Settings, Account.
-        void account.signOut().then((problem) => {
-          if (problem !== null) props.onOpenAccount();
-        });
-      },
-      theme: props.onSetTheme,
-    }),
+  const items = accountMenuEntries(signedIn, props.themeSetting, props.notesOpen).map(
+    (entry): PopupItem =>
+      menuItem(entry, t, {
+        notes: props.onToggleNotes,
+        signIn: () => {
+          if (!props.teamOpen) props.onToggleTeam();
+        },
+        signOut: () => {
+          // A refused sign out shows its reason where signing out lives: Settings, Account.
+          void account.signOut().then((problem) => {
+            if (problem !== null) props.onOpenAccount();
+          });
+        },
+        theme: props.onSetTheme,
+      }),
   );
 
   const onAccountClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -218,20 +223,21 @@ function menuItem(
   entry: AccountMenuEntry,
   t: Translate,
   run: {
-    account: () => void;
+    notes: () => void;
     signIn: () => void;
     signOut: () => void;
     theme: (theme: ThemeSetting) => void;
   },
 ): PopupItem {
   switch (entry.kind) {
-    case "account":
+    case "notes":
       return {
         type: "action",
-        key: "account",
-        label: t("sidebar.accountSettings"),
-        icon: <PersonIcon size={14} />,
-        run: run.account,
+        key: "notes",
+        label: entry.open ? t("notes.hide") : t("notes.show"),
+        title: t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) }),
+        icon: <NotesIcon size={14} />,
+        run: run.notes,
       };
     case "signIn":
       return {

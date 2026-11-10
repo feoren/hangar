@@ -20,7 +20,6 @@ import {
   FolderIcon,
   HangarLogo,
   OverlapIcon,
-  NotesIcon,
   PlusIcon,
   RestartIcon,
   StopIcon,
@@ -354,6 +353,8 @@ export function Sidebar(props: Props) {
       teamOpen={props.teamOpen}
       onToggleTeam={props.onToggleTeam}
       onOpenAccount={props.onOpenAccount}
+      notesOpen={props.notesOpen}
+      onToggleNotes={props.onToggleNotes}
       onOpenSettings={props.onOpenSettings}
       themeSetting={props.themeSetting}
       onSetTheme={props.onSetTheme}
@@ -442,13 +443,16 @@ export function Sidebar(props: Props) {
     const newKeys = formatShortcut(SHORTCUT_LABELS.newSession, t);
     return (
       <aside className="sidebar collapsed" ref={root}>
-        {/* Same order as in the expanded header: menu, logo, notes. */}
-        <div className="rail-top">
+        {/* The menu sits in a head as tall as the expanded header, so the line below it and the
+            round toggle on it stay at the same height in both states. */}
+        <div className="rail-head">
           <AppMenu groups={props.menu} onClose={props.onMenuClose} />
+        </div>
+        <div className="sidebar-rule" aria-hidden="true" />
+        <div className="rail-top">
           <span className="rail-logo" title={`Hangar ${appVersion}`.trim()}>
             <HangarLogo size={20} />
           </span>
-          <NotesButton open={props.notesOpen} onToggle={props.onToggleNotes} />
           {/* Number of waiting sessions, also when the list scrolls; a ring, not color alone. */}
           {waitingCount > 0 && (
             <span className="rail-waiting" title={waitingText}>
@@ -709,45 +713,48 @@ export function Sidebar(props: Props) {
             <VersionText version={props.version} className="brand-version" />
           )}
         </span>
-        <NotesButton open={props.notesOpen} onToggle={props.onToggleNotes} />
       </div>
       {edgeToggle}
       {/* Decorative: separates the app's own controls from the sessions below. */}
       <div className="sidebar-rule" aria-hidden="true" />
 
-      <GroupSection
-        group="sessions"
-        title={sessionsTitle}
-        open={sessionsOpen}
-        className={sessionsOpen ? "sessions-group fill" : "sessions-group"}
-        onToggle={props.onToggleGroup}
-        marker={groupWaiting(ordinary, sessionsOpen)}
-      >
-        <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
-        <ul className="session-list" data-session-list="" ref={sessionList}>
-          {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
-          {rows(ordinary, "sessions")}
-        </ul>
-        <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
-      </GroupSection>
-
-      {/* Only while a session works in its own worktree; an empty group would just be noise. */}
-      {ownTrees.length > 0 && (
+      {/* Sessions and worktrees stack from the top, the worktrees right below the last session;
+          an open Sessions group lends the pair the free height. */}
+      <div className={sessionsOpen ? "session-groups fill" : "session-groups"}>
         <GroupSection
-          group="worktrees"
-          title={worktreesTitle}
-          open={worktreesOpen}
-          className={worktreesOpen ? "worktrees-group" : "worktrees-group closed"}
+          group="sessions"
+          title={sessionsTitle}
+          open={sessionsOpen}
+          className="sessions-group"
           onToggle={props.onToggleGroup}
-          marker={groupWaiting(ownTrees, worktreesOpen)}
+          marker={groupWaiting(ordinary, sessionsOpen)}
         >
-          <WaitingEdge edge="above" hint={worktreeHints.above} onReveal={revealRow} />
-          <ul className="session-list" data-session-list="" ref={worktreeList}>
-            {rows(ownTrees, "worktrees")}
+          <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
+          <ul className="session-list" data-session-list="" ref={sessionList}>
+            {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
+            {rows(ordinary, "sessions")}
           </ul>
-          <WaitingEdge edge="below" hint={worktreeHints.below} onReveal={revealRow} />
+          <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
         </GroupSection>
-      )}
+
+        {/* Only while a session works in its own worktree; an empty group would just be noise. */}
+        {ownTrees.length > 0 && (
+          <GroupSection
+            group="worktrees"
+            title={worktreesTitle}
+            open={worktreesOpen}
+            className={worktreesOpen ? "worktrees-group" : "worktrees-group closed"}
+            onToggle={props.onToggleGroup}
+            marker={groupWaiting(ownTrees, worktreesOpen)}
+          >
+            <WaitingEdge edge="above" hint={worktreeHints.above} onReveal={revealRow} />
+            <ul className="session-list" data-session-list="" ref={worktreeList}>
+              {rows(ownTrees, "worktrees")}
+            </ul>
+            <WaitingEdge edge="below" hint={worktreeHints.below} onReveal={revealRow} />
+          </GroupSection>
+        )}
+      </div>
 
       <UpdateNotice
         state={update}
@@ -1036,24 +1043,6 @@ function reducedMotion(): boolean {
   return (
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/** Show and hide the notes panel; state via aria-pressed. */
-function NotesButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const t = useT();
-  const label = `${open ? t("notes.hide") : t("notes.show")}\n${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) })}`;
-  return (
-    <button
-      type="button"
-      className={open ? "icon-button toggle on" : "icon-button toggle"}
-      aria-pressed={open}
-      aria-label={t("notes.title")}
-      title={label}
-      onClick={onToggle}
-    >
-      <NotesIcon />
-    </button>
   );
 }
 

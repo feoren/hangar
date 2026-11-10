@@ -63,6 +63,15 @@
   --snap-zone: color-mix(in srgb, var(--muted) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
+  /* Sidebar geometry: the round collapse toggle sits on the crossing of the sidebar's right border
+     and the line below its header; both positions derive from these, in both sidebar states. */
+  --hairline: 1px;
+  --sidebar-head: 40px;
+  --sidebar-rule-gap: 6px;
+  /* Odd, so its middle falls on a pixel center like the 1 px lines it sits on. */
+  --edge-toggle-size: 23px;
+  /* Session row: three 26 px action buttons, two 2 px gaps, 6 px right padding. */
+  --row-actions-width: 88px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -175,14 +184,17 @@ select:focus-visible,
   min-width: 0;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-right: var(--hairline) solid var(--border);
   user-select: none;
 }
 
+/* A fixed height, so the line below it (and the toggle on that line) has a known place. */
 .sidebar-header {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
+  height: var(--sidebar-head);
   padding: 10px 8px 4px;
 }
 
@@ -260,11 +272,13 @@ h2 .beta-badge {
   }
 }
 
-/* Quiet line between the header and the first group, inset like the rows below it. */
+/* Line between the header and the first group, edge to edge: it meets the sidebar's right border,
+   where the collapse toggle sits on the crossing. Same place in the rail. */
 .sidebar-rule {
   flex: none;
-  height: 1px;
-  margin: 6px 16px 4px;
+  align-self: stretch;
+  height: var(--hairline);
+  margin: var(--sidebar-rule-gap) 0 4px;
   background: var(--border);
 }
 
@@ -302,9 +316,7 @@ h2 .beta-badge {
   color: var(--muted);
 }
 
-/* --row-bg: the row's own background, so the actions can lie on top of the text without a seam. */
 .session {
-  --row-bg: var(--panel);
   position: relative;
   display: flex;
   align-items: center;
@@ -313,12 +325,10 @@ h2 .beta-badge {
 }
 
 .session:hover {
-  --row-bg: var(--hover);
   background: var(--hover);
 }
 
 .session.active {
-  --row-bg: var(--panel-raised);
   background: var(--panel-raised);
   box-shadow: inset var(--active-bar) 0 0 var(--accent);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
@@ -352,11 +362,6 @@ h2 .beta-badge {
   );
   background-size: 300% 100%;
   animation: active-drift 10s ease-in-out infinite alternate;
-}
-
-/* The actions overlay on the active row takes the tint's middle, so no hard patch shows. */
-.session.active:not(.attention) {
-  --row-bg: color-mix(in srgb, var(--accent) 8%, var(--panel-raised));
 }
 
 @keyframes active-drift {
@@ -606,9 +611,8 @@ h2 .beta-badge {
 
 /* The row breathes in its state's color; waiting rows also get a thin ring, and the status chip at
    the right end names the state. The left bar belongs to the active session only. The tint is
-   mixed onto the sidebar color, so the actions overlay can breathe along without a seam. Without
-   a pulse, a waiting row keeps a still tint (--row-fill); working and pause then look plain.
-   Single class on purpose: hover and the active row still win over the still tint. */
+   mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
+   working and pause then look plain. Single class on purpose: hover and the active row still win over the still tint. */
 @keyframes row-breathe {
   0%,
   100% {
@@ -644,23 +648,20 @@ h2 .beta-badge {
     inset 0 0 0 1px var(--attention-ring);
 }
 
-/* The actions lie over the right end of the row and fade in on hover or keyboard focus, so the
-   status line keeps its width and nothing moves. They stay in the tab order (opacity, not
-   display: none); the soft left edge comes from a mask over the row's background. */
+/* The actions fade in at the right end of the row on hover or keyboard focus. They have no
+   backdrop of their own: the row's background, tint and drifting light show through. Meanwhile
+   the row keeps their width free, so its text ends in an ellipsis before them instead of running
+   underneath. They stay in the tab order (opacity, not display: none). */
 .session-actions {
   position: absolute;
   inset: 0 0 0 auto;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 6px 0 22px;
-  background-color: var(--row-bg);
-  border-radius: 0 6px 6px 0;
+  padding-right: 6px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 20px);
-  mask-image: linear-gradient(to right, transparent, #000 20px);
 }
 
 .session:hover .session-actions,
@@ -669,17 +670,21 @@ h2 .beta-badge {
   pointer-events: auto;
 }
 
-.session.look .session-actions {
-  animation: var(--row-pulse) var(--row-seconds) ease-in-out infinite;
+.session:hover,
+.session:has(.session-actions:focus-within) {
+  padding-right: var(--row-actions-width);
 }
 
-/* A still waiting row (no pulse, or reduced motion): the overlay takes its tint, no seam. */
-.session.attention:not(:hover, .active) .session-actions {
-  background-color: var(--row-fill);
+/* On a tinted or lit row the plain hover gray would barely show; a veil of the text color reads
+   on every background, light and dark. */
+.session-actions .icon-button:hover,
+.session-actions .icon-button:focus-visible {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
 /* Status chip: one shape per state. The actions take its place on hover and keyboard focus, so
-   the two never overlap. */
+   the two never overlap; the chip then leaves the row, which already keeps the actions' width
+   free. */
 .status-chip {
   display: inline-flex;
   flex: none;
@@ -694,12 +699,11 @@ h2 .beta-badge {
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
-  transition: opacity 120ms ease;
 }
 
 .session:hover > .status-chip,
 .session:has(.session-actions:focus-within) > .status-chip {
-  opacity: 0;
+  display: none;
 }
 
 .status-chip.done,
@@ -782,14 +786,12 @@ h2 .beta-badge {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-actions,
-  .status-chip {
+  .session-actions {
     transition: none;
   }
 
   /* No breathing: the still tint (strong for waiting rows) with a firmer ring instead. */
-  .look,
-  .session.look .session-actions {
+  .look {
     animation: none;
   }
 
@@ -906,6 +908,28 @@ h2 .beta-badge {
 
 .sidebar-group.fill {
   flex: 1 1 0;
+}
+
+/* Sessions and worktrees: stacked from the top with no gap between them. With Sessions open the
+   pair takes the free height; the Sessions list yields first and scrolls, the worktrees keep
+   their rows up to their own limit (below). */
+.session-groups {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.session-groups.fill {
+  flex: 1 1 0;
+}
+
+.sidebar-group.sessions-group {
+  flex: 0 1 auto;
+}
+
+.sessions-group:has(+ .worktrees-group) {
+  padding-bottom: 4px;
 }
 
 .group-body {
@@ -1876,13 +1900,23 @@ body.resizing-horizontal * {
   align-items: center;
 }
 
+/* As tall as the expanded header: the line below it lies at the same height in both states. */
+.rail-head {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: 100%;
+  height: var(--sidebar-head);
+  padding-top: 10px;
+}
+
+/* Logo and the waiting count, below the line; the sessions follow. */
 .rail-top {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 10px 0 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 4px 0 2px;
   width: 100%;
 }
 
@@ -1978,17 +2012,21 @@ body.resizing-horizontal * {
   box-shadow: inset 0 0 0 1.5px currentcolor;
 }
 
-/* Collapse and expand: a small circle on the sidebar's right edge, at the height of the line
-   below the header, in both states at the same place. Keyboard: Tab reaches it after the header. */
+/* Collapse and expand: a small circle centered on the crossing of the sidebar's right border and
+   the line below the header, in both states at the same place. Vertically: the line starts at
+   head + gap and is one hairline thick. Horizontally: `right` counts from the inner edge of the
+   border, which is one hairline wide. Keyboard: Tab reaches it after the header. */
 .edge-toggle {
   position: absolute;
-  top: 38px;
-  right: -11px;
+  top: calc(
+    var(--sidebar-head) + var(--sidebar-rule-gap) + (var(--hairline) - var(--edge-toggle-size)) / 2
+  );
+  right: calc((var(--edge-toggle-size) + var(--hairline)) / -2);
   z-index: 20;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--edge-toggle-size);
+  height: var(--edge-toggle-size);
   padding: 0;
   color: var(--muted);
   background: var(--panel-raised);
@@ -4605,11 +4643,14 @@ body.resizing-horizontal * {
   color: var(--worktree);
 }
 
-/* Worktree sessions: their own group below Sessions; it keeps its height to its rows, at most 40%
-   of the sidebar, and scrolls beyond that. */
+/* Worktree sessions: their own group right below the Sessions list, set apart by a full-width
+   line like the one above Sessions. It keeps its height to its rows, at most 40% of the window
+   (the sidebar's height; a percentage would follow the shared box instead), and scrolls beyond
+   that. It does not shrink: a long Sessions list scrolls first instead of squeezing it. */
 .sidebar-group.worktrees-group {
-  flex: 0 1 auto;
-  max-height: 40%;
+  flex: none;
+  max-height: 40vh;
+  border-top: var(--hairline) solid var(--border);
 }
 
 .worktrees-group.closed {
@@ -5141,6 +5182,11 @@ body.session-dragging * {
 /* No hover actions while a session is carried around. */
 body.session-dragging .session-actions {
   visibility: hidden;
+}
+
+/* Nor their reserved width: rows passed over keep their text whole. */
+body.session-dragging .session:hover {
+  padding-right: 0;
 }
 
 /* The drop line between two rows: where the session lands. */
