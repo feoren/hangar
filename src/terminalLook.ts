@@ -11,14 +11,20 @@ export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 export const CURSOR_STYLES = ["block", "bar", "underline"] as const;
 export type CursorStyle = (typeof CURSOR_STYLES)[number];
 
-/** Offered fonts; the list only shows the installed ones. "default" is the previous font stack. */
-export const TERMINAL_FONTS = [
-  "Cascadia Mono",
-  "Cascadia Code",
-  "JetBrains Mono",
-  "Fira Code",
-  "Consolas",
-] as const;
+/**
+ * Fonts Hangar ships as woff2 (src/fonts.css), so they are always available. All of them cover box
+ * drawing and block elements, which agent CLIs draw their frames with.
+ */
+export const BUNDLED_FONTS = ["JetBrains Mono", "Fira Code", "Geist Mono", "Hack"] as const;
+export type BundledFont = (typeof BUNDLED_FONTS)[number];
+
+/** Offered only when installed; Windows ships Cascadia (11) and Consolas. */
+export const SYSTEM_FONTS = ["Cascadia Mono", "Cascadia Code", "Consolas"] as const;
+export type SystemFont = (typeof SYSTEM_FONTS)[number];
+
+/** Every font a setting may name. Saved names from older versions are all still in here. */
+export const TERMINAL_FONTS = [...BUNDLED_FONTS, ...SYSTEM_FONTS] as const;
+/** "default" is the previous font stack. */
 export type TerminalFont = "default" | (typeof TERMINAL_FONTS)[number];
 
 export interface TerminalLook {
@@ -45,6 +51,10 @@ export function isCursorStyle(value: unknown): value is CursorStyle {
 
 export function isTerminalFont(value: unknown): value is TerminalFont {
   return value === "default" || TERMINAL_FONTS.some((font) => font === value);
+}
+
+export function isBundledFont(font: TerminalFont): font is BundledFont {
+  return BUNDLED_FONTS.some((bundled) => bundled === font);
 }
 
 export function sameLook(a: TerminalLook, b: TerminalLook): boolean {
@@ -84,11 +94,71 @@ export function isFontInstalled(font: string, measure: MeasureText): boolean {
   );
 }
 
-export function installedFonts(measure: MeasureText): TerminalFont[] {
-  return TERMINAL_FONTS.filter((font) => isFontInstalled(font, measure));
+/** Installed system fonts in the offered order; bundled fonts need no check. */
+export function installedFonts(measure: MeasureText): SystemFont[] {
+  return SYSTEM_FONTS.filter((font) => isFontInstalled(font, measure));
 }
 
-const SAMPLE = "mmmmmmmmmmlli1WW@#{}";
+/**
+ * Fonts in the picker: the default, every bundled font, then the installed system fonts. A stored
+ * font that is missing on this machine stays listed, so the picker never hides the current value.
+ */
+export function fontChoices(
+  installed: readonly SystemFont[],
+  current: TerminalFont,
+): TerminalFont[] {
+  const choices: TerminalFont[] = ["default", ...BUNDLED_FONTS, ...installed];
+  return choices.includes(current) ? choices : [...choices, current];
+}
+
+/**
+ * `document.fonts.load` queries for the faces xterm draws with (regular and bold). Empty for fonts
+ * that are not bundled: system fonts need no loading.
+ */
+export function fontLoadQueries(font: TerminalFont): string[] {
+  if (!isBundledFont(font)) return [];
+  return [`16px "${font}"`, `bold 16px "${font}"`];
+}
+
+/** Loads web fonts; `document.fonts.load` in the app, a fake in tests. */
+export type LoadFontFace = (query: string) => Promise<unknown>;
+
+export interface FontLoader {
+  /** True when xterm can measure the font right away (loaded, or nothing to load). */
+  isReady(font: TerminalFont): boolean;
+  /** Resolves once the font is ready; never rejects, a failed font falls back in the stack. */
+  load(font: TerminalFont): Promise<void>;
+}
+
+/**
+ * xterm measures the cell size once when the font is set. A web font that is still loading would
+ * be measured in its fallback and keep wrong cell widths, so terminals wait for this loader.
+ */
+export function createFontLoader(loadFace: LoadFontFace): FontLoader {
+  const ready = new Set<TerminalFont>();
+  const pending = new Map<TerminalFont, Promise<void>>();
+  const isReady = (font: TerminalFont): boolean =>
+    fontLoadQueries(font).length === 0 || ready.has(font);
+  const load = (font: TerminalFont): Promise<void> => {
+    if (isReady(font)) return Promise.resolve();
+    const running = pending.get(font);
+    if (running !== undefined) return running;
+    const promise = Promise.all(fontLoadQueries(font).map((query) => loadFace(query)))
+      .catch(() => undefined)
+      .then(() => {
+        ready.add(font);
+        pending.delete(font);
+      });
+    pending.set(font, promise);
+    return promise;
+  };
+  return { isReady, load };
+}
+
+/** Shown in each picker option, in that font: shapes that tell coding fonts apart. */
+export const FONT_SAMPLE = "=> != 0Oo 1lI {}";
+
+const MEASURE_SAMPLE = "mmmmmmmmmmlli1WW@#{}";
 
 /** Canvas based measurement for `installedFonts`; `null` without a 2D canvas (tests). */
 export function canvasMeasure(): MeasureText | null {
@@ -96,7 +166,7 @@ export function canvasMeasure(): MeasureText | null {
   if (!context) return null;
   return (cssFont) => {
     context.font = cssFont;
-    return context.measureText(SAMPLE).width;
+    return context.measureText(MEASURE_SAMPLE).width;
   };
 }
 

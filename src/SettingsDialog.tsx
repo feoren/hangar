@@ -12,7 +12,7 @@ import {
   type MessageKey,
   type Translate,
 } from "./i18n";
-import { CloseIcon } from "./icons";
+import { CheckIcon, CloseIcon } from "./icons";
 import { clampFontSize, FONT_SIZE } from "./layout";
 import { profileErrorText } from "./profileFile";
 import type { BadgeLook } from "./programPrefs";
@@ -38,13 +38,14 @@ import {
   canvasMeasure,
   COLOR_SCHEMES,
   CURSOR_STYLES,
+  FONT_SAMPLE,
+  fontChoices,
   fontStack,
   installedFonts,
-  isTerminalFont,
   schemeColors,
   type ColorScheme,
   type CursorStyle,
-  type TerminalFont,
+  type SystemFont,
 } from "./terminalLook";
 import { THEME_SETTINGS, type Theme, type ThemeSetting } from "./theme";
 import type { ProgramUpdateState } from "./useProgramUpdates";
@@ -113,10 +114,10 @@ const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
   underline: "settings.cursorUnderline",
 };
 
-/** Installed fonts, measured once per app start (fonts rarely change while Hangar runs). */
-let fontCache: readonly TerminalFont[] | null = null;
+/** Installed system fonts, measured once per app start (fonts rarely change while Hangar runs). */
+let fontCache: readonly SystemFont[] | null = null;
 
-function availableFonts(): readonly TerminalFont[] {
+function availableFonts(): readonly SystemFont[] {
   if (fontCache === null) {
     const measure = canvasMeasure();
     fontCache = measure === null ? [] : installedFonts(measure);
@@ -542,15 +543,7 @@ function AppearanceSection(props: Props) {
 function TerminalLookFields(props: Props) {
   const { settings, onChange } = props;
   const t = useT();
-  const installed = availableFonts();
-  // A stored font that is missing here stays selectable, so the list never shows a wrong value.
-  const fonts: TerminalFont[] = [
-    "default",
-    ...installed,
-    ...(settings.terminalFont === "default" || installed.includes(settings.terminalFont)
-      ? []
-      : [settings.terminalFont]),
-  ];
+  const fonts = fontChoices(availableFonts(), settings.terminalFont);
   return (
     <section className="settings-section terminal-look" aria-labelledby="settings-terminal">
       <h4 id="settings-terminal" className="settings-subtitle">
@@ -585,23 +578,36 @@ function TerminalLookFields(props: Props) {
         </p>
       </div>
       <div className="field">
-        <label htmlFor="settings-font">{t("settings.font")}</label>
-        <select
-          id="settings-font"
-          className="select"
-          value={settings.terminalFont}
+        <span id="settings-font">{t("settings.font")}</span>
+        <div
+          className="font-picker"
+          role="radiogroup"
+          aria-labelledby="settings-font"
           aria-describedby="settings-font-help"
-          onChange={(event) => {
-            const font = event.currentTarget.value;
-            if (isTerminalFont(font)) onChange({ terminalFont: font });
-          }}
         >
           {fonts.map((font) => (
-            <option key={font} value={font}>
-              {font === "default" ? t("settings.fontDefault") : font}
-            </option>
+            <label key={font} className="font-option" style={{ fontFamily: fontStack(font) }}>
+              <input
+                type="radio"
+                name="terminal-font"
+                value={font}
+                checked={settings.terminalFont === font}
+                onChange={() => {
+                  onChange({ terminalFont: font });
+                }}
+              />
+              <span className="font-option-name">
+                {font === "default" ? t("settings.fontDefault") : font}
+              </span>
+              <span className="font-option-sample" aria-hidden="true">
+                {FONT_SAMPLE}
+              </span>
+              <span className="font-option-check">
+                <CheckIcon size={14} />
+              </span>
+            </label>
           ))}
-        </select>
+        </div>
         <p id="settings-font-help" className="muted">
           {t("settings.fontHelp")}
         </p>

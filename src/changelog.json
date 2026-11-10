@@ -30,6 +30,20 @@
         "ru": "Не до конца установленная программа (например, opencode) больше не вызывает при запуске сообщение Windows «Неподдерживаемое 16-разрядное приложение».",
         "tr": "Eksik kurulmuş bir program (örneğin opencode) artık açılışta Windows'un \"Desteklenmeyen 16 Bit Uygulama\" iletisine yol açmıyor.",
         "zh": "安装不完整的程序（例如 opencode）不再会在启动时触发 Windows 的“不支持的 16 位应用程序”提示。"
+      },
+      {
+        "de": "Vier Terminal-Schriften sind jetzt immer dabei: JetBrains Mono, Fira Code, Geist Mono und Hack. Die Einstellungen zeigen jede Schrift direkt in ihrem Aussehen.",
+        "en": "Four terminal fonts now ship with Hangar: JetBrains Mono, Fira Code, Geist Mono and Hack. Settings show each font in its own typeface.",
+        "el": "Τέσσερις γραμματοσειρές τερματικού περιλαμβάνονται πλέον: JetBrains Mono, Fira Code, Geist Mono και Hack. Οι ρυθμίσεις δείχνουν την καθεμία με τη μορφή της.",
+        "es": "Ahora se incluyen cuatro fuentes de terminal: JetBrains Mono, Fira Code, Geist Mono y Hack. Los ajustes muestran cada fuente con su propio aspecto.",
+        "fr": "Quatre polices de terminal sont désormais incluses : JetBrains Mono, Fira Code, Geist Mono et Hack. Les réglages affichent chaque police telle qu’elle est.",
+        "it": "Ora sono inclusi quattro caratteri per il terminale: JetBrains Mono, Fira Code, Geist Mono e Hack. Le impostazioni mostrano ogni carattere con il suo aspetto.",
+        "ja": "JetBrains Mono、Fira Code、Geist Mono、Hack の 4 つのターミナル用フォントが付属しました。設定では各フォントがそのままの見た目で表示されます。",
+        "pl": "Cztery czcionki terminala są teraz wbudowane: JetBrains Mono, Fira Code, Geist Mono i Hack. Ustawienia pokazują każdą z nich w jej własnym kroju.",
+        "pt": "Quatro fontes de terminal agora vêm com o Hangar: JetBrains Mono, Fira Code, Geist Mono e Hack. As configurações mostram cada fonte com sua própria aparência.",
+        "ru": "Теперь в Hangar встроены четыре шрифта терминала: JetBrains Mono, Fira Code, Geist Mono и Hack. В настройках каждый шрифт показан в своём начертании.",
+        "tr": "Artık dört terminal yazı tipi yerleşik geliyor: JetBrains Mono, Fira Code, Geist Mono ve Hack. Ayarlar her yazı tipini kendi görünümüyle gösterir.",
+        "zh": "现已内置四种终端字体：JetBrains Mono、Fira Code、Geist Mono 和 Hack。设置中每种字体都以其本身的样式显示。"
       }
     ]
   },

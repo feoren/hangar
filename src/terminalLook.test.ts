@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { contrastRatio, TERMINAL_THEMES } from "./theme";
 import {
+  BUNDLED_FONTS,
   COLOR_SCHEMES,
+  createFontLoader,
+  fontChoices,
+  fontLoadQueries,
   fontStack,
   installedFonts,
   isColorScheme,
   isCursorStyle,
   isFontInstalled,
+  isBundledFont,
   isTerminalFont,
   schemeColors,
   searchColors,
@@ -65,6 +70,84 @@ describe("installed fonts", () => {
       "Consolas",
     ]);
     expect(installedFonts(fakeMeasure([]))).toEqual([]);
+  });
+});
+
+describe("font choices", () => {
+  it("offers the default, every bundled font and the installed system fonts", () => {
+    expect(fontChoices(["Consolas"], "default")).toEqual([
+      "default",
+      "JetBrains Mono",
+      "Fira Code",
+      "Geist Mono",
+      "Hack",
+      "Consolas",
+    ]);
+  });
+
+  it("keeps a stored font listed that is not installed here", () => {
+    expect(fontChoices([], "Cascadia Code").at(-1)).toBe("Cascadia Code");
+    expect(
+      fontChoices(["Cascadia Code"], "Cascadia Code").filter((f) => f === "Cascadia Code"),
+    ).toHaveLength(1);
+  });
+
+  it("never checks bundled fonts for installation", () => {
+    const asked: string[] = [];
+    installedFonts((cssFont) => {
+      asked.push(cssFont);
+      return 400;
+    });
+    expect(asked.some((cssFont) => BUNDLED_FONTS.some((font) => cssFont.includes(font)))).toBe(
+      false,
+    );
+  });
+
+  it("keeps saved fonts from earlier versions valid", () => {
+    for (const font of [
+      "Cascadia Mono",
+      "Cascadia Code",
+      "JetBrains Mono",
+      "Fira Code",
+      "Consolas",
+    ]) {
+      expect(isTerminalFont(font), font).toBe(true);
+    }
+  });
+});
+
+describe("font loading", () => {
+  it("loads regular and bold of bundled fonts only", () => {
+    expect(fontLoadQueries("Hack")).toEqual(['16px "Hack"', 'bold 16px "Hack"']);
+    expect(fontLoadQueries("Consolas")).toEqual([]);
+    expect(fontLoadQueries("default")).toEqual([]);
+    expect(isBundledFont("Geist Mono")).toBe(true);
+    expect(isBundledFont("Cascadia Mono")).toBe(false);
+  });
+
+  it("is ready at once for fonts that need no loading", () => {
+    const loader = createFontLoader(() => Promise.reject(new Error("not expected")));
+    expect(loader.isReady("default")).toBe(true);
+    expect(loader.isReady("Consolas")).toBe(true);
+  });
+
+  it("becomes ready after loading and loads each font once", async () => {
+    const queries: string[] = [];
+    const loader = createFontLoader((query) => {
+      queries.push(query);
+      return Promise.resolve([]);
+    });
+    expect(loader.isReady("JetBrains Mono")).toBe(false);
+    await Promise.all([loader.load("JetBrains Mono"), loader.load("JetBrains Mono")]);
+    expect(loader.isReady("JetBrains Mono")).toBe(true);
+    await loader.load("JetBrains Mono");
+    expect(queries).toEqual(['16px "JetBrains Mono"', 'bold 16px "JetBrains Mono"']);
+  });
+
+  it("counts a failed font as ready, so terminals fall back instead of waiting", async () => {
+    const loader = createFontLoader(() => Promise.reject(new Error("missing")));
+    await expect(loader.load("Fira Code")).resolves.toBeUndefined();
+    expect(loader.isReady("Fira Code")).toBe(true);
   });
 });
 

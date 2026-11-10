@@ -148,7 +148,8 @@ input:focus-visible,
 select:focus-visible,
 .settings-panel:focus-visible,
 .segment:has(input:focus-visible),
-.swatch:has(input:focus-visible) {
+.swatch:has(input:focus-visible),
+.font-option:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -2314,6 +2315,67 @@ body.resizing-horizontal * {
 /* Label and value fade with the slider, like the disabled preview button next to it. */
 .range-field:has(input:disabled) {
   opacity: 0.55;
+}
+
+/* Font picker: every option set in its own font, the chosen one framed and checked. */
+.font-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  align-self: stretch;
+}
+
+.font-option {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.font-option:hover {
+  background: var(--hover);
+}
+
+.font-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.font-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Room for the check mark, which only shares the name's row; the sample keeps the full width. */
+.font-option-name {
+  padding-right: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-sample {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.font-option-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+  color: var(--accent);
+}
+
+.font-option:has(input:checked) .font-option-check {
+  display: flex;
 }
 
 /* Font size sits between fields in the terminal section and needs their spacing below it. */

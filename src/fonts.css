@@ -1,0 +1,62 @@
+/*
+ * Terminal fonts that ship with Hangar (BUNDLED_FONTS in terminalLook.ts). Regular and bold, the two
+ * weights xterm draws with. Faces load lazily when first used; terminals wait for them before they
+ * measure the cell size. `block` avoids a flash of the fallback in the font picker. Licenses lie
+ * next to the files in assets/fonts.
+ */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/jetbrains-mono/jetbrains-mono-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/jetbrains-mono/jetbrains-mono-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Fira Code";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/fira-code/fira-code-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Fira Code";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/fira-code/fira-code-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/geist-mono/geist-mono-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/geist-mono/geist-mono-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Hack";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/hack/hack-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Hack";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/hack/hack-bold.woff2") format("woff2");
+}

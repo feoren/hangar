@@ -23,6 +23,7 @@ import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import { terminalKeyAction } from "./terminalKeys";
 import { setupUnicode } from "./terminalUnicode";
 import {
+  createFontLoader,
   DEFAULT_TERMINAL_LOOK,
   fontStack,
   sameLook,
@@ -41,6 +42,9 @@ import { newSessionKey, trimScrollback } from "./workspace";
  * again, so agents that redraw often do not fill the scrollback with copies.
  */
 const RESTORE_ERASE_GRACE_MS = 1500;
+
+/** Shared by all terminals, so each bundled font loads once. */
+const fontLoader = createFontLoader((query) => document.fonts.load(query));
 
 export interface TerminalOptions {
   fontSize?: number;
@@ -148,7 +152,8 @@ export class SessionTerminal {
       allowProposedApi: true, // for the Unicode grapheme addon (emoji widths)
       cursorBlink: look.cursorBlink,
       cursorStyle: look.cursorStyle,
-      fontFamily: fontStack(look.font),
+      // Until a bundled font has loaded, the previous stack; applyFont switches once it is ready.
+      fontFamily: fontStack(fontLoader.isReady(look.font) ? look.font : "default"),
       fontSize,
       lineHeight: 1.15,
       scrollback,
@@ -166,6 +171,7 @@ export class SessionTerminal {
       },
     });
     this.term.loadAddon(this.fitAddon);
+    this.applyFont();
     setupUnicode(this.term);
     this.term.loadAddon(this.serializeAddon);
     this.term.loadAddon(this.searchAddon);
@@ -290,10 +296,24 @@ export class SessionTerminal {
     options.minimumContrastRatio = MINIMUM_CONTRAST[theme];
     options.cursorStyle = look.cursorStyle;
     options.cursorBlink = look.cursorBlink;
-    if (fontChanged) {
-      options.fontFamily = fontStack(look.font);
+    if (fontChanged) this.applyFont();
+  }
+
+  /**
+   * Sets the chosen font once it can be measured; until then the current one stays. Setting the
+   * same stack again would not make xterm measure anew, hence the wait instead of a later reset.
+   */
+  private applyFont(): void {
+    const font = this.look.font;
+    const apply = (): void => {
+      if (this.disposed || this.look.font !== font) return;
+      const family = fontStack(font);
+      if (this.term.options.fontFamily === family) return;
+      this.term.options.fontFamily = family;
       this.fit();
-    }
+    };
+    if (fontLoader.isReady(font)) apply();
+    else void fontLoader.load(font).then(apply);
   }
 
   /** Background of the current scheme, for the HTML export. */
