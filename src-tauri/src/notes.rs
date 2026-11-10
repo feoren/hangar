@@ -71,6 +71,10 @@ const FORBIDDEN_CHARS: &str = "<>:\"/\\|?*";
 pub struct NoteFolder {
     #[serde(default)]
     pub path: Option<PathBuf>,
+    /// The project's shared notes in the repository (project_notes.rs, ADR 0006) instead of
+    /// the private ones of this folder.
+    #[serde(default)]
+    pub shared: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -107,6 +111,8 @@ pub struct SearchHit {
     /// content when only the title matches.
     pub excerpt: String,
     pub updated_at: Option<u64>,
+    /// A shared note of the project (then `path` is the repository's main worktree).
+    pub shared: bool,
 }
 
 /// A deleted note in the scope's trash.
@@ -180,6 +186,8 @@ pub enum NotesError {
     },
     #[error("Background task aborted: {0}")]
     Task(String),
+    #[error(transparent)]
+    Shared(#[from] crate::project_notes::ProjectNotesError),
 }
 
 impl Serialize for NotesError {
@@ -662,6 +670,33 @@ pub fn excerpt(content: &str, query_lower: &str) -> String {
         text.insert(0, '…');
     }
     text
+}
+
+/// The private hits of [`NotesStore::search`] together with shared ones (`(title hit, hit)`), in
+/// the same order: title hits first, then the newest, at most [`MAX_SEARCH_RESULTS`].
+pub fn merge_hits(
+    query: &str,
+    private: Vec<SearchHit>,
+    shared: Vec<(bool, SearchHit)>,
+) -> Vec<SearchHit> {
+    if shared.is_empty() {
+        return private;
+    }
+    let query = validate_query(query).ok().flatten().unwrap_or_default();
+    let mut hits: Vec<(bool, SearchHit)> = private
+        .into_iter()
+        .map(|hit| (hit.title.to_lowercase().contains(&query), hit))
+        .chain(shared)
+        .collect();
+    hits.sort_by(|(a_title, a), (b_title, b)| {
+        b_title
+            .cmp(a_title)
+            .then_with(|| b.updated_at.cmp(&a.updated_at))
+    });
+    hits.into_iter()
+        .take(MAX_SEARCH_RESULTS)
+        .map(|(_, hit)| hit)
+        .collect()
 }
 
 /// Title of a trash file without a record: `<millis>-<file>.md` back to `<file>`.
@@ -1167,6 +1202,7 @@ impl NotesStore {
                         title: note.title,
                         excerpt: excerpt(&content, &query),
                         updated_at: modified(&file),
+                        shared: false,
                     },
                 ));
             }
@@ -1297,11 +1333,15 @@ mod tests {
         };
         NoteFolder {
             path: Some(PathBuf::from(path)),
+            ..NoteFolder::default()
         }
     }
 
     fn general() -> NoteFolder {
-        NoteFolder { path: None }
+        NoteFolder {
+            path: None,
+            ..NoteFolder::default()
+        }
     }
 
     #[test]
@@ -1313,6 +1353,7 @@ mod tests {
         let same = |p: &str| {
             folder_key(&NoteFolder {
                 path: Some(p.into()),
+                ..NoteFolder::default()
             })
             .unwrap()
         };
@@ -1352,7 +1393,8 @@ mod tests {
         for bad in ["", "relative\\folder", "relative/folder"] {
             assert!(matches!(
                 folder_key(&NoteFolder {
-                    path: Some(bad.into())
+                    path: Some(bad.into()),
+                    ..NoteFolder::default()
                 }),
                 Err(NotesError::InvalidFolder(_))
             ));
@@ -1552,6 +1594,7 @@ mod tests {
         // A scope without notes does not show up.
         let empty = NoteFolder {
             path: Some(std::env::temp_dir().join("hangar-empty")),
+            ..NoteFolder::default()
         };
         let gone = t.0.create_note(&empty, "gone").unwrap();
         t.0.delete_note(&empty, &gone).unwrap();

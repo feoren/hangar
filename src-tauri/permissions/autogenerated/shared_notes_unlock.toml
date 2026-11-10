@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shared-notes-unlock"
+description = "Enables the shared_notes_unlock command without any pre-configured scope."
+commands.allow = ["shared_notes_unlock"]
+
+[[permission]]
+identifier = "deny-shared-notes-unlock"
+description = "Denies the shared_notes_unlock command without any pre-configured scope."
+commands.deny = ["shared_notes_unlock"]

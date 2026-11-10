@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { api, errorText, type NoteFolder } from "./api";
 import { writeClipboard } from "./clipboard";
@@ -9,6 +17,7 @@ import {
   ChevronIcon,
   CloseIcon,
   EyeIcon,
+  LockIcon,
   MoreIcon,
   PlusIcon,
   SearchIcon,
@@ -27,6 +36,7 @@ import {
   parseNotes,
   parseSearchHits,
   parseTrash,
+  sameFolder,
   sameNote,
   titleFromText,
   untitledTitle,
@@ -39,13 +49,25 @@ import { sendableText } from "./notesBridge";
 import {
   DEFAULT_SCOPE,
   effectiveScope,
+  groupsScope,
   mixesScopes,
   newNoteFolder,
+  projectFolder,
   sameScope,
   scopeFolders,
   scopeForFolder,
   type NotesScope,
 } from "./notesScope";
+import { SharedNotesDialog } from "./SharedNotesDialog";
+import {
+  isShared,
+  parseSharedStatus,
+  sharedFolder,
+  sharedHints,
+  sharedLine,
+  showsGroups,
+  type SharedStatus,
+} from "./sharedNotes";
 import {
   appendCapture,
   checklistProgress,
@@ -175,6 +197,8 @@ export function NotesPanel(props: Props) {
   const { language, sessionFolder, folders, sessions, request, refreshToken } = props;
   const t = useT();
   const now = useClock(30_000);
+  const sharedHeadId = useId();
+  const localHeadId = useId();
   const root = useRef<HTMLDivElement>(null);
   const [scope, setScopeState] = useState<NotesScope>(lastScope);
   const [view, setView] = useState<View>(lastOpen ? "note" : "list");
@@ -203,6 +227,12 @@ export function NotesPanel(props: Props) {
   const [toast, setToast] = useState<Toast | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  /** Shared group of the shown project; `null` while unknown or without a project. */
+  const [shared, setShared] = useState<{ project: string; status: SharedStatus } | null>(null);
+  const [sharedDialog, setSharedDialog] = useState<{
+    mode: "setup" | "unlock";
+    folder: NoteFolder;
+  } | null>(null);
 
   const currentRef = useRef<Current | null>(null);
   const textRef = useRef("");
@@ -226,16 +256,35 @@ export function NotesPanel(props: Props) {
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const onChangedRef = useRef(props.onChanged);
   const contextRef = useRef({ sessionFolder, folders });
+  const loadSharedRef = useRef<() => void>(() => undefined);
+  const sharedBusy = useRef(false);
+  const sharedAgain = useRef(false);
+  /** Counts unlocked status answers; the list reloads on each (files may have changed). */
+  const [sharedTick, setSharedTick] = useState(0);
 
   useEffect(() => {
-    onChangedRef.current = props.onChanged;
+    onChangedRef.current = (folder: NoteFolder) => {
+      props.onChanged(folder);
+      if (isShared(folder)) loadSharedRef.current();
+    };
     contextRef.current = { sessionFolder, folders };
   });
 
   const shownScope = effectiveScope(scope, sessionFolder);
+  const project = projectFolder(scope, sessionFolder);
+  const projectId = project === null ? null : folderId(project);
+  const sharedStatus = shared !== null && shared.project === projectId ? shared.status : null;
+  const sharedPath =
+    project !== null && sharedStatus?.state === "unlocked" ? project.path : undefined;
   const listFolders = useMemo(
-    () => scopeFolders(scope, sessionFolder, folders),
-    [scope, sessionFolder, folders],
+    () =>
+      scopeFolders(
+        scope,
+        sessionFolder,
+        folders,
+        sharedPath === undefined ? null : sharedFolder({ path: sharedPath }),
+      ),
+    [scope, sessionFolder, folders, sharedPath],
   );
   const listKey = listFolders.map(folderId).join("|");
   const mixed = mixesScopes(scope, sessionFolder);
@@ -256,6 +305,59 @@ export function NotesPanel(props: Props) {
       setToast(null);
     }, TOAST_MS);
   }, []);
+
+  /** Asks the backend for the Shared group's state; it resolves conflicted notes on the way. */
+  const loadShared = useCallback(() => {
+    if (project === null || projectId === null) {
+      setShared(null);
+      return;
+    }
+    // One status call at a time: each runs git and may resolve conflicts, and focus events come
+    // in bursts. A call asked for meanwhile runs once afterwards, for the then shown project.
+    if (sharedBusy.current) {
+      sharedAgain.current = true;
+      return;
+    }
+    sharedBusy.current = true;
+    api
+      .sharedNotesStatus(project, t("sharedNotes.otherVersion"), t("notes.untitled"))
+      .then((value) => {
+        const status = parseSharedStatus(value);
+        if (status === null) return;
+        setShared({ project: projectId, status });
+        if (status.state === "unlocked") {
+          // A pull or a resolved conflict may have changed the files: list them again.
+          setSharedTick((tick) => tick + 1);
+          const first = status.resolved[0];
+          if (first) showToast({ message: t("sharedNotes.resolved", { title: first.title }) });
+        }
+      })
+      .catch(() => {
+        // Without an answer the panel shows the private notes as before.
+        setShared({ project: projectId, status: { state: "unavailable" } });
+      })
+      .finally(() => {
+        sharedBusy.current = false;
+        if (sharedAgain.current) {
+          sharedAgain.current = false;
+          loadSharedRef.current();
+        }
+      });
+    // `project` is rebuilt every render; its id says when it changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, t, showToast]);
+
+  useEffect(() => {
+    loadSharedRef.current = loadShared;
+  }, [loadShared]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadShared);
+    window.addEventListener("focus", loadShared);
+    return () => {
+      window.removeEventListener("focus", loadShared);
+    };
+  }, [loadShared, refreshToken]);
 
   const flush = useCallback(async () => {
     if (saveTimer.current !== null) {
@@ -466,7 +568,7 @@ export function NotesPanel(props: Props) {
   // The list follows the scope, the scopes known to the backend and changes from elsewhere.
   useEffect(() => {
     void Promise.resolve().then(reloadList);
-  }, [reloadList, refreshToken]);
+  }, [reloadList, refreshToken, sharedTick]);
 
   // Excerpt and progress for the rows, read in the background a few at a time.
   useEffect(() => {
@@ -758,6 +860,7 @@ export function NotesPanel(props: Props) {
       setCurrent(renamed);
       computeStats(textRef.current, renamed);
       props.onChanged(note.folder);
+      if (isShared(note.folder)) loadShared();
     } catch (e) {
       setError(errorText(e));
     }
@@ -768,6 +871,7 @@ export function NotesPanel(props: Props) {
       const restored = await api.restoreNote(folder, id);
       if (typeof restored !== "string") return;
       props.onChanged(folder);
+      if (isShared(folder)) loadShared();
       showToast({ message: t("notes.restored", { title }) });
       return restored;
     } catch (e) {
@@ -795,6 +899,7 @@ export function NotesPanel(props: Props) {
       show(null, "", false);
       setView("list");
       props.onChanged(note.folder);
+      if (isShared(note.folder)) loadShared();
       await reloadList();
       showToast({
         message: t("notes.deleted", { title }),
@@ -911,6 +1016,51 @@ export function NotesPanel(props: Props) {
         ? folderName(shownScope.folder.path)
         : null;
 
+  /** Moves the open note between this computer and the shared notes of its project. */
+  const moveCurrent = async (to: NoteFolder) => {
+    const note = currentRef.current;
+    if (note?.id == null) return;
+    const from = note.folder;
+    const id = note.id;
+    try {
+      await flush();
+      const moved = await api.moveNote(from, id, to);
+      if (typeof moved !== "string") return;
+      autoTitled.delete(noteKey({ folder: from, id }));
+      details.delete(noteKey({ folder: from, id }));
+      props.onChanged(from);
+      props.onChanged(to);
+      loadShared();
+      showToast({ message: t("sharedNotes.moved", { title: note.title }) });
+      await openNote({ folder: to, id: moved }, false);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+
+  const moveItems: PopupItem[] =
+    current?.id == null || current.folder.path === null
+      ? []
+      : isShared(current.folder)
+        ? [
+            {
+              type: "action",
+              key: "move-local",
+              label: t("sharedNotes.moveToLocal"),
+              run: () => void moveCurrent({ path: current.folder.path }),
+            },
+          ]
+        : sharedPath !== undefined && project !== null && sameFolder(current.folder, project)
+          ? [
+              {
+                type: "action",
+                key: "move-shared",
+                label: t("sharedNotes.moveToShared"),
+                run: () => void moveCurrent(sharedFolder(project)),
+              },
+            ]
+          : [];
+
   const moreItems: PopupItem[] =
     current?.id == null
       ? []
@@ -958,21 +1108,26 @@ export function NotesPanel(props: Props) {
                 });
             },
           },
-          {
-            type: "action",
-            key: "reveal",
-            label: isMac() ? t("notes.revealFinder") : t("notes.revealExplorer"),
-            run: () => {
-              const note = currentRef.current;
-              if (note?.id == null) return;
-              const id = note.id;
-              void flush()
-                .then(() => api.revealNote(note.folder, id))
-                .catch((e: unknown) => {
-                  setError(errorText(e));
-                });
-            },
-          },
+          ...moveItems,
+          ...(isShared(current.folder)
+            ? []
+            : [
+                {
+                  type: "action" as const,
+                  key: "reveal",
+                  label: isMac() ? t("notes.revealFinder") : t("notes.revealExplorer"),
+                  run: () => {
+                    const note = currentRef.current;
+                    if (note?.id == null) return;
+                    const id = note.id;
+                    void flush()
+                      .then(() => api.revealNote(note.folder, id))
+                      .catch((e: unknown) => {
+                        setError(errorText(e));
+                      });
+                  },
+                },
+              ]),
           { type: "separator", key: "sep" },
           {
             type: "action",
@@ -1041,6 +1196,12 @@ export function NotesPanel(props: Props) {
           return { ...note, excerpt: detail?.excerpt ?? "", progress: detail?.progress ?? null };
         });
 
+  const grouped = !searching && groupsScope(scope, sessionFolder) && showsGroups(sharedStatus);
+  const sharedRows = rowsShown.filter((note) => isShared(note.folder));
+  const localRows = rowsShown.filter((note) => !isShared(note.folder));
+  const groupLine = sharedStatus === null ? null : sharedLine(sharedStatus);
+  const groupHints = sharedStatus === null ? [] : sharedHints(sharedStatus);
+
   const progressText = (progress: ChecklistProgress) =>
     t("notes.progress", { done: progress.done, total: progress.total });
   const shownTitle =
@@ -1049,6 +1210,63 @@ export function NotesPanel(props: Props) {
       : current.id === null
         ? (stats.autoTitle ?? t("notes.quickNote"))
         : (stats.autoTitle ?? current.title);
+
+  const renderRow = (
+    note: NoteRef & { excerpt: string; progress: ChecklistProgress | null },
+    index: number,
+  ) => {
+    const key = noteKey(note);
+    const time = note.updatedAt === null ? "" : relativeTime(note.updatedAt, now, language);
+    const showProject = mixed || searching;
+    const progress = note.progress !== null && note.progress.total > 0 ? note.progress : null;
+    return (
+      <li key={key}>
+        <button
+          type="button"
+          className="note-row"
+          ref={(element) => {
+            if (element) rows.current.set(key, element);
+            else rows.current.delete(key);
+          }}
+          title={note.folder.path ?? general}
+          onClick={() => void openNote(note, true)}
+          onKeyDown={(event) => {
+            onRowKey(event, index);
+          }}
+        >
+          <span className="note-row-head">
+            {isShared(note.folder) && (
+              <span className="note-row-lock" title={t("sharedNotes.lockLabel")}>
+                <LockIcon size={12} />
+                <span className="sr-only">{t("sharedNotes.lockLabel")}</span>
+              </span>
+            )}
+            <span className="note-row-title">{note.title}</span>
+            {progress !== null && (
+              <span
+                className={
+                  progress.done === progress.total ? "note-progress complete" : "note-progress"
+                }
+                title={progressText(progress)}
+              >
+                <TaskIcon size={12} />
+                <span aria-hidden="true">
+                  {progress.done}/{progress.total}
+                </span>
+                <span className="sr-only">{progressText(progress)}</span>
+              </span>
+            )}
+          </span>
+          {note.excerpt !== "" && <span className="note-row-excerpt">{note.excerpt}</span>}
+          <span className="note-row-meta">
+            {showProject && <span className="note-row-project">{projectLabel(note.folder)}</span>}
+            {showProject && time !== "" && <span aria-hidden="true"> · </span>}
+            {time !== "" && <span>{time}</span>}
+          </span>
+        </button>
+      </li>
+    );
+  };
 
   return (
     <div
@@ -1161,7 +1379,7 @@ export function NotesPanel(props: Props) {
             {searching && shownHits !== null && shownHits.length === 0 && (
               <p className="notes-message muted">{t("notes.noHits", { query: query.trim() })}</p>
             )}
-            {!searching && listed && list.length === 0 && (
+            {!grouped && !searching && listed && list.length === 0 && (
               <div className="notes-empty">
                 <p>
                   {scopeName !== null
@@ -1176,63 +1394,97 @@ export function NotesPanel(props: Props) {
                 </p>
               </div>
             )}
-            {rowsShown.length > 0 && (
-              <ul className="notes-list" aria-label={t("notes.list")}>
-                {rowsShown.map((note, index) => {
-                  const key = noteKey(note);
-                  const time =
-                    note.updatedAt === null ? "" : relativeTime(note.updatedAt, now, language);
-                  const showProject = mixed || searching;
-                  const progress =
-                    note.progress !== null && note.progress.total > 0 ? note.progress : null;
-                  return (
-                    <li key={key}>
+            {grouped && (
+              <>
+                <section className="notes-group" aria-labelledby={sharedHeadId}>
+                  <div className="notes-group-head">
+                    <LockIcon size={12} />
+                    <span id={sharedHeadId} className="notes-group-title">
+                      {t("sharedNotes.group")}
+                    </span>
+                    <span className="notes-group-hint">{t("sharedNotes.groupHint")}</span>
+                    {sharedStatus?.state === "unlocked" && sharedPath !== undefined && (
                       <button
                         type="button"
-                        className="note-row"
-                        ref={(element) => {
-                          if (element) rows.current.set(key, element);
-                          else rows.current.delete(key);
-                        }}
-                        title={note.folder.path ?? general}
-                        onClick={() => void openNote(note, true)}
-                        onKeyDown={(event) => {
-                          onRowKey(event, index);
+                        className="icon-button"
+                        aria-label={t("sharedNotes.new")}
+                        title={t("sharedNotes.new")}
+                        onClick={() => {
+                          setQuery("");
+                          void startDraft(sharedFolder({ path: sharedPath }), true);
                         }}
                       >
-                        <span className="note-row-head">
-                          <span className="note-row-title">{note.title}</span>
-                          {progress !== null && (
-                            <span
-                              className={
-                                progress.done === progress.total
-                                  ? "note-progress complete"
-                                  : "note-progress"
-                              }
-                              title={progressText(progress)}
-                            >
-                              <TaskIcon size={12} />
-                              <span aria-hidden="true">
-                                {progress.done}/{progress.total}
-                              </span>
-                              <span className="sr-only">{progressText(progress)}</span>
-                            </span>
-                          )}
-                        </span>
-                        {note.excerpt !== "" && (
-                          <span className="note-row-excerpt">{note.excerpt}</span>
-                        )}
-                        <span className="note-row-meta">
-                          {showProject && (
-                            <span className="note-row-project">{projectLabel(note.folder)}</span>
-                          )}
-                          {showProject && time !== "" && <span aria-hidden="true"> · </span>}
-                          {time !== "" && <span>{time}</span>}
-                        </span>
+                        <PlusIcon size={14} />
                       </button>
-                    </li>
-                  );
-                })}
+                    )}
+                  </div>
+                  {groupLine !== null ? (
+                    <div className="notes-group-line">
+                      <p>{t(groupLine.text)}</p>
+                      {groupLine.action !== null && project !== null && (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            setSharedDialog({
+                              mode: groupLine.action === "turnOn" ? "setup" : "unlock",
+                              folder: project,
+                            });
+                          }}
+                        >
+                          {groupLine.action === "turnOn"
+                            ? t("sharedNotes.turnOn")
+                            : t("sharedNotes.unlock")}
+                        </button>
+                      )}
+                    </div>
+                  ) : sharedRows.length === 0 ? (
+                    listed && <p className="notes-group-empty muted">{t("sharedNotes.empty")}</p>
+                  ) : (
+                    <ul className="notes-list" aria-labelledby={sharedHeadId}>
+                      {sharedRows.map((note, index) => renderRow(note, index))}
+                    </ul>
+                  )}
+                  {groupHints.map((hint) => (
+                    <p key={hint.key} className="notes-group-note muted">
+                      {t(hint.key, hint.params)}
+                    </p>
+                  ))}
+                </section>
+                <section className="notes-group" aria-labelledby={localHeadId}>
+                  <div className="notes-group-head">
+                    <span id={localHeadId} className="notes-group-title">
+                      {t("sharedNotes.local")}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={t("notes.new")}
+                      title={t("notes.new")}
+                      onClick={newNote}
+                    >
+                      <PlusIcon size={14} />
+                    </button>
+                  </div>
+                  {localRows.length === 0 ? (
+                    listed && (
+                      <p className="notes-group-empty muted">
+                        {t("notes.emptyHint", {
+                          keys: formatShortcut(SHORTCUT_LABELS.quickNote, t),
+                        })}
+                      </p>
+                    )
+                  ) : (
+                    <ul className="notes-list" aria-labelledby={localHeadId}>
+                      {localRows.map((note, index) => renderRow(note, sharedRows.length + index))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+            {!grouped && rowsShown.length > 0 && (
+              <ul className="notes-list" aria-label={t("notes.list")}>
+                {rowsShown.map((note, index) => renderRow(note, index))}
               </ul>
             )}
           </div>
@@ -1526,6 +1778,21 @@ export function NotesPanel(props: Props) {
       <div className="sr-only" role="status">
         {toast ? "" : announcement}
       </div>
+      {sharedDialog && (
+        <SharedNotesDialog
+          mode={sharedDialog.mode}
+          folder={sharedDialog.folder}
+          onDone={(status) => {
+            setSharedDialog(null);
+            if (projectId !== null) setShared({ project: projectId, status });
+            requestAnimationFrame(() => searchInput.current?.focus());
+          }}
+          onClose={() => {
+            setSharedDialog(null);
+            requestAnimationFrame(() => searchInput.current?.focus());
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -337,6 +337,16 @@ export function PinIcon(props: IconProps) {
   );
 }
 
+/** Padlock: shared notes, encrypted in the repository. */
+export function LockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    </Svg>
+  );
+}
+
 /** Ticked box: checklist progress. */
 export function TaskIcon(props: IconProps) {
   return (

@@ -3876,6 +3876,114 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
+/* "This project": the shared notes (in the repository) above the ones on this computer. */
+.notes-group + .notes-group {
+  border-top: 1px solid var(--border);
+}
+
+.notes-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 6px 2px 14px;
+  color: var(--muted);
+}
+
+.notes-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.notes-group-hint {
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notes-group-head .icon-button:first-of-type {
+  margin-left: auto;
+}
+
+.notes-group-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 4px 14px 12px;
+}
+
+.notes-group-line p {
+  flex: 1 1 180px;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.notes-group-empty,
+.notes-group-note {
+  margin: 0;
+  padding: 2px 14px 10px;
+}
+
+.note-row-lock {
+  display: inline-flex;
+  flex: none;
+  margin-right: 4px;
+  color: var(--muted);
+  vertical-align: -1px;
+}
+
+.shared-notes-code-label {
+  margin-top: 14px;
+  font-weight: 600;
+}
+
+/* The recovery code: large, monospaced, selectable, never wrapped mid-group. */
+.shared-notes-code {
+  display: block;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  word-spacing: 0.2em;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.shared-notes-code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shared-notes-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.shared-notes-code-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 14px;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+}
+
 /* Floats over the bottom of the notes: no layout jump. */
 .notes-toast {
   position: absolute;

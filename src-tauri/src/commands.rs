@@ -31,6 +31,7 @@ use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
+use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
@@ -652,14 +653,41 @@ pub async fn clear_scrollbacks(store: State<'_, Store>) -> Result<(), PersistErr
     blocking(store, Store::clear_scrollbacks).await
 }
 
-// Notes per working folder (notes.rs, ADR 0004). Also on a blocking thread.
+// Notes per working folder (notes.rs, ADR 0004) and shared project notes (project_notes.rs,
+// ADR 0006). `folder.shared` picks the store; both run on a blocking thread.
+
+/// Both note stores, for one blocking call.
+#[derive(Clone)]
+pub struct Notes {
+    pub private: NotesStore,
+    pub shared: ProjectNotes,
+}
+
+impl Notes {
+    fn dispatch<T>(
+        &self,
+        folder: &NoteFolder,
+        private: impl FnOnce(&NotesStore) -> Result<T, NotesError>,
+        shared: impl FnOnce(&ProjectNotes) -> Result<T, ProjectNotesError>,
+    ) -> Result<T, NotesError> {
+        if folder.shared {
+            Ok(shared(&self.shared)?)
+        } else {
+            private(&self.private)
+        }
+    }
+}
 
 async fn notes_blocking<T: Send + 'static>(
-    store: State<'_, NotesStore>,
-    work: impl FnOnce(&NotesStore) -> Result<T, NotesError> + Send + 'static,
+    private: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
+    work: impl FnOnce(&Notes) -> Result<T, NotesError> + Send + 'static,
 ) -> Result<T, NotesError> {
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || work(&store))
+    let notes = Notes {
+        private: private.inner().clone(),
+        shared: shared.inner().clone(),
+    };
+    tauri::async_runtime::spawn_blocking(move || work(&notes))
         .await
         .map_err(|error| NotesError::Task(error.to_string()))?
 }
@@ -667,108 +695,208 @@ async fn notes_blocking<T: Send + 'static>(
 #[tauri::command]
 pub async fn list_note_folders(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
 ) -> Result<Vec<FolderInfo>, NotesError> {
-    notes_blocking(store, NotesStore::list_folders).await
+    notes_blocking(store, shared, |n| n.private.list_folders()).await
 }
 
 #[tauri::command]
 pub async fn list_notes(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<NoteInfo>, NotesError> {
-    notes_blocking(store, move |s| s.list_notes(&folder)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.list_notes(&folder),
+            |p| p.list_notes(&folder),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn read_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
-    notes_blocking(store, move |s| s.read_note(&folder, &id)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.read_note(&folder, &id),
+            |p| p.read_note(&folder, &id),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn write_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     content: String,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.write_note(&folder, &id, &content)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.write_note(&folder, &id, &content),
+            |p| p.write_note(&folder, &id, &content),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn create_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     title: String,
 ) -> Result<String, NotesError> {
-    notes_blocking(store, move |s| s.create_note(&folder, &title)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.create_note(&folder, &title),
+            |p| p.create_note(&folder, &title),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn rename_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     title: String,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.rename_note(&folder, &id, &title)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.rename_note(&folder, &id, &title),
+            |p| p.rename_note(&folder, &id, &title),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn delete_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.delete_note(&folder, &id)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.delete_note(&folder, &id),
+            |p| p.delete_note(&folder, &id),
+        )
+    })
+    .await
 }
 
+/// Shared notes sort by their last change and have no manual order: a no-op for them.
 #[tauri::command]
 pub async fn reorder_notes(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     ids: Vec<String>,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.reorder_notes(&folder, &ids)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(&folder, |s| s.reorder_notes(&folder, &ids), |_| Ok(()))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn reveal_notes_folder(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.reveal(&folder)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.reveal(&folder),
+            |_| Err(ProjectNotesError::NoFile),
+        )
+    })
+    .await
 }
 
 /// Case-insensitive substring search across all scopes (no regex), at most
-/// [`crate::notes::MAX_SEARCH_RESULTS`] hits.
+/// [`crate::notes::MAX_SEARCH_RESULTS`] hits; shared notes of every project unlocked in this
+/// run are decrypted in memory and included.
 #[tauri::command]
 pub async fn search_notes(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     query: String,
 ) -> Result<Vec<SearchHit>, NotesError> {
-    notes_blocking(store, move |s| s.search(&query)).await
+    notes_blocking(store, shared, move |n| {
+        let private = n.private.search(&query)?;
+        let shared = n.shared.search(&query)?;
+        Ok(crate::notes::merge_hits(&query, private, shared))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn list_trash(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<TrashInfo>, NotesError> {
-    notes_blocking(store, move |s| s.list_trash(&folder)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.list_trash(&folder),
+            |p| p.list_trash(&folder),
+        )
+    })
+    .await
 }
 
 /// Returns the restored note's ID (the old one unless it is taken again).
 #[tauri::command]
 pub async fn restore_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
-    notes_blocking(store, move |s| s.restore_note(&folder, &id)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.restore_note(&folder, &id),
+            |p| p.restore_note(&folder, &id),
+        )
+    })
+    .await
+}
+
+/// Moves a note between the private notes of a folder and its shared notes. Returns the new ID.
+#[tauri::command]
+pub async fn move_note(
+    store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
+    from: NoteFolder,
+    id: String,
+    to: NoteFolder,
+) -> Result<String, NotesError> {
+    notes_blocking(store, shared, move |n| {
+        project_notes::move_note(&n.private, &n.shared, &from, &id, &to)
+    })
+    .await
 }
 
 /// Saves a note as `.md`: the backend opens the save dialog, so the window never chooses a path.
@@ -778,29 +906,208 @@ pub async fn export_note(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<Option<String>, NotesError> {
+    notes_blocking(store, shared, move |n| {
+        let (title, content) = n.dispatch(
+            &folder,
+            |s| s.note_for_export(&folder, &id),
+            |p| p.note_for_export(&folder, &id),
+        )?;
+        save_text(
+            &app,
+            &window,
+            &export::note_file_name(&title),
+            (export::NOTE_FILTER, export::NOTE_EXTENSION),
+            &content,
+        )
+    })
+    .await
+}
+
+/// Opens the save dialog for a file named `name` of type `filter` (label, extension) and writes
+/// `content` there.
+fn save_text(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    name: &str,
+    filter: (&str, &str),
+    content: &str,
+) -> Result<Option<String>, NotesError> {
     use tauri_plugin_dialog::DialogExt as _;
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let (title, content) = store.note_for_export(&folder, &id)?;
-        let chosen = app
+    let chosen = app
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_file_name(name)
+        .add_filter(filter.0, &[filter.1])
+        .blocking_save_file();
+    let Some(chosen) = chosen else {
+        return Ok(None);
+    };
+    let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+    export::write(&path, content)?;
+    Ok(Some(path.display().to_string()))
+}
+
+// Shared project notes: state, setup and unlocking (project_notes.rs, ADR 0006).
+
+async fn shared_blocking<T: Send + 'static>(
+    shared: State<'_, ProjectNotes>,
+    work: impl FnOnce(&ProjectNotes) -> Result<T, ProjectNotesError> + Send + 'static,
+) -> Result<T, ProjectNotesError> {
+    let shared = shared.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || work(&shared))
+        .await
+        .map_err(|error| ProjectNotesError::Task(error.to_string()))?
+}
+
+/// State of the Shared group for the working folder `folder`. Resolves conflicted note files
+/// first; `label` names the copies ("Title (label, Name)").
+#[tauri::command]
+pub async fn shared_notes_status(
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    label: String,
+    untitled: String,
+) -> Result<SharedStatus, ProjectNotesError> {
+    shared_blocking(shared, move |p| p.status(&folder, &label, &untitled)).await
+}
+
+/// First step of turning shared notes on: returns the notes recovery code to show once.
+#[tauri::command]
+pub async fn shared_notes_prepare(
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+) -> Result<String, ProjectNotesError> {
+    shared_blocking(shared, move |p| {
+        p.prepare(&folder).map(|code| code.to_string())
+    })
+    .await
+}
+
+/// Saves the prepared recovery code as a text file. The backend opens the save dialog in
+/// Documents (else Desktop) and refuses a place inside the repository or any other Git work tree,
+/// where the code could be committed. `heading` is the first line, in the window's language.
+#[tauri::command]
+pub async fn shared_notes_save_code(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    heading: String,
+) -> Result<project_notes::SaveCode, ProjectNotesError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    let heading: String = heading
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(200)
+        .collect();
+    let start = app
+        .path()
+        .document_dir()
+        .or_else(|_| app.path().desktop_dir())
+        .ok();
+    shared_blocking(shared, move |p| {
+        let code = p.pending_code(&folder)?;
+        let root = p.root(&folder)?;
+        let mut dialog = app
             .dialog()
             .file()
             .set_parent(&window)
-            .set_file_name(export::note_file_name(&title))
-            .add_filter(export::NOTE_FILTER, &[export::NOTE_EXTENSION])
-            .blocking_save_file();
-        let Some(chosen) = chosen else {
-            return Ok(None);
+            .set_file_name(project_notes::CODE_FILE_NAME)
+            .add_filter(
+                project_notes::CODE_FILE_FILTER.0,
+                &[project_notes::CODE_FILE_FILTER.1],
+            );
+        if let Some(start) = start {
+            dialog = dialog.set_directory(start);
+        }
+        let Some(chosen) = dialog.blocking_save_file() else {
+            return Ok(project_notes::SaveCode::Cancelled);
         };
-        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
-        export::write(&path, &content)?;
-        Ok(Some(path.display().to_string()))
+        let Ok(path) = chosen.into_path() else {
+            return Ok(project_notes::SaveCode::Cancelled);
+        };
+        if !project_notes::code_path_allowed(&root, &path) {
+            return Ok(project_notes::SaveCode::InsideRepository);
+        }
+        let text = zeroize::Zeroizing::new(format!("{heading}\n\n{}\n", *code));
+        export::write(&path, &text).map_err(|error| ProjectNotesError::Io {
+            path: path.clone(),
+            source: std::io::Error::other(error.to_string()),
+        })?;
+        Ok(project_notes::SaveCode::Saved {
+            path: path.display().to_string(),
+        })
     })
     .await
-    .map_err(|error| NotesError::Task(error.to_string()))?
+}
+
+/// Copies the prepared recovery code, marked as secret for clipboard histories, and clears the
+/// clipboard after a minute if it still holds the code.
+#[tauri::command]
+pub async fn shared_notes_copy_code(
+    app: tauri::AppHandle,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+) -> Result<(), ProjectNotesError> {
+    use tauri_plugin_clipboard_manager::ClipboardExt as _;
+    let code = shared_blocking(shared, move |p| p.pending_code(&folder)).await?;
+    app.clipboard()
+        .write_secret(code.as_str())
+        .map_err(|error| ProjectNotesError::Task(error.to_string()))?;
+    let spawned = std::thread::Builder::new()
+        .name("notes-code-clipboard".to_owned())
+        .spawn(move || {
+            std::thread::sleep(project_notes::CODE_CLIPBOARD_TTL);
+            let clipboard = app.clipboard();
+            if let Ok(text) = clipboard.read_text() {
+                let text = zeroize::Zeroizing::new(text);
+                if text.trim() == code.as_str() {
+                    let _ = clipboard.clear();
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("hangar: the clipboard will not be cleared: {error}");
+    }
+    Ok(())
+}
+
+/// The setup dialog closed without turning shared notes on: the prepared key and code go.
+#[tauri::command]
+pub async fn shared_notes_cancel(
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+) -> Result<(), ProjectNotesError> {
+    shared_blocking(shared, move |p| p.cancel(&folder)).await
+}
+
+/// Second step, after "I saved it": writes the vault and stores the key; nothing is staged.
+#[tauri::command]
+pub async fn shared_notes_enable(
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    label: String,
+    untitled: String,
+) -> Result<SharedStatus, ProjectNotesError> {
+    shared_blocking(shared, move |p| p.enable(&folder, &label, &untitled)).await
+}
+
+/// Unlocks the shared notes on this computer with the notes recovery code.
+#[tauri::command]
+pub async fn shared_notes_unlock(
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    code: String,
+    label: String,
+    untitled: String,
+) -> Result<project_notes::Unlock, ProjectNotesError> {
+    let code = zeroize::Zeroizing::new(code);
+    shared_blocking(shared, move |p| p.unlock(&folder, &code, &label, &untitled)).await
 }
 
 // Detached notes window (notes_window.rs).
@@ -879,10 +1186,18 @@ pub fn notes_to_main(
 #[tauri::command]
 pub async fn reveal_note(
     store: State<'_, NotesStore>,
+    shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
-    notes_blocking(store, move |s| s.reveal_note(&folder, &id)).await
+    notes_blocking(store, shared, move |n| {
+        n.dispatch(
+            &folder,
+            |s| s.reveal_note(&folder, &id),
+            |_| Err(ProjectNotesError::NoFile),
+        )
+    })
+    .await
 }
 
 // Desktop notifications (notify.rs).

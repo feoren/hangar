@@ -81,6 +81,8 @@ export function parseNotes(value: unknown): NoteInfo[] {
 
 /** Comparison key of a scope: on Windows, paths are case insensitive, as in the backend. */
 export function folderId(folder: NoteFolder): string {
+  // Shared notes of a project never share a key with its private notes.
+  if (folder.shared === true) return `shared:${folderId({ path: folder.path })}`;
   // No path is empty; that way "General" collides with no folder, not even with "/".
   if (folder.path === null) return "";
   const slashes = folder.path.replace(/[\\/]+/g, "/");
@@ -213,7 +215,7 @@ export function parseSearchHits(value: unknown): SearchHit[] {
     if (typeof id !== "string" || id === "" || typeof title !== "string") continue;
     result.push({
       folderKey,
-      folder: { path },
+      folder: field(entry, "shared") === true ? { path, shared: true } : { path },
       id,
       title,
       excerpt: typeof excerpt === "string" ? excerpt : "",

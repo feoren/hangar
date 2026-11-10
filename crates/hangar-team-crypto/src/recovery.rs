@@ -57,7 +57,7 @@ use crate::identity::{DeviceIdentity, IdentityError};
 const LABEL_CODE: &[u8] = b"hangar-team/v1/recovery-code";
 const LABEL_IDENTITY: &[u8] = b"hangar-team/v1/recovery-identity";
 const CODE_VERSION: u8 = 1;
-const ENTROPY_LEN: usize = 16;
+pub(crate) const ENTROPY_LEN: usize = 16;
 const PAYLOAD_LEN: usize = 1 + ENTROPY_LEN + 3;
 const CHARS: usize = PAYLOAD_LEN * 8 / 5;
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -95,8 +95,8 @@ impl fmt::Debug for RecoveryCode {
     }
 }
 
-fn checksum(entropy: &[u8; ENTROPY_LEN]) -> [u8; 3] {
-    let digest = Sha256::digest(framed(&[LABEL_CODE, &[CODE_VERSION], entropy]));
+fn checksum(label: &[u8], version: u8, entropy: &[u8; ENTROPY_LEN]) -> [u8; 3] {
+    let digest = Sha256::digest(framed(&[label, &[version], entropy]));
     [digest[0], digest[1], digest[2]]
 }
 
@@ -110,6 +110,78 @@ fn symbol_value(c: char) -> Option<u8> {
     u8::try_from(value).ok()
 }
 
+/// `version || entropy || checksum` in Crockford base32, 8 groups of 4. Shared with the notes
+/// recovery code, which differs only in its version byte and checksum label.
+pub(crate) fn encode_code(
+    label: &[u8],
+    version: u8,
+    entropy: &[u8; ENTROPY_LEN],
+) -> Zeroizing<String> {
+    let mut payload = Zeroizing::new([0u8; PAYLOAD_LEN]);
+    payload[0] = version;
+    payload[1..1 + ENTROPY_LEN].copy_from_slice(entropy);
+    payload[1 + ENTROPY_LEN..].copy_from_slice(&checksum(label, version, entropy));
+    let mut out = Zeroizing::new(String::with_capacity(CHARS + CHARS / 4));
+    let mut acc: u64 = 0;
+    let mut bits = 0u32;
+    let mut written = 0usize;
+    for &byte in payload.iter() {
+        acc = (acc << 8) | u64::from(byte);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            let index = usize::try_from((acc >> bits) & 0x1f).unwrap_or(0);
+            if written > 0 && written.is_multiple_of(4) {
+                out.push('-');
+            }
+            out.push(char::from(ALPHABET[index]));
+            written += 1;
+        }
+        acc &= (1 << bits) - 1;
+    }
+    out
+}
+
+/// Reads a typed code of `version` (case, spaces, hyphens and look-alike letters forgiven).
+pub(crate) fn decode_code(
+    text: &str,
+    label: &[u8],
+    version: u8,
+) -> Result<Zeroizing<[u8; ENTROPY_LEN]>, RecoveryError> {
+    let mut payload = Zeroizing::new([0u8; PAYLOAD_LEN]);
+    let mut acc: u64 = 0;
+    let mut bits = 0u32;
+    let mut at = 0usize;
+    let mut symbols = 0usize;
+    for c in text.chars().filter(|c| !matches!(c, ' ' | '-')) {
+        let value = symbol_value(c).ok_or(RecoveryError::Format)?;
+        symbols += 1;
+        if symbols > CHARS {
+            return Err(RecoveryError::Format);
+        }
+        acc = (acc << 5) | u64::from(value);
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            payload[at] = u8::try_from((acc >> bits) & 0xff).unwrap_or(0);
+            at += 1;
+        }
+        acc &= (1 << bits) - 1;
+    }
+    if symbols != CHARS {
+        return Err(RecoveryError::Format);
+    }
+    if payload[0] != version {
+        return Err(RecoveryError::Version(payload[0]));
+    }
+    let mut entropy = Zeroizing::new([0u8; ENTROPY_LEN]);
+    entropy.copy_from_slice(&payload[1..1 + ENTROPY_LEN]);
+    if checksum(label, version, &entropy) != payload[1 + ENTROPY_LEN..] {
+        return Err(RecoveryError::Checksum);
+    }
+    Ok(entropy)
+}
+
 impl RecoveryCode {
     /// A new random code.
     pub fn generate(entropy: &mut impl Entropy) -> Result<Self, EntropyError> {
@@ -120,65 +192,12 @@ impl RecoveryCode {
 
     /// The code as text to show once: 8 groups of 4 characters.
     pub fn reveal(&self) -> Zeroizing<String> {
-        let mut payload = Zeroizing::new([0u8; PAYLOAD_LEN]);
-        payload[0] = CODE_VERSION;
-        payload[1..1 + ENTROPY_LEN].copy_from_slice(self.0.as_ref());
-        payload[1 + ENTROPY_LEN..].copy_from_slice(&checksum(&self.0));
-        let mut out = Zeroizing::new(String::with_capacity(CHARS + CHARS / 4));
-        let mut acc: u64 = 0;
-        let mut bits = 0u32;
-        let mut written = 0usize;
-        for &byte in payload.iter() {
-            acc = (acc << 8) | u64::from(byte);
-            bits += 8;
-            while bits >= 5 {
-                bits -= 5;
-                let index = usize::try_from((acc >> bits) & 0x1f).unwrap_or(0);
-                if written > 0 && written.is_multiple_of(4) {
-                    out.push('-');
-                }
-                out.push(char::from(ALPHABET[index]));
-                written += 1;
-            }
-            acc &= (1 << bits) - 1;
-        }
-        out
+        encode_code(LABEL_CODE, CODE_VERSION, &self.0)
     }
 
     /// Reads a typed code (case, spaces, hyphens and look-alike letters forgiven).
     pub fn parse(text: &str) -> Result<Self, RecoveryError> {
-        let mut payload = Zeroizing::new([0u8; PAYLOAD_LEN]);
-        let mut acc: u64 = 0;
-        let mut bits = 0u32;
-        let mut at = 0usize;
-        let mut symbols = 0usize;
-        for c in text.chars().filter(|c| !matches!(c, ' ' | '-')) {
-            let value = symbol_value(c).ok_or(RecoveryError::Format)?;
-            symbols += 1;
-            if symbols > CHARS {
-                return Err(RecoveryError::Format);
-            }
-            acc = (acc << 5) | u64::from(value);
-            bits += 5;
-            if bits >= 8 {
-                bits -= 8;
-                payload[at] = u8::try_from((acc >> bits) & 0xff).unwrap_or(0);
-                at += 1;
-            }
-            acc &= (1 << bits) - 1;
-        }
-        if symbols != CHARS {
-            return Err(RecoveryError::Format);
-        }
-        if payload[0] != CODE_VERSION {
-            return Err(RecoveryError::Version(payload[0]));
-        }
-        let mut entropy = Zeroizing::new([0u8; ENTROPY_LEN]);
-        entropy.copy_from_slice(&payload[1..1 + ENTROPY_LEN]);
-        if checksum(&entropy) != payload[1 + ENTROPY_LEN..] {
-            return Err(RecoveryError::Checksum);
-        }
-        Ok(Self(entropy))
+        decode_code(text, LABEL_CODE, CODE_VERSION).map(Self)
     }
 
     /// The offline device identity this code stands for.

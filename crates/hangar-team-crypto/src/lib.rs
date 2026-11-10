@@ -17,6 +17,8 @@
 //! - [`record`]: sealing and opening `Sealed` content (XChaCha20-Poly1305 plus the sender's
 //!   signature, log head and counter), checked against the verified log.
 //! - [`recovery`]: the printable recovery code and the offline device it derives.
+//! - [`notes`]: encrypted project notes: the notes key ring, sealed note files, the notes
+//!   recovery code and its code slot (ADR 0006).
 //!
 //! Pure: no I/O, no clock, no keychain, no network, and no secrets needed to verify the log, so
 //! the relay uses the same verifier as the clients. Randomness comes in through [`Entropy`]
@@ -32,6 +34,7 @@ pub mod entropy;
 pub mod epoch;
 pub mod identity;
 pub mod memberlog;
+pub mod notes;
 pub mod record;
 pub mod recovery;
 pub mod relay;

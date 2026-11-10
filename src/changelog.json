@@ -18,6 +18,20 @@
         "zh": "侧边栏更清爽：worktree 会话有了自己的分组，颜色模式放进你名字的菜单，边缘的圆形按钮可折叠侧边栏。"
       },
       {
+        "de": "Geteilte Notizen: Notizen liegen verschlüsselt im Repository und reisen mit deinen Commits. Einschalten mit einem Klick, ein Wiederherstellungscode sichert sie.",
+        "en": "Shared notes: notes live encrypted in the repository and travel with your commits. Turn them on with one click; a recovery code keeps them safe.",
+        "el": "Κοινόχρηστες σημειώσεις: κρυπτογραφημένες στο αποθετήριο, ταξιδεύουν με τα commits σου. Ενεργοποίηση με ένα κλικ, ένας κωδικός ανάκτησης τις προστατεύει.",
+        "es": "Notas compartidas: cifradas en el repositorio, viajan con tus commits. Se activan con un clic y un código de recuperación las protege.",
+        "fr": "Notes partagées : chiffrées dans le dépôt, elles voyagent avec tes commits. Un clic pour les activer, un code de récupération les protège.",
+        "it": "Note condivise: cifrate nel repository, viaggiano con i tuoi commit. Si attivano con un clic e un codice di recupero le protegge.",
+        "ja": "共有メモ: メモを暗号化してリポジトリに保存し、コミットと一緒に共有します。ワンクリックでオンにでき、回復コードで守られます。",
+        "pl": "Udostępnione notatki: zaszyfrowane w repozytorium, wędrują z twoimi commitami. Włączasz je jednym kliknięciem, chroni je kod odzyskiwania.",
+        "pt": "Notas compartilhadas: criptografadas no repositório, viajam com seus commits. Ative com um clique; um código de recuperação as protege.",
+        "ru": "Общие заметки: зашифрованы в репозитории и путешествуют с твоими коммитами. Включаются одним щелчком, их защищает код восстановления.",
+        "tr": "Paylaşılan notlar: depoda şifreli durur, commit'lerinle taşınır. Tek tıkla açılır, bir kurtarma kodu onları korur.",
+        "zh": "共享笔记：笔记加密保存在仓库中，随你的提交流转。一键开启，恢复代码保护它们。"
+      },
+      {
         "de": "Unten in der Seitenleiste: du, dein Team und die Einstellungen in einer Zeile. Ein Klick aufs Team öffnet ein Fenster, das die Terminals frei lässt.",
         "en": "The bottom of the sidebar now shows you, your team and Settings in one row. Clicking the team opens a window that leaves your terminals in view.",
         "el": "Στο κάτω μέρος της πλευρικής στήλης: εσύ, η ομάδα σου και οι Ρυθμίσεις σε μία γραμμή. Η ομάδα ανοίγει ένα παράθυρο που αφήνει ορατά τα τερματικά.",

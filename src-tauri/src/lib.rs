@@ -30,6 +30,7 @@ pub mod persist;
 pub mod proctree;
 pub mod profile;
 pub mod profile_edit;
+pub mod project_notes;
 pub mod resolve;
 pub mod secrets;
 pub mod session;
@@ -169,6 +170,14 @@ pub fn run() -> tauri::Result<()> {
             let notes = notes::NotesStore::new(&local_dir);
             notes.migrate_legacy_layout();
             app.manage(notes);
+            // Shared project notes (ADR 0006): key rings in the keychain, trash next to the
+            // private notes.
+            app.manage(project_notes::ProjectNotes::new(
+                &local_dir,
+                std::sync::Arc::new(secrets::KeyringStore::with_service(
+                    project_notes::KEYCHAIN_SERVICE,
+                )),
+            ));
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
             app.manage(persist::Store::new(local_dir));
@@ -295,6 +304,14 @@ pub fn run() -> tauri::Result<()> {
             commands::restore_note,
             commands::export_note,
             commands::reveal_note,
+            commands::move_note,
+            commands::shared_notes_status,
+            commands::shared_notes_prepare,
+            commands::shared_notes_save_code,
+            commands::shared_notes_enable,
+            commands::shared_notes_unlock,
+            commands::shared_notes_copy_code,
+            commands::shared_notes_cancel,
             commands::open_notes_window,
             commands::set_notes_on_top,
             commands::notes_to_main,

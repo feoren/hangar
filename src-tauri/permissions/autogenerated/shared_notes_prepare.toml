@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shared-notes-prepare"
+description = "Enables the shared_notes_prepare command without any pre-configured scope."
+commands.allow = ["shared_notes_prepare"]
+
+[[permission]]
+identifier = "deny-shared-notes-prepare"
+description = "Denies the shared_notes_prepare command without any pre-configured scope."
+commands.deny = ["shared_notes_prepare"]

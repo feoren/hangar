@@ -411,6 +411,12 @@
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Enables the move_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-move-note",
+          "markdownDescription": "Enables the move_note command without any pre-configured scope."
+        },
+        {
           "description": "Enables the notes_to_main command without any pre-configured scope.",
           "type": "string",
           "const": "allow-notes-to-main",
@@ -565,6 +571,48 @@
           "type": "string",
           "const": "allow-set-profile-secret",
           "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-cancel",
+          "markdownDescription": "Enables the shared_notes_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_copy_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-copy-code",
+          "markdownDescription": "Enables the shared_notes_copy_code command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-enable",
+          "markdownDescription": "Enables the shared_notes_enable command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_prepare command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-prepare",
+          "markdownDescription": "Enables the shared_notes_prepare command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_save_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-save-code",
+          "markdownDescription": "Enables the shared_notes_save_code command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-status",
+          "markdownDescription": "Enables the shared_notes_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the shared_notes_unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-shared-notes-unlock",
+          "markdownDescription": "Enables the shared_notes_unlock command without any pre-configured scope."
         },
         {
           "description": "Enables the team_answer_release command without any pre-configured scope.",
@@ -897,6 +945,12 @@
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Denies the move_note command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-move-note",
+          "markdownDescription": "Denies the move_note command without any pre-configured scope."
+        },
+        {
           "description": "Denies the notes_to_main command without any pre-configured scope.",
           "type": "string",
           "const": "deny-notes-to-main",
@@ -1051,6 +1105,48 @@
           "type": "string",
           "const": "deny-set-profile-secret",
           "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-cancel",
+          "markdownDescription": "Denies the shared_notes_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_copy_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-copy-code",
+          "markdownDescription": "Denies the shared_notes_copy_code command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-enable",
+          "markdownDescription": "Denies the shared_notes_enable command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_prepare command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-prepare",
+          "markdownDescription": "Denies the shared_notes_prepare command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_save_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-save-code",
+          "markdownDescription": "Denies the shared_notes_save_code command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-status",
+          "markdownDescription": "Denies the shared_notes_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the shared_notes_unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-shared-notes-unlock",
+          "markdownDescription": "Denies the shared_notes_unlock command without any pre-configured scope."
         },
         {
           "description": "Denies the team_answer_release command without any pre-configured scope.",

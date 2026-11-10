@@ -1,7 +1,7 @@
 # hangar-team-crypto
 
 End-to-end cryptography of Hangar teams: device keys, the signed membership log, key epochs with
-HPKE wrapping, sealed and signed records, and the printable recovery code. Builds on the wire
+HPKE wrapping, sealed and signed records, the printable recovery code, and the formats of encrypted project notes. Builds on the wire
 types and checks of [`hangar-team-protocol`](../hangar-team-protocol). MIT licensed like the app.
 
 > **Needs an external cryptographic review before it protects real data.** It is a hand-built
@@ -23,6 +23,7 @@ compared in constant time (`subtle`), and never shown by `Debug`.
 | `rotation`  | `plan_rotation` (`key.rotate` with the signed rotate epoch entry), `wrap_to_all` (reports failures per device), `wrap_for_device` (`key.wrap`)                                                                                                |
 | `record`    | `EpochCipher` (`for_epoch`, `seal`, `open_verified`), `RecordKind`, `SendCounter`, `ReplayGuard` (persistable high-water mark per sender and signing key)                                                                                     |
 | `recovery`  | `RecoveryCode`: 128 bits, Crockford base32 with checksum, derives an offline device that may only restore its member                                                                                                                          |
+| `notes`     | Encrypted project notes (ADR 0006): `KeyRing`, `seal_note` and `open_note` (one file per note, padded, bound to vault, note id and key id), `NotesRecoveryCode`, `seal_code_slot` and `open_code_slot`                                        |
 
 Byte formats are documented at the top of each module.
 

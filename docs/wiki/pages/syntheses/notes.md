@@ -2,9 +2,9 @@
 title: Notes (contract)
 type: synthesis
 tags: [notes, contract]
-sources: ["[[notes-and-start-usability]]"]
+sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # Notes (contract)
@@ -129,3 +129,62 @@ Capabilities:
   `flush` command keeps `detached`, and the next start opens the window again. If the window
   vanished without a word, the main window finds out on focus (`Window.getByLabel`), and on quit
   it does not wait for a window that is gone.
+
+## Shared notes (ADR 0006, phase 1)
+Decision: [[0006-encrypted-project-notes]]. Code: `src-tauri/src/project_notes.rs` (app),
+`crates/hangar-team-crypto/src/notes.rs` (formats), `src/sharedNotes.ts` and
+`src/SharedNotesDialog.tsx` (window).
+
+`folder` gains `shared?: boolean`. With `shared: true` the note commands above work on the shared
+notes of the repository that contains `path`, in its main worktree's `.hangar/notes/`:
+`list_notes` (sorted by last change, `order` 0), `read_note`, `write_note` (writes only when the
+text changed), `create_note`, `rename_note`, `delete_note` (the encrypted file moves to
+`notes/shared/<vault id>/.trash/` in the app data folder), `list_trash`, `restore_note` (a new id
+and a new encryption if the old id is taken), `export_note` (writes the decrypted Markdown where
+the person chooses). `reorder_notes` is a no-op; `reveal_note` and `reveal_notes_folder` fail
+("Shared notes are encrypted and have no readable file to show"). `search_notes` also searches
+the shared notes of every project unlocked in this run, decrypted in memory; such hits carry
+`shared: true` and the main worktree as `path`.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `shared_notes_status` | `folder`, `label`, `untitled` | `SharedStatus` (below); resolves conflicted note files first and stages exactly those files; one call at a time, and `off` without running git when `.hangar/notes` is missing |
+| `shared_notes_prepare` | `folder` | `string`: the notes recovery code, shown once; kept in memory until `enable`, `cancel` or 15 minutes, and a second call before that returns the same code |
+| `shared_notes_save_code` | `folder`, `heading` | `{ outcome: "saved", path } \| { outcome: "cancelled" \| "insideRepository" }`; the dialog starts in Documents (else Desktop); a place inside the repository or any Git work tree is refused and nothing is written |
+| `shared_notes_copy_code` | `folder` | `null`; copies the prepared code marked as secret, clears the clipboard after 60 s if it still holds the code |
+| `shared_notes_cancel` | `folder` | `null`; drops the prepared code (the dialog closed) |
+| `shared_notes_enable` | `folder`, `label`, `untitled` | `SharedStatus`; stores the key ring in the keychain, writes `.gitattributes`, `README.md`, `vault.json`; stages nothing |
+| `shared_notes_unlock` | `folder`, `code`, `label`, `untitled` | `{ outcome: "unlocked", status } \| { outcome: "wrongCode" \| "typo" \| "teamCode" }` |
+| `move_note` | `from`, `id`, `to` | `string`: the new id; created in `to`, the source goes to its trash |
+
+```ts
+type SharedStatus =
+  | { state: "unavailable" }                       // no Git repository: no Shared group
+  | { state: "off" }                               // setup line with "Turn on"
+  | { state: "locked"; reason: "needsCode" | "team" | "damaged" } // "Enter code" only for needsCode
+  | { state: "newerFormat" }                       // no action
+  | { state: "unlocked"; uncommitted: number; ignored: boolean; unreadable: number;
+      resolved: { title: string; copy: string | null }[] };
+```
+
+- `label`: the window's word for "other version" (at most 40 characters, no control characters,
+  no `(`, `)` or `,`); a conflict copy is titled `Title (label, Name)`, in solo mode
+  `Title (label)`. `untitled`: the window's title for a note whose own title the app would
+  refuse (the last one sent is used by every later call).
+- Conflicts: `UU`, `AA`, `UD` and `DU` on `<uuid>.note` are resolved when both present sides open:
+  the later `updated` keeps the id (ours on a tie), the other becomes a new note; a deleted side
+  loses; equal versions need no copy. Hangar runs `git add -- <paths>` for exactly these files and
+  never commits. Stages are read as the XY code promises; a stage that cannot be read whole
+  leaves the conflict. `DD` is cleared with `git rm --cached`. A `vault.json` conflict is resolved
+  only when both sides are of this format and both key rings are on this computer (the id that
+  sorts first stays); otherwise it stays for the person.
+- `uncommitted`: entries of `git status --porcelain=v1 -- .hangar/notes`; `ignored`:
+  `git check-ignore` of `vault.json`; `unreadable`: note files that do not open here.
+- The notes window has the same commands (`capabilities/notes.json`).
+
+UI: "This project" (and another opened project) shows two groups, **Shared** (lock icon, "in the
+repository", its own "+") and **Only on this computer** (today's notes, its own "+"). The Shared
+group shows one line per state with at most one action; quiet hints below say what is not
+committed, ignored or unreadable. "All" and search show shared notes with a lock icon. A note's
+More menu offers "Move to shared notes" or "Move to this computer". Setup is one dialog: the code,
+Copy, Save as file, "I saved the code", and "Turn on" only after that box is ticked.

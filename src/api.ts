@@ -116,9 +116,13 @@ export interface SessionFallback {
   subAgents: boolean;
 }
 
-/** Scope of the notes: a working folder (absolute) or `null` for the General area. */
+/**
+ * Scope of the notes: a working folder (absolute) or `null` for the General area. `shared`:
+ * the project's shared notes in the repository (ADR 0006) instead of the private ones.
+ */
 export interface NoteFolder {
   path: string | null;
+  shared?: boolean;
 }
 
 export interface TermSize {
@@ -235,6 +239,28 @@ export const api = {
   /** The backend asks where to save; the path written, `null` when cancelled (check it). */
   exportNote: (folder: NoteFolder, id: string) => invoke<unknown>("export_note", { folder, id }),
   revealNote: (folder: NoteFolder, id: string) => invoke<null>("reveal_note", { folder, id }),
+  /** Private to shared notes or back; the new ID (a string; check it). */
+  moveNote: (from: NoteFolder, id: string, to: NoteFolder) =>
+    invoke<unknown>("move_note", { from, id, to }),
+  // Shared project notes (contract: docs/wiki/pages/syntheses/notes.md, "Shared notes").
+  /** Check with `parseSharedStatus`. Resolves conflicted notes first; `label` names copies. */
+  sharedNotesStatus: (folder: NoteFolder, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_status", { folder, label, untitled }),
+  /** The notes recovery code to show once (a string; check it); the same while a setup waits. */
+  sharedNotesPrepare: (folder: NoteFolder) => invoke<unknown>("shared_notes_prepare", { folder }),
+  /** The backend asks where to save the code. Check with `parseSaveCode`. */
+  sharedNotesSaveCode: (folder: NoteFolder, heading: string) =>
+    invoke<unknown>("shared_notes_save_code", { folder, heading }),
+  /** Copies the code (marked secret) and clears the clipboard after a minute if it still holds it. */
+  sharedNotesCopyCode: (folder: NoteFolder) => invoke<null>("shared_notes_copy_code", { folder }),
+  /** The setup dialog closed without turning notes on: the prepared code is dropped. */
+  sharedNotesCancel: (folder: NoteFolder) => invoke<null>("shared_notes_cancel", { folder }),
+  /** Check with `parseSharedStatus`. */
+  sharedNotesEnable: (folder: NoteFolder, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_enable", { folder, label, untitled }),
+  /** Check with `parseUnlock`. */
+  sharedNotesUnlock: (folder: NoteFolder, code: string, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_unlock", { folder, code, label, untitled }),
   /** Main window only: opens the notes window or brings it to the front. */
   openNotesWindow: (alwaysOnTop: boolean) => invoke<null>("open_notes_window", { alwaysOnTop }),
   /** Notes window only: keeps itself above other windows or not. */

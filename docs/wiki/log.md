@@ -340,3 +340,33 @@ earlier notes, no automatic commits). Status set to accepted. Pages changed:
 ## [2026-11-10] update | State looks per session state
 Working, done, asks and pause each get their own color, pulse strength and pulse duration; the
 custom "working" chip label keeps 4.5 : 1. Pages changed: [[agent-workflow-features]].
+
+## [2026-11-10] ingest | Git with `* -text -diff -merge` for note files
+Measured on Windows (git 2.56.0.windows.4, `core.autocrlf` true, false and input): note bytes
+stay unconverted, `git diff` treats them as binary, a conflict leaves `UU` (modify/delete `UD`,
+add/add `AA`) with stages readable through `git cat-file blob :N:<path>` and no conflict markers;
+a rebase swaps stages 2 and 3. The app's conflict test confirms the resolution end to end. macOS
+and Linux remain unmeasured. Pages changed: [[note-gitattributes-measurement]] (new),
+[[0006-encrypted-project-notes]].
+
+## [2026-11-10] query | Shared project notes, phase 1
+Phase 1 of ADR 0006 as built: crypto module `notes` with test vectors, `project_notes.rs` (solo
+mode, keychain service `hangar-notes`, code slot, main worktree rule, local trash, automatic
+conflict resolution), commands `shared_notes_*` and `move_note`, the Shared and "Only on this
+computer" groups and the setup dialog. Pages changed: [[notes]], [[0006-encrypted-project-notes]].
+
+## [2026-11-10] query | Shared notes, security rework
+After the security review: `vault.json` conflicts resolve only between two readable vaults whose
+key rings this computer holds; stages are read as the XY code promises and `DD` is cleared; the
+keychain entry is never overwritten when unreadable or newer; links and junctions for
+`.hangar/notes` are refused; the main worktree must share the git common directory; the recovery
+code is never saved inside a Git work tree, copies as a secret and leaves the clipboard after a
+minute; a prepared setup expires after 15 minutes or when its dialog closes; scans have a byte
+budget and remember unreadable files. The key ring size limit of the Windows credential store is
+filed as a phase 2 blocker. Pages changed: [[0006-encrypted-project-notes]], [[notes]].
+
+## [2026-11-11] query | Shared notes, last review items
+The recovery code is also refused in any folder with a `.git` entry on the way up, even when git
+reports no repository (`safe.directory`); the note metadata cache is keyed by file stamp, vault
+id and the ring's key ids; search shares the scan's byte budget. Pages changed:
+[[0006-encrypted-project-notes]].

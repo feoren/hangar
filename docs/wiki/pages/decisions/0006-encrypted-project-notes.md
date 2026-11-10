@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [notes, e2e, git, teams, keychain, xchacha20poly1305, hkdf]
-sources: []
+sources: ["[[note-gitattributes-measurement]]"]
 created: 2026-11-10
 updated: 2026-11-10
 ---
@@ -82,8 +82,10 @@ Building blocks that already exist:
 - **`.gitattributes`** marks everything binary (`-text -diff -merge`): no CRLF conversion on
   Windows (the bytes stay stable), no useless ciphertext diffs, and on a conflict Git keeps "ours"
   in the working tree instead of writing conflict markers into ciphertext; Hangar resolves it
-  (section 6). [UNVERIFIED] that `-merge` leaves stages 1 to 3 in the index for Hangar to read
-  with `git show :2:<path>` and `:3:<path>`; to be measured before phase 1 ships.
+  (section 6). Measured on Windows with git 2.56 ([[note-gitattributes-measurement]]): the bytes
+  stay unconverted under every `core.autocrlf`, and a conflict leaves `UU` (modify/delete `UD`,
+  add/add `AA`) with the stages readable through `git cat-file blob :2:<path>` and `:3:<path>`.
+  A rebase swaps what stages 2 and 3 mean, so Hangar decides by the note's `updated` time.
 - **Committed on purpose.** Hangar never edits `.gitignore`. If `git check-ignore` says the folder
   is ignored, the notes panel says so ("Your .gitignore keeps shared notes out of Git") instead of
   silently not sharing.
@@ -294,15 +296,62 @@ keys created on the website; giving agents decrypted shared notes automatically.
    until the code is confirmed.
 5. Hangar never commits note changes by itself; phase 3 adds a "Commit notes" button.
 
+## Phase 1 as built (2026-11-10)
+- Crypto: `crates/hangar-team-crypto/src/notes.rs` (`KeyRing`, `seal_note`/`open_note`,
+  `NotesRecoveryCode` with version byte `0xA8`, so every notes code starts with `N`,
+  `seal_code_slot`/`open_code_slot`), test vectors recomputed by `test_vectors.py`. The code slot
+  is `base64url(0x01 || nonce || ciphertext)` with associated data
+  `field("hangar-notes/v1/code-slot") || field(0x01) || field(vault)`, the key ring inside is
+  `0x01 || count || (key id || key)*`. The vault id is bound as its 16 raw bytes, the note id as
+  its UUID text, the key id as 8 raw bytes.
+- App: `src-tauri/src/project_notes.rs`; contract in [[notes]], "Shared notes". The key ring lives
+  in the keychain service `hangar-notes` (account `notes/<vault id>`), one service for release and
+  debug builds: a key ring is the person's data, not a device identity, and a dev build must open
+  the same notes. Team vaults show as locked until phase 2.
+- Setup is two calls (`shared_notes_prepare`, then `shared_notes_enable` after "I saved the
+  code"); the code exists only in memory between them, at most 15 minutes, and goes when the
+  dialog closes (`shared_notes_cancel`). A failure before a file is written (for example the
+  keychain refusing) keeps the setup, so a retry seals the code the person already saved.
+- The code is saved only outside any Git work tree (the save dialog starts in Documents; besides
+  git's answer, any `.git` entry in the folder or above refuses the place, since git reports no
+  repository it does not trust); Copy
+  marks it as secret for clipboard histories and clears the clipboard after a minute if it still
+  holds the code.
+- `.hangar` and `.hangar/notes` must be real folders inside the repository: a link or junction is
+  refused before anything is read or written. The main worktree counts only if its `.git` exists
+  and it shares the folder's git common directory.
+- The keychain entry is never overwritten when it cannot be read or names a newer format
+  (`v2` and up), and a keychain read error stops the write.
+- "Move to shared notes" and "Move to this computer" (section 6) are in phase 1 as well; they
+  create the note in the target and move the source to its trash.
+- A `vault.json` conflict is resolved only when both sides are vaults of this format and this
+  computer holds both key rings: then the vault whose id sorts first stays and the other vault's
+  notes are re-encrypted into it. A side of a newer format, a damaged side, an unreadable stage or
+  a missing key ring leaves the conflict to the person, so a foreign vault never wins by its id.
+- Conflict stages are read as the XY code promises them (`UU`/`AA`: 2 and 3, `UD`/`AU`: 2,
+  `DU`/`UA`: 3); a stage that cannot be read whole leaves the conflict. `DD` (both sides deleted
+  or renamed the note away) is cleared with `git rm --cached`.
+- A scan and a search read at most 256 MiB each, check each file's header before reading it, and
+  the scan remembers files that did not open until the file, the vault id or the ring's key ids
+  change.
+- A conflicted note whose either side does not open here is left to Git (nothing would be lost,
+  but nothing can be copied either).
+
 ## Evidence
+- [[note-gitattributes-measurement]]: `.gitattributes` behaviour and conflict stages on Windows.
 - Existing building blocks read in the code on 2026-11-10: `crates/hangar-team-crypto/src/record.rs`
   (`EpochCipher`, `RecordKind`), `crates/hangar-team-crypto/src/epoch.rs` (epoch secrets, history
   link framing), `crates/hangar-team-crypto/src/recovery.rs` (code format),
   `src-tauri/src/team.rs` (`KEPT_EPOCHS`, `StoredKeys`, `LinkedRepo`, keychain service),
   `src-tauri/src/secrets.rs` (`MAX_VALUE_UNITS`), `src-tauri/src/notes.rs` and `src/notesScope.ts`.
 
+> [!warning] Phase 2 blocker
+> The Windows credential store holds at most 1280 UTF-16 units per entry
+> (`secrets::MAX_VALUE_UNITS`); a key ring entry takes 2 + 82 units per key, so about 15 keys fit.
+> `remember` refuses a larger ring (`TooManyKeys`). Solo mode has one key; team mode, which adds a
+> key per removal, needs older keys fetched from the `notes-keys` record or a second entry.
+
 > [!question] Unverified
-> Not yet measured: that Git with `-text -diff -merge` leaves the file bytes unconverted on every
-> platform and keeps stages 1 to 3 readable on a conflict, and that `git commit -- <paths>`
-> commits only those paths (phase 3). Both stay unverified until filed as a measurement under
-> `raw/`. The relay message sizes are estimates, not measured.
+> Not yet measured: the `.gitattributes` behaviour on macOS and Linux (Windows is measured), and
+> that `git commit -- <paths>` commits only those paths (phase 3). The relay message sizes are
+> estimates, not measured.

@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # Overview
@@ -47,3 +47,10 @@ One run against a self-hosted relay showed the live protocol compatible and its 
 different from the website API the app speaks ([[relay-interop-measurement]],
 [[hangar-account-api]]). Open: a run that includes task reservations, and an account API the
 self-hosted relay and the app share.
+
+## Shared project notes (ADR 0006)
+Phase 1 (solo mode) is built: notes encrypted in `.hangar/notes/` of the main worktree, key ring in
+the keychain and in a code slot under the notes recovery code, conflicts resolved by keeping both
+versions ([[0006-encrypted-project-notes]], [[notes]]). The `.gitattributes` behaviour is measured
+on Windows ([[note-gitattributes-measurement]]). Open: the same measurement on macOS and Linux,
+team mode (phase 2), and the external crypto review covering the notes formats.

@@ -6,7 +6,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[overview]]: state of knowledge, open risks and questions
 
 ## Decisions
-- [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions (sources: 0, updated: 2026-11-10)
+- [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions; phase 1 (solo mode) as built (sources: 1, updated: 2026-11-10)
 - [[0005-team-collaboration]]: proposed: several people and their agents on one project; requirements from the owner interview, end-to-end encrypted Hangar service, reservations, live file claims, merge queue (sources: 0, updated: 2026-11-08)
 - [[0004-notes-per-working-folder]]: notes belong to the working folder, stored as .md in the app data folder, keyed by the normalized path; folder names `general` and `.trash` since 2026-11-08; shared notes in [[0006-encrypted-project-notes]] (sources: 0, updated: 2026-11-10)
 - [[0003-program-versions]]: program versions via a `--version` call with timeout and cache; program icons (sources: 0, updated: 2026-11-07)
@@ -29,6 +29,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+- [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)
 - [[claude-http-hook-measurement]]: measurement: Claude Code 2.1.319 http hooks via `--settings`: request shape, deny reaches the model, timeout and connection failure fail open, SessionStart takes no http hooks, UserPromptSubmit context works (updated: 2026-11-09)
 - [[relay-interop-measurement]]: measurement: the app against a self-hosted relay; live protocol compatible (hello, renewals, presence, claims, rotation to epoch 2, 4403, 4404), its account API differs in paths, bodies, client id, tickets and errors (sources: 0, updated: 2026-11-09)
 - [[claude-settings-file-measurement]]: measurement: Claude Code 2.1.319 takes `--settings` as a file path (with spaces), sends `Host: 127.0.0.1:<port>`, and "ask" in print mode does not write the file (sources: 1, updated: 2026-11-09)
@@ -54,7 +55,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate), C (protocol crate), E (team crypto), F part 1 (account sign-in and projects), F part 2a (team connection) and F part 2b (teammates' presence, shared claims, gate on a teammate's file, task reservations) as built (sources: 3, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-08)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
-- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window) and the notes UI as built (sources: 0, updated: 2026-11-09)
+- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-10)
 - [[program-updates]]: contract of check_program_updates, create_update_session and program-update-result, update plan per detected installer, execution rules, cache, network rules (sources: 2, updated: 2026-11-08)
 - [[session-restore]]: contract: workspace.json, scrollback per session, create_session with resume, resumeFallback event (sources: 1, updated: 2026-11-07)
 - [[release-rollout]]: build, sign and publish a release as a GitHub release, create the upcoming version with `--next`; refresh the README screenshots (`pnpm readme:shots`); keys, code signing (vendors, variables, verification) (sources: 2, updated: 2026-11-10)
