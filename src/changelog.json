@@ -1,8 +1,23 @@
 [
   {
-    "version": "0.4.0",
+    "version": "0.3.1",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Beim Anmelden öffnet sich jetzt dein Standard-Browser mit der Anmeldeseite, nicht mehr ein Explorer-Fenster.",
+        "en": "Signing in now opens the sign-in page in your default browser instead of an Explorer window.",
+        "el": "Η σύνδεση ανοίγει τώρα τη σελίδα σύνδεσης στον προεπιλεγμένο σου περιηγητή αντί για ένα παράθυρο της Εξερεύνησης.",
+        "es": "Al iniciar sesión, ahora se abre la página de inicio de sesión en tu navegador predeterminado en lugar de una ventana del Explorador.",
+        "fr": "La connexion ouvre maintenant la page de connexion dans ton navigateur par défaut au lieu d'une fenêtre de l'Explorateur.",
+        "it": "L'accesso ora apre la pagina di accesso nel tuo browser predefinito invece di una finestra di Esplora file.",
+        "ja": "サインインすると、エクスプローラーのウィンドウではなく既定のブラウザーでサインインページが開くようになりました。",
+        "pl": "Logowanie otwiera teraz stronę logowania w domyślnej przeglądarce zamiast okna Eksploratora.",
+        "pt": "Ao entrar, a página de login agora abre no seu navegador padrão em vez de uma janela do Explorador.",
+        "ru": "При входе страница входа теперь открывается в браузере по умолчанию, а не в окне Проводника.",
+        "tr": "Oturum açarken giriş sayfası artık Gezgin penceresi yerine varsayılan tarayıcında açılıyor.",
+        "zh": "登录时，现在会在默认浏览器中打开登录页面，而不是资源管理器窗口。"
+      }
+    ]
   },
   {
     "version": "0.3.0",
