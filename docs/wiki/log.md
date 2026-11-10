@@ -330,3 +330,9 @@ team record `notes-keys` and re-sealed on every rotation (new key after removals
 with a notes recovery code, main worktree rule, lossless automatic conflict resolution, threat
 model, non-goals, three phases and open questions for the owner. No code changed. Pages changed:
 [[0006-encrypted-project-notes]] (new), [[0004-notes-per-working-folder]].
+
+## [2026-11-10] query | ADR 0006 accepted
+The owner chose `.hangar/notes/` and a mandatory notes recovery code in solo mode; the remaining
+open questions follow the proposal (owners and admins turn shared notes on, new members read
+earlier notes, no automatic commits). Status set to accepted. Pages changed:
+[[0006-encrypted-project-notes]].

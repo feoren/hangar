@@ -1,7 +1,7 @@
 ---
 title: "ADR 0006: Encrypted project notes in the repository"
 type: decision
-status: proposed
+status: accepted
 superseded_by:
 tags: [notes, e2e, git, teams, keychain, xchacha20poly1305, hkdf]
 sources: []
@@ -286,15 +286,13 @@ keys created on the website; giving agents decrypted shared notes automatically.
   3. **Phase 3:** in-app three-way merge, "Commit notes", moving notes between vaults, signed
      authorship if the owner wants it.
 
-## Open questions (owner)
-1. Folder name `.hangar/notes/` instead of `.note/`: acceptable?
-2. Who may turn on shared notes in a team project: owner and admins only (proposed, matches who
-   rotates keys), or every member?
-3. New members read all earlier shared notes (proposed, like the repository's history). The team
-   crypto otherwise makes history opt-in per rotation; should notes follow that instead?
-4. Is the notes recovery code mandatory in solo mode (proposed), or may a person skip it and
-   accept that a lost keychain means lost notes?
-5. Should Hangar commit note changes by itself (phase 3 proposes a button, not automatic commits)?
+## Owner decisions (2026-11-10)
+1. Folder name: `.hangar/notes/` (chosen by the owner over `.note/`).
+2. Only owners and admins turn on shared notes in a team project, matching who rotates keys.
+3. New members read all earlier shared notes, like the repository's history.
+4. The notes recovery code is mandatory in solo mode (chosen by the owner): setup does not finish
+   until the code is confirmed.
+5. Hangar never commits note changes by itself; phase 3 adds a "Commit notes" button.
 
 ## Evidence
 - Existing building blocks read in the code on 2026-11-10: `crates/hangar-team-crypto/src/record.rs`
