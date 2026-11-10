@@ -41,7 +41,11 @@ collects its items under that same version without a date. `src/versionSync.test
    - sets the version in `tauri.conf.json`, `Cargo.toml` and `package.json`
    - builds with `pnpm tauri build` and signs with `%USERPROFILE%\.tauri\hangar.key`
    - creates `release/0.2.0-31/` containing `Hangar_0.2.0-31_x64-setup.exe`, `Hangar-Setup.exe`,
-     `latest.json` (its download URL points to the GitHub release `v0.2.0`) and `release-notes.md`
+     `SHA256SUMS.txt`, `latest.json` (its download URL points to the GitHub release `v0.2.0`) and
+     `release-notes.md`
+   - `SHA256SUMS.txt` lists the SHA-256 of both installers in `sha256sum` format
+     (`<hex>  <file name>`, LF line endings), so `sha256sum -c SHA256SUMS.txt --ignore-missing`
+     verifies a download; on Windows, compare `Get-FileHash Hangar-Setup.exe` with its line
 3. Refresh the README screenshots: `pnpm readme:shots`. It renders the real frontend with a mocked
    backend and a fictional scene (`tools/readme-shots/`) in headless Edge, Chrome or Chromium
    (`README_SHOTS_BROWSER` picks a specific executable), writes `docs/images/hangar-dark.png` and
@@ -54,11 +58,13 @@ collects its items under that same version without a date. `src/versionSync.test
    `chore: Version 0.2.0-31`.
 5. Publish; the script prints these commands, it never publishes by itself:
    1. `git push origin main`
-   2. `gh release create v0.2.0 <the three files> --repo feoren/hangar --target main --title "Hangar 0.2.0-31" --notes-file release/0.2.0-31/release-notes.md --draft`
+   2. `gh release create v0.2.0 <the four files> --repo feoren/hangar --target main --title "Hangar 0.2.0-31" --notes-file release/0.2.0-31/release-notes.md --draft`
    3. `gh release edit v0.2.0 --repo feoren/hangar --draft=false --latest`
 
    Draft first, publish last: `/releases/latest` skips drafts, so installed apps see the update only
-   once every file is attached.
+   once every file is attached. The files go in the order setup, `Hangar-Setup.exe`,
+   `SHA256SUMS.txt`, `latest.json`; with `--base-url` the script prints the same order for the
+   upload, `latest.json` last because it announces the update.
 6. Transition for old installations (0.1.x only poll the own server): also upload `latest.json` to
    `https://hangar.feoren.com/download/`. Its URL points to GitHub, so one build serves both. Once
    no 0.1.x installation is left, this step can go.

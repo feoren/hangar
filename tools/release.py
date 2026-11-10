@@ -34,12 +34,15 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
 3. Puts everything to upload under release/<version>/:
      Hangar_<x.y.z-build>_x64-setup.exe   installer for this version (target of the update URL)
      Hangar-Setup.exe                 same file under a fixed name for the download link
+     SHA256SUMS.txt                   SHA-256 checksums of both installers (sha256sum format, LF)
      latest.json                      polled by installed apps
 4. Publish. By default the files go to a GitHub release with the tag vX.Y.Z; the script prints the
    `gh` commands for it (it never publishes by itself). The release is created as a draft, the files
    are attached, and only then is it published, so .../releases/latest/download/latest.json never
    announces a version whose installer is missing. With --base-url, upload to that folder instead:
-   installers first and latest.json last.
+   installers first, then SHA256SUMS.txt, and latest.json last.
+   Users verify a download with `sha256sum -c SHA256SUMS.txt --ignore-missing` or by comparing
+   `Get-FileHash Hangar-Setup.exe` with the line for that file.
 
 Authenticode code signing of the installer (against the SmartScreen warning), optional via environment:
   HANGAR_CERT_THUMBPRINT   SHA-1 thumbprint of a certificate in the Windows certificate store;
@@ -59,6 +62,7 @@ signing commands.
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -78,6 +82,7 @@ CHANGELOG_JSON = ROOT / "src" / "changelog.json"
 BUNDLE_DIR = ROOT / "src-tauri" / "target" / "release" / "bundle" / "nsis"
 MAIN_EXE = ROOT / "src-tauri" / "target" / "release" / "hangar.exe"
 RELEASE_DIR = ROOT / "release"
+CHECKSUMS_NAME = "SHA256SUMS.txt"
 GITHUB_REPO = "feoren/hangar"
 # Older installations only poll this server; it gets a copy of latest.json (see release-rollout.md).
 LEGACY_UPDATE_URL = "https://hangar.feoren.com/download/"
@@ -441,6 +446,29 @@ def github_base_url(base_version):
     return "https://github.com/%s/releases/download/%s" % (GITHUB_REPO, github_tag(base_version))
 
 
+def sha256_hex(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def checksums_text(target, names):
+    """Lines in the format of `sha256sum` (two spaces, text mode), so `sha256sum -c` accepts them."""
+    return "".join("%s  %s\n" % (sha256_hex(target / name), name) for name in names)
+
+
+def write_checksums(target, names):
+    # Bytes instead of text mode: on Windows, text mode would write CRLF, which sha256sum -c rejects.
+    (target / CHECKSUMS_NAME).write_bytes(checksums_text(target, names).encode("utf-8"))
+
+
+def release_files(target, setup_name):
+    """Files to attach or upload, in order. latest.json stays last: it announces the update."""
+    return [target / setup_name, target / "Hangar-Setup.exe", target / CHECKSUMS_NAME, target / "latest.json"]
+
+
 def github_release_commands(base_version, version, target, setup_name, notes_file):
     """The gh commands that publish a built release, as argv lists (never a shell string).
 
@@ -448,7 +476,7 @@ def github_release_commands(base_version, version, target, setup_name, notes_fil
     update only once every file is attached.
     """
     tag = github_tag(base_version)
-    files = [str(target / setup_name), str(target / "Hangar-Setup.exe"), str(target / "latest.json")]
+    files = [str(path) for path in release_files(target, setup_name)]
     return [
         ["git", "push", "origin", "main"],
         [
@@ -520,6 +548,7 @@ def collect(setup, version, base_url, notes):
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy2(setup, target / setup_name)
     shutil.copy2(setup, target / "Hangar-Setup.exe")
+    write_checksums(target, [setup_name, "Hangar-Setup.exe"])
 
     manifest = {
         "version": version,
@@ -637,7 +666,8 @@ def main():
         print("Upload to %s/ in this order:" % args.base_url.rstrip("/"))
         print("  1. %s" % setup_name)
         print("  2. Hangar-Setup.exe   (download link of the website)")
-        print("  3. latest.json        (last: announces the update)")
+        print("  3. %s     (checksums of both installers)" % CHECKSUMS_NAME)
+        print("  4. latest.json        (last: announces the update)")
     print()
     # Rule "the code always carries the upcoming version" (ADR 0002): otherwise the next dev build
     # shows the old number again while "What's New" is already collecting new items.

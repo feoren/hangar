@@ -306,3 +306,9 @@ real frontend with a mocked backend and a fictional scene, rendered in headless 
 Chromium over the DevTools protocol, written losslessly re-encoded to `docs/images/`. The version
 in the header comes from `src-tauri/tauri.conf.json`, so a run after `tools/release.py` shows the
 released `X.Y.Z-Build`. Added as step 3 of the release steps. Pages changed: [[release-rollout]].
+
+## [2026-11-10] query | Release checksums
+`tools/release.py` now writes `SHA256SUMS.txt` next to the installers in `release/<version>/`:
+the SHA-256 of `Hangar_X.Y.Z-Build_x64-setup.exe` and `Hangar-Setup.exe` in `sha256sum` format
+with LF line endings. It is attached to the GitHub release before `latest.json`, which stays last,
+and appears in the printed upload order for `--base-url`. Pages changed: [[release-rollout]].

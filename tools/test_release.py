@@ -415,11 +415,48 @@ class GithubReleaseTest(unittest.TestCase):
         self.assertIn(str(target / "latest.json"), create)
         self.assertIn(str(target / "Hangar_0.2.0-31_x64-setup.exe"), create)
         self.assertEqual(create[create.index("--title") + 1], "Hangar 0.2.0-31")
+        files = create[4 : create.index("--repo")]
+        self.assertEqual(
+            files,
+            [
+                str(target / "Hangar_0.2.0-31_x64-setup.exe"),
+                str(target / "Hangar-Setup.exe"),
+                str(target / "SHA256SUMS.txt"),
+                str(target / "latest.json"),
+            ],
+        )
         self.assertEqual(publish[:4], ["gh", "release", "edit", "v0.2.0"])
         self.assertIn("--draft=false", publish)
 
     def test_quoted_keeps_paths_with_spaces_together(self):
         self.assertEqual(release.quoted(["gh", "a b", "c"]), 'gh "a b" c')
+
+
+class ChecksumsTest(unittest.TestCase):
+    def setUp(self):
+        tmp_root = Path(__file__).resolve().parent.parent / "tests" / ".tmp"
+        tmp_root.mkdir(parents=True, exist_ok=True)
+        self.folder = Path(tempfile.mkdtemp(prefix="release checksums ", dir=tmp_root))
+        self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
+
+    def test_sha256sum_format_with_lf_line_endings(self):
+        (self.folder / "Hangar_0.2.0-31_x64-setup.exe").write_bytes(b"abc")
+        (self.folder / "Hangar-Setup.exe").write_bytes(b"")
+        release.write_checksums(self.folder, ["Hangar_0.2.0-31_x64-setup.exe", "Hangar-Setup.exe"])
+        content = (self.folder / "SHA256SUMS.txt").read_bytes()
+        self.assertEqual(
+            content,
+            b"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  Hangar_0.2.0-31_x64-setup.exe\n"
+            b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  Hangar-Setup.exe\n",
+        )
+        self.assertNotIn(b"\r", content)
+
+    def test_release_files_end_with_checksums_then_latest_json(self):
+        target = Path("release with space") / "0.2.0-31"
+        names = [path.name for path in release.release_files(target, "Hangar_0.2.0-31_x64-setup.exe")]
+        self.assertEqual(
+            names, ["Hangar_0.2.0-31_x64-setup.exe", "Hangar-Setup.exe", "SHA256SUMS.txt", "latest.json"]
+        )
 
 
 class BuildNumberTest(unittest.TestCase):
