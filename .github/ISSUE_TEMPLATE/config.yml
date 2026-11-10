@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/feoren/hangar/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue.
+  - name: Questions
+    url: https://github.com/feoren/hangar/discussions
+    about: Ask and answer questions about using Hangar.

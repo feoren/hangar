@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in Hangar does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please write in English.
+        Security problems do not belong here; report them privately (see the link on the "New issue" page).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A short description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start a Claude Code session
+        2. Split the view
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: hangar-version
+    attributes:
+      label: Hangar version
+      description: "Shown under Settings > Help > About Hangar."
+      placeholder: 0.4.0-170
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: "Run `winver` to see it."
+      placeholder: Windows 11 24H2 (build 26100)
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent CLI and version
+      description: The program running in the affected session, if any.
+      placeholder: Claude Code 1.2.3, or "plain PowerShell"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove API keys, tokens and anything else private before posting.

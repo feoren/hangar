@@ -1,6 +1,7 @@
 # Contributing to Hangar
 
 Thanks for your interest. Bug reports, ideas and pull requests are welcome.
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
