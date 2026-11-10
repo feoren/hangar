@@ -20,8 +20,7 @@
   --attention: #f2e3c6;
   /* Edge and dot; darkened in light mode so cream stays visible too. */
   --attention-strong: var(--attention);
-  --attention-pulse-low: 7%;
-  --attention-pulse-high: 24%;
+  /* Color and pulse per session state (--look-<state>-*) come from the app (stateLookCss.ts). */
   /* Thin ring around a waiting row; the status chip in the attention color. */
   --attention-ring: color-mix(in srgb, var(--attention) 55%, transparent);
   /* Readable text on the attention color; the app sets it from the chosen color. */
@@ -88,8 +87,6 @@
   --avatar-bg: #dde3ea;
   --avatar-fg: #2f3a46;
   --attention-strong: color-mix(in srgb, var(--attention) 45%, #000000);
-  --attention-pulse-low: 28%;
-  --attention-pulse-high: 72%;
   --attention-ring: color-mix(in srgb, var(--attention-strong) 70%, transparent);
   /* A light attention color on a light sidebar: the chip takes the darkened edge color. */
   --attention-chip-bg: var(--attention-strong);
@@ -479,34 +476,103 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 2px var(--attention-strong);
 }
 
-/* Attention: the whole row breathes softly in the attention color and gets a thin ring; the
-   status chip at its right end names the state. The left bar belongs to the active session only.
-   The tint is mixed onto the sidebar color, so the actions overlay can breathe along without a
-   seam. */
+/* State looks: each state (working, done, asks, pause) has its own color and pulse, chosen in the
+   settings. The app sets --look-<state>-* on the root (stateLookCss.ts); these classes hand them
+   to a row as --row-*. Waiting rows also take over the --attention variables, so their ring, dot
+   and chip follow. */
+.look-working {
+  --row-tint: var(--look-working-color);
+  --row-strong: var(--look-working-strong);
+  --row-text: var(--look-working-text);
+  --row-low: var(--look-working-low);
+  --row-high: var(--look-working-high);
+  --row-fill: var(--look-working-fill);
+  --row-seconds: var(--look-working-seconds);
+  --row-pulse: var(--look-working-pulse);
+  --row-ring-pulse: var(--look-working-ring-pulse);
+}
 
-@keyframes attention-breathe {
+.look-idle {
+  --row-tint: var(--look-idle-color);
+  --row-strong: var(--look-idle-strong);
+  --row-text: var(--look-idle-text);
+  --row-low: var(--look-idle-low);
+  --row-high: var(--look-idle-high);
+  --row-fill: var(--look-idle-fill);
+  --row-seconds: var(--look-idle-seconds);
+  --row-pulse: var(--look-idle-pulse);
+  --row-ring-pulse: var(--look-idle-ring-pulse);
+}
+
+.look-done,
+.look-asks {
+  --attention: var(--row-tint);
+  --attention-strong: var(--row-strong);
+  --attention-ring: var(--row-ring);
+  --attention-chip-bg: var(--row-chip-bg);
+  --attention-chip-fg: var(--row-chip-fg);
+}
+
+.look-done {
+  --row-tint: var(--look-done-color);
+  --row-strong: var(--look-done-strong);
+  --row-ring: var(--look-done-ring);
+  --row-chip-bg: var(--look-done-chip-bg);
+  --row-chip-fg: var(--look-done-chip-fg);
+  --row-low: var(--look-done-low);
+  --row-high: var(--look-done-high);
+  --row-fill: var(--look-done-fill);
+  --row-seconds: var(--look-done-seconds);
+  --row-pulse: var(--look-done-pulse);
+  --row-ring-pulse: var(--look-done-ring-pulse);
+}
+
+.look-asks {
+  --row-tint: var(--look-asks-color);
+  --row-strong: var(--look-asks-strong);
+  --row-ring: var(--look-asks-ring);
+  --row-chip-bg: var(--look-asks-chip-bg);
+  --row-chip-fg: var(--look-asks-chip-fg);
+  --row-low: var(--look-asks-low);
+  --row-high: var(--look-asks-high);
+  --row-fill: var(--look-asks-fill);
+  --row-seconds: var(--look-asks-seconds);
+  --row-pulse: var(--look-asks-pulse);
+  --row-ring-pulse: var(--look-asks-ring-pulse);
+}
+
+/* The row breathes in its state's color; waiting rows also get a thin ring, and the status chip at
+   the right end names the state. The left bar belongs to the active session only. The tint is
+   mixed onto the sidebar color, so the actions overlay can breathe along without a seam. Without
+   a pulse, a waiting row keeps a still tint (--row-fill); working and pause then look plain.
+   Single class on purpose: hover and the active row still win over the still tint. */
+@keyframes row-breathe {
   0%,
   100% {
-    background-color: color-mix(in srgb, var(--attention) var(--attention-pulse-low), var(--panel));
+    background-color: color-mix(in srgb, var(--row-tint) var(--row-low), var(--panel));
   }
 
   50% {
-    background-color: color-mix(
-      in srgb,
-      var(--attention) var(--attention-pulse-high),
-      var(--panel)
-    );
+    background-color: color-mix(in srgb, var(--row-tint) var(--row-high), var(--panel));
   }
+}
+
+.look {
+  background-color: var(--row-fill);
+  animation: var(--row-pulse) var(--row-seconds) ease-in-out infinite;
+}
+
+.look .dot.running {
+  background: var(--row-strong);
+}
+
+.look .status-chip.working {
+  color: var(--row-text);
 }
 
 /* In the rail, the ring sits around the badge instead (below). */
 .session.attention {
   box-shadow: inset 0 0 0 1px var(--attention-ring);
-}
-
-.session.attention,
-.rail-session.attention {
-  animation: attention-breathe 2.8s ease-in-out infinite;
 }
 
 .session.active.attention {
@@ -540,8 +606,13 @@ h2 .beta-badge {
   pointer-events: auto;
 }
 
-.session.attention .session-actions {
-  animation: attention-breathe 2.8s ease-in-out infinite;
+.session.look .session-actions {
+  animation: var(--row-pulse) var(--row-seconds) ease-in-out infinite;
+}
+
+/* A still waiting row (no pulse, or reduced motion): the overlay takes its tint, no seam. */
+.session.attention:not(:hover, .active) .session-actions {
+  background-color: var(--row-fill);
 }
 
 /* Status chip: one shape per state. The actions take its place on hover and keyboard focus, so
@@ -653,16 +724,10 @@ h2 .beta-badge {
     transition: none;
   }
 
-  /* No breathing: a strong, still highlight with a firmer ring instead. */
-  .session.attention,
-  .rail-session.attention,
-  .session.attention .session-actions {
+  /* No breathing: the still tint (strong for waiting rows) with a firmer ring instead. */
+  .look,
+  .session.look .session-actions {
     animation: none;
-    background-color: color-mix(
-      in srgb,
-      var(--attention) var(--attention-pulse-high),
-      var(--panel)
-    );
   }
 
   .session.attention {
@@ -1777,7 +1842,7 @@ body.resizing-horizontal * {
 .rail-session.attention .badge {
   outline: 2px solid var(--attention-strong);
   outline-offset: 2px;
-  animation: rail-ring 2.8s ease-in-out infinite;
+  animation: var(--row-ring-pulse) var(--row-seconds) ease-in-out infinite;
 }
 
 @keyframes rail-ring {
@@ -2386,11 +2451,6 @@ body.resizing-horizontal * {
   border-radius: 50%;
 }
 
-.swatch-caption {
-  margin-left: 4px;
-  color: var(--muted);
-}
-
 .range-field {
   display: grid;
   grid-template-columns: 1fr minmax(64px, auto);
@@ -2581,10 +2641,110 @@ body.resizing-horizontal * {
   background: #3b6fb6;
 }
 
-.settings-group:disabled .attention-preview .session {
+/* Attention settings: one card per session state. Color on the left, the live preview next to
+   it, pulse strength and duration below. */
+.settings-subhead {
+  padding: 0;
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.look-cards {
+  display: grid;
+  gap: 10px;
+}
+
+.look-card {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.look-card:disabled {
+  opacity: 0.5;
+}
+
+.look-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.look-card-title {
+  font-weight: 600;
+}
+
+.look-card-head .link-button:disabled {
+  visibility: hidden;
+}
+
+.look-card-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.look-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 30px);
+  gap: 2px 4px;
+}
+
+.look-color-name {
+  display: block;
+  margin: 4px 0 0 4px;
+  font-size: 12px;
+}
+
+.attention-preview.look-preview {
+  margin-top: 0;
+}
+
+.look-pulse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 20px;
+  margin-top: 12px;
+}
+
+.look-pulse-strength {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.look-pulse .segment {
+  padding: 4px 11px;
+}
+
+.look-pulse .range-field {
+  flex: 1 1 160px;
+  margin-top: 0;
+}
+
+.look-card:disabled .look-preview .session {
   animation: none;
   box-shadow: none;
-  background: none;
+  background-color: transparent;
+}
+
+.attention-notices {
+  margin-top: 4px;
+}
+
+@media (max-width: 620px) {
+  .look-card-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .secondary-button {

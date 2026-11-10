@@ -2,7 +2,7 @@
 // the text color on the status chip, and how strongly a waiting row breathes. The breathing tint
 // is mixed onto the sidebar color; its peak is as strong as the row's text still allows.
 
-import { normalizeColor, DEFAULT_ATTENTION_COLOR } from "./settings";
+import { CREAM as DEFAULT_ATTENTION_COLOR, normalizeColor } from "./stateLook";
 import { contrastRatio, type Theme } from "./theme";
 
 const INK = "#1a1d21";
@@ -73,6 +73,8 @@ export function attentionTint(color: string, theme: Theme): AttentionTint {
 
 /** Edge, ring and chip of a waiting session; non-text parts need 3 : 1 against the sidebar. */
 const EDGE_CONTRAST = 3;
+/** Text in the state color itself (the "working" chip label) needs 4.5 : 1. */
+const TEXT_CONTRAST = 4.5;
 
 export interface AttentionEdges {
   /** Edge, dot and outline of a waiting row (`--attention-strong`). */
@@ -81,16 +83,18 @@ export interface AttentionEdges {
   ring: string;
   chipBg: string;
   chipFg: string;
+  /** Text in the state color directly on the sidebar, at 4.5 : 1. */
+  text: string;
 }
 
 /**
  * Moves `color` toward `target` (white in the dark theme, black in the light one) in small steps
- * until it reaches 3 : 1 against `panel`. Colors that already reach it stay unchanged.
+ * until it reaches `ratio` against `panel`. Colors that already reach it stay unchanged.
  */
-function towardContrast(color: string, target: string, panel: string): string {
+function towardContrast(color: string, target: string, panel: string, ratio: number): string {
   for (let share = 0; share <= 100; share += 5) {
     const candidate = mixColors(target, share, color);
-    if (contrastRatio(candidate, panel) >= EDGE_CONTRAST) return candidate;
+    if (contrastRatio(candidate, panel) >= ratio) return candidate;
   }
   return target;
 }
@@ -112,12 +116,16 @@ function ringOnPanel(color: string, start: number, panel: string): string {
 export function attentionEdges(color: string, theme: Theme): AttentionEdges {
   const base = normalizeColor(color) ?? DEFAULT_ATTENTION_COLOR;
   const panel = ROW_COLORS[theme].panel;
-  const strong =
-    theme === "light"
-      ? towardContrast(mixColors("#000000", 45, base), "#000000", panel)
-      : towardContrast(base, WHITE, panel);
+  const target = theme === "light" ? "#000000" : WHITE;
+  const strong = towardContrast(
+    theme === "light" ? mixColors("#000000", 45, base) : base,
+    target,
+    panel,
+    EDGE_CONTRAST,
+  );
   const ring = ringOnPanel(strong, theme === "light" ? 70 : 55, panel);
   // Dark theme: the chip keeps the chosen color when it is bright enough, else the lightened one.
   const chipBg = strong;
-  return { strong, ring, chipBg, chipFg: textOnColor(chipBg) };
+  const text = towardContrast(strong, target, panel, TEXT_CONTRAST);
+  return { strong, ring, chipBg, chipFg: textOnColor(chipBg), text };
 }

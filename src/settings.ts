@@ -15,6 +15,7 @@ import {
   type CursorStyle,
   type TerminalFont,
 } from "./terminalLook";
+import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
 
 const STORAGE_KEY = "hangar.settings";
@@ -29,35 +30,13 @@ export const SCROLLBACK_LINES = { min: 500, max: 10_000, step: 500, default: 500
 /** Chime volume in percent; quiet by default, a hint and not an alarm. */
 export const CHIME_VOLUME = { min: 5, max: 100, step: 5, default: 40 } as const;
 
-export const ATTENTION_PRESETS = [
-  { id: "cream", color: "#f2e3c6" },
-  { id: "amber", color: "#f0b429" },
-  // Cooler than the green of "running" (--ok), so waiting and running are not confused.
-  { id: "mint", color: "#9ee8dc" },
-  { id: "sky", color: "#8cc8ff" },
-] as const;
-
-export type AttentionPreset = (typeof ATTENTION_PRESETS)[number];
-
-export const DEFAULT_ATTENTION_COLOR = ATTENTION_PRESETS[0].color;
-
-/** Former mint default; anyone who picked it gets the new one (same choice, easier to tell apart). */
-const OLD_MINT = "#7ee0b5";
-
-/** Stored attention color, with old defaults lifted to their new version. */
-export function migrateAttentionColor(color: string): string {
-  return color === OLD_MINT
-    ? (ATTENTION_PRESETS.find((p) => p.id === "mint")?.color ?? color)
-    : color;
-}
-
 export interface Settings {
   language: Language;
   /** Appearance; "system" follows the operating system, also at runtime. */
   theme: ThemeSetting;
   attentionEnabled: boolean;
-  /** Always lowercase `#rrggbb`, just as `<input type="color">` returns it. */
-  attentionColor: string;
+  /** Color and pulse of each session state in the sidebar (stateLook.ts). */
+  looks: StateLooks;
   quietSeconds: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
@@ -131,7 +110,7 @@ export function defaultSettings(language: Language): Settings {
     language,
     theme: "system",
     attentionEnabled: true,
-    attentionColor: DEFAULT_ATTENTION_COLOR,
+    looks: DEFAULT_LOOKS,
     quietSeconds: QUIET_SECONDS.default,
     taskbarFlash: true,
     notifyDesktop: true,
@@ -154,17 +133,6 @@ export function defaultSettings(language: Language): Settings {
     cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
     snippets: defaultSnippets(language),
   };
-}
-
-/** `#rgb` or `#rrggbb`, normalized to `#rrggbb`; anything else yields `null`. */
-export function normalizeColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(value);
-  if (short) {
-    const doubled = short.slice(1).map((digit) => digit + digit);
-    return `#${doubled.join("")}`.toLowerCase();
-  }
-  return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : null;
 }
 
 /** Rounded to the step size and clamped. */
@@ -212,9 +180,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     language: chosenLanguage,
     theme: isThemeSetting(theme) ? theme : defaults.theme,
     attentionEnabled: flag("attentionEnabled"),
-    attentionColor: migrateAttentionColor(
-      normalizeColor(get("attentionColor")) ?? defaults.attentionColor,
-    ),
+    // Older versions stored one attention color instead; it carries over to both waiting states.
+    looks: parseStateLooks(get("looks"), Reflect.get(raw, "attentionColor")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)

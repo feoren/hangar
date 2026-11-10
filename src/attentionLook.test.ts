@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { attentionEdges, attentionTint, mixColors, textOnColor } from "./attentionLook";
-import { ATTENTION_PRESETS, DEFAULT_ATTENTION_COLOR } from "./settings";
+import { CREAM as DEFAULT_ATTENTION_COLOR, LOOK_PRESETS as ATTENTION_PRESETS } from "./stateLook";
 import { contrastRatio } from "./theme";
 
 describe("textOnColor", () => {
@@ -96,6 +96,16 @@ describe("attentionEdges", () => {
 
   it("darkens in the light theme as before", () => {
     expect(attentionEdges("#f2e3c6", "light").strong).toBe(mixColors("#000000", 45, "#f2e3c6"));
+  });
+
+  it("gives text in the state color 4.5 : 1 against the sidebar", () => {
+    const colors = [...ATTENTION_PRESETS.map((p) => p.color), "#3060c0", "#202020", "#ffffff"];
+    for (const theme of ["dark", "light"] as const) {
+      for (const color of colors) {
+        const { text } = attentionEdges(color, theme);
+        expect(contrastRatio(text, panels[theme]), `${theme} ${color}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 
   it("puts readable text on the chip", () => {

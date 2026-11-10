@@ -26,6 +26,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Papierkorb                                      | trash                             |                                                                             |
 | Aufmerksamkeit, Aufmerksamkeits-Puls            | attention, attention pulse        |                                                                             |
 | wartet (auf dich)                               | waiting (for you)                 |                                                                             |
+| Aussehen je Status                              | state look                        | color, pulse strength and duration per state, `stateLook.ts`                |
+| Pause (Session läuft, ruhig)                    | pause                             | UI name of the `idle` state of a running session                            |
 | Status-Chip                                     | status chip                       | state shape at the right end of a session row                               |
 | fragt (Glocke, BEL)                             | asks (bell)                       | waiting reason after BEL, `AttentionReason`                                 |
 | Hinweiston                                      | chime                             | synthesized two-tone sound, `chime.ts`                                      |

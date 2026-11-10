@@ -19,20 +19,10 @@ import type { BadgeLook } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
 import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
-import { playChime } from "./chimeAudio";
-import {
-  ATTENTION_PRESETS,
-  CHIME_VOLUME,
-  clampChimeVolume,
-  clampQuietSeconds,
-  clampScrollbackLines,
-  normalizeColor,
-  QUIET_SECONDS,
-  SCROLLBACK_LINES,
-  type Settings,
-} from "./settings";
+import { AttentionSettings } from "./AttentionSettings";
+import { RangeField } from "./RangeField";
+import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
-import { StatusChip } from "./StatusChip";
 import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import {
   canvasMeasure,
@@ -83,13 +73,6 @@ interface Props {
   onCheckUpdates: () => void;
   onClose: () => void;
 }
-
-const COLOR_NAMES: Record<(typeof ATTENTION_PRESETS)[number]["id"], MessageKey> = {
-  cream: "color.cream",
-  amber: "color.amber",
-  mint: "color.mint",
-  sky: "color.sky",
-};
 
 const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   general: "settings.general",
@@ -256,7 +239,7 @@ function SectionContent(props: Props & { section: SettingsSection }) {
     case "appearance":
       return <AppearanceSection {...props} />;
     case "attention":
-      return <AttentionSection {...props} />;
+      return <AttentionSettings {...props} />;
     case "programs":
       return <ProgramsSection {...props} />;
     case "snippets":
@@ -701,165 +684,6 @@ function TerminalPreview({ settings, theme }: { settings: Settings; theme: Theme
   );
 }
 
-function AttentionSection({ settings, onChange }: Props) {
-  const t = useT();
-  const isPreset = ATTENTION_PRESETS.some((preset) => preset.color === settings.attentionColor);
-  return (
-    <>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.attentionEnabled}
-          aria-describedby="attention-help"
-          onChange={(event) => {
-            onChange({ attentionEnabled: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.attentionEnabled")}</span>
-      </label>
-      <p id="attention-help" className="muted settings-help">
-        {t("settings.attentionHelp")}
-      </p>
-
-      <fieldset className="settings-group" disabled={!settings.attentionEnabled}>
-        <legend>{t("settings.color")}</legend>
-        <div className="swatches">
-          {ATTENTION_PRESETS.map((preset) => (
-            <label key={preset.id} className="swatch" title={t(COLOR_NAMES[preset.id])}>
-              <input
-                type="radio"
-                name="attention-color"
-                value={preset.color}
-                aria-label={t(COLOR_NAMES[preset.id])}
-                checked={settings.attentionColor === preset.color}
-                onChange={() => {
-                  onChange({ attentionColor: preset.color });
-                }}
-              />
-              <span className="swatch-color" style={{ background: preset.color }} />
-            </label>
-          ))}
-          <label
-            className={isPreset ? "swatch custom" : "swatch custom selected"}
-            title={t("settings.customColor")}
-          >
-            <input
-              type="color"
-              aria-label={t("settings.customColor")}
-              value={settings.attentionColor}
-              onChange={(event) => {
-                const color = normalizeColor(event.currentTarget.value);
-                if (color) onChange({ attentionColor: color });
-              }}
-            />
-          </label>
-          <span className="swatch-caption">
-            {isPreset ? presetName(settings.attentionColor, t) : t("settings.customColor")}
-          </span>
-        </div>
-
-        <RangeField
-          id="quiet-seconds"
-          label={t("settings.quietTime")}
-          value={settings.quietSeconds}
-          min={QUIET_SECONDS.min}
-          max={QUIET_SECONDS.max}
-          display={t("settings.seconds", { count: settings.quietSeconds })}
-          onChange={(value) => {
-            onChange({ quietSeconds: clampQuietSeconds(value) });
-          }}
-        />
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.taskbarFlash}
-            aria-describedby="taskbar-flash-help"
-            onChange={(event) => {
-              onChange({ taskbarFlash: event.currentTarget.checked });
-            }}
-          />
-          <span>{t("settings.taskbarFlash")}</span>
-        </label>
-        <p id="taskbar-flash-help" className="muted settings-help">
-          {t("settings.taskbarFlashHelp")}
-        </p>
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.notifyDesktop}
-            aria-describedby="notify-desktop-help"
-            onChange={(event) => {
-              onChange({ notifyDesktop: event.currentTarget.checked });
-            }}
-          />
-          <span>{t("settings.notifyDesktop")}</span>
-        </label>
-        <p id="notify-desktop-help" className="muted settings-help">
-          {t("settings.notifyDesktopHelp")}
-        </p>
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.chime}
-            aria-describedby="chime-help"
-            onChange={(event) => {
-              onChange({ chime: event.currentTarget.checked });
-            }}
-          />
-          <span>{t("settings.chime")}</span>
-        </label>
-        <p id="chime-help" className="muted settings-help">
-          {t("settings.chimeHelp")}
-        </p>
-        <div className="chime-row">
-          <RangeField
-            id="chime-volume"
-            label={t("settings.chimeVolume")}
-            value={settings.chimeVolume}
-            min={CHIME_VOLUME.min}
-            max={CHIME_VOLUME.max}
-            step={CHIME_VOLUME.step}
-            disabled={!settings.chime}
-            display={t("settings.percent", { count: settings.chimeVolume })}
-            onChange={(value) => {
-              onChange({ chimeVolume: clampChimeVolume(value) });
-            }}
-          />
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={!settings.chime}
-            onClick={() => {
-              playChime("waiting", settings.chimeVolume);
-            }}
-          >
-            {t("settings.chimePreview")}
-          </button>
-        </div>
-
-        <div className="attention-preview" aria-hidden="true">
-          <span className="session attention">
-            <span className="session-main">
-              <span className="badge">C</span>
-              <span className="session-text">
-                <span className="session-title">{t("settings.preview")}</span>
-                <span className="session-meta">
-                  <span className="dot attention" />
-                  {t("status.attention")}
-                </span>
-              </span>
-            </span>
-            <StatusChip kind="done" />
-          </span>
-        </div>
-      </fieldset>
-    </>
-  );
-}
-
 function ProgramsSection(props: Props) {
   return (
     <>
@@ -980,53 +804,6 @@ function UpdatesSection({ settings, onChange, update, version, onCheckUpdates }:
       </div>
     </>
   );
-}
-
-function RangeField({
-  id,
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  disabled = false,
-  display,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  disabled?: boolean;
-  display: string;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="range-field">
-      <label htmlFor={id}>{label}</label>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        aria-valuetext={display}
-        onChange={(event) => {
-          onChange(Number(event.currentTarget.value));
-        }}
-      />
-      <output htmlFor={id}>{display}</output>
-    </div>
-  );
-}
-
-function presetName(color: string, t: Translate): string {
-  const preset = ATTENTION_PRESETS.find((p) => p.color === color);
-  return preset ? t(COLOR_NAMES[preset.id]) : "";
 }
 
 function updateStatus(state: UpdateState, t: Translate): string {

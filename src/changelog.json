@@ -86,6 +86,20 @@
         "ru": "Правый щелчок в терминале больше не вставляет текст, а только открывает меню. Для вставки используй Ctrl+V.",
         "tr": "Terminalde sağ tık artık yapıştırmıyor, yalnızca menüyü açıyor. Yapıştırmak için Ctrl+V kullan.",
         "zh": "在终端中右键单击不再粘贴，只会打开菜单。要粘贴，请使用 Ctrl+V。"
+      },
+      {
+        "de": "Jeder Status in der Seitenleiste (arbeitet, fertig, fragt, Pause) hat jetzt eigene Farbe, Pulsstärke und Dauer. Einstellbar unter Aufmerksamkeit mit Vorschau.",
+        "en": "Each sidebar state (working, done, asks, pause) now has its own color, pulse strength and duration. Set them under Attention with a live preview.",
+        "el": "Κάθε κατάσταση στην πλευρική στήλη (εργάζεται, έτοιμο, ρωτά, παύση) έχει δικό της χρώμα, ένταση και διάρκεια παλμού. Ρύθμισέ τα στην Ειδοποίηση.",
+        "es": "Cada estado de la barra lateral (trabajando, listo, pregunta, pausa) tiene ahora su color, intensidad y duración de pulso. Ajústalos en Avisos.",
+        "fr": "Chaque état de la barre latérale (travaille, terminé, demande, pause) a sa couleur, sa force et sa durée de pulsation. Règle-les dans Mise en évidence.",
+        "it": "Ogni stato nella barra laterale (lavora, finito, chiede, pausa) ha ora colore, intensità e durata della pulsazione propri. Impostali in Avvisi.",
+        "ja": "サイドバーの各状態（作業中、完了、質問、一時停止）に、色とパルスの強さ・長さを個別に設定できるようになりました。「通知」でプレビューしながら調整できます。",
+        "pl": "Każdy stan na pasku bocznym (pracuje, gotowe, pyta, pauza) ma teraz własny kolor, siłę i czas pulsowania. Ustawisz je w sekcji Sygnalizacja.",
+        "pt": "Cada estado da barra lateral (trabalhando, pronto, pergunta, pausa) agora tem cor, intensidade e duração de pulsação próprias. Ajuste em Avisos.",
+        "ru": "У каждого состояния в боковой панели (работает, готово, спрашивает, пауза) теперь свой цвет, сила и длительность пульсации. Настрой их в разделе «Оповещения».",
+        "tr": "Kenar çubuğundaki her durumun (çalışıyor, bitti, soruyor, duraklama) artık kendi rengi, nabız gücü ve süresi var. Uyarılar bölümünden ayarla.",
+        "zh": "侧边栏的每种状态（工作中、完成、提问、暂停）现在都有自己的颜色、脉动强度和时长，可在“提醒”中边预览边设置。"
       }
     ]
   },

@@ -549,8 +549,14 @@ menu paste uses the clipboard plugin.
     "done" check, "asks" bell (status line "asks you something"), failed red exclamation (status
     line "exited with an error", also after it was seen), ordinary exit a quiet square. The chip is
     decorative (`aria-hidden`); the status line carries the words. On hover or keyboard focus in
-    the actions, the actions replace the chip (it fades out). A waiting row breathes (2.8 s) on
-    the sidebar color with a thin ring; the actions breathe along on the same keyframes. The
+    the actions, the actions replace the chip (it fades out). A waiting row breathes (2.8 s by
+    default) on the sidebar color with a thin ring; the actions breathe along on the same
+    keyframes. Each state (working, done, asks, pause) has its own state look (`src/stateLook.ts`,
+    `src/stateLookCss.ts`): color (default cream for waiting, the theme's green otherwise), pulse
+    strength off, subtle, medium (the original breath) or strong, and duration 0.8 to 4 s; the
+    app sets `--look-<state>-*` on the root and `look-<state>` classes hand them to a row. A
+    custom color keeps edges at 3 : 1 and the "working" chip label at 4.5 : 1. The older single
+    `attentionColor` setting migrates to both waiting states. The
     peak tint is computed per color and theme so the row's text keeps 4.5 : 1 and its muted text
     3 : 1; the chip text color (ink or white) follows the attention color, in the light theme the
     chip uses the darkened edge color with white text. Rail: breathing outline around the badge,

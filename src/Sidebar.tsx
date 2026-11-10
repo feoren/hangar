@@ -55,7 +55,8 @@ import {
   type DetailLine,
 } from "./statusLine";
 import type { Theme } from "./theme";
-import { sessionChip, type ChipKind } from "./sessionChip";
+import { rowLook, sessionChip, type ChipKind } from "./sessionChip";
+import { lookClass } from "./stateLook";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
@@ -473,6 +474,7 @@ export function Sidebar(props: Props) {
               "rail-session",
               session.id === activeId ? "active" : "",
               state === "attention" ? "attention" : "",
+              lookClass(rowLook(session, state, chip)),
             ];
             return (
               <li key={session.id} data-session-row={session.id} className={dragClass(session.id)}>
@@ -1220,6 +1222,7 @@ function SessionItem({
     active ? "active" : "",
     exited ? "exited" : "",
     waiting ? "attention" : "",
+    lookClass(rowLook(session, state, chip)),
     dragClass,
   ]
     .filter(Boolean)

@@ -6,6 +6,7 @@
 import type { AttentionReason, AttentionState } from "./attention";
 import type { MessageKey } from "./i18n";
 import type { SessionView } from "./sessions";
+import type { LookState } from "./stateLook";
 
 export type ChipKind = "working" | "done" | "asks" | "failed" | "ended";
 
@@ -48,3 +49,18 @@ export const CHIP_LABELS: Record<ChipKind, MessageKey | null> = {
   failed: "chip.failed",
   ended: null,
 };
+
+/**
+ * Which state look (stateLook.ts) a row takes: a question or decision looks like "asks", any other
+ * waiting like "done", a running session is working or resting ("idle", shown as pause). Starting
+ * and ended sessions keep their plain look.
+ */
+export function rowLook(
+  session: Pick<SessionView, "status">,
+  state: AttentionState,
+  chip: ChipKind | null,
+): LookState | null {
+  if (state === "attention") return chip === "asks" ? "asks" : "done";
+  if (session.status !== "running") return null;
+  return state === "working" ? "working" : "idle";
+}

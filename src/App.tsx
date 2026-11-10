@@ -34,7 +34,8 @@ import {
   type AttentionReason,
   type AttentionState,
 } from "./attention";
-import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
+import { resolvedColor } from "./stateLook";
+import { lookVariables } from "./stateLookCss";
 import { chimeFor, ChimeScheduler } from "./chime";
 import { claimsOf, markerText, overlapNotice, overlapsBySession, type Overlap } from "./claims";
 import { playChime } from "./chimeAudio";
@@ -776,19 +777,12 @@ export function App() {
   }, [settings.scrollbackLines]);
 
   useEffect(() => {
+    // Color and pulse per session state; edges and chips keep 3 : 1 in both themes.
     const style = document.documentElement.style;
-    const tint = attentionTint(settings.attentionColor, theme);
-    style.setProperty("--attention", settings.attentionColor);
-    style.setProperty("--on-attention", textOnColor(settings.attentionColor));
-    style.setProperty("--attention-pulse-low", `${String(tint.low)}%`);
-    style.setProperty("--attention-pulse-high", `${String(tint.high)}%`);
-    // Edge, ring and chip keep 3 : 1 against the sidebar in both themes (attentionLook.ts).
-    const edges = attentionEdges(settings.attentionColor, theme);
-    style.setProperty("--attention-strong", edges.strong);
-    style.setProperty("--attention-ring", edges.ring);
-    style.setProperty("--attention-chip-bg", edges.chipBg);
-    style.setProperty("--attention-chip-fg", edges.chipFg);
-  }, [settings.attentionColor, theme]);
+    for (const [name, value] of Object.entries(lookVariables(settings.looks, theme))) {
+      style.setProperty(name, value);
+    }
+  }, [settings.looks, theme]);
 
   useEffect(() => {
     for (const terminal of terminals.values()) terminal.attention.setConfig(attentionConfig);
@@ -2691,10 +2685,11 @@ export function App() {
   const waiting = state.sessions.filter((s) => attention.get(s.id) === "attention");
   const waitingCount = waiting.length;
 
-  // Taskbar badge with the number of waiting sessions, in the attention color.
+  // Taskbar badge with the number of waiting sessions, in the color of "done".
+  const badgeColor = resolvedColor(settings.looks, "done", theme);
   useEffect(() => {
-    badge.update(waitingCount, settings.attentionColor);
-  }, [badge, waitingCount, settings.attentionColor]);
+    badge.update(waitingCount, badgeColor);
+  }, [badge, waitingCount, badgeColor]);
 
   // Notification area icon: added, relabeled (language, waiting count) or removed. Nothing is
   // sent while the setting was never on.

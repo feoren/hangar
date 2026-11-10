@@ -336,3 +336,7 @@ The owner chose `.hangar/notes/` and a mandatory notes recovery code in solo mod
 open questions follow the proposal (owners and admins turn shared notes on, new members read
 earlier notes, no automatic commits). Status set to accepted. Pages changed:
 [[0006-encrypted-project-notes]].
+
+## [2026-11-10] update | State looks per session state
+Working, done, asks and pause each get their own color, pulse strength and pulse duration; the
+custom "working" chip label keeps 4.5 : 1. Pages changed: [[agent-workflow-features]].

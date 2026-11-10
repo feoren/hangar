@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ATTENTION_PRESETS,
   CHIME_VOLUME,
-  DEFAULT_ATTENTION_COLOR,
   defaultSettings,
   gateActive,
-  normalizeColor,
   parseSettings,
   QUIET_SECONDS,
   SCROLLBACK_LINES,
 } from "./settings";
 import { defaultSnippets } from "./snippets";
+import { DEFAULT_LOOKS } from "./stateLook";
 
 describe("parseSettings", () => {
   it("uses defaults without stored content", () => {
@@ -31,7 +29,12 @@ describe("parseSettings", () => {
       language: "en",
       theme: "light",
       attentionEnabled: false,
-      attentionColor: "#7EC0B5",
+      looks: {
+        working: { color: "#8CC8FF", pulse: "subtle", seconds: 1.2 },
+        done: { color: null, pulse: "strong", seconds: 2 },
+        asks: { color: "#f0b429", pulse: "off", seconds: 4 },
+        idle: { color: null, pulse: "off", seconds: 2.8 },
+      },
       quietSeconds: 10,
       taskbarFlash: false,
       notifyDesktop: false,
@@ -56,7 +59,7 @@ describe("parseSettings", () => {
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
-      attentionColor: "#7ec0b5",
+      looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });
 
@@ -65,7 +68,7 @@ describe("parseSettings", () => {
       language: "xx",
       theme: "auto",
       attentionEnabled: "yes",
-      attentionColor: 123,
+      looks: 123,
       quietSeconds: "5",
       taskbarFlash: "yes",
       notifyDesktop: "no",
@@ -219,11 +222,9 @@ describe("parseSettings", () => {
     expect(parse(2260)).toBe(2500);
   });
 
-  it("drops invalid colors", () => {
-    for (const attentionColor of ["red", "#12345", "#ggg000", "url(x)", "#f2e3c6; x"]) {
-      expect(parseSettings(JSON.stringify({ attentionColor }), "de").attentionColor).toBe(
-        DEFAULT_ATTENTION_COLOR,
-      );
+  it("drops invalid looks", () => {
+    for (const looks of [null, "red", [], { done: { color: "url(x)", pulse: "wild" } }]) {
+      expect(parseSettings(JSON.stringify({ looks }), "de").looks).toEqual(DEFAULT_LOOKS);
     }
   });
 });
@@ -248,21 +249,25 @@ describe("terminals and agents", () => {
   });
 });
 
-describe("normalizeColor", () => {
-  it("normalizes to #rrggbb", () => {
-    expect(normalizeColor("#ABC")).toBe("#aabbcc");
-    expect(normalizeColor("#F2E3C6")).toBe("#f2e3c6");
-    expect(normalizeColor("f2e3c6")).toBeNull();
-    expect(normalizeColor(null)).toBeNull();
+describe("attention color of older versions", () => {
+  it("carries over to both waiting states and leaves the rest as before", () => {
+    const looks = parseSettings('{"attentionColor":"#123456"}', "de").looks;
+    expect(looks.done).toEqual({ ...DEFAULT_LOOKS.done, color: "#123456" });
+    expect(looks.asks).toEqual({ ...DEFAULT_LOOKS.asks, color: "#123456" });
+    expect(looks.working).toEqual(DEFAULT_LOOKS.working);
+    expect(looks.idle).toEqual(DEFAULT_LOOKS.idle);
   });
-});
 
-describe("mint preset", () => {
-  it("upgrades the former mint color to the new one and keeps custom colors", () => {
-    const mint = ATTENTION_PRESETS.find((preset) => preset.id === "mint")?.color;
-    expect(mint).toBe("#9ee8dc");
-    expect(parseSettings('{"attentionColor":"#7ee0b5"}', "de").attentionColor).toBe(mint);
-    expect(parseSettings('{"attentionColor":"#123456"}', "de").attentionColor).toBe("#123456");
+  it("keeps the default for cream and invalid colors and upgrades the former mint", () => {
+    for (const attentionColor of ["#f2e3c6", "red", "#12345", "url(x)", "#f2e3c6; x", 123]) {
+      expect(parseSettings(JSON.stringify({ attentionColor }), "de").looks).toEqual(DEFAULT_LOOKS);
+    }
+    expect(parseSettings('{"attentionColor":"#7ee0b5"}', "de").looks.done.color).toBe("#9ee8dc");
+  });
+
+  it("is ignored once looks are stored", () => {
+    const text = JSON.stringify({ attentionColor: "#123456", looks: DEFAULT_LOOKS });
+    expect(parseSettings(text, "de").looks).toEqual(DEFAULT_LOOKS);
   });
 });
 
