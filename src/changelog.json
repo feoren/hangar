@@ -72,6 +72,20 @@
         "ru": "Теперь можно вставлять скриншоты: Hangar сохраняет изображение из буфера обмена и вставляет путь к нему, который агенты читают как вложение.",
         "tr": "Artık ekran görüntüsü yapıştırabilirsin: Hangar panodaki görüntüyü kaydeder ve yolunu yapıştırır, ajanlar bunu ek olarak okur.",
         "zh": "现在可以粘贴截图：Hangar 会保存剪贴板中的图片并粘贴其路径，智能体会将其作为附件读取。"
+      },
+      {
+        "de": "Ein Rechtsklick im Terminal fügt nicht mehr ein, sondern öffnet nur das Menü. Zum Einfügen nimmst du Strg+V.",
+        "en": "A right click in the terminal no longer pastes; it only opens the menu. To paste, use Ctrl+V.",
+        "el": "Το δεξί κλικ στο τερματικό δεν κάνει πλέον επικόλληση, ανοίγει μόνο το μενού. Για επικόλληση χρησιμοποίησε Ctrl+V.",
+        "es": "Un clic derecho en la terminal ya no pega; solo abre el menú. Para pegar, usa Ctrl+V.",
+        "fr": "Un clic droit dans le terminal ne colle plus ; il ouvre seulement le menu. Pour coller, utilise Ctrl+V.",
+        "it": "Un clic destro nel terminale non incolla più, apre solo il menu. Per incollare usa Ctrl+V.",
+        "ja": "ターミナルで右クリックしても貼り付けされず、メニューだけが開くようになりました。貼り付けには Ctrl+V を使います。",
+        "pl": "Prawy klik w terminalu już nie wkleja, tylko otwiera menu. Do wklejania użyj Ctrl+V.",
+        "pt": "Um clique direito no terminal não cola mais; só abre o menu. Para colar, use Ctrl+V.",
+        "ru": "Правый щелчок в терминале больше не вставляет текст, а только открывает меню. Для вставки используй Ctrl+V.",
+        "tr": "Terminalde sağ tık artık yapıştırmıyor, yalnızca menüyü açıyor. Yapıştırmak için Ctrl+V kullan.",
+        "zh": "在终端中右键单击不再粘贴，只会打开菜单。要粘贴，请使用 Ctrl+V。"
       }
     ]
   },

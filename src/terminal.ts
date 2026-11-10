@@ -23,6 +23,7 @@ import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import { terminalKeyAction } from "./terminalKeys";
+import { guardSecondaryClick } from "./terminalMouse";
 import { setupUnicode } from "./terminalUnicode";
 import {
   createFontLoader,
@@ -262,6 +263,13 @@ export class SessionTerminal {
         this.handlePaste(event);
       };
       this.term.textarea?.addEventListener("paste", onPaste, { capture: true });
+      // The right button opens the app's terminal menu and is never reported to the program,
+      // which could paste on it (terminalMouse.ts). Lives as long as the terminal's element.
+      if (this.term.element) {
+        guardSecondaryClick(this.term.element, () => {
+          this.term.focus();
+        });
+      }
     } else if (this.term.element && this.term.element.parentElement !== host) {
       host.appendChild(this.term.element);
     }
