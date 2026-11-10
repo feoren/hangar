@@ -27,9 +27,14 @@ cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml
 cargo fmt --manifest-path crates/hangar-team-crypto/Cargo.toml --check
 cargo clippy --manifest-path crates/hangar-team-crypto/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path crates/hangar-team-crypto/Cargo.toml
-python3 crates/hangar-team-crypto/test_vectors.py  # Windows: py -3
+python3 crates/hangar-team-protocol/test_vectors.py  # Windows: py -3
+python3 crates/hangar-team-crypto/test_vectors.py
 pnpm format:check && pnpm lint && pnpm test && pnpm build
 ```
+
+`pnpm tauri build` builds an installer. Custom programs are defined under **Settings > Terminals &
+agents** (stored in `profiles.toml`; **Help > About Hangar** shows the path), API keys go to the
+system keychain.
 
 ## Guidelines
 
