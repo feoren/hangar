@@ -8,6 +8,12 @@
   --text: #d6dde6;
   --muted: #8592a3;
   --accent: #5aa9ff;
+  /* Own git worktree: a dark green, apart from the accent blue and the brighter "running" green. */
+  --worktree: #3f9a6e;
+  /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
+  --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
+  --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
+  --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
   /* Text on the warn color (the count of open team requests). */
@@ -80,6 +86,9 @@
   --text: #1f2328;
   --muted: #59636e;
   --accent: #0969da;
+  --worktree: #17673f;
+  --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
+  --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -311,7 +320,61 @@ h2 .beta-badge {
 .session.active {
   --row-bg: var(--panel-raised);
   background: var(--panel-raised);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset var(--active-bar) 0 0 var(--accent);
+  /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
+  isolation: isolate;
+}
+
+/* A little lighter (dark) or darker (light) than elsewhere, so the status lines keep 4.5:1 on the
+   tint's strongest point. */
+.session.active .session-meta,
+.session.active .session-detail {
+  color: color-mix(in srgb, var(--muted) 75%, var(--text));
+}
+
+/* The active row: a soft bluish light drifts slowly across it (10 s each way). It sits below the
+   text, so readability stays; waiting rows keep their own breathing instead. The drop line of a
+   drag uses ::after too, so the tint gives way to it. */
+.session.active:not(.attention, .drop-after)::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: linear-gradient(
+    100deg,
+    var(--active-tint-soft) 0%,
+    var(--active-tint-strong) 30%,
+    var(--active-tint-soft) 55%,
+    var(--active-tint-strong) 80%,
+    var(--active-tint-soft) 100%
+  );
+  background-size: 300% 100%;
+  animation: active-drift 10s ease-in-out infinite alternate;
+}
+
+/* The actions overlay on the active row takes the tint's middle, so no hard patch shows. */
+.session.active:not(.attention) {
+  --row-bg: color-mix(in srgb, var(--accent) 8%, var(--panel-raised));
+}
+
+@keyframes active-drift {
+  from {
+    background-position: 0% 50%;
+  }
+
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+/* Without motion: the same tint, standing still. */
+@media (prefers-reduced-motion: reduce) {
+  .session.active:not(.attention, .drop-after)::after {
+    animation: none;
+    background-position: 50% 50%;
+  }
 }
 
 .session-main {
@@ -577,7 +640,7 @@ h2 .beta-badge {
 
 .session.active.attention {
   box-shadow:
-    inset 2px 0 0 var(--accent),
+    inset var(--active-bar) 0 0 var(--accent),
     inset 0 0 0 1px var(--attention-ring);
 }
 
@@ -736,7 +799,7 @@ h2 .beta-badge {
 
   .session.active.attention {
     box-shadow:
-      inset 2px 0 0 var(--accent),
+      inset var(--active-bar) 0 0 var(--accent),
       inset 0 0 0 1.5px var(--attention-strong);
   }
 
@@ -925,30 +988,51 @@ h2 .beta-badge {
   margin: 0 8px 4px;
 }
 
+/* The start folder as a quiet card: folder tile, name first, parent path and branch below, a
+   chevron for the menu behind it. */
 .cwd {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 8px 8px 8px 8px;
   color: var(--muted);
-  border: 1px dashed var(--border);
-  border-radius: 6px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
-.cwd:hover {
+.cwd:hover,
+.cwd[aria-expanded="true"] {
   color: var(--text);
-  border-color: var(--muted);
+  background: var(--hover);
+  border-color: color-mix(in srgb, var(--muted) 60%, var(--border));
 }
 
 .cwd svg {
   flex: none;
 }
 
+.cwd-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 7px;
+}
+
 .cwd-text {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
   text-align: left;
   line-height: 1.3;
@@ -959,8 +1043,24 @@ h2 .beta-badge {
   letter-spacing: 0.02em;
 }
 
-.cwd .cwd-path {
-  color: var(--text);
+.cwd-chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted);
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+
+.cwd[aria-expanded="true"] .cwd-chevron {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cwd,
+  .cwd-chevron {
+    transition: none;
+  }
 }
 
 .profile-row {
@@ -1810,7 +1910,7 @@ body.resizing-horizontal * {
 }
 
 .rail-session.active {
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset var(--active-bar) 0 0 var(--accent);
   background: var(--panel-raised);
 }
 
@@ -1858,26 +1958,79 @@ body.resizing-horizontal * {
   }
 }
 
-/* Number of waiting sessions on the expand button, also when the list scrolls. */
-.rail-expand {
-  position: relative;
-}
-
-.rail-count {
-  position: absolute;
-  top: -3px;
-  right: -4px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 8px;
-  font-size: 9.5px;
+/* Number of waiting sessions at the top of the rail, also when the list scrolls. */
+.rail-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 5px 0 4px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 15px;
-  text-align: center;
   color: var(--attention-chip-fg);
   background: var(--attention-chip-bg);
-  box-shadow: 0 0 0 2px var(--panel);
+  border-radius: 9px;
+}
+
+.rail-waiting .dot.attention {
+  width: 7px;
+  height: 7px;
+  box-shadow: inset 0 0 0 1.5px currentcolor;
+}
+
+/* Collapse and expand: a small circle on the sidebar's right edge, at the height of the line
+   below the header, in both states at the same place. Keyboard: Tab reaches it after the header. */
+.edge-toggle {
+  position: absolute;
+  top: 38px;
+  right: -11px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px var(--shadow);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+/* The circle is small; the pointer may miss it by a few pixels (a 30 px target). */
+.edge-toggle::before {
+  position: absolute;
+  inset: -4px;
+  content: "";
+  border-radius: 50%;
+}
+
+/* Expanded the chevron points left (fold in), collapsed it points right (fold out). */
+.edge-toggle svg {
+  transform: rotate(180deg);
+}
+
+.edge-toggle.collapsed svg {
+  transform: none;
+}
+
+.edge-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.edge-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-toggle {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4341,7 +4494,40 @@ body.resizing-horizontal * {
 /* "Own worktree" below "Starts in" in the New session group */
 
 .session-branch.worktree svg {
-  color: var(--accent);
+  color: var(--worktree);
+}
+
+/* Worktree sessions: their own group below Sessions; it keeps its height to its rows, at most 40%
+   of the sidebar, and scrolls beyond that. */
+.sidebar-group.worktrees-group {
+  flex: 0 1 auto;
+  max-height: 40%;
+}
+
+.worktrees-group.closed {
+  max-height: none;
+}
+
+.worktrees-group .group-title svg + .group-label::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  content: "";
+  background: var(--worktree);
+  border-radius: 2px;
+}
+
+/* In the rail: a thin line where the worktree sessions begin, and a green edge on their badge. */
+.rail-divider {
+  height: 1px;
+  margin: 4px 12px;
+  background: var(--border);
+}
+
+.rail-worktree .badge {
+  box-shadow: 0 0 0 1.5px var(--worktree);
 }
 
 /* Changes panel (Ctrl+Shift+D), in the place of the notes */
@@ -5056,24 +5242,47 @@ body.session-dragging .session-actions {
   color: var(--accent);
 }
 
-.cwd .cwd-path {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-}
-
 .cwd-name {
-  flex: none;
-  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.cwd-parent {
+/* Parent path (already middle-elided) and the branch share one muted line; the path gives way. */
+.cwd-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  overflow: hidden;
   font-size: 11.5px;
   color: var(--muted);
+}
+
+.cwd-parent {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cwd-branch {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 60%;
+}
+
+.cwd-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
@@ -5134,7 +5343,7 @@ body.session-dragging .session-actions {
 
 .profile-worktree:hover {
   color: var(--text);
-  border-color: var(--muted);
+  border-color: var(--worktree);
 }
 
 .profile-update-dot {
@@ -6247,6 +6456,32 @@ body.session-dragging .session-actions {
   font-size: 12.5px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* The name opens a menu: a small chevron says so, pointing up because the menu opens above. */
+.footer-chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  color: var(--muted);
+  transform: rotate(-90deg);
+}
+
+.footer-account[aria-expanded="true"] {
+  background: var(--hover);
+}
+
+/* Account menu: the chosen color mode gets a check at the row's end, not weight alone. */
+.account-menu .menu-item.current .menu-hint::after {
+  display: inline-block;
+  width: 9px;
+  height: 5px;
+  margin-bottom: 3px;
+  content: "";
+  border-bottom: 1.6px solid var(--accent);
+  border-left: 1.6px solid var(--accent);
+  transform: rotate(-45deg);
 }
 
 .footer-settings {

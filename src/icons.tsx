@@ -71,24 +71,6 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
-export function CollapseIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
-      <path d="M6 2.5v11M10.5 6.5 9 8l1.5 1.5" />
-    </Svg>
-  );
-}
-
-export function ExpandIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
-      <path d="M6 2.5v11M9 6.5 10.5 8 9 9.5" />
-    </Svg>
-  );
-}
-
 export function DownloadIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -138,6 +120,26 @@ export function MoonIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z" />
+    </Svg>
+  );
+}
+
+/** Screen: follow the system's light or dark mode. */
+export function MonitorIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="2.8" width="12" height="8.4" rx="1.4" />
+      <path d="M6 13.6h4M8 11.2v2.4" />
+    </Svg>
+  );
+}
+
+/** Door with an arrow out of it: sign out. */
+export function SignOutIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.5 2.5H4a1.5 1.5 0 0 0-1.5 1.5v8A1.5 1.5 0 0 0 4 13.5h2.5" />
+      <path d="M7 8h6.5M11 5.5 13.5 8 11 10.5" />
     </Svg>
   );
 }

@@ -32,38 +32,32 @@ export function sameDragTarget(a: DragTarget | null, b: DragTarget | null): bool
   }
 }
 
-/** Vertical middle of a row in the list, in window coordinates. */
-export interface RowMid {
-  id: number;
-  mid: number;
-}
-
-/**
- * New place of the dragged session: the number of other rows whose middle lies above the
- * pointer. That is the index `moveItem` expects.
- */
-export function dropIndex(rows: readonly RowMid[], draggedId: number, y: number): number {
-  return rows.filter((row) => row.id !== draggedId && row.mid < y).length;
-}
-
 /** Row that shows the drop line, and on which edge; `null` when the drop would change nothing. */
 export interface DropLine {
   id: number;
   edge: "before" | "after";
 }
 
+/**
+ * `groupOf` names each session's sidebar group: the line only ever shows on a row of the dragged
+ * session's own group (at the group's end it sits below its last row, not above the next group).
+ */
 export function dropLine(
   order: readonly number[],
   draggedId: number,
   index: number,
+  groupOf: (id: number) => string = () => "",
 ): DropLine | null {
   const from = order.indexOf(draggedId);
   if (from < 0 || index === from) return null;
+  const group = groupOf(draggedId);
   const others = order.filter((id) => id !== draggedId);
   const before = others[index];
-  if (before !== undefined) return { id: before, edge: "before" };
-  const last = others[others.length - 1];
-  return last === undefined ? null : { id: last, edge: "after" };
+  if (before !== undefined && groupOf(before) === group) return { id: before, edge: "before" };
+  const previous = before === undefined ? others[others.length - 1] : others[index - 1];
+  return previous !== undefined && groupOf(previous) === group
+    ? { id: previous, edge: "after" }
+    : null;
 }
 
 /** Within this distance (px) of the list's top or bottom edge, the list scrolls. */

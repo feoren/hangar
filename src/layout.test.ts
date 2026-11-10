@@ -167,4 +167,21 @@ describe("sidebar groups", () => {
     expect(read(null)).toEqual([]);
     expect(parseLayout(JSON.stringify({ fontSize: 12 })).closedGroups).toEqual([]);
   });
+
+  it("keep the worktree group between sessions and new session", () => {
+    const closed = toggleGroup(toggleGroup(DEFAULT_LAYOUT, "newSession"), "worktrees");
+    expect(closed.closedGroups).toEqual(["worktrees", "newSession"]);
+    expect(
+      parseLayout(JSON.stringify({ closedGroups: ["newSession", "worktrees"] })).closedGroups,
+    ).toEqual(["worktrees", "newSession"]);
+  });
+
+  it("load a layout saved before the worktree group existed: it starts open", () => {
+    const old = parseLayout(
+      JSON.stringify({ sidebarWidth: 300, closedGroups: ["sessions", "newSession", "team"] }),
+    );
+    expect(old.sidebarWidth).toBe(300);
+    expect(old.closedGroups).toEqual(["sessions", "newSession"]);
+    expect(isGroupOpen(old, "worktrees")).toBe(true);
+  });
 });

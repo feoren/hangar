@@ -4,11 +4,11 @@ import {
   AUTOSCROLL_MAX,
   autoscrollStep,
   beyondThreshold,
-  dropIndex,
   dropLine,
   dropPlacement,
   sameDragTarget,
 } from "./sessionDrag";
+import { groupDropIndex as dropIndex } from "./sessionGroups";
 import { moveItem } from "./sessions";
 
 describe("beyondThreshold", () => {
@@ -20,9 +20,9 @@ describe("beyondThreshold", () => {
   });
 });
 
-describe("dropIndex", () => {
-  // Rows 1 to 4, 40 px high, starting at y = 0.
-  const rows = [1, 2, 3, 4].map((id, index) => ({ id, mid: index * 40 + 20 }));
+describe("drop index within one group", () => {
+  // Rows 1 to 4 of one group, 40 px high, starting at y = 0.
+  const rows = [1, 2, 3, 4].map((id, index) => ({ id, mid: index * 40 + 20, group: "sessions" }));
 
   it("counts the other rows above the pointer", () => {
     expect(dropIndex(rows, 1, 5)).toBe(0);

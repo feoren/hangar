@@ -15,19 +15,15 @@ import {
   BranchIcon,
   ChevronIcon,
   CloseIcon,
-  CollapseIcon,
   DownloadIcon,
   EditIcon,
-  ExpandIcon,
   FolderIcon,
   HangarLogo,
   OverlapIcon,
-  MoonIcon,
   NotesIcon,
   PlusIcon,
   RestartIcon,
   StopIcon,
-  SunIcon,
   WorktreeIcon,
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
@@ -41,7 +37,7 @@ import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { shortBranch } from "./worktree";
 import { revealInvisible } from "./invisible";
-import { rowPlace, waitingHints, type EdgeHint, type RowPlace } from "./waitingHint";
+import type { EdgeHint } from "./waitingHint";
 import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
@@ -54,14 +50,16 @@ import {
   type Activity,
   type DetailLine,
 } from "./statusLine";
-import type { Theme } from "./theme";
+import type { ThemeSetting } from "./theme";
 import { rowLook, sessionChip, type ChipKind } from "./sessionChip";
 import { lookClass } from "./stateLook";
+import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
+import { useWaitingEdges } from "./useWaitingEdges";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -87,9 +85,9 @@ interface Props {
   onFocusTerminal: () => void;
   /** Hangar's own version (as getVersion returns it), `null` until known. */
   version: string | null;
-  /** Currently visible appearance (the resolved one for "System"). */
-  theme: Theme;
-  onToggleTheme: () => void;
+  /** Chosen color mode ("System" follows the system); set from the account menu. */
+  themeSetting: ThemeSetting;
+  onSetTheme: (theme: ThemeSetting) => void;
   /** Where the next session starts (startTarget.ts). */
   target: StartTarget;
   /** Project folders of the running sessions, for the folder menu. */
@@ -202,7 +200,6 @@ export function Sidebar(props: Props) {
   const toggleButton = useRef<HTMLButtonElement>(null);
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
   const refocusToggle = useRef(false);
-  const railWaitingId = useId();
   const profileById = new Map(profiles.map((p) => [p.id, p]));
   const [guard] = useState(() => new SessionActionGuard());
   const newButton = useRef<HTMLButtonElement>(null);
@@ -229,14 +226,16 @@ export function Sidebar(props: Props) {
   const onRename = (id: number) => {
     if (guard.allows()) props.onRenameStart(id);
   };
-  /** Alt+Up / Alt+Down on a row: one place up or down; the focus stays on the moved row. */
+  /**
+   * Alt+Up / Alt+Down on a row: one place up or down within its group; the focus stays on the
+   * moved row.
+   */
   const onRowKey = (event: React.KeyboardEvent<HTMLElement>, id: number) => {
     const step = rowMoveStep(event);
     if (step === null) return;
     event.preventDefault();
-    const index = sessions.findIndex((s) => s.id === id);
-    const target = index + step;
-    if (index < 0 || target < 0 || target >= sessions.length) return;
+    const target = groupStepIndex(sessions, id, step);
+    if (target === null) return;
     props.onMove(id, target);
     // React moves the row's element; moving a focused node in the DOM can drop its focus.
     requestAnimationFrame(() => {
@@ -269,42 +268,26 @@ export function Sidebar(props: Props) {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeId, collapsed]);
 
-  // Waiting sessions scrolled out of view: a calm hint at that edge of the list (waitingHint.ts).
+  // Two groups: ordinary sessions, and the ones in their own worktree (sessionGroups.ts).
+  const ordinary = sessions.filter((s) => sessionGroup(s) === "sessions");
+  const ownTrees = sessions.filter((s) => sessionGroup(s) === "worktrees");
+  const waitingIn = (list: readonly SessionView[]) =>
+    list.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
+  // Waiting sessions scrolled out of view: a calm hint at that edge of each list.
   const sessionList = useRef<HTMLUListElement>(null);
-  const [rowPlaces, setRowPlaces] = useState<ReadonlyMap<number, RowPlace>>(new Map());
-  const waitingIds = sessions.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
-  const waitingKey = waitingIds.join(",");
-  const rowOrder = sessions.map((s) => s.id);
-  const rowKey = rowOrder.join(",");
-  useEffect(() => {
-    const list = sessionList.current;
-    if (collapsed || !list || waitingKey === "" || typeof IntersectionObserver === "undefined") {
-      setRowPlaces((places) => (places.size === 0 ? places : new Map()));
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        setRowPlaces((places) => {
-          const next = new Map(places);
-          for (const entry of entries) {
-            const id = Number(entry.target.getAttribute("data-session-row"));
-            const view = entry.rootBounds ?? list.getBoundingClientRect();
-            next.set(id, rowPlace(entry.boundingClientRect, view));
-          }
-          return next;
-        });
-      },
-      { root: list, threshold: [0, 0.5, 1] },
-    );
-    for (const id of waitingKey.split(",")) {
-      const row = list.querySelector(`[data-session-row="${id}"]`);
-      if (row) observer.observe(row);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, [collapsed, waitingKey, rowKey]);
-  const edgeHints = waitingHints(rowOrder, new Set(waitingIds), rowPlaces);
+  const worktreeList = useRef<HTMLUListElement>(null);
+  const edgeHints = useWaitingEdges(
+    sessionList,
+    ordinary.map((s) => s.id),
+    waitingIn(ordinary),
+    !collapsed && !props.closedGroups.includes("sessions"),
+  );
+  const worktreeHints = useWaitingEdges(
+    worktreeList,
+    ownTrees.map((s) => s.id),
+    waitingIn(ownTrees),
+    !collapsed && !props.closedGroups.includes("worktrees"),
+  );
   const revealRow = (id: number) => {
     root.current
       ?.querySelector(`[data-session-row="${String(id)}"]`)
@@ -317,6 +300,8 @@ export function Sidebar(props: Props) {
   const targetTitle = targetTooltip(target, t);
   const targetName = target.path === null ? t("sidebar.pickCwd") : folderName(target.path);
   const targetParent = target.path === null ? null : parentFolder(target.path);
+  /** Branch of the target, when a running session in that folder already told it; no extra git call. */
+  const targetBranch = target.path === null ? null : (props.branches.get(target.path) ?? null);
   /** Props every folder menu shares; position, anchor and closing differ per place. */
   const folderMenuProps = {
     target: target.path,
@@ -348,6 +333,33 @@ export function Sidebar(props: Props) {
       attention.get(session.id) ?? "idle",
       props.reasons.get(session.id) ?? null,
     );
+  const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
+  /** Round button on the sidebar's right edge; the same place collapsed and expanded. */
+  const edgeToggle = (
+    <button
+      ref={toggleButton}
+      type="button"
+      className={collapsed ? "edge-toggle collapsed" : "edge-toggle"}
+      aria-label={toggleLabel}
+      aria-expanded={!collapsed}
+      title={`${toggleLabel} (${toggleKeys})`}
+      onClick={onToggleClick}
+    >
+      <ChevronIcon size={12} />
+    </button>
+  );
+  const footer = (
+    <SidebarFooter
+      collapsed={collapsed}
+      teamOpen={props.teamOpen}
+      onToggleTeam={props.onToggleTeam}
+      onOpenAccount={props.onOpenAccount}
+      onOpenSettings={props.onOpenSettings}
+      themeSetting={props.themeSetting}
+      onSetTheme={props.onSetTheme}
+      onMenuClose={props.onMenuClose}
+    />
+  );
 
   if (collapsed) {
     // First the target (opens the folder menu), then the programs, then runnable updates.
@@ -430,42 +442,27 @@ export function Sidebar(props: Props) {
     const newKeys = formatShortcut(SHORTCUT_LABELS.newSession, t);
     return (
       <aside className="sidebar collapsed" ref={root}>
-        {/* Same order as in the expanded header: menu, logo, notes, theme, collapse. */}
+        {/* Same order as in the expanded header: menu, logo, notes. */}
         <div className="rail-top">
           <AppMenu groups={props.menu} onClose={props.onMenuClose} />
           <span className="rail-logo" title={`Hangar ${appVersion}`.trim()}>
             <HangarLogo size={20} />
           </span>
           <NotesButton open={props.notesOpen} onToggle={props.onToggleNotes} />
-          <ThemeButton
-            theme={props.theme}
-            onToggle={props.onToggleTheme}
-            onFocusTerminal={props.onFocusTerminal}
-          />
-          <button
-            ref={toggleButton}
-            type="button"
-            className="icon-button rail-expand"
-            aria-label={t("sidebar.expand")}
-            aria-describedby={waitingCount > 0 ? railWaitingId : undefined}
-            title={[`${t("sidebar.expand")} (${toggleKeys})`, waitingCount > 0 ? waitingText : ""]
-              .filter(Boolean)
-              .join("\n")}
-            onClick={onToggleClick}
-          >
-            <ExpandIcon />
-            {waitingCount > 0 && (
-              <span className="rail-count" aria-hidden="true">
+          {/* Number of waiting sessions, also when the list scrolls; a ring, not color alone. */}
+          {waitingCount > 0 && (
+            <span className="rail-waiting" title={waitingText}>
+              <span className="dot attention" aria-hidden="true" />
+              <span className="rail-waiting-count" aria-hidden="true">
                 {waitingCount > 9 ? "9+" : waitingCount}
               </span>
-            )}
-          </button>
-          <span id={railWaitingId} className="sr-only">
-            {waitingCount > 0 ? waitingText : ""}
-          </span>
+              <span className="sr-only">{waitingText}</span>
+            </span>
+          )}
         </div>
+        {edgeToggle}
         <ul className="rail-sessions" data-session-list="">
-          {sessions.map((session) => {
+          {sessions.map((session, index) => {
             const state = attention.get(session.id) ?? "idle";
             const { status, detail: where } = lines(session);
             const detail = exitDetail(session, t);
@@ -476,80 +473,93 @@ export function Sidebar(props: Props) {
               state === "attention" ? "attention" : "",
               lookClass(rowLook(session, state, chip)),
             ];
+            const group = sessionGroup(session);
+            const previous = sessions[index - 1];
+            // A thin line where the worktree sessions begin, as the two groups do when expanded.
+            const divider = previous !== undefined && sessionGroup(previous) !== group;
             return (
-              <li key={session.id} data-session-row={session.id} className={dragClass(session.id)}>
-                <button
-                  type="button"
-                  className={className.filter(Boolean).join(" ")}
-                  title={[
-                    `${session.title} · ${status}`,
-                    props.overlaps.get(session.id) ?? "",
-                    detailText(where, t),
-                    session.worktree
-                      ? t("worktree.sessionHint", {
-                          branch: revealInvisible(session.worktree.branch),
-                        })
-                      : "",
-                    session.cwd,
-                    markerColorText(session.marker, t),
-                    detail,
-                    programLine(profileById.get(session.profileId), versions),
-                    moveHint,
-                  ]
+              <Fragment key={session.id}>
+                {divider && <li className="rail-divider" aria-hidden="true" />}
+                <li
+                  data-session-row={session.id}
+                  data-session-group={group}
+                  className={[dragClass(session.id), group === "worktrees" ? "rail-worktree" : ""]
                     .filter(Boolean)
-                    .join("\n")}
-                  aria-label={[
-                    session.marker?.emoji,
-                    session.title,
-                    status,
-                    props.overlaps.get(session.id),
-                    markerColorText(session.marker, t),
-                  ]
-                    .filter(Boolean)
-                    .join(", ")}
-                  aria-current={session.id === activeId ? "true" : undefined}
-                  onClick={() => {
-                    props.onActivate(session.id);
-                  }}
-                  onPointerDown={(event) => {
-                    props.onDragStart(session.id, event);
-                  }}
-                  onKeyDown={(event) => {
-                    onRowKey(event, session.id);
-                  }}
-                  onContextMenu={(event) => {
-                    openSessionMenu(event, session.id, props.onSessionMenu);
-                  }}
+                    .join(" ")}
                 >
-                  <Badge look={badgeFor(session.profileId)} />
-                  {session.marker?.color != null && (
-                    <span
-                      className="rail-marker"
-                      style={{ background: session.marker.color }}
-                      aria-hidden="true"
-                    />
-                  )}
-                  {session.marker?.emoji != null && (
-                    <span className="rail-emoji" aria-hidden="true">
-                      {session.marker.emoji}
-                    </span>
-                  )}
-                  {props.overlaps.has(session.id) && (
-                    <span className="rail-overlap" aria-hidden="true">
-                      <OverlapIcon size={10} />
-                    </span>
-                  )}
-                  {railShowsChip(chip) ? (
-                    <span className="rail-chip">
-                      <StatusChip kind={chip} compact />
-                    </span>
-                  ) : (
-                    <span
-                      className={`rail-dot dot ${state === "attention" ? "attention" : session.status}`}
-                    />
-                  )}
-                </button>
-              </li>
+                  <button
+                    type="button"
+                    className={className.filter(Boolean).join(" ")}
+                    title={[
+                      `${session.title} · ${status}`,
+                      props.overlaps.get(session.id) ?? "",
+                      detailText(where, t),
+                      session.worktree
+                        ? t("worktree.sessionHint", {
+                            branch: revealInvisible(session.worktree.branch),
+                          })
+                        : "",
+                      session.cwd,
+                      markerColorText(session.marker, t),
+                      detail,
+                      programLine(profileById.get(session.profileId), versions),
+                      moveHint,
+                    ]
+                      .filter(Boolean)
+                      .join("\n")}
+                    aria-label={[
+                      session.marker?.emoji,
+                      session.title,
+                      status,
+                      props.overlaps.get(session.id),
+                      markerColorText(session.marker, t),
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                    aria-current={session.id === activeId ? "true" : undefined}
+                    onClick={() => {
+                      props.onActivate(session.id);
+                    }}
+                    onPointerDown={(event) => {
+                      props.onDragStart(session.id, event);
+                    }}
+                    onKeyDown={(event) => {
+                      onRowKey(event, session.id);
+                    }}
+                    onContextMenu={(event) => {
+                      openSessionMenu(event, session.id, props.onSessionMenu);
+                    }}
+                  >
+                    <Badge look={badgeFor(session.profileId)} />
+                    {session.marker?.color != null && (
+                      <span
+                        className="rail-marker"
+                        style={{ background: session.marker.color }}
+                        aria-hidden="true"
+                      />
+                    )}
+                    {session.marker?.emoji != null && (
+                      <span className="rail-emoji" aria-hidden="true">
+                        {session.marker.emoji}
+                      </span>
+                    )}
+                    {props.overlaps.has(session.id) && (
+                      <span className="rail-overlap" aria-hidden="true">
+                        <OverlapIcon size={10} />
+                      </span>
+                    )}
+                    {railShowsChip(chip) ? (
+                      <span className="rail-chip">
+                        <StatusChip kind={chip} compact />
+                      </span>
+                    ) : (
+                      <span
+                        className={`rail-dot dot ${state === "attention" ? "attention" : session.status}`}
+                      />
+                    )}
+                  </button>
+                </li>
+              </Fragment>
             );
           })}
         </ul>
@@ -615,24 +625,78 @@ export function Sidebar(props: Props) {
               <DownloadIcon />
             </button>
           )}
-          <SidebarFooter
-            collapsed
-            teamOpen={props.teamOpen}
-            onToggleTeam={props.onToggleTeam}
-            onOpenAccount={props.onOpenAccount}
-            onOpenSettings={props.onOpenSettings}
-          />
+          {footer}
         </div>
       </aside>
     );
   }
 
   const sessionsOpen = open("sessions");
+  const worktreesOpen = open("worktrees");
   const newSessionOpen = open("newSession");
   const subAgentTree = props.subAgentTree;
   const sessionsTitle = sessionsOpen
     ? t("sidebar.sessions")
-    : t("sidebar.sessionsCount", { count: sessions.length });
+    : t("sidebar.sessionsCount", { count: ordinary.length });
+  const worktreesTitle = worktreesOpen
+    ? t("sidebar.worktrees")
+    : t("sidebar.worktreesCount", { count: ownTrees.length });
+  /** Collapsed group title: a ring with the number of waiting sessions inside it. */
+  const groupWaiting = (list: readonly SessionView[], open: boolean) => {
+    const count = waitingIn(list).length;
+    if (open || count === 0) return null;
+    const text = t("sidebar.waitingCount", { count });
+    return (
+      <span className="group-waiting" title={text}>
+        <span className="dot attention" aria-hidden="true" />
+        <span className="sr-only">{text}</span>
+      </span>
+    );
+  };
+  /** The rows of one group's list; the sub-agent tree hangs below the active row. */
+  const rows = (list: readonly SessionView[], group: SessionGroup) =>
+    list.map((session) => {
+      const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
+      // With a tree below the row, "drop after" draws its line below the tree.
+      const drag = dragClass(session.id);
+      const rowDrag = tree !== null && drag === "drop-after" ? "" : drag;
+      const treeDrag = tree !== null && drag !== "drop-before" ? drag : "";
+      return (
+        <Fragment key={session.id}>
+          <SessionItem
+            lines={lines(session)}
+            session={session}
+            group={group}
+            look={badgeFor(session.profileId)}
+            program={programLine(profileById.get(session.profileId), versions)}
+            active={session.id === activeId}
+            state={attention.get(session.id) ?? "idle"}
+            chip={chipOf(session)}
+            editing={props.renamingId === session.id}
+            dragClass={rowDrag}
+            moveHint={moveHint}
+            {...props}
+            onClose={onClose}
+            onKill={onKill}
+            onRestart={onRestart}
+            onRenameStart={onRename}
+            onRowKey={onRowKey}
+          />
+          {/* The tree belongs to the row above it; as its own item, the row's layout stays. */}
+          {tree !== null && (
+            <li className={treeDrag ? `subagent-tree-row ${treeDrag}` : "subagent-tree-row"}>
+              <SubAgentTree
+                sessionId={session.id}
+                sessionTitle={session.title}
+                watchKey={tree.watchKey}
+                picked={props.subAgentsOpen === session.id ? props.subAgentPick : null}
+                onShow={props.onShowSubAgent}
+              />
+            </li>
+          )}
+        </Fragment>
+      );
+    });
 
   return (
     <aside className="sidebar" ref={root}>
@@ -646,22 +710,8 @@ export function Sidebar(props: Props) {
           )}
         </span>
         <NotesButton open={props.notesOpen} onToggle={props.onToggleNotes} />
-        <ThemeButton
-          theme={props.theme}
-          onToggle={props.onToggleTheme}
-          onFocusTerminal={props.onFocusTerminal}
-        />
-        <button
-          ref={toggleButton}
-          type="button"
-          className="icon-button"
-          aria-label={t("sidebar.collapse")}
-          title={`${t("sidebar.collapse")} (${toggleKeys})`}
-          onClick={onToggleClick}
-        >
-          <CollapseIcon />
-        </button>
       </div>
+      {edgeToggle}
       {/* Decorative: separates the app's own controls from the sessions below. */}
       <div className="sidebar-rule" aria-hidden="true" />
 
@@ -671,62 +721,33 @@ export function Sidebar(props: Props) {
         open={sessionsOpen}
         className={sessionsOpen ? "sessions-group fill" : "sessions-group"}
         onToggle={props.onToggleGroup}
-        marker={
-          !sessionsOpen && waitingCount > 0 ? (
-            <span className="group-waiting" title={waitingText}>
-              <span className="dot attention" aria-hidden="true" />
-              <span className="sr-only">{waitingText}</span>
-            </span>
-          ) : null
-        }
+        marker={groupWaiting(ordinary, sessionsOpen)}
       >
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul className="session-list" data-session-list="" ref={sessionList}>
           {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
-          {sessions.map((session) => {
-            const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
-            // With a tree below the row, "drop after" draws its line below the tree.
-            const drag = dragClass(session.id);
-            const rowDrag = tree !== null && drag === "drop-after" ? "" : drag;
-            const treeDrag = tree !== null && drag !== "drop-before" ? drag : "";
-            return (
-              <Fragment key={session.id}>
-                <SessionItem
-                  lines={lines(session)}
-                  session={session}
-                  look={badgeFor(session.profileId)}
-                  program={programLine(profileById.get(session.profileId), versions)}
-                  active={session.id === activeId}
-                  state={attention.get(session.id) ?? "idle"}
-                  chip={chipOf(session)}
-                  editing={props.renamingId === session.id}
-                  dragClass={rowDrag}
-                  moveHint={moveHint}
-                  {...props}
-                  onClose={onClose}
-                  onKill={onKill}
-                  onRestart={onRestart}
-                  onRenameStart={onRename}
-                  onRowKey={onRowKey}
-                />
-                {/* The tree belongs to the row above it; as its own item, the row's layout stays. */}
-                {tree !== null && (
-                  <li className={treeDrag ? `subagent-tree-row ${treeDrag}` : "subagent-tree-row"}>
-                    <SubAgentTree
-                      sessionId={session.id}
-                      sessionTitle={session.title}
-                      watchKey={tree.watchKey}
-                      picked={props.subAgentsOpen === session.id ? props.subAgentPick : null}
-                      onShow={props.onShowSubAgent}
-                    />
-                  </li>
-                )}
-              </Fragment>
-            );
-          })}
+          {rows(ordinary, "sessions")}
         </ul>
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </GroupSection>
+
+      {/* Only while a session works in its own worktree; an empty group would just be noise. */}
+      {ownTrees.length > 0 && (
+        <GroupSection
+          group="worktrees"
+          title={worktreesTitle}
+          open={worktreesOpen}
+          className={worktreesOpen ? "worktrees-group" : "worktrees-group closed"}
+          onToggle={props.onToggleGroup}
+          marker={groupWaiting(ownTrees, worktreesOpen)}
+        >
+          <WaitingEdge edge="above" hint={worktreeHints.above} onReveal={revealRow} />
+          <ul className="session-list" data-session-list="" ref={worktreeList}>
+            {rows(ownTrees, "worktrees")}
+          </ul>
+          <WaitingEdge edge="below" hint={worktreeHints.below} onReveal={revealRow} />
+        </GroupSection>
+      )}
 
       <UpdateNotice
         state={update}
@@ -772,7 +793,9 @@ export function Sidebar(props: Props) {
             ref={cwdButton}
             type="button"
             className="cwd"
-            title={targetTitle}
+            title={[targetTitle, props.worktree === "no" ? t("start.worktreeNoRepo") : ""]
+              .filter(Boolean)
+              .join("\n")}
             aria-haspopup="menu"
             aria-expanded={folderMenu !== null}
             onClick={(event) => {
@@ -784,17 +807,35 @@ export function Sidebar(props: Props) {
               setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
             }}
           >
-            <FolderIcon />
+            <span className="cwd-icon" aria-hidden="true">
+              <FolderIcon size={16} />
+            </span>
             <span className="cwd-text">
               <span className="cwd-label">
                 {chosen ? t("start.nextIn") : t("sidebar.startsIn")}
               </span>
-              <span className="cwd-path">
-                <span className="cwd-name">{targetName}</span>
-                {targetParent !== null && (
-                  <span className="cwd-parent"> {elideMiddle(targetParent, 28)}</span>
-                )}
-              </span>
+              <span className="cwd-name">{targetName}</span>
+              {(targetParent !== null || targetBranch !== null) && (
+                <span className="cwd-sub">
+                  {targetParent !== null && (
+                    <span className="cwd-parent">{elideMiddle(targetParent, 34)}</span>
+                  )}
+                  {targetBranch !== null && (
+                    <span className="cwd-branch">
+                      <BranchIcon size={11} />
+                      <span className="sr-only">
+                        {t("session.branch", { branch: revealInvisible(targetBranch) })}
+                      </span>
+                      <span className="cwd-branch-name" aria-hidden="true">
+                        <Revealed text={targetBranch} />
+                      </span>
+                    </span>
+                  )}
+                </span>
+              )}
+            </span>
+            <span className="cwd-chevron" aria-hidden="true">
+              <ChevronIcon size={12} />
             </span>
           </button>
           {chosen && (
@@ -823,7 +864,6 @@ export function Sidebar(props: Props) {
             }}
           />
         )}
-        <WorktreeHint chance={props.worktree} />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
           {startable.map((profile) => {
@@ -834,7 +874,15 @@ export function Sidebar(props: Props) {
                 <button
                   type="button"
                   className="profile"
-                  title={[profile.command, ...profile.args].join(" ")}
+                  title={[
+                    [profile.command, ...profile.args].join(" "),
+                    // The line below the folder is gone; Shift+click stays findable here.
+                    props.worktree === "yes"
+                      ? t("start.worktreeHint", { shift: t("key.shift") })
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
                   onClick={(event) => {
                     props.onStart(profile, event.shiftKey && props.worktree === "yes");
                   }}
@@ -886,13 +934,7 @@ export function Sidebar(props: Props) {
         </ul>
       </GroupSection>
 
-      <SidebarFooter
-        collapsed={false}
-        teamOpen={props.teamOpen}
-        onToggleTeam={props.onToggleTeam}
-        onOpenAccount={props.onOpenAccount}
-        onOpenSettings={props.onOpenSettings}
-      />
+      {footer}
 
       <Splitter
         orientation="vertical"
@@ -1011,35 +1053,6 @@ function NotesButton({ open, onToggle }: { open: boolean; onToggle: () => void }
       onClick={onToggle}
     >
       <NotesIcon />
-    </button>
-  );
-}
-
-/** Toggle light and dark per click. The label names the target, the icon shows it (sun means light). */
-function ThemeButton({
-  theme,
-  onToggle,
-  onFocusTerminal,
-}: {
-  theme: Theme;
-  onToggle: () => void;
-  onFocusTerminal: () => void;
-}) {
-  const t = useT();
-  const label = theme === "dark" ? t("sidebar.toLight") : t("sidebar.toDark");
-  return (
-    <button
-      type="button"
-      className="icon-button"
-      aria-label={label}
-      title={label}
-      onClick={(event) => {
-        onToggle();
-        // Mouse click: back to work. With the keyboard, focus stays here.
-        if (event.detail > 0) onFocusTerminal();
-      }}
-    >
-      {theme === "dark" ? <SunIcon /> : <MoonIcon />}
     </button>
   );
 }
@@ -1172,6 +1185,8 @@ function programLine(profile: Profile | undefined, versions: ProgramVersions): s
 
 interface ItemProps extends Props {
   session: SessionView;
+  /** Sidebar group of the row, for dragging within it. */
+  group: SessionGroup;
   lines: { status: string; detail: DetailLine };
   look: BadgeLook;
   /** Program and version for the tooltip, empty without a known version. */
@@ -1188,6 +1203,7 @@ interface ItemProps extends Props {
 
 function SessionItem({
   session,
+  group,
   lines,
   look,
   program,
@@ -1229,7 +1245,7 @@ function SessionItem({
     .join(" ");
 
   return (
-    <li className={className} data-session-row={session.id}>
+    <li className={className} data-session-row={session.id} data-session-group={group}>
       {editing ? (
         <div className="session-main">
           <Badge look={look} />

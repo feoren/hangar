@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Ruhigere Seitenleiste: Worktree-Sessions in eigener Gruppe, Farbmodus im Menü an deinem Namen und ein runder Knopf am Rand zum Ein- und Ausklappen.",
+        "en": "A calmer sidebar: worktree sessions get their own group, the color mode sits in the menu on your name, and a round button on the edge collapses it.",
+        "el": "Πιο ήρεμη πλευρική στήλη: οι συνεδρίες worktree έχουν δική τους ομάδα, τα χρώματα είναι στο μενού του ονόματός σου, ένα στρογγυλό κουμπί τη συμπτύσσει.",
+        "es": "Barra lateral más tranquila: las sesiones worktree tienen su grupo, el modo de color está en el menú de tu nombre y un botón redondo en el borde la pliega.",
+        "fr": "Barre latérale plus calme : les sessions worktree ont leur groupe, le mode de couleur est dans le menu de ton nom, un bouton rond sur le bord la replie.",
+        "it": "Barra laterale più calma: le sessioni worktree hanno un gruppo proprio, la modalità colore è nel menu del tuo nome e un pulsante tondo sul bordo la chiude.",
+        "ja": "サイドバーを整理しました。worktree のセッションは専用グループに、カラーモードは名前のメニューに入り、端の丸いボタンで折りたためます。",
+        "pl": "Spokojniejszy pasek boczny: sesje worktree mają własną grupę, tryb kolorów jest w menu przy twoim imieniu, a okrągły przycisk na krawędzi go zwija.",
+        "pt": "Barra lateral mais calma: sessões worktree têm grupo próprio, o modo de cor fica no menu do seu nome e um botão redondo na borda a recolhe.",
+        "ru": "Спокойнее боковая панель: сеансы worktree в своей группе, цветовой режим в меню у твоего имени, круглая кнопка на краю сворачивает панель.",
+        "tr": "Daha sakin kenar çubuğu: worktree oturumlarının kendi grubu var, renk modu adının menüsünde ve kenardaki yuvarlak düğme çubuğu daraltır.",
+        "zh": "侧边栏更清爽：worktree 会话有了自己的分组，颜色模式放进你名字的菜单，边缘的圆形按钮可折叠侧边栏。"
+      },
+      {
         "de": "Unten in der Seitenleiste: du, dein Team und die Einstellungen in einer Zeile. Ein Klick aufs Team öffnet ein Fenster, das die Terminals frei lässt.",
         "en": "The bottom of the sidebar now shows you, your team and Settings in one row. Clicking the team opens a window that leaves your terminals in view.",
         "el": "Στο κάτω μέρος της πλευρικής στήλης: εσύ, η ομάδα σου και οι Ρυθμίσεις σε μία γραμμή. Η ομάδα ανοίγει ένα παράθυρο που αφήνει ορατά τα τερματικά.",

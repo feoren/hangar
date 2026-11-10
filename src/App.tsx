@@ -75,6 +75,7 @@ import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
+import { groupedOrder, groupPosition, sessionGroup } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
@@ -140,6 +141,7 @@ import { WorktreeHint } from "./Sidebar";
 import {
   backgroundSessions,
   initialSessions,
+  moveItem,
   nextWaitingId,
   numberedTitle,
   runningUpdateId,
@@ -1294,10 +1296,10 @@ export function App() {
   const moveSession = (id: number, index: number) => {
     const session = state.sessions.find((s) => s.id === id);
     dispatch({ type: "moved", id, index });
-    if (session) {
-      const count = state.sessions.length;
-      const position = Math.min(Math.max(index, 0), count - 1) + 1;
-      setMoveAnnouncement(t("session.moved", { title: session.title, position, count }));
+    // The place within the session's sidebar group, as the list shows it.
+    const place = groupPosition(groupedOrder(moveItem(state.sessions, id, index) ?? []), id);
+    if (session && place) {
+      setMoveAnnouncement(t("session.moved", { title: session.title, ...place }));
     }
   };
 
@@ -3423,8 +3425,10 @@ export function App() {
           }}
           onFocusTerminal={focusTerminal}
           version={version}
-          theme={theme}
-          onToggleTheme={toggleTheme}
+          themeSetting={settings.theme}
+          onSetTheme={(next) => {
+            updateSettings({ theme: next });
+          }}
           target={target}
           runningProjects={running}
           worktree={worktree}
@@ -3495,6 +3499,10 @@ export function App() {
                           state.sessions.map((s) => s.id),
                           sessionDragView.id,
                           sessionDragView.target.index,
+                          (id) => {
+                            const session = state.sessions.find((s) => s.id === id);
+                            return session ? sessionGroup(session) : "";
+                          },
                         )
                       : null,
                 }

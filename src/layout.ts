@@ -16,7 +16,7 @@ import { migrateLayoutId, type LayoutId } from "./snapLayouts";
 const STORAGE_KEY = "hangar.layout";
 
 /** Collapsible groups of the sidebar, top to bottom. New ones are added here. */
-export const SIDEBAR_GROUPS = ["sessions", "newSession"] as const;
+export const SIDEBAR_GROUPS = ["sessions", "worktrees", "newSession"] as const;
 export type SidebarGroup = (typeof SIDEBAR_GROUPS)[number];
 
 export function isSidebarGroup(value: unknown): value is SidebarGroup {

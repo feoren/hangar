@@ -18,11 +18,11 @@ import { useEffect, useState } from "react";
 import {
   autoscrollStep,
   beyondThreshold,
-  dropIndex,
   dropPlacement,
   sameDragTarget,
   type DragTarget,
 } from "./sessionDrag";
+import { groupDropIndex } from "./sessionGroups";
 import { isLayoutId, zoneAt, type LayoutId } from "./snapLayouts";
 
 /**
@@ -32,8 +32,11 @@ import { isLayoutId, zoneAt, type LayoutId } from "./snapLayouts";
 const SELECTOR = {
   /** The scrolling session list (expanded sidebar or rail). */
   list: "[data-session-list]",
-  /** One row in it; `data-session-row` holds the session ID. */
-  row: "[data-session-row]",
+  /**
+   * One row in it; `data-session-row` holds the session ID, `data-session-group` its sidebar
+   * group (sessionGroups.ts). The expanded sidebar has one list per group, the rail one for all.
+   */
+  row: "[data-session-list] [data-session-row]",
   /** The panes area. */
   panes: "[data-panes]",
   /** A layout thumbnail's zone area in the snap bar; `data-snap-layout` holds the layout ID. */
@@ -99,6 +102,14 @@ interface Gesture {
   overBody: boolean;
   frame: number;
   stop: (commit: boolean) => void;
+}
+
+/** The list that holds the dragged session's row; the first list if the row is not found. */
+function draggedList(id: number): HTMLElement | null {
+  const row = document.querySelector(`[data-session-list] [data-session-row="${String(id)}"]`);
+  return (
+    row?.closest<HTMLElement>(SELECTOR.list) ?? document.querySelector<HTMLElement>(SELECTOR.list)
+  );
 }
 
 function inside(rect: DOMRect, x: number, y: number): boolean {
@@ -270,7 +281,7 @@ export class SessionDrag {
   private readonly autoscroll = () => {
     const current = this.gesture;
     if (!current?.started) return;
-    const list = document.querySelector<HTMLElement>(SELECTOR.list);
+    const list = draggedList(current.id);
     if (list && !current.overBody) {
       const rect = list.getBoundingClientRect();
       if (current.x >= rect.left && current.x <= rect.right) {
@@ -286,16 +297,23 @@ export class SessionDrag {
   /** Drop target under the pointer, read from the DOM. */
   private locate(current: Gesture): { target: DragTarget | null; overBody: boolean } {
     const { x, y } = current;
-    const list = document.querySelector<HTMLElement>(SELECTOR.list);
+    const list = draggedList(current.id);
     if (list) {
       const rect = list.getBoundingClientRect();
-      // Above or below the list, but in its column, counts as its start or end.
+      // Above or below the list, but in its column, counts as its start or end of its group.
       if (x >= rect.left && x <= rect.right) {
-        const rows = Array.from(list.querySelectorAll<HTMLElement>(SELECTOR.row)).map((row) => {
+        const rows = Array.from(document.querySelectorAll<HTMLElement>(SELECTOR.row)).map((row) => {
           const box = row.getBoundingClientRect();
-          return { id: Number(row.dataset.sessionRow), mid: box.top + box.height / 2 };
+          return {
+            id: Number(row.dataset.sessionRow),
+            mid: box.top + box.height / 2,
+            group: row.dataset.sessionGroup ?? "",
+          };
         });
-        return { target: { kind: "list", index: dropIndex(rows, current.id, y) }, overBody: false };
+        return {
+          target: { kind: "list", index: groupDropIndex(rows, current.id, y) },
+          overBody: false,
+        };
       }
     }
     const panes = document.querySelector<HTMLElement>(SELECTOR.panes);

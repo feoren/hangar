@@ -222,6 +222,49 @@ describe("worktree", () => {
     const state = sessionsReducer(initialSessions, { type: "added", session: session(1) });
     expect("worktree" in (state.sessions[0] ?? {})).toBe(false);
   });
+
+  it("sessions sit in their sidebar group: ordinary ones first, worktree ones after them", () => {
+    let state = sessionsReducer(initialSessions, { type: "added", session: session(1), worktree });
+    state = sessionsReducer(state, { type: "added", session: session(2) });
+    state = sessionsReducer(state, { type: "added", session: session(3), worktree });
+    state = sessionsReducer(state, { type: "added", session: session(4) });
+    expect(state.sessions.map((s) => s.id)).toEqual([2, 4, 1, 3]);
+    expect(state.activeId).toBe(4);
+
+    // Moving across the border keeps a session in its own group.
+    const moved = sessionsReducer(state, { type: "moved", id: 2, index: 3 });
+    expect(moved.sessions.map((s) => s.id)).toEqual([4, 2, 1, 3]);
+    expect(sessionsReducer(state, { type: "moved", id: 4, index: 3 })).toBe(state);
+
+    let restored = sessionsReducer(initialSessions, {
+      type: "restored",
+      session: session(7),
+      order: 0,
+      worktree,
+    });
+    restored = sessionsReducer(restored, { type: "restored", session: session(8), order: 1 });
+    expect(restored.sessions.map((s) => s.id)).toEqual([8, 7]);
+  });
+
+  it("restores a workspace saved before the groups in slot order, however the starts finish", () => {
+    // Saved slots 0..3: worktree, ordinary, worktree, ordinary; the starts finish as 3, 0, 1, 2.
+    const slots: { id: number; order: number; own: boolean }[] = [
+      { id: 13, order: 3, own: false },
+      { id: 10, order: 0, own: true },
+      { id: 11, order: 1, own: false },
+      { id: 12, order: 2, own: true },
+    ];
+    let state = initialSessions;
+    for (const slot of slots) {
+      state = sessionsReducer(state, {
+        type: "restored",
+        session: session(slot.id),
+        order: slot.order,
+        ...(slot.own ? { worktree } : {}),
+      });
+    }
+    expect(state.sessions.map((s) => s.id)).toEqual([11, 13, 10, 12]);
+  });
 });
 
 describe("nextWaitingId", () => {

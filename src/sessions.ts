@@ -3,6 +3,7 @@
 
 import type { SessionInfo, Worktree } from "./api";
 import { hasMarker, type Marker } from "./marker";
+import { groupedOrder, sessionGroup } from "./sessionGroups";
 
 /** A session as the UI shows it: backend data plus flags of our own. */
 export interface SessionView extends SessionInfo {
@@ -54,7 +55,7 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     case "added": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
       const view = withWorktree({ ...action.session }, action.worktree);
-      return { sessions: [...state.sessions, view], activeId: action.session.id };
+      return { sessions: groupedOrder([...state.sessions, view]), activeId: action.session.id };
     }
     case "restored": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
@@ -62,15 +63,18 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         withMarker({ ...action.session, restoreOrder: action.order }, action.marker),
         action.worktree,
       );
-      // In front of the first session with a later slot; newly started ones (no slot) go last.
+      // In front of the first session of its group with a later slot; newly started ones (no
+      // slot) go last. Only its own group counts: the list is grouped, the saved slots may not be.
+      const group = sessionGroup(view);
       const index = state.sessions.findIndex(
-        (s) => (s.restoreOrder ?? Number.POSITIVE_INFINITY) > action.order,
+        (s) =>
+          sessionGroup(s) === group && (s.restoreOrder ?? Number.POSITIVE_INFINITY) > action.order,
       );
       const sessions =
         index < 0
           ? [...state.sessions, view]
           : [...state.sessions.slice(0, index), view, ...state.sessions.slice(index)];
-      return { sessions, activeId: state.activeId ?? view.id };
+      return { sessions: groupedOrder(sessions), activeId: state.activeId ?? view.id };
     }
     case "stopRequested":
       return mark(state, action.id, true);
@@ -162,7 +166,12 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     }
     case "moved": {
       const sessions = moveItem(state.sessions, action.id, action.index);
-      return sessions === null ? state : { ...state, sessions };
+      if (sessions === null) return state;
+      // Across the group border the session stays in its own group (sessionGroups.ts).
+      const grouped = groupedOrder(sessions);
+      return grouped.every((s, index) => s === state.sessions[index])
+        ? state
+        : { ...state, sessions: grouped };
     }
   }
 }
