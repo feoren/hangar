@@ -9,9 +9,14 @@
 
 .EXAMPLE
   pwsh -File tools/screenshot-hangar.ps1 -Out "$env:TEMP\hangar.png"
+
+.EXAMPLE
+  # With a dev build running next to an installed Hangar, pick the window by process id.
+  pwsh -File tools/screenshot-hangar.ps1 -Out "$env:TEMP\hangar.png" -ProcessId 4242
 #>
 param(
-  [Parameter(Mandatory = $true)][string]$Out
+  [Parameter(Mandatory = $true)][string]$Out,
+  [int]$ProcessId = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +34,8 @@ public static class HangarWin {
 "@
 
 $process = Get-Process hangar -ErrorAction SilentlyContinue |
-  Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  Where-Object { $_.MainWindowHandle -ne 0 -and ($ProcessId -eq 0 -or $_.Id -eq $ProcessId) } |
+  Select-Object -First 1
 if (-not $process) { throw "Hangar is not running (no window found)." }
 
 $handle = $process.MainWindowHandle
