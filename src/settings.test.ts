@@ -120,6 +120,17 @@ describe("parseSettings", () => {
     expect(valid.cursorStyle).toBe("underline");
   });
 
+  it("keeps saved color schemes from older versions and reads the new ones", () => {
+    for (const scheme of ["hangar", "catppuccin", "solarized", "harbor", "dusk", "meridian"]) {
+      expect(parseSettings(JSON.stringify({ terminalScheme: scheme }), "de").terminalScheme).toBe(
+        scheme,
+      );
+    }
+    expect(parseSettings(JSON.stringify({ terminalScheme: "Harbor" }), "de").terminalScheme).toBe(
+      "hangar",
+    );
+  });
+
   it("follows the system by default and replaces invalid themes", () => {
     expect(defaultSettings("de").theme).toBe("system");
     for (const theme of ["dark", "light", "system"]) {

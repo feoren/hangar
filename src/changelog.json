@@ -18,6 +18,20 @@
         "zh": "侧边栏更清爽：worktree 会话有了自己的分组，颜色模式和笔记放进你名字的菜单，边缘的圆形按钮可折叠侧边栏。"
       },
       {
+        "de": "Drei neue Farbschemas fürs Terminal: Harbor, Dusk und Meridian, jedes hell und dunkel. Die Auswahl zeigt jedes Schema gleich in seinen Farben.",
+        "en": "Three new terminal color schemes: Harbor, Dusk and Meridian, each in light and dark. The picker shows every scheme in its own colors.",
+        "el": "Τρία νέα χρωματικά σχήματα τερματικού: Harbor, Dusk και Meridian, φωτεινά και σκοτεινά. Η επιλογή δείχνει κάθε σχήμα στα δικά του χρώματα.",
+        "es": "Tres nuevos esquemas de colores para la terminal: Harbor, Dusk y Meridian, claros y oscuros. El selector muestra cada uno en sus propios colores.",
+        "fr": "Trois nouveaux jeux de couleurs pour le terminal : Harbor, Dusk et Meridian, clairs et sombres. Le choix montre chaque jeu dans ses propres couleurs.",
+        "it": "Tre nuovi schemi colori per il terminale: Harbor, Dusk e Meridian, chiari e scuri. La scelta mostra ogni schema nei suoi colori.",
+        "ja": "ターミナルに新しい配色 Harbor、Dusk、Meridian を追加しました。どれもライトとダークがあり、選択肢はそれぞれの色で表示されます。",
+        "pl": "Trzy nowe schematy kolorów terminala: Harbor, Dusk i Meridian, jasne i ciemne. Wybór pokazuje każdy schemat w jego własnych kolorach.",
+        "pt": "Três novos esquemas de cores para o terminal: Harbor, Dusk e Meridian, claros e escuros. A escolha mostra cada esquema nas suas próprias cores.",
+        "ru": "Три новые цветовые схемы терминала: Harbor, Dusk и Meridian, светлые и тёмные. Выбор показывает каждую схему в её собственных цветах.",
+        "tr": "Terminal için üç yeni renk şeması: Harbor, Dusk ve Meridian, açık ve koyu. Seçim her şemayı kendi renkleriyle gösterir.",
+        "zh": "终端新增三种配色方案：Harbor、Dusk 和 Meridian，均有浅色和深色版本。选择时每个方案都以自己的颜色显示。"
+      },
+      {
         "de": "Geteilte Notizen: Notizen liegen verschlüsselt im Repository und reisen mit deinen Commits. Einschalten mit einem Klick, ein Wiederherstellungscode sichert sie.",
         "en": "Shared notes: notes live encrypted in the repository and travel with your commits. Turn them on with one click; a recovery code keeps them safe.",
         "el": "Κοινόχρηστες σημειώσεις: κρυπτογραφημένες στο αποθετήριο, ταξιδεύουν με τα commits σου. Ενεργοποίηση με ένα κλικ, ένας κωδικός ανάκτησης τις προστατεύει.",

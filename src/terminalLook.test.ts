@@ -15,6 +15,7 @@ import {
   isBundledFont,
   isTerminalFont,
   schemeColors,
+  schemePalette,
   searchColors,
   type MeasureText,
 } from "./terminalLook";
@@ -179,11 +180,69 @@ describe("color schemes", () => {
       for (const theme of ["light", "dark"] as const) {
         const colors = schemeColors(scheme, theme);
         const at = `${scheme}/${theme}`;
-        expect(contrastRatio(colors.foreground, colors.background), at).toBeGreaterThanOrEqual(4);
+        expect(contrastRatio(colors.foreground, colors.background), at).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(colors.cursor, colors.background), at).toBeGreaterThanOrEqual(1.5);
         expect(colors.selectionBackground, at).not.toBe(colors.background);
       }
     }
+  });
+
+  it("keeps selected text readable in the schemes Hangar defines itself", () => {
+    // Older schemes follow their published palettes (Solarized light selects at about 4:1).
+    for (const scheme of ["harbor", "dusk", "meridian"] as const) {
+      for (const theme of ["light", "dark"] as const) {
+        const colors = schemeColors(scheme, theme);
+        expect(
+          contrastRatio(colors.foreground, colors.selectionBackground),
+          `${scheme}/${theme}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it("keeps every released key, so saved choices stay valid", () => {
+    for (const scheme of ["hangar", "catppuccin", "solarized"]) {
+      expect(isColorScheme(scheme), scheme).toBe(true);
+    }
+  });
+
+  it("gives every scheme a distinct light and dark variant", () => {
+    for (const scheme of COLOR_SCHEMES) {
+      const dark = schemeColors(scheme, "dark");
+      const light = schemeColors(scheme, "light");
+      expect(dark.background, scheme).not.toBe(light.background);
+      expect(contrastRatio(dark.background, "#000000"), scheme).toBeLessThan(
+        contrastRatio(light.background, "#000000"),
+      );
+    }
+  });
+
+  it("keeps the cursor block readable and the cursor accent on the background", () => {
+    for (const scheme of COLOR_SCHEMES) {
+      for (const theme of ["light", "dark"] as const) {
+        const colors = schemeColors(scheme, theme);
+        expect(colors.cursorAccent, `${scheme}/${theme}`).toBe(colors.background);
+      }
+    }
+  });
+
+  it("has no light-mode bright white that vanishes on the page", () => {
+    for (const scheme of COLOR_SCHEMES) {
+      const colors = schemeColors(scheme, "light");
+      expect(contrastRatio(colors.brightWhite, colors.background), scheme).toBeGreaterThan(1.5);
+    }
+  });
+
+  it("previews six accents per scheme", () => {
+    const colors = schemeColors("meridian", "dark");
+    expect(schemePalette(colors)).toEqual([
+      colors.red,
+      colors.green,
+      colors.yellow,
+      colors.blue,
+      colors.magenta,
+      colors.cyan,
+    ]);
   });
 
   it("keeps text readable on search hits", () => {

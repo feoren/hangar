@@ -67,7 +67,7 @@
      and the line below its header; both positions derive from these, in both sidebar states. */
   --hairline: 1px;
   --sidebar-head: 40px;
-  --sidebar-rule-gap: 6px;
+  --sidebar-rule-gap: 4px;
   /* Odd, so its middle falls on a pixel center like the 1 px lines it sits on. */
   --edge-toggle-size: 23px;
   /* Session row: three 26 px action buttons, two 2 px gaps, 6 px right padding. */
@@ -195,7 +195,7 @@ select:focus-visible,
   align-items: center;
   gap: 6px;
   height: var(--sidebar-head);
-  padding: 10px 8px 4px;
+  padding: 8px 8px 6px;
 }
 
 /* In a narrow sidebar the version goes first; the logo and name are never cut off. */
@@ -273,12 +273,14 @@ h2 .beta-badge {
 }
 
 /* Line between the header and the first group, edge to edge: it meets the sidebar's right border,
-   where the collapse toggle sits on the crossing. Same place in the rail. */
+   where the collapse toggle sits on the crossing. Same place in the rail. The menu button keeps
+   10 px to it, the group title below follows after the same 5 px as below every group line, so
+   icon, line and title sit at even distances. */
 .sidebar-rule {
   flex: none;
   align-self: stretch;
   height: var(--hairline);
-  margin: var(--sidebar-rule-gap) 0 4px;
+  margin: var(--sidebar-rule-gap) 0 0;
   background: var(--border);
 }
 
@@ -890,6 +892,17 @@ h2 .beta-badge {
 
 .new-session.closed {
   min-height: 0;
+  padding-bottom: 4px;
+}
+
+/* Every pair of neighboring groups is parted by one full-width line, open or closed. Next to an
+   open Sessions group the splitter draws that line, so the group's own line steps back. */
+.new-session {
+  border-top: var(--hairline) solid var(--border);
+}
+
+.splitter.horizontal + .new-session {
+  border-top: none;
 }
 
 .new-session .group-body {
@@ -918,6 +931,7 @@ h2 .beta-badge {
   flex: none;
   flex-direction: column;
   min-height: 0;
+  padding-bottom: 4px;
 }
 
 .session-groups.fill {
@@ -943,9 +957,10 @@ h2 .beta-badge {
   display: none;
 }
 
+/* 5 px below the line above each group, the same for every group and the top rule. */
 .section-title.group-title {
   margin: 0;
-  padding: 6px 8px 2px;
+  padding: 5px 8px 2px;
 }
 
 .group-toggle {
@@ -1907,7 +1922,7 @@ body.resizing-horizontal * {
   justify-content: center;
   width: 100%;
   height: var(--sidebar-head);
-  padding-top: 10px;
+  padding-top: 8px;
 }
 
 /* Logo and the waiting count, below the line; the sessions follow. */
@@ -1916,7 +1931,7 @@ body.resizing-horizontal * {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 4px 0 2px;
+  padding: 8px 0 2px;
   width: 100%;
 }
 
@@ -2744,6 +2759,86 @@ body.resizing-horizontal * {
 
 .font-option:has(input:checked) .font-option-check {
   display: flex;
+}
+
+/* Color scheme picker: every card drawn in its own scheme (current light or dark variant), the
+   chosen one framed in the accent and checked, so the choice never rests on color alone. */
+.scheme-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px;
+  align-self: stretch;
+}
+
+.scheme-option {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px transparent;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.scheme-option:hover {
+  border-color: var(--muted);
+}
+
+.scheme-option:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.scheme-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.scheme-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scheme-option-name {
+  padding-right: 18px;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheme-option-palette {
+  display: flex;
+  gap: 3px;
+}
+
+.scheme-option-palette span {
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* In the scheme's own text color: the accent could vanish on some backgrounds. */
+.scheme-option-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+}
+
+.scheme-option:has(input:checked) .scheme-option-check {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scheme-option {
+    transition: none;
+  }
 }
 
 /* Font size sits between fields in the terminal section and needs their spacing below it. */
@@ -4670,9 +4765,14 @@ body.resizing-horizontal * {
 
 /* In the rail: a thin line where the worktree sessions begin, and a green edge on their badge. */
 .rail-divider {
-  height: 1px;
-  margin: 4px 12px;
+  height: var(--hairline);
+  margin: 4px 0;
   background: var(--border);
+}
+
+/* The rail mirrors the groups: a full-width line between the sessions and the plus button. */
+.rail-sessions:has(+ .rail-new) {
+  border-bottom: var(--hairline) solid var(--border);
 }
 
 .rail-worktree .badge {
@@ -6585,7 +6685,7 @@ body.session-dragging .session:hover {
   align-items: center;
   gap: 4px;
   padding: 6px 6px 6px 8px;
-  border-top: 1px solid var(--border);
+  border-top: var(--hairline) solid var(--border);
 }
 
 .footer-account {
@@ -6758,7 +6858,7 @@ body.session-dragging .session:hover {
   gap: 4px;
   width: 100%;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: var(--hairline) solid var(--border);
 }
 
 .rail-team {

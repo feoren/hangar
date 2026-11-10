@@ -33,6 +33,7 @@ import {
   fontStack,
   installedFonts,
   schemeColors,
+  schemePalette,
   type ColorScheme,
   type CursorStyle,
   type SystemFont,
@@ -84,11 +85,14 @@ const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   updates: "settings.updates",
 };
 
-/** Product names; the same in every language. */
-const SCHEME_NAMES: Record<ColorScheme, string> = {
-  hangar: "Hangar",
-  catppuccin: "Catppuccin",
-  solarized: "Solarized",
+/** Proper names, the same in every language. */
+const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {
+  hangar: "scheme.hangar",
+  harbor: "scheme.harbor",
+  dusk: "scheme.dusk",
+  meridian: "scheme.meridian",
+  catppuccin: "scheme.catppuccin",
+  solarized: "scheme.solarized",
 };
 
 const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
@@ -536,25 +540,40 @@ function TerminalLookFields(props: Props) {
       <div className="field">
         <span id="settings-scheme">{t("settings.colorScheme")}</span>
         <div
-          className="segmented"
+          className="scheme-picker"
           role="radiogroup"
           aria-labelledby="settings-scheme"
           aria-describedby="settings-scheme-help"
         >
-          {COLOR_SCHEMES.map((scheme) => (
-            <label key={scheme} className="segment">
-              <input
-                type="radio"
-                name="terminal-scheme"
-                value={scheme}
-                checked={settings.terminalScheme === scheme}
-                onChange={() => {
-                  onChange({ terminalScheme: scheme });
-                }}
-              />
-              <span>{SCHEME_NAMES[scheme]}</span>
-            </label>
-          ))}
+          {COLOR_SCHEMES.map((scheme) => {
+            const colors = schemeColors(scheme, props.theme);
+            return (
+              <label
+                key={scheme}
+                className="scheme-option"
+                style={{ background: colors.background, color: colors.foreground }}
+              >
+                <input
+                  type="radio"
+                  name="terminal-scheme"
+                  value={scheme}
+                  checked={settings.terminalScheme === scheme}
+                  onChange={() => {
+                    onChange({ terminalScheme: scheme });
+                  }}
+                />
+                <span className="scheme-option-name">{t(SCHEME_NAMES[scheme])}</span>
+                <span className="scheme-option-palette" aria-hidden="true">
+                  {schemePalette(colors).map((color, index) => (
+                    <span key={index} style={{ background: color }} />
+                  ))}
+                </span>
+                <span className="scheme-option-check">
+                  <CheckIcon size={14} />
+                </span>
+              </label>
+            );
+          })}
         </div>
         <p id="settings-scheme-help" className="muted">
           {t("settings.colorSchemeHelp")}
@@ -642,14 +661,7 @@ function TerminalLookFields(props: Props) {
 /** A prompt line in the chosen scheme, font and cursor; decoration only. */
 function TerminalPreview({ settings, theme }: { settings: Settings; theme: Theme }) {
   const colors = schemeColors(settings.terminalScheme, theme);
-  const palette = [
-    colors.red,
-    colors.green,
-    colors.yellow,
-    colors.blue,
-    colors.magenta,
-    colors.cyan,
-  ];
+  const palette = schemePalette(colors);
   return (
     <div
       className="terminal-preview"

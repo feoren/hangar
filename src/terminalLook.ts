@@ -5,7 +5,15 @@ import type { ITheme } from "@xterm/xterm";
 
 import { TERMINAL_THEMES, type AnsiColor, type Theme } from "./theme";
 
-export const COLOR_SCHEMES = ["hangar", "catppuccin", "solarized"] as const;
+/** Order of the picker. Saved values are these keys, so a key never changes once released. */
+export const COLOR_SCHEMES = [
+  "hangar",
+  "harbor",
+  "dusk",
+  "meridian",
+  "catppuccin",
+  "solarized",
+] as const;
 export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
 export const CURSOR_STYLES = ["block", "bar", "underline"] as const;
@@ -276,8 +284,142 @@ const SOLARIZED: Record<Theme, TerminalColors> = {
   },
 };
 
+// Harbor: a crisp, neutral pair. Light is a white page with deep ink, dark a near-black blue.
+// Yellow stays a dark amber in light mode, so it reads as text and not as a highlight.
+const HARBOR: Record<Theme, TerminalColors> = {
+  dark: {
+    background: "#0d1117",
+    foreground: "#e6edf3",
+    cursor: "#2f81f7",
+    cursorAccent: "#0d1117",
+    selectionBackground: "#264f78",
+    black: "#484f58",
+    red: "#ff7b72",
+    green: "#3fb950",
+    yellow: "#d29922",
+    blue: "#58a6ff",
+    magenta: "#bc8cff",
+    cyan: "#39c5cf",
+    white: "#b1bac4",
+    brightBlack: "#6e7681",
+    brightRed: "#ffa198",
+    brightGreen: "#56d364",
+    brightYellow: "#e3b341",
+    brightBlue: "#79c0ff",
+    brightMagenta: "#d2a8ff",
+    brightCyan: "#56d4dd",
+    brightWhite: "#ffffff",
+  },
+  light: {
+    background: "#ffffff",
+    foreground: "#1f2328",
+    cursor: "#0969da",
+    cursorAccent: "#ffffff",
+    selectionBackground: "#b6e3ff",
+    black: "#24292f",
+    red: "#cf222e",
+    green: "#116329",
+    yellow: "#4d2d00",
+    blue: "#0969da",
+    magenta: "#8250df",
+    cyan: "#1b7c83",
+    white: "#6e7781",
+    brightBlack: "#57606a",
+    brightRed: "#a40e26",
+    brightGreen: "#1a7f37",
+    brightYellow: "#633c01",
+    brightBlue: "#218bff",
+    brightMagenta: "#a475f9",
+    brightCyan: "#3192aa",
+    brightWhite: "#8c959f",
+  },
+};
+
+// Dusk: Harbor's softer sibling. The dark variant is a muted slate with less glare; the palette
+// has no light original, so the light variant is Harbor's light ink on a faintly gray page.
+const DUSK: Record<Theme, TerminalColors> = {
+  dark: {
+    background: "#22272e",
+    foreground: "#adbac7",
+    cursor: "#539bf5",
+    cursorAccent: "#22272e",
+    selectionBackground: "#2f4866",
+    black: "#545d68",
+    red: "#f47067",
+    green: "#57ab5a",
+    yellow: "#c69026",
+    blue: "#539bf5",
+    magenta: "#b083f0",
+    cyan: "#39c5cf",
+    white: "#909dab",
+    brightBlack: "#636e7b",
+    brightRed: "#ff938a",
+    brightGreen: "#6bc46d",
+    brightYellow: "#daaa3f",
+    brightBlue: "#6cb6ff",
+    brightMagenta: "#dcbdfb",
+    brightCyan: "#56d4dd",
+    brightWhite: "#cdd9e5",
+  },
+  light: { ...HARBOR.light, background: "#f6f8fa", cursorAccent: "#f6f8fa" },
+};
+
+// Meridian: warm gray with soft, saturated accents. In the light variant both whites are gray,
+// because the original pure white would vanish on the light page.
+const MERIDIAN: Record<Theme, TerminalColors> = {
+  dark: {
+    background: "#282c34",
+    foreground: "#abb2bf",
+    cursor: "#528bff",
+    cursorAccent: "#282c34",
+    selectionBackground: "#3e4451",
+    black: "#3f4451",
+    red: "#e05561",
+    green: "#8cc265",
+    yellow: "#d18f52",
+    blue: "#4aa5f0",
+    magenta: "#c162de",
+    cyan: "#42b3c2",
+    white: "#d7dae0",
+    brightBlack: "#4f5666",
+    brightRed: "#ff616e",
+    brightGreen: "#a5e075",
+    brightYellow: "#f0a45d",
+    brightBlue: "#4dc4ff",
+    brightMagenta: "#de73ff",
+    brightCyan: "#4cd1e0",
+    brightWhite: "#e6e6e6",
+  },
+  light: {
+    background: "#fafafa",
+    foreground: "#383a42",
+    cursor: "#526fff",
+    cursorAccent: "#fafafa",
+    selectionBackground: "#dfe1e6",
+    black: "#383a42",
+    red: "#e45649",
+    green: "#50a14f",
+    yellow: "#c18401",
+    blue: "#4078f2",
+    magenta: "#a626a4",
+    cyan: "#0184bc",
+    white: "#a0a1a7",
+    brightBlack: "#4f525e",
+    brightRed: "#e06c75",
+    brightGreen: "#98c379",
+    brightYellow: "#e5c07b",
+    brightBlue: "#61afef",
+    brightMagenta: "#c678dd",
+    brightCyan: "#56b6c2",
+    brightWhite: "#b4b5ba",
+  },
+};
+
 const SCHEMES: Record<ColorScheme, Record<Theme, TerminalColors>> = {
   hangar: TERMINAL_THEMES,
+  harbor: HARBOR,
+  dusk: DUSK,
+  meridian: MERIDIAN,
   catppuccin: CATPPUCCIN,
   solarized: SOLARIZED,
 };
@@ -285,6 +427,11 @@ const SCHEMES: Record<ColorScheme, Record<Theme, TerminalColors>> = {
 /** Always the same object per scheme and theme, so xterm only repaints on a real change. */
 export function schemeColors(scheme: ColorScheme, theme: Theme): TerminalColors {
   return SCHEMES[scheme][theme];
+}
+
+/** The accents a preview shows for a scheme, in the usual terminal order. */
+export function schemePalette(colors: TerminalColors): string[] {
+  return [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan];
 }
 
 /** Search hits: every match, and the current one. `#rrggbb` only (xterm's search addon). */
@@ -297,6 +444,18 @@ const SEARCH_COLORS: Record<ColorScheme, Record<Theme, SearchColors>> = {
   hangar: {
     dark: { match: "#4a3d14", active: "#8a6416" },
     light: { match: "#fff1b8", active: "#f5c84c" },
+  },
+  harbor: {
+    dark: { match: "#4a3d14", active: "#8a6416" },
+    light: { match: "#fff1b8", active: "#f5c84c" },
+  },
+  dusk: {
+    dark: { match: "#463b1a", active: "#6c5414" },
+    light: { match: "#fff1b8", active: "#f5c84c" },
+  },
+  meridian: {
+    dark: { match: "#45402a", active: "#6b5520" },
+    light: { match: "#f6e7b0", active: "#ecc35a" },
   },
   catppuccin: {
     dark: { match: "#4d4636", active: "#8a7346" },
