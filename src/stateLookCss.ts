@@ -1,6 +1,6 @@
 // CSS custom properties for the state looks (stateLook.ts). The app sets them on the root; the
 // classes `look-working`, `look-done`, `look-asks` and `look-idle` in styles.css hand them to a
-// row, so the sidebar rows and their state bars, the rail, its chips and the settings preview all
+// row, so the sidebar rows and their state strokes, the rail, its chips and the settings preview all
 // follow one source.
 
 import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";

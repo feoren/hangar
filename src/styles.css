@@ -19,8 +19,11 @@
   /* Thin outline that marks the active row in the expanded sidebar. */
   --active-ring: color-mix(in srgb, var(--accent) 45%, transparent);
   --active-bar: 3px;
-  /* State bar at the left edge of every session row. */
+  /* State stroke along the rounded left edge of every session row. */
   --state-bar: 3px;
+  /* Row action buttons: four of them in a 2 x 2 grid over the row's end. */
+  --row-action-size: 22px;
+  --row-action-gap: 2px;
   --ok: #57ab5a;
   --warn: #c69026;
   /* Text on the warn color (the count of open team requests). */
@@ -380,14 +383,14 @@ h2 .beta-badge {
   margin-bottom: 2px;
 }
 
-/* Keyboard focus on the row's "More actions" button lights the row like the pointer does, so the
-   button's fade has a background to blend into. */
+/* Keyboard focus on a row action lights the row like the pointer does, so the actions' backdrop
+   has a background to take on. */
 .session:hover,
-.session:has(.session-more :focus-visible) {
+.session:has(.session-actions :focus-visible) {
   background: var(--hover);
 }
 
-/* The active row: raised, lit and outlined. Its left bar shows the session's state like every
+/* The active row: raised, lit and outlined. Its left stroke shows the session's state like every
    other row, so the active mark never fights the state color. */
 .session.active {
   background: var(--panel-raised);
@@ -396,26 +399,38 @@ h2 .beta-badge {
   isolation: isolate;
 }
 
-/* --- State bar (sessionChip.ts, rowBar) ---
-   A slim bar at the left edge of every row in the state's color from the attention settings:
-   working shimmers calmly along it, waiting (done, asks) stands firm, pause is a quiet trace,
-   starting and ended stay muted, a failed exit is red. The status line names the state in words. */
+/* --- State stroke (sessionChip.ts, rowBar) ---
+   A stroke along the left edge of every row in the state's color from the attention settings. The
+   bar element covers the row and clips to its rounded corners, so the stroke follows the curve at
+   its top and bottom ends. Working shimmers calmly along it, waiting (done, asks) stands firm,
+   pause is calmer but clearly there, starting and ended are muted, a failed exit is red. The status
+   line names the state in words, so color is never the only signal. */
 .session-bar {
   position: absolute;
-  top: 7px;
-  bottom: 7px;
-  left: 0;
+  inset: 0;
   z-index: 1;
-  width: var(--state-bar);
   overflow: hidden;
   pointer-events: none;
+  border-radius: inherit;
+}
+
+.session-bar::before,
+.bar-working::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--state-bar);
+  content: "";
+}
+
+.session-bar::before {
   background-color: var(--bar-color, transparent);
-  border-radius: 0 2px 2px 0;
   transition: background-color 240ms ease;
 }
 
 .bar-working {
-  --bar-color: color-mix(in srgb, var(--row-strong) 55%, transparent);
+  --bar-color: color-mix(in srgb, var(--row-strong) 85%, transparent);
 }
 
 .bar-done,
@@ -424,31 +439,29 @@ h2 .beta-badge {
 }
 
 .bar-idle {
-  --bar-color: color-mix(in srgb, var(--row-strong) 38%, transparent);
+  --bar-color: color-mix(in srgb, var(--row-strong) 62%, transparent);
 }
 
 .bar-starting {
-  --bar-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  --bar-color: color-mix(in srgb, var(--warn) 85%, transparent);
 }
 
 .bar-ended {
-  --bar-color: color-mix(in srgb, var(--muted) 35%, transparent);
+  --bar-color: color-mix(in srgb, var(--muted) 60%, transparent);
 }
 
 .bar-failed {
   --bar-color: var(--error);
 }
 
-/* Working: a soft light travels down the bar, one pass per pulse length of "working" (the same
-   duration the settings offer for its breathing). Only transform moves, so it costs no layout. */
+/* Working: a stronger light travels down the stroke, one pass per pulse length of "working" (the
+   same duration the settings offer for its breathing). It is clipped by the same rounded edge, and
+   only transform moves, so it costs no layout. *
 .bar-working::after {
-  position: absolute;
-  inset: 0;
-  content: "";
   background-image: linear-gradient(
     to bottom,
     transparent 0%,
-    var(--row-strong) 50%,
+    color-mix(in srgb, var(--row-strong) 55%, var(--text)) 50%,
     transparent 100%
   );
   transform: translateY(-100%);
@@ -465,9 +478,9 @@ h2 .beta-badge {
   }
 }
 
-/* Without motion: no travelling light, the bar stands in the full working color. */
+/* Without motion: no travelling light, the stroke stands in the full working color. */
 @media (prefers-reduced-motion: reduce) {
-  .session-bar {
+  .session-bar::before {
     transition: none;
   }
 
@@ -480,7 +493,7 @@ h2 .beta-badge {
   }
 }
 
-/* --- End of state bar --- */
+/* --- End of state stroke --- */
 
 /* A little lighter (dark) or darker (light) than elsewhere, so the status lines keep 4.5:1 on the
    tint's strongest point. */
@@ -858,45 +871,71 @@ h2 .beta-badge {
     inset 0 0 0 2px var(--active-ring);
 }
 
-/* "More actions" (⋯): one button that lies over the end of the row on hover or keyboard focus,
-   without taking width from the text. Its strip takes the row's own background (also mid-breath,
-   as the computed color is inherited) and fades in from the left, so text running underneath
-   ends softly instead of being cut. It stays in the tab order (opacity, not display: none). Inset
-   by a pixel, so the row's ring stays whole. */
-.session-more {
+/* Row actions: rename, project folder, stop or restart, close, as a 2 x 2 grid that lies over the
+   end of the row on hover or keyboard focus, without taking width from the text. The strip takes
+   the row's own background (also mid-breath, as the computed color is inherited) and fades in from
+   the left, so text running underneath ends softly instead of being cut. The buttons stay in the
+   tab order (opacity, not display: none). Inset by a pixel, so the row's ring stays whole. */
+.session-actions {
   position: absolute;
   inset: 1px 1px 1px auto;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  width: 44px;
-  padding-right: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, var(--row-action-size));
+  grid-auto-rows: var(--row-action-size);
+  gap: var(--row-action-gap);
+  align-content: center;
+  padding: 0 4px 0 2px;
   background-color: inherit;
   border-radius: 0 5px 5px 0;
-  mask-image: linear-gradient(to right, transparent, #000 14px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
+/* The fade to the left of the grid, in the same inherited background. */
+.session-actions::before {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 14px;
+  content: "";
+  background-color: inherit;
+  mask-image: linear-gradient(to right, transparent, #000);
+}
+
 /* The active row's drifting light lies under the strip; the strip carries its middle tone. */
-.session.active:not(.attention) .session-more {
+.session.active:not(.attention) .session-actions,
+.session.active:not(.attention) .session-actions::before {
   background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
 }
 
-.session:hover .session-more,
-.session-more:focus-within {
+.session:hover .session-actions,
+.session-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }
 
+.session-actions .icon-button {
+  width: var(--row-action-size);
+  height: var(--row-action-size);
+  border-radius: 4px;
+}
+
 /* On a tinted or lit row the plain hover gray would barely show; a veil of the text color reads
    on every background, light and dark. */
-.session-more .icon-button:hover,
-.session-more .icon-button:focus-visible {
+.session-actions .icon-button:hover,
+.session-actions .icon-button:focus-visible {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+/* The folder button while that session's file tree shows: lit in the accent, with a faint veil, so
+   the state reads by more than color (and aria-pressed tells assistive technology). */
+.session-actions .icon-button[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 /* Status chip of the collapsed rail: the state's shape in a small circle at the badge's corner. */
@@ -931,7 +970,7 @@ h2 .beta-badge {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-more {
+  .session-actions {
     transition: none;
   }
 
@@ -5865,7 +5904,7 @@ body.session-dragging * {
 }
 
 /* No hover actions while a session is carried around. */
-body.session-dragging .session-more {
+body.session-dragging .session-actions {
   visibility: hidden;
 }
 

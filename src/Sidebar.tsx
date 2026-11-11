@@ -17,10 +17,12 @@ import {
   CloseIcon,
   DownloadIcon,
   FolderIcon,
+  EditIcon,
   HangarLogo,
-  MoreIcon,
   OverlapIcon,
   PlusIcon,
+  RestartIcon,
+  StopIcon,
   WorktreeIcon,
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
@@ -65,6 +67,7 @@ import { lookClass } from "./stateLook";
 import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
+import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
@@ -82,6 +85,13 @@ interface Props {
   updates: ProgramUpdates;
   notesOpen: boolean;
   onToggleNotes: () => void;
+  /** The right panel shows the active session's folder as a file tree. */
+  filesOpen: boolean;
+  /**
+   * The folder button of a row: shows or hides that session's file tree (switching to the session
+   * first if it is not the active one, since the tree follows the active session).
+   */
+  onToggleFiles: (id: number) => void;
   /** Launchable entries in the chosen order, hidden ones left out. */
   startable: Profile[];
   /** Installed entries exist, but all of them are hidden. */
@@ -149,12 +159,12 @@ interface Props {
   /** Back from a chosen folder to the default target. */
   onResetTarget: () => void;
   onToggleFavorite: (path: string) => void;
+  onRestart: (id: number) => void;
+  onKill: (id: number) => void;
+  onClose: (id: number) => void;
   onRename: (id: number, title: string) => void;
-  /**
-   * Right click or context menu key on a session, or its "More actions" button: the session menu
-   * at this point. `anchor`: the button that opened it.
-   */
-  onSessionMenu: (id: number, x: number, y: number, anchor?: HTMLElement) => void;
+  /** Right click or context menu key on a session: the session menu at this point. */
+  onSessionMenu: (id: number, x: number, y: number) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
   drag: { id: number; line: DropLine | null } | null;
   /** Mouse down on a session row: may become a drag (useSessionDrag). */
@@ -214,6 +224,7 @@ export function Sidebar(props: Props) {
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
   const refocusToggle = useRef(false);
   const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const [guard] = useState(() => new SessionActionGuard());
   const newButton = useRef<HTMLButtonElement>(null);
   /** Program picker of the collapsed bar, open at this position. */
   const [programMenu, setProgramMenu] = useState<{ x: number; y: number } | null>(null);
@@ -222,6 +233,25 @@ export function Sidebar(props: Props) {
   const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(
     null,
   );
+  const onClose = (id: number) => {
+    if (!guard.allows()) return;
+    guard.closed();
+    props.onClose(id);
+  };
+  const onKill = (id: number) => {
+    if (!guard.allows()) return;
+    guard.killed(id);
+    props.onKill(id);
+  };
+  const onRestart = (id: number) => {
+    if (guard.allowsRestart(id)) props.onRestart(id);
+  };
+  const onRename = (id: number) => {
+    if (guard.allows()) props.onRenameStart(id);
+  };
+  const onToggleFiles = (id: number) => {
+    if (guard.allows()) props.onToggleFiles(id);
+  };
   /**
    * Alt+Up / Alt+Down on a row: one place up or down within its group; the focus stays on the
    * moved row.
@@ -690,6 +720,11 @@ export function Sidebar(props: Props) {
             moveHint={moveHint}
             placement={props.placements.get(session.id) ?? null}
             {...props}
+            onClose={onClose}
+            onKill={onKill}
+            onRestart={onRestart}
+            onRenameStart={onRename}
+            onToggleFiles={onToggleFiles}
             onRowKey={onRowKey}
           />
           {/* The tree belongs to the row above it; as its own item, the row's layout stays. */}
@@ -1209,11 +1244,16 @@ function SessionItem({
   onRowKey,
   onDragStart,
   onActivate,
+  onRestart,
+  onKill,
+  onClose,
   onRename,
   onRenameStart,
   onRenameEnd,
   onSessionMenu,
   overlaps,
+  filesOpen,
+  onToggleFiles,
   language,
 }: ItemProps) {
   const t = useT();
@@ -1367,23 +1407,54 @@ function SessionItem({
           <ContextMeter sessionId={session.id} language={language} />
         </button>
       )}
-      {/* One quiet button instead of a row of icons: it lies over the row's end on hover or
-          focus, so the row keeps its full width for the text. The menu is the session menu. */}
+      {/* Four actions in a 2 x 2 grid that lies over the row's end on hover or keyboard focus,
+          so the row keeps its full width for the text. Right click opens the session menu. */}
       {!editing && (
-        <div className="session-more">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={t("session.more")}
-            aria-haspopup="menu"
-            title={t("session.more")}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              onSessionMenu(session.id, rect.left, rect.bottom + 4, event.currentTarget);
+        <div className="session-actions">
+          <IconButton
+            label={t("session.rename")}
+            onClick={() => {
+              onRenameStart(session.id);
             }}
           >
-            <MoreIcon />
-          </button>
+            <EditIcon size={14} />
+          </IconButton>
+          <IconButton
+            label={t("files.show")}
+            pressed={filesOpen && active}
+            onClick={() => {
+              onToggleFiles(session.id);
+            }}
+          >
+            <FolderIcon size={14} />
+          </IconButton>
+          {exited ? (
+            <IconButton
+              label={t("session.restart")}
+              onClick={() => {
+                onRestart(session.id);
+              }}
+            >
+              <RestartIcon size={14} />
+            </IconButton>
+          ) : (
+            <IconButton
+              label={t("session.kill")}
+              onClick={() => {
+                onKill(session.id);
+              }}
+            >
+              <StopIcon size={14} />
+            </IconButton>
+          )}
+          <IconButton
+            label={exited ? t("session.close") : t("session.killAndClose")}
+            onClick={() => {
+              onClose(session.id);
+            }}
+          >
+            <CloseIcon size={14} />
+          </IconButton>
         </div>
       )}
     </li>
@@ -1424,4 +1495,30 @@ function openSessionMenu(
   }
   const rect = event.currentTarget.getBoundingClientRect();
   open(id, rect.left + 24, rect.bottom);
+}
+
+function IconButton({
+  label,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  /** A toggle: `aria-pressed` tells whether it is on. */
+  pressed?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
 }
