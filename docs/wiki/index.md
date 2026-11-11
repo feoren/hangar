@@ -49,6 +49,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[cmd-launcher-measurement]]: measurement: .cmd launcher scripts via portable-pty, node from the working folder, injection via `&`, `"`, `%` (updated: 2026-11-08)
 - [[update-sources]]: research and measurement: npm, PyPI and GitHub endpoints per agent, OpenCode packages (updated: 2026-11-07)
 - [[github-conditional-requests]]: GitHub REST docs and measurement: ETag and If-None-Match, 304 counts unauthenticated, rate limit headers and waits (updated: 2026-11-12)
+- [[app-execution-alias]]: Store app execution aliases: AppExecLink reparse data after libuv, what std and Get-AuthenticodeSignature do on the empty alias file, start in ConPTY (updated: 2026-11-12)
 - [[resume-measurement]]: measurement: claude, codex, opencode, pi, aider with resume_args in an empty folder (updated: 2026-11-07)
 - [[version-number-wikipedia]]: Wikipedia: major, minor, revision and build number (updated: 2026-11-07)
 - [[agent-clis-research]]: research on 24 agent CLIs: program names, installation, renames (updated: 2026-11-07)

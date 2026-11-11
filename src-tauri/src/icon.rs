@@ -60,7 +60,9 @@ pub fn is_script_shim(program: &Path) -> bool {
 /// PNG data of the program icon, [`SIZE`] × [`SIZE`] pixels.
 #[cfg(windows)]
 pub fn icon_png(program: &Path) -> Option<Vec<u8>> {
-    let (width, height, rgba) = windows::icon_rgba(program, SIZE)?;
+    // An execution alias (Store app) is an empty file; the icon lives in the package's executable.
+    let file = crate::exec_alias::real_file(program);
+    let (width, height, rgba) = windows::icon_rgba(&file, SIZE)?;
     encode_png(width, height, &rgba)
 }
 

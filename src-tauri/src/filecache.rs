@@ -19,9 +19,11 @@ pub struct FileStamp {
 }
 
 impl FileStamp {
-    /// `None` if the file is not (or no longer) readable; nothing is cached then.
+    /// `None` if the file is not (or no longer) readable; nothing is cached then. For an
+    /// execution alias (Store app) time and size come from the package's executable: the alias
+    /// is an empty file, and a package update must still change the stamp.
     pub fn of(path: &Path) -> Option<Self> {
-        let meta = std::fs::metadata(path).ok()?;
+        let meta = std::fs::metadata(crate::exec_alias::real_file(path)).ok()?;
         Some(Self {
             path: path.to_path_buf(),
             modified: meta.modified().ok(),

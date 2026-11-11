@@ -244,6 +244,68 @@ fn icon_of_pwsh_if_present() {
     assert_eq!(&png[16..24], &[0, 0, 0, 32, 0, 0, 0, 32]);
 }
 
+/// Every execution alias in the user's WindowsApps folder (Store apps such as PowerShell, winget)
+/// names an executable inside its package that can be read, so icon, stamp and version work.
+#[cfg(windows)]
+#[test]
+fn execution_aliases_lead_to_their_package_executable() {
+    use hangar_lib::exec_alias;
+    use hangar_lib::filecache::FileStamp;
+
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let folder = PathBuf::from(local).join("Microsoft").join("WindowsApps");
+    let Ok(entries) = std::fs::read_dir(&folder) else {
+        return;
+    };
+    let mut seen = 0;
+    for entry in entries.flatten() {
+        let alias_path = entry.path();
+        let Some(alias) = exec_alias::read(&alias_path) else {
+            continue;
+        };
+        seen += 1;
+        assert!(alias.app_id.starts_with(&alias.package), "{alias:?}");
+        // Some aliases point into C:\Windows\SystemApps; all of them name an existing file.
+        if !alias.target.is_file() {
+            continue;
+        }
+        let stamp = FileStamp::of(&alias_path).unwrap();
+        assert_eq!(stamp.path, alias_path);
+        assert_eq!(
+            stamp.len,
+            std::fs::metadata(&alias.target).unwrap().len(),
+            "{alias:?}"
+        );
+    }
+    // A machine without Store apps has nothing to check; one with them must find some.
+    if folder.join("winget.exe").exists() {
+        assert!(seen > 0);
+    }
+}
+
+/// A Store PowerShell starts through its alias, also for the version query.
+#[cfg(windows)]
+#[test]
+fn version_through_an_execution_alias() {
+    let path = std::env::var_os("PATH");
+    let pathext = std::env::var_os("PATHEXT");
+    let Some(pwsh) = resolve_program("pwsh", path.as_deref(), pathext.as_deref()) else {
+        return;
+    };
+    if hangar_lib::exec_alias::read(&pwsh).is_none() {
+        return;
+    }
+    let version = version::probe(
+        &pwsh,
+        &version::version_args(None, &pwsh),
+        &no_env(),
+        PROBE_TIMEOUT,
+    );
+    assert!(version.is_some_and(|v| v.starts_with('7')));
+}
+
 #[test]
 fn script_shim_yields_no_icon() {
     let dir = std::env::temp_dir().join(format!("hangar-shim-{}", std::process::id()));

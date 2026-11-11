@@ -425,3 +425,9 @@ Hangar now checks every 30 min and on returning to the window after that long, k
 25 min and failures for 15 min, re-reads the installed versions on each periodic check, sends
 stored entity tags and pauses a source on `403`/`429` rate limits. Pages changed:
 [[program-updates]], [[github-conditional-requests]] (new).
+
+## [2026-11-12] ingest | App execution aliases of Store apps
+libuv's AppExecLink reader and a measurement with the Store PowerShell 7.7.0: the alias is an
+empty reparse-point file that starts fine but cannot be opened; the third string of its reparse
+data names the package executable. Hangar now reads icons and file stamps from that executable.
+Pages changed: [[app-execution-alias]] (new).

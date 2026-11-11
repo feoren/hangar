@@ -179,6 +179,41 @@ fn wait_for_status(manager: &SessionManager, id: u64, status: Status) {
     panic!("session {id} never reaches status {status:?}");
 }
 
+/// A Store app starts in ConPTY through its execution alias (an empty reparse-point file), the
+/// way PATH resolution hands it over. Skipped where pwsh is no alias.
+#[cfg(windows)]
+#[test]
+fn execution_alias_starts_in_a_pty() {
+    let path = std::env::var_os("PATH");
+    let pathext = std::env::var_os("PATHEXT");
+    let Some(pwsh) =
+        hangar_lib::resolve::resolve_program("pwsh", path.as_deref(), pathext.as_deref())
+    else {
+        return;
+    };
+    if hangar_lib::exec_alias::read(&pwsh).is_none() {
+        return;
+    }
+    let command = pwsh.to_string_lossy().into_owned();
+    let alias = profile(
+        "alias",
+        &command,
+        &[
+            "-NoProfile",
+            "-Command",
+            "Write-Output ('alias-' + 'ok'); exit 4",
+        ],
+    );
+    let manager = SessionManager::new(vec![alias], Vec::new(), std::env::temp_dir());
+    let (tx, rx) = channel();
+    let info = manager
+        .create("alias", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, code) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("alias-ok"), "Output: {output:?}");
+    assert_eq!(code, Some(4));
+}
+
 #[test]
 fn echo_and_exit_code() {
     let manager = manager();

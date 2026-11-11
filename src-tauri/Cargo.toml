@@ -106,6 +106,10 @@ windows-sys = { version = "0.61", features = [
   "Win32_Security",
   # GetDriveTypeW: the gate looks up teammates' paths only on fixed local drives (gate.rs).
   "Win32_Storage_FileSystem",
+  # DeviceIoControl(FSCTL_GET_REPARSE_POINT): the executable behind a Store app's execution
+  # alias (exec_alias.rs).
+  "Win32_System_IO",
+  "Win32_System_Ioctl",
   "Win32_System_JobObjects",
   # Uninstall keys, to tell how a program was installed (install_source.rs).
   "Win32_System_Registry",

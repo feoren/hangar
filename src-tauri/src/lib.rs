@@ -13,6 +13,7 @@ mod commands;
 pub mod context_usage;
 pub mod desktop;
 pub mod exe_image;
+pub mod exec_alias;
 pub mod export;
 pub mod file_tree;
 pub mod filecache;
