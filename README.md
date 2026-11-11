@@ -34,23 +34,68 @@ your own accounts, on your own machine. Open source under the MIT license.
 
 ## Features
 
-- **All your agents in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more are
-  found automatically, and every session keeps running in the background.
-- **Never miss a question.** Hangar shows when an agent waits for you, with an optional sound and
-  notification. Each state gets its own color and pulse.
-- **Side by side.** Two or four sessions at once, arranged by dragging.
-- **Watch sub-agents work.** The sub-agents of a Claude Code session appear under it in the
-  sidebar; one click shows a sub-agent's task, commands, paths and results beside the terminal.
-- **Agents that don't collide.** Each session can get its own worktree, and Hangar warns when two
-  sessions touch the same file.
-- **Notes, shared if you like.** Notes next to the terminal, private on your computer or shared
-  encrypted in the repository, so they travel with your commits.
-- **Teams.** The Team window shows what your teammates' agents work on and who holds which task,
-  end-to-end encrypted.
-- **Your look.** Six terminal color schemes in light and dark, and four bundled coding fonts.
-- **Small things that add up.** Paste screenshots straight into an agent, one-click updates for
-  Hangar and your agents, sessions that come back after a restart, and a single Hangar window that
-  comes to the front when you start it again.
+### Sessions and agents
+
+- **Every agent in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more command-line
+  tools are detected automatically and start with one click. PowerShell, Command Prompt, WSL and any
+  other command work the same way.
+- **Sessions that keep running.** Every session runs in the background while you work in another
+  one, and comes back with its history after Hangar restarts.
+- **Side by side.** Show two or four sessions at once and arrange them by dragging.
+- **Quick access.** A command palette finds sessions, programs and actions by name; every action has
+  a keyboard shortcut that never collides with the shells and agents themselves.
+- **Profiles as files.** Programs, arguments, working folders and environment variables are plain
+  configuration. Secret variables are stored in the operating system's credential store, never in
+  a file.
+
+### Staying in control
+
+- **Never miss a question.** The sidebar shows at a glance which agent is working, which one is done
+  and which one waits for you, with an optional sound, a desktop notification and a badge on the
+  taskbar icon.
+- **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
+  strength and pulse duration, previewed live in the settings.
+- **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it. One
+  click shows a sub-agent's task, text, tool calls and results beside the terminal as they happen;
+  finished ones can be cleared away. Recognizable keys and passwords are masked.
+- **Changes at a glance.** A side panel lists the files a session changed, with the changed lines.
+
+### Parallel work without collisions
+
+- **A worktree per session.** Start an agent in its own Git worktree with one click, so several
+  agents can change the same project at once. Worktree sessions get their own group in the sidebar,
+  and when such a session ends, Hangar removes its worktree again unless it still holds changes.
+- **Overlap warnings.** Hangar notices when two sessions change the same file or even the same
+  lines, and can ask you before an agent edits a file another session is working on.
+
+### Notes
+
+- **Notes beside the terminal.** Write notes per project or in general, capture a quick note with one
+  shortcut, or send selected terminal text straight into a note.
+- **Shared, encrypted notes.** Turn on shared notes for a project and they live encrypted in the
+  repository, so they travel with your commits. A recovery code makes sure they can always be
+  opened again.
+
+### Teams
+
+- **The Team window.** See which teammates are online, which agents they run and which files they
+  change, and reserve tasks so nobody works on the same thing twice. Devices join only after
+  confirmation, and everything shared is end-to-end encrypted.
+
+### Terminal and comfort
+
+- **A complete terminal.** Truecolor, hyperlinks, bracketed paste, search in the history and
+  export of a session.
+- **Paste screenshots.** Copy a screenshot and press Ctrl+V: Hangar saves the image and pastes its
+  path, so the agent can attach it.
+- **Snippets and broadcast.** Reusable text snippets, and one message sent to several sessions at
+  once.
+- **Your look.** Six terminal color schemes, each in light and dark, and four bundled coding fonts,
+  every one shown in its own colors and typeface. The app follows the system theme or your choice.
+- **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
+  Polish, Russian, Turkish, Greek, Japanese and Chinese.
+- **Always up to date.** Hangar updates itself with signed updates and offers updates for your agents
+  as well. Starting it a second time brings the running window to the front.
 
 ## Screenshots
 
