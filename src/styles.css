@@ -13,8 +13,6 @@
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
-  /* The middle tone of the drift, for the backdrop of the row actions. */
-  --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
   --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
@@ -106,7 +104,6 @@
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
-  --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -816,10 +813,10 @@ h2 .beta-badge {
 }
 
 /* The actions fade in at the right end of the row on hover or keyboard focus and lie over the
-   text and info lines, so the row reserves no width for them. Their strip takes the row's own
-   background (also mid-breath, as the computed color is inherited) and fades in from the left, so
-   the text beneath ends softly instead of being cut. They stay in the tab order (opacity, not
-   display: none). Inside the row's border, so the colored edge stays whole. */
+   text and info lines, so the row reserves no width for them. The strip itself is transparent,
+   as the user asked: only the buttons show, the row's text stays visible beneath them. They stay
+   in the tab order (opacity, not display: none). Inside the row's border, so the colored edge
+   stays whole. */
 .session-actions {
   position: absolute;
   inset: 0 0 0 auto;
@@ -828,30 +825,10 @@ h2 .beta-badge {
   align-items: center;
   gap: 2px;
   padding: 0 5px 0 2px;
-  background-color: inherit;
-  border-radius: 0 5px 5px 0;
+  background: transparent;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
-}
-
-/* The fade to the left of the buttons, in the same inherited background. */
-.session-actions::before {
-  position: absolute;
-  top: 0;
-  right: 100%;
-  bottom: 0;
-  width: 16px;
-  content: "";
-  pointer-events: none;
-  background-color: inherit;
-  mask-image: linear-gradient(to right, transparent, #000);
-}
-
-/* The active row's drifting light lies under the strip; the strip carries its middle tone. */
-.session.active:not(.attention) .session-actions,
-.session.active:not(.attention) .session-actions::before {
-  background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
 }
 
 .session:hover .session-actions,
