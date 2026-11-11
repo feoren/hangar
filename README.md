@@ -29,7 +29,7 @@ your own accounts, on your own machine. Open source under the MIT license.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code and Codex CLI side by side, and Aider waiting for an answer in the sidebar" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code and its sub-agents next to Codex CLI in its own worktree; the sidebar shows Aider waiting for an answer and two teammates online" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -37,13 +37,57 @@ your own accounts, on your own machine. Open source under the MIT license.
 - **All your agents in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more are
   found automatically, and every session keeps running in the background.
 - **Never miss a question.** Hangar shows when an agent waits for you, with an optional sound and
-  notification.
+  notification. Each state gets its own color and pulse.
 - **Side by side.** Two or four sessions at once, arranged by dragging.
-- **Agents that don't collide.** Each session can get its own copy of the project, and Hangar warns
-  when two sessions touch the same file.
-- **Notes, updates, restore.** Notes next to the terminal, one-click updates for Hangar and your
-  agents, and sessions that come back after a restart.
-- **Teams (coming soon).** See what your teammates' agents are working on, end-to-end encrypted.
+- **Watch sub-agents work.** The sub-agents of a Claude Code session appear under it in the
+  sidebar; one click shows a sub-agent's task, commands, paths and results beside the terminal.
+- **Agents that don't collide.** Each session can get its own worktree, and Hangar warns when two
+  sessions touch the same file.
+- **Notes, shared if you like.** Notes next to the terminal, private on your computer or shared
+  encrypted in the repository, so they travel with your commits.
+- **Teams.** The Team window shows what your teammates' agents work on and who holds which task,
+  end-to-end encrypted.
+- **Your look.** Six terminal color schemes in light and dark, and four bundled coding fonts.
+- **Small things that add up.** Paste screenshots straight into an agent, one-click updates for
+  Hangar and your agents, sessions that come back after a restart, and a single Hangar window that
+  comes to the front when you start it again.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-subagent-light.png">
+        <img alt="A Claude Code session with the activity log of its sub-agent 'Write retry tests' beside the terminal: the task, file reads, a failing test run and the fix" src="docs/images/hangar-subagent-dark.png">
+      </picture>
+      <br><sub>Follow a sub-agent's task, tool calls and results beside its session.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-light.png">
+        <img alt="The Team window over the terminals, listing two teammates with their sessions and states, and the reserved tasks of the project" src="docs/images/hangar-team-dark.png">
+      </picture>
+      <br><sub>See who on your team works on what, and reserve tasks.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-notes-light.png">
+        <img alt="The notes panel beside a terminal, with encrypted notes shared in the repository above notes kept only on this computer" src="docs/images/hangar-notes-dark.png">
+      </picture>
+      <br><sub>Keep notes private or share them encrypted with the repository.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-settings-light.png">
+        <img alt="Settings, Appearance: a live terminal preview, six color schemes shown in their own colors and the bundled terminal fonts" src="docs/images/hangar-settings-dark.png">
+      </picture>
+      <br><sub>Pick a color scheme and font, previewed live.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Install
 

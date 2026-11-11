@@ -1,11 +1,12 @@
-// Renders the README screenshots (docs/images/hangar-dark.png and hangar-light.png) from the real
-// frontend with a mocked backend (mock.ts) in a headless Chromium based browser.
+// Renders the README screenshots into docs/images from the real frontend with a mocked backend
+// (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
+// hangar-dark.png (the overview) and hangar-team-light.png.
 //
-// Usage: pnpm readme:shots
+// Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
 // Starts its own Vite server on a free port, never touches a running Hangar, and keeps all
-// temporary files (browser profile, raw images, Vite cache) under tests/.tmp/readme-shots, which
-// it removes at the end.
+// temporary files (browser profile, Vite cache) under tests/.tmp/readme-shots, which it removes at
+// the end.
 import react from "@vitejs/plugin-react";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -25,9 +26,99 @@ const WIDTH = 1296;
 const HEIGHT = 839;
 // Wide enough for the version and its beta badge in the sidebar header.
 const SIDEBAR_WIDTH = 320;
-const MAX_BYTES = 400 * 1024;
+const KB = 1024;
 const SCHEMES = ["dark", "light"];
 const TITLE = "README-SHOTS-HARNESS";
+
+/** Clicks the first element matching `selector` whose text contains `text` (if given). */
+const click = (selector, text = null) => `(() => {
+  const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
+  const target = all.find((el) => ${JSON.stringify(text)} === null || el.textContent.includes(${JSON.stringify(text)}));
+  if (!target) throw new Error("Nothing to click: " + ${JSON.stringify(`${selector} ${text ?? ""}`)});
+  target.click();
+  return true;
+})()`;
+
+/** True once an element matching `selector` exists whose text contains `text` (if given). */
+const shows = (selector, text = null) => `(() => {
+  const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
+  return all.some((el) => ${JSON.stringify(text)} === null || el.textContent.includes(${JSON.stringify(text)}));
+})()`;
+
+/** True once at least `count` sidebar rows say their session is working. */
+const working = (count) => `(() => {
+  const rows = [...document.querySelectorAll(".session")];
+  return rows.filter((row) => row.textContent.includes("working")).length >= ${count};
+})()`;
+
+/** Takes the focus away from where a click left it, so no focus ring shows. */
+const BLUR = `(() => {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  return true;
+})()`;
+
+/**
+ * Scrolls the element into view, aligned to the bottom of its scrolling parent. In Settings this
+ * brings the terminal preview, the color schemes and the fonts into one view.
+ */
+const reveal = (selector) => `(() => {
+  const element = document.querySelector(${JSON.stringify(selector)});
+  if (!element) return false;
+  element.scrollIntoView({ block: "end", behavior: "instant" });
+  return true;
+})()`;
+
+/**
+ * The scenes. `file`: the image name without scheme; `layout`: changes to the stored layout;
+ * `steps`: what to run once the app is up, each followed by what must show before the next.
+ */
+const SCENES = [
+  {
+    name: "overview",
+    file: "hangar",
+    maxBytes: 400 * KB,
+    steps: [{ ready: shows(".subagent-node", "Write retry tests") }, { ready: working(2) }],
+  },
+  {
+    name: "subagent",
+    file: "hangar-subagent",
+    maxBytes: 300 * KB,
+    steps: [
+      { ready: shows(".subagent-node", "Write retry tests") },
+      {
+        run: click(".subagent-node", "Write retry tests"),
+        ready: shows(".subagent-log .log-line", "Checking the timing"),
+      },
+    ],
+  },
+  {
+    name: "team",
+    file: "hangar-team",
+    maxBytes: 300 * KB,
+    steps: [
+      { ready: shows(".team-pill", "online") },
+      { run: click(".team-pill"), ready: shows(".team-window .team-peer", "Jonas Berg") },
+    ],
+  },
+  {
+    // The panel shows either the list or one note; the list is what tells shared notes apart.
+    name: "notes",
+    file: "hangar-notes",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", sideOpen: true, sideTab: "notes" },
+    steps: [{ ready: shows(".notes", "Release checklist") }],
+  },
+  {
+    name: "settings",
+    file: "hangar-settings",
+    maxBytes: 300 * KB,
+    steps: [
+      { run: click(".footer-settings"), ready: shows("[role=tab]", "Appearance") },
+      { run: click("[role=tab]", "Appearance"), ready: shows(".scheme-picker") },
+      { run: BLUR, ready: reveal(".font-picker") },
+    ],
+  },
+];
 
 const readJson = (file) => JSON.parse(readFileSync(path.join(REPO, file), "utf8"));
 
@@ -91,8 +182,28 @@ async function startVite(version) {
   return { server, url: `http://127.0.0.1:${port}/` };
 }
 
-/** Loads the scene in one color scheme and returns the raw screenshot. */
-async function render(page, url, scheme, version) {
+/**
+ * Stops every CSS animation on a fixed frame: finite ones (dialogs opening) at their end, endless
+ * ones at a fixed point of their cycle. The active row's drifting tint stops where its light
+ * band sits nicely inside the row.
+ */
+const FREEZE_ANIMATIONS = `(() => {
+  for (const animation of document.getAnimations()) {
+    const timing = animation.effect?.getComputedTiming();
+    const duration = typeof timing?.duration === "number" ? timing.duration : 0;
+    if (timing?.iterations !== Infinity) {
+      animation.finish();
+      continue;
+    }
+    animation.pause();
+    const point = animation.animationName === "active-drift" ? 0.35 : 0.5;
+    animation.currentTime = duration * point;
+  }
+  return true;
+})()`;
+
+/** Loads one scene in one color scheme and returns the raw screenshot. */
+async function render(page, url, scene, scheme, version) {
   await page.send("Emulation.setDeviceMetricsOverride", {
     width: WIDTH,
     height: HEIGHT,
@@ -100,10 +211,11 @@ async function render(page, url, scheme, version) {
     mobile: false,
   });
   await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await page.send("Emulation.setTimezoneOverride", { timezoneId: "UTC" }).catch(() => undefined);
   await page.send("Emulation.setEmulatedMedia", {
     features: [
       { name: "prefers-color-scheme", value: scheme },
-      { name: "prefers-reduced-motion", value: "reduce" },
+      { name: "prefers-reduced-motion", value: "no-preference" },
     ],
   });
 
@@ -113,8 +225,18 @@ async function render(page, url, scheme, version) {
     throw new Error(`${url} does not serve the screenshot harness.`);
   }
   const storage = {
-    "hangar.layout": { snapLayout: "pair", sidebarWidth: SIDEBAR_WIDTH, fontSize: 14 },
-    "hangar.settings": { language: "en", theme: "system", cursorBlink: false },
+    "hangar.layout": {
+      snapLayout: "pair",
+      sidebarWidth: SIDEBAR_WIDTH,
+      fontSize: 14,
+      ...scene.layout,
+    },
+    "hangar.settings": {
+      language: "en",
+      theme: "system",
+      cursorBlink: false,
+      subAgentExcerpts: true,
+    },
   };
   await page.evaluate(`(() => {
     localStorage.clear();
@@ -141,7 +263,7 @@ async function render(page, url, scheme, version) {
           version.textContent.includes(${JSON.stringify(shown)})
         );
       })()`),
-    { what: `four sessions, Codex working, Aider asking and version ${shown}` },
+    { what: `four sessions, agents working, Aider asking and version ${shown}` },
   );
   await page.evaluate("document.fonts.ready.then(() => true)");
   // The version (with its beta badge) must be readable, not cut off with an ellipsis. If this
@@ -153,15 +275,52 @@ async function render(page, url, scheme, version) {
   if (missing > 0) {
     throw new Error(`The version ${shown} is cut off in the sidebar header by ${missing} px.`);
   }
-  // Let the terminals settle, then move the pointer away and freeze the spinner.
+  for (const [index, step] of scene.steps.entries()) {
+    if (step.run) await page.evaluate(step.run);
+    await waitFor(() => page.evaluate(step.ready), {
+      what: `step ${index + 1} of the scene ${scene.name}`,
+    });
+  }
+  // Let the terminals settle, then move the pointer away, stop the spinners and the clock, and
+  // freeze every animation on a fixed frame.
   await sleep(1000);
   await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: WIDTH - 2, y: HEIGHT - 2 });
   await page.evaluate("window.__readmeShots.freeze = true");
-  await sleep(400);
+  // The app's clocks tick once a second; let them pick up the frozen time.
+  await sleep(1200);
+  await page.evaluate(FREEZE_ANIMATIONS);
+  await sleep(200);
   return page.screenshot();
 }
 
+/** Scene names from `--scene a --scene b` or `--scene a,b`; every scene without the option. */
+function chosenScenes(argv) {
+  const names = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--scene") names.push(...(argv[(i += 1)] ?? "").split(","));
+    else if (arg.startsWith("--scene=")) names.push(...arg.slice(8).split(","));
+    else throw new Error(`Unknown argument ${arg}. Usage: run.mjs [--scene <name>]...`);
+  }
+  if (names.length === 0) return SCENES;
+  const known = SCENES.map((scene) => scene.name);
+  const unknown = names.filter((name) => !known.includes(name));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown scene ${unknown.join(", ")}. Known: ${known.join(", ")}.`);
+  }
+  return SCENES.filter((scene) => names.includes(scene.name));
+}
+
+function removeWork() {
+  try {
+    rmSync(WORK, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (error) {
+    console.warn(`Could not remove ${WORK}: ${error instanceof Error ? error.message : error}`);
+  }
+}
+
 async function main() {
+  const scenes = chosenScenes(process.argv.slice(2));
   const version = appVersion();
   const browserPath = findBrowser();
   rmSync(WORK, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -173,32 +332,34 @@ async function main() {
     vite = await startVite(version);
     console.log(`Vite ${vite.url}, browser ${browserPath}, version ${version.version}`);
     page = await launchBrowser(browserPath, path.join(WORK, "profile"));
-    for (const scheme of SCHEMES) {
-      const raw = await render(page, vite.url, scheme, version);
-      writeFileSync(path.join(WORK, `raw-${scheme}.png`), raw);
-      const optimized = optimizePng(raw);
-      const { width, height } = pngSize(optimized);
-      if (width !== WIDTH || height !== HEIGHT) {
-        throw new Error(`${scheme}: got ${width} x ${height}, expected ${WIDTH} x ${HEIGHT}.`);
-      }
-      if (optimized.length > MAX_BYTES) {
-        throw new Error(
-          `${scheme}: ${optimized.length} bytes, more than the ${MAX_BYTES} allowed.`,
+    for (const scene of scenes) {
+      for (const scheme of SCHEMES) {
+        const raw = await render(page, vite.url, scene, scheme, version);
+        const optimized = optimizePng(raw);
+        const { width, height } = pngSize(optimized);
+        const name = `${scene.file}-${scheme}.png`;
+        if (width !== WIDTH || height !== HEIGHT) {
+          throw new Error(`${name}: got ${width} x ${height}, expected ${WIDTH} x ${HEIGHT}.`);
+        }
+        if (optimized.length > scene.maxBytes) {
+          throw new Error(
+            `${name}: ${optimized.length} bytes, more than the ${scene.maxBytes} allowed.`,
+          );
+        }
+        const target = path.join(OUT_DIR, name);
+        writeFileSync(target, optimized);
+        console.log(
+          `${path.relative(REPO, target)}: ${width} x ${height}, ${Math.round(optimized.length / KB)} KB` +
+            ` (raw ${Math.round(raw.length / KB)} KB)`,
         );
       }
-      const target = path.join(OUT_DIR, `hangar-${scheme}.png`);
-      writeFileSync(target, optimized);
-      console.log(
-        `${path.relative(REPO, target)}: ${width} x ${height}, ${Math.round(optimized.length / 1024)} KB` +
-          ` (raw ${Math.round(raw.length / 1024)} KB)`,
-      );
     }
     const problems = page.logs.filter((line) => /^(error|exception)|unmocked/i.test(line));
     if (problems.length > 0) console.warn(`Page reported:\n  ${problems.join("\n  ")}`);
   } finally {
     await page?.close().catch(() => undefined);
     await vite?.server.close().catch(() => undefined);
-    rmSync(WORK, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    removeWork();
   }
 }
 

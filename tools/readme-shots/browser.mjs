@@ -159,7 +159,9 @@ export async function launchBrowser(executable, profileDir) {
   const portFile = path.join(profileDir, "DevToolsActivePort");
   const [port, browserPath] = await waitFor(
     () => {
-      if (proc.exitCode !== null)
+      // Exit code 0 is fine: Edge may relaunch itself and hand the work to a new process, which
+      // then still writes the port file.
+      if (proc.exitCode !== null && proc.exitCode !== 0)
         throw new Error(`The browser exited early (code ${proc.exitCode}).`);
       if (!existsSync(portFile)) return null;
       const content = readFileSync(portFile, "utf8").split(/\r?\n/);
@@ -217,8 +219,9 @@ export async function launchBrowser(executable, profileDir) {
     /** Asks the browser to quit, kills it if it does not, and waits until it is gone. */
     async close() {
       cdp.close();
+      // Sent unconditionally: it also reaches a relaunched browser this process no longer owns.
+      await browser.send("Browser.close").catch(() => undefined);
       if (proc.exitCode === null) {
-        await browser.send("Browser.close").catch(() => undefined);
         const quit = await Promise.race([exited.then(() => true), sleep(5000).then(() => false)]);
         if (!quit) {
           proc.kill();

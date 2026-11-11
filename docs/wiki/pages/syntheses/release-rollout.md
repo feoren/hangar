@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
 created: 2026-11-07
-updated: 2026-11-10
+updated: 2026-11-11
 ---
 
 # Rolling out a release
@@ -48,13 +48,18 @@ collects its items under that same version without a date. `src/versionSync.test
      verifies a download; on Windows, compare `Get-FileHash Hangar-Setup.exe` with its line
 3. Refresh the README screenshots: `pnpm readme:shots`. It renders the real frontend with a mocked
    backend and a fictional scene (`tools/readme-shots/`) in headless Edge, Chrome or Chromium
-   (`README_SHOTS_BROWSER` picks a specific executable), writes `docs/images/hangar-dark.png` and
-   `hangar-light.png` (1296 x 839, at most 400 KB each) and cleans up after itself (temporary files
-   only under `tests/.tmp/readme-shots`). It runs its own Vite server on a free port and never
-   touches a running Hangar. Run it after `release.py` and not before: the script needs a clean
-   working tree and only then do the files carry `X.Y.Z+Build`, so the header in the screenshots
-   shows exactly the released version. Look at both images before committing.
-4. Commit the version change, the dated changelog and the two screenshots together:
+   (`README_SHOTS_BROWSER` picks a specific executable) and writes one image per scene and color
+   scheme into `docs/images/` (1296 x 839): the overview `hangar-dark.png` and `hangar-light.png`
+   (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for the scenes `subagent`,
+   `team`, `notes` and `settings` (at most 300 KB each). The README and the website use these
+   stable names. `--scene <name>` renders only some scenes. Times are deterministic: the mock runs
+   a fixed clock and the browser renders in UTC; animations stop on a fixed frame. It cleans up
+   after itself (temporary files only under `tests/.tmp/readme-shots`), runs its own Vite server
+   on a free port and never touches a running Hangar. Run it after `release.py` and not before:
+   the script needs a clean working tree and only then do the files carry `X.Y.Z+Build`, so the
+   header in the screenshots shows exactly the released version. Look at every image before
+   committing.
+4. Commit the version change, the dated changelog and the screenshots together:
    `chore: Version 0.2.0-31`.
 5. Publish; the script prints these commands, it never publishes by itself:
    1. `git push origin main`

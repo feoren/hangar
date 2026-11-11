@@ -396,3 +396,10 @@ Read tauri-plugin-single-instance 2.5.5 (Windows, Linux, macOS implementations),
 2.14.1 from the Cargo registry. Release builds register the plugin first; debug builds are exempt.
 Measured the plugin's own lock tests on Windows 11 (3 passed). Pages changed: [[single-instance]] (new),
 [[single-instance-lock-measurement]] (new).
+
+## [2026-11-11] query | README screenshots per scene
+`tools/readme-shots/` now renders five scenes in dark and light (overview, sub-agent log, Team
+window, notes with shared and local groups, Settings appearance) with stable file names, a fixed
+clock, UTC and animations frozen on a fixed frame; `--scene` picks some. Edge may relaunch itself
+with exit code 0 and keep running, so the driver waits for the DevTools port instead of failing
+and always sends `Browser.close`. Pages changed: [[release-rollout]].
