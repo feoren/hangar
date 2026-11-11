@@ -26,6 +26,11 @@ fn no_env() -> BTreeMap<String, String> {
     BTreeMap::new()
 }
 
+/// These tests check which version is read, not how fast a program starts. A cold Windows
+/// PowerShell on a CI runner took longer than the app's `version::TIMEOUT` of 5 s; the timeout
+/// itself has its own test.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[cfg(windows)]
 #[test]
 fn version_of_cmd_with_builtin_exception() {
@@ -34,7 +39,7 @@ fn version_of_cmd_with_builtin_exception() {
         &cmd,
         &version::version_args(None, &cmd),
         &no_env(),
-        version::TIMEOUT,
+        PROBE_TIMEOUT,
     )
     .unwrap();
     // "Microsoft Windows [Version 10.0.x.y]"
@@ -49,7 +54,7 @@ fn version_of_windows_powershell_is_not_the_windows_version() {
         &powershell,
         &version::version_args(None, &powershell),
         &no_env(),
-        version::TIMEOUT,
+        PROBE_TIMEOUT,
     )
     .unwrap();
     assert!(version.starts_with("5.1"), "{version}");
@@ -62,7 +67,7 @@ fn version_of_a_small_program() {
         &find("sh"),
         &args(&["-c", "echo tool 1.2.3"]),
         &no_env(),
-        version::TIMEOUT,
+        PROBE_TIMEOUT,
     );
     assert_eq!(version.as_deref(), Some("1.2.3"));
 }
@@ -73,7 +78,7 @@ fn stderr_counts_when_stdout_has_no_version() {
     let (program, list) = ("cmd", ["/d", "/c", "echo none & echo 4.5.6 1>&2 & exit 2"]);
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo none; echo 4.5.6 >&2; exit 2"]);
-    let version = version::probe(&find(program), &args(&list), &no_env(), version::TIMEOUT);
+    let version = version::probe(&find(program), &args(&list), &no_env(), PROBE_TIMEOUT);
     assert_eq!(version.as_deref(), Some("4.5.6"));
 }
 
@@ -84,7 +89,7 @@ fn profile_env_reaches_the_query() {
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo $HANGAR_TEST_VERSION"]);
     let env = BTreeMap::from([("HANGAR_TEST_VERSION".to_owned(), "3.14.15".to_owned())]);
-    let version = version::probe(&find(program), &args(&list), &env, version::TIMEOUT);
+    let version = version::probe(&find(program), &args(&list), &env, PROBE_TIMEOUT);
     assert_eq!(version.as_deref(), Some("3.14.15"));
 }
 
@@ -117,7 +122,7 @@ fn time_limit_kills_the_process_tree() {
 fn unknown_program_yields_no_version() {
     let missing = std::env::temp_dir().join("hangar-does-not-exist-4711");
     assert_eq!(
-        version::probe(&missing, &args(&["--version"]), &no_env(), version::TIMEOUT),
+        version::probe(&missing, &args(&["--version"]), &no_env(), PROBE_TIMEOUT),
         None
     );
 }
