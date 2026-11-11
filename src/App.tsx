@@ -179,6 +179,7 @@ import {
   type Shortcut,
 } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
+import { useSidebarMotion } from "./sidebarMotion";
 import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
@@ -409,6 +410,9 @@ export function App() {
   const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>(loadLayout);
+  /** The app grid; its sidebar column glides when the sidebar folds (sidebarMotion.ts). */
+  const appGrid = useRef<HTMLDivElement>(null);
+  useSidebarMotion(appGrid, layout.collapsed, layout.sidebarWidth);
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
@@ -3428,7 +3432,11 @@ export function App() {
 
   return (
     <I18nContext.Provider value={t}>
-      <div className="app" style={{ gridTemplateColumns: `${String(sidebarColumn)}px 1fr` }}>
+      <div
+        ref={appGrid}
+        className="app"
+        style={{ gridTemplateColumns: `${String(sidebarColumn)}px 1fr` }}
+      >
         <Sidebar
           sessions={state.sessions}
           activeId={state.activeId}

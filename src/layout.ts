@@ -3,6 +3,7 @@
 // Remembered per machine in localStorage; without storage, the defaults apply.
 
 export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
+/** Same value as --sidebar-rail in styles.css. */
 export const SIDEBAR_RAIL_WIDTH = 52;
 export const FOOTER_HEIGHT = { min: 110, default: 330 } as const;
 /** At least this much room stays for the session list above the profile area. */

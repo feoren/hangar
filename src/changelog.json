@@ -16,6 +16,20 @@
         "ru": "Сеансы теперь показывают сначала папку проекта, а под ней программу. Тихий сеанс теперь отмечен как «на паузе».",
         "tr": "Oturumlar önce proje klasörünü, altında programı gösterir. Sessiz bir oturum artık “mola veriyor” der.",
         "zh": "会话现在先显示项目文件夹，程序显示在下方。空闲的会话现在显示为“休息中”。"
+      },
+      {
+        "de": "Die Seitenleiste klappt sanft auf und zu, und die Zeile mit deinem Namen bleibt immer ganz unten.",
+        "en": "The sidebar now folds in and out smoothly, and the row with your name always stays at the very bottom.",
+        "el": "Η πλευρική στήλη ανοίγει και κλείνει ομαλά, και η γραμμή με το όνομά σου μένει πάντα στο κάτω μέρος.",
+        "es": "La barra lateral se pliega y despliega con suavidad, y la fila con tu nombre queda siempre abajo del todo.",
+        "fr": "La barre latérale se replie et se déplie en douceur, et la ligne avec ton nom reste toujours tout en bas.",
+        "it": "La barra laterale si chiude e si apre in modo fluido, e la riga con il tuo nome resta sempre in fondo.",
+        "ja": "サイドバーが滑らかに開閉するようになり、名前の行は常に一番下に表示されます。",
+        "pl": "Pasek boczny płynnie się zwija i rozwija, a wiersz z twoim imieniem zawsze zostaje na samym dole.",
+        "pt": "A barra lateral recolhe e expande com suavidade, e a linha com o teu nome fica sempre no fundo.",
+        "ru": "Боковая панель теперь плавно сворачивается и разворачивается, а строка с твоим именем всегда остаётся внизу.",
+        "tr": "Kenar çubuğu artık yumuşakça açılıp kapanır ve adının olduğu satır hep en altta kalır.",
+        "zh": "侧边栏现在可以平滑地折叠和展开，带有你名字的那一行始终固定在最底部。"
       }
     ]
   },

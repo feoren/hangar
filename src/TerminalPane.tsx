@@ -5,6 +5,7 @@ import { Badge } from "./Badge";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
+import { sidebarMotion } from "./sidebarMotion";
 import type { SessionView } from "./sessions";
 import { zoneRect, type LayoutId } from "./snapLayouts";
 import type { SessionTerminal } from "./terminal";
@@ -78,12 +79,17 @@ export function TerminalPane(props: Props) {
     const element = host.current;
     if (!element) return;
     terminal.mount(element);
-    const observer = new ResizeObserver(() => {
+    const fit = () => {
       terminal.fit();
+    };
+    // While the sidebar folds, the fit waits for the end of the motion (sidebarMotion.ts).
+    const observer = new ResizeObserver(() => {
+      sidebarMotion.whenSettled(fit);
     });
     observer.observe(element);
     return () => {
       observer.disconnect();
+      sidebarMotion.forget(fit);
     };
   }, [terminal]);
 

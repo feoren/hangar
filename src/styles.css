@@ -63,6 +63,11 @@
   --snap-zone: color-mix(in srgb, var(--muted) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
+  /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
+  --sidebar-rail: 52px;
+  /* Folding the sidebar: quick, settles softly, no overshoot. */
+  --sidebar-motion: 220ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
   /* Sidebar geometry: the round collapse toggle sits on the crossing of the sidebar's right border
      and the line below its header; both positions derive from these, in both sidebar states. */
   --hairline: 1px;
@@ -173,6 +178,48 @@ select:focus-visible,
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   height: 100%;
+  transition: grid-template-columns var(--sidebar-motion) var(--ease-out);
+}
+
+/* Dragging the edge follows the pointer without lag. */
+body.resizing-vertical .app {
+  transition: none;
+}
+
+/* While the sidebar folds (sidebarMotion.ts), its content keeps its final layout instead of
+   reflowing every frame: expanded, the content is laid out at the full width and the growing
+   column uncovers it (the workspace, painted later, hides the rest); collapsed, the rail sits at
+   its own width and the panel shrinks onto it. The new content fades in. */
+.sidebar-moving > .sidebar:not(.collapsed) > :not(.edge-toggle, .sidebar-edge) {
+  min-width: var(--sidebar-open, var(--sidebar-width));
+}
+
+.sidebar-moving > .sidebar.collapsed {
+  padding-right: calc(100% - var(--sidebar-rail));
+}
+
+.sidebar-moving > .sidebar > :not(.edge-toggle, .sidebar-edge) {
+  animation: sidebar-fade var(--sidebar-motion) var(--ease-out);
+}
+
+.sidebar-moving > .body {
+  background: var(--bg);
+}
+
+@keyframes sidebar-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app {
+    transition: none;
+  }
+
+  .sidebar-moving > .sidebar > :not(.edge-toggle, .sidebar-edge) {
+    animation: none;
+  }
 }
 
 /* Sidebar */
