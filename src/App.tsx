@@ -479,8 +479,10 @@ export function App() {
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   /** Session whose marker is being edited. */
   const [markerId, setMarkerId] = useState<number | null>(null);
-  /** Session menu (right click on a session), open at this position. */
+  /** Session menu (right click on a session, or a row's "More actions" button), open here. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** The button that opened the session menu, so a second click closes it instead of reopening. */
+  const sessionMenuAnchor = useRef<HTMLElement | null>(null);
   /**
    * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
    * is the active one; switching sessions or arranging the panes ends the view.
@@ -2514,7 +2516,7 @@ export function App() {
   };
 
   /**
-   * "Show project folder" (row button or session menu): on the active session it toggles the tree,
+   * "Show project folder" in the session menu: on the active session it toggles the file tree,
    * on any other it switches to that session first, since the tree follows the active one.
    */
   const toggleFilesOf = (id: number) => {
@@ -3492,8 +3494,6 @@ export function App() {
           updates={programUpdates.updates}
           notesOpen={notesShown}
           onToggleNotes={toggleNotes}
-          filesOpen={filesShown}
-          onToggleFiles={toggleFilesOf}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
@@ -3553,15 +3553,11 @@ export function App() {
           onToggleFavorite={(path) => {
             setFolders((current) => toggleFavorite(current, path));
           }}
-          onRestart={(id) => {
-            void restart(id);
-          }}
-          onKill={kill}
-          onClose={requestClose}
           onRename={(id, title) => {
             void rename(id, title);
           }}
-          onSessionMenu={(id, x, y) => {
+          onSessionMenu={(id, x, y, anchor) => {
+            sessionMenuAnchor.current = anchor ?? null;
             setSessionMenu({ id, x, y });
           }}
           drag={
@@ -3693,6 +3689,7 @@ export function App() {
                     }}
                     onMaximize={splitView.maximize}
                     onHeaderMenu={(id, x, y) => {
+                      sessionMenuAnchor.current = null;
                       setSessionMenu({ id, x, y });
                     }}
                   >
@@ -4293,6 +4290,7 @@ export function App() {
             items={sessionItems}
             label={t("session.menu")}
             position={sessionMenu}
+            anchor={sessionMenuAnchor}
             onClose={() => {
               setSessionMenu(null);
               focusActive();

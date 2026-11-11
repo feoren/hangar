@@ -61,7 +61,7 @@ const COLOR_NAMES: Record<LookPresetId, MessageKey> = {
   pink: "color.pink",
 };
 
-/** What the preview row says, exactly like a session in the sidebar; its left stroke shows the state. */
+/** What the preview row says, exactly like a session in the sidebar; its left bar shows the state. */
 const PREVIEWS: Record<LookState, MessageKey> = {
   working: "status.working",
   done: "status.attention",

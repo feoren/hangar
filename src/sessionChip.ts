@@ -1,5 +1,5 @@
-// What a session's state looks like in the sidebar. Expanded rows carry a stroke along their
-// rounded left edge in the state's color; the collapsed rail keeps a small chip at the badge's corner. Each
+// What a session's state looks like in the sidebar. Expanded rows carry a thin bar at their left
+// edge in the state's color; the collapsed rail keeps a small chip at the badge's corner. Each
 // state has its own shape there (a check for done, a bell for a question, an exclamation mark for
 // a failed exit), and the row's status line always says it in words, so color is never the only
 // signal. Pure, so the rules can be tested.
@@ -63,11 +63,11 @@ export function rowLook(
   return state === "working" ? "working" : "idle";
 }
 
-/** Color of a row's left stroke: a state look, or one of the states without a look of their own. */
+/** Color of a row's left bar: a state look, or one of the states without a look of their own. */
 export type BarState = LookState | "starting" | "ended" | "failed";
 
 /**
- * The left stroke of a session row. A failed exit wins over waiting (the error is the news), then the
+ * The left bar of a session row. A failed exit wins over waiting (the error is the news), then the
  * row's look; a session without one is either still starting or has ended.
  */
 export function rowBar(

@@ -671,11 +671,3 @@ menu paste uses the clipboard plugin.
     "⋯" button laid over the row end on hover or focus (no reserved width) or by right click; the
     run time moved into the row's tooltip, the context meter became a 2 px track along the row's
     bottom edge.
-    Revised in 0.5.0 after the owner's review: the flat bar became a 3 px stroke along the row's
-    rounded left edge (clipped by the row's corners, so it curves at both ends), noticeably
-    stronger (working 85 %, pause 62 % of the state color, waiting and failed full), the working
-    shimmer travelling inside the same clip. The "⋯" button gave way to the four direct actions
-    again (rename, show project folder as a toggle on every row, end or restart, close), now as a
-    22 px 2 x 2 grid over the row end with the row's inherited background and a short left fade;
-    the double click guard (`SessionActionGuard` in `src/timing.ts`) is back. Right click keeps the
-    full session menu.

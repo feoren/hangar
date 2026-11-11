@@ -1,5 +1,5 @@
 // Session menu (right click or context menu key on a session in the sidebar, the rail or a pane
-// header). Pure: the entries depend only on the
+// header, and the "More actions" button of a sidebar row). Pure: the entries depend only on the
 // session's state; the caller attaches what each action does.
 
 import type { Translate } from "./i18n";
