@@ -662,12 +662,3 @@ menu paste uses the clipboard plugin.
     waiting session then fails; requests within 150 ms merge (failure wins), then 2 s of silence.
     No chime before the first click or key press in the window (the engine keeps audio suspended
     until then), and none whose audio resume takes longer than 500 ms, so a chime never sounds late.
-    Superseded in 0.5.0 for expanded rows (owner's request: the chip and the four hover icons took
-    too much width and cut the last line short): every row carries a 3 px state bar at its left
-    edge (`rowBar` in `src/sessionChip.ts`; working shimmers along it for one pulse length of
-    "working", static with reduced motion; done and asks firm, pause faint, starting and ended
-    muted, failed red); the active row is marked by its raised background and an accent outline;
-    the chip remains only in the rail; the actions moved into the session menu, opened by a single
-    "⋯" button laid over the row end on hover or focus (no reserved width) or by right click; the
-    run time moved into the row's tooltip, the context meter became a 2 px track along the row's
-    bottom edge.

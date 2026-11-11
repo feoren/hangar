@@ -1,7 +1,6 @@
 // CSS custom properties for the state looks (stateLook.ts). The app sets them on the root; the
 // classes `look-working`, `look-done`, `look-asks` and `look-idle` in styles.css hand them to a
-// row, so the sidebar rows and their state bars, the rail, its chips and the settings preview all
-// follow one source.
+// row, so the sidebar, the rail, the chips and the settings preview all follow one source.
 
 import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
 import {
@@ -36,7 +35,7 @@ function stateVariables(looks: StateLooks, state: LookState, theme: Theme): [str
         : `color-mix(in srgb, ${tint} ${percent(levels.still)}, var(--panel))`,
     ],
     [`${prefix}-strong`, themed ? "var(--ok)" : edges.strong],
-    // For text in this color, which needs 4.5 : 1 instead of 3 : 1.
+    // The "working" chip label is text in this color, so it needs 4.5 : 1 instead of 3 : 1.
     [`${prefix}-text`, themed ? "var(--ok)" : edges.text],
     [`${prefix}-ring`, edges.ring],
     [`${prefix}-chip-bg`, edges.chipBg],

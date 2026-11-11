@@ -73,7 +73,7 @@ export function attentionTint(color: string, theme: Theme): AttentionTint {
 
 /** Edge, ring and chip of a waiting session; non-text parts need 3 : 1 against the sidebar. */
 const EDGE_CONTRAST = 3;
-/** Text in the state color itself needs 4.5 : 1. */
+/** Text in the state color itself (the "working" chip label) needs 4.5 : 1. */
 const TEXT_CONTRAST = 4.5;
 
 export interface AttentionEdges {

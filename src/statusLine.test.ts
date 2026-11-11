@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
-import {
-  detailLine,
-  detailSummary,
-  formatDuration,
-  NO_ACTIVITY,
-  runtimeText,
-  statusLine,
-} from "./statusLine";
+import { detailLine, formatDuration, NO_ACTIVITY, statusLine } from "./statusLine";
 import type { SessionView } from "./sessions";
 
 const MINUTE = 60_000;
@@ -117,25 +110,5 @@ describe("detailLine", () => {
 
   it("leaves out the run time of an ended session", () => {
     expect(detailLine(session({ status: "exited" }), null, NOW, "en").runtime).toBeNull();
-  });
-});
-
-describe("detailSummary and runtimeText", () => {
-  it("joins folder, branch and run time for a tooltip", () => {
-    const line = detailLine(session(), "main", NOW, "en");
-    expect(detailSummary(line, t)).toBe(
-      [
-        "hangar",
-        t("session.branch", { branch: "main" }),
-        t("session.runtime", { duration: "1 hr" }),
-      ].join(" · "),
-    );
-    expect(runtimeText(line, t)).toBe(t("session.runtime", { duration: "1 hr" }));
-  });
-
-  it("leaves out what is unknown", () => {
-    const line = detailLine(session({ status: "exited" }), null, NOW, "en");
-    expect(detailSummary(line, t)).toBe("hangar");
-    expect(runtimeText(line, t)).toBe("");
   });
 });

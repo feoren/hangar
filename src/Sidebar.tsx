@@ -16,11 +16,13 @@ import {
   ChevronIcon,
   CloseIcon,
   DownloadIcon,
+  EditIcon,
   FolderIcon,
   HangarLogo,
-  MoreIcon,
   OverlapIcon,
   PlusIcon,
+  RestartIcon,
+  StopIcon,
   WorktreeIcon,
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
@@ -45,26 +47,18 @@ import { sessionLabels, type SessionLabel } from "./sessionLabel";
 import { SidebarFooter } from "./SidebarFooter";
 import {
   detailLine,
-  detailSummary,
-  runtimeText,
   statusLine,
   STATUS_TICK_MS,
   type Activity,
   type DetailLine,
 } from "./statusLine";
 import type { ThemeSetting } from "./theme";
-import {
-  barClass,
-  railShowsChip,
-  rowBar,
-  rowLook,
-  sessionChip,
-  type ChipKind,
-} from "./sessionChip";
+import { rowLook, sessionChip, type ChipKind } from "./sessionChip";
 import { lookClass } from "./stateLook";
 import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
+import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
@@ -82,6 +76,10 @@ interface Props {
   updates: ProgramUpdates;
   notesOpen: boolean;
   onToggleNotes: () => void;
+  /** The right panel shows the active session's folder as a file tree. */
+  filesOpen: boolean;
+  /** The folder button on the active row: shows or hides that file tree. */
+  onToggleFiles: () => void;
   /** Launchable entries in the chosen order, hidden ones left out. */
   startable: Profile[];
   /** Installed entries exist, but all of them are hidden. */
@@ -149,12 +147,12 @@ interface Props {
   /** Back from a chosen folder to the default target. */
   onResetTarget: () => void;
   onToggleFavorite: (path: string) => void;
+  onRestart: (id: number) => void;
+  onKill: (id: number) => void;
+  onClose: (id: number) => void;
   onRename: (id: number, title: string) => void;
-  /**
-   * Right click or context menu key on a session, or its "More actions" button: the session menu
-   * at this point. `anchor`: the button that opened it.
-   */
-  onSessionMenu: (id: number, x: number, y: number, anchor?: HTMLElement) => void;
+  /** Right click or context menu key on a session: the session menu at this point. */
+  onSessionMenu: (id: number, x: number, y: number) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
   drag: { id: number; line: DropLine | null } | null;
   /** Mouse down on a session row: may become a drag (useSessionDrag). */
@@ -214,6 +212,7 @@ export function Sidebar(props: Props) {
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
   const refocusToggle = useRef(false);
   const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const [guard] = useState(() => new SessionActionGuard());
   const newButton = useRef<HTMLButtonElement>(null);
   /** Program picker of the collapsed bar, open at this position. */
   const [programMenu, setProgramMenu] = useState<{ x: number; y: number } | null>(null);
@@ -222,6 +221,22 @@ export function Sidebar(props: Props) {
   const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(
     null,
   );
+  const onClose = (id: number) => {
+    if (!guard.allows()) return;
+    guard.closed();
+    props.onClose(id);
+  };
+  const onKill = (id: number) => {
+    if (!guard.allows()) return;
+    guard.killed(id);
+    props.onKill(id);
+  };
+  const onRestart = (id: number) => {
+    if (guard.allowsRestart(id)) props.onRestart(id);
+  };
+  const onRename = (id: number) => {
+    if (guard.allows()) props.onRenameStart(id);
+  };
   /**
    * Alt+Up / Alt+Down on a row: one place up or down within its group; the focus stays on the
    * moved row.
@@ -502,7 +517,7 @@ export function Sidebar(props: Props) {
                     title={[
                       `${name} · ${status}`,
                       props.overlaps.get(session.id) ?? "",
-                      detailSummary(where, t),
+                      detailText(where, t),
                       session.worktree
                         ? t("worktree.sessionHint", {
                             branch: revealInvisible(session.worktree.branch),
@@ -561,7 +576,7 @@ export function Sidebar(props: Props) {
                     )}
                     {railShowsChip(chip) ? (
                       <span className="rail-chip">
-                        <StatusChip kind={chip} />
+                        <StatusChip kind={chip} compact />
                       </span>
                     ) : (
                       <span
@@ -690,6 +705,10 @@ export function Sidebar(props: Props) {
             moveHint={moveHint}
             placement={props.placements.get(session.id) ?? null}
             {...props}
+            onClose={onClose}
+            onKill={onKill}
+            onRestart={onRestart}
+            onRenameStart={onRename}
             onRowKey={onRowKey}
           />
           {/* The tree belongs to the row above it; as its own item, the row's layout stays. */}
@@ -1164,6 +1183,17 @@ function UpdateNotice({
   }
 }
 
+/** Second status line as one text for tooltips: folder, branch and run time. */
+function detailText(line: DetailLine, t: ReturnType<typeof useT>): string {
+  return [
+    line.folder,
+    line.branch === null ? "" : t("session.branch", { branch: revealInvisible(line.branch) }),
+    line.runtime === null ? "" : t("session.runtime", { duration: line.runtime }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /** Line "PowerShell 7 · 7.6.9" for tooltips; nothing without a known version. */
 function programLine(profile: Profile | undefined, versions: ProgramVersions): string {
   const version = profile ? versions.get(profile.id) : undefined;
@@ -1209,11 +1239,16 @@ function SessionItem({
   onRowKey,
   onDragStart,
   onActivate,
+  onRestart,
+  onKill,
+  onClose,
   onRename,
   onRenameStart,
   onRenameEnd,
   onSessionMenu,
   overlaps,
+  filesOpen,
+  onToggleFiles,
   language,
 }: ItemProps) {
   const t = useT();
@@ -1239,8 +1274,6 @@ function SessionItem({
 
   return (
     <li className={className} data-session-row={session.id} data-session-group={group}>
-      {/* The state's color at the left edge; the status line below the title says it in words. */}
-      <span className={barClass(rowBar(session, state, chip))} aria-hidden="true" />
       {editing ? (
         <div className="session-main">
           <Badge look={look} />
@@ -1281,7 +1314,6 @@ function SessionItem({
               : "",
             session.cwd,
             program,
-            runtimeText(where, t),
             placement !== null ? placementText(t, placement) : "",
             t("session.renameHint"),
             moveHint,
@@ -1323,6 +1355,7 @@ function SessionItem({
                   <span className="sr-only">{gateOff}</span>
                 </span>
               )}
+              {placement !== null && <LayoutGlyph placement={placement} />}
             </span>
             <span className="session-meta">
               <span className={`dot ${waiting ? "attention" : session.status}`} />
@@ -1331,7 +1364,6 @@ function SessionItem({
               </span>
             </span>
             <span className="session-detail">
-              {placement !== null && <LayoutGlyph placement={placement} />}
               <span className="session-path">{place}</span>
               {session.worktree ? (
                 <span className="session-branch worktree">
@@ -1361,33 +1393,79 @@ function SessionItem({
                   </span>
                 )
               )}
+              {where.runtime !== null && (
+                <span className="session-runtime">
+                  <span aria-hidden="true">·</span>
+                  <span className="sr-only">
+                    {t("session.runtime", { duration: where.runtime })}
+                  </span>
+                  <span aria-hidden="true">{where.runtime}</span>
+                </span>
+              )}
+              <ContextMeter sessionId={session.id} language={language} />
             </span>
           </span>
-          {/* A hair-thin track along the row's bottom edge; positioned against the row. */}
-          <ContextMeter sessionId={session.id} language={language} />
         </button>
       )}
-      {/* One quiet button instead of a row of icons: it lies over the row's end on hover or
-          focus, so the row keeps its full width for the text. The menu is the session menu. */}
-      {!editing && (
-        <div className="session-more">
+      {!editing && chip !== null && <StatusChip kind={chip} />}
+      <div className="session-actions">
+        {active && !editing && (
           <button
             type="button"
-            className="icon-button"
-            aria-label={t("session.more")}
-            aria-haspopup="menu"
-            title={t("session.more")}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              onSessionMenu(session.id, rect.left, rect.bottom + 4, event.currentTarget);
+            className="icon-button session-files"
+            aria-label={t("files.show")}
+            aria-pressed={filesOpen}
+            title={t("files.show")}
+            onClick={onToggleFiles}
+          >
+            <FolderIcon />
+          </button>
+        )}
+        {!editing && (
+          <IconButton
+            label={t("session.rename")}
+            onClick={() => {
+              onRenameStart(session.id);
             }}
           >
-            <MoreIcon />
-          </button>
-        </div>
-      )}
+            <EditIcon />
+          </IconButton>
+        )}
+        {exited ? (
+          <IconButton
+            label={t("session.restart")}
+            onClick={() => {
+              onRestart(session.id);
+            }}
+          >
+            <RestartIcon />
+          </IconButton>
+        ) : (
+          <IconButton
+            label={t("session.kill")}
+            onClick={() => {
+              onKill(session.id);
+            }}
+          >
+            <StopIcon />
+          </IconButton>
+        )}
+        <IconButton
+          label={exited ? t("session.close") : t("session.killAndClose")}
+          onClick={() => {
+            onClose(session.id);
+          }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </div>
     </li>
   );
+}
+
+/** The rail is narrow: only waiting and failed sessions trade their dot for the chip's shape. */
+function railShowsChip(chip: ChipKind | null): chip is "done" | "asks" | "failed" {
+  return chip === "done" || chip === "asks" || chip === "failed";
 }
 
 /**
@@ -1424,4 +1502,26 @@ function openSessionMenu(
   }
   const rect = event.currentTarget.getBoundingClientRect();
   open(id, rect.left + 24, rect.bottom);
+}
+
+function IconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
 }

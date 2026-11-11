@@ -6,7 +6,6 @@ import type { AttentionReason, AttentionState } from "./attention";
 import { folderName } from "./folders";
 import { statusText } from "./format";
 import type { Translate } from "./i18n";
-import { revealInvisible } from "./invisible";
 import type { SessionView } from "./sessions";
 
 const MINUTE = 60_000;
@@ -87,23 +86,4 @@ export function detailLine(
     branch,
     runtime: session.status === "exited" ? null : formatDuration(now - session.createdAt, language),
   };
-}
-
-/** The detail line as one text for tooltips: "hangar · Branch main · running for 1 hr". */
-export function detailSummary(line: DetailLine, t: Translate): string {
-  return [
-    line.folder,
-    line.branch === null ? "" : t("session.branch", { branch: revealInvisible(line.branch) }),
-    runtimeText(line, t),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-/**
- * "running for 11 min" for the row's tooltip; the row itself leaves the run time out to keep its
- * last line short. Empty for an ended session or one younger than a minute.
- */
-export function runtimeText(line: DetailLine, t: Translate): string {
-  return line.runtime === null ? "" : t("session.runtime", { duration: line.runtime });
 }

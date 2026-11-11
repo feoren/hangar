@@ -10,17 +10,10 @@
   --accent: #5aa9ff;
   /* Own git worktree: a dark green, apart from the accent blue and the brighter "running" green. */
   --worktree: #3f9a6e;
-  /* Active session row: the bluish tint that drifts slowly behind it, and the left bar width (the
-     rail's active session; in the expanded sidebar the bar shows the session's state instead). */
+  /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
-  /* The middle of the drift, for parts of the row that lie over it without drifting along. */
-  --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
-  /* Thin outline that marks the active row in the expanded sidebar. */
-  --active-ring: color-mix(in srgb, var(--accent) 45%, transparent);
   --active-bar: 3px;
-  /* State bar at the left edge of every session row. */
-  --state-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
   /* Text on the warn color (the count of open team requests). */
@@ -82,6 +75,8 @@
   --sidebar-rule-gap: 4px;
   /* Odd, so its middle falls on a pixel center like the 1 px lines it sits on. */
   --edge-toggle-size: 23px;
+  /* Session row: three 26 px action buttons, two 2 px gaps, 6 px right padding. */
+  --row-actions-width: 88px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -108,8 +103,6 @@
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
-  --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
-  --active-ring: color-mix(in srgb, var(--accent) 50%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -380,107 +373,16 @@ h2 .beta-badge {
   margin-bottom: 2px;
 }
 
-/* Keyboard focus on the row's "More actions" button lights the row like the pointer does, so the
-   button's fade has a background to blend into. */
-.session:hover,
-.session:has(.session-more :focus-visible) {
+.session:hover {
   background: var(--hover);
 }
 
-/* The active row: raised, lit and outlined. Its left bar shows the session's state like every
-   other row, so the active mark never fights the state color. */
 .session.active {
   background: var(--panel-raised);
-  box-shadow: inset 0 0 0 1px var(--active-ring);
+  box-shadow: inset var(--active-bar) 0 0 var(--accent);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
   isolation: isolate;
 }
-
-/* --- State bar (sessionChip.ts, rowBar) ---
-   A slim bar at the left edge of every row in the state's color from the attention settings:
-   working shimmers calmly along it, waiting (done, asks) stands firm, pause is a quiet trace,
-   starting and ended stay muted, a failed exit is red. The status line names the state in words. */
-.session-bar {
-  position: absolute;
-  top: 7px;
-  bottom: 7px;
-  left: 0;
-  z-index: 1;
-  width: var(--state-bar);
-  overflow: hidden;
-  pointer-events: none;
-  background-color: var(--bar-color, transparent);
-  border-radius: 0 2px 2px 0;
-  transition: background-color 240ms ease;
-}
-
-.bar-working {
-  --bar-color: color-mix(in srgb, var(--row-strong) 55%, transparent);
-}
-
-.bar-done,
-.bar-asks {
-  --bar-color: var(--attention-strong);
-}
-
-.bar-idle {
-  --bar-color: color-mix(in srgb, var(--row-strong) 38%, transparent);
-}
-
-.bar-starting {
-  --bar-color: color-mix(in srgb, var(--warn) 60%, transparent);
-}
-
-.bar-ended {
-  --bar-color: color-mix(in srgb, var(--muted) 35%, transparent);
-}
-
-.bar-failed {
-  --bar-color: var(--error);
-}
-
-/* Working: a soft light travels down the bar, one pass per pulse length of "working" (the same
-   duration the settings offer for its breathing). Only transform moves, so it costs no layout. */
-.bar-working::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  background-image: linear-gradient(
-    to bottom,
-    transparent 0%,
-    var(--row-strong) 50%,
-    transparent 100%
-  );
-  transform: translateY(-100%);
-  animation: bar-shimmer var(--look-working-seconds, 2.8s) ease-in-out infinite;
-}
-
-@keyframes bar-shimmer {
-  from {
-    transform: translateY(-100%);
-  }
-
-  to {
-    transform: translateY(100%);
-  }
-}
-
-/* Without motion: no travelling light, the bar stands in the full working color. */
-@media (prefers-reduced-motion: reduce) {
-  .session-bar {
-    transition: none;
-  }
-
-  .bar-working {
-    --bar-color: var(--row-strong);
-  }
-
-  .bar-working::after {
-    display: none;
-  }
-}
-
-/* --- End of state bar --- */
 
 /* A little lighter (dark) or darker (light) than elsewhere, so the status lines keep 4.5:1 on the
    tint's strongest point. */
@@ -573,11 +475,13 @@ h2 .beta-badge {
   min-width: 0;
 }
 
-/* Where the session sits in the split view: the layout in miniature at the start of the row's
-   last line, before the program, its own zone filled. */
+/* Where the session sits in the split view: the layout in miniature at the end of the title line,
+   its own zone filled. It stays visible on hover, left of the row's actions. */
 .layout-glyph {
   display: inline-flex;
   flex: none;
+  margin-left: auto;
+  padding-left: 4px;
   line-height: 0;
 }
 
@@ -643,35 +547,32 @@ h2 .beta-badge {
   opacity: 0.85;
 }
 
-.session-branch {
+.session-branch,
+.session-runtime {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
 
 /* --- Context meter of a session row (ContextMeter.tsx) ---
-   A 2 px track along the bottom edge of the row's text, from below the badge's right edge to the
-   row's end, filled by the share; no text in the row. It lies in the row's bottom padding, so the
-   row keeps its height. The element is taller than the track, so its tooltip is easy to hit.
-   From 80 % the fill takes the warning color. */
+   A hair-thin bar and the share, as quiet as the rest of the line; the path gives way first.
+   From 80 % the bar and number take the warning color. */
 .session-context {
-  position: absolute;
-  right: 10px;
-  bottom: 0;
-  /* Where the text starts: the button's 8 px padding, the 26 px badge and the 10 px gap. */
-  left: 44px;
-  display: flex;
-  align-items: flex-end;
-  height: 8px;
-  padding-bottom: 3px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
-.session-context-track {
+.session-context-bar {
   position: relative;
-  flex: 1;
-  height: 2px;
+  width: 36px;
+  height: 3px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
   border-radius: 999px;
 }
 
@@ -682,6 +583,10 @@ h2 .beta-badge {
   background: var(--accent);
   border-radius: inherit;
   transition: width 0.4s ease;
+}
+
+.session-context.high {
+  color: var(--warn);
 }
 
 .session-context.high .session-context-fill {
@@ -697,8 +602,8 @@ h2 .beta-badge {
 /* --- End of context meter --- */
 
 /* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
-   an ellipsis, the program or folder keeps up to 60 % of the line and yields after it. Typical
-   rows ("Claude Code · main") fit whole at the default width. */
+   an ellipsis, the folder keeps up to half of the line and yields after it, the run time stays
+   whole. */
 .session-branch {
   flex: 0 1 auto;
   min-width: 30px;
@@ -707,7 +612,7 @@ h2 .beta-badge {
 
 .session-detail .session-path {
   flex: 0 1 auto;
-  max-width: 60%;
+  max-width: 50%;
 }
 
 .session-branch svg {
@@ -822,10 +727,10 @@ h2 .beta-badge {
   --row-ring-pulse: var(--look-asks-ring-pulse);
 }
 
-/* The row breathes in its state's color, and its left bar (above) carries the same color; waiting
-   rows also get a thin ring. The tint is mixed onto the sidebar color. Without a pulse, a waiting
-   row keeps a still tint (--row-fill); working and pause then look plain. Single class on purpose:
-   hover and the active row still win over the still tint. */
+/* The row breathes in its state's color; waiting rows also get a thin ring, and the status chip at
+   the right end names the state. The left bar belongs to the active session only. The tint is
+   mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
+   working and pause then look plain. Single class on purpose: hover and the active row still win over the still tint. */
 @keyframes row-breathe {
   0%,
   100% {
@@ -846,75 +751,77 @@ h2 .beta-badge {
   background: var(--row-strong);
 }
 
+.look .status-chip.working {
+  color: var(--row-text);
+}
+
 /* In the rail, the ring sits around the badge instead (below). */
 .session.attention {
   box-shadow: inset 0 0 0 1px var(--attention-ring);
 }
 
-/* Waiting and active: the attention ring outside, the active outline right inside it. */
 .session.active.attention {
   box-shadow:
-    inset 0 0 0 1px var(--attention-ring),
-    inset 0 0 0 2px var(--active-ring);
+    inset var(--active-bar) 0 0 var(--accent),
+    inset 0 0 0 1px var(--attention-ring);
 }
 
-/* "More actions" (⋯): one button that lies over the end of the row on hover or keyboard focus,
-   without taking width from the text. Its strip takes the row's own background (also mid-breath,
-   as the computed color is inherited) and fades in from the left, so text running underneath
-   ends softly instead of being cut. It stays in the tab order (opacity, not display: none). Inset
-   by a pixel, so the row's ring stays whole. */
-.session-more {
+/* The actions fade in at the right end of the row on hover or keyboard focus. They have no
+   backdrop of their own: the row's background, tint and drifting light show through. Meanwhile
+   the row keeps their width free, so its text ends in an ellipsis before them instead of running
+   underneath. They stay in the tab order (opacity, not display: none). */
+.session-actions {
   position: absolute;
-  inset: 1px 1px 1px auto;
-  z-index: 2;
+  inset: 0 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  width: 44px;
-  padding-right: 4px;
-  background-color: inherit;
-  border-radius: 0 5px 5px 0;
-  mask-image: linear-gradient(to right, transparent, #000 14px);
+  gap: 2px;
+  padding-right: 6px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-/* The active row's drifting light lies under the strip; the strip carries its middle tone. */
-.session.active:not(.attention) .session-more {
-  background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
-}
-
-.session:hover .session-more,
-.session-more:focus-within {
+.session:hover .session-actions,
+.session-actions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }
 
+.session:hover,
+.session:has(.session-actions:focus-within) {
+  padding-right: var(--row-actions-width);
+}
+
 /* On a tinted or lit row the plain hover gray would barely show; a veil of the text color reads
    on every background, light and dark. */
-.session-more .icon-button:hover,
-.session-more .icon-button:focus-visible {
-  color: var(--text);
+.session-actions .icon-button:hover,
+.session-actions .icon-button:focus-visible {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
-/* Status chip of the collapsed rail: the state's shape in a small circle at the badge's corner. */
+/* Status chip: one shape per state. The actions take its place on hover and keyboard focus, so
+   the two never overlap; the chip then leaves the row, which already keeps the actions' width
+   free. */
 .status-chip {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
+  gap: 4px;
+  height: 20px;
+  margin-right: 8px;
+  padding: 0 7px 0 5px;
   border: 1px solid transparent;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--panel);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.status-chip svg {
-  width: 10px;
-  height: 10px;
+.session:hover > .status-chip,
+.session:has(.session-actions:focus-within) > .status-chip {
+  display: none;
 }
 
 .status-chip.done,
@@ -930,8 +837,74 @@ h2 .beta-badge {
   border-color: color-mix(in srgb, var(--error) 55%, transparent);
 }
 
+.status-chip.working,
+.status-chip.ended {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.status-chip.working {
+  color: var(--ok);
+}
+
+.status-chip-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.status-chip-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: chip-dot 1.2s ease-in-out infinite;
+}
+
+.status-chip-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.status-chip-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes chip-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+
+  30% {
+    opacity: 1;
+  }
+}
+
+.status-chip-square {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentcolor;
+  border-radius: 2px;
+}
+
+/* Collapsed rail: the chip shrinks to its shape in a small circle at the badge's corner. */
+.status-chip.compact {
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.status-chip.compact svg {
+  width: 10px;
+  height: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .session-more {
+  .session-actions {
     transition: none;
   }
 
@@ -946,8 +919,20 @@ h2 .beta-badge {
 
   .session.active.attention {
     box-shadow:
-      inset 0 0 0 1.5px var(--attention-strong),
-      inset 0 0 0 2.5px var(--active-ring);
+      inset var(--active-bar) 0 0 var(--accent),
+      inset 0 0 0 1.5px var(--attention-strong);
+  }
+
+  .status-chip-dots span {
+    animation: none;
+  }
+
+  .status-chip-dots span:nth-child(1) {
+    opacity: 0.4;
+  }
+
+  .status-chip-dots span:nth-child(2) {
+    opacity: 0.7;
   }
 }
 
@@ -5615,6 +5600,12 @@ body.resizing-horizontal * {
   }
 }
 
+/* The active session row carries one more action, the folder button. */
+.session.active:hover,
+.session.active:has(.session-actions:focus-within) {
+  padding-right: calc(var(--row-actions-width) + 28px);
+}
+
 /* File tree. End. */
 
 /* Profile editor in Settings, Programs */
@@ -5865,8 +5856,13 @@ body.session-dragging * {
 }
 
 /* No hover actions while a session is carried around. */
-body.session-dragging .session-more {
+body.session-dragging .session-actions {
   visibility: hidden;
+}
+
+/* Nor their reserved width: rows passed over keep their text whole. */
+body.session-dragging .session:hover {
+  padding-right: 0;
 }
 
 /* The drop line between two rows: where the session lands. */

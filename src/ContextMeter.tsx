@@ -1,10 +1,9 @@
-// How full a session's context window is: a hair-thin track along the bottom edge of its sidebar
-// row, filled by the share, without text in the row. The share and the numbers are in the tooltip
-// and in the row's accessible name. Nothing shows until the agent answered once or for programs
-// Hangar cannot read. Re-renders only when this session's numbers change.
+// How full a session's context window is, at the end of its row's second line: a tiny bar and
+// the share ("▮▯▯ 12 %"), the numbers in the tooltip. Nothing shows until the agent answered once
+// or for programs Hangar cannot read. Re-renders only when this session's numbers change.
 
 import { useT } from "./i18n";
-import { contextHint, contextShare, HIGH_SHARE } from "./contextUsage";
+import { contextHint, contextShare, formatShare, HIGH_SHARE } from "./contextUsage";
 import { useSessionContext } from "./useContextUsage";
 
 interface Props {
@@ -21,12 +20,14 @@ export function ContextMeter({ sessionId, language }: Props) {
   const hint = contextHint(context, language, t);
   return (
     <span className={share >= HIGH_SHARE ? "session-context high" : "session-context"} title={hint}>
-      <span className="session-context-track" aria-hidden="true">
+      <span aria-hidden="true">·</span>
+      <span className="session-context-bar" aria-hidden="true">
         <span
           className="session-context-fill"
           style={{ width: `${String(Math.round(share * 100))}%` }}
         />
       </span>
+      <span aria-hidden="true">{formatShare(share, language)}</span>
       <span className="sr-only">{hint}</span>
     </span>
   );
