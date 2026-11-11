@@ -60,6 +60,7 @@ import { SessionActionGuard } from "./timing";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
+import { ContextMeter } from "./ContextMeter";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -1230,6 +1231,7 @@ function SessionItem({
   onRenameEnd,
   onSessionMenu,
   overlaps,
+  language,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -1380,6 +1382,7 @@ function SessionItem({
                   <span aria-hidden="true">{where.runtime}</span>
                 </span>
               )}
+              <ContextMeter sessionId={session.id} language={language} />
             </span>
           </span>
         </button>

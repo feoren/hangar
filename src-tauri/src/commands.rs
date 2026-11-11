@@ -618,6 +618,15 @@ pub fn unwatch_sub_agents(watchers: State<'_, Watchers>, session_id: SessionId) 
     watchers.stop(session_id)
 }
 
+/// The newest context use of the sessions (context_usage.rs); later changes arrive as
+/// `context-usage-changed` events with the same shape.
+#[tauri::command]
+pub fn context_usage(
+    usage: State<'_, crate::context_usage::ContextUsage>,
+) -> crate::context_usage::ContextSnapshot {
+    usage.snapshot()
+}
+
 // Workspace and scrollback (persist.rs). File access runs on a blocking thread because
 // synchronous commands run on the main thread and 2 MiB of scrollback would make the window stutter.
 

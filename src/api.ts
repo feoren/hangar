@@ -187,6 +187,8 @@ export const api = {
     invoke<boolean>("focus_sub_agent", { sessionId, agentId }),
   /** `true` if a watch was running. */
   unwatchSubAgents: (sessionId: number) => invoke<boolean>("unwatch_sub_agents", { sessionId }),
+  /** The sessions' newest context use; check with `parseContextSnapshot` (contextUsage.ts). */
+  contextUsage: () => invoke<unknown>("context_usage"),
   /**
    * Version per profile ID (`Record<string, string | null>`), installed programs only.
    * Slow (up to 5 s) because the backend starts the programs to ask. Check with `parseVersions`.
@@ -410,6 +412,8 @@ export interface TrayLabels {
 export const NOTIFICATION_ACTIVATED = "notification-activated";
 /** Event sent by the notification area menu item Quit. */
 export const TRAY_QUIT = "tray-quit";
+/** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
+export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */

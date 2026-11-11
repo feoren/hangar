@@ -241,6 +241,18 @@ impl ClaudeSource {
         self.subagents.clone()
     }
 
+    /// The session's main transcript `<project>/<session>.jsonl`, found by the same search and
+    /// backoff as the sub-agent folder (`crate::context_usage` reads its token counts). Only a
+    /// regular file in a project folder inside the projects folder counts, never a link.
+    pub fn main_transcript(&mut self) -> Option<PathBuf> {
+        let subagents = self.subagents_dir(Instant::now())?;
+        let project = subagents.parent()?.parent()?;
+        let path = project.join(format!("{}.jsonl", self.session));
+        let root = self.root.as_ref()?;
+        let inside = fs::canonicalize(project).is_ok_and(|real| real.starts_with(root));
+        (inside && is_real_file(&path)).then_some(path)
+    }
+
     /// The sub-agent folder, if it exists and does not lead out of the projects folder through
     /// a link in `<session>` or `subagents`.
     fn contained(&self, dir: &Path) -> bool {
@@ -521,9 +533,10 @@ struct AssistantMessage<I> {
     usage: Option<Usage>,
 }
 
-/// Token counts of one model response (measured with 2.1.322).
-#[derive(Deserialize)]
-struct Usage {
+/// Token counts of one model response (measured with 2.1.322, the same in main and sub-agent
+/// transcripts).
+#[derive(Debug, Deserialize)]
+pub struct Usage {
     input_tokens: Option<u64>,
     cache_creation_input_tokens: Option<u64>,
     cache_read_input_tokens: Option<u64>,
@@ -532,7 +545,7 @@ struct Usage {
 
 impl Usage {
     /// The context size after the response, the number Claude Code shows for a sub-agent.
-    fn total(&self) -> u64 {
+    pub fn total(&self) -> u64 {
         [
             self.input_tokens,
             self.cache_creation_input_tokens,

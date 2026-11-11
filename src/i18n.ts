@@ -146,6 +146,8 @@ const de = {
   "subAgents.noOutput": "(Keine Ausgabe)",
   "subAgents.toolUses": "Tool-Aufrufe: {count}",
   "subAgents.tokens": "Tokens: {tokens}",
+  "context.hint": "Kontext zu {percent} belegt: {used} / {window} Token",
+  "context.exact": "Genau: {used} von {window} Token",
   "settings.claims": "Überschneidungen zwischen Sessions erkennen",
   "settings.claimsHelp":
     "Hangar schaut, welche Dateien die Agenten ändern, und warnt, wenn zwei deiner Sessions dieselbe Datei oder dieselben Zeilen bearbeiten. Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
@@ -1175,6 +1177,8 @@ const en: Record<MessageKey, string> = {
   "subAgents.noOutput": "(No output)",
   "subAgents.toolUses": "Tool uses: {count}",
   "subAgents.tokens": "Tokens: {tokens}",
+  "context.hint": "Context {percent} full: {used} / {window} tokens",
+  "context.exact": "Exactly: {used} of {window} tokens",
   "settings.claims": "Detect overlaps between sessions",
   "settings.claimsHelp":
     "Hangar watches which files the agents change and warns when two of your sessions edit the same file or the same lines. Everything stays on this computer; Hangar reads no file contents for this.",
@@ -2177,6 +2181,8 @@ const el: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Χωρίς έξοδο)",
   "subAgents.toolUses": "Κλήσεις εργαλείων: {count}",
   "subAgents.tokens": "Tokens: {tokens}",
+  "context.hint": "Το πλαίσιο είναι γεμάτο κατά {percent}: {used} / {window} tokens",
+  "context.exact": "Ακριβώς: {used} από {window} tokens",
   "settings.claims": "Εντοπισμός επικαλύψεων μεταξύ συνεδριών",
   "settings.claimsHelp":
     "Το Hangar βλέπει ποια αρχεία αλλάζουν οι πράκτορες και σε προειδοποιεί όταν δύο συνεδρίες σου επεξεργάζονται το ίδιο αρχείο ή τις ίδιες γραμμές. Όλα μένουν σε αυτόν τον υπολογιστή· το Hangar δεν διαβάζει περιεχόμενα αρχείων γι' αυτό.",
@@ -3212,6 +3218,8 @@ const es: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Sin salida)",
   "subAgents.toolUses": "Usos de herramientas: {count}",
   "subAgents.tokens": "Tokens: {tokens}",
+  "context.hint": "Contexto lleno al {percent}: {used} / {window} tokens",
+  "context.exact": "Exactamente: {used} de {window} tokens",
   "settings.claims": "Detectar coincidencias entre sesiones",
   "settings.claimsHelp":
     "Hangar mira qué archivos cambian los agentes y te avisa cuando dos de tus sesiones editan el mismo archivo o las mismas líneas. Todo queda en este equipo; Hangar no lee el contenido de los archivos para esto.",
@@ -4230,6 +4238,8 @@ const fr: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Aucune sortie)",
   "subAgents.toolUses": "Appels d'outils : {count}",
   "subAgents.tokens": "Tokens : {tokens}",
+  "context.hint": "Contexte rempli à {percent} : {used} / {window} jetons",
+  "context.exact": "Exactement : {used} sur {window} jetons",
   "settings.claims": "Détecter les chevauchements entre sessions",
   "settings.claimsHelp":
     "Hangar regarde quels fichiers les agents modifient et te prévient quand deux de tes sessions modifient le même fichier ou les mêmes lignes. Tout reste sur cet ordinateur ; Hangar ne lit aucun contenu de fichier pour cela.",
@@ -5263,6 +5273,8 @@ const it: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Nessun output)",
   "subAgents.toolUses": "Chiamate a strumenti: {count}",
   "subAgents.tokens": "Token: {tokens}",
+  "context.hint": "Contesto pieno al {percent}: {used} / {window} token",
+  "context.exact": "Esattamente: {used} di {window} token",
   "settings.claims": "Rileva sovrapposizioni tra sessioni",
   "settings.claimsHelp":
     "Hangar guarda quali file cambiano gli agenti e ti avvisa quando due tue sessioni modificano lo stesso file o le stesse righe. Tutto resta su questo computer; Hangar non legge il contenuto dei file per farlo.",
@@ -6288,6 +6300,8 @@ const ja: Record<MessageKey, string> = {
   "subAgents.noOutput": "(出力なし)",
   "subAgents.toolUses": "ツール呼び出し: {count}",
   "subAgents.tokens": "トークン: {tokens}",
+  "context.hint": "コンテキスト使用率 {percent}: {used} / {window} トークン",
+  "context.exact": "正確な値: {window} トークン中 {used}",
   "settings.claims": "セッション間の重なりを検出",
   "settings.claimsHelp":
     "エージェントが変更するファイルを Hangar が確認し、2 つのセッションが同じファイルや同じ行を編集すると知らせます。すべてこのコンピューター内で行われ、ファイルの内容は読み取りません。",
@@ -7309,6 +7323,8 @@ const pl: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Brak wyjścia)",
   "subAgents.toolUses": "Wywołania narzędzi: {count}",
   "subAgents.tokens": "Tokeny: {tokens}",
+  "context.hint": "Kontekst zapełniony w {percent}: {used} / {window} tokenów",
+  "context.exact": "Dokładnie: {used} z {window} tokenów",
   "settings.claims": "Wykrywaj nakładanie się sesji",
   "settings.claimsHelp":
     "Hangar sprawdza, które pliki zmieniają agenci, i ostrzega, gdy dwie twoje sesje edytują ten sam plik lub te same wiersze. Wszystko zostaje na tym komputerze; Hangar nie czyta przy tym zawartości plików.",
@@ -8323,6 +8339,8 @@ const pt: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Sem saída)",
   "subAgents.toolUses": "Usos de ferramentas: {count}",
   "subAgents.tokens": "Tokens: {tokens}",
+  "context.hint": "Contexto {percent} cheio: {used} / {window} tokens",
+  "context.exact": "Exatamente: {used} de {window} tokens",
   "settings.claims": "Detectar sobreposições entre sessões",
   "settings.claimsHelp":
     "O Hangar observa quais arquivos os agentes alteram e avisa quando duas sessões suas editam o mesmo arquivo ou as mesmas linhas. Tudo fica neste computador; o Hangar não lê o conteúdo dos arquivos para isso.",
@@ -9341,6 +9359,8 @@ const ru: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Нет вывода)",
   "subAgents.toolUses": "Вызовов инструментов: {count}",
   "subAgents.tokens": "Токенов: {tokens}",
+  "context.hint": "Контекст заполнен на {percent}: {used} / {window} токенов",
+  "context.exact": "Точно: {used} из {window} токенов",
   "settings.claims": "Находить пересечения между сессиями",
   "settings.claimsHelp":
     "Hangar следит, какие файлы меняют агенты, и предупреждает, когда две твои сессии правят один файл или одни строки. Всё остаётся на этом компьютере; содержимое файлов Hangar для этого не читает.",
@@ -10347,6 +10367,8 @@ const tr: Record<MessageKey, string> = {
   "subAgents.noOutput": "(Çıktı yok)",
   "subAgents.toolUses": "Araç çağrısı: {count}",
   "subAgents.tokens": "Token: {tokens}",
+  "context.hint": "Bağlam {percent} dolu: {used} / {window} token",
+  "context.exact": "Tam olarak: {window} tokenin {used} kadarı",
   "settings.claims": "Oturumlar arasındaki çakışmaları algıla",
   "settings.claimsHelp":
     "Hangar ajanların hangi dosyaları değiştirdiğine bakar ve iki oturumun aynı dosyayı ya da aynı satırları düzenlediğinde seni uyarır. Her şey bu bilgisayarda kalır; Hangar bunun için dosya içeriği okumaz.",
@@ -11349,6 +11371,8 @@ const zh: Record<MessageKey, string> = {
   "subAgents.noOutput": "（无输出）",
   "subAgents.toolUses": "工具调用：{count}",
   "subAgents.tokens": "Token：{tokens}",
+  "context.hint": "上下文已用 {percent}：{used} / {window} 个 token",
+  "context.exact": "精确值：{window} 个 token 中的 {used} 个",
   "settings.claims": "检测会话之间的重叠",
   "settings.claimsHelp":
     "Hangar 会查看代理修改了哪些文件，并在你的两个会话编辑同一文件或相同的行时提醒你。一切都留在这台电脑上，Hangar 不会为此读取文件内容。",

@@ -535,6 +535,51 @@ h2 .beta-badge {
   min-width: 0;
 }
 
+/* --- Context meter of a session row (ContextMeter.tsx) ---
+   A hair-thin bar and the share, as quiet as the rest of the line; the path gives way first.
+   From 80 % the bar and number take the warning color. */
+.session-context {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-context-bar {
+  position: relative;
+  width: 36px;
+  height: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 999px;
+}
+
+.session-context-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+
+.session-context.high {
+  color: var(--warn);
+}
+
+.session-context.high .session-context-fill {
+  background: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-context-fill {
+    transition: none;
+  }
+}
+
+/* --- End of context meter --- */
+
 /* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
    an ellipsis, the folder keeps up to half of the line and yields after it, the run time stays
    whole. */

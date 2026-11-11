@@ -171,7 +171,7 @@ impl Outcome {
 
 /// Record types that never show in the log and are often large (`api-request-blob` carries
 /// whole requests). They start with their `type`, so they are skipped without parsing the line.
-fn skipped_cheaply(line: &[u8]) -> bool {
+pub fn skipped_cheaply(line: &[u8]) -> bool {
     const PREFIX: &[u8] = b"{\"type\":\"";
     let Some(rest) = line.strip_prefix(PREFIX) else {
         return false;
