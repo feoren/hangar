@@ -6810,12 +6810,14 @@ body.session-dragging .session:hover {
   box-shadow: 0 0 0 1.5px var(--panel);
 }
 
-/* Sidebar footer: account, team pill and Settings in one row. */
+/* Sidebar footer: account, team pill and Settings in one row. Pinned to the bottom: with every
+   group closed nothing above fills the height, and the free space opens above the footer. */
 
 .sidebar-footer {
   display: flex;
   flex: none;
   align-items: center;
+  margin-top: auto;
   gap: 4px;
   padding: 6px 6px 6px 8px;
   border-top: var(--hairline) solid var(--border);
