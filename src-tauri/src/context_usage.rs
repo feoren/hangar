@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::lock;
 use crate::session::SessionId;
-use crate::subagents::claude::{ClaudeSource, Usage};
+use crate::subagents::claude::{stamp_of, ClaudeSource, Stamp, Usage};
 use crate::subagents::claude_log::skipped_cheaply;
 use crate::subagents::tail::Tail;
 use crate::subagents::{SubAgentKind, Target};
@@ -135,7 +135,13 @@ struct Tracker {
     locator: ClaudeSource,
     path: Option<PathBuf>,
     tail: Tail,
+    /// Size and time of the transcript at the last successful read: an unchanged file is not
+    /// opened again, so an idle session costs one `stat` per poll.
+    stamp: Option<Stamp>,
     latest: Option<(u64, u64)>,
+    /// Transcript reads, to prove the skip.
+    #[cfg(test)]
+    reads: usize,
 }
 
 impl Tracker {
@@ -145,7 +151,10 @@ impl Tracker {
             locator: ClaudeSource::new(target, false),
             path: None,
             tail: Tail::with_initial(INITIAL_TAIL),
+            stamp: None,
             latest: None,
+            #[cfg(test)]
+            reads: 0,
         }
     }
 
@@ -154,8 +163,20 @@ impl Tracker {
             self.path = self.locator.main_transcript();
         }
         if let Some(path) = &self.path {
+            // The transcript only grows while the session works; a file replaced by one of the
+            // same size changes its time.
+            let stamp = stamp_of(path);
+            if stamp.is_some() && stamp == self.stamp {
+                return self.latest;
+            }
+            #[cfg(test)]
+            {
+                self.reads += 1;
+            }
             // A read error (file replaced, locked for a moment) is retried on the next poll.
             if let Ok(lines) = self.tail.read_new(path) {
+                // A read that stopped before the end is continued on the next poll.
+                self.stamp = stamp.filter(|_| !self.tail.behind());
                 if let Some((used, model)) = lines.iter().rev().find_map(|l| response_usage(l)) {
                     self.latest = Some((used, context_window(model.as_deref(), used)));
                 }
@@ -386,6 +407,13 @@ mod tests {
                 window: DEFAULT_WINDOW
             }
         );
+        // An unchanged transcript is not opened again.
+        let reads = poller.trackers[&4].reads;
+        assert_eq!(poller.poll(&targets).sessions.len(), 1);
+        assert_eq!(poller.trackers[&4].reads, reads);
+        append(&transcript, &response("claude-haiku-4-5", 10, 30_000, 10));
+        assert_eq!(poller.poll(&targets).sessions[0].used, 30_020);
+        assert_eq!(poller.trackers[&4].reads, reads + 1);
         // A closed session is forgotten.
         assert_eq!(poller.poll(&[]), ContextSnapshot::default());
         assert!(poller.trackers.is_empty());

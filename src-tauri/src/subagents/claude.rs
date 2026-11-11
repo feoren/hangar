@@ -30,7 +30,7 @@ use serde_json::Value;
 use super::claude_log::{self, LogParser};
 pub use super::is_agent_id;
 use super::redact::{redact, strip_controls};
-use super::tail::{first_line, open_shared, Tail, MAX_LINE};
+use super::tail::{first_line, open_shared, Tail, MAX_LINE, MAX_READ};
 use super::{
     AgentStatus, LogBatch, LogEntry, Snapshot, SubAgent, SubAgentSource, Target, MAX_LOG_BATCH,
     MAX_LOG_RESET,
@@ -107,7 +107,19 @@ struct Meta {
 }
 
 /// Size and modification time; a change means the file must be read again.
-type Stamp = (u64, Option<SystemTime>);
+pub(crate) type Stamp = (u64, Option<SystemTime>);
+
+/// The [`Stamp`] of the file at `path` (following links), `None` when it cannot be read.
+pub(crate) fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()))
+}
+
+/// Read rounds of the first batch of a focus: enough for a history of `initial` bytes in steps
+/// of [`MAX_READ`], plus one for what was appended meanwhile.
+fn log_rounds(initial: u64) -> u64 {
+    initial / MAX_READ + 1
+}
 
 #[derive(Debug, Default)]
 struct AgentState {
@@ -393,8 +405,8 @@ impl SubAgentSource for ClaudeSource {
     }
 
     /// The first batch of a focus (and of a transcript that started over) holds the history from
-    /// the start, read in steps of [`super::tail::MAX_READ`] within this one call; later calls
-    /// read only what was appended. The transcript is opened only when the last scan found it in
+    /// the start, read in steps of [`MAX_READ`] within this one call (at most [`log_rounds`]);
+    /// later calls read only what was appended. The transcript is opened only when the last scan found it in
     /// the contained sub-agent folder, so a focus never reaches a file the snapshot would not
     /// read.
     fn poll_log(&mut self) -> Option<LogBatch> {
@@ -407,7 +419,11 @@ impl SubAgentSource for ClaudeSource {
         let path = dir.join(format!("agent-{}.jsonl", focus.id));
         let mut body: Vec<LogEntry> = Vec::new();
         let mut generation = focus.sent;
+        // A transcript that keeps growing while it is read must not hold this call forever: past
+        // the rounds the history needs, the rest follows on the next polls.
+        let mut rounds = log_rounds(self.log_initial);
         loop {
+            rounds = rounds.saturating_sub(1);
             let lines = match focus.tail.read_new(&path) {
                 Ok(lines) => lines,
                 // A read error (file just deleted, locked for a moment) is retried on the next
@@ -426,7 +442,7 @@ impl SubAgentSource for ClaudeSource {
             if reset && body.len() > 2 * MAX_LOG_RESET {
                 body = bounded(body, MAX_LOG_RESET, true);
             }
-            if !(reset && focus.tail.behind()) {
+            if !(reset && focus.tail.behind()) || rounds == 0 {
                 break;
             }
         }
@@ -1006,7 +1022,7 @@ mod tests {
             content.push_str(&tool_call);
         }
         append(&path, &content);
-        assert!(fs::metadata(&path).unwrap().len() > super::super::tail::MAX_READ);
+        assert!(fs::metadata(&path).unwrap().len() > MAX_READ);
         let mut source = ClaudeSource::new(&fx.target(), true);
         source.focus(Some("a1".into()));
         source.poll(SystemTime::now());
@@ -1023,6 +1039,24 @@ mod tests {
         assert!(!next.reset);
         assert_eq!(next.entries.len(), 1);
         assert_eq!(next.tool_uses, 101);
+    }
+
+    #[test]
+    fn the_first_batch_reads_a_bounded_number_of_rounds() {
+        // The whole history fits into the rounds, and the loop ends even if a writer keeps it
+        // behind.
+        for initial in [
+            0,
+            1,
+            MAX_READ - 1,
+            MAX_READ,
+            LOG_INITIAL_TAIL,
+            3 * MAX_READ + 1,
+        ] {
+            let rounds = log_rounds(initial);
+            assert!(rounds * MAX_READ >= initial, "{initial}");
+        }
+        assert_eq!(log_rounds(0), 1);
     }
 
     #[test]
