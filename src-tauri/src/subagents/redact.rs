@@ -4,16 +4,20 @@
 //! reads a `.env` file, a config or a command line (`API_KEY=...`, `"token": "..."`,
 //! `password: ...`, `--password ...`, `sshpass -p ...`, `curl -u user:...`,
 //! `Authorization: Bearer|Basic|token ...`, `https://user:pass@host`,
-//! `ConvertTo-SecureString "..." -AsPlainText`), well-known token prefixes and PEM private keys.
+//! `ConvertTo-SecureString "..." -AsPlainText`, `?X-Amz-Signature=...`, `&sig=...`), well-known
+//! token prefixes and PEM private keys.
 //! Over-masking is preferred to a leak. Callers strip terminal sequences first
 //! ([`strip_controls`]), so a color code cannot split a name from its value.
 
 pub const REDACTED: &str = "[redacted]";
 
 /// Names whose value is masked when they end in one of these (case-insensitive): `API_KEY`,
-/// `GITHUB_TOKEN`, `client_secret`, `password`, `--passphrase`, `aws_credentials`.
+/// `GITHUB_TOKEN`, `client_secret`, `password`, `--passphrase`, `aws_credentials`, and the
+/// signature of a presigned URL (`X-Amz-Signature`, `X-Goog-Signature`); its
+/// `X-Amz-Security-Token` already ends in `token`.
 const SECRET_SUFFIXES: &[&str] = &[
     "key",
+    "signature",
     "token",
     "secret",
     "password",
@@ -25,12 +29,13 @@ const SECRET_SUFFIXES: &[&str] = &[
 ];
 
 /// Short words that are secrets only as a whole name or its last part after `_` or `-`
-/// (`DB_PASS`, npm `_auth`, `Set-Cookie`), so `compass` or `oauth2` stay.
-const SECRET_WORDS: &[&str] = &["pass", "auth", "cookie"];
+/// (`DB_PASS`, npm `_auth`, `Set-Cookie`, the `sig` of an Azure SAS URL), so `compass`, `oauth2`
+/// or `config` stay.
+const SECRET_WORDS: &[&str] = &["pass", "auth", "cookie", "sig"];
 
 /// Bare names that are far more often a heading in prose than a secret: an unquoted
 /// `name: value` masks only a value that looks like one (long, or holding `=`).
-const LOOSE_NAMES: &[&str] = &["key", "auth", "cookie"];
+const LOOSE_NAMES: &[&str] = &["key", "auth", "cookie", "sig", "signature"];
 /// A value after a loose name needs this many token characters to count as a secret.
 const MIN_LOOSE_VALUE: usize = 16;
 
@@ -1000,6 +1005,34 @@ mod tests {
             "the bearer of bad news",
             "see https://example.com/path?q=1 and ssh://git@example.com",
             "Bearer tokens expire",
+        ]);
+    }
+
+    #[test]
+    fn signatures_of_presigned_urls() {
+        masks(&[
+            (
+                format!(
+                    "curl 'https://bucket.s3.amazonaws.com/a.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDEXAMPLE%2F20261111%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261111T000000Z&X-Amz-Expires=3600&X-Amz-Security-Token={FAKE}&X-Amz-SignedHeaders=host&X-Amz-Signature={FAKE}'"
+                ),
+                "curl 'https://bucket.s3.amazonaws.com/a.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=[redacted]&X-Amz-Date=20261111T000000Z&X-Amz-Expires=3600&X-Amz-Security-Token=[redacted]&X-Amz-SignedHeaders=host&X-Amz-Signature=[redacted]'",
+            ),
+            (
+                format!(
+                    "https://acct.blob.core.windows.net/c/b.txt?sv=2022-11-02&ss=b&srt=o&sp=r&se=2026-11-12T00:00:00Z&spr=https&sig={FAKE}%3D next"
+                ),
+                "https://acct.blob.core.windows.net/c/b.txt?sv=2022-11-02&ss=b&srt=o&sp=r&se=2026-11-12T00:00:00Z&spr=https&sig=[redacted] next",
+            ),
+            (
+                format!("https://storage.googleapis.com/b/o?X-Goog-Signature={FAKE}"),
+                "https://storage.googleapis.com/b/o?X-Goog-Signature=[redacted]",
+            ),
+        ]);
+        keeps(&[
+            "the signature: looks fine",
+            "check the function signature first",
+            "sig: ok",
+            "config=release",
         ]);
     }
 
