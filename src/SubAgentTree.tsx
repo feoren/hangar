@@ -1,5 +1,6 @@
-// The active session's sub-agents as a small tree below its row in the sidebar: one line each,
-// a click shows that sub-agent's activity beside the terminal. Finished rows carry a remove
+// The active session's sub-agents as a small tree below its row in the sidebar: two lines each
+// (name, run time and tokens; what it does right now), a click shows that sub-agent's activity
+// beside the terminal. Finished rows carry a remove
 // button (on hover or keyboard focus), and with several finished ones a last row removes them
 // all. Which rows show is decided by subAgentTree in subAgents.ts; this component renders them.
 
@@ -8,10 +9,13 @@ import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
 import {
+  activityText,
+  agentName,
   agentTitle,
   elapsedMs,
   finishedIds,
   formatElapsed,
+  formatTokens,
   STATUS_LABELS,
   subAgentTree,
   visibleAgents,
@@ -84,12 +88,24 @@ export function SubAgentTree({
       ref={list}
     >
       {tree.agents.map((agent) => {
-        const name = agentTitle(agent, t);
+        // Like Claude Code's list of background agents: the type as the name, what it does
+        // now below it, run time and tokens on the right. The task's description is the title.
+        const name = agentName(agent, t);
+        const title = agentTitle(agent, t);
+        const activity = activityText(agent, t);
         const status = t(STATUS_LABELS[agent.status]);
         const ms = elapsedMs(agent, now);
         const time = ms === null ? null : formatElapsed(ms);
+        const tokens = agent.tokens === null ? null : formatTokens(agent.tokens);
+        const tokensLabel = tokens === null ? null : t("subAgents.tokens", { tokens });
         const isPicked = agent.id === picked;
         const removable = agent.status === "finished";
+        const details = [
+          name === title ? null : title,
+          // A finished one's activity line repeats its status.
+          removable ? null : activity,
+          [status, time, tokensLabel].filter((part) => part !== null).join(" · "),
+        ].filter((part) => part !== null);
         return (
           <li
             key={agent.id}
@@ -98,10 +114,16 @@ export function SubAgentTree({
           >
             <button
               type="button"
-              className={isPicked ? "subagent-node picked" : "subagent-node"}
-              title={`${name}\n${status}${time === null ? "" : ` · ${time}`}\n${hint}`}
-              aria-label={[name, status, time === null ? "" : `${t("subAgents.elapsed")} ${time}`]
-                .filter(Boolean)
+              className={`subagent-node agent ${agent.status}${isPicked ? " picked" : ""}`}
+              title={[name, ...details, hint].join("\n")}
+              aria-label={[
+                name,
+                ...details.slice(0, -1),
+                status,
+                time === null ? null : `${t("subAgents.elapsed")} ${time}`,
+                tokensLabel,
+              ]
+                .filter((part) => part !== null)
                 .join(", ")}
               aria-current={isPicked ? "true" : undefined}
               onClick={(event) => {
@@ -109,12 +131,23 @@ export function SubAgentTree({
               }}
             >
               <span className={`subagent-dot ${agent.status}`} aria-hidden="true" />
-              <span className="subagent-node-name">{name}</span>
-              {time !== null && (
-                <span className="subagent-node-time" aria-hidden="true">
-                  {time}
+              <span className="subagent-node-main" aria-hidden="true">
+                <span className="subagent-node-head">
+                  <span className="subagent-node-name">{name}</span>
+                  {(time !== null || tokens !== null) && (
+                    <span className="subagent-node-time">
+                      {time}
+                      {tokens !== null && (
+                        <span className="subagent-node-tokens">
+                          {time === null ? "" : " · "}
+                          {`↓ ${tokens}`}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
-              )}
+                <span className="subagent-node-activity">{activity}</span>
+              </span>
             </button>
             {removable && (
               <button

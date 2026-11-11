@@ -1753,6 +1753,103 @@ h2 .beta-badge {
   font-style: italic;
 }
 
+/* --- Sub-agent tree rows with activity (like Claude Code's background agent list) ---
+   Line one: the agent's name and, on the right, run time and tokens; line two: what it does
+   right now, quieter and cut first. The guide line's elbow meets line one. */
+.subagent-tree {
+  container-type: inline-size;
+}
+
+.subagent-tree-item::after {
+  top: 12px;
+}
+
+.subagent-tree-item:last-child::before {
+  bottom: auto;
+  height: 12px;
+}
+
+.subagent-dismiss {
+  top: 12px;
+}
+
+.subagent-node.agent {
+  align-items: flex-start;
+  height: auto;
+  min-height: 24px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.subagent-node.agent .subagent-dot {
+  margin-top: 4px;
+}
+
+.subagent-node-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.subagent-node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.subagent-node.agent .subagent-node-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.subagent-node-activity {
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subagent-node.finished .subagent-node-activity {
+  font-style: italic;
+}
+
+/* Too narrow for both numbers: the tokens give way, the run time stays. */
+@container (max-width: 200px) {
+  .subagent-node-tokens {
+    display: none;
+  }
+}
+
+/* The sub-agent view ends like Claude Code's: tool uses, tokens and run time in one quiet line. */
+.subagent-log-footer {
+  flex: none;
+  padding: 5px 12px;
+  overflow: hidden;
+  font-family: var(--terminal-font, var(--mono));
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--terminal-fg, var(--text)) 60%, var(--terminal-bg));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: var(--terminal-bg);
+  border-top: 1px solid var(--border);
+}
+
+.subagent:has(.subagent-log-footer) .subagent-jump {
+  bottom: 40px;
+}
+
+/* The list's rows show the activity line now, not only the tool's name. */
+.subagent-row-tool {
+  max-width: 40%;
+  font-family: inherit;
+}
+
+/* --- End of sub-agent tree rows with activity --- */
+
 /* Narrow panes (a narrow window): the name of a sub-agent matters most, so the secondary labels
    (type, counts, tool per row) give way before it is cut to a few letters. */
 .subagent {

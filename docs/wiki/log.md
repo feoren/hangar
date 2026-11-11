@@ -403,3 +403,10 @@ window, notes with shared and local groups, Settings appearance) with stable fil
 clock, UTC and animations frozen on a fixed frame; `--scene` picks some. Edge may relaunch itself
 with exit code 0 and keep running, so the driver waits for the DevTools port instead of failing
 and always sends `Browser.close`. Pages changed: [[release-rollout]].
+
+## [2026-11-11] ingest | Sub-agent activity, tokens and tool results
+Measured with Claude Code 2.1.322 on about 160 sub-agent transcripts (key names and numbers only):
+the token count Claude Code shows is the context size of the newest assistant response's `usage`,
+the tool use count is the number of `tool_use` blocks, each tool result's record carries a structured
+`toolUseResult` (line counts, patches, file counts), and the live activity line is stored nowhere.
+Pages changed: [[subagent-activity-measurement]] (new), [[subagent-transcripts]].

@@ -15,14 +15,17 @@ import {
   type ReactNode,
 } from "react";
 
-import { useT } from "./i18n";
+import { useT, type Translate } from "./i18n";
 import { ChevronIcon, CloseIcon } from "./icons";
 import {
+  activityText,
   agentTitle,
   countsText,
   elapsedMs,
   formatElapsed,
+  formatTokens,
   STATUS_LABELS,
+  summaryText,
   visibleAgents,
   type LogEntry,
   type LogLine,
@@ -300,8 +303,23 @@ function AgentLog({
           {t("subAgents.jumpToEnd")}
         </button>
       )}
+      {loaded && agent !== undefined && (
+        <footer className="subagent-log-footer">{footerText(agent, log.toolUses, now, t)}</footer>
+      )}
     </section>
   );
+}
+
+/** "Tool uses: 34 · Tokens: 96.3k · 2:41", as Claude Code ends a sub-agent's view. */
+function footerText(agent: SubAgent, toolUses: number, now: number, t: Translate): string {
+  const ms = elapsedMs(agent, now);
+  return [
+    t("subAgents.toolUses", { count: toolUses }),
+    agent.tokens === null ? null : t("subAgents.tokens", { tokens: formatTokens(agent.tokens) }),
+    ms === null ? null : formatElapsed(ms),
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 }
 
 /** One console line; memoized, since a batch only appends and older lines never change. */
@@ -340,7 +358,16 @@ const LogRow = memo(function LogRow({ entry }: { entry: LogEntry }) {
           </span>
         </div>
       );
-    case "result":
+    case "result": {
+      // Like Claude Code: a summary for tools that have one, else the first lines of the output.
+      const shown =
+        entry.summary !== null
+          ? summaryText(entry.summary, t)
+          : entry.lines.length > 0
+            ? entry.lines.join("\n")
+            : entry.error
+              ? ""
+              : t("subAgents.noOutput");
       return (
         <div className={entry.error ? "log-line log-result failed" : "log-line log-result"}>
           <span className="log-mark" aria-hidden="true">
@@ -348,16 +375,17 @@ const LogRow = memo(function LogRow({ entry }: { entry: LogEntry }) {
           </span>
           <span className="log-text">
             {entry.error && <span className="log-label">{t("subAgents.failed")} </span>}
-            {entry.text}
+            {shown}
             {entry.moreLines > 0 && (
               <span className="log-more">
-                {" "}
+                {"\n"}
                 {t("subAgents.moreLines", { count: entry.moreLines })}
               </span>
             )}
           </span>
         </div>
       );
+    }
     case "gap":
       return <p className="log-gap">{t("subAgents.gap")}</p>;
   }
@@ -420,7 +448,9 @@ function AgentList({
                     }}
                   >
                     <span className="subagent-row-name">{name}</span>
-                    {agent.tool !== null && <span className="subagent-row-tool">{agent.tool}</span>}
+                    {agent.status !== "finished" && agent.tool !== null && (
+                      <span className="subagent-row-tool">{activityText(agent, t)}</span>
+                    )}
                     <Status agent={agent} />
                     <Elapsed agent={agent} now={now} />
                   </button>

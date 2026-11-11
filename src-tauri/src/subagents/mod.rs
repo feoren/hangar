@@ -2,11 +2,12 @@
 //!
 //! Sub-agents run inside the agent's process and have no terminal of their own; the CLI writes a
 //! transcript per sub-agent. A [`SubAgentSource`] turns those files into a whitelisted
-//! [`Snapshot`] (never prompts, tool inputs or tool results), and a watcher thread per session
-//! polls it and streams changed snapshots to the window. For the one sub-agent the window shows
-//! (the focus, [`Watchers::focus`]), the same thread also streams its activity log
-//! ([`LogBatch`]) incrementally: the task, assistant text, tool calls with their key argument and
-//! short results, only with excerpts on; without them only tool names.
+//! [`Snapshot`] (never prompts or tool results; of tool inputs only the short target of the
+//! newest call, with excerpts on), and a watcher thread per session polls it and streams changed
+//! snapshots to the window. For the one sub-agent the window shows (the focus,
+//! [`Watchers::focus`]), the same thread also streams its activity log ([`LogBatch`]): first the
+//! history from the start, then incrementally the task, assistant text, tool calls with their key
+//! argument and short results, only with excerpts on; without them only tool names.
 //!
 //! Polling instead of file system notifications: the `notify` crate is CC0-1.0 licensed (outside
 //! the project's license policy) and not in the tree, and a poll of one small folder every
@@ -90,6 +91,16 @@ pub struct SubAgent {
     pub last_activity: Option<u64>,
     /// Name of the newest tool call (current or last), such as `Grep`.
     pub tool: Option<String>,
+    /// What that tool call works on, short (a file name, a pattern, a command line); only with
+    /// excerpts.
+    pub target: Option<String>,
+    /// The call's own one-line description (the `description` of a `Bash` call), shown instead
+    /// of a verb and a target; only with excerpts.
+    pub note: Option<String>,
+    /// Context size after the newest model response: input, cache and output tokens of its
+    /// `usage`, the number Claude Code shows as "tokens" (measured: equals `totalTokens` of the
+    /// completion notice).
+    pub tokens: Option<u64>,
     /// Newest assistant text, at most 400 characters.
     pub excerpt: Option<String>,
 }
@@ -116,16 +127,37 @@ pub enum LogEntry {
         name: String,
         detail: Option<String>,
     },
-    /// A tool result: its first non-empty line and how many lines follow.
+    /// A tool result: a summary when the tool's structured result has one ("Read 120 lines"),
+    /// else its first non-empty lines (at most [`claude_log::MAX_RESULT_LINES`]) and how many
+    /// lines follow.
     Result {
-        text: Option<String>,
+        lines: Vec<String>,
         #[serde(rename = "moreLines")]
         more_lines: u32,
         error: bool,
+        summary: Option<ResultSummary>,
     },
-    /// Lines were left out here: only the end of a long transcript is read, and a burst beyond
-    /// [`MAX_LOG_BATCH`] keeps its newest lines.
+    /// Lines were left out here: only the end of a very long transcript is read, and a burst
+    /// beyond [`MAX_LOG_BATCH`] keeps its newest lines.
     Gap,
+}
+
+/// The summary Claude Code shows below a tool call, taken from the record's structured result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ResultSummary {
+    /// `Read`: lines read.
+    Read { lines: u64 },
+    /// `Write` of a new file: lines written.
+    Wrote { lines: u64 },
+    /// `Edit`, `MultiEdit`, `Write` over an existing file: lines added and removed.
+    Edited { added: u64, removed: u64 },
+    /// `Glob`, `Grep` listing files: files found.
+    Files { count: u64 },
+    /// `Grep` showing content: lines found.
+    Lines { count: u64 },
+    /// `Grep` counting: matches found.
+    Matches { count: u64 },
 }
 
 impl LogEntry {
@@ -146,10 +178,14 @@ pub struct LogBatch {
     /// Replaces everything shown before: a new focus, or a transcript that started over.
     pub reset: bool,
     pub entries: Vec<LogEntry>,
+    /// Tool calls of the sub-agent so far, counted over every line read (also those left out).
+    pub tool_uses: u32,
 }
 
-/// At most this many log lines per event; a burst keeps its newest ones.
+/// At most this many log lines per appending event; a burst keeps its newest ones.
 pub const MAX_LOG_BATCH: usize = 400;
+/// At most this many log lines in a reset, the history from the start; the window keeps as many.
+pub const MAX_LOG_RESET: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -358,6 +394,9 @@ mod tests {
             started_at: Some(1),
             last_activity: Some(2),
             tool: Some("Grep".into()),
+            target: Some("fn parse".into()),
+            note: None,
+            tokens: Some(96_300),
             excerpt: None,
         };
         let json = serde_json::to_value(SubAgentEvent::Snapshot(Snapshot {
@@ -370,7 +409,7 @@ mod tests {
             serde_json::json!({ "type": "snapshot", "located": true, "agents": [{
                 "id": "a1", "description": "d", "agentType": "Explore", "spawnDepth": 1,
                 "status": "stale", "startedAt": 1, "lastActivity": 2, "tool": "Grep",
-                "excerpt": null }] })
+                "target": "fn parse", "note": null, "tokens": 96300, "excerpt": null }] })
         );
         assert_eq!(
             serde_json::from_str::<SubAgentKind>("\"claude\"").unwrap(),
@@ -425,24 +464,62 @@ mod tests {
                     detail: Some("a.rs".into()),
                 },
                 LogEntry::Result {
-                    text: None,
+                    lines: vec!["out".into()],
                     more_lines: 3,
                     error: true,
+                    summary: None,
+                },
+                LogEntry::Result {
+                    lines: Vec::new(),
+                    more_lines: 0,
+                    error: false,
+                    summary: Some(ResultSummary::Edited {
+                        added: 2,
+                        removed: 1,
+                    }),
                 },
             ],
+            tool_uses: 7,
         }))
         .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "type": "log", "agentId": "a1", "reset": true,
+            serde_json::json!({ "type": "log", "agentId": "a1", "reset": true, "toolUses": 7,
                 "entries": [
                     { "kind": "gap" },
                     { "kind": "prompt", "text": "task" },
                     { "kind": "text", "text": "note" },
                     { "kind": "tool", "name": "Read", "detail": "a.rs" },
-                    { "kind": "result", "text": null, "moreLines": 3, "error": true },
+                    { "kind": "result", "lines": ["out"], "moreLines": 3, "error": true,
+                      "summary": null },
+                    { "kind": "result", "lines": [], "moreLines": 0, "error": false,
+                      "summary": { "kind": "edited", "added": 2, "removed": 1 } },
                 ] })
         );
+        for (summary, json) in [
+            (
+                ResultSummary::Read { lines: 3 },
+                serde_json::json!({ "kind": "read", "lines": 3 }),
+            ),
+            (
+                ResultSummary::Wrote { lines: 3 },
+                serde_json::json!({ "kind": "wrote", "lines": 3 }),
+            ),
+            (
+                ResultSummary::Files { count: 3 },
+                serde_json::json!({ "kind": "files", "count": 3 }),
+            ),
+            (
+                ResultSummary::Lines { count: 3 },
+                serde_json::json!({ "kind": "lines", "count": 3 }),
+            ),
+            (
+                ResultSummary::Matches { count: 3 },
+                serde_json::json!({ "kind": "matches", "count": 3 }),
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(summary).unwrap(), json);
+        }
     }
 
     #[test]
@@ -524,6 +601,7 @@ mod tests {
                 agent_id: agent.unwrap_or_default(),
                 reset: true,
                 entries: Vec::new(),
+                tool_uses: 0,
             })
         }
     }
