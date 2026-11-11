@@ -101,6 +101,17 @@ describe("dictionaries", () => {
       }
     }
   });
+
+  // The privacy help must name what the setting reveals: up to three result lines (not only the
+  // first) and the newest call's target as the sidebar's activity line.
+  it("describe the sub-agent excerpts setting as it behaves", () => {
+    const english = translate("en", "settings.subAgentExcerptsHelp");
+    expect(english).toContain("the first lines of each result");
+    expect(english).toContain("in the sidebar what the newest call works on");
+    const german = translate("de", "settings.subAgentExcerptsHelp");
+    expect(german).toContain("die ersten Zeilen jedes Ergebnisses");
+    expect(german).toContain("Seitenleiste");
+  });
 });
 
 describe("language selection", () => {
