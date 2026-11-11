@@ -114,6 +114,20 @@
         "ru": "Сеансы агентов показывают в своей строке, насколько заполнен контекст: тонкая полоска с процентами, точные числа токенов во всплывающей подсказке.",
         "tr": "Ajan oturumları, bağlamlarının ne kadar dolu olduğunu kendi satırında gösterir: yüzdeli ince bir çubuk, tam token sayıları ipucunda.",
         "zh": "智能体会话在自己的行中显示上下文的使用程度：一条带百分比的细条，精确的 token 数量显示在提示中。"
+      },
+      {
+        "de": "Hangar sucht jetzt alle 30 Minuten und beim Zurückkehren ins Fenster nach neuen Versionen deiner Agenten. „Aktualisieren“ erscheint dann sofort.",
+        "en": "Hangar now looks for new versions of your agents every 30 minutes and when you return to the window. “Update” appears right away.",
+        "el": "Το Hangar ελέγχει πλέον κάθε 30 λεπτά και όταν επιστρέφεις στο παράθυρο για νέες εκδόσεις των agents σου. Η «Ενημέρωση» εμφανίζεται αμέσως.",
+        "es": "Hangar busca ahora nuevas versiones de tus agentes cada 30 minutos y al volver a la ventana. «Actualizar» aparece al instante.",
+        "fr": "Hangar cherche désormais les nouvelles versions de tes agents toutes les 30 minutes et à ton retour dans la fenêtre. « Mettre à jour » apparaît aussitôt.",
+        "it": "Hangar ora cerca nuove versioni dei tuoi agenti ogni 30 minuti e quando torni alla finestra. «Aggiorna» compare subito.",
+        "ja": "Hangar は 30 分ごとと、ウィンドウに戻ったときに、エージェントの新しいバージョンを確認するようになりました。「更新」がすぐに表示されます。",
+        "pl": "Hangar szuka teraz nowych wersji twoich agentów co 30 minut i po powrocie do okna. „Aktualizuj” pojawia się od razu.",
+        "pt": "O Hangar agora procura novas versões dos teus agentes a cada 30 minutos e quando voltas à janela. «Atualizar» aparece de imediato.",
+        "ru": "Hangar теперь ищет новые версии твоих агентов каждые 30 минут и при возвращении в окно. «Обновить» появляется сразу.",
+        "tr": "Hangar artık ajanlarının yeni sürümlerini her 30 dakikada bir ve pencereye döndüğünde arıyor. “Güncelle” hemen görünür.",
+        "zh": "Hangar 现在每 30 分钟以及你回到窗口时检查代理的新版本，“更新”按钮会立即出现。"
       }
     ]
   },

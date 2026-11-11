@@ -417,3 +417,11 @@ the context use is in the newest `assistant` record's `usage`, the window size i
 Hangar can read, and contexts above 600K show that Opus 5.5 and Sonnet 5 have 1M without a beta.
 Hangar maps model ids to windows after the docs' model table. Codex rollouts cannot be linked to a
 session yet. Pages changed: [[context-window-measurement]] (new).
+
+## [2026-11-12] ingest | Program update checks every 30 minutes
+GitHub REST docs (best practices, rate limits) and a measurement: an unauthenticated `304` still
+counts against the 60 requests per hour, PyPI answers `304` too, npm `/latest` sends no `ETag`.
+Hangar now checks every 30 min and on returning to the window after that long, keeps results for
+25 min and failures for 15 min, re-reads the installed versions on each periodic check, sends
+stored entity tags and pauses a source on `403`/`429` rate limits. Pages changed:
+[[program-updates]], [[github-conditional-requests]] (new).

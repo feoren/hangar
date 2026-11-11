@@ -381,12 +381,15 @@ pub async fn program_icons(
 }
 
 /// profileId → version state, only for installed entries with `latest`. The installed
-/// version comes from the `detect_versions` cache, the newest from the disk cache (24 h) or
-/// the network; `force` bypasses the disk cache. Errors per entry yield `latest: null`.
+/// version comes from the `detect_versions` cache, the newest from the disk cache (25 min) or
+/// the network; `force` bypasses the disk cache (not a rate limit). `redetect` asks these
+/// programs for their version again, so an update made outside Hangar (an agent updating
+/// itself) is seen; the periodic check sets it. Errors per entry yield `latest: null`.
 #[tauri::command]
 pub async fn check_program_updates(
     app: tauri::AppHandle,
     force: Option<bool>,
+    redetect: Option<bool>,
 ) -> Result<HashMap<String, UpdateInfo>, String> {
     let handle = app.clone();
     let (items, mut cache, dir) = tauri::async_runtime::spawn_blocking(move || {
@@ -396,7 +399,12 @@ pub async fn check_program_updates(
             .into_iter()
             .filter(|(agent, _)| agent.profile.latest.is_some())
             .collect();
-        let versions = version::detect(&installed, &handle.state::<ProbeCaches>().versions);
+        let cache = &handle.state::<ProbeCaches>().versions;
+        let versions = if redetect.unwrap_or(false) {
+            version::redetect(&installed, cache)
+        } else {
+            version::detect(&installed, cache)
+        };
         let running = manager.running_profiles();
         let items = updates::items(&installed, &versions, &running, &SystemProbe);
         let dir = handle.state::<Store>().dir().to_path_buf();

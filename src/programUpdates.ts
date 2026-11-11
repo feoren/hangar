@@ -46,8 +46,32 @@ export type ProgramUpdates = ReadonlyMap<string, ProgramUpdate>;
 
 export const NO_UPDATES: ProgramUpdates = new Map();
 
-/** Every 6 hours; the backend keeps the results in its disk cache for 24 h anyway. */
-export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/**
+ * Every 30 minutes. The backend keeps a result for 25 min (updates.rs `CACHE_TTL_MS`), so each
+ * periodic check really asks the registry.
+ */
+export const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * How often the hook looks whether a check is due. Timers of a hidden or sleeping window are
+ * throttled or paused, so a short tick that compares wall-clock times stays on schedule after
+ * waking up, where a single 30 min timer would fire late.
+ */
+export const UPDATE_TICK_MS = 60 * 1000;
+
+/**
+ * A periodic check (timer tick or the window coming back) is due once the last attempt is at
+ * least one interval old. Before the first check nothing is due: that one runs after startup. A
+ * last attempt in the future (clock turned back) counts as due, so checks never stop.
+ */
+export function isCheckDue(
+  lastAttemptAt: number | null,
+  now: number,
+  interval: number = UPDATE_CHECK_INTERVAL_MS,
+): boolean {
+  if (lastAttemptAt === null) return false;
+  return now - lastAttemptAt >= interval || now < lastAttemptAt;
+}
 
 /** Event after an update session ended and the version was read again. */
 export const PROGRAM_UPDATE_RESULT = "program-update-result";

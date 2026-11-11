@@ -1,7 +1,7 @@
 //! Integration tests with real programs, without a PTY: version query (ADR 0003) including
 //! the time limit, and program icons.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -173,6 +173,48 @@ fn detect_only_installed_and_with_cache() {
     let started = Instant::now();
     assert_eq!(version::detect(&installed, &cache), versions);
     assert!(started.elapsed() < Duration::from_millis(50));
+}
+
+/// A launcher whose file stamp stays the same while the program behind it changes (npm swaps
+/// the package, not `gemini.cmd`; an agent updates itself): only `redetect` sees the new version.
+#[test]
+fn redetect_bypasses_the_remembered_version() {
+    #[cfg(windows)]
+    let (program, list) = ("cmd", ["/d", "/c", "echo %HANGAR_TEST_VERSION%"]);
+    #[cfg(unix)]
+    let (program, list) = ("sh", ["-c", "echo $HANGAR_TEST_VERSION"]);
+    let mut present = profile("present", program, Some(&list));
+    present
+        .env
+        .insert("HANGAR_TEST_VERSION".into(), "7.7.7".into());
+    let manager = SessionManager::new(vec![present], Vec::new(), std::env::temp_dir());
+    let mut installed = manager.installed();
+    let cache = VersionCache::default();
+    let version_of = |found: HashMap<String, Option<String>>| found["present"].clone();
+    assert_eq!(
+        version_of(version::detect(&installed, &cache)).as_deref(),
+        Some("7.7.7")
+    );
+
+    for (agent, _) in &mut installed {
+        agent
+            .profile
+            .env
+            .insert("HANGAR_TEST_VERSION".into(), "8.8.8".into());
+    }
+    assert_eq!(
+        version_of(version::detect(&installed, &cache)).as_deref(),
+        Some("7.7.7")
+    );
+    assert_eq!(
+        version_of(version::redetect(&installed, &cache)).as_deref(),
+        Some("8.8.8")
+    );
+    // The new answer is remembered for the plain query as well.
+    assert_eq!(
+        version_of(version::detect(&installed, &cache)).as_deref(),
+        Some("8.8.8")
+    );
 }
 
 #[cfg(windows)]

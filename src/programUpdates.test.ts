@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTranslator } from "./i18n";
 import {
   availableVersion,
+  isCheckDue,
   isPlanChanged,
   offerShowsInstalled,
   outcomeNotice,
@@ -10,7 +11,9 @@ import {
   parseUpdateOutcome,
   reasonText,
   runnableUpdate,
+  UPDATE_CHECK_INTERVAL_MS,
   UPDATE_REASONS,
+  UPDATE_TICK_MS,
   updateNotes,
   type ProgramUpdate,
 } from "./programUpdates";
@@ -282,5 +285,36 @@ describe("offerShowsInstalled", () => {
     expect(offerShowsInstalled({ ...update, updateAvailable: false })).toBe(false);
     expect(offerShowsInstalled({ ...update, latest: null })).toBe(false);
     expect(offerShowsInstalled({ ...update, plan: "copy" })).toBe(false);
+  });
+});
+
+describe("isCheckDue", () => {
+  const start = 1_762_000_000_000;
+
+  it("checks every 30 minutes, ticking once a minute", () => {
+    expect(UPDATE_CHECK_INTERVAL_MS).toBe(30 * 60 * 1000);
+    expect(UPDATE_TICK_MS).toBeLessThan(UPDATE_CHECK_INTERVAL_MS);
+    expect(isCheckDue(start, start + UPDATE_CHECK_INTERVAL_MS - 1)).toBe(false);
+    expect(isCheckDue(start, start + UPDATE_CHECK_INTERVAL_MS)).toBe(true);
+  });
+
+  it("leaves the first check to startup", () => {
+    expect(isCheckDue(null, start)).toBe(false);
+  });
+
+  it("asks again when the window returns only after a full interval", () => {
+    // Focus 5 minutes after a check: no network.
+    expect(isCheckDue(start, start + 5 * 60 * 1000)).toBe(false);
+    // Back from sleep after two hours: due at once, not at the next timer.
+    expect(isCheckDue(start, start + 2 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it("does not stop when the clock was turned back", () => {
+    expect(isCheckDue(start, start - 1)).toBe(true);
+  });
+
+  it("takes another interval", () => {
+    expect(isCheckDue(start, start + 1000, 1000)).toBe(true);
+    expect(isCheckDue(start, start + 999, 1000)).toBe(false);
   });
 });

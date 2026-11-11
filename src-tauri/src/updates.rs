@@ -4,7 +4,10 @@
 //! PyPI or a GitHub release. Only the `/latest` endpoints are queried (never lists of all
 //! versions, never prereleases), only over HTTPS and only on the three fixed hosts. Besides the
 //! address, only the user agent `Hangar/<version>` is sent, nothing that identifies the user.
-//! Results stay in the disk cache for 24 h; errors silently count as "unknown", for one hour.
+//! Results stay in the disk cache for 25 min, a little less than the frontend's 30 min check
+//! interval, so every periodic check really asks; errors silently count as "unknown", for 15 min.
+//! A stored `ETag` goes out as `If-None-Match`, and a `304` keeps the known version. A rate limit
+//! (`403`/`429` with `Retry-After` or `X-RateLimit-Reset`) pauses that source until the given time.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -22,8 +25,16 @@ use crate::version::{normalize_windows_suffix, parse_version};
 pub const CACHE_FILE: &str = "update-cache.json";
 const CACHE_VERSION: u32 = 1;
 const CACHE_MAX_BYTES: usize = 1024 * 1024;
-pub const CACHE_TTL_MS: u64 = 24 * 60 * 60 * 1000;
-pub const FAILURE_TTL_MS: u64 = 60 * 60 * 1000;
+/// Below the frontend's `UPDATE_CHECK_INTERVAL_MS` (30 min), so a periodic check never finds
+/// a cached answer from the previous round.
+pub const CACHE_TTL_MS: u64 = 25 * 60 * 1000;
+pub const FAILURE_TTL_MS: u64 = 15 * 60 * 1000;
+/// GitHub: "wait for at least one minute" when a rate limit names no time.
+pub const RATE_LIMIT_MIN_BACKOFF_MS: u64 = 60 * 1000;
+/// Upper bound for a backoff a server asks for; the hourly GitHub window never needs more.
+pub const RATE_LIMIT_MAX_BACKOFF_MS: u64 = 6 * 60 * 60 * 1000;
+/// Longer entity tags are not stored; real ones are short quoted hashes.
+const ETAG_MAX_LENGTH: usize = 200;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// PyPI returns all releases along with the package; nothing beyond this is ever read.
 const RESPONSE_LIMIT: usize = 8 * 1024 * 1024;
@@ -444,12 +455,33 @@ pub fn outcome_reason(
 
 // --- Disk cache ---
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Both optional fields came later; older cache files without them stay valid.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheEntry {
     pub latest: Option<String>,
-    /// Unix time in milliseconds.
+    /// Unix time in milliseconds of the answer `latest` comes from (a `304` counts as one).
     pub checked_at: u64,
+    /// Entity tag of the response `latest` was read from, sent back as `If-None-Match`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    /// Unix time in milliseconds before which the source must not be asked (rate limit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_at: Option<u64>,
+}
+
+impl CacheEntry {
+    /// The source asked to wait and the time has not come yet.
+    /// A time further away than [`RATE_LIMIT_MAX_BACKOFF_MS`] (clock turned back) does not count.
+    pub fn backing_off(&self, now: u64) -> bool {
+        self.retry_at
+            .is_some_and(|at| now < at && at - now <= RATE_LIMIT_MAX_BACKOFF_MS)
+    }
+
+    /// `If-None-Match` for the next request: only with a known version that a `304` can keep.
+    pub fn if_none_match(&self) -> Option<&str> {
+        self.latest.as_ref().and(self.etag.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -489,9 +521,13 @@ impl UpdateCache {
         write_atomic(&Self::path(dir), &json)
     }
 
-    /// Entry still valid: hits for 24 h, failures for 1 h.
+    /// Entry still valid: hits for [`CACHE_TTL_MS`], failures for [`FAILURE_TTL_MS`], and any
+    /// entry whose source asked to wait, until then.
     pub fn fresh(&self, key: &str, now: u64) -> Option<&CacheEntry> {
         let entry = self.entries.get(key)?;
+        if entry.backing_off(now) {
+            return Some(entry);
+        }
         let ttl = if entry.latest.is_some() {
             CACHE_TTL_MS
         } else {
@@ -688,13 +724,21 @@ pub fn result(item: &Item, entry: &CacheEntry) -> UpdateInfo {
     }
 }
 
-/// Sources that need a fresh query (without duplicates), in a stable order.
+/// Sources that need a fresh query (without duplicates), in a stable order. `force` bypasses
+/// the cache but not a rate limit: asking again before the given time only extends it.
 pub fn stale_sources(items: &[Item], cache: &UpdateCache, now: u64, force: bool) -> Vec<Source> {
     let mut seen = std::collections::HashSet::new();
     items
         .iter()
         .map(|item| &item.source)
-        .filter(|source| force || cache.fresh(&source.cache_key(), now).is_none())
+        .filter(|source| {
+            let key = source.cache_key();
+            let backing_off = cache
+                .entries
+                .get(&key)
+                .is_some_and(|entry| entry.backing_off(now));
+            !backing_off && (force || cache.fresh(&key, now).is_none())
+        })
         .filter(|source| seen.insert(source.cache_key()))
         .cloned()
         .collect()
@@ -730,17 +774,118 @@ pub fn client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-/// Newest version according to the source; any error yields `None`.
-pub async fn fetch(client: &reqwest::Client, source: &Source) -> Option<String> {
-    let mut response = client
-        .get(source.url())
-        .header(reqwest::header::ACCEPT, source.accept())
-        .send()
-        .await
-        .ok()?;
-    if !response.status().is_success() {
+/// What a source answered, reduced to what decides the cache entry ([`settle`]).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Reply {
+    pub status: u16,
+    pub etag: Option<String>,
+    pub retry_after: Option<String>,
+    pub rate_limit_remaining: Option<String>,
+    pub rate_limit_reset: Option<String>,
+    /// Body of a successful response; `None` otherwise, on a read error or over the limit.
+    pub body: Option<Vec<u8>>,
+}
+
+/// Unix time in ms until which a rate-limited source must wait, `None` if this is no rate limit.
+/// GitHub answers both limits with `403` or `429`: `Retry-After` (seconds) comes first, then
+/// `X-RateLimit-Reset` (epoch seconds) when `X-RateLimit-Remaining` is `0`, otherwise at least
+/// one minute. A `403` without either signal is an ordinary failure (such as a blocked
+/// repository). Always between one minute and [`RATE_LIMIT_MAX_BACKOFF_MS`] from `now`.
+pub fn rate_limited_until(reply: &Reply, now: u64) -> Option<u64> {
+    if !matches!(reply.status, 403 | 429) {
         return None;
     }
+    let seconds = |value: &Option<String>| {
+        value
+            .as_deref()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+    };
+    let exhausted = reply.rate_limit_remaining.as_deref().map(str::trim) == Some("0");
+    let until = if let Some(wait) = seconds(&reply.retry_after) {
+        now.saturating_add(wait.saturating_mul(1000))
+    } else if exhausted {
+        seconds(&reply.rate_limit_reset).map_or(0, |reset| reset.saturating_mul(1000))
+    } else if reply.status == 429 {
+        0
+    } else {
+        return None;
+    };
+    Some(until.clamp(
+        now.saturating_add(RATE_LIMIT_MIN_BACKOFF_MS),
+        now.saturating_add(RATE_LIMIT_MAX_BACKOFF_MS),
+    ))
+}
+
+/// The cache entry after an answer (`None`: no answer at all). A rate limit keeps what was
+/// known and only adds the pause; a `304` confirms the known version as of `now`; a success
+/// stores the version together with its entity tag; anything else is a failure.
+pub fn settle(
+    source: &Source,
+    prior: Option<&CacheEntry>,
+    reply: Option<&Reply>,
+    now: u64,
+) -> CacheEntry {
+    let failure = CacheEntry {
+        latest: None,
+        checked_at: now,
+        ..CacheEntry::default()
+    };
+    let Some(reply) = reply else {
+        return failure;
+    };
+    if let Some(retry_at) = rate_limited_until(reply, now) {
+        let mut kept = prior.cloned().unwrap_or(failure);
+        kept.retry_at = Some(retry_at);
+        return kept;
+    }
+    match reply.status {
+        304 => match prior.filter(|entry| entry.latest.is_some()) {
+            Some(entry) => CacheEntry {
+                latest: entry.latest.clone(),
+                checked_at: now,
+                etag: reply.etag.clone().or_else(|| entry.etag.clone()),
+                retry_at: None,
+            },
+            // Nothing known to keep: only possible if the server answers a plain request so.
+            None => failure,
+        },
+        200..=299 => {
+            let latest = reply.body.as_deref().and_then(|body| source.parse(body));
+            let etag = latest.as_ref().and(reply.etag.clone());
+            CacheEntry {
+                latest,
+                checked_at: now,
+                etag,
+                retry_at: None,
+            }
+        }
+        _ => failure,
+    }
+}
+
+/// The request for a source; `if_none_match` makes it conditional. An entity tag that is no
+/// valid header value is left out rather than sent half.
+pub fn request(
+    client: &reqwest::Client,
+    source: &Source,
+    if_none_match: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let request = client
+        .get(source.url())
+        .header(reqwest::header::ACCEPT, source.accept());
+    match if_none_match.and_then(|tag| reqwest::header::HeaderValue::from_str(tag).ok()) {
+        Some(tag) => request.header(reqwest::header::IF_NONE_MATCH, tag),
+        None => request,
+    }
+}
+
+/// A short header value as text; anything long or not visible ASCII is dropped.
+fn header_text(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
+    let text = headers.get(name)?.to_str().ok()?.trim();
+    (!text.is_empty() && text.len() <= ETAG_MAX_LENGTH).then(|| text.to_owned())
+}
+
+async fn read_body(response: &mut reqwest::Response) -> Option<Vec<u8>> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.ok()? {
         if body.len() + chunk.len() > RESPONSE_LIMIT {
@@ -748,7 +893,29 @@ pub async fn fetch(client: &reqwest::Client, source: &Source) -> Option<String> 
         }
         body.extend_from_slice(&chunk);
     }
-    source.parse(&body)
+    Some(body)
+}
+
+/// The source's answer; `None` if none arrived (network, TLS, timeout, redirect refused).
+pub async fn fetch(
+    client: &reqwest::Client,
+    source: &Source,
+    if_none_match: Option<&str>,
+) -> Option<Reply> {
+    let mut response = request(client, source, if_none_match).send().await.ok()?;
+    let headers = response.headers();
+    let mut reply = Reply {
+        status: response.status().as_u16(),
+        etag: header_text(headers, reqwest::header::ETAG.as_str()),
+        retry_after: header_text(headers, reqwest::header::RETRY_AFTER.as_str()),
+        rate_limit_remaining: header_text(headers, "x-ratelimit-remaining"),
+        rate_limit_reset: header_text(headers, "x-ratelimit-reset"),
+        body: None,
+    };
+    if response.status().is_success() {
+        reply.body = read_body(&mut response).await;
+    }
+    Some(reply)
 }
 
 /// Queries stale sources (at most [`PARALLEL`] at a time), stores them in the cache
@@ -768,24 +935,21 @@ pub async fn check(
                 .cloned()
                 .map(|source| {
                     let client = client.clone();
+                    let prior = cache.entries.get(&source.cache_key()).cloned();
                     tauri::async_runtime::spawn(async move {
-                        let latest = match &client {
-                            Some(client) => fetch(client, &source).await,
+                        let tag = prior.as_ref().and_then(CacheEntry::if_none_match);
+                        let reply = match &client {
+                            Some(client) => fetch(client, &source, tag).await,
                             None => None,
                         };
-                        (source, latest)
+                        let entry = settle(&source, prior.as_ref(), reply.as_ref(), now);
+                        (source, entry)
                     })
                 })
                 .collect();
             for job in jobs {
-                if let Ok((source, latest)) = job.await {
-                    cache.put(
-                        source.cache_key(),
-                        CacheEntry {
-                            latest,
-                            checked_at: now,
-                        },
-                    );
+                if let Ok((source, entry)) = job.await {
+                    cache.put(source.cache_key(), entry);
                 }
             }
         }
@@ -800,6 +964,7 @@ pub async fn check(
                 .unwrap_or(CacheEntry {
                     latest: None,
                     checked_at: now,
+                    ..CacheEntry::default()
                 });
             (item.id.clone(), result(item, &entry))
         })
@@ -1173,6 +1338,7 @@ mod tests {
             &CacheEntry {
                 latest: Some("2.0".into()),
                 checked_at: 1,
+                ..CacheEntry::default()
             },
         );
         let json = serde_json::to_value(info).unwrap();
@@ -1268,6 +1434,8 @@ mod tests {
             CacheEntry {
                 latest: Some("2.0.0".into()),
                 checked_at: now - CACHE_TTL_MS + 1,
+                etag: Some("\"a1\"".into()),
+                retry_at: None,
             },
         );
         cache.put(
@@ -1275,12 +1443,18 @@ mod tests {
             CacheEntry {
                 latest: None,
                 checked_at: now - FAILURE_TTL_MS,
+                ..CacheEntry::default()
             },
         );
         cache.save(&dir).unwrap();
         let cache = UpdateCache::load(&dir);
         assert!(cache.fresh(&a.cache_key(), now).is_some());
-        // Failures count for one hour only, hits for 24 h.
+        // The entity tag survives the disk round trip.
+        assert_eq!(
+            cache.entries[&a.cache_key()].if_none_match(),
+            Some("\"a1\"")
+        );
+        // Failures count for 15 min only, hits for 25 min.
         assert!(cache.fresh(&b.cache_key(), now).is_none());
         assert!(cache.fresh(&a.cache_key(), now + 1).is_none());
         // An entry from the future (clock set wrong) is not valid.
@@ -1340,12 +1514,212 @@ mod tests {
             CacheEntry {
                 latest: Some("1.1".into()),
                 checked_at: now,
+                ..CacheEntry::default()
             },
         );
         let items = vec![item("x", a, Some("1.0"))];
         let result = tauri::async_runtime::block_on(check(&items, &mut cache, now, false));
         assert!(result["x"].update_available);
         assert_eq!(result["x"].checked_at, now);
+    }
+
+    #[test]
+    fn ttls_stay_below_the_check_interval() {
+        // The frontend checks every 30 min (UPDATE_CHECK_INTERVAL_MS in programUpdates.ts).
+        let interval = 30 * 60 * 1000;
+        assert_eq!(CACHE_TTL_MS, 25 * 60 * 1000);
+        assert_eq!(FAILURE_TTL_MS, 15 * 60 * 1000);
+        assert!(CACHE_TTL_MS < interval && FAILURE_TTL_MS < CACHE_TTL_MS);
+    }
+
+    fn github() -> Source {
+        Source::Github {
+            repo: "PowerShell/PowerShell".into(),
+            tag_prefix: "v".into(),
+        }
+    }
+
+    fn known(latest: &str, etag: Option<&str>, checked_at: u64) -> CacheEntry {
+        CacheEntry {
+            latest: Some(latest.into()),
+            checked_at,
+            etag: etag.map(str::to_owned),
+            retry_at: None,
+        }
+    }
+
+    #[test]
+    fn success_stores_the_entity_tag_and_it_is_sent_back() {
+        let now = 9_000_000;
+        let ok = Reply {
+            status: 200,
+            etag: Some("W/\"abc\"".into()),
+            body: Some(br#"{"tag_name":"v7.5.4"}"#.to_vec()),
+            ..Reply::default()
+        };
+        let entry = settle(&github(), None, Some(&ok), now);
+        assert_eq!(entry, known("7.5.4", Some("W/\"abc\""), now));
+        assert_eq!(entry.if_none_match(), Some("W/\"abc\""));
+
+        // A body without a version stores no tag: a 304 on it would confirm nothing.
+        let broken = Reply {
+            body: Some(br#"{"message":"x"}"#.to_vec()),
+            ..ok.clone()
+        };
+        let entry = settle(&github(), None, Some(&broken), now);
+        assert_eq!((entry.latest, entry.etag), (None, None));
+        // No version known, so nothing to make conditional.
+        let tag_only = CacheEntry {
+            etag: Some("\"x\"".into()),
+            ..CacheEntry::default()
+        };
+        assert_eq!(tag_only.if_none_match(), None);
+
+        let client = client().unwrap();
+        let conditional = request(&client, &github(), Some("W/\"abc\""))
+            .build()
+            .unwrap();
+        assert_eq!(
+            conditional.headers()[reqwest::header::IF_NONE_MATCH],
+            "W/\"abc\""
+        );
+        assert_eq!(
+            conditional.headers()[reqwest::header::ACCEPT],
+            "application/vnd.github+json"
+        );
+        let plain = request(&client, &github(), None).build().unwrap();
+        assert!(plain
+            .headers()
+            .get(reqwest::header::IF_NONE_MATCH)
+            .is_none());
+        // A tag that is no valid header value is left out.
+        let invalid = request(&client, &github(), Some("a\nb")).build().unwrap();
+        assert!(invalid
+            .headers()
+            .get(reqwest::header::IF_NONE_MATCH)
+            .is_none());
+    }
+
+    #[test]
+    fn not_modified_keeps_the_version_and_refreshes_the_time() {
+        let prior = known("7.5.4", Some("\"abc\""), 1_000);
+        let now = 2_000_000;
+        let not_modified = Reply {
+            status: 304,
+            ..Reply::default()
+        };
+        let entry = settle(&github(), Some(&prior), Some(&not_modified), now);
+        assert_eq!(entry, known("7.5.4", Some("\"abc\""), now));
+        // A new tag on the 304 replaces the old one.
+        let retagged = Reply {
+            etag: Some("\"def\"".into()),
+            ..not_modified.clone()
+        };
+        let entry = settle(&github(), Some(&prior), Some(&retagged), now);
+        assert_eq!(entry.etag.as_deref(), Some("\"def\""));
+        // Without a known version a 304 is a failure.
+        let entry = settle(&github(), None, Some(&not_modified), now);
+        assert_eq!(entry.latest, None);
+        assert_eq!(entry.checked_at, now);
+    }
+
+    #[test]
+    fn rate_limits_pause_the_source() {
+        let now = 1_700_000_000_000;
+        let limited =
+            |status, retry: Option<&str>, remaining: Option<&str>, reset: Option<&str>| Reply {
+                status,
+                retry_after: retry.map(str::to_owned),
+                rate_limit_remaining: remaining.map(str::to_owned),
+                rate_limit_reset: reset.map(str::to_owned),
+                ..Reply::default()
+            };
+        // Retry-After in seconds comes first.
+        assert_eq!(
+            rate_limited_until(&limited(429, Some("120"), Some("0"), Some("1")), now),
+            Some(now + 120_000)
+        );
+        // Primary limit: until X-RateLimit-Reset (epoch seconds).
+        let reset = (now / 1000 + 1800).to_string();
+        assert_eq!(
+            rate_limited_until(&limited(403, None, Some("0"), Some(&reset)), now),
+            Some(now + 1_800_000)
+        );
+        // Without a time: at least one minute.
+        assert_eq!(
+            rate_limited_until(&limited(429, None, None, None), now),
+            Some(now + RATE_LIMIT_MIN_BACKOFF_MS)
+        );
+        // A reset in the past or absurdly far away is bounded.
+        assert_eq!(
+            rate_limited_until(&limited(403, None, Some("0"), Some("5")), now),
+            Some(now + RATE_LIMIT_MIN_BACKOFF_MS)
+        );
+        assert_eq!(
+            rate_limited_until(&limited(403, Some("999999999"), None, None), now),
+            Some(now + RATE_LIMIT_MAX_BACKOFF_MS)
+        );
+        // A plain 403 and other statuses are no rate limit.
+        assert_eq!(
+            rate_limited_until(&limited(403, None, Some("59"), None), now),
+            None
+        );
+        assert_eq!(
+            rate_limited_until(&limited(500, Some("60"), None, None), now),
+            None
+        );
+
+        // The known version stays; the source waits, even for "Check now".
+        let prior = known("7.5.4", Some("\"abc\""), now - CACHE_TTL_MS);
+        let entry = settle(
+            &github(),
+            Some(&prior),
+            Some(&limited(429, Some("600"), None, None)),
+            now,
+        );
+        assert_eq!(entry.latest.as_deref(), Some("7.5.4"));
+        assert_eq!(entry.checked_at, prior.checked_at);
+        assert_eq!(entry.retry_at, Some(now + 600_000));
+        let mut cache = UpdateCache::default();
+        cache.put(github().cache_key(), entry);
+        let items = vec![item("pwsh", github(), Some("7.5.0"))];
+        assert!(stale_sources(&items, &cache, now + 1, true).is_empty());
+        assert!(stale_sources(&items, &cache, now + 599_999, false).is_empty());
+        assert_eq!(
+            stale_sources(&items, &cache, now + 600_000, false),
+            vec![github()]
+        );
+        // The offer stays visible during the pause.
+        let result = tauri::async_runtime::block_on(check(&items, &mut cache, now + 1, true));
+        assert!(result["pwsh"].update_available);
+        // A pause set before the clock was turned back does not block for longer.
+        let far = CacheEntry {
+            retry_at: Some(now + RATE_LIMIT_MAX_BACKOFF_MS + 1),
+            ..CacheEntry::default()
+        };
+        assert!(!far.backing_off(now));
+
+        // A rate limit without anything known yet is remembered as a failure with a pause.
+        let entry = settle(&github(), None, Some(&limited(429, None, None, None)), now);
+        assert_eq!(entry.latest, None);
+        assert_eq!(entry.retry_at, Some(now + RATE_LIMIT_MIN_BACKOFF_MS));
+        // No answer at all is a plain failure.
+        assert_eq!(
+            settle(&github(), Some(&prior), None, now),
+            CacheEntry {
+                latest: None,
+                checked_at: now,
+                ..CacheEntry::default()
+            }
+        );
+    }
+
+    #[test]
+    fn older_cache_entries_without_the_new_fields_load() {
+        let entry: CacheEntry = serde_json::from_str(r#"{"latest":"1.0","checkedAt":5}"#).unwrap();
+        assert_eq!(entry, known("1.0", None, 5));
+        let json = serde_json::to_value(&entry).unwrap();
+        assert!(json.get("etag").is_none() && json.get("retryAt").is_none());
     }
 
     /// Real query, only on request: `cargo test -- --ignored live`.
@@ -1362,9 +1736,19 @@ mod tests {
         ];
         let client = client().unwrap();
         for source in sources {
-            let latest = tauri::async_runtime::block_on(fetch(&client, &source));
-            println!("{source:?}: {latest:?}");
-            assert!(latest.is_some(), "{source:?}");
+            let reply = tauri::async_runtime::block_on(fetch(&client, &source, None));
+            let entry = settle(&source, None, reply.as_ref(), now_millis());
+            println!("{source:?}: {:?} etag {:?}", entry.latest, entry.etag);
+            assert!(entry.latest.is_some(), "{source:?}");
+            // Asked again with the tag: a 304 must keep the version.
+            let tag = entry.if_none_match();
+            let again = tauri::async_runtime::block_on(fetch(&client, &source, tag));
+            println!(
+                "  conditional: status {:?}",
+                again.as_ref().map(|r| r.status)
+            );
+            let next = settle(&source, Some(&entry), again.as_ref(), now_millis());
+            assert_eq!(next.latest, entry.latest, "{source:?}");
         }
     }
 }

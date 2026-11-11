@@ -580,6 +580,7 @@ export function App() {
     installed,
     settings.checkProgramUpdates,
     programs.versionsSettled && startupDone,
+    programs.refreshVersions,
   );
   const systemDark = useSyncExternalStore(subscribeSystemTheme, systemPrefersDark);
   const theme = resolveTheme(settings.theme, systemDark);

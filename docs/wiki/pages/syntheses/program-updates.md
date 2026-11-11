@@ -2,9 +2,9 @@
 title: Showing and running program updates (contract)
 type: synthesis
 tags: [updates, contract, network]
-sources: ["[[update-sources]]", "[[update-installers]]"]
+sources: ["[[update-sources]]", "[[update-installers]]", "[[github-conditional-requests]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-12
 ---
 
 # Showing and running program updates (contract)
@@ -14,7 +14,7 @@ copy came from and which command updates it), commands in `src-tauri/src/command
 agent: [[updates]]. Evidence for the installers: [[update-installers]].
 
 ## Command
-`check_program_updates({ force?: boolean })` returns `Record<profileId, UpdateInfo>` with
+`check_program_updates({ force?: boolean, redetect?: boolean })` returns `Record<profileId, UpdateInfo>` with
 
 ```ts
 type UpdateInfo = {
@@ -42,6 +42,9 @@ type Installer = "npm" | "pnpm" | "bun" | "winget" | "registered" | "scoop" | "c
 - Only installed entries with `latest`; everything else is absent from the result.
 - `installed` comes from the `detect_versions` cache (ADR [[0003-program-versions]]). While that cache
   is still empty, the command queries the versions itself, with up to 5 s per program.
+  `redetect: true` asks these programs again even when the cache has an answer, and the cache
+  keeps the new one: the file stamp misses an agent that updated itself behind an unchanged
+  launcher, so without it a stale `installed` would keep an offer that is no longer true.
 - `latest` is `null` if the lookup failed (no network, timeout, rate limit, unknown
   package); `updateAvailable` is then `false`.
 - `checkedAt`: Unix time in ms of the lookup that produced `latest`.
@@ -51,8 +54,8 @@ type Installer = "npm" | "pnpm" | "bun" | "winget" | "registered" | "scoop" | "c
 - `warnings`: `running` when the program runs in an agent session (Windows may fail on locked
   files), `second-copy` when more than one copy exists (`copies`); the update may then reach a
   copy that is not the one started.
-- `force: true` bypasses the disk cache. Only sensible when the user asks for it (GitHub: 60 requests
-  per hour and IP).
+- `force: true` bypasses the disk cache, but never a rate limit pause (see Behavior). Only sensible
+  when the user asks for it (GitHub: 60 requests per hour and IP).
 
 `create_update_session({ profileId, size, onEvent, expectedPlan? })` starts the update as a
 normal session and returns its `SessionInfo` with `kind: "update"` and the title
@@ -201,7 +204,26 @@ Detection uses the resolved path and file existence only, no process ([[update-i
 
 ## Behavior
 - Disk cache `update-cache.json` in the local app data folder, keyed per source (`npm:<package>`,
-  `pypi:<package>`, `github:<repo>:<prefix>`): hits stay valid for 24 h, failures for 1 h.
+  `pypi:<package>`, `github:<repo>:<prefix>`): hits stay valid for 25 min, failures for 15 min
+  (`CACHE_TTL_MS`, `FAILURE_TTL_MS`), so each 30 min check of the frontend really asks.
+- Schedule (frontend `useProgramUpdates`): first check 1.5 s after the startup version query
+  (`redetect: false`), then a one minute tick compares wall-clock times and checks once the last
+  attempt is 30 min old (`isCheckDue`, `UPDATE_CHECK_INTERVAL_MS`); window `focus` and
+  `visibilitychange` use the same rule, so returning after sleep checks at once and returning
+  after five minutes sends nothing. Periodic checks and "Check now" pass `redetect: true`; the
+  frontend then reloads `detect_versions` (from the refreshed cache) for the version shown in
+  the rows. The sidebar row and Settings render the offer from this state, so "Update" appears
+  as soon as a check returns.
+- Conditional requests: the entity tag of a successful answer is stored with the entry (`etag`)
+  and sent back as `If-None-Match`; a `304` keeps `latest` and moves `checkedAt` to now. Only an
+  entry with a known version sends a tag. Measured 2026-11-12: GitHub and PyPI answer `304`,
+  npm `/latest` sends no `ETag` (every check is a full, small answer). Unauthenticated, a GitHub
+  `304` still counts against the 60 per hour ([[github-conditional-requests]]); the gain there is
+  bandwidth, the budget is kept by the 30 min interval (two requests per GitHub source per hour).
+- Rate limits: a `403` or `429` with `Retry-After` (seconds), or with `X-RateLimit-Remaining: 0`
+  and `X-RateLimit-Reset` (epoch seconds), or any `429`, pauses that source (`retryAt`) for at
+  least 1 min and at most 6 h; the known `latest` stays and keeps the offer visible. A plain
+  `403` is an ordinary failure. The pause applies per source, also to `force`.
 - Requests: HTTPS only, to `registry.npmjs.org`, `pypi.org`, `api.github.com` (redirects included,
   at most 3), timeout 5 s, at most 4 at once, response at most 8 MiB, system proxy.
 - Only the address and `User-Agent: Hangar/<version>` are sent; no identifier, no cookies.

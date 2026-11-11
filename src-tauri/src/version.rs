@@ -221,11 +221,20 @@ fn cache_key(agent: &Agent, program: &Path) -> Option<((FileStamp, Vec<String>),
     Some(((FileStamp::of(&program)?, args), program))
 }
 
-/// Version of an entry, from the cache or by querying.
-fn cached_version(agent: &Agent, program: &Path, cache: &VersionCache) -> Option<String> {
+/// Version of an entry, from the cache or by querying. `refresh` skips the remembered value: the
+/// file stamp misses an update behind an unchanged launcher (npm swaps the package, not
+/// `gemini.cmd`) and an agent that updated itself in place.
+fn cached_version(
+    agent: &Agent,
+    program: &Path,
+    cache: &VersionCache,
+    refresh: bool,
+) -> Option<String> {
     let (key, program) = cache_key(agent, program)?;
-    if let Some(version) = cache.get(&key) {
-        return version;
+    if !refresh {
+        if let Some(version) = cache.get(&key) {
+            return version;
+        }
     }
     // Not cached: the shim's stamp stays the same when a reinstall repairs the binary behind it.
     if !crate::exe_image::is_launchable(&program) {
@@ -247,13 +256,32 @@ pub fn detect(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
 ) -> HashMap<String, Option<String>> {
+    detect_with(installed, cache, false)
+}
+
+/// Like [`detect`], but queries every entry anew and remembers the new answers. For the
+/// periodic update check, so an offer disappears once the program is current.
+pub fn redetect(
+    installed: &[(Agent, PathBuf)],
+    cache: &VersionCache,
+) -> HashMap<String, Option<String>> {
+    detect_with(installed, cache, true)
+}
+
+fn detect_with(
+    installed: &[(Agent, PathBuf)],
+    cache: &VersionCache,
+    refresh: bool,
+) -> HashMap<String, Option<String>> {
     thread::scope(|scope| {
         let jobs: Vec<_> = installed
             .iter()
             .map(|(agent, program)| {
                 let job = thread::Builder::new()
                     .name(format!("version-{}", agent.id()))
-                    .spawn_scoped(scope, move || cached_version(agent, program, cache));
+                    .spawn_scoped(scope, move || {
+                        cached_version(agent, program, cache, refresh)
+                    });
                 (agent.id().to_owned(), job)
             })
             .collect();

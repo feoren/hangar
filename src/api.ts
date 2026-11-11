@@ -207,9 +207,11 @@ export const api = {
   openProfileFile: () => invoke<null>("open_profile_file"),
   /**
    * State per profile ID (installed, latest version, update command). Asks npm, PyPI or GitHub
-   * in the backend; `force` bypasses its disk cache. Check with `parseProgramUpdates`.
+   * in the backend; `force` bypasses its disk cache, `redetect` asks the programs for their
+   * installed version again. Check with `parseProgramUpdates`.
    */
-  checkProgramUpdates: (force: boolean) => invoke<unknown>("check_program_updates", { force }),
+  checkProgramUpdates: (force: boolean, redetect: boolean) =>
+    invoke<unknown>("check_program_updates", { force, redetect }),
 
   // Workspace and scrollback (contract: docs/wiki/pages/syntheses/session-restore.md).
   /** Expects an object built with `buildWorkspace`; the backend validates it again. */
