@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Jede Session hat links einen abgerundeten Rand in der Farbe ihres Zustands. Ihre Knöpfe erscheinen beim Zeigen über dem Text und nehmen ihm keinen Platz.",
+        "en": "Every session has a rounded left edge in the color of its state. Its buttons appear over the text when you point at it, so they take no room from it.",
+        "el": "Κάθε συνεδρία έχει αριστερά ένα στρογγυλεμένο περίγραμμα στο χρώμα της κατάστασής της. Τα κουμπιά της εμφανίζονται πάνω από το κείμενο.",
+        "es": "Cada sesión tiene a la izquierda un borde redondeado del color de su estado. Sus botones aparecen sobre el texto al señalarla y no le quitan espacio.",
+        "fr": "Chaque session a à gauche un bord arrondi de la couleur de son état. Ses boutons apparaissent sur le texte au survol, sans lui prendre de place.",
+        "it": "Ogni sessione ha a sinistra un bordo arrotondato nel colore del suo stato. I suoi pulsanti compaiono sopra il testo al passaggio, senza togliergli spazio.",
+        "ja": "各セッションの左端に、状態の色の角丸の縁が付きます。ボタンはポインターを合わせるとテキストの上に表示され、幅を取りません。",
+        "pl": "Każda sesja ma po lewej zaokrągloną krawędź w kolorze swojego stanu. Jej przyciski pojawiają się nad tekstem po wskazaniu i nie zabierają mu miejsca.",
+        "pt": "Cada sessão tem à esquerda uma borda arredondada na cor do seu estado. Os botões aparecem sobre o texto ao apontar e não lhe tiram espaço.",
+        "ru": "У каждого сеанса слева скруглённый край в цвете его состояния. Его кнопки появляются поверх текста при наведении и не отнимают у него места.",
+        "tr": "Her oturumun solunda durumunun renginde yuvarlak bir kenar var. Düğmeleri üzerine gelince metnin üstünde belirir ve ondan yer almaz.",
+        "zh": "每个会话左侧都有一条圆角边框，颜色对应其状态。指向会话时，按钮会浮现在文字上方，不再占用文字的空间。"
+      },
+      {
         "de": "Das Ordnersymbol an der aktiven Session zeigt ihren Projektordner als Baum. Dateien, die dein Team gerade bearbeitet, tragen den Avatar der Person.",
         "en": "The folder icon on the active session shows its project folder as a tree. Files your team is editing carry that person’s avatar.",
         "el": "Το εικονίδιο φακέλου στην ενεργή συνεδρία δείχνει τον φάκελο του έργου ως δέντρο. Τα αρχεία που επεξεργάζεται η ομάδα σου έχουν το avatar του ατόμου.",

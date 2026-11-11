@@ -64,3 +64,26 @@ export function rowLook(
   if (session.status !== "running") return null;
   return state === "working" ? "working" : "idle";
 }
+
+/**
+ * Which colored left edge a row in the expanded sidebar carries; every row has one. A failed exit
+ * is red even while it still waits to be seen; otherwise the edge follows the row's look, and the
+ * states without a look (starting, an ordinary end) get their own quiet edge.
+ */
+export type RowEdge = LookState | "starting" | "ended" | "failed";
+
+export function rowEdge(
+  session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
+  state: AttentionState,
+  chip: ChipKind | null,
+): RowEdge {
+  if (chip === "failed" || exitedWithError(session)) return "failed";
+  const look = rowLook(session, state, chip);
+  if (look !== null) return look;
+  return session.status === "starting" ? "starting" : "ended";
+}
+
+/** The CSS class of an edge (styles.css, `.edge-*`). */
+export function edgeClass(edge: RowEdge): string {
+  return `edge-${edge}`;
+}

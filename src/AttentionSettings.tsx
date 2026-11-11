@@ -1,6 +1,7 @@
 import { playChime } from "./chimeAudio";
 import { useT, type MessageKey } from "./i18n";
 import { RangeField } from "./RangeField";
+import { edgeClass } from "./sessionChip";
 import {
   CHIME_VOLUME,
   clampChimeVolume,
@@ -313,7 +314,14 @@ function LookCard({
         </div>
 
         <div className="attention-preview look-preview" aria-hidden="true">
-          <span className={["session", waits ? "attention" : "", lookClass(state)].join(" ")}>
+          <span
+            className={[
+              "session",
+              waits ? "attention" : "",
+              lookClass(state),
+              edgeClass(state),
+            ].join(" ")}
+          >
             <span className="session-main">
               <span className="badge">C</span>
               <span className="session-text">

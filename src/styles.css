@@ -13,6 +13,8 @@
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
+  /* The middle tone of the drift, for the backdrop of the row actions. */
+  --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
   --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
@@ -75,8 +77,9 @@
   --sidebar-rule-gap: 4px;
   /* Odd, so its middle falls on a pixel center like the 1 px lines it sits on. */
   --edge-toggle-size: 23px;
-  /* Session row: three 26 px action buttons, two 2 px gaps, 6 px right padding. */
-  --row-actions-width: 88px;
+  /* Session row: the colored edge on its left and the thin border that continues around it. */
+  --row-edge: 3px;
+  --row-border: 1px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -103,6 +106,7 @@
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
+  --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -365,23 +369,79 @@ h2 .beta-badge {
   color: var(--muted);
 }
 
+/* Every row has a colored left edge in its state's color (.edge-*, sessionChip.ts rowEdge). It is
+   the row's own left border on a rounded row, so at the top and bottom it curves into the thin
+   border that runs around the rest of the row in a lighter mix of the same color. The status line
+   names the state in words, so color is never the only signal. */
 .session {
+  --edge: transparent;
+  --edge-ring: 18%;
   position: relative;
   display: flex;
   align-items: center;
+  border: var(--row-border) solid color-mix(in srgb, var(--edge) var(--edge-ring), transparent);
+  border-left: var(--row-edge) solid var(--edge);
   border-radius: 6px;
   margin-bottom: 2px;
+  transition: border-color 240ms ease;
 }
 
-.session:hover {
+/* Keyboard focus on a row action lights the row like the pointer does, so the actions' backdrop
+   has a background to take on. */
+.session:hover,
+.session:has(.session-actions :focus-visible) {
   background: var(--hover);
 }
 
 .session.active {
+  --edge-ring: 55%;
   background: var(--panel-raised);
-  box-shadow: inset var(--active-bar) 0 0 var(--accent);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
   isolation: isolate;
+}
+
+/* Waiting rows draw the eye with a firmer ring, as their old ring did. */
+.session.attention {
+  --edge-ring: 45%;
+}
+
+.session.active.attention {
+  --edge-ring: 70%;
+}
+
+.edge-working {
+  --edge: var(--look-working-strong);
+}
+
+.edge-done {
+  --edge: var(--look-done-strong);
+}
+
+.edge-asks {
+  --edge: var(--look-asks-strong);
+}
+
+/* Pause: the same color as working by default, so it steps back to stay calmer, but stays there. */
+.edge-idle {
+  --edge: color-mix(in srgb, var(--look-idle-strong) 55%, transparent);
+}
+
+.edge-starting {
+  --edge: color-mix(in srgb, var(--warn) 85%, transparent);
+}
+
+.edge-ended {
+  --edge: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.edge-failed {
+  --edge: var(--error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session {
+    transition: none;
+  }
 }
 
 /* A little lighter (dark) or darker (light) than elsewhere, so the status lines keep 4.5:1 on the
@@ -437,7 +497,8 @@ h2 .beta-badge {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
+  /* 7 px by 8 px around the content, less what the row's border already takes on each side. */
+  padding: 6px 7px 6px 5px;
   text-align: left;
 }
 
@@ -727,9 +788,8 @@ h2 .beta-badge {
   --row-ring-pulse: var(--look-asks-ring-pulse);
 }
 
-/* The row breathes in its state's color; waiting rows also get a thin ring, and the status chip at
-   the right end names the state. The left bar belongs to the active session only. The tint is
-   mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
+/* The row breathes in its state's color, its edge (.edge-*) carries the same color, and the status
+   chip at the right end names the state. The tint is mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
    working and pause then look plain. Single class on purpose: hover and the active row still win over the still tint. */
 @keyframes row-breathe {
   0%,
@@ -755,42 +815,49 @@ h2 .beta-badge {
   color: var(--row-text);
 }
 
-/* In the rail, the ring sits around the badge instead (below). */
-.session.attention {
-  box-shadow: inset 0 0 0 1px var(--attention-ring);
-}
-
-.session.active.attention {
-  box-shadow:
-    inset var(--active-bar) 0 0 var(--accent),
-    inset 0 0 0 1px var(--attention-ring);
-}
-
-/* The actions fade in at the right end of the row on hover or keyboard focus. They have no
-   backdrop of their own: the row's background, tint and drifting light show through. Meanwhile
-   the row keeps their width free, so its text ends in an ellipsis before them instead of running
-   underneath. They stay in the tab order (opacity, not display: none). */
+/* The actions fade in at the right end of the row on hover or keyboard focus and lie over the
+   text and info lines, so the row reserves no width for them. Their strip takes the row's own
+   background (also mid-breath, as the computed color is inherited) and fades in from the left, so
+   the text beneath ends softly instead of being cut. They stay in the tab order (opacity, not
+   display: none). Inside the row's border, so the colored edge stays whole. */
 .session-actions {
   position: absolute;
   inset: 0 0 0 auto;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 6px;
+  padding: 0 5px 0 2px;
+  background-color: inherit;
+  border-radius: 0 5px 5px 0;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.session:hover .session-actions,
-.session-actions:focus-within {
-  opacity: 1;
-  pointer-events: auto;
+/* The fade to the left of the buttons, in the same inherited background. */
+.session-actions::before {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 16px;
+  content: "";
+  pointer-events: none;
+  background-color: inherit;
+  mask-image: linear-gradient(to right, transparent, #000);
 }
 
-.session:hover,
-.session:has(.session-actions:focus-within) {
-  padding-right: var(--row-actions-width);
+/* The active row's drifting light lies under the strip; the strip carries its middle tone. */
+.session.active:not(.attention) .session-actions,
+.session.active:not(.attention) .session-actions::before {
+  background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
+}
+
+.session:hover .session-actions,
+.session-actions:has(:focus-visible) {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* On a tinted or lit row the plain hover gray would barely show; a veil of the text color reads
@@ -800,9 +867,8 @@ h2 .beta-badge {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
-/* Status chip: one shape per state. The actions take its place on hover and keyboard focus, so
-   the two never overlap; the chip then leaves the row, which already keeps the actions' width
-   free. */
+/* Status chip: one shape per state. The actions take its place on hover and keyboard focus; it
+   steps out of sight but keeps its width, so the text under the actions does not shift. */
 .status-chip {
   display: inline-flex;
   flex: none;
@@ -820,8 +886,8 @@ h2 .beta-badge {
 }
 
 .session:hover > .status-chip,
-.session:has(.session-actions:focus-within) > .status-chip {
-  display: none;
+.session:has(.session-actions :focus-visible) > .status-chip {
+  visibility: hidden;
 }
 
 .status-chip.done,
@@ -914,13 +980,11 @@ h2 .beta-badge {
   }
 
   .session.attention {
-    box-shadow: inset 0 0 0 1.5px var(--attention-strong);
+    --edge-ring: 75%;
   }
 
   .session.active.attention {
-    box-shadow:
-      inset var(--active-bar) 0 0 var(--accent),
-      inset 0 0 0 1.5px var(--attention-strong);
+    --edge-ring: 100%;
   }
 
   .status-chip-dots span {
@@ -3418,6 +3482,7 @@ body.resizing-horizontal * {
 }
 
 .look-card:disabled .look-preview .session {
+  --edge: color-mix(in srgb, var(--muted) 40%, transparent);
   animation: none;
   box-shadow: none;
   background-color: transparent;
@@ -5600,12 +5665,6 @@ body.resizing-horizontal * {
   }
 }
 
-/* The active session row carries one more action, the folder button. */
-.session.active:hover,
-.session.active:has(.session-actions:focus-within) {
-  padding-right: calc(var(--row-actions-width) + 28px);
-}
-
 /* File tree. End. */
 
 /* Profile editor in Settings, Programs */
@@ -5858,11 +5917,6 @@ body.session-dragging * {
 /* No hover actions while a session is carried around. */
 body.session-dragging .session-actions {
   visibility: hidden;
-}
-
-/* Nor their reserved width: rows passed over keep their text whole. */
-body.session-dragging .session:hover {
-  padding-right: 0;
 }
 
 /* The drop line between two rows: where the session lands. */

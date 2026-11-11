@@ -53,7 +53,7 @@ import {
   type DetailLine,
 } from "./statusLine";
 import type { ThemeSetting } from "./theme";
-import { rowLook, sessionChip, type ChipKind } from "./sessionChip";
+import { edgeClass, rowEdge, rowLook, sessionChip, type ChipKind } from "./sessionChip";
 import { lookClass } from "./stateLook";
 import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
@@ -1267,6 +1267,7 @@ function SessionItem({
     exited ? "exited" : "",
     waiting ? "attention" : "",
     lookClass(rowLook(session, state, chip)),
+    edgeClass(rowEdge(session, state, chip)),
     dragClass,
   ]
     .filter(Boolean)

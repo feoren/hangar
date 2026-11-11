@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { chipWaits, exitedWithError, rowLook, sessionChip } from "./sessionChip";
+import {
+  chipWaits,
+  edgeClass,
+  exitedWithError,
+  rowEdge,
+  rowLook,
+  sessionChip,
+} from "./sessionChip";
 
 const running = { status: "running", exitCode: null } as const;
 const exited = (exitCode: number | null, stoppedByUser = false) =>
@@ -65,5 +72,31 @@ describe("rowLook", () => {
   it("keeps starting and ended sessions plain", () => {
     expect(rowLook({ status: "starting" }, "idle", null)).toBeNull();
     expect(rowLook(exited(0), "idle", "ended")).toBeNull();
+  });
+});
+
+describe("rowEdge", () => {
+  it("follows the row's look while the session runs or waits", () => {
+    expect(rowEdge(running, "working", "working")).toBe("working");
+    expect(rowEdge(running, "idle", null)).toBe("idle");
+    expect(rowEdge(running, "attention", "done")).toBe("done");
+    expect(rowEdge(running, "attention", "asks")).toBe("asks");
+    expect(rowEdge(exited(0), "attention", "done")).toBe("done");
+  });
+
+  it("marks a failed exit red, also while it still waits to be seen", () => {
+    expect(rowEdge(exited(1), "attention", "failed")).toBe("failed");
+    expect(rowEdge(exited(1), "idle", "failed")).toBe("failed");
+  });
+
+  it("gives starting and ended sessions their own edge", () => {
+    expect(rowEdge({ status: "starting", exitCode: null }, "idle", null)).toBe("starting");
+    expect(rowEdge(exited(0), "idle", "ended")).toBe("ended");
+    expect(rowEdge(exited(1, true), "idle", "ended")).toBe("ended");
+  });
+
+  it("names the CSS class of an edge", () => {
+    expect(edgeClass("working")).toBe("edge-working");
+    expect(edgeClass("failed")).toBe("edge-failed");
   });
 });
