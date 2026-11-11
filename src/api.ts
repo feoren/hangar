@@ -304,6 +304,13 @@ export const api = {
    * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
    */
   gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
+  /**
+   * One folder of a session's file tree; `relative` is a `/` separated path below the session's
+   * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
+   * `parseFolderListing`; rejects with a text for an unknown session or a refused path.
+   */
+  listSessionFolder: (id: number, relative: string) =>
+    invoke<unknown>("list_session_folder", { id, relative }),
   /** New branch `hangar/<slug>` and worktree for a session; check with `parseWorktree`. */
   createWorktree: (cwd: string, label: string) =>
     invoke<unknown>("create_worktree", { cwd, label }),
@@ -424,6 +431,53 @@ export function parseActivatedSession(payload: unknown): number | null {
   if (typeof payload !== "object" || payload === null) return null;
   const id: unknown = Reflect.get(payload, "sessionId");
   return typeof id === "number" && Number.isInteger(id) ? id : null;
+}
+
+/** Kind of a file tree entry; a `symlink` (or junction) is never opened (Rust: `EntryKind`). */
+export type FolderEntryKind = "dir" | "file" | "symlink";
+
+/** Rust: `FolderEntry` in file_tree.rs. */
+export interface FolderEntry {
+  name: string;
+  kind: FolderEntryKind;
+  /** git ignores the entry. */
+  ignored: boolean;
+}
+
+/** Answer of `list_session_folder` (Rust: `FolderListing` in file_tree.rs). */
+export interface FolderListing {
+  /** The session's folder, resolved. */
+  root: string;
+  /** Top level of the repository containing `root`, in the same form; `null` outside one. */
+  repoRoot: string | null;
+  /** Folders first, then files and links, each in natural order. */
+  entries: FolderEntry[];
+  /** The folder holds more entries than were listed. */
+  truncated: boolean;
+}
+
+function folderEntry(value: unknown): FolderEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  const name: unknown = Reflect.get(value, "name");
+  const kind: unknown = Reflect.get(value, "kind");
+  if (typeof name !== "string" || name === "" || name.includes("/")) return null;
+  if (kind !== "dir" && kind !== "file" && kind !== "symlink") return null;
+  return { name, kind, ignored: Reflect.get(value, "ignored") === true };
+}
+
+/** Answer of `list_session_folder`; `null` if malformed. Malformed entries are left out. */
+export function parseFolderListing(value: unknown): FolderListing | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const root: unknown = Reflect.get(value, "root");
+  const repoRoot: unknown = Reflect.get(value, "repoRoot");
+  const entries: unknown = Reflect.get(value, "entries");
+  if (typeof root !== "string" || root === "" || !Array.isArray(entries)) return null;
+  return {
+    root,
+    repoRoot: typeof repoRoot === "string" && repoRoot !== "" ? repoRoot : null,
+    entries: entries.map(folderEntry).filter((entry): entry is FolderEntry => entry !== null),
+    truncated: Reflect.get(value, "truncated") === true,
+  };
 }
 
 /** Result of `export_session`: the path written, `null` when cancelled. */

@@ -16,6 +16,7 @@ use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
+use crate::file_tree::{self, FileTree, FileTreeError, FolderListing};
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
@@ -1285,6 +1286,37 @@ pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
     tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
         .await
         .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// One folder of a session's file tree (file_tree.rs). The window names only the session and a
+/// `/` separated path below its folder; the folder itself comes from the session manager. A
+/// folder that does not answer within [`file_tree::COMMAND_TIMEOUT`] is reported as an error;
+/// its thread keeps the folder claimed until it ends.
+#[tauri::command]
+pub async fn list_session_folder(
+    manager: Manager<'_>,
+    tree: State<'_, FileTree>,
+    id: SessionId,
+    relative: String,
+) -> Result<FolderListing, FileTreeError> {
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(FileTreeError::UnknownSession(id))?;
+    let claim = tree.in_flight.claim(id, &relative)?;
+    let tree = tree.inner().clone();
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _claim = claim;
+        // Without git the tree still lists; only the ignored marks are missing.
+        let git = Git::locate().ok();
+        tree.list(&cwd, &relative, git.as_ref())
+    });
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
+        Err(_) => Err(FileTreeError::TimedOut),
+    }
 }
 
 fn worktrees_dir(store: &Store) -> PathBuf {
