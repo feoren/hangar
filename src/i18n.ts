@@ -188,7 +188,7 @@ const de = {
   "error.unknown": "Unbekannter Fehler",
 
   "about.body":
-    "Terminal-Sessions und Agenten-CLIs wie Claude Code, Codex, Gemini und Aider in einem Fenster.",
+    "Führe KI-Coding-Agenten als Team aus: Sieh live, welcher Agent bei wem im Team läuft und welche Dateien er ändert, reserviere Aufgaben, lass dich warnen, bevor Agenten kollidieren, und teile verschlüsselte Notizen. Claude Code, Codex CLI, Gemini CLI, Aider und jedes Terminal in einer Desktop-App.",
   "about.profiles": "Eigene Programme: {path}",
   "about.profilesFallback":
     "Eigene Programme stehen in der Datei profiles.toml im Konfigurationsordner.",
@@ -1197,7 +1197,7 @@ const en: Record<MessageKey, string> = {
   "error.unknown": "Unknown error",
 
   "about.body":
-    "Terminal sessions and agent CLIs such as Claude Code, Codex, Gemini and Aider in one window.",
+    "Run AI coding agents as a team: see live which agent each teammate runs and which files it changes, reserve tasks, get warned before agents collide and share encrypted notes. Claude Code, Codex CLI, Gemini CLI, Aider and any terminal in one desktop app.",
   "about.profiles": "Custom programs: {path}",
   "about.profilesFallback": "Custom programs live in profiles.toml in the configuration folder.",
 
@@ -2181,7 +2181,7 @@ const el: Record<MessageKey, string> = {
   "error.unknown": "Άγνωστο σφάλμα",
 
   "about.body":
-    "Συνεδρίες τερματικού και CLI πρακτόρων όπως Claude Code, Codex, Gemini και Aider σε ένα παράθυρο.",
+    "Τρέξε πράκτορες προγραμματισμού AI ως ομάδα: δες ζωντανά ποιον πράκτορα τρέχει κάθε μέλος της ομάδας και ποια αρχεία αλλάζει, κράτησε εργασίες, λάβε προειδοποίηση πριν συγκρουστούν πράκτορες και μοιράσου κρυπτογραφημένες σημειώσεις. Claude Code, Codex CLI, Gemini CLI, Aider και κάθε τερματικό σε μία εφαρμογή υπολογιστή.",
   "about.profiles": "Δικά σου προγράμματα: {path}",
   "about.profilesFallback":
     "Τα δικά σου προγράμματα βρίσκονται στο αρχείο profiles.toml στον φάκελο ρυθμίσεων.",
@@ -3197,7 +3197,7 @@ const es: Record<MessageKey, string> = {
   "error.unknown": "Error desconocido",
 
   "about.body":
-    "Sesiones de terminal y CLI de agentes como Claude Code, Codex, Gemini y Aider en una sola ventana.",
+    "Ejecuta agentes de programación con IA en equipo: ve en directo qué agente usa cada compañero y qué archivos cambia, reserva tareas, recibe un aviso antes de que los agentes choquen y comparte notas cifradas. Claude Code, Codex CLI, Gemini CLI, Aider y cualquier terminal en una sola app de escritorio.",
   "about.profiles": "Programas propios: {path}",
   "about.profilesFallback":
     "Los programas propios están en profiles.toml, en la carpeta de configuración.",
@@ -4197,7 +4197,7 @@ const fr: Record<MessageKey, string> = {
   "error.unknown": "Erreur inconnue",
 
   "about.body":
-    "Sessions de terminal et CLI d'agents comme Claude Code, Codex, Gemini et Aider dans une seule fenêtre.",
+    "Fais travailler des agents de code IA en équipe : vois en direct quel agent chaque coéquipier utilise et quels fichiers il modifie, réserve des tâches, sois averti avant que des agents n'entrent en collision et partage des notes chiffrées. Claude Code, Codex CLI, Gemini CLI, Aider et n'importe quel terminal dans une seule application de bureau.",
   "about.profiles": "Programmes personnalisés : {path}",
   "about.profilesFallback":
     "Les programmes personnalisés se trouvent dans profiles.toml, dans le dossier de configuration.",
@@ -5210,7 +5210,7 @@ const it: Record<MessageKey, string> = {
   "error.unknown": "Errore sconosciuto",
 
   "about.body":
-    "Sessioni di terminale e CLI di agenti come Claude Code, Codex, Gemini e Aider in un'unica finestra.",
+    "Usa gli agenti di programmazione IA in team: vedi in tempo reale quale agente usa ogni membro del team e quali file modifica, prenota attività, ricevi un avviso prima che gli agenti entrino in conflitto e condividi note cifrate. Claude Code, Codex CLI, Gemini CLI, Aider e qualsiasi terminale in un'unica app desktop.",
   "about.profiles": "Programmi personalizzati: {path}",
   "about.profilesFallback":
     "I programmi personalizzati si trovano in profiles.toml nella cartella di configurazione.",
@@ -6215,7 +6215,7 @@ const ja: Record<MessageKey, string> = {
   "error.unknown": "不明なエラー",
 
   "about.body":
-    "ターミナル セッションと、Claude Code、Codex、Gemini、Aider などのエージェント CLI を 1 つのウィンドウで。",
+    "AI コーディング エージェントをチームで動かせます。各メンバーがどのエージェントを実行し、どのファイルを変更しているかをリアルタイムで確認し、タスクを予約し、エージェント同士が衝突する前に警告を受け取り、暗号化されたメモを共有できます。Claude Code、Codex CLI、Gemini CLI、Aider、そしてあらゆるターミナルを 1 つのデスクトップ アプリで。",
   "about.profiles": "独自のプログラム: {path}",
   "about.profilesFallback": "独自のプログラムは、構成フォルダー内の profiles.toml にあります。",
 
@@ -7217,7 +7217,7 @@ const pl: Record<MessageKey, string> = {
   "error.unknown": "Nieznany błąd",
 
   "about.body":
-    "Sesje terminala i CLI agentów, takich jak Claude Code, Codex, Gemini i Aider, w jednym oknie.",
+    "Uruchamiaj agentów AI do programowania jako zespół: zobacz na żywo, jakiego agenta używa każda osoba w zespole i jakie pliki zmienia, rezerwuj zadania, otrzymuj ostrzeżenie, zanim agenci wejdą sobie w drogę, i udostępniaj zaszyfrowane notatki. Claude Code, Codex CLI, Gemini CLI, Aider i dowolny terminal w jednej aplikacji na komputer.",
   "about.profiles": "Własne programy: {path}",
   "about.profilesFallback": "Własne programy są w pliku profiles.toml w folderze konfiguracji.",
 
@@ -8212,7 +8212,7 @@ const pt: Record<MessageKey, string> = {
   "error.unknown": "Erro desconhecido",
 
   "about.body":
-    "Sessões de terminal e CLIs de agentes como Claude Code, Codex, Gemini e Aider em uma só janela.",
+    "Execute agentes de programação com IA em equipe: veja ao vivo qual agente cada colega executa e quais arquivos ele altera, reserve tarefas, seja avisado antes que agentes colidam e compartilhe notas criptografadas. Claude Code, Codex CLI, Gemini CLI, Aider e qualquer terminal em um só app de desktop.",
   "about.profiles": "Programas personalizados: {path}",
   "about.profilesFallback":
     "Programas personalizados ficam no arquivo profiles.toml, na pasta de configuração.",
@@ -9211,7 +9211,7 @@ const ru: Record<MessageKey, string> = {
   "error.unknown": "Неизвестная ошибка",
 
   "about.body":
-    "Сеансы терминала и CLI агентов, таких как Claude Code, Codex, Gemini и Aider, в одном окне.",
+    "Запускай ИИ-агентов для программирования командой: смотри в реальном времени, какой агент работает у каждого участника и какие файлы он меняет, резервируй задачи, получай предупреждение до того, как агенты столкнутся, и делись зашифрованными заметками. Claude Code, Codex CLI, Gemini CLI, Aider и любой терминал в одном настольном приложении.",
   "about.profiles": "Собственные программы: {path}",
   "about.profilesFallback":
     "Собственные программы хранятся в файле profiles.toml в папке настроек.",
@@ -10198,7 +10198,7 @@ const tr: Record<MessageKey, string> = {
   "error.unknown": "Bilinmeyen hata",
 
   "about.body":
-    "Terminal oturumları ve Claude Code, Codex, Gemini, Aider gibi ajan CLI'ları tek pencerede.",
+    "Yapay zekâ kodlama ajanlarını ekip olarak çalıştır: her ekip arkadaşının hangi ajanı çalıştırdığını ve hangi dosyaları değiştirdiğini canlı gör, görevleri ayır, ajanlar çakışmadan önce uyarı al ve şifreli notlar paylaş. Claude Code, Codex CLI, Gemini CLI, Aider ve her terminal tek bir masaüstü uygulamasında.",
   "about.profiles": "Özel programlar: {path}",
   "about.profilesFallback":
     "Özel programlar, yapılandırma klasöründeki profiles.toml dosyasında bulunur.",
@@ -11178,7 +11178,8 @@ const zh: Record<MessageKey, string> = {
   "error.dismiss": "关闭消息",
   "error.unknown": "未知错误",
 
-  "about.body": "在一个窗口中运行终端会话，以及 Claude Code、Codex、Gemini、Aider 等智能体 CLI。",
+  "about.body":
+    "以团队方式运行 AI 编程代理：实时查看每位队友运行哪个代理、改动哪些文件，预留任务，在代理冲突前收到警告，并共享加密笔记。Claude Code、Codex CLI、Gemini CLI、Aider 以及任意终端，尽在一个桌面应用中。",
   "about.profiles": "自定义程序：{path}",
   "about.profilesFallback": "自定义程序保存在设置目录下的 profiles.toml 中。",
 
