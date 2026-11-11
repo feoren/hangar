@@ -72,6 +72,20 @@
         "ru": "Перетаскивай линии между сеансами рядом, чтобы менять их размер. Маленькая схема в боковой панели показывает, где находится каждый сеанс.",
         "tr": "Yan yana oturumları aradaki çizgileri sürükleyerek boyutlandır. Kenar çubuğundaki küçük desen her oturumun nerede olduğunu gösterir.",
         "zh": "拖动并排会话之间的分隔线即可调整大小。侧边栏中的小图案显示每个会话所在的位置。"
+      },
+      {
+        "de": "Agent-Sessions zeigen in ihrer Zeile, wie voll der Kontext ist: ein schmaler Balken mit Prozentwert, die genauen Token-Zahlen im Tooltip.",
+        "en": "Agent sessions show how full their context is right in their row: a slim bar with a percentage, the exact token counts in the tooltip.",
+        "el": "Οι συνεδρίες πρακτόρων δείχνουν στη γραμμή τους πόσο γεμάτο είναι το πλαίσιο: μια λεπτή μπάρα με ποσοστό, οι ακριβείς αριθμοί tokens στη συμβουλή.",
+        "es": "Las sesiones de agentes muestran en su fila lo lleno que está su contexto: una barra fina con porcentaje y los tokens exactos en la información emergente.",
+        "fr": "Les sessions d’agents montrent dans leur ligne le remplissage du contexte : une fine barre avec pourcentage, les jetons exacts dans l’infobulle.",
+        "it": "Le sessioni degli agenti mostrano nella loro riga quanto è pieno il contesto: una barra sottile con la percentuale, i token esatti nel tooltip.",
+        "ja": "エージェントのセッションは、行の中でコンテキストの使用率を表示します。細いバーとパーセント、正確なトークン数はツールチップに表示されます。",
+        "pl": "Sesje agentów pokazują w swoim wierszu, jak bardzo zapełniony jest kontekst: cienki pasek z procentem, dokładne liczby tokenów w podpowiedzi.",
+        "pt": "As sessões de agentes mostram na própria linha o quanto o contexto está cheio: uma barra fina com a porcentagem e os tokens exatos na dica.",
+        "ru": "Сеансы агентов показывают в своей строке, насколько заполнен контекст: тонкая полоска с процентами, точные числа токенов во всплывающей подсказке.",
+        "tr": "Ajan oturumları, bağlamlarının ne kadar dolu olduğunu kendi satırında gösterir: yüzdeli ince bir çubuk, tam token sayıları ipucunda.",
+        "zh": "智能体会话在自己的行中显示上下文的使用程度：一条带百分比的细条，精确的 token 数量显示在提示中。"
       }
     ]
   },

@@ -2,12 +2,12 @@
 title: Sub-agent transcripts of agent CLIs
 type: source
 tags: [agents, claude-code, codex, opencode, gemini, sub-agents, transcripts]
-sources: []
+sources: ["[[subagent-activity-measurement]]"]
 raw: raw/2026-11-08-subagent-transcripts-measurement.md
 url: https://code.claude.com/docs/en/hooks
 retrieved: 2026-11-08
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-11
 ---
 
 # Sub-agent transcripts of agent CLIs
@@ -31,6 +31,9 @@ read, no message content.
   carry `isSidechain: true`, `agentId` and the parent `sessionId`; no end marker in the file.
 > [!question] Unverified
 > Whether a missing `finished` always means running; when the `subagents/` layout was introduced.
+- Still the same layout in 2.1.322. Token count, tool use count and structured tool results
+  (`toolUseResult`) per record, and that the live activity line is not stored:
+  [[subagent-activity-measurement]].
 - Flags: `--session-id <uuid>` (valid UUID), `--resume [id]`, `--continue`, `--fork-session`.
   Combining `--session-id` with resume or continue requires `--fork-session` (changelog 2.0.73).
 - Hooks: `SubagentStart` (2.0.43); `SubagentStop` with `agent_id`, `agent_transcript_path` (2.0.42),
@@ -56,9 +59,11 @@ read, no message content.
   on restore), which also lifts the "two sessions in one folder" limit of [[resume]]; watch
   `<uuid>/subagents/`. OpenCode and Codex later, Gemini last.
 - Privacy: extract a whitelist only (agent id, description, type, status, current tool name, a short
-  excerpt of the last assistant text), in memory only, never persisted.
+  excerpt of the last assistant text), in memory only, never persisted. With excerpts on, the
+  newest call's short target (file name, pattern, `Bash` description) and the token count join it.
 - Tailing on Windows: open with read, write and delete sharing, keep a byte offset, buffer partial
-  lines, read only the tail of large files, skip unparsable lines, validate ids before building paths.
+  lines, read only the tail of large files for the snapshot, skip unparsable lines, validate ids
+  before building paths. The view of one sub-agent reads its whole transcript (bounded at 64 MB).
 
 ## Sources
 - https://code.claude.com/docs/en/hooks

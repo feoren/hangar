@@ -20,6 +20,12 @@ export interface SubAgent {
   lastActivity: number | null;
   /** Newest tool call name, such as `Grep`. */
   tool: string | null;
+  /** What that call works on: a file name, a pattern, a command line (only with excerpts). */
+  target: string | null;
+  /** The call's own one-line description, shown instead of a verb (only with excerpts). */
+  note: string | null;
+  /** Context size after the newest model response, as Claude Code counts "tokens". */
+  tokens: number | null;
   /** Newest assistant text (redacted by the backend, at most 400 characters). */
   excerpt: string | null;
 }
@@ -37,6 +43,8 @@ const MAX_AGENTS = 256;
 const MAX_EXCERPT = 400;
 /** Description, type and tool name are short labels; longer ones are cut for the layout. */
 const MAX_LABEL = 200;
+/** Backend limit for an activity's target and note. */
+const MAX_ACTIVITY = 120;
 
 function isStatus(value: unknown): value is SubAgentStatus {
   return value === "running" || value === "finished" || value === "stale";
@@ -74,8 +82,16 @@ function subAgent(value: unknown): SubAgent | null {
     startedAt: time(field("startedAt")),
     lastActivity: time(field("lastActivity")),
     tool: text(field("tool"), MAX_LABEL),
+    target: text(field("target"), MAX_ACTIVITY),
+    note: text(field("note"), MAX_ACTIVITY),
+    tokens: count(field("tokens")),
     excerpt: text(field("excerpt"), MAX_EXCERPT),
   };
+}
+
+/** A non-negative whole number, else `null`. */
+function count(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 /**
@@ -114,8 +130,13 @@ export const EMPTY_VIEW: SubAgentView = { located: null, agents: [] };
  * excerpts switched off): nothing of them stays in memory until the next snapshot arrives.
  */
 export function withoutExcerpts(view: SubAgentView): SubAgentView {
-  if (view.agents.every((agent) => agent.excerpt === null)) return view;
-  return { ...view, agents: view.agents.map((agent) => ({ ...agent, excerpt: null })) };
+  const bare = (agent: SubAgent) =>
+    agent.excerpt === null && agent.target === null && agent.note === null;
+  if (view.agents.every(bare)) return view;
+  return {
+    ...view,
+    agents: view.agents.map((agent) => ({ ...agent, excerpt: null, target: null, note: null })),
+  };
 }
 
 /** The view after a snapshot: a snapshot is complete and replaces the previous one. */
@@ -132,26 +153,80 @@ export type LogEntry =
   | { kind: "text"; text: string }
   /** A tool call and its key argument (file path, command line, pattern). */
   | { kind: "tool"; name: string; detail: string | null }
-  /** First line of a tool result and how many lines follow. */
-  | { kind: "result"; text: string | null; moreLines: number; error: boolean }
+  /**
+   * A tool result: a summary when the tool has one ("Read 120 lines"), else its first lines and
+   * how many lines follow.
+   */
+  | {
+      kind: "result";
+      lines: string[];
+      moreLines: number;
+      error: boolean;
+      summary: ResultSummary | null;
+    }
   /** Lines were left out here (long transcript, burst, or the view's own limit). */
   | { kind: "gap" };
+
+/** What Claude Code shows below a tool call (Rust: `ResultSummary`). */
+export type ResultSummary =
+  | { kind: "read"; lines: number }
+  | { kind: "wrote"; lines: number }
+  | { kind: "edited"; added: number; removed: number }
+  | { kind: "files"; count: number }
+  | { kind: "lines"; count: number }
+  | { kind: "matches"; count: number };
 
 export interface LogBatch {
   agentId: string;
   /** Replaces everything shown before. */
   reset: boolean;
   entries: LogEntry[];
+  /** Tool calls of the sub-agent so far, also those no longer in the log. */
+  toolUses: number;
 }
 
 /** Backend limits per entry; longer texts are cut, never trusted to be short. */
 const MAX_LOG_TEXT = 4000;
 const MAX_LOG_DETAIL = 200;
 const MAX_TOOL_NAME = 64;
-/** Backend limit per batch. */
-const MAX_LOG_BATCH = 400;
+/** Backend limit of result lines per entry. */
+const MAX_RESULT_LINES = 3;
 /** Lines the view keeps; older ones give way to a gap line (the task stays). */
 export const MAX_LOG_LINES = 1000;
+/** Backend limit per batch: a reset holds up to as many lines as the view keeps. */
+const MAX_LOG_BATCH = MAX_LOG_LINES;
+
+function resultSummary(value: unknown): ResultSummary | null {
+  if (typeof value !== "object" || value === null) return null;
+  const field = (name: string): unknown => fieldOf(value, name);
+  switch (field("kind")) {
+    case "read":
+    case "wrote": {
+      const lines = count(field("lines"));
+      if (lines === null) return null;
+      return field("kind") === "read" ? { kind: "read", lines } : { kind: "wrote", lines };
+    }
+    case "edited": {
+      const added = count(field("added"));
+      const removed = count(field("removed"));
+      return added === null || removed === null ? null : { kind: "edited", added, removed };
+    }
+    case "files":
+    case "lines":
+    case "matches": {
+      const n = count(field("count"));
+      const kind = field("kind");
+      if (n === null) return null;
+      return kind === "files"
+        ? { kind: "files", count: n }
+        : kind === "lines"
+          ? { kind: "lines", count: n }
+          : { kind: "matches", count: n };
+    }
+    default:
+      return null;
+  }
+}
 
 function logEntry(value: unknown): LogEntry | null {
   if (typeof value !== "object" || value === null) return null;
@@ -171,12 +246,20 @@ function logEntry(value: unknown): LogEntry | null {
       return { kind: "tool", name, detail: text(field("detail"), MAX_LOG_DETAIL) };
     }
     case "result": {
-      const more = field("moreLines");
+      const list = field("lines");
+      const lines = Array.isArray(list)
+        ? list
+            .slice(0, 4 * MAX_RESULT_LINES)
+            .map((line) => text(line, MAX_LOG_DETAIL))
+            .filter((line) => line !== null)
+            .slice(0, MAX_RESULT_LINES)
+        : [];
       return {
         kind: "result",
-        text: text(field("text"), MAX_LOG_DETAIL),
-        moreLines: typeof more === "number" && Number.isInteger(more) && more > 0 ? more : 0,
+        lines,
+        moreLines: count(field("moreLines")) ?? 0,
         error: field("error") === true,
+        summary: resultSummary(field("summary")),
       };
     }
     case "gap":
@@ -206,7 +289,7 @@ export function parseSubAgentLog(value: unknown): LogBatch | null {
     const entry = logEntry(item);
     if (entry !== null) entries.push(entry);
   }
-  return { agentId, reset, entries };
+  return { agentId, reset, entries, toolUses: count(fieldOf(value, "toolUses")) ?? 0 };
 }
 
 /** A log entry with a key that stays the same while it is shown. */
@@ -223,14 +306,22 @@ export interface SubAgentLog {
   lines: readonly LogLine[];
   /** Next line id. */
   next: number;
+  /** Tool calls of the sub-agent so far, from the newest batch. */
+  toolUses: number;
 }
 
-export const EMPTY_LOG: SubAgentLog = { agentId: null, loaded: false, lines: [], next: 0 };
+export const EMPTY_LOG: SubAgentLog = {
+  agentId: null,
+  loaded: false,
+  lines: [],
+  next: 0,
+  toolUses: 0,
+};
 
 /** An empty log for `agentId` (the view switched to it); the same object if nothing changes. */
 export function logFor(log: SubAgentLog, agentId: string | null): SubAgentLog {
   if (log.agentId === agentId) return log;
-  return { agentId, loaded: false, lines: [], next: log.next };
+  return { agentId, loaded: false, lines: [], next: log.next, toolUses: 0 };
 }
 
 /**
@@ -261,9 +352,15 @@ export function applyLog(
     if (rest[0]?.entry.kind === "gap") rest = rest.slice(1);
     const gap: LogLine = { id: next, entry: { kind: "gap" } };
     next += 1;
-    return { agentId: log.agentId, loaded: true, lines: [...head, gap, ...rest], next };
+    return {
+      agentId: log.agentId,
+      loaded: true,
+      lines: [...head, gap, ...rest],
+      next,
+      toolUses: batch.toolUses,
+    };
   }
-  return { agentId: log.agentId, loaded: true, lines, next };
+  return { agentId: log.agentId, loaded: true, lines, next, toolUses: batch.toolUses };
 }
 
 /** The log without any text, for when excerpts are switched off while it is shown. */
@@ -396,6 +493,72 @@ export const STATUS_LABELS: Record<SubAgentStatus, MessageKey> = {
   finished: "subAgents.finished",
   stale: "subAgents.stale",
 };
+
+// What the tree row and the log show, the way Claude Code lists its background agents:
+// "frontend  Editing sessionLabel.ts  4:12 · ↓ 119.9k".
+
+/** Name of a sub-agent as Claude Code lists it: its type, else its description. */
+export function agentName(agent: SubAgent, t: Translate): string {
+  return agent.agentType ?? agent.description ?? t("subAgents.untitled");
+}
+
+/** "950", "96.3k", "1.2M": token counts as Claude Code shows them, the same in every language. */
+export function formatTokens(tokens: number): string {
+  const n = Number.isFinite(tokens) && tokens > 0 ? Math.round(tokens) : 0;
+  if (n < 1000) return String(n);
+  if (n < 999_950) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/** Verbs for the activity line; other tools show their name and target. */
+const ACTIVITY_VERBS: ReadonlyMap<string, MessageKey> = new Map([
+  ["Read", "subAgents.act.read"],
+  ["NotebookRead", "subAgents.act.read"],
+  ["Write", "subAgents.act.write"],
+  ["Edit", "subAgents.act.edit"],
+  ["MultiEdit", "subAgents.act.edit"],
+  ["NotebookEdit", "subAgents.act.edit"],
+  ["Bash", "subAgents.act.run"],
+  ["PowerShell", "subAgents.act.run"],
+  ["Grep", "subAgents.act.search"],
+  ["Glob", "subAgents.act.search"],
+  ["WebFetch", "subAgents.act.fetch"],
+  ["WebSearch", "subAgents.act.webSearch"],
+  ["Task", "subAgents.act.delegate"],
+  ["Agent", "subAgents.act.delegate"],
+]);
+
+/**
+ * What the sub-agent does right now, from its newest tool call: the call's own description if
+ * it has one ("Run cargo test"), else a verb and its target ("Editing git.rs"), else the tool's
+ * name (texts switched off). Finished ones say so.
+ */
+export function activityText(agent: SubAgent, t: Translate): string {
+  if (agent.status === "finished") return t("subAgents.done");
+  if (agent.note !== null) return agent.note;
+  if (agent.tool === null) return t("subAgents.starting");
+  if (agent.target === null) return agent.tool;
+  const verb = ACTIVITY_VERBS.get(agent.tool);
+  return verb === undefined ? `${agent.tool} ${agent.target}` : t(verb, { target: agent.target });
+}
+
+/** The line Claude Code shows below a tool call for a structured result. */
+export function summaryText(summary: ResultSummary, t: Translate): string {
+  switch (summary.kind) {
+    case "read":
+      return t("subAgents.sum.read", { count: summary.lines });
+    case "wrote":
+      return t("subAgents.sum.wrote", { count: summary.lines });
+    case "edited":
+      return t("subAgents.sum.edited", { added: summary.added, removed: summary.removed });
+    case "files":
+      return t("subAgents.sum.files", { count: summary.count });
+    case "lines":
+      return t("subAgents.sum.lines", { count: summary.count });
+    case "matches":
+      return t("subAgents.sum.matches", { count: summary.count });
+  }
+}
 
 /** Name of a sub-agent: its description, else its type, else a generic name. */
 export function agentTitle(agent: SubAgent, t: Translate): string {

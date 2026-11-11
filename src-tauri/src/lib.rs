@@ -10,6 +10,7 @@ pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
 mod commands;
+pub mod context_usage;
 pub mod desktop;
 pub mod exe_image;
 pub mod export;
@@ -173,6 +174,21 @@ pub fn run() -> tauri::Result<()> {
             app.manage(file_tree::FileTree::default());
             app.manage(notify::Notifier::default());
             app.manage(subagents::Watchers::default());
+            // Context meter of the sessions' rows: one thread for all sessions, numbers only.
+            let context = context_usage::ContextUsage::default();
+            let sessions = app.handle().clone();
+            let events = app.handle().clone();
+            let started = context.start(
+                move || sessions.state::<SessionManager>().context_targets(),
+                move |snapshot| {
+                    let _ =
+                        events.emit_to(notes_window::MAIN_LABEL, context_usage::EVENT, snapshot);
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: context meter not started: {error}");
+            }
+            app.manage(context);
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
             // this machine (Windows: %LOCALAPPDATA%\<identifier>).
             let local_dir = app.path().app_local_data_dir()?;
@@ -349,6 +365,7 @@ pub fn run() -> tauri::Result<()> {
             commands::watch_sub_agents,
             commands::focus_sub_agent,
             commands::unwatch_sub_agents,
+            commands::context_usage,
             commands::account_status,
             commands::account_sign_in,
             commands::account_cancel_sign_in,
@@ -375,6 +392,7 @@ pub fn run() -> tauri::Result<()> {
         if let RunEvent::Exit = event {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
+            handle.state::<context_usage::ContextUsage>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.

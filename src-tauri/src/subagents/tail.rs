@@ -31,6 +31,8 @@ pub struct Tail {
     generation: u32,
     /// The latest start began after the beginning of the file, so earlier lines were left out.
     skipped_head: bool,
+    /// The last read stopped at [`MAX_READ`] before the end of the file.
+    behind: bool,
 }
 
 impl Default for Tail {
@@ -49,7 +51,13 @@ impl Tail {
             initial,
             generation: 0,
             skipped_head: false,
+            behind: false,
         }
+    }
+
+    /// The last read left bytes for the next one: a reader that wants everything reads again.
+    pub fn behind(&self) -> bool {
+        self.behind
     }
 
     /// Changes with every start: a reader that shows the lines replaces what it showed.
@@ -86,7 +94,9 @@ impl Tail {
             file.seek(SeekFrom::Start(offset))?;
             file.take(wanted).read_to_end(&mut buffer)?;
         }
-        self.offset = Some(offset + buffer.len() as u64);
+        let end = offset + buffer.len() as u64;
+        self.offset = Some(end);
+        self.behind = end < len;
         Ok(self.split(&buffer))
     }
 
@@ -302,6 +312,28 @@ mod tests {
         let mut short = Tail::with_initial(12);
         assert_eq!(text(short.read_new(&path).unwrap()), ["second line"]);
         assert!(short.skipped_head());
+    }
+
+    #[test]
+    fn a_whole_file_beyond_one_read_is_read_in_steps() {
+        let dir = TempDir::new("tail-behind");
+        let path = dir.path().join("a.jsonl");
+        let line = format!("{}\n", "x".repeat(1023));
+        let count = usize::try_from(MAX_READ / 1024).unwrap() * 2 + 3;
+        append(&path, line.repeat(count).as_bytes());
+        let mut tail = Tail::with_initial(u64::MAX);
+        let mut read = 0;
+        let mut steps = 0;
+        loop {
+            read += tail.read_new(&path).unwrap().len();
+            steps += 1;
+            if !tail.behind() {
+                break;
+            }
+        }
+        assert_eq!(read, count);
+        assert_eq!(steps, 3);
+        assert!(!tail.skipped_head());
     }
 
     #[test]

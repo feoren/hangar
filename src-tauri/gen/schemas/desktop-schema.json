@@ -273,6 +273,12 @@
           "markdownDescription": "Enables the configure_tray command without any pre-configured scope."
         },
         {
+          "description": "Enables the context_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-context-usage",
+          "markdownDescription": "Enables the context_usage command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-note",
@@ -817,6 +823,12 @@
           "type": "string",
           "const": "deny-configure-tray",
           "markdownDescription": "Denies the configure_tray command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the context_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-context-usage",
+          "markdownDescription": "Denies the context_usage command without any pre-configured scope."
         },
         {
           "description": "Denies the create_note command without any pre-configured scope.",

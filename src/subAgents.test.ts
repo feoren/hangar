@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  activityText,
+  agentName,
   agentTitle,
   applyLog,
+  formatTokens,
+  summaryText,
+  type ResultSummary,
   countsText,
   dismissedIn,
   dismissFinished,
@@ -45,6 +50,9 @@ function agent(id: string, status: SubAgentStatus = "running", patch: Partial<Su
     startedAt: 1_000,
     lastActivity: 2_000,
     tool: "Grep",
+    target: "fn parse",
+    note: null,
+    tokens: 96_300,
     excerpt: "Looking at src/",
     ...patch,
   } satisfies SubAgent;
@@ -69,6 +77,9 @@ describe("parseSubAgentEvent", () => {
           startedAt: 1_700_000_000_000,
           lastActivity: 1_700_000_005_000,
           tool: "Grep",
+          target: "fn parse",
+          note: null,
+          tokens: 96_300,
           excerpt: "Searching",
         },
       ],
@@ -89,7 +100,16 @@ describe("parseSubAgentEvent", () => {
         { id: "", status: "running" },
         { id: "a2", status: "lost" },
         null,
-        { id: "a3", status: "stale", startedAt: -5, spawnDepth: 1.5, tool: "  ", excerpt: 7 },
+        {
+          id: "a3",
+          status: "stale",
+          startedAt: -5,
+          spawnDepth: 1.5,
+          tool: "  ",
+          excerpt: 7,
+          tokens: 1.5,
+          target: "t".repeat(500),
+        },
       ],
     });
     expect(parsed?.agents.map((a) => a.id)).toEqual(["a1", "a3"]);
@@ -102,9 +122,18 @@ describe("parseSubAgentEvent", () => {
       startedAt: null,
       lastActivity: null,
       tool: null,
+      target: null,
+      note: null,
+      tokens: null,
       excerpt: null,
     });
-    expect(parsed?.agents[1]).toMatchObject({ startedAt: null, spawnDepth: null, tool: null });
+    expect(parsed?.agents[1]).toMatchObject({
+      startedAt: null,
+      spawnDepth: null,
+      tool: null,
+      tokens: null,
+    });
+    expect(parsed?.agents[1]?.target).toHaveLength(120);
   });
 
   it("cuts an excerpt that is longer than the backend promises", () => {
@@ -160,8 +189,77 @@ describe("withoutExcerpts", () => {
     const view = viewOfSnapshot(snapshot([agent("a"), agent("b")]));
     const quiet = withoutExcerpts(view);
     expect(quiet.agents.map((a) => a.excerpt)).toEqual([null, null]);
-    expect(quiet.agents.map((a) => a.tool)).toEqual(["Grep", "Grep"]);
+    // Targets and notes come from tool inputs: they go too; names and counts stay.
+    expect(quiet.agents.map((a) => [a.target, a.note])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+    expect(quiet.agents.map((a) => [a.tool, a.tokens])).toEqual([
+      ["Grep", 96_300],
+      ["Grep", 96_300],
+    ]);
     expect(withoutExcerpts(quiet)).toBe(quiet);
+    const onlyTarget = viewOfSnapshot(snapshot([agent("a", "running", { excerpt: null })]));
+    expect(withoutExcerpts(onlyTarget).agents[0]?.target).toBeNull();
+  });
+});
+
+describe("tree row and log texts", () => {
+  it("names a sub-agent by its type like Claude Code, else by its task", () => {
+    expect(agentName(agent("a"), t)).toBe("Explore");
+    expect(agentName(agent("a", "running", { agentType: null }), t)).toBe("Task a");
+    expect(agentName(agent("a", "running", { agentType: null, description: null }), t)).toBe(
+      "Sub-agent",
+    );
+  });
+
+  it("formats tokens like Claude Code", () => {
+    expect(formatTokens(0)).toBe("0");
+    expect(formatTokens(950)).toBe("950");
+    expect(formatTokens(1000)).toBe("1.0k");
+    expect(formatTokens(96_300)).toBe("96.3k");
+    expect(formatTokens(119_949)).toBe("119.9k");
+    expect(formatTokens(999_949)).toBe("999.9k");
+    expect(formatTokens(999_950)).toBe("1.0M");
+    expect(formatTokens(1_250_000)).toBe("1.3M");
+    expect(formatTokens(-5)).toBe("0");
+    expect(formatTokens(Number.NaN)).toBe("0");
+  });
+
+  it("says what the sub-agent does from its newest tool call", () => {
+    const doing = (patch: Partial<SubAgent>) => activityText(agent("a", "running", patch), t);
+    expect(doing({ tool: "Edit", target: "git.rs" })).toBe("Editing git.rs");
+    expect(doing({ tool: "Read", target: "styles.css" })).toBe("Reading styles.css");
+    expect(doing({ tool: "Bash", target: "cargo test" })).toBe("Running cargo test");
+    expect(doing({ tool: "Grep", target: "fn parse" })).toBe("Searching for fn parse");
+    expect(doing({ tool: "WebSearch", target: "tauri" })).toBe("Searching the web for tauri");
+    expect(doing({ tool: "Agent", target: "Review" })).toBe("Delegating: Review");
+    // The call's own description wins, as in Claude Code.
+    expect(doing({ tool: "Bash", target: "py -3 x.py", note: "Run x.py on transcripts" })).toBe(
+      "Run x.py on transcripts",
+    );
+    // Unknown tools show their name and target; without texts only the name.
+    expect(doing({ tool: "mcp__x__lookup", target: "term" })).toBe("mcp__x__lookup term");
+    expect(doing({ tool: "Read", target: null })).toBe("Read");
+    // A tool name that is an object key is no verb.
+    expect(doing({ tool: "constructor", target: "x" })).toBe("constructor x");
+    expect(doing({ tool: null, target: null })).toBe("Starting …");
+    expect(activityText(agent("a", "finished"), t)).toBe("Done");
+    expect(activityText(agent("a", "stale", { tool: "Edit", target: "a.rs" }), t)).toBe(
+      "Editing a.rs",
+    );
+  });
+
+  it("summarizes tool results", () => {
+    const cases: [ResultSummary, string][] = [
+      [{ kind: "read", lines: 120 }, "Lines read: 120"],
+      [{ kind: "wrote", lines: 3 }, "Lines written: 3"],
+      [{ kind: "edited", added: 2, removed: 1 }, "Lines added: 2, removed: 1"],
+      [{ kind: "files", count: 3 }, "Files found: 3"],
+      [{ kind: "lines", count: 14 }, "Lines found: 14"],
+      [{ kind: "matches", count: 5 }, "Matches: 5"],
+    ];
+    for (const [summary, text] of cases) expect(summaryText(summary, t)).toBe(text);
   });
 });
 
@@ -203,16 +301,68 @@ describe("parseSubAgentLog", () => {
         { kind: "text", text: "Looking" },
         { kind: "tool", name: "Read", detail: "src/a.ts" },
         { kind: "tool", name: "TodoWrite", detail: null },
-        { kind: "result", text: "line one", moreLines: 3, error: false },
-        { kind: "result", text: null, moreLines: 0, error: true },
+        { kind: "result", lines: ["one", "two"], moreLines: 3, error: false, summary: null },
+        { kind: "result", lines: [], moreLines: 0, error: true, summary: null },
+        {
+          kind: "result",
+          lines: [],
+          moreLines: 0,
+          error: false,
+          summary: { kind: "read", lines: 9 },
+        },
+        {
+          kind: "result",
+          lines: [],
+          moreLines: 0,
+          error: false,
+          summary: { kind: "edited", added: 2, removed: 1 },
+        },
         { kind: "gap" },
       ],
+      toolUses: 12,
     };
     expect(parseSubAgentLog(wire)).toEqual({
       agentId: "a1",
       reset: true,
       entries: wire.entries,
+      toolUses: 12,
     });
+  });
+
+  it("checks result lines and summaries", () => {
+    const parsed = parseSubAgentLog({
+      type: "log",
+      agentId: "a1",
+      reset: true,
+      entries: [
+        { kind: "result", lines: ["a", 5, " ", "b", "c", "d"], moreLines: 1, summary: "x" },
+        { kind: "result", lines: "a", summary: { kind: "files", count: -1 } },
+        { kind: "result", summary: { kind: "matches", count: 4 } },
+        { kind: "result", summary: { kind: "wrote", lines: 3 } },
+        { kind: "result", summary: { kind: "lines", count: 2 } },
+        { kind: "result", summary: { kind: "edited", added: 1 } },
+        { kind: "result", summary: { kind: "deleted", count: 1 } },
+      ],
+    });
+    const result = (lines: string[], summary: ResultSummary | null, moreLines = 0) => ({
+      kind: "result",
+      lines,
+      moreLines,
+      error: false,
+      summary,
+    });
+    expect(parsed?.entries).toEqual([
+      // Broken lines are dropped, at most three stay.
+      result(["a", "b", "c"], null, 1),
+      result([], null),
+      result([], { kind: "matches", count: 4 }),
+      result([], { kind: "wrote", lines: 3 }),
+      result([], { kind: "lines", count: 2 }),
+      result([], null),
+      result([], null),
+    ]);
+    // A missing count reads as none.
+    expect(parsed?.toolUses).toBe(0);
   });
 
   it("drops broken entries, cuts long texts and ignores other messages", () => {
@@ -223,14 +373,14 @@ describe("parseSubAgentLog", () => {
       entries: [
         { kind: "prompt", text: "   " },
         { kind: "tool", name: 5 },
-        { kind: "result", text: "r", moreLines: -2, error: "yes" },
+        { kind: "result", lines: ["r"], moreLines: -2, error: "yes" },
         { kind: "html", text: "<b>x</b>" },
         null,
         { kind: "text", text: "y".repeat(9000) },
       ],
     });
     expect(parsed?.entries).toEqual([
-      { kind: "result", text: "r", moreLines: 0, error: false },
+      { kind: "result", lines: ["r"], moreLines: 0, error: false, summary: null },
       { kind: "text", text: "y".repeat(4000) },
     ]);
     expect(parseSubAgentLog({ type: "snapshot", located: true, agents: [] })).toBeNull();
@@ -246,6 +396,7 @@ describe("applyLog", () => {
     agentId,
     reset,
     entries,
+    toolUses: entries.length,
   });
   const texts = (log: SubAgentLog) =>
     log.lines.map((line) =>
@@ -256,11 +407,13 @@ describe("applyLog", () => {
     let log = logFor(EMPTY_LOG, "a");
     expect(log.loaded).toBe(false);
     log = applyLog(log, batch([say("one")], true));
-    log = applyLog(log, batch([say("two")]));
+    log = applyLog(log, batch([say("two"), say("three")]));
     expect(log.loaded).toBe(true);
-    expect(texts(log)).toEqual(["one", "two"]);
+    expect(texts(log)).toEqual(["one", "two", "three"]);
+    // The count is the backend's running total: the newest batch's wins.
+    expect(log.toolUses).toBe(2);
     const ids = log.lines.map((line) => line.id);
-    expect(new Set(ids).size).toBe(2);
+    expect(new Set(ids).size).toBe(3);
     log = applyLog(log, batch([say("fresh")], true));
     expect(texts(log)).toEqual(["fresh"]);
     expect(log.lines[0]?.id).not.toBe(ids[0]);

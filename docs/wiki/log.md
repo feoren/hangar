@@ -403,3 +403,17 @@ window, notes with shared and local groups, Settings appearance) with stable fil
 clock, UTC and animations frozen on a fixed frame; `--scene` picks some. Edge may relaunch itself
 with exit code 0 and keep running, so the driver waits for the DevTools port instead of failing
 and always sends `Browser.close`. Pages changed: [[release-rollout]].
+
+## [2026-11-11] ingest | Sub-agent activity, tokens and tool results
+Measured with Claude Code 2.1.322 on about 160 sub-agent transcripts (key names and numbers only):
+the token count Claude Code shows is the context size of the newest assistant response's `usage`,
+the tool use count is the number of `tool_use` blocks, each tool result's record carries a structured
+`toolUseResult` (line counts, patches, file counts), and the live activity line is stored nowhere.
+Pages changed: [[subagent-activity-measurement]] (new), [[subagent-transcripts]].
+
+## [2026-11-11] ingest | Context use and window size of a session
+Measured with Claude Code 2.1.322 on the 40 newest main transcripts (key names and numbers only):
+the context use is in the newest `assistant` record's `usage`, the window size is stored nowhere
+Hangar can read, and contexts above 600K show that Opus 5.5 and Sonnet 5 have 1M without a beta.
+Hangar maps model ids to windows after the docs' model table. Codex rollouts cannot be linked to a
+session yet. Pages changed: [[context-window-measurement]] (new).

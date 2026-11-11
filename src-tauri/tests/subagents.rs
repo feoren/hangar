@@ -125,12 +125,14 @@ fn watcher_follows_a_session_from_first_prompt_to_finished_sub_agent() {
     assert_eq!(running.agents[0].tool, None);
     append(
         &transcript,
-        "\"input\":{\"file_path\":\"INPUT-MARKER\"}},{\"type\":\"text\",\"text\":\"Reading now\"}]}}\n",
+        "\"input\":{\"file_path\":\"src/INPUT/lib.rs\",\"limit\":5}},{\"type\":\"text\",\"text\":\"Reading now\"}]}}\n",
     );
     let working = wait_for(&rx, |s| s.agents.first().is_some_and(|a| a.tool.is_some()));
     let agent = &working.agents[0];
     assert_eq!(agent.id, "a00000000000000aa");
     assert_eq!(agent.tool.as_deref(), Some("Read"));
+    // Of the input only the file name, the activity's target (excerpts are on here).
+    assert_eq!(agent.target.as_deref(), Some("lib.rs"));
     assert_eq!(agent.excerpt.as_deref(), Some("Reading now"));
     assert_eq!(agent.agent_type.as_deref(), Some("general-purpose"));
 
@@ -145,7 +147,10 @@ fn watcher_follows_a_session_from_first_prompt_to_finished_sub_agent() {
             .is_some_and(|a| a.status == AgentStatus::Finished)
     });
     let json = serde_json::to_string(&SubAgentEvent::Snapshot(finished)).unwrap();
-    assert!(!json.contains("MARKER"), "{json}");
+    assert!(
+        !json.contains("MARKER") && !json.contains("INPUT"),
+        "{json}"
+    );
 
     // Rate limit: one event per poll at most.
     let elapsed = started.elapsed();

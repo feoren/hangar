@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: session commands, reloading profiles and opening the profile file, taskbar flash and badge, program updates as sessions, workspace and scrollback, notes (private and shared project notes, including turning shared notes on and unlocking them), folder dialog, clipboard text, pasting a clipboard image as a saved file, opening the detached notes window (fixed label, URL and size), desktop notifications, git branches and changes, the file tree of a session's folder (listing one folder at a time, never leaving it), worktrees, local claims (overlaps between the user's own sessions), the agent gate (answering an agent's held edit), profile editing and keychain secrets, session export, notification area icon and showing the window, read-only sub-agent view, the Hangar account (sign-in, projects, opening its own pages), the team connection (sharing a project, confirming new devices, linking repositories, the sessions' states for the team's presence, reserving tasks and answering release requests), updates and restart",
+  "description": "Main window: session commands, reloading profiles and opening the profile file, taskbar flash and badge, program updates as sessions, workspace and scrollback, notes (private and shared project notes, including turning shared notes on and unlocking them), folder dialog, clipboard text, pasting a clipboard image as a saved file, opening the detached notes window (fixed label, URL and size), desktop notifications, git branches and changes, the file tree of a session's folder (listing one folder at a time, never leaving it), worktrees, local claims (overlaps between the user's own sessions), the agent gate (answering an agent's held edit), profile editing and keychain secrets, session export, notification area icon and showing the window, read-only sub-agent view, the context meter of the sessions, the Hangar account (sign-in, projects, opening its own pages), the team connection (sharing a project, confirming new devices, linking repositories, the sessions' states for the team's presence, reserving tasks and answering release requests), updates and restart",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -86,6 +86,7 @@
     "allow-watch-sub-agents",
     "allow-focus-sub-agent",
     "allow-unwatch-sub-agents",
+    "allow-context-usage",
     "allow-account-status",
     "allow-account-sign-in",
     "allow-account-cancel-sign-in",

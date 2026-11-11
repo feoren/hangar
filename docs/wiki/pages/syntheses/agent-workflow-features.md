@@ -480,27 +480,40 @@ menu paste uses the clipboard plugin.
       `{ "type": "snapshot", "located": bool, "agents": [{ "id": string, "description":
       string | null, "agentType": string | null, "spawnDepth": number | null, "status": "running" |
       "finished" | "stale", "startedAt": number | null, "lastActivity": number | null, "tool":
-      string | null, "excerpt": string | null }] }`. `located: false` until claude wrote the
+      string | null, "target": string | null, "note": string | null, "tokens": number | null,
+      "excerpt": string | null }] }`. `located: false` until claude wrote the
       session's transcript (after the first prompt). Times are Unix milliseconds; agents are
       ordered oldest first; `stale` = not finished and no write for 60 s; `tool` = newest tool
-      call name; `excerpt` = newest assistant text, at most 400 characters. For the snapshot,
-      prompts, tool inputs, tool results and every other record type are never read.
+      call name; `target` = what that call works on (file name of a path, else its key
+      argument, at most 120 characters), `note` = its own `description` (Bash, PowerShell),
+      both only with excerpts; `tokens` = input, cache and output tokens of the newest
+      assistant `usage` ([[subagent-activity-measurement]]); `excerpt` = newest assistant text,
+      at most 400 characters. For the snapshot, prompts, tool results and every other record
+      type are never read; of tool inputs only `target` and `note`. The sidebar row shows
+      `agentType` as the name, an activity line from `note` or a verb plus `target`, run time
+      and tokens, like Claude Code's list of background agents.
     - Log event of the focused sub-agent (`src-tauri/src/subagents/claude_log.rs`), sent after
       the snapshot of the same poll and only when there are new lines or on a reset (so at most
       one snapshot and one log batch per poll): `{ "type": "log", "agentId": string, "reset":
-      bool, "entries": [ { "kind": "prompt", "text" } | { "kind": "text", "text" } | { "kind":
-      "tool", "name", "detail": string | null } | { "kind": "result", "text": string | null,
-      "moreLines": number, "error": bool } | { "kind": "gap" } ] }`. `reset` replaces what was
+      bool, "toolUses": number, "entries": [ { "kind": "prompt", "text" } | { "kind": "text",
+      "text" } | { "kind": "tool", "name", "detail": string | null } | { "kind": "result",
+      "lines": string[], "moreLines": number, "error": bool, "summary": null | { "kind": "read" |
+      "wrote", "lines" } | { "kind": "edited", "added", "removed" } | { "kind": "files" |
+      "lines" | "matches", "count" } } | { "kind": "gap" } ] }`. `reset` replaces what was
       shown (new focus, transcript that started over). The log has its own read position: the
-      first read takes the last 1 MiB, then only what was appended; when that left out the
-      start, the task (first line) is read once and a `gap` follows it; a burst keeps its newest
-      400 entries behind a `gap`. `prompt` is user text (the task), `text` assistant text (both
+      first read takes the whole transcript up to the last 64 MiB within one poll (in 4 MiB
+      steps, `api-request*` records skipped before parsing), then only what was appended; when
+      that left out the start, the task (first line) is read once and a `gap` follows it; a
+      reset keeps the task and the newest 1000 entries, a burst its newest 400, each behind a
+      `gap`. `toolUses` counts every tool call read so far. `prompt` is user text (the task), `text` assistant text (both
       at most 4000 characters), `tool` the call with its key argument (Bash and PowerShell
       `command`, Read/Write/Edit/MultiEdit `file_path`, NotebookEdit `notebook_path`, Grep and
       Glob `pattern`, WebFetch `url`, WebSearch `query`, Task and Agent `description`, other
-      tools the first of the usual fields; first line only, at most 200 characters), `result`
-      the first non-empty line of a tool result (at most 200 characters) plus the count of
-      further lines. Thinking blocks, `isMeta` records and other record types are never shown.
+      tools the first of the usual fields; first line only, at most 200 characters; paths below
+      the session's folder relative to it), `result` a `summary` from the record's
+      `toolUseResult` when it has one and the call did not fail, else the first three
+      non-empty lines of the result (each at most 200 characters) plus the count of further
+      lines. Thinking blocks, `isMeta` records and other record types are never shown.
       With `excerpts: false` only assistant records are parsed and only tool names are sent
       (`detail: null`); no task, text, input or result. The log reads the transcript only when
       the snapshot's scan found it in the contained sub-agent folder.

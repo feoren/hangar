@@ -995,6 +995,15 @@ impl SessionManager {
         })
     }
 
+    /// Every session whose program keeps transcripts Hangar can read (the same ones as the
+    /// sub-agent view), for the context meter (`context_usage`).
+    pub fn context_targets(&self) -> Vec<(SessionId, subagents::Target)> {
+        let ids: Vec<SessionId> = lock(&self.shared.sessions).keys().copied().collect();
+        ids.into_iter()
+            .filter_map(|id| Some((id, self.sub_agent_target(id).ok()?)))
+            .collect()
+    }
+
     /// Ends the process (if it is running) and removes the session.
     pub fn close(&self, id: SessionId) -> Result<(), ManagerError> {
         let entry = {

@@ -12,7 +12,8 @@
 //!
 //! Privacy: for the snapshot only a whitelist leaves this module ([`SubAgent`]). User records
 //! (prompts, tool results) and every other record type are never parsed for it; of assistant
-//! records only the text blocks and the tool names are read, never tool inputs. The log of the
+//! records only the text blocks, the tool names, the token counts of `usage` and, with excerpts,
+//! the short target of the newest tool call ([`claude_log::activity`]) are read. The log of the
 //! one focused sub-agent ([`SubAgentSource::poll_log`]) is parsed by [`claude_log`], which
 //! applies the same excerpt setting and masking.
 
@@ -22,14 +23,17 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::Deserialize;
+use serde_json::Value;
 
-use super::claude_log;
+use super::claude_log::{self, LogParser};
 pub use super::is_agent_id;
 use super::redact::{redact, strip_controls};
 use super::tail::{first_line, open_shared, Tail, MAX_LINE};
 use super::{
     AgentStatus, LogBatch, LogEntry, Snapshot, SubAgent, SubAgentSource, Target, MAX_LOG_BATCH,
+    MAX_LOG_RESET,
 };
 
 /// Variable that moves Claude's config folder; read from the profile's `env` first.
@@ -115,17 +119,24 @@ struct AgentState {
     started_at: Option<SystemTime>,
     last_activity: Option<SystemTime>,
     tool: Option<String>,
+    target: Option<String>,
+    note: Option<String>,
+    tokens: Option<u64>,
     excerpt: Option<String>,
 }
 
-/// The log reads more of the end of a transcript than the snapshot: it shows the history, not
-/// only the latest state. Every poll after the first reads only what was appended.
-pub const LOG_INITIAL_TAIL: u64 = 1024 * 1024;
+/// The log reads the whole transcript from its start, like Claude Code shows a sub-agent's
+/// history; only beyond this size is the start left out (marked by a gap, the task stays).
+/// Measured transcripts reach 12 MB, mostly records the log skips without parsing. Every poll
+/// after the first reads only what was appended.
+pub const LOG_INITIAL_TAIL: u64 = 64 * 1024 * 1024;
 
 /// The log of the focused sub-agent: its own read position, apart from the snapshot's.
 struct FocusLog {
     id: String,
     tail: Tail,
+    /// Counts the tool calls of the current [`Tail::generation`].
+    parser: LogParser,
     /// [`Tail::generation`] of the last batch sent; another one means a reset.
     sent: Option<u32>,
 }
@@ -147,6 +158,8 @@ pub struct ClaudeSource {
     excerpts: bool,
     agents: BTreeMap<String, AgentState>,
     focus: Option<FocusLog>,
+    /// [`LOG_INITIAL_TAIL`]; smaller in tests.
+    log_initial: u64,
 }
 
 impl ClaudeSource {
@@ -164,7 +177,12 @@ impl ClaudeSource {
             excerpts,
             agents: BTreeMap::new(),
             focus: None,
+            log_initial: LOG_INITIAL_TAIL,
         }
+    }
+
+    fn log_parser(&self) -> LogParser {
+        LogParser::new(self.excerpts, Some(&self.cwd))
     }
 
     /// The project folder that holds this session, searched first under the encoded working
@@ -221,6 +239,18 @@ impl ClaudeSource {
             }
         }
         self.subagents.clone()
+    }
+
+    /// The session's main transcript `<project>/<session>.jsonl`, found by the same search and
+    /// backoff as the sub-agent folder (`crate::context_usage` reads its token counts). Only a
+    /// regular file in a project folder inside the projects folder counts, never a link.
+    pub fn main_transcript(&mut self) -> Option<PathBuf> {
+        let subagents = self.subagents_dir(Instant::now())?;
+        let project = subagents.parent()?.parent()?;
+        let path = project.join(format!("{}.jsonl", self.session));
+        let root = self.root.as_ref()?;
+        let inside = fs::canonicalize(project).is_ok_and(|real| real.starts_with(root));
+        (inside && is_real_file(&path)).then_some(path)
     }
 
     /// The sub-agent folder, if it exists and does not lead out of the projects folder through
@@ -352,34 +382,64 @@ impl SubAgentSource for ClaudeSource {
     }
 
     fn focus(&mut self, agent: Option<String>) {
+        let parser = self.log_parser();
+        let initial = self.log_initial;
         self.focus = agent.filter(|id| is_agent_id(id)).map(|id| FocusLog {
             id,
-            tail: Tail::with_initial(LOG_INITIAL_TAIL),
+            tail: Tail::with_initial(initial),
+            parser,
             sent: None,
         });
     }
 
-    /// Reads only what was appended since the last call. The transcript is opened only when the
-    /// last scan found it in the contained sub-agent folder, so a focus never reaches a file the
-    /// snapshot would not read.
+    /// The first batch of a focus (and of a transcript that started over) holds the history from
+    /// the start, read in steps of [`super::tail::MAX_READ`] within this one call; later calls
+    /// read only what was appended. The transcript is opened only when the last scan found it in
+    /// the contained sub-agent folder, so a focus never reaches a file the snapshot would not
+    /// read.
     fn poll_log(&mut self) -> Option<LogBatch> {
+        let fresh = self.log_parser();
         let dir = self.subagents.as_ref()?;
         let focus = self.focus.as_mut()?;
         if !self.agents.contains_key(&focus.id) {
             return None;
         }
         let path = dir.join(format!("agent-{}.jsonl", focus.id));
-        // A read error (file just deleted, locked for a moment) is retried on the next poll.
-        let lines = focus.tail.read_new(&path).ok()?;
-        let reset = focus.sent != Some(focus.tail.generation());
+        let mut body: Vec<LogEntry> = Vec::new();
+        let mut generation = focus.sent;
+        loop {
+            let lines = match focus.tail.read_new(&path) {
+                Ok(lines) => lines,
+                // A read error (file just deleted, locked for a moment) is retried on the next
+                // poll; what this call read so far is sent.
+                Err(_) if generation != focus.sent => break,
+                Err(_) => return None,
+            };
+            if generation != Some(focus.tail.generation()) {
+                // A new start: what was collected belongs to the transcript before it.
+                generation = Some(focus.tail.generation());
+                body.clear();
+                focus.parser = fresh.clone();
+            }
+            body.extend(lines.iter().flat_map(|line| focus.parser.entries(line)));
+            let reset = generation != focus.sent;
+            if reset && body.len() > 2 * MAX_LOG_RESET {
+                body = bounded(body, MAX_LOG_RESET, true);
+            }
+            if !(reset && focus.tail.behind()) {
+                break;
+            }
+        }
+        let reset = generation != focus.sent;
         let mut head = Vec::new();
-        let excerpts = self.excerpts;
         if reset && focus.tail.skipped_head() {
-            // The task stands in the first line, which the tail of a long transcript leaves out.
-            if excerpts {
+            // The task stands in the first line, which a very long transcript leaves out.
+            if self.excerpts {
                 if let Ok(Some(first)) = first_line(&path, MAX_LINE) {
                     head.extend(
-                        claude_log::entries(&first, true)
+                        fresh
+                            .clone()
+                            .entries(&first)
                             .into_iter()
                             .filter(|entry| matches!(entry, LogEntry::Prompt { .. })),
                     );
@@ -387,28 +447,36 @@ impl SubAgentSource for ClaudeSource {
             }
             head.push(LogEntry::Gap);
         }
-        let mut body: Vec<LogEntry> = lines
-            .iter()
-            .flat_map(|line| claude_log::entries(line, excerpts))
-            .collect();
-        let room = MAX_LOG_BATCH.saturating_sub(head.len() + 1);
-        if body.len() > room {
-            body.drain(..body.len() - room);
-            if head.last() != Some(&LogEntry::Gap) {
-                head.push(LogEntry::Gap);
-            }
-        }
-        if !reset && head.is_empty() && body.is_empty() {
+        if !reset && body.is_empty() {
             return None;
         }
-        focus.sent = Some(focus.tail.generation());
+        focus.sent = generation;
         head.append(&mut body);
+        let max = if reset { MAX_LOG_RESET } else { MAX_LOG_BATCH };
         Some(LogBatch {
             agent_id: focus.id.clone(),
             reset,
-            entries: head,
+            entries: bounded(head, max, reset),
+            tool_uses: focus.parser.tool_uses(),
         })
     }
+}
+
+/// At most `max` entries: the newest ones after a gap, and with `keep_task` a leading task too,
+/// so the log always says what the sub-agent was asked to do.
+fn bounded(mut entries: Vec<LogEntry>, max: usize, keep_task: bool) -> Vec<LogEntry> {
+    if entries.len() <= max || max < 2 {
+        return entries;
+    }
+    let lead = usize::from(keep_task && matches!(entries.first(), Some(LogEntry::Prompt { .. })));
+    let mut newest = entries.split_off(entries.len() - (max - lead - 1));
+    if newest.first() == Some(&LogEntry::Gap) {
+        newest.remove(0);
+    }
+    entries.truncate(lead);
+    entries.push(LogEntry::Gap);
+    entries.append(&mut newest);
+    entries
 }
 
 fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
@@ -440,6 +508,9 @@ fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
         started_at: state.started_at.map(millis),
         last_activity: last_activity.map(millis),
         tool: state.tool.clone(),
+        target: state.target.clone(),
+        note: state.note.clone(),
+        tokens: state.tokens,
         excerpt: state.excerpt.clone(),
     }
 }
@@ -452,29 +523,73 @@ struct Head {
 }
 
 #[derive(Deserialize)]
-struct AssistantRecord {
-    message: Option<AssistantMessage>,
+struct AssistantRecord<I> {
+    message: Option<AssistantMessage<I>>,
 }
 
 #[derive(Deserialize)]
-struct AssistantMessage {
-    content: Option<Content>,
+struct AssistantMessage<I> {
+    content: Option<Content<I>>,
+    usage: Option<Usage>,
+}
+
+/// Token counts of one model response (measured with 2.1.322, the same in main and sub-agent
+/// transcripts).
+#[derive(Debug, Deserialize)]
+pub struct Usage {
+    input_tokens: Option<u64>,
+    cache_creation_input_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+}
+
+impl Usage {
+    /// The context size after the response, the number Claude Code shows for a sub-agent.
+    pub fn total(&self) -> u64 {
+        [
+            self.input_tokens,
+            self.cache_creation_input_tokens,
+            self.cache_read_input_tokens,
+            self.output_tokens,
+        ]
+        .into_iter()
+        .flatten()
+        .fold(0, u64::saturating_add)
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Content {
+enum Content<I> {
     Text(String),
-    Blocks(Vec<Block>),
+    Blocks(Vec<Block<I>>),
 }
 
-/// `input` of a tool call is never deserialized.
+/// `I` is [`IgnoredAny`] without excerpts, so a tool call's input is then never kept.
 #[derive(Deserialize)]
-struct Block {
+struct Block<I> {
     #[serde(rename = "type")]
     kind: Option<String>,
     text: Option<String>,
     name: Option<String>,
+    input: Option<I>,
+}
+
+/// A tool call's input as far as it may be read.
+trait Input: DeserializeOwned {
+    fn value(&self) -> Option<&Value>;
+}
+
+impl Input for IgnoredAny {
+    fn value(&self) -> Option<&Value> {
+        None
+    }
+}
+
+impl Input for Value {
+    fn value(&self) -> Option<&Value> {
+        Some(self)
+    }
 }
 
 /// Unparsable lines (a CLI mid-write, a future format) are skipped.
@@ -485,10 +600,24 @@ fn apply_record(state: &mut AgentState, line: &[u8], excerpts: bool) {
     if head.kind.as_deref() != Some("assistant") {
         return;
     }
-    let Ok(record) = serde_json::from_slice::<AssistantRecord>(line) else {
+    if excerpts {
+        apply_assistant::<Value>(state, line, true);
+    } else {
+        apply_assistant::<IgnoredAny>(state, line, false);
+    }
+}
+
+fn apply_assistant<I: Input>(state: &mut AgentState, line: &[u8], excerpts: bool) {
+    let Ok(record) = serde_json::from_slice::<AssistantRecord<I>>(line) else {
         return;
     };
-    let Some(content) = record.message.and_then(|m| m.content) else {
+    let Some(message) = record.message else {
+        return;
+    };
+    if let Some(usage) = &message.usage {
+        state.tokens = Some(usage.total());
+    }
+    let Some(content) = message.content else {
         return;
     };
     match content {
@@ -506,6 +635,14 @@ fn apply_record(state: &mut AgentState, line: &[u8], excerpts: bool) {
                         if let Some(name) =
                             block.name.as_deref().and_then(|n| clean(n, MAX_TOOL_CHARS))
                         {
+                            let (target, note) = block
+                                .input
+                                .as_ref()
+                                .and_then(Input::value)
+                                .map(|input| claude_log::activity(&name, input))
+                                .unwrap_or_default();
+                            state.target = target;
+                            state.note = note;
                             state.tool = Some(name);
                         }
                     }
@@ -689,16 +826,16 @@ mod tests {
         assert_eq!(agent.tool.as_deref(), Some("Grep"));
         assert_eq!(agent.excerpt.as_deref(), Some("Looking at the files"));
         assert!(agent.started_at.is_some() && agent.last_activity.is_some());
+        // With excerpts, the newest call's key argument is the activity's target.
+        assert_eq!(agent.target.as_deref(), Some("INPUT-MARKER"));
         let json = serde_json::to_string(&snapshot).unwrap();
-        for marker in [
-            "PROMPT",
-            "INPUT",
-            "RESULT",
-            "ATTACHMENT",
-            "API",
-            "SHAPE",
-            "broken",
-        ] {
+        for marker in ["PROMPT", "RESULT", "ATTACHMENT", "API", "SHAPE", "broken"] {
+            assert!(!json.contains(marker), "{marker} leaked: {json}");
+        }
+        // Without excerpts not even that.
+        let mut quiet = ClaudeSource::new(&fx.target(), false);
+        let json = serde_json::to_string(&quiet.poll(SystemTime::now())).unwrap();
+        for marker in ["PROMPT", "INPUT", "RESULT", "ATTACHMENT", "API", "SHAPE"] {
             assert!(!json.contains(marker), "{marker} leaked: {json}");
         }
     }
@@ -715,7 +852,7 @@ mod tests {
                 LogEntry::Prompt { text } => format!("prompt {text}"),
                 LogEntry::Text { text } => format!("text {text}"),
                 LogEntry::Tool { name, detail } => format!("tool {name} {detail:?}"),
-                LogEntry::Result { text, .. } => format!("result {text:?}"),
+                LogEntry::Result { lines, .. } => format!("result {lines:?}"),
                 LogEntry::Gap => "gap".into(),
             })
             .collect()
@@ -801,13 +938,16 @@ mod tests {
             "{{\"type\":\"text\",\"text\":\"{}\"}}",
             "f".repeat(1000)
         ));
+        // A small bound stands in for LOG_INITIAL_TAIL, which would need a 64 MB file.
+        let bound = 256 * 1024;
         let mut content = String::new();
-        while (content.len() as u64) < LOG_INITIAL_TAIL + 4096 {
+        while (content.len() as u64) < bound + 4096 {
             content.push_str(&filler);
         }
         append(&path, &content);
         append(&path, &assistant("{\"type\":\"text\",\"text\":\"last\"}"));
         let mut source = ClaudeSource::new(&fx.target(), true);
+        source.log_initial = bound;
         source.focus(Some("a1".into()));
         source.poll(SystemTime::now());
         let batch = source.poll_log().unwrap();
@@ -844,6 +984,124 @@ mod tests {
             batch.entries.last(),
             Some(&LogEntry::text(format!("n{}", MAX_LOG_BATCH + 49)))
         );
+    }
+
+    #[test]
+    fn focus_reads_the_whole_history_in_one_batch() {
+        let fx = Fixture::new("log-history");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("The task"));
+        // Large records the log skips: more than one read step, more than the old 1 MB tail.
+        let blob = format!(
+            "{{\"type\":\"api-request-blob\",\"hash\":\"h\",\"message\":\"{}\"}}\n",
+            "b".repeat(64 * 1024)
+        );
+        let tool_call = assistant(
+            "{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.rs\"}}",
+        );
+        let mut content = String::new();
+        for _ in 0..100 {
+            content.push_str(&blob);
+            content.push_str(&tool_call);
+        }
+        append(&path, &content);
+        assert!(fs::metadata(&path).unwrap().len() > super::super::tail::MAX_READ);
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let batch = source.poll_log().unwrap();
+        assert!(batch.reset);
+        let shown = texts(&batch);
+        assert_eq!(shown[0], "prompt The task");
+        assert_eq!(shown.len(), 101, "no gap, every call: {:?}", &shown[..3]);
+        assert_eq!(batch.tool_uses, 100);
+        // Later batches carry the running count.
+        append(&path, &tool_call);
+        source.poll(SystemTime::now());
+        let next = source.poll_log().unwrap();
+        assert!(!next.reset);
+        assert_eq!(next.entries.len(), 1);
+        assert_eq!(next.tool_uses, 101);
+    }
+
+    #[test]
+    fn a_long_history_keeps_the_task_and_its_newest_lines() {
+        let fx = Fixture::new("log-many");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("The task"));
+        let mut content = String::new();
+        for index in 0..MAX_LOG_RESET * 3 {
+            content.push_str(&assistant(&format!(
+                "{{\"type\":\"text\",\"text\":\"n{index}\"}}"
+            )));
+        }
+        append(&path, &content);
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let batch = source.poll_log().unwrap();
+        assert_eq!(batch.entries.len(), MAX_LOG_RESET);
+        assert_eq!(batch.entries[0], LogEntry::prompt("The task".into()));
+        assert_eq!(batch.entries[1], LogEntry::Gap);
+        assert_eq!(
+            batch.entries.last(),
+            Some(&LogEntry::text(format!("n{}", MAX_LOG_RESET * 3 - 1)))
+        );
+    }
+
+    #[test]
+    fn snapshot_carries_tokens_and_the_newest_activity() {
+        let fx = Fixture::new("activity");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        let usage = "\"usage\":{\"input_tokens\":3,\"cache_creation_input_tokens\":1000,\"cache_read_input_tokens\":95000,\"output_tokens\":297,\"output_tokens_details\":{\"thinking_tokens\":5}}";
+        append(&path, &format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"Edit\",\"input\":{{\"file_path\":\"E:\\\\a b\\\\src\\\\git.rs\"}}}}],{usage}}}}}\n"
+        ));
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        let agent = source.poll(SystemTime::now()).agents.remove(0);
+        assert_eq!(agent.tokens, Some(96_300));
+        assert_eq!(agent.tool.as_deref(), Some("Edit"));
+        assert_eq!(agent.target.as_deref(), Some("git.rs"));
+        assert_eq!(agent.note, None);
+        append(&path, &assistant(
+            "{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"py -3 x.py\",\"description\":\"Run x.py on transcripts\"}}",
+        ));
+        let agent = source.poll(SystemTime::now()).agents.remove(0);
+        // A record without usage keeps the last count.
+        assert_eq!(agent.tokens, Some(96_300));
+        assert_eq!(agent.target.as_deref(), Some("py -3 x.py"));
+        assert_eq!(agent.note.as_deref(), Some("Run x.py on transcripts"));
+        // Without excerpts no input is read: counts and the tool name only.
+        let mut quiet = ClaudeSource::new(&fx.target(), false);
+        let agent = quiet.poll(SystemTime::now()).agents.remove(0);
+        assert_eq!(agent.tokens, Some(96_300));
+        assert_eq!(agent.tool.as_deref(), Some("Bash"));
+        assert_eq!((agent.target, agent.note), (None, None));
+    }
+
+    #[test]
+    fn bounded_keeps_the_task_and_drops_double_gaps() {
+        let text = |n: usize| LogEntry::text(format!("n{n}"));
+        let mut entries = vec![LogEntry::prompt("t".into())];
+        entries.extend((0..10).map(text));
+        let kept = bounded(entries.clone(), 5, true);
+        assert_eq!(
+            kept,
+            [
+                LogEntry::prompt("t".into()),
+                LogEntry::Gap,
+                text(7),
+                text(8),
+                text(9)
+            ]
+        );
+        assert_eq!(bounded(entries.clone(), 5, false)[0], LogEntry::Gap);
+        assert_eq!(bounded(entries.clone(), 20, true), entries);
+        let gapped = vec![text(0), text(1), LogEntry::Gap, text(2)];
+        assert_eq!(bounded(gapped, 3, false), [LogEntry::Gap, text(2)]);
     }
 
     #[test]
