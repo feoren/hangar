@@ -44,6 +44,20 @@
         "ru": "Меню в левом верхнем углу открывается, не раскрывая сразу подменю.",
         "tr": "Sol üstteki menü, hemen bir alt menü açmadan açılır.",
         "zh": "左上角的菜单打开时不再立即展开子菜单。"
+      },
+      {
+        "de": "Sessions nebeneinander ziehst du an ihren Trennlinien größer oder kleiner. Ein kleines Muster in der Sidebar zeigt, wo eine Session im Fenster sitzt.",
+        "en": "Drag the lines between side-by-side sessions to resize them. A small pattern in the sidebar shows where each session sits in the window.",
+        "el": "Σύρε τις γραμμές ανάμεσα στις συνεδρίες για να αλλάξεις το μέγεθός τους. Ένα μικρό σχέδιο στην πλευρική στήλη δείχνει πού βρίσκεται η καθεμία.",
+        "es": "Arrastra las líneas entre sesiones contiguas para cambiar su tamaño. Un pequeño esquema en la barra lateral muestra dónde está cada sesión.",
+        "fr": "Fais glisser les lignes entre les sessions côte à côte pour les redimensionner. Un petit motif dans la barre latérale montre où se trouve chacune.",
+        "it": "Trascina le linee tra le sessioni affiancate per ridimensionarle. Un piccolo schema nella barra laterale mostra dove si trova ciascuna.",
+        "ja": "並べたセッションの間の線をドラッグしてサイズを変えられます。サイドバーの小さな図で、各セッションの位置がわかります。",
+        "pl": "Przeciągaj linie między sesjami obok siebie, aby zmienić ich rozmiar. Mały wzór na pasku bocznym pokazuje, gdzie jest każda sesja.",
+        "pt": "Arrasta as linhas entre sessões lado a lado para as redimensionar. Um pequeno padrão na barra lateral mostra onde está cada sessão.",
+        "ru": "Перетаскивай линии между сеансами рядом, чтобы менять их размер. Маленькая схема в боковой панели показывает, где находится каждый сеанс.",
+        "tr": "Yan yana oturumları aradaki çizgileri sürükleyerek boyutlandır. Kenar çubuğundaki küçük desen her oturumun nerede olduğunu gösterir.",
+        "zh": "拖动并排会话之间的分隔线即可调整大小。侧边栏中的小图案显示每个会话所在的位置。"
       }
     ]
   },

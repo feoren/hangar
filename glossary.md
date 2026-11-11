@@ -97,6 +97,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Platz (gemerkte Position einer Session)         | slot                              |                                                                             |
 | Snap-Layout                                     | snap layout                       | preset arrangement of the panes, `snapLayouts.ts`                           |
 | Zone (Snap-Layout)                              | zone                              | the area of one pane in a snap layout                                       |
+| Aufteilung (Snap-Layout)                        | pane ratios                       | splitter positions of a snap layout as fractions, `paneRatios.ts`           |
+| Layout-Miniatur                                 | layout glyph                      | snap layout in miniature on a sidebar row, `LayoutGlyph.tsx`                |
 | Layout-Auswahl, Snap-Leiste                     | layout picker, snap bar           | `SnapBar.tsx`                                                               |
 | Ablagelinie                                     | drop line                         | where a dragged session lands in the sidebar                                |
 | Ende (Prozess), Beenden (App)                   | exit, quit                        |                                                                             |

@@ -5,15 +5,17 @@ import { Badge } from "./Badge";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
-import { sidebarMotion } from "./sidebarMotion";
+import { paneResizing, sidebarMotion } from "./sidebarMotion";
 import type { SessionView } from "./sessions";
-import { zoneRect, type LayoutId } from "./snapLayouts";
+import { zoneRect, type LayoutId, type Ratios } from "./snapLayouts";
 import type { SessionTerminal } from "./terminal";
 
 /** Header and position of a pane in split view. */
 export interface PaneSplit {
   layout: Exclude<LayoutId, "single">;
   slot: number;
+  /** Splitter positions of the layout (paneRatios.ts). */
+  ratios: Ratios;
   session: SessionView;
   look: BadgeLook;
   state: AttentionState;
@@ -52,10 +54,11 @@ const INNER = 3;
  * positions instead of a CSS grid, because hidden panes stay in the DOM (invisible, at the size
  * of the whole panes area, so the scrollback survives) and must not take part in a grid's flow.
  */
-export function paneStyle(layout: LayoutId, slot: number): React.CSSProperties {
-  const rect = zoneRect(layout, slot);
+export function paneStyle(layout: LayoutId, slot: number, ratios?: Ratios): React.CSSProperties {
+  const rect = zoneRect(layout, slot, ratios);
   const start = (offset: number) => (offset === 0 ? OUTER : INNER);
-  const end = (offset: number, size: number) => (offset + size >= 1 ? OUTER : INNER);
+  // Tolerance: a zone after a moved splitter ends at `a + (1 - a)`, which may miss 1 by a rounding.
+  const end = (offset: number, size: number) => (offset + size >= 1 - 1e-9 ? OUTER : INNER);
   return {
     left: `calc(${String(rect.x * 100)}% + ${String(start(rect.x))}px)`,
     top: `calc(${String(rect.y * 100)}% + ${String(start(rect.y))}px)`,
@@ -79,17 +82,19 @@ export function TerminalPane(props: Props) {
     const element = host.current;
     if (!element) return;
     terminal.mount(element);
+    // While the sidebar folds or a splitter between panes moves, the fit waits for the end of
+    // the motion (sidebarMotion.ts); one stable function, so it waits at most once per gate.
     const fit = () => {
-      terminal.fit();
+      if (sidebarMotion.isMoving) sidebarMotion.whenSettled(fit);
+      else if (paneResizing.isMoving) paneResizing.whenSettled(fit);
+      else terminal.fit();
     };
-    // While the sidebar folds, the fit waits for the end of the motion (sidebarMotion.ts).
-    const observer = new ResizeObserver(() => {
-      sidebarMotion.whenSettled(fit);
-    });
+    const observer = new ResizeObserver(fit);
     observer.observe(element);
     return () => {
       observer.disconnect();
       sidebarMotion.forget(fit);
+      paneResizing.forget(fit);
     };
   }, [terminal]);
 
@@ -116,7 +121,9 @@ export function TerminalPane(props: Props) {
       aria-hidden={!visible}
       role={split !== null && visible ? "group" : undefined}
       aria-label={split !== null && visible ? split.session.title : undefined}
-      style={split !== null && visible ? paneStyle(split.layout, split.slot) : undefined}
+      style={
+        split !== null && visible ? paneStyle(split.layout, split.slot, split.ratios) : undefined
+      }
       onPointerDownCapture={() => {
         if (split !== null && !active) props.onFocusPane(sessionId);
       }}
@@ -163,10 +170,18 @@ export function TerminalPane(props: Props) {
 }
 
 /** Placeholder for a pane without a session: says how to fill it. */
-export function EmptyPane({ layout, slot }: { layout: Exclude<LayoutId, "single">; slot: number }) {
+export function EmptyPane({
+  layout,
+  slot,
+  ratios,
+}: {
+  layout: Exclude<LayoutId, "single">;
+  slot: number;
+  ratios: Ratios;
+}) {
   const t = useT();
   return (
-    <div className="pane-empty" style={paneStyle(layout, slot)}>
+    <div className="pane-empty" style={paneStyle(layout, slot, ratios)}>
       <p>{t("split.empty")}</p>
     </div>
   );

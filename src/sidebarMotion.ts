@@ -40,6 +40,12 @@ export class MotionGate {
 
 export const sidebarMotion = new MotionGate();
 
+/**
+ * Held while a splitter between panes is dragged or stepped by keyboard (PaneSplitters.tsx): the
+ * panes follow the pointer, their terminals fit once at the end, so the program redraws once.
+ */
+export const paneResizing = new MotionGate();
+
 function reducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

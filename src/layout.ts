@@ -1,5 +1,5 @@
 // Adjustable layout: sidebar width, height of the profile area, collapsed state, collapsed groups,
-// font size, right panel (notes and changes), split view.
+// font size, right panel (notes and changes), split view and the sizes of its panes.
 // Remembered per machine in localStorage; without storage, the defaults apply.
 
 export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
@@ -12,6 +12,7 @@ export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
 /** Width of the right panel (notes, changes) next to the terminal. */
 export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
 
+import { parsePaneRatios, type PaneRatios } from "./paneRatios";
 import { migrateLayoutId, type LayoutId } from "./snapLayouts";
 
 const STORAGE_KEY = "hangar.layout";
@@ -38,6 +39,8 @@ export interface Layout {
   notesWidth: number;
   /** Snap layout of the panes area (snapLayouts.ts). */
   snapLayout: LayoutId;
+  /** Splitter positions per snap layout, kept when switching layouts (paneRatios.ts). */
+  paneRatios: PaneRatios;
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -50,6 +53,7 @@ export const DEFAULT_LAYOUT: Layout = {
   sideTab: "notes",
   notesWidth: NOTES_WIDTH.default,
   snapLayout: "single",
+  paneRatios: {},
 };
 
 export type SideTab = "notes" | "changes";
@@ -160,6 +164,7 @@ export function parseLayout(text: string | null): Layout {
     sideTab: sideTab === "changes" ? "changes" : "notes",
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
     snapLayout: snapLayout ?? DEFAULT_LAYOUT.snapLayout,
+    paneRatios: parsePaneRatios("paneRatios" in raw ? raw.paneRatios : undefined),
   };
 }
 

@@ -77,7 +77,7 @@ import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
 import { groupedOrder, groupPosition, sessionGroup } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
-import { LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
+import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
 import {
   clampFontSize,
@@ -187,6 +187,9 @@ import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
+import { PaneSplitters } from "./PaneSplitters";
+import { ratiosFor } from "./paneRatios";
+import type { PanePlacement } from "./paneGlyph";
 import {
   isDue,
   ORPHANS_REFRESH_MIN_MS,
@@ -1162,6 +1165,7 @@ export function App() {
 
   const splitView = useSplitView({
     layout: layout.snapLayout,
+    ratios: layout.paneRatios,
     sessions: state.sessions,
     activeId: state.activeId,
     setLayout,
@@ -1224,6 +1228,14 @@ export function App() {
     for (const id of splitView.split.slots) if (id !== null) shown.add(id);
   }
   const shownKey = [...shown].sort((a, b) => a - b).join(",");
+  /** Where each visible session sits in a split layout, for the miniature on its sidebar row. */
+  const placements = new Map<number, PanePlacement>();
+  if (subAgentPlan === null && splitView.layout !== "single") {
+    const { layout: splitLayout, ratios } = splitView;
+    splitView.split.slots.forEach((id, zone) => {
+      if (id !== null) placements.set(id, { layout: splitLayout, zone, ratios });
+    });
+  }
   useEffect(() => {
     shownRef.current = new Set(
       shownKey === "" ? [] : shownKey.split(",").map((part) => Number(part)),
@@ -1334,6 +1346,7 @@ export function App() {
     attachGhost: attachDragGhost,
   } = useSessionDrag({
     layout: layout.snapLayout,
+    ratios: layout.paneRatios,
     order: state.sessions.map((s) => s.id),
     onMove: moveSession,
     onPlace: splitView.place,
@@ -3471,6 +3484,7 @@ export function App() {
           activityOf={activityOf}
           branches={branches}
           overlaps={overlapMarkers}
+          placements={placements}
           language={settings.language}
           renamingId={renamingId}
           onRenameStart={startRename}
@@ -3624,7 +3638,13 @@ export function App() {
                   subAgentPlan === null
                     ? splitView.paneSplit(session, paneLook(session))
                     : session.id === subAgentsOf
-                      ? { layout: subAgentPlan.layout, slot: 0, session, ...paneLook(session)() }
+                      ? {
+                          layout: subAgentPlan.layout,
+                          slot: 0,
+                          ratios: DEFAULT_RATIOS[subAgentPlan.layout],
+                          session,
+                          ...paneLook(session)(),
+                        }
                       : null;
                 return (
                   <TerminalPane
@@ -3681,8 +3701,19 @@ export function App() {
                       key={`empty-${String(slot)}`}
                       layout={splitView.layout}
                       slot={slot}
+                      ratios={splitView.ratios}
                     />
                   ) : null,
+                )}
+              {state.sessions.length > 0 &&
+                subAgentPlan === null &&
+                splitView.layout !== "single" && (
+                  <PaneSplitters
+                    layout={splitView.layout}
+                    ratios={splitView.ratios}
+                    onChange={splitView.setRatios}
+                    onReset={splitView.resetRatios}
+                  />
                 )}
               {sessionDragView?.overBody === true && (
                 <>
@@ -3691,8 +3722,16 @@ export function App() {
                       className="snap-preview"
                       style={
                         sessionDragView.target.kind === "snap"
-                          ? paneStyle(sessionDragView.target.layout, sessionDragView.target.zone)
-                          : paneStyle(splitView.layout, sessionDragView.target.zone)
+                          ? paneStyle(
+                              sessionDragView.target.layout,
+                              sessionDragView.target.zone,
+                              ratiosFor(layout.paneRatios, sessionDragView.target.layout),
+                            )
+                          : paneStyle(
+                              splitView.layout,
+                              sessionDragView.target.zone,
+                              splitView.ratios,
+                            )
                       }
                       aria-hidden="true"
                     >
@@ -3702,6 +3741,7 @@ export function App() {
                   <SnapBar
                     mode="drag"
                     current={splitView.layout}
+                    ratios={layout.paneRatios}
                     highlight={
                       sessionDragView.target?.kind === "snap"
                         ? {
@@ -3718,13 +3758,18 @@ export function App() {
                   {snapPicker.preview !== null && (
                     <div
                       className="snap-preview"
-                      style={paneStyle(snapPicker.preview.layout, snapPicker.preview.zone)}
+                      style={paneStyle(
+                        snapPicker.preview.layout,
+                        snapPicker.preview.zone,
+                        ratiosFor(layout.paneRatios, snapPicker.preview.layout),
+                      )}
                       aria-hidden="true"
                     />
                   )}
                   <SnapBar
                     mode="pick"
                     current={splitView.layout}
+                    ratios={layout.paneRatios}
                     initial={{ layout: splitView.layout, zone: splitView.split.focus }}
                     title={activeSession.title}
                     onActive={(target) => {

@@ -40,6 +40,8 @@ import type { EdgeHint } from "./waitingHint";
 import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
+import { LayoutGlyph } from "./LayoutGlyph";
+import { placementText, type PanePlacement } from "./paneGlyph";
 import { Splitter } from "./Splitter";
 import { sessionLabels, type SessionLabel } from "./sessionLabel";
 import { SidebarFooter } from "./SidebarFooter";
@@ -108,6 +110,8 @@ interface Props {
   branches: ReadonlyMap<string, string | null>;
   /** Sessions that change a file another session changes too: the marker text (claims.ts). */
   overlaps: ReadonlyMap<number, string>;
+  /** Sessions shown in a pane of a split layout: layout and zone, for the row's miniature. */
+  placements: ReadonlyMap<number, PanePlacement>;
   /** UI language, for the compact durations. */
   language: string;
   /** Session whose name is being edited in the sidebar right now. */
@@ -480,6 +484,8 @@ export function Sidebar(props: Props) {
             const { status, detail: where } = lines(session);
             const detail = exitDetail(session, t);
             const chip = chipOf(session);
+            const placement = props.placements.get(session.id);
+            const placeText = placement === undefined ? "" : placementText(t, placement);
             const className = [
               "rail-session",
               session.id === activeId ? "active" : "",
@@ -513,6 +519,7 @@ export function Sidebar(props: Props) {
                           })
                         : "",
                       session.cwd,
+                      placeText,
                       markerColorText(session.marker, t),
                       detail,
                       programLine(profileById.get(session.profileId), versions),
@@ -525,6 +532,7 @@ export function Sidebar(props: Props) {
                       name,
                       status,
                       props.overlaps.get(session.id),
+                      placeText,
                       markerColorText(session.marker, t),
                     ]
                       .filter(Boolean)
@@ -690,6 +698,7 @@ export function Sidebar(props: Props) {
             editing={props.renamingId === session.id}
             dragClass={rowDrag}
             moveHint={moveHint}
+            placement={props.placements.get(session.id) ?? null}
             {...props}
             onClose={onClose}
             onKill={onKill}
@@ -1203,6 +1212,8 @@ interface ItemProps extends Props {
   /** "dragging", "drop-before", "drop-after" or empty. */
   dragClass: string;
   moveHint: string;
+  /** Where the session is shown in a split layout; `null` in single view or when hidden. */
+  placement: PanePlacement | null;
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
 }
 
@@ -1219,6 +1230,7 @@ function SessionItem({
   editing,
   dragClass,
   moveHint,
+  placement,
   onRowKey,
   onDragStart,
   onActivate,
@@ -1294,6 +1306,7 @@ function SessionItem({
               : "",
             session.cwd,
             program,
+            placement !== null ? placementText(t, placement) : "",
             t("session.renameHint"),
             moveHint,
           ]
@@ -1334,6 +1347,7 @@ function SessionItem({
                   <span className="sr-only">{gateOff}</span>
                 </span>
               )}
+              {placement !== null && <LayoutGlyph placement={placement} />}
             </span>
             <span className="session-meta">
               <span className={`dot ${waiting ? "attention" : session.status}`} />

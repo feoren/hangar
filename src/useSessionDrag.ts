@@ -22,6 +22,7 @@ import {
   sameDragTarget,
   type DragTarget,
 } from "./sessionDrag";
+import { ratiosFor, type PaneRatios } from "./paneRatios";
 import { groupDropIndex } from "./sessionGroups";
 import { isLayoutId, zoneAt, type LayoutId } from "./snapLayouts";
 
@@ -63,6 +64,8 @@ export interface SessionDragView {
 
 export interface SessionDragOptions {
   layout: LayoutId;
+  /** Splitter positions per layout: drop targets follow the zones as they are drawn. */
+  ratios?: PaneRatios;
   /** Session IDs in sidebar order. */
   order: readonly number[];
   onMove: (id: number, index: number) => void;
@@ -327,7 +330,12 @@ export class SessionDrag {
     const layout = thumb?.dataset.snapLayout;
     if (thumb && isLayoutId(layout)) {
       const box = thumb.getBoundingClientRect();
-      const zone = zoneAt(layout, (x - box.left) / box.width, (y - box.top) / box.height);
+      const zone = zoneAt(
+        layout,
+        (x - box.left) / box.width,
+        (y - box.top) / box.height,
+        ratiosFor(this.options.ratios ?? {}, layout),
+      );
       return { target: zone === null ? null : { kind: "snap", layout, zone }, overBody: true };
     }
     // Between the thumbnails: on the bar, but no target.
@@ -336,6 +344,7 @@ export class SessionDrag {
       this.options.layout,
       (x - area.left) / area.width,
       (y - area.top) / area.height,
+      ratiosFor(this.options.ratios ?? {}, this.options.layout),
     );
     return { target: zone === null ? null : { kind: "pane", zone }, overBody: true };
   }

@@ -96,6 +96,7 @@ describe("parseLayout", () => {
       sideTab: "notes",
       notesWidth: NOTES_WIDTH.default,
       snapLayout: "single",
+      paneRatios: {},
     });
   });
 
@@ -125,6 +126,18 @@ describe("parseLayout", () => {
     expect(parseLayout(JSON.stringify({ snapLayout: "columns3" })).snapLayout).toBe("single");
     expect(parseLayout(JSON.stringify({ snapLayout: 2 })).snapLayout).toBe("single");
     expect(parseLayout(JSON.stringify({})).snapLayout).toBe("single");
+  });
+
+  it("remembers the pane sizes per snap layout and drops invalid ones", () => {
+    const layout = parseLayout(
+      JSON.stringify({
+        snapLayout: "pair",
+        paneRatios: { pair: [0.7], quad: [0.4, "x"], triple: [0.6, 0.5], mainStack: [0.5, 0.3] },
+      }),
+    );
+    expect(layout.paneRatios).toEqual({ pair: [0.7], mainStack: [0.5, 0.3] });
+    expect(parseLayout(JSON.stringify({ paneRatios: "wide" })).paneRatios).toEqual({});
+    expect(parseLayout(JSON.stringify({})).paneRatios).toEqual({});
   });
 
   it("migrates the split mode stored before 0.3", () => {

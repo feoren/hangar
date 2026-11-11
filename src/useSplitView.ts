@@ -5,8 +5,9 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 
 import type { Layout } from "./layout";
+import { ratiosFor, sameRatios, withoutRatios, withRatios, type PaneRatios } from "./paneRatios";
 import type { SessionView } from "./sessions";
-import type { LayoutId } from "./snapLayouts";
+import type { LayoutId, Ratios } from "./snapLayouts";
 import {
   EMPTY_SLOTS,
   placeSession,
@@ -19,6 +20,8 @@ import type { PaneSplit } from "./TerminalPane";
 
 interface Options {
   layout: LayoutId;
+  /** Splitter positions per layout, as stored with the layout. */
+  ratios: PaneRatios;
   sessions: readonly SessionView[];
   activeId: number | null;
   setLayout: Dispatch<SetStateAction<Layout>>;
@@ -29,11 +32,17 @@ interface Options {
 }
 
 /** What a pane header shows besides its position (badge, attention state, status text). */
-export type PaneLook = Omit<PaneSplit, "layout" | "slot" | "session">;
+export type PaneLook = Omit<PaneSplit, "layout" | "slot" | "ratios" | "session">;
 
 export interface SplitView {
   layout: LayoutId;
   split: SplitSlots;
+  /** Splitter positions of the current layout. */
+  ratios: Ratios;
+  /** Moves the splitters of the current layout (dragging or keyboard on a splitter). */
+  setRatios: (ratios: Ratios) => void;
+  /** Double click on a splitter: the current layout gets its preset sizes back. */
+  resetRatios: () => void;
   setSnapLayout: (layout: LayoutId) => void;
   /**
    * Shows this session in one zone of a layout and makes it active (drop from the sidebar,
@@ -50,6 +59,7 @@ export interface SplitView {
 
 export function useSplitView(options: Options): SplitView {
   const { layout, sessions, activeId, setLayout, activate, focusTerminal, onArrange } = options;
+  const ratios = ratiosFor(options.ratios, layout);
   const [slots, setSlots] = useState<SplitSlots>(EMPTY_SLOTS);
   const sessionIds = sessions.map((session) => session.id);
 
@@ -57,6 +67,21 @@ export function useSplitView(options: Options): SplitView {
   // Adjusted during render, so no frame shows a pane without its session.
   const split = reconcileSlots(slots, layout, sessionIds, activeId);
   if (split !== slots) setSlots(split);
+
+  const setRatios = (next: Ratios) => {
+    setLayout((current) => {
+      const before = ratiosFor(current.paneRatios, current.snapLayout);
+      if (sameRatios(before, next)) return current;
+      return { ...current, paneRatios: withRatios(current.paneRatios, current.snapLayout, next) };
+    });
+  };
+
+  const resetRatios = () => {
+    setLayout((current) => {
+      if (current.paneRatios[current.snapLayout] === undefined) return current;
+      return { ...current, paneRatios: withoutRatios(current.paneRatios, current.snapLayout) };
+    });
+  };
 
   const setSnapLayout = (next: LayoutId) => {
     onArrange();
@@ -98,8 +123,19 @@ export function useSplitView(options: Options): SplitView {
     if (layout === "single") return null;
     const slot = slotOf(split, session.id);
     if (slot === null) return null;
-    return { layout, slot, session, ...look() };
+    return { layout, slot, ratios, session, ...look() };
   };
 
-  return { layout, split, setSnapLayout, place, maximize, showOnly, paneSplit };
+  return {
+    layout,
+    split,
+    ratios,
+    setRatios,
+    resetRatios,
+    setSnapLayout,
+    place,
+    maximize,
+    showOnly,
+    paneSplit,
+  };
 }

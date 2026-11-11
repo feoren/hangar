@@ -475,6 +475,27 @@ h2 .beta-badge {
   min-width: 0;
 }
 
+/* Where the session sits in the split view: the layout in miniature at the end of the title line,
+   its own zone filled. It stays visible on hover, left of the row's actions. */
+.layout-glyph {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  padding-left: 4px;
+  line-height: 0;
+}
+
+.layout-glyph-own {
+  fill: var(--accent);
+}
+
+.layout-glyph-other {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
 /* Session marker: color dot and emoji before the title (sidebar, pane header, dialogs). */
 .session-marker {
   display: inline-flex;
@@ -2065,6 +2086,60 @@ body.resizing-horizontal .splitter.horizontal::after {
 .splitter.vertical:focus-visible::after {
   left: 2px;
   width: 3px;
+}
+
+/* Splitters between the panes of a snap layout (PaneSplitters.tsx). At rest the gap between the
+   framed panes already reads as the border, so the line only shows on hover, focus and drag. */
+.pane-splitter {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.pane-splitter.vertical {
+  cursor: col-resize;
+}
+
+.pane-splitter.horizontal {
+  cursor: row-resize;
+}
+
+.pane-splitter::after {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.pane-splitter.vertical::after {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+}
+
+.pane-splitter.horizontal::after {
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+}
+
+.pane-splitter:hover::after,
+.pane-splitter:focus-visible::after,
+.pane-splitter.dragging::after {
+  background: var(--accent);
+}
+
+.pane-splitter:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-splitter::after {
+    transition: none;
+  }
 }
 
 /* Sits on the sidebar's right edge and replaces its border. */

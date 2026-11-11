@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useT } from "./i18n";
+import { ratiosFor, type PaneRatios } from "./paneRatios";
 import {
   LAYOUT_IDS,
   LAYOUT_NAMES,
@@ -32,6 +33,8 @@ interface DragProps {
   /** A session is being dragged from the sidebar: the bar only shows, the pointer chooses. */
   mode: "drag";
   current: LayoutId;
+  /** Splitter positions per layout: the thumbnails show the sizes each layout will have. */
+  ratios: PaneRatios;
   /** Zone under the pointer. */
   highlight: SnapTarget | null;
 }
@@ -40,6 +43,7 @@ interface PickProps {
   /** Without a drag: a small picker that the keyboard and the mouse operate. */
   mode: "pick";
   current: LayoutId;
+  ratios: PaneRatios;
   /** Zone chosen first: where the active session is now. */
   initial: SnapTarget;
   /** Name of the session to place, for the caption. */
@@ -136,7 +140,7 @@ export function SnapBar(props: DragProps | PickProps) {
             title={pick ? undefined : t(LAYOUT_NAMES[layout])}
           >
             <div className="snap-zones" data-snap-layout={layout}>
-              {zones(layout).map((zone, index) => {
+              {zones(layout, ratiosFor(props.ratios, layout)).map((zone, index) => {
                 const target: SnapTarget = { layout, zone: index };
                 const lit = sameTarget(highlight, target);
                 const className = lit ? "snap-zone lit" : "snap-zone";
