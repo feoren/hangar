@@ -13,6 +13,8 @@
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
+  /* Hover darkens a whole session row a little, whatever its state or tint. */
+  --row-hover-shade: color-mix(in srgb, #000 16%, transparent);
   /* The middle tone of the drift, for the backdrop of the row actions. */
   --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
   --active-bar: 3px;
@@ -106,6 +108,7 @@
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
   --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
+  --row-hover-shade: color-mix(in srgb, #000 6%, transparent);
   --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
@@ -383,7 +386,9 @@ h2 .beta-badge {
   border-left: var(--row-edge) solid var(--edge);
   border-radius: 6px;
   margin-bottom: 2px;
-  transition: border-color 240ms ease;
+  transition:
+    border-color 240ms ease,
+    box-shadow 120ms ease;
 }
 
 /* Keyboard focus on a row action lights the row like the pointer does, so the actions' backdrop
@@ -391,6 +396,19 @@ h2 .beta-badge {
 .session:hover,
 .session:has(.session-actions :focus-visible) {
   background: var(--hover);
+}
+
+/* A light shade over the whole row on hover, also on the active, waiting and breathing rows whose
+   own background wins over the hover color. An inset shadow paints over the background but under
+   the text and inside the colored border. The actions' strip and its fade carry the same shade,
+   as they inherit only the background color. */
+.session:hover,
+.session:has(.session-actions :focus-visible),
+.session:hover .session-actions,
+.session:hover .session-actions::before,
+.session:has(.session-actions :focus-visible) .session-actions,
+.session:has(.session-actions :focus-visible) .session-actions::before {
+  box-shadow: inset 0 0 0 100vmax var(--row-hover-shade);
 }
 
 .session.active {
