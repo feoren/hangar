@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Sender};
@@ -236,6 +236,8 @@ pub fn message(stderr: &[u8]) -> String {
 #[derive(Debug, Clone)]
 pub struct Git {
     program: PathBuf,
+    /// Transports and lazy fetches allowed; only test setups (cloning a fixture) need them.
+    network: bool,
 }
 
 impl Git {
@@ -244,19 +246,25 @@ impl Git {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
         crate::resolve::resolve_program("git", path.as_deref(), pathext.as_deref())
-            .map(|program| Self { program })
+            .map(|program| Self {
+                program,
+                network: false,
+            })
             .ok_or(GitError::NotFound)
     }
 
-    /// Runs git in `cwd`. stdout is kept up to `limit` bytes; beyond that git is stopped and
-    /// `truncated` set. After `deadline` the process tree is killed and the call fails.
-    pub fn run<I, S>(
-        &self,
-        cwd: &Path,
-        args: I,
-        deadline: Instant,
-        limit: usize,
-    ) -> Result<Output, GitError>
+    /// The same git with transports allowed, for test fixtures that clone.
+    #[cfg(test)]
+    pub(crate) fn with_network(&self) -> Self {
+        Self {
+            program: self.program.clone(),
+            network: true,
+        }
+    }
+
+    /// The process for one call: git's environment and options as described in the module
+    /// documentation.
+    fn command<I, S>(&self, cwd: &Path, args: I, stdin: bool) -> Command
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -269,7 +277,7 @@ impl Git {
             .args(["-c", "color.ui=false"])
             .args(args)
             .current_dir(cwd)
-            .stdin(Stdio::null())
+            .stdin(if stdin { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         for (key, _) in std::env::vars_os() {
@@ -285,6 +293,15 @@ impl Git {
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_PAGER", "cat")
             .env("PAGER", "cat");
+        if !self.network {
+            // Hangar's git calls are all local. A partial clone would otherwise fetch a missing
+            // object on demand and run what the repository's own config names for that
+            // (`core.sshCommand`, `remote.<name>.uploadpack`), without the user doing anything.
+            // The protocol list names no real protocol, so no transport is allowed at all.
+            command
+                .env("GIT_NO_LAZY_FETCH", "1")
+                .env("GIT_ALLOW_PROTOCOL", "none");
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -296,7 +313,41 @@ impl Git {
             // Own process group, so ProcTree (killpg) hits exactly this tree.
             command.process_group(0);
         }
+        command
+    }
 
+    /// Runs git in `cwd`. stdout is kept up to `limit` bytes; beyond that git is stopped and
+    /// `truncated` set. After `deadline` the process tree is killed and the call fails.
+    pub fn run<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Output, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.run_with_input(cwd, args, None, deadline, limit)
+    }
+
+    /// Like [`Self::run`], with `input` written to git's stdin (for `--stdin` modes). The input
+    /// is written on a thread of its own while both outputs are read, so git never blocks on a
+    /// full pipe in either direction; stdin is closed after the last byte.
+    pub fn run_with_input<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        input: Option<Vec<u8>>,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Output, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut command = self.command(cwd, args, input.is_some());
         let mut child = command.spawn().map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 GitError::NotFound
@@ -317,6 +368,20 @@ impl Git {
                 return Err(GitError::Watch(error));
             }
         };
+
+        if let (Some(input), Some(stdin)) = (input, child.stdin.take()) {
+            // A write error means git ended or was killed; its exit and output say what happened.
+            let feeder = thread::Builder::new()
+                .name("git-write".to_owned())
+                .spawn(move || {
+                    let mut stdin = stdin;
+                    let _ = stdin.write_all(&input);
+                });
+            if let Err(error) = feeder {
+                terminate(tree.as_ref(), &mut child);
+                return Err(GitError::Spawn(error));
+            }
+        }
 
         let (tx, rx) = mpsc::channel();
         let mut pending = 0;
@@ -1053,10 +1118,114 @@ pub(crate) mod tests {
             "core.autocrlf=false",
         ];
         all.extend_from_slice(args);
+        // Fixtures may clone; the calls under test never get transports.
         let output = git
+            .with_network()
             .run(cwd, &all, Instant::now() + Duration::from_secs(30), 1 << 20)
             .unwrap();
         assert!(output.success, "git {args:?}: {}", message(&output.stderr));
+    }
+
+    #[test]
+    fn calls_get_no_transport_and_no_lazy_fetch() {
+        let git = Git {
+            program: PathBuf::from("git"),
+            network: false,
+        };
+        let command = git.command(Path::new("."), ["status"], false);
+        let envs: HashMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
+        assert_eq!(
+            envs.get(OsStr::new("GIT_NO_LAZY_FETCH")),
+            Some(&Some(OsStr::new("1")))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("GIT_ALLOW_PROTOCOL")),
+            Some(&Some(OsStr::new("none")))
+        );
+        let fixture = git
+            .with_network()
+            .command(Path::new("."), ["status"], false);
+        assert!(!fixture
+            .get_envs()
+            .any(|(key, _)| key == OsStr::new("GIT_ALLOW_PROTOCOL")));
+    }
+
+    /// A partial clone whose config names a marker as its upload program: reading a missing
+    /// object must neither fetch it nor run the marker.
+    #[test]
+    fn a_partial_clone_never_fetches_on_demand() {
+        let Some(git) = git() else { return };
+        let dir = TempDir::new("git-lazy-fetch");
+        let origin = dir.path().join("origin");
+        init_repo(&git, &origin);
+        fs::write(origin.join("a.txt"), "lazy fetch fixture\n").unwrap();
+        git_ok(&git, &origin, &["add", "a.txt"]);
+        git_ok(&git, &origin, &["commit", "-q", "-m", "fixture"]);
+        git_ok(&git, &origin, &["config", "uploadpack.allowFilter", "true"]);
+        let blob = git
+            .run(
+                &origin,
+                ["rev-parse", "HEAD:a.txt"],
+                Instant::now() + Duration::from_secs(30),
+                4096,
+            )
+            .unwrap();
+        let blob = String::from_utf8_lossy(&blob.stdout).trim().to_owned();
+        let url = format!("file:///{}", origin.to_string_lossy().replace('\\', "/"));
+        let url = url.replace("file:////", "file:///");
+        git_ok(
+            &git,
+            dir.path(),
+            &[
+                "clone",
+                "-q",
+                "--no-checkout",
+                "--filter=blob:none",
+                &url,
+                "partial",
+            ],
+        );
+        let partial = dir.path().join("partial");
+        let marker = dir.path().join("marker.txt");
+        let marker_text = marker.to_string_lossy().replace('\\', "/");
+        let upload = format!("echo hit > '{marker_text}'; git-upload-pack");
+        git_ok(
+            &git,
+            &partial,
+            &["config", "remote.origin.uploadpack", &upload],
+        );
+        git_ok(
+            &git,
+            &partial,
+            &[
+                "config",
+                "core.sshCommand",
+                &format!("echo hit > '{marker_text}'"),
+            ],
+        );
+
+        let read = git
+            .run(
+                &partial,
+                ["cat-file", "-p", blob.as_str()],
+                Instant::now() + Duration::from_secs(30),
+                4096,
+            )
+            .unwrap();
+        assert!(!read.success, "the missing blob was fetched");
+        assert!(!marker.exists(), "the repository's upload program ran");
+
+        // The fixture is sound: with transports the same read fetches and runs the marker.
+        let fetched = git
+            .with_network()
+            .run(
+                &partial,
+                ["cat-file", "-p", blob.as_str()],
+                Instant::now() + Duration::from_secs(30),
+                4096,
+            )
+            .unwrap();
+        assert!(marker.exists() || fetched.success);
     }
 
     pub(crate) fn init_repo(git: &Git, dir: &Path) {

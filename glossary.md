@@ -173,3 +173,4 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Reservierungsnotiz                              | reservation note                  | sealed title, name, area and session of a reservation, signed by the holder |
 | Reservierungsversuch                            | attempt                           | `AttemptView`; this device's reservation the relay has not granted (yet)    |
 | Reservierter Bereich                            | reserved area                     | a folder a reservation covers; teammates' agents pause there (gate)         |
+| Dateibaum (rechter Bereich)                     | file tree                         | tab `files`; `FilesPanel.tsx`, `fileTree.ts`; folders listed lazily         |

@@ -254,6 +254,7 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
+import { FilesPanel } from "./FilesPanel";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
 import {
@@ -541,6 +542,7 @@ export function App() {
   const [notesWindow, setNotesWindow] = useState<NotesWindowPrefs>(loadWindowPrefs);
   /** Changes tab of the right panel (Ctrl+Shift+D): focus on opening. */
   const [changesFocusToken, setChangesFocusToken] = useState(0);
+  const [filesFocusToken, setFilesFocusToken] = useState(0);
   /** Short confirmation after Ctrl+Shift+T: which program starts where. */
   const [startHint, setStartHint] = useState<string | null>(null);
   /** Program whose update waits for "Update anyway" because it is running. */
@@ -1063,6 +1065,7 @@ export function App() {
   // Detached: the button and menu bring the notes window to the front, they hide nothing.
   const notesShown = !notesWindow.detached && layout.sideOpen && layout.sideTab === "notes";
   const changesShown = layout.sideOpen && layout.sideTab === "changes";
+  const filesShown = layout.sideOpen && layout.sideTab === "files";
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
@@ -2500,6 +2503,16 @@ export function App() {
     setChangesFocusToken((token) => token + 1);
   };
 
+  /** The folder button on the active session row: its file tree in the right panel, or away. */
+  const toggleFiles = () => {
+    if (filesShown) {
+      closeSide();
+      return;
+    }
+    openSide("files");
+    setFilesFocusToken((token) => token + 1);
+  };
+
   /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
     if (notesWindow.detached) {
@@ -3461,6 +3474,8 @@ export function App() {
           updates={programUpdates.updates}
           notesOpen={notesShown}
           onToggleNotes={toggleNotes}
+          filesOpen={filesShown}
+          onToggleFiles={toggleFiles}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
@@ -3915,6 +3930,7 @@ export function App() {
                 onTab={(tab) => {
                   openSide(tab);
                   if (tab === "changes") setChangesFocusToken((token) => token + 1);
+                  if (tab === "files") setFilesFocusToken((token) => token + 1);
                 }}
                 mode={notesPlacement.mode}
                 width={notesPlacement.width}
@@ -3978,6 +3994,17 @@ export function App() {
                     cwd={activeSession?.cwd ?? null}
                     trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
                     focusToken={changesFocusToken}
+                  />
+                }
+                files={
+                  <FilesPanel
+                    session={
+                      activeSession ? { id: activeSession.id, cwd: activeSession.cwd } : null
+                    }
+                    claims={claims}
+                    activities={teamStore.activities}
+                    nameOf={sessionName}
+                    focusToken={filesFocusToken}
                   />
                 }
               />

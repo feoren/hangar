@@ -5290,6 +5290,182 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
+/* File tree in the right panel (FilesPanel.tsx), as in VS Code's explorer: one 22px row per entry,
+   indentation guides, the marks at the right end. Begin. */
+.file-tree {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 0 8px;
+  overflow: auto;
+  font-size: 13px;
+  list-style: none;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.tree-item:hover {
+  background: var(--hover);
+}
+
+.tree-item.selected {
+  background: var(--active-tint-strong);
+}
+
+.tree-item:focus {
+  outline: none;
+}
+
+.tree-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* One guide per level, centered under the parent's chevron. */
+.tree-indent {
+  flex: none;
+  align-self: stretch;
+  background-image: linear-gradient(to right, var(--border) 1px, transparent 1px);
+  background-repeat: repeat-x;
+  background-position: 8px 0;
+}
+
+.tree-chevron,
+.tree-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted);
+}
+
+.tree-chevron {
+  width: 16px;
+  height: 16px;
+}
+
+.tree-chevron svg {
+  transition: transform 120ms var(--ease-out);
+}
+
+.tree-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.tree-item.ignored .tree-name,
+.tree-item.ignored .tree-icon {
+  opacity: 0.55;
+}
+
+.tree-marks {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* Letter of the worktree's change; the tooltip and screen readers name it. */
+.tree-change {
+  width: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warn);
+  text-align: center;
+}
+
+.tree-change.added,
+.tree-change.untracked {
+  color: var(--diff-add-fg);
+}
+
+.tree-change.deleted,
+.tree-change.conflicted {
+  color: var(--diff-del-fg);
+}
+
+.tree-people {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tree-people .avatar + .avatar {
+  margin-left: -5px;
+}
+
+.tree-more {
+  margin-left: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.tree-also {
+  display: grid;
+  color: var(--warn);
+}
+
+/* Something marked inside a folder: a filled dot for teammates, a ring for changes. */
+.tree-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+}
+
+.tree-dot.team {
+  background: var(--accent);
+}
+
+.tree-dot.change {
+  border: 1.5px solid var(--warn);
+}
+
+.tree-hint {
+  height: 22px;
+  padding-right: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 22px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tree-hint.error-text {
+  color: var(--error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-chevron svg {
+    transition: none;
+  }
+}
+
+/* The active session row carries one more action, the folder button. */
+.session.active:hover,
+.session.active:has(.session-actions:focus-within) {
+  padding-right: calc(var(--row-actions-width) + 28px);
+}
+
+/* File tree. End. */
+
 /* Profile editor in Settings, Programs */
 
 .program-new {

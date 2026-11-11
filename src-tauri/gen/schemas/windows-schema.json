@@ -393,6 +393,12 @@
           "markdownDescription": "Enables the list_profiles command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-session-folder",
+          "markdownDescription": "Enables the list_session_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_sessions command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-sessions",
@@ -931,6 +937,12 @@
           "type": "string",
           "const": "deny-list-profiles",
           "markdownDescription": "Denies the list_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-session-folder",
+          "markdownDescription": "Denies the list_session_folder command without any pre-configured scope."
         },
         {
           "description": "Denies the list_sessions command without any pre-configured scope.",

@@ -13,6 +13,7 @@ mod commands;
 pub mod desktop;
 pub mod exe_image;
 pub mod export;
+pub mod file_tree;
 pub mod filecache;
 pub mod gate;
 pub mod gate_service;
@@ -169,6 +170,7 @@ pub fn run() -> tauri::Result<()> {
             }
             app.manage(paste_image::PasteGate::default());
             app.manage(ProbeCaches::default());
+            app.manage(file_tree::FileTree::default());
             app.manage(notify::Notifier::default());
             app.manage(subagents::Watchers::default());
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
@@ -327,6 +329,7 @@ pub fn run() -> tauri::Result<()> {
             commands::notify_session,
             commands::git_branches,
             commands::git_diff,
+            commands::list_session_folder,
             commands::create_worktree,
             commands::remove_worktree,
             commands::configure_claims,

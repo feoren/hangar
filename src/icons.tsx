@@ -398,3 +398,23 @@ export function TeamIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** A file in the file tree: a page with a folded corner. */
+export function FileIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" />
+      <path d="M9 2.5v3h3" />
+    </Svg>
+  );
+}
+
+/** A link or junction in the file tree: listed, never entered. */
+export function LinkIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.7.7" />
+      <path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.7-.7" />
+    </Svg>
+  );
+}
