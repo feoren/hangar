@@ -214,24 +214,36 @@ export function buildMarks(input: MarkInput): TreeMarks {
 }
 
 /**
- * The teammates whose sessions may touch this session's repository: those of every shared
- * project this session is shared with. The presence names files by repository, not by project,
- * so a project linking several repositories can mark a file of the same name in another one.
+ * The teammates working in this session's repository: of every shared project this session is
+ * shared with, the teammates' sessions with the same root commit, each device once. A project may
+ * link several repositories and the presence names files relative to their repository, so the
+ * sessions in the other ones stay out.
  */
 export function peersOf(
   activities: ReadonlyMap<string, TeamActivity>,
   sessionId: number,
 ): PeerView[] {
-  const peers: PeerView[] = [];
+  const peers = new Map<string, PeerView>();
   for (const activity of activities.values()) {
-    if (!activity.sessions.includes(sessionId)) continue;
+    const repo = activity.sessionRepos.find((entry) => entry.sessionId === sessionId)?.repo;
+    if (repo === undefined) continue;
     for (const peer of activity.peers) {
-      if (!peers.some((known) => known.member === peer.member && known.device === peer.device)) {
-        peers.push(peer);
+      const sessions = peer.sessions.filter((session) => session.repo === repo);
+      if (sessions.length === 0) continue;
+      const device = `${peer.member}\n${peer.device}`;
+      const known = peers.get(device);
+      if (known === undefined) {
+        peers.set(device, { ...peer, sessions });
+        continue;
+      }
+      for (const session of sessions) {
+        if (!known.sessions.some((other) => other.key === session.key)) {
+          known.sessions.push(session);
+        }
       }
     }
   }
-  return peers;
+  return [...peers.values()];
 }
 
 /** Avatars at the end of a row: each person once, at most `max`, the rest as "+N". */

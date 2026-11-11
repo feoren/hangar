@@ -74,6 +74,7 @@ const PEER = {
       agent: "Codex",
       title: "Login",
       state: "working",
+      repo: "a".repeat(40),
       files: ["src/auth.rs"],
       moreFiles: 0,
     },
@@ -141,6 +142,7 @@ const ACTIVITY = {
   attempts: [ATTEMPT],
   notices: [NOTICE],
   sessions: [3],
+  sessionRepos: [{ sessionId: 3, repo: "a".repeat(40) }],
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -309,6 +311,15 @@ describe("parseTeamSnapshot", () => {
         team({ ...ACTIVITY, peers: [{ ...PEER, sessions: [{ ...session, key: "" }] }] }),
       ),
     ).toBeNull();
+    // A teammate's session names its repository; the shared sessions name theirs.
+    expect(
+      parseTeamSnapshot(
+        team({ ...ACTIVITY, peers: [{ ...PEER, sessions: [{ ...session, repo: "" }] }] }),
+      ),
+    ).toBeNull();
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, sessionRepos: [{ sessionId: 3, repo: 5 }] })),
+    ).toBeNull();
     // A session state this Hangar does not know reads as idle.
     const future = parseTeamSnapshot(
       team({
@@ -325,6 +336,7 @@ describe("parseTeamSnapshot", () => {
     // An older backend without the list: none.
     const older = parseTeamSnapshot(team({ linked: [], peers: [], overlaps: [] }));
     expect(older?.teams[0]?.activity.divergent).toEqual([]);
+    expect(older?.teams[0]?.activity.sessionRepos).toEqual([]);
   });
 
   it("names a device that reports a different team history", () => {
@@ -534,6 +546,7 @@ describe("one request at a time", () => {
 
 describe("teammates", () => {
   const activity = (overlaps: TeammateOverlap[]): TeamActivity => ({
+    ...EMPTY_ACTIVITY,
     linked: [],
     peers: [],
     overlaps,

@@ -95,8 +95,8 @@ use crate::team::{
     TeamStatus,
 };
 use crate::team_share::{
-    self, DivergentDevice, LocalShare, OtherDetail, PeerStatus, PeerView, SessionState,
-    TeamActivity, TeammateFile, TeammateOverlap,
+    self, DivergentDevice, LocalShare, OtherDetail, PeerStatus, PeerView, SessionRepo,
+    SessionState, TeamActivity, TeammateFile, TeammateOverlap,
 };
 use crate::team_tasks::{
     self, AttemptState, AttemptView, NoticeKind, RequestView, TaskNote, TaskNotice, TaskView,
@@ -2405,6 +2405,15 @@ impl Engine {
             tasks: self.task_views(),
             attempts: self.attempt_views(),
             sessions: self.share.sessions.iter().map(|s| s.id).collect(),
+            session_repos: self
+                .share
+                .sessions
+                .iter()
+                .map(|s| SessionRepo {
+                    session_id: s.id,
+                    repo: s.repo.clone(),
+                })
+                .collect(),
             notices: self.notices.iter().cloned().collect(),
         }
     }
@@ -5116,6 +5125,18 @@ mod tests {
         assert_eq!(seen.peers[0].sessions[0].agent, "Claude Code");
         assert_eq!(seen.peers[0].sessions[0].files, ["src/auth.rs"]);
         assert_eq!(seen.peers[0].presence, "active");
+        // The window matches a teammate's session to its own by the repository's root commit.
+        assert_eq!(seen.peers[0].sessions[0].repo, "a".repeat(40));
+        assert_eq!(
+            seen.session_repos,
+            [SessionRepo {
+                session_id: 7,
+                repo: "a".repeat(40)
+            }]
+        );
+        let json = serde_json::to_value(&seen).unwrap();
+        assert_eq!(json["peers"][0]["sessions"][0]["repo"], "a".repeat(40));
+        assert_eq!(json["sessionRepos"][0]["sessionId"], 7);
 
         // The relay matched the file by its keyed hash; each side refined it to the lines.
         let overlaps = a1.engine.activity().overlaps;

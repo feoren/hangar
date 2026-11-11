@@ -21,7 +21,7 @@ import {
   type TreeAction,
   type TreeState,
 } from "./fileTree";
-import { EMPTY_ACTIVITY, type PeerView, type TeamActivity } from "./team";
+import { EMPTY_ACTIVITY, type PeerSession, type PeerView, type TeamActivity } from "./team";
 
 const dir = (name: string): FolderEntry => ({ name, kind: "dir", ignored: false });
 const file = (name: string, ignored = false): FolderEntry => ({ name, kind: "file", ignored });
@@ -34,6 +34,10 @@ function listing(entries: FolderEntry[], extra: Partial<FolderListing> = {}): Fo
 function run(actions: TreeAction[], state: TreeState = INITIAL_TREE): TreeState {
   return actions.reduce(treeReducer, state);
 }
+
+/** Root commits of two repositories one project links. */
+const SHOP = "a".repeat(40);
+const DOCS = "d".repeat(40);
 
 function peer(member: string, files: string[], extra: Partial<PeerView> = {}): PeerView {
   return {
@@ -48,6 +52,7 @@ function peer(member: string, files: string[], extra: Partial<PeerView> = {}): P
         agent: "Claude Code",
         title: "",
         state: "working",
+        repo: SHOP,
         files,
         moreFiles: 0,
       },
@@ -136,7 +141,13 @@ describe("markings", () => {
   });
 
   it("counts a person with the same agent once per file", () => {
-    const session = { agent: "Claude Code", title: "", state: "working" as const, moreFiles: 0 };
+    const session = {
+      agent: "Claude Code",
+      title: "",
+      state: "working" as const,
+      repo: SHOP,
+      moreFiles: 0,
+    };
     const twice = peer("ann", [], {
       sessions: [
         { ...session, key: "ann-1", files: ["a.txt"] },
@@ -200,13 +211,25 @@ describe("markings", () => {
   });
 
   it("takes the teammates of every project the session is shared with, each device once", () => {
-    const shared: TeamActivity = { ...EMPTY_ACTIVITY, sessions: [3], peers: [peer("ann", [])] };
+    const shop = (...ids: number[]) => ids.map((sessionId) => ({ sessionId, repo: SHOP }));
+    const shared: TeamActivity = {
+      ...EMPTY_ACTIVITY,
+      sessions: [3],
+      sessionRepos: shop(3),
+      peers: [peer("ann", [])],
+    };
     const again: TeamActivity = {
       ...EMPTY_ACTIVITY,
       sessions: [3, 4],
+      sessionRepos: shop(3, 4),
       peers: [peer("ann", []), peer("bob", [])],
     };
-    const other: TeamActivity = { ...EMPTY_ACTIVITY, sessions: [4], peers: [peer("cid", [])] };
+    const other: TeamActivity = {
+      ...EMPTY_ACTIVITY,
+      sessions: [4],
+      sessionRepos: shop(4),
+      peers: [peer("cid", [])],
+    };
     const activities = new Map([
       ["p1", shared],
       ["p2", again],
@@ -214,6 +237,54 @@ describe("markings", () => {
     ]);
     expect(peersOf(activities, 3).map((p) => p.member)).toEqual(["ann", "bob"]);
     expect(peersOf(activities, 9)).toEqual([]);
+  });
+
+  it("keeps only the teammates' sessions in the session's own repository", () => {
+    // One project links the shop and its docs: both have a README.md at the top.
+    const readme = (key: string, repo: string): PeerSession => ({
+      key,
+      agent: "Claude Code",
+      title: "",
+      state: "working",
+      repo,
+      files: ["README.md"],
+      moreFiles: 0,
+    });
+    const ann = peer("ann", [], {
+      sessions: [readme("ann-shop", SHOP), readme("ann-docs", DOCS)],
+    });
+    const bob = peer("bob", [], { sessions: [readme("bob-1", DOCS)] });
+    const project: TeamActivity = {
+      ...EMPTY_ACTIVITY,
+      sessions: [3, 4],
+      sessionRepos: [
+        { sessionId: 3, repo: SHOP },
+        { sessionId: 4, repo: DOCS },
+      ],
+      peers: [ann, bob],
+    };
+    const activities = new Map([["p", project]]);
+    const inShop = peersOf(activities, 3);
+    expect(inShop.map((p) => [p.member, p.sessions.map((s) => s.key)])).toEqual([
+      ["ann", ["ann-shop"]],
+    ]);
+    const inDocs = peersOf(activities, 4);
+    expect(inDocs.map((p) => [p.member, p.sessions.map((s) => s.key)])).toEqual([
+      ["ann", ["ann-docs"]],
+      ["bob", ["bob-1"]],
+    ]);
+    const marks = buildMarks({
+      root: "/r",
+      repoRoot: "/r",
+      peers: inShop,
+      changes: [],
+      overlaps: [],
+    });
+    expect(marks.files.get("README.md")?.editors.map((e) => e.member)).toEqual(["ann"]);
+    // A session the backend names no repository for (not shared) gets no teammates.
+    expect(peersOf(new Map([["p", { ...project, sessionRepos: [] }]]), 3)).toEqual([]);
+    // The input stays untouched.
+    expect(ann.sessions).toHaveLength(2);
   });
 });
 

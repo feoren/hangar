@@ -275,7 +275,8 @@ pub struct PeerSession {
     pub agent: String,
     pub title: String,
     pub state: SessionState,
-    #[serde(skip)]
+    /// The repository's root commit: a project may link several repositories, and the window
+    /// marks a file only beside a session of the same one ([`SessionRepo`]).
     pub repo: String,
     pub files: Vec<String>,
     pub more_files: u32,
@@ -567,6 +568,16 @@ pub struct TeamActivity {
     pub notices: Vec<crate::team_tasks::TaskNotice>,
     /// This device's sessions shared with the project: the ones a reservation can be linked to.
     pub sessions: Vec<SessionId>,
+    /// The repository of each of `sessions`, to match the teammates' sessions ([`PeerSession`]).
+    pub session_repos: Vec<SessionRepo>,
+}
+
+/// One of this device's shared sessions and the root commit of its repository.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRepo {
+    pub session_id: SessionId,
+    pub repo: String,
 }
 
 /// A file a teammate's session is changing, for the agent gate and the agent's context.

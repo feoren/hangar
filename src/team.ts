@@ -70,6 +70,8 @@ export interface PeerSession {
   agent: string;
   title: string;
   state: SessionState;
+  /** The repository's root commit: files are marked only beside a session of the same one. */
+  repo: string;
   /** Paths relative to the repository, as the teammate's git spells them. */
   files: string[];
   /** Files left out of the presence to keep it small. */
@@ -210,6 +212,14 @@ export interface TeamActivity {
   notices: TaskNotice[];
   /** This device's sessions shared with the project: the ones a reservation can be linked to. */
   sessions: number[];
+  /** The repository of each of `sessions` (Rust: `SessionRepo`). */
+  sessionRepos: SessionRepo[];
+}
+
+/** One of this device's shared sessions and the root commit of its repository. */
+export interface SessionRepo {
+  sessionId: number;
+  repo: string;
 }
 
 export const EMPTY_ACTIVITY: TeamActivity = {
@@ -221,6 +231,7 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   attempts: [],
   notices: [],
   sessions: [],
+  sessionRepos: [],
 };
 
 export interface TeamEntry {
@@ -378,12 +389,13 @@ function parsePeerSession(value: unknown): PeerSession | null {
   const agent = field(value, "agent");
   const title = field(value, "title");
   const state = SESSION_STATES.find((entry) => entry === field(value, "state"));
+  const repo = text(field(value, "repo"));
   const files = texts(field(value, "files"));
   const moreFiles = field(value, "moreFiles");
-  if (key === null || !isText(agent) || !isText(title)) return null;
+  if (key === null || !isText(agent) || !isText(title) || repo === null) return null;
   if (files === null || !isCount(moreFiles)) return null;
   // A state this Hangar does not know reads as idle rather than dropping the whole team view.
-  return { key, agent, title, state: state ?? "idle", files, moreFiles };
+  return { key, agent, title, state: state ?? "idle", repo, files, moreFiles };
 }
 
 function parsePeer(value: unknown): PeerView | null {
@@ -578,6 +590,12 @@ function optionalList<T>(value: unknown, parse: (value: unknown) => T[] | null):
   return value === undefined ? [] : parse(value);
 }
 
+function parseSessionRepo(value: unknown): SessionRepo | null {
+  const sessionId = field(value, "sessionId");
+  const repo = text(field(value, "repo"));
+  return isCount(sessionId) && repo !== null ? { sessionId, repo } : null;
+}
+
 /** The activity of a team; absent counts as empty (an older backend), malformed as `null`. */
 function parseActivity(value: unknown): TeamActivity | null {
   if (value === undefined) return EMPTY_ACTIVITY;
@@ -591,9 +609,11 @@ function parseActivity(value: unknown): TeamActivity | null {
   const sessions = optionalList(field(value, "sessions"), (v) =>
     list(v, (item) => (isCount(item) ? item : null)),
   );
+  const sessionRepos = optionalList(field(value, "sessionRepos"), (v) => list(v, parseSessionRepo));
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
-  return { linked, peers, overlaps, divergent, tasks, attempts, notices, sessions };
+  if (sessionRepos === null) return null;
+  return { linked, peers, overlaps, divergent, tasks, attempts, notices, sessions, sessionRepos };
 }
 
 function parseTeamEntry(value: unknown): TeamEntry | null {
