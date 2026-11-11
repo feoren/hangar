@@ -2,7 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useT } from "./i18n";
 import { MenuIcon } from "./icons";
-import { firstIndex, menuCommand, type NavEntry } from "./menuNav";
+import {
+  firstIndex,
+  INITIAL_SUBMENU,
+  menuCommand,
+  pointerMoved,
+  submenuAfterFocus,
+  type NavEntry,
+  type PointerPoint,
+} from "./menuNav";
 
 export type MenuItem =
   | {
@@ -43,9 +51,10 @@ function navEntries(items: readonly MenuItem[]): NavEntry[] {
 
 /**
  * Menu behind the three-line icon: File, Edit, View, Help with submenus. Operated following
- * the WAI-ARIA menu pattern: on open the first entry has focus, Up and Down arrows move, Right
- * opens a submenu, Left closes it, Home and End jump, a first letter jumps to the matching
- * entry, Escape closes one level, Tab the whole menu.
+ * the WAI-ARIA menu pattern: on open the first entry has focus (no submenu opens by itself), Up
+ * and Down arrows move, Right or Enter opens a submenu, Left closes it, Home and End jump, a
+ * first letter jumps to the matching entry, Escape closes one level, Tab the whole menu. With the
+ * mouse, a submenu opens on click or once the pointer moves onto its entry.
  */
 export function AppMenu({ groups, onClose }: Props) {
   const [open, setOpen] = useState(false);
@@ -139,10 +148,11 @@ function MenuPanel({
 }) {
   const entries = navEntries(items);
   const [current, setCurrent] = useState(() => firstIndex(entries));
-  // At the top level the first submenu is visible right away (preview without focus), as with the mouse before.
-  const [openIndex, setOpenIndex] = useState<number | null>(root ? firstIndex(entries) : null);
+  const [openIndex, setOpenIndex] = useState<number | null>(INITIAL_SUBMENU);
   const [childFocus, setChildFocus] = useState(false);
   const buttons = useRef(new Map<number, HTMLButtonElement>());
+  /** Last pointer position over this level, to tell real movement from a resting pointer. */
+  const lastPointer = useRef<PointerPoint | null>(null);
 
   useLayoutEffect(() => {
     if (autoFocus) buttons.current.get(current)?.focus();
@@ -153,14 +163,34 @@ function MenuPanel({
   const focusAt = (index: number) => {
     setCurrent(index);
     buttons.current.get(index)?.focus();
-    const item = items[index];
-    // At the top level the preview follows focus; below it, only Right arrow or Enter opens.
-    if (root) {
+    // Arrows only move; Right arrow or Enter opens a submenu.
+    const next = submenuAfterFocus(openIndex, index);
+    if (next !== openIndex) {
       setChildFocus(false);
-      setOpenIndex(item?.type === "submenu" && item.disabled !== true ? index : null);
-    } else if (openIndex !== index) {
-      setOpenIndex(null);
+      setOpenIndex(next);
     }
+  };
+
+  /** Pointer moved over an entry: it takes focus, a submenu entry opens its submenu. */
+  const hover = (event: React.PointerEvent<HTMLLIElement>, index: number) => {
+    // Moves inside an open submenu bubble up through this entry; that level handles them.
+    if (
+      event.target instanceof Element &&
+      event.target.closest(".menu-entry") !== event.currentTarget
+    ) {
+      return;
+    }
+    const point = { x: event.clientX, y: event.clientY };
+    const moved = pointerMoved(lastPointer.current, point);
+    lastPointer.current = point;
+    const item = items[index];
+    if (!moved || item === undefined || item.type === "separator" || item.disabled === true) return;
+    const wanted = item.type === "submenu" ? index : null;
+    if (index === current && openIndex === wanted) return;
+    setCurrent(index);
+    buttons.current.get(index)?.focus();
+    setChildFocus(false);
+    setOpenIndex(wanted);
   };
 
   const openSubmenu = (index: number, focusChild: boolean) => {
@@ -221,12 +251,8 @@ function MenuPanel({
             key={item.label}
             className="menu-entry"
             role="none"
-            onPointerEnter={() => {
-              if (item.disabled === true) return;
-              setCurrent(index);
-              buttons.current.get(index)?.focus();
-              setChildFocus(false);
-              setOpenIndex(item.type === "submenu" ? index : null);
+            onPointerMove={(event) => {
+              hover(event, index);
             }}
           >
             <button
@@ -272,7 +298,7 @@ function MenuPanel({
                 autoFocus={childFocus}
                 onDone={onDone}
                 onBack={() => {
-                  setOpenIndex(root ? index : null);
+                  setOpenIndex(null);
                   setChildFocus(false);
                   buttons.current.get(index)?.focus();
                 }}

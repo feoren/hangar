@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   firstIndex,
   fitInViewport,
+  INITIAL_SUBMENU,
   lastIndex,
   menuCommand,
+  pointerMoved,
   secondaryCommand,
   stepIndex,
+  submenuAfterFocus,
   typeaheadIndex,
   type NavEntry,
 } from "./menuNav";
@@ -136,5 +139,27 @@ describe("secondaryCommand", () => {
   it("leaves rows without a second button alone", () => {
     expect(secondaryCommand({ key: "ArrowRight" }, false, false)).toBeNull();
     expect(secondaryCommand({ key: "ArrowDown" }, true, true)).toBeNull();
+  });
+});
+
+describe("submenus open only on purpose", () => {
+  it("opens the menu with every submenu closed", () => {
+    expect(INITIAL_SUBMENU).toBeNull();
+  });
+
+  it("closes an open submenu when the keyboard moves on, without opening the next one", () => {
+    expect(submenuAfterFocus(null, 1)).toBeNull();
+    expect(submenuAfterFocus(0, 1)).toBeNull();
+    expect(submenuAfterFocus(1, 1)).toBe(1);
+  });
+
+  it("ignores a pointer that rests where the menu appeared", () => {
+    expect(pointerMoved(null, { x: 10, y: 20 })).toBe(false);
+    expect(pointerMoved({ x: 10, y: 20 }, { x: 10, y: 20 })).toBe(false);
+  });
+
+  it("counts real movement as hover", () => {
+    expect(pointerMoved({ x: 10, y: 20 }, { x: 11, y: 20 })).toBe(true);
+    expect(pointerMoved({ x: 10, y: 20 }, { x: 10, y: 18 })).toBe(true);
   });
 });

@@ -117,6 +117,34 @@ export function menuCommand(
   }
 }
 
+/**
+ * Submenu open when a menu appears: none. Opening the menu is not a request for a submenu; only
+ * a click, Right arrow, Enter or Space, or a pointer moved onto an entry opens one.
+ */
+export const INITIAL_SUBMENU: number | null = null;
+
+/**
+ * Submenu after the keyboard moved focus to `index`: one already open there stays, any other
+ * closes. Arrow keys never open a submenu by themselves.
+ */
+export function submenuAfterFocus(openIndex: number | null, index: number): number | null {
+  return openIndex === index ? index : null;
+}
+
+export interface PointerPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Whether the pointer really moved since the last event (`last`; `null`: none seen yet in this
+ * menu). A pointer resting where the menu appeared, or a move the browser sends after layout
+ * without any movement, is no hover.
+ */
+export function pointerMoved(last: PointerPoint | null, next: PointerPoint): boolean {
+  return last !== null && (last.x !== next.x || last.y !== next.y);
+}
+
 /** Move a menu at a point so that it lies entirely within the window (distance `margin`). */
 export function fitInViewport(
   point: { x: number; y: number },

@@ -30,6 +30,20 @@
         "ru": "Боковая панель теперь плавно сворачивается и разворачивается, а строка с твоим именем всегда остаётся внизу.",
         "tr": "Kenar çubuğu artık yumuşakça açılıp kapanır ve adının olduğu satır hep en altta kalır.",
         "zh": "侧边栏现在可以平滑地折叠和展开，带有你名字的那一行始终固定在最底部。"
+      },
+      {
+        "de": "Das Menü oben links öffnet sich, ohne gleich ein Untermenü aufzuklappen.",
+        "en": "The menu at the top left opens without unfolding a submenu right away.",
+        "el": "Το μενού πάνω αριστερά ανοίγει χωρίς να αναπτύσσει αμέσως ένα υπομενού.",
+        "es": "El menú de arriba a la izquierda se abre sin desplegar enseguida un submenú.",
+        "fr": "Le menu en haut à gauche s’ouvre sans déplier aussitôt un sous-menu.",
+        "it": "Il menu in alto a sinistra si apre senza aprire subito un sottomenu.",
+        "ja": "左上のメニューを開いても、サブメニューがすぐに展開されなくなりました。",
+        "pl": "Menu w lewym górnym rogu otwiera się bez od razu rozwiniętego podmenu.",
+        "pt": "O menu no canto superior esquerdo abre sem expandir logo um submenu.",
+        "ru": "Меню в левом верхнем углу открывается, не раскрывая сразу подменю.",
+        "tr": "Sol üstteki menü, hemen bir alt menü açmadan açılır.",
+        "zh": "左上角的菜单打开时不再立即展开子菜单。"
       }
     ]
   },
