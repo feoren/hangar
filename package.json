@@ -1,7 +1,7 @@
 {
   "name": "hangar",
   "private": true,
-  "version": "0.4.0+192",
+  "version": "0.5.0",
   "buildNumberBase": 84,
   "type": "module",
   "scripts": {
