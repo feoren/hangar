@@ -116,6 +116,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Schlüsselbund (des Betriebssystems)             | keychain                          | `secrets.rs`; Credential Manager on Windows                                 |
 | Geheime Variable                                | secret variable                   | `secret_env`; only the name is in the file                                  |
 | Infobereich, Tray-Symbol                        | notification area, tray icon      | `tray.rs`                                                                   |
+| Einzelinstanz (nur ein Hangar je Benutzer)      | single instance                   | `single_instance.rs`; release builds only, debug builds exempt              |
 | WSL-Distribution                                | WSL distribution                  | `wsl.rs`                                                                    |
 | Geteilte Ansicht                                | split view                        | `split.ts`; one, two side by side or four in a grid                         |
 | Fokussierter Bereich                            | focused pane                      | the pane with the active session                                            |

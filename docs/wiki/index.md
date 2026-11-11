@@ -15,6 +15,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Components
 - [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage; the self-hosted relay's differing account API (sources: 1, updated: 2026-11-09)
+- [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-11)
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 
 ## Platforms
@@ -29,6 +30,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+- [[single-instance-lock-measurement]]: measurement: tauri-plugin-single-instance 2.5.5 lock tests on Windows 11: second start forwarded while held, lock held during `RunEvent::Exit`, released by `cleanup_before_exit` (updated: 2026-11-11)
 - [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)
 - [[claude-http-hook-measurement]]: measurement: Claude Code 2.1.319 http hooks via `--settings`: request shape, deny reaches the model, timeout and connection failure fail open, SessionStart takes no http hooks, UserPromptSubmit context works (updated: 2026-11-09)
 - [[relay-interop-measurement]]: measurement: the app against a self-hosted relay; live protocol compatible (hello, renewals, presence, claims, rotation to epoch 2, 4403, 4404), its account API differs in paths, bodies, client id, tickets and errors (sources: 0, updated: 2026-11-09)

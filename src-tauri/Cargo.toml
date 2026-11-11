@@ -46,6 +46,13 @@ portable-pty = "0.9"
 # Signed updates and restart after the update (official Tauri plugins, MIT/Apache-2.0).
 tauri-plugin-updater = "2.14"
 tauri-plugin-process = "2.4"
+# One Hangar per user session in release builds (single_instance.rs): a second start hands its
+# arguments to the running app, which brings its window to the front. Official Tauri plugin
+# (MIT/Apache-2.0, maintained in plugins-workspace). The alternative, a named mutex plus a hidden
+# message window on Windows, a D-Bus name on Linux and a socket on macOS, is the same code the
+# plugin already maintains per platform. Adds only the plugin itself: tracing, windows-sys 0.61,
+# zbus (Linux, through keyring) and tokio are already in the tree.
+tauri-plugin-single-instance = "2.5"
 # PNG encoding of program icons. Already part of the build through tauri (muda, ico), so it adds
 # no extra code; MIT/Apache-2.0, maintained by image-rs.
 png = "0.18"

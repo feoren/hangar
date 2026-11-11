@@ -389,3 +389,10 @@ quadratic time; glued `docker login -pX` and `curl -uX`, raw `Authorization:` ke
 spaces, escaped quotes and shell quoting are covered; FIFOs open without blocking. Known limits
 (lookalike names, intermediate links, hard links) are documented. Pages changed:
 [[agent-workflow-features]].
+
+## [2026-11-11] query | One Hangar per user session
+Read tauri-plugin-single-instance 2.5.5 (Windows, Linux, macOS implementations), the restart and
+`cleanup_before_exit` order of tauri 2.12.5 and the Windows install path of tauri-plugin-updater
+2.14.1 from the Cargo registry. Release builds register the plugin first; debug builds are exempt.
+Measured the plugin's own lock tests on Windows 11 (3 passed). Pages changed: [[single-instance]] (new),
+[[single-instance-lock-measurement]] (new).

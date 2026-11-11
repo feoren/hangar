@@ -34,6 +34,7 @@ pub mod project_notes;
 pub mod resolve;
 pub mod secrets;
 pub mod session;
+pub mod single_instance;
 pub mod subagents;
 pub mod team;
 pub mod team_engine;
@@ -64,7 +65,13 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() -> tauri::Result<()> {
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // First of all plugins, so a second start exits before anything else runs; debug builds are
+    // exempt (see `single_instance::ENFORCED`).
+    if single_instance::ENFORCED {
+        builder = builder.plugin(single_instance::plugin());
+    }
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

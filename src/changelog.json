@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Hangar läuft nur noch einmal: Startest du es erneut, holt es das offene Fenster nach vorn, auch aus dem Infobereich.",
+        "en": "Hangar now runs only once: starting it again brings the open window to the front, even from the notification area.",
+        "el": "Το Hangar τρέχει πλέον μόνο μία φορά: αν το ξεκινήσεις ξανά, φέρνει μπροστά το ανοιχτό παράθυρο, ακόμη και από την περιοχή ειδοποιήσεων.",
+        "es": "Hangar ya solo se abre una vez: si lo inicias de nuevo, trae al frente la ventana abierta, incluso desde el área de notificación.",
+        "fr": "Hangar ne s’ouvre plus qu’une fois : le relancer ramène la fenêtre ouverte au premier plan, même depuis la zone de notification.",
+        "it": "Hangar si apre ora una sola volta: avviarlo di nuovo porta in primo piano la finestra aperta, anche dall’area di notifica.",
+        "ja": "Hangar は 1 つだけ起動するようになりました。もう一度起動すると、通知領域にある場合も含めて、開いているウィンドウが前面に出ます。",
+        "pl": "Hangar działa teraz tylko raz: ponowne uruchomienie wysuwa otwarte okno na wierzch, także z obszaru powiadomień.",
+        "pt": "O Hangar agora abre só uma vez: iniciá-lo de novo traz a janela aberta para a frente, mesmo da área de notificação.",
+        "ru": "Hangar теперь запускается только один раз: повторный запуск выводит открытое окно на передний план, даже из области уведомлений.",
+        "tr": "Hangar artık yalnızca bir kez çalışır: yeniden başlattığında açık pencere öne gelir, bildirim alanında olsa bile.",
+        "zh": "Hangar 现在只运行一个实例：再次启动会把已打开的窗口带到前台，即使它在通知区域中。"
+      },
+      {
         "de": "Ruhigere Seitenleiste: Worktree-Sessions in eigener Gruppe, Farbmodus und Notizen im Menü an deinem Namen, ein runder Knopf am Rand klappt sie ein.",
         "en": "A calmer sidebar: worktree sessions get their own group, color mode and notes sit in the menu on your name, and a round button on the edge collapses it.",
         "el": "Πιο ήρεμη πλευρική στήλη: οι συνεδρίες worktree έχουν δική τους ομάδα, χρώματα και σημειώσεις στο μενού του ονόματός σου, ένα στρογγυλό κουμπί τη συμπτύσσει.",
