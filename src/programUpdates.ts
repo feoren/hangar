@@ -203,6 +203,20 @@ export function reasonText(reason: UpdateReason | null, t: Translate): string {
   }
 }
 
+/**
+ * The short notes that go with an offer (why it cannot run, administrator rights, other copies),
+ * in the order the full offer shows them. The compact sidebar offer puts them in its tooltip.
+ */
+export function updateNotes(update: ProgramUpdate, t: Translate): string[] {
+  const notes: string[] = [];
+  if (update.plan !== "run") notes.push(reasonText(update.reason, t));
+  if (update.plan === "run" && update.needsAdmin) notes.push(t("update.needsAdmin"));
+  if (update.warnings.includes("second-copy") && update.copies.length > 1) {
+    notes.push(t("update.copiesFound", { count: update.copies.length }));
+  }
+  return notes;
+}
+
 // --- Outcome of an update session ---
 
 export type OutcomeReason = "running" | "failed" | "shadowed" | "unchanged";

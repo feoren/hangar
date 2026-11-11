@@ -11,6 +11,8 @@ import {
   reasonText,
   runnableUpdate,
   UPDATE_REASONS,
+  updateNotes,
+  type ProgramUpdate,
 } from "./programUpdates";
 
 const codex = {
@@ -129,6 +131,53 @@ describe("reasonText", () => {
     for (const reason of UPDATE_REASONS) {
       expect(reasonText(reason, t)).not.toBe(reasonText(null, t));
     }
+  });
+});
+
+describe("updateNotes", () => {
+  const base: ProgramUpdate = {
+    installed: "7.6.9",
+    latest: "7.7.0",
+    updateAvailable: true,
+    plan: "run",
+    reason: null,
+    needsAdmin: false,
+    command: "winget upgrade Microsoft.PowerShell",
+    warnings: [],
+    copies: [],
+    planId: "plan",
+    checkedAt: 0,
+  };
+
+  it("has no notes for a plain update", () => {
+    expect(updateNotes(base, t)).toEqual([]);
+  });
+
+  it("names administrator rights and other copies of a runnable update", () => {
+    const update: ProgramUpdate = {
+      ...base,
+      needsAdmin: true,
+      warnings: ["second-copy"],
+      copies: ["C:\\a\\pwsh.exe", "C:\\b\\pwsh.exe"],
+    };
+    expect(updateNotes(update, t)).toEqual([
+      t("update.needsAdmin"),
+      t("update.copiesFound", { count: 2 }),
+    ]);
+  });
+
+  it("gives the reason when the update cannot run", () => {
+    const update: ProgramUpdate = { ...base, plan: "copy", reason: "no-package", needsAdmin: true };
+    expect(updateNotes(update, t)).toEqual([reasonText("no-package", t)]);
+  });
+
+  it("does not count a single copy as several", () => {
+    const update: ProgramUpdate = {
+      ...base,
+      warnings: ["second-copy"],
+      copies: ["C:\\a\\pwsh.exe"],
+    };
+    expect(updateNotes(update, t)).toEqual([]);
   });
 });
 

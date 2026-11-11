@@ -350,6 +350,7 @@ export function ProgramsSettings(props: Props) {
                     {programUpdate?.updateAvailable && (
                       <ProgramUpdateOffer
                         className="in-settings"
+                        details
                         name={profile.name}
                         update={programUpdate}
                         updating={props.updateActions.updating.has(profile.id)}

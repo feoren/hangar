@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { useT } from "./i18n";
 import { CheckIcon, CopyIcon } from "./icons";
-import { reasonText, type ProgramUpdate } from "./programUpdates";
+import { reasonText, updateNotes, type ProgramUpdate } from "./programUpdates";
 
 interface Props {
   /** Display name of the program. */
@@ -18,12 +18,18 @@ interface Props {
   onConfirm: () => void;
   onCancel: () => void;
   className?: string;
+  /**
+   * Show the notes (reason, administrator rights, other copies) as text below the line. Without
+   * it the offer stays compact (sidebar): versions and button only, the notes in the tooltip.
+   */
+  details?: boolean;
 }
 
 /**
  * A program's new version below its row (sidebar, Settings): one click updates when Hangar can
  * run the update, otherwise the command to copy or only the version with the reason. Notes on
- * administrator rights and on other copies stay short; the copies list opens on demand.
+ * administrator rights and on other copies stay short; the copies list opens on demand. The
+ * compact form (no `details`) shows only the versions and the button.
  */
 export function ProgramUpdateOffer(props: Props) {
   const { update, name } = props;
@@ -49,7 +55,9 @@ export function ProgramUpdateOffer(props: Props) {
   if (!update.updateAvailable || update.latest === null) return null;
   const latest = update.latest;
   const command = update.command;
-  const copies = update.warnings.includes("second-copy") && update.copies.length > 1;
+  const details = props.details === true;
+  const copies = details && update.warnings.includes("second-copy") && update.copies.length > 1;
+  const notes = details ? [] : updateNotes(update, t);
 
   const copy = () => {
     if (command === null) return;
@@ -66,7 +74,10 @@ export function ProgramUpdateOffer(props: Props) {
   return (
     <div className={props.className ? `update-offer ${props.className}` : "update-offer"}>
       <div className="update-offer-line">
-        <span className="update-offer-versions">
+        <span
+          className="update-offer-versions"
+          title={notes.length > 0 ? notes.join("\n") : undefined}
+        >
           {update.plan === "run" ? (
             <>
               <span aria-hidden="true">
@@ -77,6 +88,7 @@ export function ProgramUpdateOffer(props: Props) {
           ) : (
             t("update.newVersion", { version: latest })
           )}
+          {notes.length > 0 && <span className="sr-only">{notes.join(" ")}</span>}
         </span>
         {update.plan === "run" && (
           <button
@@ -108,8 +120,10 @@ export function ProgramUpdateOffer(props: Props) {
           </button>
         )}
       </div>
-      {update.plan !== "run" && <p className="update-offer-note">{reasonText(update.reason, t)}</p>}
-      {update.plan === "run" && update.needsAdmin && (
+      {details && update.plan !== "run" && (
+        <p className="update-offer-note">{reasonText(update.reason, t)}</p>
+      )}
+      {details && update.plan === "run" && update.needsAdmin && (
         <p className="update-offer-note">{t("update.needsAdmin")}</p>
       )}
       {copies && (
