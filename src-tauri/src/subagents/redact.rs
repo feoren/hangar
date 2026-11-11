@@ -862,9 +862,16 @@ mod tests {
     /// thread, and a quadratic case froze it for over a minute.
     #[test]
     fn long_repetitive_lines_stay_fast() {
-        // A bound that holds in a debug build on a slow machine; quadratic took seconds already
-        // at an eighth of this size.
-        let limit = std::time::Duration::from_secs(1);
+        // A wall clock bound alone failed on slow CI runners in debug builds, so the test compares
+        // growth instead: eight times the input may take at most about eight times as long
+        // (24x leaves room for noise; quadratic growth would be 64x). The absolute bound only
+        // catches a pass that is far too slow everywhere.
+        let limit = std::time::Duration::from_secs(10);
+        let time = |text: &str| {
+            let started = std::time::Instant::now();
+            let _ = redact(&strip_controls(text));
+            started.elapsed()
+        };
         for unit in [
             "key:",
             "auth:",
@@ -879,11 +886,15 @@ mod tests {
             "\"",
             "\u{1b}[",
         ] {
-            let text = unit.repeat(1_000_000 / unit.len());
-            let started = std::time::Instant::now();
-            let _ = redact(&strip_controls(&text));
-            let took = started.elapsed();
-            assert!(took < limit, "{unit:?} took {took:?}");
+            let small = time(&unit.repeat(125_000 / unit.len()));
+            let large = time(&unit.repeat(1_000_000 / unit.len()));
+            assert!(large < limit, "{unit:?} took {large:?}");
+            // Below a few milliseconds timer noise dominates the ratio.
+            let floor = std::time::Duration::from_millis(5);
+            assert!(
+                large <= small.max(floor) * 24,
+                "{unit:?} grew from {small:?} to {large:?} for eight times the input"
+            );
         }
     }
 
