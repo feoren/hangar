@@ -4,11 +4,13 @@
 
 <h1 align="center">Hangar</h1>
 
-<p align="center"><strong>One window for all your terminal sessions and AI coding agents.</strong></p>
+<p align="center"><strong>Run AI coding agents as a team.</strong></p>
 
 <p align="center">
   <a href="https://hangar.feoren.com">Website</a> ·
   <a href="https://github.com/feoren/hangar/releases/latest">Download</a> ·
+  <a href="#getting-started">Getting started</a> ·
+  <a href="#teams-and-privacy">Teams and privacy</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -18,14 +20,17 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-AI coding agents are fast, but running several of them means a pile of terminal windows, questions
-you notice too late and agents that overwrite each other's work. **Hangar is the control room for
-that.** It runs Claude Code, Codex CLI, Gemini CLI, Aider and any other command-line tool in one
-native desktop app, shows you at a glance which agent is working and which one needs you, and keeps
-them out of each other's way.
+AI coding agents are fast. Put a whole team of people behind them and the hard part is no longer
+writing code, it is knowing who changes what: two agents rewrite the same file, a task gets done
+twice, a question waits unseen in some terminal. **Hangar is the shared control room for that.**
+
+Every teammate runs Claude Code, Codex CLI, Gemini CLI, Aider or any other command-line tool in
+Hangar on their own machine. Hangar shows the whole team, live, which agent works on which task and
+which files it changes, lets people reserve tasks, and warns before two agents collide. Everything
+shared with the team is end-to-end encrypted, and Hangar works just as well for a single person.
 
 Hangar brings no model and makes no API calls of its own: it runs the tools you already use, with
-your own accounts, on your own machine. Open source under the MIT license.
+your own accounts, on your own machine. The desktop app is open source under the MIT license.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
@@ -134,26 +139,101 @@ your own accounts, on your own machine. Open source under the MIT license.
   </tr>
 </table>
 
-## Install
+## Getting started
 
-Download **`Hangar-Setup.exe`** from the [latest release](https://github.com/feoren/hangar/releases/latest)
-and run it; no administrator rights needed. Hangar then updates itself, and every update is signed.
+1. **Install.** Download **`Hangar-Setup.exe`** from the
+   [latest release](https://github.com/feoren/hangar/releases/latest) and run it. It installs for
+   your user only, without administrator rights.
+2. **Start an agent.** Pick a project folder under _New session_ and click an agent. Hangar lists
+   every agent it finds on your machine, with its version; Shift+click (or _+ Worktree_) starts it
+   in its own worktree.
+3. **Bring in your team** (optional). Click _Sign in_ at the bottom of the sidebar, confirm the code
+   in your browser, then _Connect_ the project. Teammates who join the same project see each other
+   in the Team window.
 
-Windows 10 1809+ and 11 (x64) are supported today; macOS and Linux are planned.
+Ctrl+Shift+P opens quick access, Ctrl+Shift+N a quick note and Ctrl+, the settings.
+
+## Teams and privacy
+
+Your code never leaves Git: Hangar shares what the agents are doing, not what they write.
+
+| Your team sees                                            | Your team never sees                        |
+| --------------------------------------------------------- | ------------------------------------------- |
+| Your display name                                         | File contents and diffs                     |
+| For sessions in folders you share: agent, title and state | Your e-mail address                         |
+| The files those sessions change, with line numbers        | Your keys, tokens and environment variables |
+| The tasks you reserve                                     | Anything from folders you do not share      |
+
+- **End-to-end encrypted.** Everything shared with the team is encrypted on your device. The team
+  server stores and forwards it but cannot read it.
+- **Devices are confirmed.** A new device joins only after a teammate (or your own other device)
+  compares a safety number and confirms it.
+- **You choose what is shared.** Sharing is switched on per project and per folder, and Hangar works
+  fully without an account.
+- **Your own server.** Teams that run their own Hangar server enter its address in
+  _Settings > Account_.
+- **Shared notes stay in the repository**, encrypted per file, so the team server is not involved
+  at all.
+
+## Requirements
+
+|                  |                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). macOS and Linux are planned.                                                               |
+| Agents           | Install the agent CLIs you want to use (Claude Code, Codex CLI, Gemini CLI, Aider, ...) with your own accounts. Hangar finds them on your `PATH`. |
+| Git              | Needed for worktrees, change tracking and shared notes.                                                                                           |
+| Team features    | A Hangar account, created in the browser when you sign in.                                                                                        |
+
+## FAQ
+
+**Does Hangar need its own API key or send my code to a model?**
+No. Hangar has no model of its own. Each agent uses its own account and talks to its own provider,
+exactly as it does in any other terminal.
+
+**What does it cost?**
+The desktop app is free and open source under the MIT license. For team plans, see the
+[website](https://hangar.feoren.com).
+
+**Why does Windows show a SmartScreen warning when I install?**
+The installer is not yet signed with a code signing certificate, so Windows does not know it. Choose
+_More info_ and _Run anyway_. Updates inside Hangar are always signed and verified.
+
+**Can I use Hangar alone?**
+Yes. Every feature except the Team window works without an account.
+
+**Where are my settings and notes?**
+In your user profile (`%APPDATA%` and `%LOCALAPPDATA%`), except shared notes, which live encrypted
+in the project's `.hangar/notes` folder.
 
 ## Build from source
 
-Requires [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 22+, [pnpm](https://pnpm.io) and
-the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).
+You need [Git](https://git-scm.com), [Rust](https://rustup.rs) (stable),
+[Node.js](https://nodejs.org) 22 or later, [pnpm](https://pnpm.io) and the
+[Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for Windows (Microsoft C++ Build
+Tools and WebView2, which Windows 11 already includes).
 
 ```sh
+git clone https://github.com/feoren/hangar.git
+cd hangar
 pnpm install
+
+# Run in development mode with hot reload
 pnpm tauri dev
+
+# Build your own installer
+pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
-The check suite and the guidelines are in [CONTRIBUTING.md](CONTRIBUTING.md), design decisions in
-[`docs/wiki`](docs/wiki/index.md). Security issues: see [SECURITY.md](SECURITY.md).
+The installer lands in `src-tauri/target/release/bundle/nsis/`. A build of your own is not signed
+with the project's update key, so it does not receive automatic updates; install official releases
+to get them. Development builds can run next to an installed Hangar.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the
+check suite and the guidelines, [`docs/wiki`](docs/wiki/index.md) records how things work and why.
+Please report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+The desktop app is licensed under the [MIT License](LICENSE).
