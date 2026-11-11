@@ -188,7 +188,7 @@ const de = {
   "error.unknown": "Unbekannter Fehler",
 
   "about.body":
-    "Führe KI-Coding-Agenten als Team aus: Sieh live, welcher Agent bei wem im Team läuft und welche Dateien er ändert, reserviere Aufgaben, lass dich warnen, bevor Agenten kollidieren, und teile verschlüsselte Notizen. Claude Code, Codex CLI, Gemini CLI, Aider und jedes Terminal in einer Desktop-App.",
+    "Hangar ist die Desktop-App für Teams, die mit KI-Coding-Agenten arbeiten. Sie zeigt live, welcher Agent bei wem im Team läuft und welche Dateien er ändert, verwaltet Reservierungen für Aufgaben, warnt vor Kollisionen zwischen Agenten und teilt Notizen verschlüsselt. Claude Code, Codex CLI, Gemini CLI, Aider und beliebige Terminals laufen nebeneinander in einem Fenster.",
   "about.profiles": "Eigene Programme: {path}",
   "about.profilesFallback":
     "Eigene Programme stehen in der Datei profiles.toml im Konfigurationsordner.",
@@ -1197,7 +1197,7 @@ const en: Record<MessageKey, string> = {
   "error.unknown": "Unknown error",
 
   "about.body":
-    "Run AI coding agents as a team: see live which agent each teammate runs and which files it changes, reserve tasks, get warned before agents collide and share encrypted notes. Claude Code, Codex CLI, Gemini CLI, Aider and any terminal in one desktop app.",
+    "Hangar is the desktop app for teams working with AI coding agents. It shows live which agent each teammate runs and which files it changes, manages task reservations, warns before agents collide and shares encrypted notes. Claude Code, Codex CLI, Gemini CLI, Aider and any terminal run side by side in one window.",
   "about.profiles": "Custom programs: {path}",
   "about.profilesFallback": "Custom programs live in profiles.toml in the configuration folder.",
 
@@ -2181,7 +2181,7 @@ const el: Record<MessageKey, string> = {
   "error.unknown": "Άγνωστο σφάλμα",
 
   "about.body":
-    "Τρέξε πράκτορες προγραμματισμού AI ως ομάδα: δες ζωντανά ποιον πράκτορα τρέχει κάθε μέλος της ομάδας και ποια αρχεία αλλάζει, κράτησε εργασίες, λάβε προειδοποίηση πριν συγκρουστούν πράκτορες και μοιράσου κρυπτογραφημένες σημειώσεις. Claude Code, Codex CLI, Gemini CLI, Aider και κάθε τερματικό σε μία εφαρμογή υπολογιστή.",
+    "Το Hangar είναι η εφαρμογή υπολογιστή για ομάδες που δουλεύουν με πράκτορες προγραμματισμού AI. Δείχνει ζωντανά ποιον πράκτορα τρέχει κάθε μέλος της ομάδας και ποια αρχεία αλλάζει, διαχειρίζεται κρατήσεις εργασιών, προειδοποιεί πριν συγκρουστούν πράκτορες και μοιράζεται κρυπτογραφημένες σημειώσεις. Τα Claude Code, Codex CLI, Gemini CLI, Aider και κάθε τερματικό τρέχουν δίπλα δίπλα σε ένα παράθυρο.",
   "about.profiles": "Δικά σου προγράμματα: {path}",
   "about.profilesFallback":
     "Τα δικά σου προγράμματα βρίσκονται στο αρχείο profiles.toml στον φάκελο ρυθμίσεων.",
@@ -3197,7 +3197,7 @@ const es: Record<MessageKey, string> = {
   "error.unknown": "Error desconocido",
 
   "about.body":
-    "Ejecuta agentes de programación con IA en equipo: ve en directo qué agente usa cada compañero y qué archivos cambia, reserva tareas, recibe un aviso antes de que los agentes choquen y comparte notas cifradas. Claude Code, Codex CLI, Gemini CLI, Aider y cualquier terminal en una sola app de escritorio.",
+    "Hangar es la aplicación de escritorio para equipos que trabajan con agentes de programación con IA. Muestra en directo qué agente usa cada miembro del equipo y qué archivos cambia, gestiona reservas de tareas, avisa antes de que los agentes choquen y comparte notas cifradas. Claude Code, Codex CLI, Gemini CLI, Aider y cualquier terminal funcionan juntos en una sola ventana.",
   "about.profiles": "Programas propios: {path}",
   "about.profilesFallback":
     "Los programas propios están en profiles.toml, en la carpeta de configuración.",
@@ -4197,7 +4197,7 @@ const fr: Record<MessageKey, string> = {
   "error.unknown": "Erreur inconnue",
 
   "about.body":
-    "Fais travailler des agents de code IA en équipe : vois en direct quel agent chaque coéquipier utilise et quels fichiers il modifie, réserve des tâches, sois averti avant que des agents n'entrent en collision et partage des notes chiffrées. Claude Code, Codex CLI, Gemini CLI, Aider et n'importe quel terminal dans une seule application de bureau.",
+    "Hangar est l'application de bureau pour les équipes qui travaillent avec des agents de code IA. Elle montre en direct quel agent chaque membre de l'équipe utilise et quels fichiers il modifie, gère les réservations de tâches, avertit avant que des agents n'entrent en collision et partage des notes chiffrées. Claude Code, Codex CLI, Gemini CLI, Aider et n'importe quel terminal fonctionnent côte à côte dans une seule fenêtre.",
   "about.profiles": "Programmes personnalisés : {path}",
   "about.profilesFallback":
     "Les programmes personnalisés se trouvent dans profiles.toml, dans le dossier de configuration.",
@@ -5210,7 +5210,7 @@ const it: Record<MessageKey, string> = {
   "error.unknown": "Errore sconosciuto",
 
   "about.body":
-    "Usa gli agenti di programmazione IA in team: vedi in tempo reale quale agente usa ogni membro del team e quali file modifica, prenota attività, ricevi un avviso prima che gli agenti entrino in conflitto e condividi note cifrate. Claude Code, Codex CLI, Gemini CLI, Aider e qualsiasi terminale in un'unica app desktop.",
+    "Hangar è l'app desktop per i team che lavorano con agenti di programmazione IA. Mostra in tempo reale quale agente usa ogni membro del team e quali file modifica, gestisce le prenotazioni delle attività, avvisa prima che gli agenti entrino in conflitto e condivide note cifrate. Claude Code, Codex CLI, Gemini CLI, Aider e qualsiasi terminale lavorano fianco a fianco in un'unica finestra.",
   "about.profiles": "Programmi personalizzati: {path}",
   "about.profilesFallback":
     "I programmi personalizzati si trovano in profiles.toml nella cartella di configurazione.",
@@ -6215,7 +6215,7 @@ const ja: Record<MessageKey, string> = {
   "error.unknown": "不明なエラー",
 
   "about.body":
-    "AI コーディング エージェントをチームで動かせます。各メンバーがどのエージェントを実行し、どのファイルを変更しているかをリアルタイムで確認し、タスクを予約し、エージェント同士が衝突する前に警告を受け取り、暗号化されたメモを共有できます。Claude Code、Codex CLI、Gemini CLI、Aider、そしてあらゆるターミナルを 1 つのデスクトップ アプリで。",
+    "Hangar は、AI コーディング エージェントを使うチームのためのデスクトップ アプリです。各メンバーがどのエージェントを実行し、どのファイルを変更しているかをリアルタイムで表示し、タスクの予約を管理し、エージェント同士の衝突を事前に警告し、暗号化されたメモを共有します。Claude Code、Codex CLI、Gemini CLI、Aider、そして任意のターミナルを 1 つのウィンドウで並べて使えます。",
   "about.profiles": "独自のプログラム: {path}",
   "about.profilesFallback": "独自のプログラムは、構成フォルダー内の profiles.toml にあります。",
 
@@ -7217,7 +7217,7 @@ const pl: Record<MessageKey, string> = {
   "error.unknown": "Nieznany błąd",
 
   "about.body":
-    "Uruchamiaj agentów AI do programowania jako zespół: zobacz na żywo, jakiego agenta używa każda osoba w zespole i jakie pliki zmienia, rezerwuj zadania, otrzymuj ostrzeżenie, zanim agenci wejdą sobie w drogę, i udostępniaj zaszyfrowane notatki. Claude Code, Codex CLI, Gemini CLI, Aider i dowolny terminal w jednej aplikacji na komputer.",
+    "Hangar to aplikacja na komputer dla zespołów pracujących z agentami AI do programowania. Pokazuje na żywo, jakiego agenta używa każda osoba w zespole i jakie pliki zmienia, zarządza rezerwacjami zadań, ostrzega, zanim agenci wejdą sobie w drogę, i udostępnia zaszyfrowane notatki. Claude Code, Codex CLI, Gemini CLI, Aider i dowolny terminal działają obok siebie w jednym oknie.",
   "about.profiles": "Własne programy: {path}",
   "about.profilesFallback": "Własne programy są w pliku profiles.toml w folderze konfiguracji.",
 
@@ -8212,7 +8212,7 @@ const pt: Record<MessageKey, string> = {
   "error.unknown": "Erro desconhecido",
 
   "about.body":
-    "Execute agentes de programação com IA em equipe: veja ao vivo qual agente cada colega executa e quais arquivos ele altera, reserve tarefas, seja avisado antes que agentes colidam e compartilhe notas criptografadas. Claude Code, Codex CLI, Gemini CLI, Aider e qualquer terminal em um só app de desktop.",
+    "Hangar é o app de desktop para equipes que trabalham com agentes de programação com IA. Mostra ao vivo qual agente cada membro da equipe executa e quais arquivos ele altera, gerencia reservas de tarefas, avisa antes que agentes colidam e compartilha notas criptografadas. Claude Code, Codex CLI, Gemini CLI, Aider e qualquer terminal rodam lado a lado em uma só janela.",
   "about.profiles": "Programas personalizados: {path}",
   "about.profilesFallback":
     "Programas personalizados ficam no arquivo profiles.toml, na pasta de configuração.",
@@ -9211,7 +9211,7 @@ const ru: Record<MessageKey, string> = {
   "error.unknown": "Неизвестная ошибка",
 
   "about.body":
-    "Запускай ИИ-агентов для программирования командой: смотри в реальном времени, какой агент работает у каждого участника и какие файлы он меняет, резервируй задачи, получай предупреждение до того, как агенты столкнутся, и делись зашифрованными заметками. Claude Code, Codex CLI, Gemini CLI, Aider и любой терминал в одном настольном приложении.",
+    "Hangar: настольное приложение для команд, работающих с ИИ-агентами для программирования. Оно в реальном времени показывает, какой агент работает у каждого участника и какие файлы он меняет, управляет резервированием задач, предупреждает до того, как агенты столкнутся, и делится зашифрованными заметками. Claude Code, Codex CLI, Gemini CLI, Aider и любой терминал работают рядом в одном окне.",
   "about.profiles": "Собственные программы: {path}",
   "about.profilesFallback":
     "Собственные программы хранятся в файле profiles.toml в папке настроек.",
@@ -10198,7 +10198,7 @@ const tr: Record<MessageKey, string> = {
   "error.unknown": "Bilinmeyen hata",
 
   "about.body":
-    "Yapay zekâ kodlama ajanlarını ekip olarak çalıştır: her ekip arkadaşının hangi ajanı çalıştırdığını ve hangi dosyaları değiştirdiğini canlı gör, görevleri ayır, ajanlar çakışmadan önce uyarı al ve şifreli notlar paylaş. Claude Code, Codex CLI, Gemini CLI, Aider ve her terminal tek bir masaüstü uygulamasında.",
+    "Hangar, yapay zekâ kodlama ajanlarıyla çalışan ekipler için bir masaüstü uygulamasıdır. Her ekip üyesinin hangi ajanı çalıştırdığını ve hangi dosyaları değiştirdiğini canlı gösterir, görev rezervasyonlarını yönetir, ajanlar çakışmadan önce uyarır ve şifreli notlar paylaşır. Claude Code, Codex CLI, Gemini CLI, Aider ve herhangi bir terminal tek pencerede yan yana çalışır.",
   "about.profiles": "Özel programlar: {path}",
   "about.profilesFallback":
     "Özel programlar, yapılandırma klasöründeki profiles.toml dosyasında bulunur.",
@@ -11179,7 +11179,7 @@ const zh: Record<MessageKey, string> = {
   "error.unknown": "未知错误",
 
   "about.body":
-    "以团队方式运行 AI 编程代理：实时查看每位队友运行哪个代理、改动哪些文件，预留任务，在代理冲突前收到警告，并共享加密笔记。Claude Code、Codex CLI、Gemini CLI、Aider 以及任意终端，尽在一个桌面应用中。",
+    "Hangar 是面向使用 AI 编程代理的团队的桌面应用。它实时显示每位成员运行哪个代理、改动哪些文件，管理任务预留，在代理冲突前发出警告，并共享加密笔记。Claude Code、Codex CLI、Gemini CLI、Aider 以及任意终端可在同一窗口中并排运行。",
   "about.profiles": "自定义程序：{path}",
   "about.profilesFallback": "自定义程序保存在设置目录下的 profiles.toml 中。",
 
