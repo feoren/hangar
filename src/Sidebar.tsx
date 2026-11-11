@@ -41,6 +41,7 @@ import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
 import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { Splitter } from "./Splitter";
+import { sessionLabels, type SessionLabel } from "./sessionLabel";
 import { SidebarFooter } from "./SidebarFooter";
 import {
   detailLine,
@@ -272,6 +273,8 @@ export function Sidebar(props: Props) {
   // Two groups: ordinary sessions, and the ones in their own worktree (sessionGroups.ts).
   const ordinary = sessions.filter((s) => sessionGroup(s) === "sessions");
   const ownTrees = sessions.filter((s) => sessionGroup(s) === "worktrees");
+  // Sessions lead with their project folder; worktree rows keep their branch-named titles.
+  const folderLabels = sessionLabels(ordinary, (id) => profileById.get(id)?.name);
   const waitingIn = (list: readonly SessionView[]) =>
     list.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
   // Waiting sessions scrolled out of view: a calm hint at that edge of each list.
@@ -469,6 +472,10 @@ export function Sidebar(props: Props) {
         {edgeToggle}
         <ul className="rail-sessions" data-session-list="">
           {sessions.map((session, index) => {
+            // The same folder-first name as the expanded Sessions row: "hangar · Claude Code".
+            const label = folderLabels.get(session.id);
+            const name =
+              label?.byFolder === true ? `${label.primary} · ${label.secondary}` : session.title;
             const state = attention.get(session.id) ?? "idle";
             const { status, detail: where } = lines(session);
             const detail = exitDetail(session, t);
@@ -497,7 +504,7 @@ export function Sidebar(props: Props) {
                     type="button"
                     className={className.filter(Boolean).join(" ")}
                     title={[
-                      `${session.title} · ${status}`,
+                      `${name} · ${status}`,
                       props.overlaps.get(session.id) ?? "",
                       detailText(where, t),
                       session.worktree
@@ -515,7 +522,7 @@ export function Sidebar(props: Props) {
                       .join("\n")}
                     aria-label={[
                       session.marker?.emoji,
-                      session.title,
+                      name,
                       status,
                       props.overlaps.get(session.id),
                       markerColorText(session.marker, t),
@@ -660,8 +667,9 @@ export function Sidebar(props: Props) {
     );
   };
   /** The rows of one group's list; the sub-agent tree hangs below the active row. */
-  const rows = (list: readonly SessionView[], group: SessionGroup) =>
-    list.map((session) => {
+  const rows = (list: readonly SessionView[], group: SessionGroup) => {
+    const labels = group === "sessions" ? folderLabels : new Map<number, SessionLabel>();
+    return list.map((session) => {
       const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
       // With a tree below the row, "drop after" draws its line below the tree.
       const drag = dragClass(session.id);
@@ -671,6 +679,7 @@ export function Sidebar(props: Props) {
         <Fragment key={session.id}>
           <SessionItem
             lines={lines(session)}
+            label={labels.get(session.id) ?? null}
             session={session}
             group={group}
             look={badgeFor(session.profileId)}
@@ -705,6 +714,7 @@ export function Sidebar(props: Props) {
         </Fragment>
       );
     });
+  };
 
   return (
     <aside className="sidebar" ref={root}>
@@ -1181,6 +1191,8 @@ interface ItemProps extends Props {
   /** Sidebar group of the row, for dragging within it. */
   group: SessionGroup;
   lines: { status: string; detail: DetailLine };
+  /** Folder-first naming of a Sessions row (sessionLabel.ts); `null` keeps title and folder. */
+  label: SessionLabel | null;
   look: BadgeLook;
   /** Program and version for the tooltip, empty without a known version. */
   program: string;
@@ -1198,6 +1210,7 @@ function SessionItem({
   session,
   group,
   lines,
+  label,
   look,
   program,
   active,
@@ -1223,6 +1236,8 @@ function SessionItem({
   const waiting = state === "attention";
   const status = lines.status;
   const where = lines.detail;
+  const name = label?.primary ?? session.title;
+  const place = label?.secondary ?? where.folder;
   const detail = exitDetail(session, t);
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
@@ -1270,7 +1285,7 @@ function SessionItem({
           type="button"
           className="session-main"
           title={[
-            waiting ? `${session.title} · ${status}` : "",
+            waiting ? `${name} · ${status}` : "",
             overlap ?? "",
             gateOff ?? "",
             detail,
@@ -1305,7 +1320,7 @@ function SessionItem({
           <span className="session-text">
             <span className="session-title-row">
               <SessionMarker marker={session.marker} />
-              <span className="session-title">{session.title}</span>
+              <span className="session-title">{name}</span>
               {overlap !== undefined && (
                 <span className="session-overlap">
                   <OverlapIcon size={12} />
@@ -1327,7 +1342,7 @@ function SessionItem({
               </span>
             </span>
             <span className="session-detail">
-              <span className="session-path">{where.folder}</span>
+              <span className="session-path">{place}</span>
               {session.worktree ? (
                 <span className="session-branch worktree">
                   <span aria-hidden="true">·</span>

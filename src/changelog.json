@@ -2,7 +2,22 @@
   {
     "version": "0.5.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Sessions zeigen zuerst ihren Projektordner, das Programm steht darunter. Eine ruhende Session sagt jetzt „macht Pause“ statt „läuft“.",
+        "en": "Sessions now lead with their project folder, with the program below. A quiet session now says “taking a break” instead of “running”.",
+        "el": "Οι συνεδρίες δείχνουν πρώτα τον φάκελο του έργου και από κάτω το πρόγραμμα. Μια ήσυχη συνεδρία λέει τώρα «κάνει διάλειμμα».",
+        "es": "Las sesiones muestran primero su carpeta de proyecto y debajo el programa. Una sesión tranquila ahora dice «en pausa».",
+        "fr": "Les sessions affichent d’abord leur dossier de projet, le programme en dessous. Une session au calme indique désormais « en pause ».",
+        "it": "Le sessioni mostrano prima la cartella del progetto e sotto il programma. Una sessione tranquilla ora dice «in pausa».",
+        "ja": "セッションはまずプロジェクトフォルダーを表示し、その下にプログラムを表示します。静かなセッションは「休憩中」と表示されます。",
+        "pl": "Sesje pokazują najpierw folder projektu, a pod nim program. Spokojna sesja ma teraz status „ma przerwę”.",
+        "pt": "As sessões mostram primeiro a pasta do projeto, com o programa abaixo. Uma sessão parada agora diz “em pausa”.",
+        "ru": "Сеансы теперь показывают сначала папку проекта, а под ней программу. Тихий сеанс теперь отмечен как «на паузе».",
+        "tr": "Oturumlar önce proje klasörünü, altında programı gösterir. Sessiz bir oturum artık “mola veriyor” der.",
+        "zh": "会话现在先显示项目文件夹，程序显示在下方。空闲的会话现在显示为“休息中”。"
+      }
+    ]
   },
   {
     "version": "0.4.0",
