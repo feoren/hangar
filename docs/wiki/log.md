@@ -370,3 +370,22 @@ The recovery code is also refused in any folder with a `.git` entry on the way u
 reports no repository (`safe.directory`); the note metadata cache is keyed by file stamp, vault
 id and the ring's key ids; search shares the scan's byte budget. Pages changed:
 [[0006-encrypted-project-notes]].
+
+## [2026-11-11] query | Sub-agent view shows one sub-agent's activity
+The sub-agent view now shows one sub-agent at a time beside the terminal, as a console-like log
+streamed incrementally by the watch (`focus_sub_agent`, log events with task, text, tool calls
+and short results, all masked); finished sub-agents can be removed from the tree. Pages changed:
+[[agent-workflow-features]].
+
+## [2026-11-11] query | Sub-agent view security rework
+The mask now strips terminal sequences before it masks, covers command line secrets (flags,
+`sshpass -p`, `mysql -pX`, `curl -u`), more names, `Authorization` schemes, SecureString and
+more token prefixes; transcripts open without following links; focus switches collapse and
+are debounced. Pages changed: [[agent-workflow-features]].
+
+## [2026-11-11] query | Sub-agent mask: linear runtime and more forms
+A skipped loose value is passed over as a whole, so `key:` repeated no longer takes
+quadratic time; glued `docker login -pX` and `curl -uX`, raw `Authorization:` keys, Unicode
+spaces, escaped quotes and shell quoting are covered; FIFOs open without blocking. Known limits
+(lookalike names, intermediate links, hard links) are documented. Pages changed:
+[[agent-workflow-features]].

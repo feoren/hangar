@@ -8,7 +8,8 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use hangar_lib::subagents::{
-    self, claude, AgentStatus, Snapshot, SubAgentEvent, SubAgentKind, Target, Watchers,
+    self, claude, AgentStatus, LogBatch, LogEntry, Snapshot, SubAgentEvent, SubAgentKind, Target,
+    Watchers,
 };
 
 const SESSION: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -163,4 +164,76 @@ fn watcher_follows_a_session_from_first_prompt_to_finished_sub_agent() {
             _ => {}
         }
     }
+}
+
+/// Waits for a log batch that satisfies `done`.
+fn wait_for_log(rx: &Receiver<SubAgentEvent>, done: impl Fn(&LogBatch) -> bool) -> LogBatch {
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(SubAgentEvent::Log(batch)) if done(&batch) => return batch,
+            Ok(_) => {}
+            Err(error) => panic!("expected log batch did not arrive: {error:?}"),
+        }
+    }
+}
+
+#[test]
+fn focused_sub_agent_streams_its_log_as_it_grows() {
+    let scratch = Scratch::new("subagents-log");
+    let cwd = scratch.0.join("project dir");
+    fs::create_dir_all(&cwd).unwrap();
+    let config = scratch.0.join("claude config");
+    let project = config.join("projects").join(claude::encode_project(&cwd));
+    let folder = project.join(SESSION).join("subagents");
+    fs::create_dir_all(&folder).unwrap();
+    append(
+        &project.join(format!("{SESSION}.jsonl")),
+        "{\"type\":\"user\"}\n",
+    );
+    let transcript = folder.join("agent-a00000000000000bb.jsonl");
+    append(
+        &transcript,
+        "{\"type\":\"user\",\"message\":{\"content\":\"Count the tests\"}}\n",
+    );
+    let target = Target {
+        kind: SubAgentKind::Claude,
+        session: SESSION.into(),
+        cwd,
+        env: [(
+            claude::CONFIG_DIR_VAR.to_owned(),
+            config.display().to_string(),
+        )]
+        .into(),
+        home: scratch.0.join("home"),
+    };
+    let watchers = Watchers::default();
+    let (tx, rx) = channel();
+    watchers
+        .start(2, subagents::source_for(&target, true), move |event| {
+            tx.send(event).is_ok()
+        })
+        .unwrap();
+    wait_for(&rx, |s| s.agents.len() == 1);
+
+    assert!(watchers.focus(2, Some("a00000000000000bb".into())));
+    let first = wait_for_log(&rx, |b| b.reset);
+    assert_eq!(first.agent_id, "a00000000000000bb");
+    assert_eq!(first.entries, [LogEntry::prompt("Count the tests".into())]);
+    append(
+        &transcript,
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Glob\",\"input\":{\"pattern\":\"**/*.rs\"}}]}}\n",
+    );
+    let next = wait_for_log(&rx, |b| !b.entries.is_empty());
+    assert!(!next.reset);
+    assert_eq!(
+        next.entries,
+        [LogEntry::Tool {
+            name: "Glob".into(),
+            detail: Some("**/*.rs".into()),
+        }]
+    );
+    assert!(watchers.focus(2, None));
+    watchers.stop_all();
 }

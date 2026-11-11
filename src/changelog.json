@@ -88,18 +88,18 @@
         "zh": "现已内置四种终端字体：JetBrains Mono、Fira Code、Geist Mono 和 Hack。设置中每种字体都以其本身的样式显示。"
       },
       {
-        "de": "Die Sub-Agents der offenen Session stehen jetzt als Baum in der Seitenleiste. Ein Klick zeigt, was der Sub-Agent gerade macht.",
-        "en": "The open session's sub-agents now show as a tree in the sidebar. One click shows what a sub-agent is doing.",
-        "el": "Οι υπο-πράκτορες της ανοιχτής συνεδρίας εμφανίζονται τώρα ως δέντρο στην πλαϊνή στήλη. Ένα κλικ δείχνει τι κάνει ο καθένας.",
-        "es": "Los subagentes de la sesión abierta aparecen ahora como árbol en la barra lateral. Un clic muestra lo que hace cada uno.",
-        "fr": "Les sous-agents de la session ouverte s'affichent maintenant en arbre dans la barre latérale. Un clic montre ce que fait chacun.",
-        "it": "I sotto-agenti della sessione aperta ora appaiono come albero nella barra laterale. Un clic mostra cosa sta facendo ciascuno.",
-        "ja": "開いているセッションのサブエージェントがサイドバーにツリーで表示されます。クリックすると作業内容を確認できます。",
-        "pl": "Podagenci otwartej sesji są teraz widoczni jako drzewo na pasku bocznym. Jedno kliknięcie pokazuje, co robi każdy z nich.",
-        "pt": "Os subagentes da sessão aberta agora aparecem como árvore na barra lateral. Um clique mostra o que cada um está fazendo.",
-        "ru": "Субагенты открытой сессии теперь видны деревом на боковой панели. Один клик показывает, чем занят каждый.",
-        "tr": "Açık oturumun alt ajanları artık kenar çubuğunda ağaç olarak görünüyor. Bir tık, her birinin ne yaptığını gösterir.",
-        "zh": "当前会话的子代理现在以树状显示在侧边栏中。点击即可查看它正在做什么。"
+        "de": "Sub-Agents in der Seitenleiste: Ein Klick zeigt neben dem Terminal Auftrag, Befehle, Dateipfade und Ergebnisse wie eine Konsole. Fertige lassen sich entfernen.",
+        "en": "Sub-agents in the sidebar: one click shows a sub-agent's task, commands, paths and results beside the terminal, like a console. Finished ones can be removed.",
+        "el": "Υπο-πράκτορες στην πλαϊνή στήλη: ένα κλικ δείχνει δίπλα στο τερματικό εργασία, εντολές, διαδρομές και αποτελέσματα, σαν κονσόλα. Οι ολοκληρωμένοι αφαιρούνται.",
+        "es": "Subagentes en la barra lateral: un clic muestra junto al terminal su tarea, comandos, rutas y resultados, como una consola. Los terminados se pueden quitar.",
+        "fr": "Sous-agents dans la barre latérale : un clic montre à côté du terminal tâche, commandes, chemins et résultats, comme une console. Les terminés se retirent.",
+        "it": "Sotto-agenti nella barra laterale: un clic mostra accanto al terminale compito, comandi, percorsi e risultati, come una console. Quelli terminati si rimuovono.",
+        "ja": "サイドバーのサブエージェント: クリックするとタスク、コマンド、ファイルパス、結果がターミナルの横にコンソールのように表示されます。完了したものは削除できます。",
+        "pl": "Podagenci na pasku bocznym: kliknięcie pokazuje obok terminala zadanie, polecenia, ścieżki i wyniki, jak w konsoli. Zakończonych można usunąć.",
+        "pt": "Subagentes na barra lateral: um clique mostra ao lado do terminal a tarefa, comandos, caminhos e resultados, como um console. Os concluídos podem ser removidos.",
+        "ru": "Субагенты на боковой панели: клик показывает рядом с терминалом задачу, команды, пути и результаты, как в консоли. Завершённых можно убрать.",
+        "tr": "Kenar çubuğunda alt ajanlar: bir tık görevi, komutları, dosya yollarını ve sonuçları terminalin yanında konsol gibi gösterir. Bitenler kaldırılabilir.",
+        "zh": "侧边栏中的子代理：点击即可在终端旁像控制台一样查看任务、命令、文件路径和结果。已完成的可以移除。"
       },
       {
         "de": "Screenshots lassen sich jetzt einfügen: Hangar speichert das Bild aus der Zwischenablage und fügt den Pfad ein, den Agenten als Anhang lesen.",

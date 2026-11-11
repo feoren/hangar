@@ -17,7 +17,7 @@ pub const MAX_LINE: usize = 1024 * 1024;
 /// follows on the next polls.
 pub const MAX_READ: u64 = 4 * 1024 * 1024;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Tail {
     /// `None` before the first read.
     offset: Option<u64>,
@@ -25,9 +25,43 @@ pub struct Tail {
     /// Discarding up to the next newline: the read started in the middle of a line, or the
     /// line grew past [`MAX_LINE`].
     skipping: bool,
+    /// How much of the end of the file the first read (and every start over) takes.
+    initial: u64,
+    /// Counts the starts: the first read and every start over after the file shrank.
+    generation: u32,
+    /// The latest start began after the beginning of the file, so earlier lines were left out.
+    skipped_head: bool,
+}
+
+impl Default for Tail {
+    fn default() -> Self {
+        Self::with_initial(INITIAL_TAIL)
+    }
 }
 
 impl Tail {
+    /// A tail whose first read takes the last `initial` bytes instead of [`INITIAL_TAIL`].
+    pub fn with_initial(initial: u64) -> Self {
+        Self {
+            offset: None,
+            partial: Vec::new(),
+            skipping: false,
+            initial,
+            generation: 0,
+            skipped_head: false,
+        }
+    }
+
+    /// Changes with every start: a reader that shows the lines replaces what it showed.
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// The latest start left out the beginning of the file.
+    pub fn skipped_head(&self) -> bool {
+        self.skipped_head
+    }
+
     /// Complete lines written since the last call, without `\n` or `\r\n`.
     pub fn read_new(&mut self, path: &Path) -> io::Result<Vec<Vec<u8>>> {
         let mut file = open_shared(path)?;
@@ -37,7 +71,9 @@ impl Tail {
             Some(offset) if offset <= len => offset,
             _ => {
                 self.partial.clear();
-                let start = len.saturating_sub(INITIAL_TAIL);
+                let start = len.saturating_sub(self.initial);
+                self.generation = self.generation.wrapping_add(1);
+                self.skipped_head = start > 0;
                 // Only a cut line is skipped: if the byte before `start` ends a line, the read
                 // starts exactly at a line start.
                 self.skipping = start > 0 && byte_at(&mut file, start - 1)? != b'\n';
@@ -95,17 +131,60 @@ fn byte_at(file: &mut File, at: u64) -> io::Result<u8> {
     Ok(byte[0])
 }
 
+/// The first line of the file without its line break, `None` when it is empty, not finished yet
+/// or longer than `max` bytes (then it is not worth showing and must not be buffered).
+pub fn first_line(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
+    let file = open_shared(path)?;
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    let mut reader = io::BufReader::new(file.take(limit));
+    let mut line = Vec::new();
+    io::BufRead::read_until(&mut reader, b'\n', &mut line)?;
+    if line.last() != Some(&b'\n') {
+        return Ok(None);
+    }
+    line.pop();
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    Ok((!line.is_empty() && line.len() <= max).then_some(line))
+}
+
 /// Read-only, shared with writers and deleters; never follows the file beyond this call.
+///
+/// A link in the last path part is never followed (`FILE_FLAG_OPEN_REPARSE_POINT` on Windows
+/// opens the link itself, `O_NOFOLLOW` on Unix refuses it), and the opened handle must be a
+/// regular file; a FIFO opens without blocking (`O_NONBLOCK`) and is then refused.
+///
+/// Limits: the folders above the file are checked once per poll ([`super::claude`]), not on
+/// this open, so a folder swapped for a link in between is still followed; a hard link to a file
+/// elsewhere cannot be told apart from the file. Both need someone who can already write to the
+/// user's Claude folder, that is the same user, who could read the target anyway.
 pub fn open_shared(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
         options.share_mode(0x1 | 0x2 | 0x4);
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    options.open(path)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NONBLOCK: opening a FIFO for reading would otherwise wait for a writer and hang
+        // the watcher; on a regular file it changes nothing.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 #[cfg(test)]
@@ -200,6 +279,79 @@ mod tests {
         assert_eq!(text(tail.read_new(&path).unwrap()), ["new"]);
         append(&path, b"next\n");
         assert_eq!(text(tail.read_new(&path).unwrap()), ["next"]);
+    }
+
+    #[test]
+    fn generation_and_skipped_head_follow_the_starts() {
+        let dir = TempDir::new("tail-generation");
+        let path = dir.path().join("a.jsonl");
+        append(&path, b"first line\nsecond line\n");
+        let mut whole = Tail::with_initial(1024);
+        assert_eq!(whole.generation(), 0);
+        assert_eq!(whole.read_new(&path).unwrap().len(), 2);
+        assert_eq!(whole.generation(), 1);
+        assert!(!whole.skipped_head());
+        append(&path, b"third\n");
+        assert_eq!(text(whole.read_new(&path).unwrap()), ["third"]);
+        assert_eq!(whole.generation(), 1);
+        std::fs::write(&path, b"x\n").unwrap();
+        assert_eq!(text(whole.read_new(&path).unwrap()), ["x"]);
+        assert_eq!(whole.generation(), 2);
+
+        std::fs::write(&path, b"first line\nsecond line\n").unwrap();
+        let mut short = Tail::with_initial(12);
+        assert_eq!(text(short.read_new(&path).unwrap()), ["second line"]);
+        assert!(short.skipped_head());
+    }
+
+    #[test]
+    fn first_line_is_bounded() {
+        let dir = TempDir::new("tail-first");
+        let path = dir.path().join("a.jsonl");
+        append(&path, b"head\r\nrest\n");
+        assert_eq!(first_line(&path, 64).unwrap(), Some(b"head".to_vec()));
+        assert_eq!(first_line(&path, 3).unwrap(), None);
+        let open = dir.path().join("b.jsonl");
+        append(&open, b"no newline yet");
+        assert_eq!(first_line(&open, 64).unwrap(), None);
+    }
+
+    #[test]
+    fn folders_and_links_are_never_opened() {
+        let dir = TempDir::new("tail-links");
+        assert!(open_shared(dir.path()).is_err(), "a folder must not open");
+        let target = dir.path().join("outside.jsonl");
+        append(&target, b"OUTSIDE-MARKER\n");
+        let link = dir.path().join("agent-a1.jsonl");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &link);
+        // File symbolic links need Developer Mode or an elevated process on Windows.
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&target, &link);
+        match made {
+            Ok(()) => {
+                assert!(open_shared(&link).is_err(), "a link must not be followed");
+                assert!(Tail::default().read_new(&link).is_err());
+                assert_eq!(first_line(&link, 64).ok().flatten(), None);
+            }
+            Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
+        }
+        assert!(open_shared(&target).is_ok());
+    }
+
+    /// A FIFO under a transcript's name is refused at once instead of waiting for a writer.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_is_refused_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = TempDir::new("tail-fifo");
+        let fifo = dir.path().join("agent-a1.jsonl");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a valid NUL-terminated path that lives for the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let started = std::time::Instant::now();
+        assert!(open_shared(&fifo).is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

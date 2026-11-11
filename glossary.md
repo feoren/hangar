@@ -21,6 +21,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sub-Agent                                       | sub-agent                         | runs inside the agent's process, no terminal of its own                     |
 | Sub-Agent-Ansicht                               | sub-agent view                    | read-only, `subagents/`                                                     |
 | Textauszug                                      | excerpt                           | a sub-agent's newest text, never stored                                     |
+| Aktivitätsprotokoll                             | activity log                      | console-like log of the focused sub-agent, `LogBatch`, never stored         |
+| Fokus (Sub-Agent)                               | focus                             | the one sub-agent whose activity log is streamed, `focus_sub_agent`         |
+| Entfernen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay               |
 | Notiz                                           | note                              |                                                                             |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                                      |
 | Papierkorb                                      | trash                             |                                                                             |

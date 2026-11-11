@@ -1,10 +1,10 @@
 // Sub-agent view (contract: docs/wiki/pages/syntheses/agent-workflow-features.md, item 23): the
-// backend streams full snapshots of a session's sub-agents; this module checks them, keeps a short
-// history of tool names, plans which pane shows what and formats times. Pure, so it is tested
-// without React. Nothing here is ever persisted: excerpts live only in the view's memory.
+// backend streams full snapshots of a session's sub-agents and the activity log of the one shown;
+// this module checks both, keeps the log bounded, decides which sub-agents the sidebar's tree
+// lists (finished ones can be removed from it) and formats times. Pure, so it is tested without
+// React. Nothing here is ever persisted: texts live only in the view's memory.
 
 import type { MessageKey, Translate } from "./i18n";
-import type { LayoutId } from "./snapLayouts";
 
 export type SubAgentStatus = "running" | "finished" | "stale";
 
@@ -37,8 +37,6 @@ const MAX_AGENTS = 256;
 const MAX_EXCERPT = 400;
 /** Description, type and tool name are short labels; longer ones are cut for the layout. */
 const MAX_LABEL = 200;
-/** Tool names kept per sub-agent before the current one. */
-export const TOOL_HISTORY = 4;
 
 function isStatus(value: unknown): value is SubAgentStatus {
   return value === "running" || value === "finished" || value === "stale";
@@ -55,9 +53,14 @@ function time(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+/** Reads one field of a checked object without a cast. */
+function fieldOf(value: object, name: string): unknown {
+  return name in value ? Reflect.get(value, name) : undefined;
+}
+
 function subAgent(value: unknown): SubAgent | null {
   if (typeof value !== "object" || value === null) return null;
-  const field = (name: string): unknown => (name in value ? Reflect.get(value, name) : undefined);
+  const field = (name: string): unknown => fieldOf(value, name);
   const id = field("id");
   const status = field("status");
   if (typeof id !== "string" || id === "" || !isStatus(status)) return null;
@@ -76,14 +79,14 @@ function subAgent(value: unknown): SubAgent | null {
 }
 
 /**
- * Checks one channel message. Only `snapshot` is known; anything else yields `null` and is
- * ignored. Broken entries and duplicate IDs are dropped, the rest stays.
+ * Checks one channel message. Only `snapshot` is read here (logs: `parseSubAgentLog`); anything
+ * else yields `null` and is ignored. Broken entries and duplicate IDs are dropped, the rest stays.
  */
 export function parseSubAgentEvent(value: unknown): SubAgentSnapshot | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const type: unknown = "type" in value ? value.type : undefined;
-  const located: unknown = "located" in value ? value.located : undefined;
-  const list: unknown = "agents" in value ? value.agents : undefined;
+  const type = fieldOf(value, "type");
+  const located = fieldOf(value, "located");
+  const list = fieldOf(value, "agents");
   if (type !== "snapshot" || typeof located !== "boolean" || !Array.isArray(list)) return null;
   const seen = new Set<string>();
   const agents: SubAgent[] = [];
@@ -102,13 +105,9 @@ export interface SubAgentView {
   /** `null` until the first snapshot arrived. */
   located: boolean | null;
   agents: readonly SubAgent[];
-  /** Earlier tool names per sub-agent, newest first, without the current one. */
-  history: ReadonlyMap<string, readonly string[]>;
-  /** Most sub-agents seen at once: the layout only grows while the view is open. */
-  peak: number;
 }
 
-export const EMPTY_VIEW: SubAgentView = { located: null, agents: [], history: new Map(), peak: 0 };
+export const EMPTY_VIEW: SubAgentView = { located: null, agents: [] };
 
 /**
  * The same view without assistant text, for when excerpts are no longer wanted (view closed,
@@ -119,23 +118,224 @@ export function withoutExcerpts(view: SubAgentView): SubAgentView {
   return { ...view, agents: view.agents.map((agent) => ({ ...agent, excerpt: null })) };
 }
 
+/** The view after a snapshot: a snapshot is complete and replaces the previous one. */
+export function viewOfSnapshot(snapshot: SubAgentSnapshot): SubAgentView {
+  return { located: snapshot.located, agents: snapshot.agents };
+}
+
+// Activity log of the one sub-agent the view shows (Rust: `LogEntry` and `LogBatch`).
+
+/** One line of the log; every text is redacted and capped by the backend. */
+export type LogEntry =
+  /** The task the sub-agent was given. */
+  | { kind: "prompt"; text: string }
+  | { kind: "text"; text: string }
+  /** A tool call and its key argument (file path, command line, pattern). */
+  | { kind: "tool"; name: string; detail: string | null }
+  /** First line of a tool result and how many lines follow. */
+  | { kind: "result"; text: string | null; moreLines: number; error: boolean }
+  /** Lines were left out here (long transcript, burst, or the view's own limit). */
+  | { kind: "gap" };
+
+export interface LogBatch {
+  agentId: string;
+  /** Replaces everything shown before. */
+  reset: boolean;
+  entries: LogEntry[];
+}
+
+/** Backend limits per entry; longer texts are cut, never trusted to be short. */
+const MAX_LOG_TEXT = 4000;
+const MAX_LOG_DETAIL = 200;
+const MAX_TOOL_NAME = 64;
+/** Backend limit per batch. */
+const MAX_LOG_BATCH = 400;
+/** Lines the view keeps; older ones give way to a gap line (the task stays). */
+export const MAX_LOG_LINES = 1000;
+
+function logEntry(value: unknown): LogEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  const field = (name: string): unknown => fieldOf(value, name);
+  switch (field("kind")) {
+    case "prompt":
+    case "text": {
+      const body = text(field("text"), MAX_LOG_TEXT);
+      if (body === null) return null;
+      return field("kind") === "prompt"
+        ? { kind: "prompt", text: body }
+        : { kind: "text", text: body };
+    }
+    case "tool": {
+      const name = text(field("name"), MAX_TOOL_NAME);
+      if (name === null) return null;
+      return { kind: "tool", name, detail: text(field("detail"), MAX_LOG_DETAIL) };
+    }
+    case "result": {
+      const more = field("moreLines");
+      return {
+        kind: "result",
+        text: text(field("text"), MAX_LOG_DETAIL),
+        moreLines: typeof more === "number" && Number.isInteger(more) && more > 0 ? more : 0,
+        error: field("error") === true,
+      };
+    }
+    case "gap":
+      return { kind: "gap" };
+    default:
+      return null;
+  }
+}
+
+/** Checks one channel message of type `log`; anything else yields `null`. */
+export function parseSubAgentLog(value: unknown): LogBatch | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const agentId = fieldOf(value, "agentId");
+  const reset = fieldOf(value, "reset");
+  const list = fieldOf(value, "entries");
+  if (
+    fieldOf(value, "type") !== "log" ||
+    typeof agentId !== "string" ||
+    agentId === "" ||
+    typeof reset !== "boolean" ||
+    !Array.isArray(list)
+  ) {
+    return null;
+  }
+  const entries: LogEntry[] = [];
+  for (const item of list.slice(0, MAX_LOG_BATCH)) {
+    const entry = logEntry(item);
+    if (entry !== null) entries.push(entry);
+  }
+  return { agentId, reset, entries };
+}
+
+/** A log entry with a key that stays the same while it is shown. */
+export interface LogLine {
+  id: number;
+  entry: LogEntry;
+}
+
+export interface SubAgentLog {
+  /** The sub-agent this log belongs to; `null` while none is shown. */
+  agentId: string | null;
+  /** `false` until the first batch for `agentId` arrived. */
+  loaded: boolean;
+  lines: readonly LogLine[];
+  /** Next line id. */
+  next: number;
+}
+
+export const EMPTY_LOG: SubAgentLog = { agentId: null, loaded: false, lines: [], next: 0 };
+
+/** An empty log for `agentId` (the view switched to it); the same object if nothing changes. */
+export function logFor(log: SubAgentLog, agentId: string | null): SubAgentLog {
+  if (log.agentId === agentId) return log;
+  return { agentId, loaded: false, lines: [], next: log.next };
+}
+
+/**
+ * Next log after a batch. A batch for another sub-agent is dropped. A reset starts over. Until
+ * the first reset after a switch (`loaded` false) appends are dropped too: they are still in
+ * flight from an earlier focus on the same sub-agent, and the backend opens every focus with a
+ * reset. The log keeps at most `max` lines: older ones give way to one gap line, but a leading
+ * task stays, so the view always says what the sub-agent was asked to do.
+ */
+export function applyLog(
+  log: SubAgentLog,
+  batch: LogBatch,
+  max: number = MAX_LOG_LINES,
+): SubAgentLog {
+  if (batch.agentId !== log.agentId || (!log.loaded && !batch.reset)) return log;
+  let next = log.next;
+  const lines: LogLine[] = batch.reset ? [] : [...log.lines];
+  for (const entry of batch.entries) {
+    // Two gaps in a row say nothing more than one.
+    if (entry.kind === "gap" && lines.at(-1)?.entry.kind === "gap") continue;
+    lines.push({ id: next, entry });
+    next += 1;
+  }
+  if (lines.length > max) {
+    const first = lines[0];
+    const head = first?.entry.kind === "prompt" ? [first] : [];
+    let rest = lines.slice(lines.length - (max - head.length - 1));
+    if (rest[0]?.entry.kind === "gap") rest = rest.slice(1);
+    const gap: LogLine = { id: next, entry: { kind: "gap" } };
+    next += 1;
+    return { agentId: log.agentId, loaded: true, lines: [...head, gap, ...rest], next };
+  }
+  return { agentId: log.agentId, loaded: true, lines, next };
+}
+
+/** The log without any text, for when excerpts are switched off while it is shown. */
+export function withoutLogText(log: SubAgentLog): SubAgentLog {
+  if (log.lines.length === 0 && !log.loaded) return log;
+  return { ...log, loaded: false, lines: [] };
+}
+
+// Removing finished sub-agents from the tree and the list (view state only).
+
+/** Sub-agent ids removed per watch key (session and conversation). */
+export type Dismissed = ReadonlyMap<string, ReadonlySet<string>>;
+
+const NONE: ReadonlySet<string> = new Set();
+
+export function dismissedIn(dismissed: Dismissed, key: string | null): ReadonlySet<string> {
+  return key === null ? NONE : (dismissed.get(key) ?? NONE);
+}
+
+/**
+ * Removes the finished ones among `ids` from the view of `key`; running and quiet ones stay,
+ * since they may still change. Transcripts are never touched. The same map comes back when
+ * nothing changes.
+ */
+export function dismissFinished(
+  dismissed: Dismissed,
+  key: string,
+  agents: readonly SubAgent[],
+  ids: readonly string[],
+): Dismissed {
+  const finished = new Set(agents.filter((a) => a.status === "finished").map((a) => a.id));
+  const before = dismissedIn(dismissed, key);
+  const added = ids.filter((id) => finished.has(id) && !before.has(id));
+  if (added.length === 0) return dismissed;
+  const next = new Map(dismissed);
+  next.set(key, new Set([...before, ...added]));
+  return next;
+}
+
+/** The sub-agents still shown. */
+export function visibleAgents(
+  agents: readonly SubAgent[],
+  hidden: ReadonlySet<string>,
+): readonly SubAgent[] {
+  return hidden.size === 0 ? agents : agents.filter((agent) => !hidden.has(agent.id));
+}
+
+export function finishedIds(agents: readonly SubAgent[]): string[] {
+  return agents.filter((agent) => agent.status === "finished").map((agent) => agent.id);
+}
+
 /** Rows of the sidebar's sub-agent tree under the active session. */
 export const TREE_ROWS = 5;
 
 export interface SubAgentTree {
   /** In start order. */
   agents: SubAgent[];
-  /** Sub-agents left out; a "+N more" row opens the view with all of them. */
+  /** Sub-agents left out; a "+N more" row opens the list of all of them. */
   more: number;
 }
 
 /**
- * The tree stays short: up to `max` sub-agents fit; with more, running and newer ones keep a
- * row and the last row says how many more there are.
+ * The tree stays short: up to `max` sub-agents fit; with more, the `preferred` one (shown in
+ * the view), running and newer ones keep a row and the last row says how many more there are.
  */
-export function subAgentTree(agents: readonly SubAgent[], max: number = TREE_ROWS): SubAgentTree {
+export function subAgentTree(
+  agents: readonly SubAgent[],
+  max: number = TREE_ROWS,
+  preferred: string | null = null,
+): SubAgentTree {
   if (agents.length <= max) return { agents: [...agents], more: 0 };
-  const shown = featuredAgents(agents, Math.max(0, max - 1));
+  const shown = featuredAgents(agents, Math.max(0, max - 1), preferred);
   return { agents: shown, more: agents.length - shown.length };
 }
 
@@ -152,71 +352,9 @@ export function watchedSession(
   return viewOf ?? (treeShown ? activeId : null);
 }
 
-/** Most sub-agents seen since the view opened on `key` (session and conversation). */
-export interface ViewPeak {
-  key: string | null;
-  count: number;
-}
-
 /**
- * Peak for the view's layout: grows with the count while the view stays on the same session and
- * conversation, starts over when it opens, closes (`key` null) or the conversation changes. The
- * same object comes back when nothing changed, so a caller can skip the state update.
- */
-export function nextViewPeak(peak: ViewPeak, key: string | null, count: number): ViewPeak {
-  if (key === null) return peak.key === null && peak.count === 0 ? peak : { key: null, count: 0 };
-  const base = peak.key === key ? peak.count : 0;
-  const next = Math.max(base, count);
-  return peak.key === key && next === peak.count ? peak : { key, count: next };
-}
-
-/**
- * Next view after a snapshot: the snapshot replaces the agents; a sub-agent whose tool changed
- * puts the previous tool name in front of its history.
- */
-export function applySnapshot(view: SubAgentView, snapshot: SubAgentSnapshot): SubAgentView {
-  const before = new Map(view.agents.map((agent) => [agent.id, agent]));
-  const history = new Map<string, readonly string[]>();
-  for (const agent of snapshot.agents) {
-    const kept = view.history.get(agent.id) ?? [];
-    const previous = before.get(agent.id)?.tool ?? null;
-    history.set(
-      agent.id,
-      previous !== null && previous !== agent.tool
-        ? [previous, ...kept].slice(0, TOOL_HISTORY)
-        : kept,
-    );
-  }
-  return {
-    located: snapshot.located,
-    agents: snapshot.agents,
-    history,
-    peak: Math.max(view.peak, snapshot.agents.length),
-  };
-}
-
-/** Content of one zone besides the session's own (zone 0). */
-export type SubAgentPane =
-  | { kind: "agent"; id: string }
-  /** Every sub-agent in a compact list (more sub-agents than zones). */
-  | { kind: "list" }
-  /** Not located yet, none yet, unavailable or an error: a short text. */
-  | { kind: "notice" }
-  | { kind: "empty" };
-
-export interface SubAgentPlan {
-  layout: Exclude<LayoutId, "single">;
-  /** Panes for zones 1 and up, in zone order. */
-  panes: SubAgentPane[];
-}
-
-/** Zones for sub-agents in the largest layout (quad has four, the session keeps one). */
-const MAX_AGENT_ZONES = 3;
-
-/**
- * Sub-agents worth a place of their own when there are too many for one each: the `preferred`
- * one (picked in the sidebar) first, then running ones before the rest, newer before older; shown
- * in start order so they keep their places.
+ * Sub-agents worth a row when there are too many: the `preferred` one first, then running ones
+ * before the rest, newer before older; returned in start order so they keep their places.
  */
 export function featuredAgents(
   agents: readonly SubAgent[],
@@ -233,50 +371,6 @@ export function featuredAgents(
     })
     .slice(0, count);
   return ranked.sort((a, b) => a.index - b.index).map((entry) => entry.agent);
-}
-
-/**
- * Only the layout of `planSubAgentPanes`, from counts alone: the app places the session's
- * terminal with it and so re-renders only when the count changes, not with every snapshot.
- */
-export function subAgentLayout(
-  count: number,
-  peak: number,
-  showNotice: boolean,
-): SubAgentPlan["layout"] {
-  if (showNotice || count === 0) return "pair";
-  const zones = Math.max(peak, count);
-  return zones === 1 ? "pair" : zones === 2 ? "mainStack" : "quad";
-}
-
-/**
- * Layout of the view. The session stays in the main zone (zone 0); one sub-agent sits beside
- * it, two stack on the right, three fill a grid. With four or more, the grid shows two featured
- * sub-agents and a list of all of them. The layout follows `peak`, so it never shrinks while
- * the view is open and the session's terminal is resized as rarely as possible. A `preferred`
- * sub-agent (picked in the sidebar) always gets a pane of its own.
- */
-export function planSubAgentPanes(
-  view: SubAgentView,
-  showNotice: boolean,
-  preferred: string | null = null,
-): SubAgentPlan {
-  const agents = view.agents;
-  const layout = subAgentLayout(agents.length, view.peak, showNotice);
-  if (showNotice || agents.length === 0) return { layout, panes: [{ kind: "notice" }] };
-  const count = Math.max(view.peak, agents.length);
-  if (count > MAX_AGENT_ZONES) {
-    const featured = featuredAgents(agents, MAX_AGENT_ZONES - 1, preferred);
-    const panes: SubAgentPane[] = featured.map((agent) => ({ kind: "agent", id: agent.id }));
-    while (panes.length < MAX_AGENT_ZONES - 1) panes.push({ kind: "empty" });
-    return { layout, panes: [...panes, { kind: "list" }] };
-  }
-  const panes: SubAgentPane[] = [];
-  for (let index = 0; index < count; index += 1) {
-    const agent = agents[index];
-    panes.push(agent === undefined ? { kind: "empty" } : { kind: "agent", id: agent.id });
-  }
-  return { layout, panes };
 }
 
 /** Run time so far (running, stale) or in total (finished); `null` without a start time. */

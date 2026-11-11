@@ -101,11 +101,6 @@ const de = {
   "subAgents.finished": "fertig",
   "subAgents.stale": "keine Aktivität",
   "subAgents.untitled": "Sub-Agent",
-  "subAgents.tool": "Werkzeug",
-  "subAgents.noTool": "noch keins",
-  "subAgents.history": "Davor",
-  "subAgents.noExcerpt": "Noch kein Text.",
-  "subAgents.excerptsOff": "Textauszüge sind in den Einstellungen ausgeschaltet.",
   "subAgents.elapsed": "Laufzeit",
   "subAgents.all": "Alle Sub-Agents: {count}",
   "subAgents.counts": "läuft: {running} · fertig: {finished}",
@@ -119,6 +114,19 @@ const de = {
   "subAgents.unavailable":
     "Für diese Session sind gerade keine Sub-Agents verfügbar. Nach einem Neustart wieder.",
   "subAgents.error": "Sub-Agents lassen sich nicht anzeigen: {error}",
+  "subAgents.dismiss": "{name} entfernen",
+  "subAgents.dismissFinished": "Fertige entfernen",
+  "subAgents.dismissHelp": "Blendet fertige Sub-Agents hier aus. Ihre Protokolle bleiben erhalten.",
+  "subAgents.showAll": "Alle Sub-Agents",
+  "subAgents.task": "Auftrag",
+  "subAgents.logEmpty": "Noch keine Ausgabe.",
+  "subAgents.logOff":
+    "Texte von Sub-Agents sind in den Einstellungen ausgeschaltet, deshalb stehen hier nur die Werkzeuge.",
+  "subAgents.gap": "Frühere Einträge ausgelassen",
+  "subAgents.moreLines": "+{count} Zeilen",
+  "subAgents.failed": "Fehler",
+  "subAgents.jumpToEnd": "Zum Ende",
+  "subAgents.gone": "Dieser Sub-Agent ist nicht mehr da.",
   "settings.claims": "Überschneidungen zwischen Sessions erkennen",
   "settings.claimsHelp":
     "Hangar schaut, welche Dateien die Agenten ändern, und warnt, wenn zwei deiner Sessions dieselbe Datei oder dieselben Zeilen bearbeiten. Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
@@ -146,9 +154,9 @@ const de = {
     "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Datenordner enthält Zeichen, die cmd.exe auswerten würde.",
   "gate.profileSettings":
     "Änderungen werden in dieser Session nicht angehalten: Das Profil übergibt schon eigene --settings, deshalb fügt Hangar keine hinzu.",
-  "settings.subAgentExcerpts": "Textauszüge von Sub-Agents zeigen",
+  "settings.subAgentExcerpts": "Texte von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
-    "Zeigt den letzten Text jedes Sub-Agents. Erkennbare Schlüssel und Passwörter werden ausgeblendet, gespeichert wird nichts davon.",
+    "Zeigt Auftrag, Text und Werkzeugaufrufe jedes Sub-Agents mit ihren Befehlen, Dateipfaden und Webadressen sowie die erste Zeile jedes Ergebnisses. Hangar blendet Schlüssel und Passwörter aus, die es erkennt, kann aber nicht jedes finden. Gespeichert wird nichts. Ausgeschaltet stehen nur die Namen der Werkzeuge da.",
 
   "status.starting": "startet",
   "status.running": "läuft",
@@ -1104,11 +1112,6 @@ const en: Record<MessageKey, string> = {
   "subAgents.finished": "finished",
   "subAgents.stale": "no activity",
   "subAgents.untitled": "Sub-agent",
-  "subAgents.tool": "Tool",
-  "subAgents.noTool": "none yet",
-  "subAgents.history": "Before",
-  "subAgents.noExcerpt": "No text yet.",
-  "subAgents.excerptsOff": "Text excerpts are turned off in Settings.",
   "subAgents.elapsed": "Run time",
   "subAgents.all": "All sub-agents: {count}",
   "subAgents.counts": "running: {running} · finished: {finished}",
@@ -1122,6 +1125,18 @@ const en: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Sub-agents are not available for this session right now. They will be after a restart.",
   "subAgents.error": "Cannot show sub-agents: {error}",
+  "subAgents.dismiss": "Remove {name}",
+  "subAgents.dismissFinished": "Remove finished",
+  "subAgents.dismissHelp": "Hides finished sub-agents here. Their transcripts stay.",
+  "subAgents.showAll": "All sub-agents",
+  "subAgents.task": "Task",
+  "subAgents.logEmpty": "No output yet.",
+  "subAgents.logOff": "Sub-agent text is turned off in Settings, so only the tools show here.",
+  "subAgents.gap": "Earlier entries left out",
+  "subAgents.moreLines": "+{count} lines",
+  "subAgents.failed": "Error",
+  "subAgents.jumpToEnd": "Jump to end",
+  "subAgents.gone": "This sub-agent is gone.",
   "settings.claims": "Detect overlaps between sessions",
   "settings.claimsHelp":
     "Hangar watches which files the agents change and warns when two of your sessions edit the same file or the same lines. Everything stays on this computer; Hangar reads no file contents for this.",
@@ -1148,9 +1163,9 @@ const en: Record<MessageKey, string> = {
     "Edits are not paused in this session: the path of Hangar's data folder contains characters cmd.exe would interpret.",
   "gate.profileSettings":
     "Edits are not paused in this session: its profile already passes its own --settings, so Hangar adds none.",
-  "settings.subAgentExcerpts": "Show sub-agent text excerpts",
+  "settings.subAgentExcerpts": "Show sub-agent text",
   "settings.subAgentExcerptsHelp":
-    "Shows each sub-agent's latest text. Recognizable keys and passwords are hidden, and none of it is stored.",
+    "Shows each sub-agent's task, text, tool calls with their commands, file paths and web addresses, and the first line of each result. Hangar hides keys and passwords it recognizes, but cannot catch every one. Nothing is stored. When off, only tool names show.",
 
   "status.starting": "starting",
   "status.running": "running",
@@ -2077,11 +2092,6 @@ const el: Record<MessageKey, string> = {
   "subAgents.finished": "ολοκληρώθηκε",
   "subAgents.stale": "χωρίς δραστηριότητα",
   "subAgents.untitled": "Υπο-πράκτορας",
-  "subAgents.tool": "Εργαλείο",
-  "subAgents.noTool": "κανένα ακόμη",
-  "subAgents.history": "Πριν",
-  "subAgents.noExcerpt": "Δεν υπάρχει ακόμη κείμενο.",
-  "subAgents.excerptsOff": "Τα αποσπάσματα κειμένου είναι απενεργοποιημένα στις Ρυθμίσεις.",
   "subAgents.elapsed": "Χρόνος εκτέλεσης",
   "subAgents.all": "Όλοι οι υπο-πράκτορες: {count}",
   "subAgents.counts": "εκτελούνται: {running} · ολοκληρώθηκαν: {finished}",
@@ -2096,6 +2106,20 @@ const el: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Οι υπο-πράκτορες δεν είναι διαθέσιμοι τώρα για αυτή τη συνεδρία. Θα είναι μετά από επανεκκίνηση.",
   "subAgents.error": "Δεν είναι δυνατή η εμφάνιση υπο-πρακτόρων: {error}",
+  "subAgents.dismiss": "Αφαίρεση {name}",
+  "subAgents.dismissFinished": "Αφαίρεση ολοκληρωμένων",
+  "subAgents.dismissHelp":
+    "Κρύβει εδώ τους ολοκληρωμένους υπο-πράκτορες. Τα αρχεία καταγραφής τους παραμένουν.",
+  "subAgents.showAll": "Όλοι οι υπο-πράκτορες",
+  "subAgents.task": "Εργασία",
+  "subAgents.logEmpty": "Καμία έξοδος ακόμα.",
+  "subAgents.logOff":
+    "Το κείμενο των υπο-πρακτόρων είναι απενεργοποιημένο στις Ρυθμίσεις, γι' αυτό εδώ φαίνονται μόνο τα εργαλεία.",
+  "subAgents.gap": "Παραλείφθηκαν παλαιότερες καταχωρίσεις",
+  "subAgents.moreLines": "+{count} γραμμές",
+  "subAgents.failed": "Σφάλμα",
+  "subAgents.jumpToEnd": "Στο τέλος",
+  "subAgents.gone": "Αυτός ο υπο-πράκτορας δεν υπάρχει πια.",
   "settings.claims": "Εντοπισμός επικαλύψεων μεταξύ συνεδριών",
   "settings.claimsHelp":
     "Το Hangar βλέπει ποια αρχεία αλλάζουν οι πράκτορες και σε προειδοποιεί όταν δύο συνεδρίες σου επεξεργάζονται το ίδιο αρχείο ή τις ίδιες γραμμές. Όλα μένουν σε αυτόν τον υπολογιστή· το Hangar δεν διαβάζει περιεχόμενα αρχείων γι' αυτό.",
@@ -2122,9 +2146,9 @@ const el: Record<MessageKey, string> = {
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του φακέλου δεδομένων του Hangar περιέχει χαρακτήρες που θα ερμήνευε το cmd.exe.",
   "gate.profileSettings":
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το προφίλ της περνά ήδη δικές του --settings, γι' αυτό το Hangar δεν προσθέτει άλλες.",
-  "settings.subAgentExcerpts": "Εμφάνιση αποσπασμάτων κειμένου υπο-πρακτόρων",
+  "settings.subAgentExcerpts": "Εμφάνιση κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
-    "Δείχνει το τελευταίο κείμενο κάθε υπο-πράκτορα. Αναγνωρίσιμα κλειδιά και κωδικοί αποκρύπτονται και τίποτα δεν αποθηκεύεται.",
+    "Δείχνει την εργασία, το κείμενο και τις κλήσεις εργαλείων κάθε υπο-πράκτορα με τις εντολές, τις διαδρομές αρχείων και τις διευθύνσεις ιστού τους, καθώς και την πρώτη γραμμή κάθε αποτελέσματος. Το Hangar κρύβει τα κλειδιά και τους κωδικούς που αναγνωρίζει, αλλά δεν μπορεί να τα εντοπίσει όλα. Τίποτα δεν αποθηκεύεται. Όταν είναι ανενεργό, φαίνονται μόνο τα ονόματα εργαλείων.",
 
   "status.starting": "εκκινεί",
   "status.running": "εκτελείται",
@@ -3085,11 +3109,6 @@ const es: Record<MessageKey, string> = {
   "subAgents.finished": "terminado",
   "subAgents.stale": "sin actividad",
   "subAgents.untitled": "Subagente",
-  "subAgents.tool": "Herramienta",
-  "subAgents.noTool": "ninguna aún",
-  "subAgents.history": "Antes",
-  "subAgents.noExcerpt": "Aún no hay texto.",
-  "subAgents.excerptsOff": "Los extractos de texto están desactivados en Ajustes.",
   "subAgents.elapsed": "Tiempo de ejecución",
   "subAgents.all": "Todos los subagentes: {count}",
   "subAgents.counts": "en ejecución: {running} · terminados: {finished}",
@@ -3103,6 +3122,20 @@ const es: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Los subagentes no están disponibles ahora para esta sesión. Lo estarán tras reiniciarla.",
   "subAgents.error": "No se pueden mostrar los subagentes: {error}",
+  "subAgents.dismiss": "Quitar {name}",
+  "subAgents.dismissFinished": "Quitar terminados",
+  "subAgents.dismissHelp":
+    "Oculta aquí los subagentes terminados. Sus transcripciones se conservan.",
+  "subAgents.showAll": "Todos los subagentes",
+  "subAgents.task": "Tarea",
+  "subAgents.logEmpty": "Aún no hay salida.",
+  "subAgents.logOff":
+    "El texto de los subagentes está desactivado en Ajustes, así que aquí solo aparecen las herramientas.",
+  "subAgents.gap": "Entradas anteriores omitidas",
+  "subAgents.moreLines": "+{count} líneas",
+  "subAgents.failed": "Error",
+  "subAgents.jumpToEnd": "Ir al final",
+  "subAgents.gone": "Este subagente ya no está.",
   "settings.claims": "Detectar coincidencias entre sesiones",
   "settings.claimsHelp":
     "Hangar mira qué archivos cambian los agentes y te avisa cuando dos de tus sesiones editan el mismo archivo o las mismas líneas. Todo queda en este equipo; Hangar no lee el contenido de los archivos para esto.",
@@ -3129,9 +3162,9 @@ const es: Record<MessageKey, string> = {
     "En esta sesión los cambios no se detienen: la ruta de la carpeta de datos de Hangar contiene caracteres que cmd.exe interpretaría.",
   "gate.profileSettings":
     "En esta sesión los cambios no se detienen: su perfil ya pasa sus propios --settings, así que Hangar no añade otros.",
-  "settings.subAgentExcerpts": "Mostrar extractos de texto de los subagentes",
+  "settings.subAgentExcerpts": "Mostrar el texto de los subagentes",
   "settings.subAgentExcerptsHelp":
-    "Muestra el último texto de cada subagente. Las claves y contraseñas reconocibles se ocultan y no se guarda nada.",
+    "Muestra la tarea, el texto y las llamadas a herramientas de cada subagente con sus comandos, rutas de archivo y direcciones web, y la primera línea de cada resultado. Hangar oculta las claves y contraseñas que reconoce, pero no puede detectarlas todas. No se guarda nada. Desactivado, solo aparecen los nombres de las herramientas.",
 
   "status.starting": "iniciando",
   "status.running": "en ejecución",
@@ -4075,11 +4108,6 @@ const fr: Record<MessageKey, string> = {
   "subAgents.finished": "terminé",
   "subAgents.stale": "aucune activité",
   "subAgents.untitled": "Sous-agent",
-  "subAgents.tool": "Outil",
-  "subAgents.noTool": "aucun pour l'instant",
-  "subAgents.history": "Avant",
-  "subAgents.noExcerpt": "Pas encore de texte.",
-  "subAgents.excerptsOff": "Les extraits de texte sont désactivés dans les Paramètres.",
   "subAgents.elapsed": "Durée",
   "subAgents.all": "Tous les sous-agents : {count}",
   "subAgents.counts": "en cours : {running} · terminés : {finished}",
@@ -4093,6 +4121,20 @@ const fr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Les sous-agents ne sont pas disponibles pour cette session pour le moment. Ils le seront après un redémarrage.",
   "subAgents.error": "Impossible d'afficher les sous-agents : {error}",
+  "subAgents.dismiss": "Retirer {name}",
+  "subAgents.dismissFinished": "Retirer les terminés",
+  "subAgents.dismissHelp":
+    "Masque ici les sous-agents terminés. Leurs transcriptions sont conservées.",
+  "subAgents.showAll": "Tous les sous-agents",
+  "subAgents.task": "Tâche",
+  "subAgents.logEmpty": "Pas encore de sortie.",
+  "subAgents.logOff":
+    "Le texte des sous-agents est désactivé dans les Paramètres, seuls les outils s'affichent donc ici.",
+  "subAgents.gap": "Entrées précédentes omises",
+  "subAgents.moreLines": "+{count} lignes",
+  "subAgents.failed": "Erreur",
+  "subAgents.jumpToEnd": "Aller à la fin",
+  "subAgents.gone": "Ce sous-agent n'existe plus.",
   "settings.claims": "Détecter les chevauchements entre sessions",
   "settings.claimsHelp":
     "Hangar regarde quels fichiers les agents modifient et te prévient quand deux de tes sessions modifient le même fichier ou les mêmes lignes. Tout reste sur cet ordinateur ; Hangar ne lit aucun contenu de fichier pour cela.",
@@ -4120,9 +4162,9 @@ const fr: Record<MessageKey, string> = {
     "Les modifications ne sont pas retenues dans cette session : le chemin du dossier de données de Hangar contient des caractères que cmd.exe interpréterait.",
   "gate.profileSettings":
     "Les modifications ne sont pas retenues dans cette session : son profil transmet déjà ses propres --settings, Hangar n'en ajoute donc pas.",
-  "settings.subAgentExcerpts": "Afficher les extraits de texte des sous-agents",
+  "settings.subAgentExcerpts": "Afficher le texte des sous-agents",
   "settings.subAgentExcerptsHelp":
-    "Affiche le dernier texte de chaque sous-agent. Les clés et mots de passe reconnaissables sont masqués et rien n'est enregistré.",
+    "Affiche la tâche, le texte et les appels d'outils de chaque sous-agent avec leurs commandes, chemins de fichiers et adresses web, ainsi que la première ligne de chaque résultat. Hangar masque les clés et mots de passe qu'il reconnaît, mais ne peut pas tous les repérer. Rien n'est enregistré. Désactivé, seuls les noms des outils s'affichent.",
 
   "status.starting": "démarre",
   "status.running": "active",
@@ -5081,11 +5123,6 @@ const it: Record<MessageKey, string> = {
   "subAgents.finished": "terminato",
   "subAgents.stale": "nessuna attività",
   "subAgents.untitled": "Sotto-agente",
-  "subAgents.tool": "Strumento",
-  "subAgents.noTool": "nessuno per ora",
-  "subAgents.history": "Prima",
-  "subAgents.noExcerpt": "Ancora nessun testo.",
-  "subAgents.excerptsOff": "Gli estratti di testo sono disattivati nelle Impostazioni.",
   "subAgents.elapsed": "Durata",
   "subAgents.all": "Tutti i sotto-agenti: {count}",
   "subAgents.counts": "in esecuzione: {running} · terminati: {finished}",
@@ -5099,6 +5136,19 @@ const it: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "I sotto-agenti non sono disponibili ora per questa sessione. Lo saranno dopo un riavvio.",
   "subAgents.error": "Impossibile mostrare i sotto-agenti: {error}",
+  "subAgents.dismiss": "Rimuovi {name}",
+  "subAgents.dismissFinished": "Rimuovi i terminati",
+  "subAgents.dismissHelp": "Nasconde qui i sotto-agenti terminati. Le loro trascrizioni restano.",
+  "subAgents.showAll": "Tutti i sotto-agenti",
+  "subAgents.task": "Compito",
+  "subAgents.logEmpty": "Ancora nessun output.",
+  "subAgents.logOff":
+    "Il testo dei sotto-agenti è disattivato nelle Impostazioni, quindi qui compaiono solo gli strumenti.",
+  "subAgents.gap": "Voci precedenti omesse",
+  "subAgents.moreLines": "+{count} righe",
+  "subAgents.failed": "Errore",
+  "subAgents.jumpToEnd": "Vai alla fine",
+  "subAgents.gone": "Questo sotto-agente non c'è più.",
   "settings.claims": "Rileva sovrapposizioni tra sessioni",
   "settings.claimsHelp":
     "Hangar guarda quali file cambiano gli agenti e ti avvisa quando due tue sessioni modificano lo stesso file o le stesse righe. Tutto resta su questo computer; Hangar non legge il contenuto dei file per farlo.",
@@ -5126,9 +5176,9 @@ const it: Record<MessageKey, string> = {
     "In questa sessione le modifiche non vengono fermate: il percorso della cartella dati di Hangar contiene caratteri che cmd.exe interpreterebbe.",
   "gate.profileSettings":
     "In questa sessione le modifiche non vengono fermate: il suo profilo passa già i propri --settings, quindi Hangar non ne aggiunge altri.",
-  "settings.subAgentExcerpts": "Mostra estratti di testo dei sotto-agenti",
+  "settings.subAgentExcerpts": "Mostra il testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
-    "Mostra l'ultimo testo di ogni sotto-agente. Chiavi e password riconoscibili vengono nascoste e non viene salvato nulla.",
+    "Mostra il compito, il testo e le chiamate agli strumenti di ogni sotto-agente con i loro comandi, percorsi di file e indirizzi web, e la prima riga di ogni risultato. Hangar nasconde le chiavi e le password che riconosce, ma non può individuarle tutte. Non viene salvato nulla. Se disattivato, compaiono solo i nomi degli strumenti.",
 
   "status.starting": "in avvio",
   "status.running": "attiva",
@@ -6077,11 +6127,6 @@ const ja: Record<MessageKey, string> = {
   "subAgents.finished": "完了",
   "subAgents.stale": "応答なし",
   "subAgents.untitled": "サブエージェント",
-  "subAgents.tool": "ツール",
-  "subAgents.noTool": "まだなし",
-  "subAgents.history": "以前",
-  "subAgents.noExcerpt": "まだテキストはありません。",
-  "subAgents.excerptsOff": "テキストの抜粋は設定でオフになっています。",
   "subAgents.elapsed": "実行時間",
   "subAgents.all": "すべてのサブエージェント: {count}",
   "subAgents.counts": "実行中: {running} · 完了: {finished}",
@@ -6096,6 +6141,20 @@ const ja: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "このセッションでは現在サブエージェントを利用できません。再起動後に利用できます。",
   "subAgents.error": "サブエージェントを表示できません: {error}",
+  "subAgents.dismiss": "{name} を削除",
+  "subAgents.dismissFinished": "完了したものを削除",
+  "subAgents.dismissHelp":
+    "完了したサブエージェントをここから非表示にします。記録はそのまま残ります。",
+  "subAgents.showAll": "すべてのサブエージェント",
+  "subAgents.task": "タスク",
+  "subAgents.logEmpty": "まだ出力はありません。",
+  "subAgents.logOff":
+    "サブエージェントのテキストは設定でオフになっているため、ここにはツールだけが表示されます。",
+  "subAgents.gap": "以前の項目は省略されました",
+  "subAgents.moreLines": "+{count} 行",
+  "subAgents.failed": "エラー",
+  "subAgents.jumpToEnd": "末尾へ",
+  "subAgents.gone": "このサブエージェントはもうありません。",
   "settings.claims": "セッション間の重なりを検出",
   "settings.claimsHelp":
     "エージェントが変更するファイルを Hangar が確認し、2 つのセッションが同じファイルや同じ行を編集すると知らせます。すべてこのコンピューター内で行われ、ファイルの内容は読み取りません。",
@@ -6122,9 +6181,9 @@ const ja: Record<MessageKey, string> = {
     "このセッションでは変更は一時停止されません。Hangar のデータフォルダーのパスに cmd.exe が解釈する文字が含まれています。",
   "gate.profileSettings":
     "このセッションでは変更は一時停止されません。プロファイルが独自の --settings を既に渡しているため、Hangar は追加しません。",
-  "settings.subAgentExcerpts": "サブエージェントのテキスト抜粋を表示",
+  "settings.subAgentExcerpts": "サブエージェントのテキストを表示",
   "settings.subAgentExcerptsHelp":
-    "各サブエージェントの最新のテキストを表示します。認識できるキーやパスワードは隠され、何も保存されません。",
+    "各サブエージェントのタスク、テキスト、ツール呼び出し（コマンド、ファイルパス、Web アドレスを含む）と、各結果の最初の行を表示します。Hangar は認識できるキーやパスワードを隠しますが、すべてを見つけられるわけではありません。何も保存されません。オフの場合はツール名だけが表示されます。",
 
   "status.starting": "起動中",
   "status.running": "実行中",
@@ -7072,11 +7131,6 @@ const pl: Record<MessageKey, string> = {
   "subAgents.finished": "zakończony",
   "subAgents.stale": "brak aktywności",
   "subAgents.untitled": "Podagent",
-  "subAgents.tool": "Narzędzie",
-  "subAgents.noTool": "jeszcze brak",
-  "subAgents.history": "Wcześniej",
-  "subAgents.noExcerpt": "Jeszcze brak tekstu.",
-  "subAgents.excerptsOff": "Fragmenty tekstu są wyłączone w Ustawieniach.",
   "subAgents.elapsed": "Czas działania",
   "subAgents.all": "Wszyscy podagenci: {count}",
   "subAgents.counts": "działa: {running} · zakończone: {finished}",
@@ -7090,6 +7144,19 @@ const pl: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Podagenci nie są teraz dostępni dla tej sesji. Będą po ponownym uruchomieniu.",
   "subAgents.error": "Nie można pokazać podagentów: {error}",
+  "subAgents.dismiss": "Usuń {name}",
+  "subAgents.dismissFinished": "Usuń zakończone",
+  "subAgents.dismissHelp": "Ukrywa tutaj zakończonych podagentów. Ich zapisy pozostają.",
+  "subAgents.showAll": "Wszyscy podagenci",
+  "subAgents.task": "Zadanie",
+  "subAgents.logEmpty": "Jeszcze brak wyników.",
+  "subAgents.logOff":
+    "Tekst podagentów jest wyłączony w Ustawieniach, dlatego widać tu tylko narzędzia.",
+  "subAgents.gap": "Pominięto wcześniejsze wpisy",
+  "subAgents.moreLines": "+{count} wierszy",
+  "subAgents.failed": "Błąd",
+  "subAgents.jumpToEnd": "Na koniec",
+  "subAgents.gone": "Tego podagenta już nie ma.",
   "settings.claims": "Wykrywaj nakładanie się sesji",
   "settings.claimsHelp":
     "Hangar sprawdza, które pliki zmieniają agenci, i ostrzega, gdy dwie twoje sesje edytują ten sam plik lub te same wiersze. Wszystko zostaje na tym komputerze; Hangar nie czyta przy tym zawartości plików.",
@@ -7116,9 +7183,9 @@ const pl: Record<MessageKey, string> = {
     "W tej sesji zmiany nie są wstrzymywane: ścieżka folderu danych Hangara zawiera znaki, które cmd.exe by zinterpretował.",
   "gate.profileSettings":
     "W tej sesji zmiany nie są wstrzymywane: jej profil przekazuje już własne --settings, więc Hangar nie dodaje kolejnych.",
-  "settings.subAgentExcerpts": "Pokazuj fragmenty tekstu podagentów",
+  "settings.subAgentExcerpts": "Pokazuj tekst podagentów",
   "settings.subAgentExcerptsHelp":
-    "Pokazuje ostatni tekst każdego podagenta. Rozpoznawalne klucze i hasła są ukrywane, a nic nie jest zapisywane.",
+    "Pokazuje zadanie, tekst i wywołania narzędzi każdego podagenta wraz z ich poleceniami, ścieżkami plików i adresami stron oraz pierwszy wiersz każdego wyniku. Hangar ukrywa klucze i hasła, które rozpoznaje, ale nie wychwyci wszystkich. Nic nie jest zapisywane. Po wyłączeniu widać tylko nazwy narzędzi.",
 
   "status.starting": "uruchamia się",
   "status.running": "działa",
@@ -8058,11 +8125,6 @@ const pt: Record<MessageKey, string> = {
   "subAgents.finished": "concluído",
   "subAgents.stale": "sem atividade",
   "subAgents.untitled": "Subagente",
-  "subAgents.tool": "Ferramenta",
-  "subAgents.noTool": "nenhuma ainda",
-  "subAgents.history": "Antes",
-  "subAgents.noExcerpt": "Ainda não há texto.",
-  "subAgents.excerptsOff": "Os trechos de texto estão desativados nas Configurações.",
   "subAgents.elapsed": "Tempo de execução",
   "subAgents.all": "Todos os subagentes: {count}",
   "subAgents.counts": "em execução: {running} · concluídos: {finished}",
@@ -8076,6 +8138,20 @@ const pt: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Os subagentes não estão disponíveis agora para esta sessão. Estarão após reiniciá-la.",
   "subAgents.error": "Não foi possível mostrar os subagentes: {error}",
+  "subAgents.dismiss": "Remover {name}",
+  "subAgents.dismissFinished": "Remover concluídos",
+  "subAgents.dismissHelp":
+    "Oculta aqui os subagentes concluídos. As transcrições deles continuam guardadas.",
+  "subAgents.showAll": "Todos os subagentes",
+  "subAgents.task": "Tarefa",
+  "subAgents.logEmpty": "Ainda sem saída.",
+  "subAgents.logOff":
+    "O texto dos subagentes está desativado nas configurações, por isso aqui aparecem só as ferramentas.",
+  "subAgents.gap": "Entradas anteriores omitidas",
+  "subAgents.moreLines": "+{count} linhas",
+  "subAgents.failed": "Erro",
+  "subAgents.jumpToEnd": "Ir para o fim",
+  "subAgents.gone": "Este subagente não existe mais.",
   "settings.claims": "Detectar sobreposições entre sessões",
   "settings.claimsHelp":
     "O Hangar observa quais arquivos os agentes alteram e avisa quando duas sessões suas editam o mesmo arquivo ou as mesmas linhas. Tudo fica neste computador; o Hangar não lê o conteúdo dos arquivos para isso.",
@@ -8102,9 +8178,9 @@ const pt: Record<MessageKey, string> = {
     "Nesta sessão as alterações não são pausadas: o caminho da pasta de dados do Hangar contém caracteres que o cmd.exe interpretaria.",
   "gate.profileSettings":
     "Nesta sessão as alterações não são pausadas: o perfil dela já passa os próprios --settings, então o Hangar não adiciona outros.",
-  "settings.subAgentExcerpts": "Mostrar trechos de texto dos subagentes",
+  "settings.subAgentExcerpts": "Mostrar o texto dos subagentes",
   "settings.subAgentExcerptsHelp":
-    "Mostra o texto mais recente de cada subagente. Chaves e senhas reconhecíveis ficam ocultas e nada é salvo.",
+    "Mostra a tarefa, o texto e as chamadas de ferramentas de cada subagente com seus comandos, caminhos de arquivo e endereços da web, além da primeira linha de cada resultado. O Hangar oculta as chaves e senhas que reconhece, mas não consegue pegar todas. Nada é salvo. Desativado, aparecem só os nomes das ferramentas.",
 
   "status.starting": "iniciando",
   "status.running": "em execução",
@@ -9049,11 +9125,6 @@ const ru: Record<MessageKey, string> = {
   "subAgents.finished": "завершён",
   "subAgents.stale": "нет активности",
   "subAgents.untitled": "Субагент",
-  "subAgents.tool": "Инструмент",
-  "subAgents.noTool": "пока нет",
-  "subAgents.history": "Ранее",
-  "subAgents.noExcerpt": "Текста пока нет.",
-  "subAgents.excerptsOff": "Фрагменты текста отключены в настройках.",
   "subAgents.elapsed": "Время работы",
   "subAgents.all": "Все субагенты: {count}",
   "subAgents.counts": "работают: {running} · завершены: {finished}",
@@ -9067,6 +9138,19 @@ const ru: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Субагенты сейчас недоступны для этого сеанса. Они станут доступны после перезапуска.",
   "subAgents.error": "Не удалось показать субагентов: {error}",
+  "subAgents.dismiss": "Убрать {name}",
+  "subAgents.dismissFinished": "Убрать завершённые",
+  "subAgents.dismissHelp": "Скрывает здесь завершённых субагентов. Их журналы сохраняются.",
+  "subAgents.showAll": "Все субагенты",
+  "subAgents.task": "Задача",
+  "subAgents.logEmpty": "Вывода пока нет.",
+  "subAgents.logOff":
+    "Текст субагентов выключен в настройках, поэтому здесь видны только инструменты.",
+  "subAgents.gap": "Более ранние записи пропущены",
+  "subAgents.moreLines": "+{count} строк",
+  "subAgents.failed": "Ошибка",
+  "subAgents.jumpToEnd": "В конец",
+  "subAgents.gone": "Этого субагента больше нет.",
   "settings.claims": "Находить пересечения между сессиями",
   "settings.claimsHelp":
     "Hangar следит, какие файлы меняют агенты, и предупреждает, когда две твои сессии правят один файл или одни строки. Всё остаётся на этом компьютере; содержимое файлов Hangar для этого не читает.",
@@ -9093,9 +9177,9 @@ const ru: Record<MessageKey, string> = {
     "В этой сессии изменения не приостанавливаются: путь к папке данных Hangar содержит символы, которые cmd.exe стал бы интерпретировать.",
   "gate.profileSettings":
     "В этой сессии изменения не приостанавливаются: её профиль уже передаёт собственные --settings, поэтому Hangar не добавляет свои.",
-  "settings.subAgentExcerpts": "Показывать фрагменты текста субагентов",
+  "settings.subAgentExcerpts": "Показывать текст субагентов",
   "settings.subAgentExcerptsHelp":
-    "Показывает последний текст каждого субагента. Распознанные ключи и пароли скрываются, ничего не сохраняется.",
+    "Показывает задачу, текст и вызовы инструментов каждого субагента с их командами, путями к файлам и веб-адресами, а также первую строку каждого результата. Hangar скрывает ключи и пароли, которые распознаёт, но не может найти все. Ничего не сохраняется. Если выключено, видны только названия инструментов.",
 
   "status.starting": "запускается",
   "status.running": "запущен",
@@ -10029,11 +10113,6 @@ const tr: Record<MessageKey, string> = {
   "subAgents.finished": "bitti",
   "subAgents.stale": "etkinlik yok",
   "subAgents.untitled": "Alt ajan",
-  "subAgents.tool": "Araç",
-  "subAgents.noTool": "henüz yok",
-  "subAgents.history": "Önceki",
-  "subAgents.noExcerpt": "Henüz metin yok.",
-  "subAgents.excerptsOff": "Metin alıntıları Ayarlar'da kapalı.",
   "subAgents.elapsed": "Çalışma süresi",
   "subAgents.all": "Tüm alt ajanlar: {count}",
   "subAgents.counts": "çalışıyor: {running} · bitti: {finished}",
@@ -10046,6 +10125,19 @@ const tr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Bu oturum için alt ajanlar şu anda kullanılamıyor. Yeniden başlattıktan sonra kullanılabilir.",
   "subAgents.error": "Alt ajanlar gösterilemiyor: {error}",
+  "subAgents.dismiss": "{name} öğesini kaldır",
+  "subAgents.dismissFinished": "Bitenleri kaldır",
+  "subAgents.dismissHelp": "Biten alt ajanları burada gizler. Kayıtları korunur.",
+  "subAgents.showAll": "Tüm alt ajanlar",
+  "subAgents.task": "Görev",
+  "subAgents.logEmpty": "Henüz çıktı yok.",
+  "subAgents.logOff":
+    "Alt ajan metni Ayarlar'da kapalı, bu yüzden burada yalnızca araçlar görünür.",
+  "subAgents.gap": "Önceki girdiler atlandı",
+  "subAgents.moreLines": "+{count} satır",
+  "subAgents.failed": "Hata",
+  "subAgents.jumpToEnd": "Sona git",
+  "subAgents.gone": "Bu alt ajan artık yok.",
   "settings.claims": "Oturumlar arasındaki çakışmaları algıla",
   "settings.claimsHelp":
     "Hangar ajanların hangi dosyaları değiştirdiğine bakar ve iki oturumun aynı dosyayı ya da aynı satırları düzenlediğinde seni uyarır. Her şey bu bilgisayarda kalır; Hangar bunun için dosya içeriği okumaz.",
@@ -10072,9 +10164,9 @@ const tr: Record<MessageKey, string> = {
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar'ın veri klasörünün yolu, cmd.exe'nin yorumlayacağı karakterler içeriyor.",
   "gate.profileSettings":
     "Bu oturumda değişiklikler duraklatılmıyor: profili zaten kendi --settings değerini iletiyor, bu yüzden Hangar ek bir tane eklemiyor.",
-  "settings.subAgentExcerpts": "Alt ajan metin alıntılarını göster",
+  "settings.subAgentExcerpts": "Alt ajan metnini göster",
   "settings.subAgentExcerptsHelp":
-    "Her alt ajanın son metnini gösterir. Tanınabilen anahtarlar ve parolalar gizlenir, hiçbiri kaydedilmez.",
+    "Her alt ajanın görevini, metnini ve araç çağrılarını komutları, dosya yolları ve web adresleriyle birlikte, ayrıca her sonucun ilk satırını gösterir. Hangar tanıdığı anahtarları ve parolaları gizler, ancak hepsini yakalayamaz. Hiçbir şey kaydedilmez. Kapalıyken yalnızca araç adları görünür.",
 
   "status.starting": "başlıyor",
   "status.running": "etkin",
@@ -11006,11 +11098,6 @@ const zh: Record<MessageKey, string> = {
   "subAgents.finished": "已完成",
   "subAgents.stale": "无活动",
   "subAgents.untitled": "子代理",
-  "subAgents.tool": "工具",
-  "subAgents.noTool": "暂无",
-  "subAgents.history": "之前",
-  "subAgents.noExcerpt": "暂无文本。",
-  "subAgents.excerptsOff": "文本摘录已在设置中关闭。",
   "subAgents.elapsed": "运行时间",
   "subAgents.all": "全部子代理：{count}",
   "subAgents.counts": "运行中：{running} · 已完成：{finished}",
@@ -11022,6 +11109,18 @@ const zh: Record<MessageKey, string> = {
   "subAgents.none": "暂无子代理。代理启动子代理后会显示在这里。",
   "subAgents.unavailable": "此会话目前无法使用子代理，重新启动后即可使用。",
   "subAgents.error": "无法显示子代理：{error}",
+  "subAgents.dismiss": "移除 {name}",
+  "subAgents.dismissFinished": "移除已完成",
+  "subAgents.dismissHelp": "在此隐藏已完成的子代理。它们的记录会保留。",
+  "subAgents.showAll": "所有子代理",
+  "subAgents.task": "任务",
+  "subAgents.logEmpty": "暂无输出。",
+  "subAgents.logOff": "子代理文本已在设置中关闭，因此这里只显示工具。",
+  "subAgents.gap": "已省略较早的条目",
+  "subAgents.moreLines": "+{count} 行",
+  "subAgents.failed": "错误",
+  "subAgents.jumpToEnd": "跳到末尾",
+  "subAgents.gone": "此子代理已不存在。",
   "settings.claims": "检测会话之间的重叠",
   "settings.claimsHelp":
     "Hangar 会查看代理修改了哪些文件，并在你的两个会话编辑同一文件或相同的行时提醒你。一切都留在这台电脑上，Hangar 不会为此读取文件内容。",
@@ -11046,9 +11145,9 @@ const zh: Record<MessageKey, string> = {
   "gate.launcher": "此会话中的修改不会暂停：Hangar 数据文件夹的路径包含 cmd.exe 会解释的字符。",
   "gate.profileSettings":
     "此会话中的修改不会暂停：其配置文件已传入自己的 --settings，因此 Hangar 不再添加。",
-  "settings.subAgentExcerpts": "显示子代理文本摘录",
+  "settings.subAgentExcerpts": "显示子代理文本",
   "settings.subAgentExcerptsHelp":
-    "显示每个子代理的最新文本。可识别的密钥和密码会被隐藏，不会保存任何内容。",
+    "显示每个子代理的任务、文本和工具调用（包括其命令、文件路径和网址），以及每个结果的第一行。Hangar 会隐藏它能识别的密钥和密码，但无法全部发现。不会保存任何内容。关闭时只显示工具名称。",
 
   "status.starting": "正在启动",
   "status.running": "运行中",

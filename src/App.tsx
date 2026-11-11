@@ -184,7 +184,7 @@ import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
-import { schemeColors, type TerminalLook } from "./terminalLook";
+import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import {
   isDue,
@@ -204,10 +204,15 @@ import { useProgramUpdates } from "./useProgramUpdates";
 import { useGitBranches } from "./useGitBranches";
 import { useSessionDrag } from "./useSessionDrag";
 import { useSplitView } from "./useSplitView";
-import { watchKey } from "./subAgentStore";
-import { useSubAgentSummary, useSubAgentWatch } from "./useSubAgents";
-import { nextViewPeak, subAgentLayout, watchedSession, type ViewPeak } from "./subAgents";
-import { SubAgentPanes } from "./SubAgentPanes";
+import { subAgentsNow, useSubAgentSummary, useSubAgentWatch } from "./useSubAgents";
+import {
+  dismissedIn,
+  dismissFinished,
+  visibleAgents,
+  watchedSession,
+  type Dismissed,
+} from "./subAgents";
+import { SubAgentPane } from "./SubAgentPane";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { useTeam } from "./useTeam";
@@ -473,10 +478,13 @@ export function App() {
    * is the active one; switching sessions or arranging the panes ends the view.
    */
   const [subAgentsOf, setSubAgentsOf] = useState<number | null>(null);
-  /** Most sub-agents seen since the view opened (its layout never shrinks while open). */
-  const [subAgentPeak, setSubAgentPeak] = useState<ViewPeak>({ key: null, count: 0 });
-  /** Sub-agent picked in the sidebar's tree: its pane is highlighted in the open view. */
+  /** Sub-agent whose activity the view shows; `null`: the list of all of them. */
   const [subAgentPick, setSubAgentPick] = useState<string | null>(null);
+  /**
+   * Finished sub-agents removed from the tree and the list, per session and conversation. Only
+   * in memory: a view preference for this run of Hangar, while the transcripts stay untouched.
+   */
+  const [dismissedSubAgents, setDismissedSubAgents] = useState<Dismissed>(() => new Map());
   /** Layout picker (View, quick access) for the active session; `preview` is its chosen zone. */
   const [snapPicker, setSnapPicker] = useState<{ preview: SnapTarget | null } | null>(null);
   /** Screen reader message after a session moved in the sidebar. */
@@ -753,11 +761,13 @@ export function App() {
 
   useEffect(() => {
     applyDocumentTheme(theme);
-    // The area around the terminals takes the scheme's background, so no frame shows.
-    document.documentElement.style.setProperty(
-      "--terminal-bg",
-      schemeColors(terminalLook.scheme, theme).background,
-    );
+    // The area around the terminals takes the scheme's background, so no frame shows; the
+    // sub-agent log reads like a terminal with the scheme's text color and font.
+    const colors = schemeColors(terminalLook.scheme, theme);
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty("--terminal-bg", colors.background);
+    rootStyle.setProperty("--terminal-fg", colors.foreground);
+    rootStyle.setProperty("--terminal-font", fontStack(terminalLook.font));
     // Change options only: xterm repaints, content and scrollback stay.
     for (const terminal of terminals.values()) terminal.setLook(terminalLook, theme);
   }, [theme, terminalLook]);
@@ -1162,7 +1172,8 @@ export function App() {
 
   // Sub-agents: one watch, for the open view's session or else the active session while the
   // sidebar shows its tree; a restart or resume fallback with a new conversation id starts a new
-  // watch. Excerpts only flow while the view shows them; the tree needs none.
+  // watch. Texts only flow while the view is open; the tree needs none. The log follows the
+  // sub-agent the view shows (focus), without restarting the watch.
   const subAgentSession =
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
@@ -1176,22 +1187,14 @@ export function App() {
           sessionId: watched.id,
           cliSessionId: watched.cliSessionId ?? null,
           excerpts: settings.subAgentExcerpts && subAgentsOf !== null,
+          focus: subAgentsOf === null ? null : subAgentPick,
         }
       : null,
   );
+  const subAgentHidden = dismissedIn(dismissedSubAgents, subAgentKey);
   // Only counts and states: a snapshot that changes times, tools or excerpts renders the tree and
-  // the panes (they read the store themselves), never the app.
-  const subAgentWatch = useSubAgentSummary(subAgentKey);
-  // The view's layout grows with the most sub-agents seen since it opened (or its conversation
-  // changed), not since the watch started for the tree.
-  const viewPeak = nextViewPeak(
-    subAgentPeak,
-    subAgentSession === undefined
-      ? null
-      : watchKey(subAgentSession.id, subAgentSession.cliSessionId ?? null),
-    subAgentWatch.count,
-  );
-  if (viewPeak !== subAgentPeak) setSubAgentPeak(viewPeak);
+  // the pane (they read the store themselves), never the app.
+  const subAgentWatch = useSubAgentSummary(subAgentKey, subAgentHidden);
   if (subAgentsOf === null && subAgentPick !== null) setSubAgentPick(null);
   const subAgentNotice =
     subAgentWatch.error !== null
@@ -1205,13 +1208,12 @@ export function App() {
             : t("subAgents.none");
   const subAgentShowsNotice =
     subAgentWatch.error !== null || !subAgentsAvailable || subAgentWatch.located !== true;
-  /** Layout of the open view (its panes are planned by SubAgentPanes), `null` while closed. */
-  const subAgentPlan =
-    subAgentSession === undefined
-      ? null
-      : {
-          layout: subAgentLayout(subAgentWatch.count, viewPeak.count, subAgentShowsNotice),
-        };
+  /**
+   * Layout of the open view, `null` while closed: always the session's terminal with one pane
+   * beside it, so the main agent stays in sight (and can be answered) while a sub-agent's
+   * activity shows, and switching sub-agents never resizes the terminal.
+   */
+  const subAgentPlan = subAgentSession === undefined ? null : { layout: "pair" as const };
   // Sessions shown in a pane right now; the chime stays silent for them while the window has focus.
   const shown = new Set<number>(state.activeId === null ? [] : [state.activeId]);
   if (subAgentPlan === null) {
@@ -1279,17 +1281,36 @@ export function App() {
     focusTerminal();
   };
   /**
-   * A row of the sidebar's tree: opens the view (if closed) with this sub-agent highlighted;
-   * `null` ("+N more") opens it without a pick. A mouse click returns to the terminal, the
-   * keyboard stays in the tree.
+   * A row of the sidebar's tree: shows this sub-agent's activity beside the terminal (the row
+   * that is already shown closes it again); `null` ("+N more") shows the list of all of them.
+   * A mouse click returns to the terminal, the keyboard stays in the tree.
    */
   const showSubAgent = (id: number, agentId: string | null, byKeyboard: boolean) => {
-    if (subAgentsOf !== id) {
-      dispatch({ type: "activated", id });
-      setSubAgentsOf(id);
+    if (subAgentsOf === id && agentId !== null && subAgentPick === agentId) {
+      setSubAgentsOf(null);
+    } else {
+      if (subAgentsOf !== id) {
+        dispatch({ type: "activated", id });
+        setSubAgentsOf(id);
+      }
+      setSubAgentPick(agentId);
     }
-    setSubAgentPick(agentId);
     if (!byKeyboard) focusTerminal();
+  };
+  /**
+   * Removes finished sub-agents from the tree and the list; a shown one closes the view. A mouse
+   * click returns to the terminal (the clicked button is gone), the keyboard stays in the tree.
+   */
+  const dismissSubAgents = (ids: readonly string[], byKeyboard: boolean) => {
+    if (subAgentKey === null) return;
+    const agents = subAgentsNow(subAgentKey);
+    const next = dismissFinished(dismissedSubAgents, subAgentKey, agents, ids);
+    if (next === dismissedSubAgents) return;
+    setDismissedSubAgents(next);
+    const hidden = dismissedIn(next, subAgentKey);
+    if (subAgentPick !== null && hidden.has(subAgentPick)) setSubAgentsOf(null);
+    // With the last row gone the tree disappears; the keyboard goes back to the terminal.
+    if (!byKeyboard || visibleAgents(agents, hidden).length === 0) focusTerminal();
   };
 
   /** New place of a session in the sidebar (drag or Alt+arrow); the workspace saves the order. */
@@ -3514,12 +3535,13 @@ export function App() {
             watchedId !== null &&
             watchedId === state.activeId &&
             subAgentWatch.count > 0
-              ? { sessionId: watchedId, watchKey: subAgentKey }
+              ? { sessionId: watchedId, watchKey: subAgentKey, hidden: subAgentHidden }
               : null
           }
           subAgentsOpen={subAgentsOf}
           subAgentPick={subAgentPick}
           onShowSubAgent={showSubAgent}
+          onDismissSubAgents={dismissSubAgents}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
             const update = updater.state.update;
@@ -3628,14 +3650,15 @@ export function App() {
                 );
               })}
               {subAgentPlan !== null && subAgentSession !== undefined && (
-                <SubAgentPanes
+                <SubAgentPane
                   title={subAgentSession.title}
                   watchKey={subAgentKey}
-                  peak={viewPeak.count}
                   showNotice={subAgentShowsNotice}
                   notice={subAgentNotice}
                   excerpts={settings.subAgentExcerpts}
                   picked={subAgentPick}
+                  hidden={subAgentHidden}
+                  onPick={setSubAgentPick}
                   onClose={closeSubAgents}
                 />
               )}

@@ -10,9 +10,11 @@
 //! `<config>` is `CLAUDE_CONFIG_DIR` or `~/.claude`. The project folder is found by looking for
 //! the session's transcript, not computed: how Claude encodes long paths is unverified.
 //!
-//! Privacy: only a whitelist leaves this module ([`SubAgent`]). User records (prompts, tool
-//! results) and every other record type are never parsed; of assistant records only the text
-//! blocks and the tool names are read, never tool inputs.
+//! Privacy: for the snapshot only a whitelist leaves this module ([`SubAgent`]). User records
+//! (prompts, tool results) and every other record type are never parsed for it; of assistant
+//! records only the text blocks and the tool names are read, never tool inputs. The log of the
+//! one focused sub-agent ([`SubAgentSource::poll_log`]) is parsed by [`claude_log`], which
+//! applies the same excerpt setting and masking.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -22,9 +24,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use super::redact::redact;
-use super::tail::{open_shared, Tail};
-use super::{AgentStatus, Snapshot, SubAgent, SubAgentSource, Target};
+use super::claude_log;
+pub use super::is_agent_id;
+use super::redact::{redact, strip_controls};
+use super::tail::{first_line, open_shared, Tail, MAX_LINE};
+use super::{
+    AgentStatus, LogBatch, LogEntry, Snapshot, SubAgent, SubAgentSource, Target, MAX_LOG_BATCH,
+};
 
 /// Variable that moves Claude's config folder; read from the profile's `env` first.
 pub const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
@@ -71,15 +77,6 @@ pub fn encode_project(cwd: &Path) -> String {
         .collect()
 }
 
-/// Agent ids as they appear in file names (measured: `a` plus 16 hex digits). Anything that could
-/// leave the folder or look like another file is rejected before a path is built from it.
-pub fn is_agent_id(id: &str) -> bool {
-    (1..=64).contains(&id.len())
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
-
 fn agent_id_of(file_name: &str) -> Option<(&str, FileKind)> {
     let rest = file_name.strip_prefix("agent-")?;
     let (id, kind) = if let Some(id) = rest.strip_suffix(".meta.json") {
@@ -121,6 +118,18 @@ struct AgentState {
     excerpt: Option<String>,
 }
 
+/// The log reads more of the end of a transcript than the snapshot: it shows the history, not
+/// only the latest state. Every poll after the first reads only what was appended.
+pub const LOG_INITIAL_TAIL: u64 = 1024 * 1024;
+
+/// The log of the focused sub-agent: its own read position, apart from the snapshot's.
+struct FocusLog {
+    id: String,
+    tail: Tail,
+    /// [`Tail::generation`] of the last batch sent; another one means a reset.
+    sent: Option<u32>,
+}
+
 pub struct ClaudeSource {
     projects: PathBuf,
     session: String,
@@ -137,6 +146,7 @@ pub struct ClaudeSource {
     /// `false`: assistant text is never read, `excerpt` stays `null`.
     excerpts: bool,
     agents: BTreeMap<String, AgentState>,
+    focus: Option<FocusLog>,
 }
 
 impl ClaudeSource {
@@ -153,6 +163,7 @@ impl ClaudeSource {
             scanned: None,
             excerpts,
             agents: BTreeMap::new(),
+            focus: None,
         }
     }
 
@@ -339,6 +350,65 @@ impl SubAgentSource for ClaudeSource {
             agents,
         }
     }
+
+    fn focus(&mut self, agent: Option<String>) {
+        self.focus = agent.filter(|id| is_agent_id(id)).map(|id| FocusLog {
+            id,
+            tail: Tail::with_initial(LOG_INITIAL_TAIL),
+            sent: None,
+        });
+    }
+
+    /// Reads only what was appended since the last call. The transcript is opened only when the
+    /// last scan found it in the contained sub-agent folder, so a focus never reaches a file the
+    /// snapshot would not read.
+    fn poll_log(&mut self) -> Option<LogBatch> {
+        let dir = self.subagents.as_ref()?;
+        let focus = self.focus.as_mut()?;
+        if !self.agents.contains_key(&focus.id) {
+            return None;
+        }
+        let path = dir.join(format!("agent-{}.jsonl", focus.id));
+        // A read error (file just deleted, locked for a moment) is retried on the next poll.
+        let lines = focus.tail.read_new(&path).ok()?;
+        let reset = focus.sent != Some(focus.tail.generation());
+        let mut head = Vec::new();
+        let excerpts = self.excerpts;
+        if reset && focus.tail.skipped_head() {
+            // The task stands in the first line, which the tail of a long transcript leaves out.
+            if excerpts {
+                if let Ok(Some(first)) = first_line(&path, MAX_LINE) {
+                    head.extend(
+                        claude_log::entries(&first, true)
+                            .into_iter()
+                            .filter(|entry| matches!(entry, LogEntry::Prompt { .. })),
+                    );
+                }
+            }
+            head.push(LogEntry::Gap);
+        }
+        let mut body: Vec<LogEntry> = lines
+            .iter()
+            .flat_map(|line| claude_log::entries(line, excerpts))
+            .collect();
+        let room = MAX_LOG_BATCH.saturating_sub(head.len() + 1);
+        if body.len() > room {
+            body.drain(..body.len() - room);
+            if head.last() != Some(&LogEntry::Gap) {
+                head.push(LogEntry::Gap);
+            }
+        }
+        if !reset && head.is_empty() && body.is_empty() {
+            return None;
+        }
+        focus.sent = Some(focus.tail.generation());
+        head.append(&mut body);
+        Some(LogBatch {
+            agent_id: focus.id.clone(),
+            reset,
+            entries: head,
+        })
+    }
 }
 
 fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
@@ -359,7 +429,7 @@ fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
             .meta
             .description
             .as_deref()
-            .and_then(|d| clean(&redact(d), MAX_DESCRIPTION_CHARS)),
+            .and_then(|d| masked(d, MAX_DESCRIPTION_CHARS)),
         agent_type: state
             .meta
             .agent_type
@@ -446,24 +516,28 @@ fn apply_record(state: &mut AgentState, line: &[u8], excerpts: bool) {
     }
 }
 
-/// Secrets are masked on the whole text, before it is cut, so a cut cannot hide a key's start.
 fn set_excerpt(state: &mut AgentState, text: &str) {
-    if let Some(excerpt) = clean(&redact(text), MAX_EXCERPT_CHARS) {
+    if let Some(excerpt) = masked(text, MAX_EXCERPT_CHARS) {
         state.excerpt = Some(excerpt);
     }
 }
 
-/// Trimmed, without control characters except newline and tab and without invisible format
-/// characters ([`crate::text::is_invisible`]: bidi overrides, zero-width characters), at most
-/// `max` characters (the last one an ellipsis when cut). `None` when nothing is left.
+/// Text from a transcript as it may leave the source: terminal sequences and invisible
+/// characters go first (a color code inside `API_KEY=...` would hide the name from the mask),
+/// then secrets are masked on the whole text, and only then is it cut, so a cut cannot hide a
+/// key's start.
+pub fn masked(text: &str, max: usize) -> Option<String> {
+    clean(&redact(&strip_controls(text)), max)
+}
+
+/// Trimmed, without terminal sequences and control characters except newline and tab, and
+/// without invisible format characters ([`strip_controls`]), at most `max` characters (the last
+/// one an ellipsis when cut). `None` when nothing is left.
 pub fn clean(text: &str, max: usize) -> Option<String> {
-    let text = text.trim();
+    let stripped = strip_controls(text);
     let mut out = String::new();
     let mut count = 0;
-    let mut chars = text
-        .chars()
-        .filter(|c| (!c.is_control() || *c == '\n' || *c == '\t') && !crate::text::is_invisible(*c))
-        .peekable();
+    let mut chars = stripped.trim().chars().peekable();
     while let Some(c) = chars.next() {
         if count + 1 == max && chars.peek().is_some() {
             out.push('\u{2026}');
@@ -629,6 +703,149 @@ mod tests {
         }
     }
 
+    fn prompt(text: &str) -> String {
+        format!("{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"{text}\"}}}}\n")
+    }
+
+    fn texts(batch: &LogBatch) -> Vec<String> {
+        batch
+            .entries
+            .iter()
+            .map(|entry| match entry {
+                LogEntry::Prompt { text } => format!("prompt {text}"),
+                LogEntry::Text { text } => format!("text {text}"),
+                LogEntry::Tool { name, detail } => format!("tool {name} {detail:?}"),
+                LogEntry::Result { text, .. } => format!("result {text:?}"),
+                LogEntry::Gap => "gap".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn focused_log_streams_only_what_was_appended() {
+        let fx = Fixture::new("log");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("Find the parser"));
+        append(
+            &path,
+            &assistant(
+                "{\"type\":\"tool_use\",\"name\":\"Grep\",\"input\":{\"pattern\":\"fn parse\"}}",
+            ),
+        );
+        append(&sub.join("agent-a2.jsonl"), &prompt("Other"));
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        // No focus, no log.
+        source.poll(SystemTime::now());
+        assert_eq!(source.poll_log(), None);
+        // An agent that does not exist yet: nothing until it appears.
+        source.focus(Some("a9".into()));
+        source.poll(SystemTime::now());
+        assert_eq!(source.poll_log(), None);
+        // Ids that could leave the folder are dropped.
+        source.focus(Some("../a1".into()));
+        assert!(source.focus.is_none());
+
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let first = source.poll_log().unwrap();
+        assert_eq!(first.agent_id, "a1");
+        assert!(first.reset);
+        assert_eq!(
+            texts(&first),
+            ["prompt Find the parser", "tool Grep Some(\"fn parse\")"]
+        );
+        source.poll(SystemTime::now());
+        assert_eq!(source.poll_log(), None);
+        append(
+            &path,
+            &assistant("{\"type\":\"text\",\"text\":\"Found it\"}"),
+        );
+        source.poll(SystemTime::now());
+        let next = source.poll_log().unwrap();
+        assert!(!next.reset);
+        assert_eq!(texts(&next), ["text Found it"]);
+        // A new focus starts over with a reset, even on the same agent.
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let again = source.poll_log().unwrap();
+        assert!(again.reset);
+        assert_eq!(again.entries.len(), 3);
+        source.focus(None);
+        assert_eq!(source.poll_log(), None);
+    }
+
+    #[test]
+    fn focused_log_without_excerpts_shows_tool_names_only() {
+        let fx = Fixture::new("log-quiet");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("PROMPT-MARKER"));
+        append(&path, &assistant(
+            "{\"type\":\"text\",\"text\":\"TEXT-MARKER\"},{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"INPUT-MARKER\"}}",
+        ));
+        let mut source = ClaudeSource::new(&fx.target(), false);
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let batch = source.poll_log().unwrap();
+        assert_eq!(texts(&batch), ["tool Read None"]);
+    }
+
+    #[test]
+    fn long_transcripts_keep_the_task_and_mark_the_gap() {
+        let fx = Fixture::new("log-long");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("The task"));
+        let filler = assistant(&format!(
+            "{{\"type\":\"text\",\"text\":\"{}\"}}",
+            "f".repeat(1000)
+        ));
+        let mut content = String::new();
+        while (content.len() as u64) < LOG_INITIAL_TAIL + 4096 {
+            content.push_str(&filler);
+        }
+        append(&path, &content);
+        append(&path, &assistant("{\"type\":\"text\",\"text\":\"last\"}"));
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        let batch = source.poll_log().unwrap();
+        let shown = texts(&batch);
+        assert_eq!(shown[0], "prompt The task");
+        assert_eq!(shown[1], "gap");
+        assert_eq!(shown.last().map(String::as_str), Some("text last"));
+        assert!(batch.entries.len() <= MAX_LOG_BATCH);
+    }
+
+    #[test]
+    fn a_burst_keeps_its_newest_lines() {
+        let fx = Fixture::new("log-burst");
+        let sub = fx.subagents(&fx.project("p"));
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &prompt("start"));
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        source.focus(Some("a1".into()));
+        source.poll(SystemTime::now());
+        assert!(source.poll_log().unwrap().reset);
+        let mut burst = String::new();
+        for index in 0..MAX_LOG_BATCH + 50 {
+            burst.push_str(&assistant(&format!(
+                "{{\"type\":\"text\",\"text\":\"n{index}\"}}"
+            )));
+        }
+        append(&path, &burst);
+        source.poll(SystemTime::now());
+        let batch = source.poll_log().unwrap();
+        assert!(!batch.reset);
+        assert_eq!(batch.entries.len(), MAX_LOG_BATCH);
+        assert_eq!(batch.entries[0], LogEntry::Gap);
+        assert_eq!(
+            batch.entries.last(),
+            Some(&LogEntry::text(format!("n{}", MAX_LOG_BATCH + 49)))
+        );
+    }
+
     #[test]
     fn finished_and_stale_status() {
         let fx = Fixture::new("status");
@@ -716,7 +933,8 @@ mod tests {
             .clone()
             .unwrap();
         assert_eq!(excerpt.chars().count(), MAX_EXCERPT_CHARS);
-        assert!(excerpt.starts_with("[31mzzz"));
+        // The whole color sequence goes, not only its ESC.
+        assert!(excerpt.starts_with("zzz"), "{excerpt}");
         assert!(excerpt.ends_with('\u{2026}'));
         // String content (older format) counts as text too.
         append(

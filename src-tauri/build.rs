@@ -71,6 +71,7 @@ const COMMANDS: &[&str] = &[
     "paste_clipboard_image",
     "configure_tray",
     "watch_sub_agents",
+    "focus_sub_agent",
     "unwatch_sub_agents",
     "account_status",
     "account_sign_in",

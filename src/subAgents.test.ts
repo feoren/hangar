@@ -3,23 +3,32 @@ import { describe, expect, it } from "vitest";
 import { createTranslator } from "./i18n";
 import {
   agentTitle,
+  applyLog,
   countsText,
-  applySnapshot,
+  dismissedIn,
+  dismissFinished,
   elapsedMs,
-  EMPTY_VIEW,
+  EMPTY_LOG,
   featuredAgents,
+  finishedIds,
   formatElapsed,
-  nextViewPeak,
+  logFor,
+  MAX_LOG_LINES,
   parseSubAgentEvent,
-  planSubAgentPanes,
+  parseSubAgentLog,
   statusCounts,
-  subAgentLayout,
   subAgentTree,
-  TOOL_HISTORY,
   TREE_ROWS,
+  viewOfSnapshot,
+  visibleAgents,
   watchedSession,
   withoutExcerpts,
+  withoutLogText,
+  type Dismissed,
+  type LogBatch,
+  type LogEntry,
   type SubAgent,
+  type SubAgentLog,
   type SubAgentSnapshot,
   type SubAgentStatus,
 } from "./subAgents";
@@ -116,82 +125,12 @@ describe("parseSubAgentEvent", () => {
   });
 });
 
-describe("applySnapshot", () => {
-  it("replaces the agents and remembers earlier tool names, newest first", () => {
-    let view = applySnapshot(EMPTY_VIEW, snapshot([agent("a", "running", { tool: "Glob" })]));
+describe("viewOfSnapshot", () => {
+  it("replaces the agents with the snapshot's", () => {
+    const view = viewOfSnapshot(snapshot([agent("a"), agent("b")]));
     expect(view.located).toBe(true);
-    expect(view.history.get("a")).toEqual([]);
-    view = applySnapshot(view, snapshot([agent("a", "running", { tool: "Grep" })]));
-    view = applySnapshot(view, snapshot([agent("a", "running", { tool: "Grep" })]));
-    view = applySnapshot(view, snapshot([agent("a", "running", { tool: "Read" })]));
-    expect(view.history.get("a")).toEqual(["Grep", "Glob"]);
-  });
-
-  it("keeps the history short and forgets agents that are gone", () => {
-    let view = EMPTY_VIEW;
-    for (const tool of ["T1", "T2", "T3", "T4", "T5", "T6", "T7"]) {
-      view = applySnapshot(view, snapshot([agent("a", "running", { tool })]));
-    }
-    expect(view.history.get("a")).toEqual(["T6", "T5", "T4", "T3"]);
-    expect(view.history.get("a")).toHaveLength(TOOL_HISTORY);
-    view = applySnapshot(view, snapshot([agent("b")]));
-    expect(view.history.has("a")).toBe(false);
-  });
-
-  it("remembers the most agents seen, so the layout never shrinks", () => {
-    let view = applySnapshot(EMPTY_VIEW, snapshot([agent("a"), agent("b")]));
-    view = applySnapshot(view, snapshot([agent("a")]));
-    expect(view.peak).toBe(2);
-  });
-});
-
-describe("planSubAgentPanes", () => {
-  const viewWith = (count: number) =>
-    applySnapshot(
-      EMPTY_VIEW,
-      snapshot(Array.from({ length: count }, (_, index) => agent(`a${String(index)}`))),
-    );
-
-  it("shows a notice beside the session while there is nothing to show", () => {
-    expect(planSubAgentPanes(EMPTY_VIEW, true)).toEqual({
-      layout: "pair",
-      panes: [{ kind: "notice" }],
-    });
-    expect(planSubAgentPanes(viewWith(0), false).panes).toEqual([{ kind: "notice" }]);
-    expect(planSubAgentPanes(viewWith(2), true).panes).toEqual([{ kind: "notice" }]);
-  });
-
-  it("gives up to three sub-agents a pane each", () => {
-    expect(planSubAgentPanes(viewWith(1), false)).toEqual({
-      layout: "pair",
-      panes: [{ kind: "agent", id: "a0" }],
-    });
-    expect(planSubAgentPanes(viewWith(2), false)).toEqual({
-      layout: "mainStack",
-      panes: [
-        { kind: "agent", id: "a0" },
-        { kind: "agent", id: "a1" },
-      ],
-    });
-    expect(planSubAgentPanes(viewWith(3), false).layout).toBe("quad");
-  });
-
-  it("shows two featured sub-agents and a list once there are more than zones", () => {
-    const plan = planSubAgentPanes(viewWith(6), false);
-    expect(plan.layout).toBe("quad");
-    expect(plan.panes).toEqual([
-      { kind: "agent", id: "a4" },
-      { kind: "agent", id: "a5" },
-      { kind: "list" },
-    ]);
-  });
-
-  it("keeps the larger layout when the snapshot gets smaller", () => {
-    const view = applySnapshot(viewWith(2), snapshot([agent("a0")]));
-    expect(planSubAgentPanes(view, false)).toEqual({
-      layout: "mainStack",
-      panes: [{ kind: "agent", id: "a0" }, { kind: "empty" }],
-    });
+    expect(view.agents.map((a) => a.id)).toEqual(["a", "b"]);
+    expect(viewOfSnapshot(snapshot([], false))).toEqual({ located: false, agents: [] });
   });
 });
 
@@ -209,44 +148,19 @@ describe("featuredAgents", () => {
     ).toEqual(["x", "y"]);
   });
 
-  it("puts the sub-agent picked in the sidebar first", () => {
+  it("puts the preferred sub-agent first", () => {
     const agents = [agent("picked", "finished"), agent("a"), agent("b"), agent("c")];
     expect(featuredAgents(agents, 2, "picked").map((a) => a.id)).toEqual(["picked", "c"]);
     expect(featuredAgents(agents, 2, "gone").map((a) => a.id)).toEqual(["b", "c"]);
-  });
-
-  it("gives the picked sub-agent a pane of its own in the grid", () => {
-    const agents = ["a", "b", "c", "d", "e"].map((id) => agent(id));
-    const view = applySnapshot(EMPTY_VIEW, snapshot(agents));
-    expect(planSubAgentPanes(view, false, "a").panes).toEqual([
-      { kind: "agent", id: "a" },
-      { kind: "agent", id: "e" },
-      { kind: "list" },
-    ]);
-  });
-});
-
-describe("subAgentLayout", () => {
-  it("gives the same layout as the full plan, from counts alone", () => {
-    for (const count of [0, 1, 2, 3, 4, 7]) {
-      for (const peak of [0, 2, 5]) {
-        for (const notice of [false, true]) {
-          const agents = Array.from({ length: count }, (_, index) => agent(`a${String(index)}`));
-          const view = { ...applySnapshot(EMPTY_VIEW, snapshot(agents)), peak };
-          expect(subAgentLayout(count, peak, notice)).toBe(planSubAgentPanes(view, notice).layout);
-        }
-      }
-    }
   });
 });
 
 describe("withoutExcerpts", () => {
   it("drops every excerpt and keeps the rest", () => {
-    const view = applySnapshot(EMPTY_VIEW, snapshot([agent("a"), agent("b")]));
+    const view = viewOfSnapshot(snapshot([agent("a"), agent("b")]));
     const quiet = withoutExcerpts(view);
     expect(quiet.agents.map((a) => a.excerpt)).toEqual([null, null]);
     expect(quiet.agents.map((a) => a.tool)).toEqual(["Grep", "Grep"]);
-    expect(quiet.history).toBe(view.history);
     expect(withoutExcerpts(quiet)).toBe(quiet);
   });
 });
@@ -271,18 +185,151 @@ describe("subAgentTree", () => {
     expect(tree.more).toBe(3);
     expect(subAgentTree(agents, TREE_ROWS).more).toBe(0);
   });
+
+  it("keeps a row for the sub-agent the view shows", () => {
+    const agents = ["a", "b", "c", "d"].map((id) => agent(id, "finished"));
+    expect(subAgentTree(agents, 3, "a").agents.map((a) => a.id)).toEqual(["a", "d"]);
+  });
 });
 
-describe("nextViewPeak", () => {
-  it("grows while the view stays on one conversation and starts over otherwise", () => {
-    const closed = { key: null, count: 0 };
-    expect(nextViewPeak(closed, null, 7)).toBe(closed);
-    const opened = nextViewPeak(closed, "1:a", 4);
-    expect(opened).toEqual({ key: "1:a", count: 4 });
-    expect(nextViewPeak(opened, "1:a", 2)).toBe(opened);
-    expect(nextViewPeak(opened, "1:a", 5)).toEqual({ key: "1:a", count: 5 });
-    expect(nextViewPeak(opened, "1:b", 1)).toEqual({ key: "1:b", count: 1 });
-    expect(nextViewPeak(opened, null, 4)).toEqual(closed);
+describe("parseSubAgentLog", () => {
+  it("reads a batch as the backend sends it", () => {
+    const wire = {
+      type: "log",
+      agentId: "a1",
+      reset: true,
+      entries: [
+        { kind: "prompt", text: "Find the parser" },
+        { kind: "text", text: "Looking" },
+        { kind: "tool", name: "Read", detail: "src/a.ts" },
+        { kind: "tool", name: "TodoWrite", detail: null },
+        { kind: "result", text: "line one", moreLines: 3, error: false },
+        { kind: "result", text: null, moreLines: 0, error: true },
+        { kind: "gap" },
+      ],
+    };
+    expect(parseSubAgentLog(wire)).toEqual({
+      agentId: "a1",
+      reset: true,
+      entries: wire.entries,
+    });
+  });
+
+  it("drops broken entries, cuts long texts and ignores other messages", () => {
+    const parsed = parseSubAgentLog({
+      type: "log",
+      agentId: "a1",
+      reset: false,
+      entries: [
+        { kind: "prompt", text: "   " },
+        { kind: "tool", name: 5 },
+        { kind: "result", text: "r", moreLines: -2, error: "yes" },
+        { kind: "html", text: "<b>x</b>" },
+        null,
+        { kind: "text", text: "y".repeat(9000) },
+      ],
+    });
+    expect(parsed?.entries).toEqual([
+      { kind: "result", text: "r", moreLines: 0, error: false },
+      { kind: "text", text: "y".repeat(4000) },
+    ]);
+    expect(parseSubAgentLog({ type: "snapshot", located: true, agents: [] })).toBeNull();
+    expect(parseSubAgentLog({ type: "log", agentId: "", reset: true, entries: [] })).toBeNull();
+    expect(parseSubAgentLog({ type: "log", agentId: "a", reset: 1, entries: [] })).toBeNull();
+    expect(parseSubAgentEvent({ type: "log", agentId: "a", reset: true, entries: [] })).toBeNull();
+  });
+});
+
+describe("applyLog", () => {
+  const say = (text: string): LogEntry => ({ kind: "text", text });
+  const batch = (entries: LogEntry[], reset = false, agentId = "a"): LogBatch => ({
+    agentId,
+    reset,
+    entries,
+  });
+  const texts = (log: SubAgentLog) =>
+    log.lines.map((line) =>
+      line.entry.kind === "gap" ? "gap" : "text" in line.entry ? line.entry.text : "",
+    );
+
+  it("appends batches of the shown sub-agent and starts over on a reset", () => {
+    let log = logFor(EMPTY_LOG, "a");
+    expect(log.loaded).toBe(false);
+    log = applyLog(log, batch([say("one")], true));
+    log = applyLog(log, batch([say("two")]));
+    expect(log.loaded).toBe(true);
+    expect(texts(log)).toEqual(["one", "two"]);
+    const ids = log.lines.map((line) => line.id);
+    expect(new Set(ids).size).toBe(2);
+    log = applyLog(log, batch([say("fresh")], true));
+    expect(texts(log)).toEqual(["fresh"]);
+    expect(log.lines[0]?.id).not.toBe(ids[0]);
+  });
+
+  it("drops batches of another sub-agent and keeps one gap in a row", () => {
+    const log = applyLog(logFor(EMPTY_LOG, "a"), batch([{ kind: "gap" }, say("x")], true));
+    expect(applyLog(log, batch([say("other")], true, "b"))).toBe(log);
+    expect(texts(applyLog(log, batch([say("y"), { kind: "gap" }, { kind: "gap" }])))).toEqual([
+      "gap",
+      "x",
+      "y",
+      "gap",
+    ]);
+  });
+
+  it("waits for the reset after a switch, so appends of an earlier focus never show", () => {
+    // Focus a, then b, then a again: an append of the first focus on a is still in flight.
+    const again = logFor(
+      logFor(applyLog(logFor(EMPTY_LOG, "a"), batch([say("old")], true)), "b"),
+      "a",
+    );
+    expect(applyLog(again, batch([say("stale")]))).toBe(again);
+    const fresh = applyLog(again, batch([say("new")], true));
+    expect(texts(fresh)).toEqual(["new"]);
+    expect(fresh.loaded).toBe(true);
+  });
+
+  it("keeps the newest lines and the task when it grows past the limit", () => {
+    const task: LogEntry = { kind: "prompt", text: "task" };
+    let log = applyLog(logFor(EMPTY_LOG, "a"), batch([task], true), 5);
+    log = applyLog(log, batch(["1", "2", "3", "4", "5", "6"].map(say)), 5);
+    expect(texts(log)).toEqual(["task", "gap", "4", "5", "6"]);
+    log = applyLog(log, batch([say("7")]), 5);
+    expect(texts(log)).toEqual(["task", "gap", "5", "6", "7"]);
+    const plain = applyLog(logFor(EMPTY_LOG, "a"), batch(["1", "2", "3", "4"].map(say), true), 3);
+    expect(texts(plain)).toEqual(["gap", "3", "4"]);
+    expect(MAX_LOG_LINES).toBeGreaterThan(400);
+  });
+
+  it("switches sub-agents with an empty log and forgets texts on request", () => {
+    const log = applyLog(logFor(EMPTY_LOG, "a"), batch([say("x")], true));
+    expect(logFor(log, "a")).toBe(log);
+    const other = logFor(log, "b");
+    expect(other).toMatchObject({ agentId: "b", loaded: false, lines: [] });
+    expect(other.next).toBe(log.next);
+    expect(withoutLogText(log).lines).toEqual([]);
+    expect(withoutLogText(other)).toBe(other);
+  });
+});
+
+describe("dismissFinished", () => {
+  const agents = [agent("run"), agent("done-1", "finished"), agent("done-2", "finished")];
+
+  it("hides finished sub-agents per watch and never running ones", () => {
+    const empty: Dismissed = new Map();
+    const once = dismissFinished(empty, "1:a", agents, ["done-1", "run"]);
+    expect([...dismissedIn(once, "1:a")]).toEqual(["done-1"]);
+    expect(dismissedIn(once, "1:b").size).toBe(0);
+    expect(dismissedIn(once, null).size).toBe(0);
+    expect(dismissFinished(once, "1:a", agents, ["done-1", "run"])).toBe(once);
+    const all = dismissFinished(once, "1:a", agents, finishedIds(agents));
+    expect(visibleAgents(agents, dismissedIn(all, "1:a")).map((a) => a.id)).toEqual(["run"]);
+    expect(dismissedIn(empty, "1:a").size).toBe(0);
+  });
+
+  it("returns the same list when nothing is hidden", () => {
+    expect(visibleAgents(agents, new Set())).toBe(agents);
+    expect(finishedIds(agents)).toEqual(["done-1", "done-2"]);
   });
 });
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-focus-sub-agent"
+description = "Enables the focus_sub_agent command without any pre-configured scope."
+commands.allow = ["focus_sub_agent"]
+
+[[permission]]
+identifier = "deny-focus-sub-agent"
+description = "Denies the focus_sub_agent command without any pre-configured scope."
+commands.deny = ["focus_sub_agent"]

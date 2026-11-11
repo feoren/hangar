@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: []
 created: 2026-11-08
-updated: 2026-11-10
+updated: 2026-11-11
 ---
 
 # Agent workflow features (0.3.0)
@@ -454,10 +454,19 @@ menu paste uses the clipboard plugin.
     session gets a conversation id ([[resume]]); `SessionInfo.subAgents` is `true` when the
     program has a sub-agent source (`sub_agents = "claude"` in the catalog) and the session an
     id, which is when the menu entry applies.
-    - `watch_sub_agents(sessionId: number, onEvent: Channel, excerpts?: boolean)`: `null`, or an
-      error text (unknown session, no sub-agents for it). A second call for the same session
-      replaces the first watch. `excerpts` comes from the frontend setting; `false` means no
-      assistant text is read at all and every `excerpt` is `null`; missing means `true`.
+    - `watch_sub_agents(sessionId: number, onEvent: Channel, excerpts?: boolean, focus?: string |
+      null)`: `null`, or an error text (unknown session, no sub-agents for it, invalid `focus`).
+      A second call for the same session replaces the first watch. `excerpts` comes from the
+      frontend setting; `false` means no assistant text is read at all and every `excerpt` is
+      `null`; missing means `true`. `focus` names the one sub-agent whose activity log is
+      streamed as well (missing or `null`: none).
+    - `focus_sub_agent(sessionId: number, agentId: string | null)`: `true` if a watch runs and
+      got the new focus, `false` if none runs; an id outside `[A-Za-z0-9_-]{1,64}` is refused.
+      The watch polls at once, the next log batch has `reset: true`. Switching sub-agents never
+      restarts the watch. Switches that queued up while a poll ran collapse to the newest one,
+      and the window sends a switch only after it settled for 100 ms (`FocusSender` in
+      `src/subAgentStore.ts`), so clicking through sub-agents costs one reset and one read. The
+      refused id in the error text is cut to 64 characters.
     - `unwatch_sub_agents(sessionId: number)`: `true` if a watch was running. `close_session` and
       app exit end the watch too, as does a channel the window dropped (noticed at the next
       change; a reload that calls `watch_sub_agents` again replaces the old watch).
@@ -474,59 +483,132 @@ menu paste uses the clipboard plugin.
       string | null, "excerpt": string | null }] }`. `located: false` until claude wrote the
       session's transcript (after the first prompt). Times are Unix milliseconds; agents are
       ordered oldest first; `stale` = not finished and no write for 60 s; `tool` = newest tool
-      call name; `excerpt` = newest assistant text, at most 400 characters. Prompts, tool inputs,
-      tool results and every other record type are never read.
-    - Excerpt privacy (`src-tauri/src/subagents/redact.rs`): before the text is cut, values of
-      names ending in key, token, secret, password, passwd or pwd (`API_KEY=...`,
-      `"client_secret": "..."`, `password: ...`, `x-api-key: ...`; a bare `key:` stays), the
-      token after `Bearer `, URL passwords (`https://user:...@host`) and long URL user names,
-      words starting with a known token prefix (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`,
-      `glpat-`, `xox?-`, `xapp-`, `AKIA`, `AIza`, `npm_`, `hf_`, `eyJ` and others, with enough
-      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks become
-      `[redacted]`; control and invisible format characters
-      (`src-tauri/src/text.rs`) are removed. The description is masked the same way. A
-      best-effort filter, not a guarantee. The excerpt lives only in the watcher's memory and the
+      call name; `excerpt` = newest assistant text, at most 400 characters. For the snapshot,
+      prompts, tool inputs, tool results and every other record type are never read.
+    - Log event of the focused sub-agent (`src-tauri/src/subagents/claude_log.rs`), sent after
+      the snapshot of the same poll and only when there are new lines or on a reset (so at most
+      one snapshot and one log batch per poll): `{ "type": "log", "agentId": string, "reset":
+      bool, "entries": [ { "kind": "prompt", "text" } | { "kind": "text", "text" } | { "kind":
+      "tool", "name", "detail": string | null } | { "kind": "result", "text": string | null,
+      "moreLines": number, "error": bool } | { "kind": "gap" } ] }`. `reset` replaces what was
+      shown (new focus, transcript that started over). The log has its own read position: the
+      first read takes the last 1 MiB, then only what was appended; when that left out the
+      start, the task (first line) is read once and a `gap` follows it; a burst keeps its newest
+      400 entries behind a `gap`. `prompt` is user text (the task), `text` assistant text (both
+      at most 4000 characters), `tool` the call with its key argument (Bash and PowerShell
+      `command`, Read/Write/Edit/MultiEdit `file_path`, NotebookEdit `notebook_path`, Grep and
+      Glob `pattern`, WebFetch `url`, WebSearch `query`, Task and Agent `description`, other
+      tools the first of the usual fields; first line only, at most 200 characters), `result`
+      the first non-empty line of a tool result (at most 200 characters) plus the count of
+      further lines. Thinking blocks, `isMeta` records and other record types are never shown.
+      With `excerpts: false` only assistant records are parsed and only tool names are sent
+      (`detail: null`); no task, text, input or result. The log reads the transcript only when
+      the snapshot's scan found it in the contained sub-agent folder.
+    - Excerpt privacy (`src-tauri/src/subagents/redact.rs`, `masked` in `claude.rs`): in this
+      order, first complete terminal sequences (CSI such as colors, OSC such as titles and
+      links, DCS and the other string sequences, two-byte and charset escapes, their 8-bit
+      forms), every other C0 and C1 control character except newline and tab, and invisible
+      format characters (`src-tauri/src/text.rs`) are removed, so a color code cannot split
+      `API_KEY` from its value; then secrets are masked on the whole text; only then is it cut.
+      Masked as `[redacted]`: values of names ending in key, token, secret, password, passwd,
+      pwd, passphrase, credential or credentials, and of `pass`, `auth` and `cookie` as a whole
+      name or after `_` or `-` (`DB_PASS`, npm `_auth=`, `Set-Cookie`; `compass` and `oauth2`
+      stay), with `=` or `:` (`API_KEY=...`, `"client_secret": "..."`, `"auth": "..."`,
+      `password: ...`, `x-api-key: ...`); a bare unquoted `key:`, `auth:` or `cookie:` masks only
+      a value of at least 16 token characters or one holding `=`, so prose headings stay, and a
+      `Cookie:` value runs to the end of the line. Command line flags with such a name take the
+      next word too (`--password X`, `--client-secret "X"`, `--token X`; not `--no-...`, not when
+      the next word is another flag); `-p` only where it is a password: `sshpass -p X` and
+      `-pX`, `docker login -p X` (also podman), the glued `mysql -pX` (also mysqldump,
+      mysqladmin, mysqlimport, mariadb; `mysql -p db` prompts and `docker run -p 80:80` is a
+      port), also glued (`docker login -pX`); `-u`, `-uX` or `--user` with `user:password`
+      everything after the first `:` unless both sides are numbers (`docker run -u 1000:1000`).
+      Words follow shell quoting (`-u "user:pa ss"`, `-p'a b'`), quoted values honor backslash
+      escapes (`"a\"b"`), and any Unicode space (tab, no-break space) separates a flag from its
+      value. Also masked: the credential after `Authorization:` with the scheme `Basic`,
+      `Bearer`, `Token` or `Digest` (at least 8 characters), or without a scheme when it looks
+      like a key (at least 8 characters holding a digit or symbol, or at least 16), the token
+      after `Bearer ` anywhere (at least 16), the value of PowerShell
+      `ConvertTo-SecureString "X" -AsPlainText` (also with `-String`), URL passwords
+      (`https://user:...@host`) and long URL user names, words starting with a known token prefix
+      (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`, `glpat-`, `xox?-`, `xapp-`, `AKIA`,
+      `AIza`, `npm_`, `hf_`, `SG.`, `dop_v1_`, `shpat_`, `ya29.`, `eyJ` and others, with enough
+      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks. The
+      description and every log text (task, text, tool argument, result) are masked the same
+      way. Every pass is linear in the text length (a skipped value is passed over as a whole),
+      checked by a test with 1 MB lines such as `key:` repeated. Known limits: names written
+      with Unicode lookalikes (fullwidth `ＡＰＩ_ＫＥＹ`, Cyrillic letters) and secrets of
+      tools or formats not listed here pass unmasked; the filter matches ASCII names on purpose
+      and needs no dependency. A best-effort filter, not a guarantee; the setting's help text
+      says so. Excerpts and log lines live only in the watcher's memory and the
       window's view state: it is never persisted (workspace, scrollback, notes), exported, logged
       or put into notifications, and the frontend must keep it that way.
     - Files: `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<id>.jsonl` (the encoded working
       folder first; while nothing is found the search repeats after 2, 4, 8, 16, then every 30 s,
       and goes through all project folders only when the projects folder's modification time
       changed or at the 30 s delay), then `<id>/subagents/agent-<agentId>.jsonl` and
-      `.meta.json`; links and junctions out of the projects folder are not followed; the newest
+      `.meta.json`; links and junctions out of the projects folder are not followed, and every
+      transcript and meta file is opened without following a link in its last part
+      (`FILE_FLAG_OPEN_REPARSE_POINT` on Windows, `O_NOFOLLOW` on Unix) and read only when the
+      opened handle is a regular file (`open_shared` in `tail.rs`; on Unix also `O_NONBLOCK`, so a
+      FIFO is refused instead of hanging the watcher). Not covered: a folder above the file
+      swapped for a link between the per-poll folder check and the open, and hard links; both
+      need write access to the user's Claude folder, that is the same user; the newest
       256 sub-agents at most (at most 1024 directory entries read per poll); only the last
       256 KiB of a transcript are read at first; lines over 1 MiB are skipped. Polling instead of `notify` (CC0-1.0, outside the license policy).
     - Codex, OpenCode and Gemini: not built; each would be another `SubAgentKind` with its own
       `SubAgentSource` ([[subagent-transcripts]]).
-    As built, frontend (`src/subAgents.ts`, `src/useSubAgents.ts`, `src/SubAgentPanes.tsx`):
-    "Show sub-agents" sits in the session menu (sidebar row, rail, pane header) and in quick
-    access, only when `subAgents` is true (or the view is open, then it reads "Hide sub-agents").
-    Opening it makes the session active; the body then shows the session in the main zone of its
-    own layout and one read-only pane per sub-agent in the other zones: one sub-agent `pair`,
-    two `mainStack`, three `quad`; with four or more, `quad` with the two most relevant (running
-    first, newest first, shown in start order) and a list of all. The layout follows the most
-    sub-agents seen, so it never shrinks while open. The split view's own slots stay untouched
-    and come back when the view closes: by the close button, Escape inside a sub-agent pane,
-    the menu entry, another session becoming active, the session closing, or any arranging of
-    the panes (layout, drop, maximize, "Send to several"). Each pane: description (else type),
-    type, status as text plus a dot whose shape differs (filled, ring, square; the running dot
-    pulses only without reduced motion), run time (`m:ss`, ticking each second), current tool,
-    up to four earlier tool names (kept in memory from snapshot to snapshot) and the excerpt as
-    plain React text with `pre-wrap`. Before the first snapshot, while `located` is `false`,
-    with no sub-agents, when `subAgents` turned `false` and on a refused watch, one notice pane
-    says so. Watch and unwatch run one after the other in call order, so the unwatch of a
-    closing view never ends the watch that replaces it (restart with a new id, excerpts
-    switched). Setting "Show sub-agent text excerpts" (Settings, Sessions, default on) is passed
-    as `excerpts`. Snapshots live only in memory, in an external store (`src/subAgentStore.ts`)
-    read with `useSyncExternalStore`: the tree and the panes re-render per snapshot, the app only
-    when the count, `located` or the error changes.
+    As built, frontend (`src/subAgents.ts`, `src/useSubAgents.ts`, `src/SubAgentPane.tsx`),
+    reworked 2026-11-11 on the owner's request (one sub-agent at a time, its full activity, and
+    finished ones removable): "Show sub-agents" sits in the session menu (sidebar row, rail, pane
+    header) and in quick access, only when `subAgents` is true (or the view is open, then it
+    reads "Hide sub-agents"). Opening it makes the session active; the body then always uses
+    `pair`: the session's terminal in the main zone (so the main agent stays in sight and can be
+    answered, and switching sub-agents never resizes it) and one read-only pane beside it. The
+    earlier grid of one pane per sub-agent was dropped. The pane shows either the activity log
+    of the sub-agent picked in the tree, or, without a pick (menu entry, "N more" row, back
+    button), the list of all sub-agents (newest first; a row opens its log). The log reads like
+    Claude Code's own conversation: `>` plus the task in a framed block, `●` plus assistant
+    text, `●` plus the bold tool name and its argument in parentheses, `⎿` plus the result's
+    first line and "+N lines" (failed results in the error color with the word "Error"), and a
+    centered note where entries were left out; plain React text with `pre-wrap`, in the
+    terminal's font, text and background color (`--terminal-font`, `--terminal-fg`,
+    `--terminal-bg` set by the app from the terminal look). It follows new lines while scrolled
+    to the end (within 24 px); scrolling up stops that and shows a "Jump to end" button. The
+    view keeps at most 1000 lines (`applyLog`): older ones give way to one gap line, the task
+    stays first. After a switch it drops appends until the first `reset`, so lines still in
+    flight from an earlier focus never show. The header: back button, name, type, status (text plus a dot whose shape
+    differs: filled, ring, square; the running dot pulses only without reduced motion), run time
+    (`m:ss`, ticking each second), close. With texts off, the log says so and lists tool names
+    only; a sub-agent whose files are gone says so. The split view's own slots stay untouched
+    and come back when the view closes: by the close button, Escape inside the pane (the
+    terminal gets the focus back), the menu entry, clicking the shown tree row again, another
+    session becoming active, the session closing, or any arranging of the panes. Switching
+    between list and log by keyboard moves the focus into the new body (the first row of the
+    list). Before the first snapshot, while `located` is `false`, when `subAgents` turned
+    `false` and on a refused watch, a notice says so. Watch, focus and unwatch run one after
+    the other in call order, so the unwatch of a closing view never ends the watch that replaces
+    it. Setting "Show sub-agent text" (Settings, Sessions, default on) is passed as `excerpts`.
+    Snapshots and the log live only in memory, in an external store (`src/subAgentStore.ts`)
+    read with `useSyncExternalStore`: the tree and the pane re-render per event, the app only
+    when the visible count, `located` or the error changes; log lines are memoized rows with
+    stable ids.
     As built, sidebar tree (`src/SubAgentTree.tsx`, `subAgentTree` and `watchedSession` in
     `src/subAgents.ts`): one watch at most, for the open view's session, else the active
     session while the expanded sidebar shows the Sessions group. Without the view it runs with
     `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
     key is session plus conversation id only) and dropping excerpts at once when they are no
-    longer wanted. The tree lists up to five sub-agents (running and newer first, in start
-    order, else four plus "N more"); a row opens the view with that sub-agent preferred for a
-    pane and highlighted. The view's layout grows from the count seen since it opened.
+    longer wanted. The tree lists up to five sub-agents (the shown one, running and newer
+    first, in start order, else four plus "N more"); a row shows that sub-agent's log and is
+    highlighted. Finished rows get a remove button that replaces the run time on hover or
+    keyboard focus; with two or more finished ones a last row "Remove finished" removes them
+    all. Removing only hides them in the tree and the list (`dismissFinished`, finished ones
+    only, per session and conversation id); transcripts are never touched. The removed ids live
+    in the app's memory for this run of Hangar, not in the workspace: a view preference that
+    needs no format change, and a new conversation starts with a clean tree anyway. Removing the
+    shown sub-agent closes the view; removing by keyboard moves the focus to the next row (or
+    the previous one), and to the terminal once the tree is empty; by mouse the terminal gets
+    the focus back.
     As built, conversation ids (`src/workspace.ts`, `src/sessions.ts`): `cliSessionId` is saved
     per entry (lower case, invalid or duplicate ids dropped to `null`, so the backend never
     refuses the workspace), passed to `create_session` on restore and on restarting a

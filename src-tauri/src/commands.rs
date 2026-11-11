@@ -580,7 +580,8 @@ pub fn close_session(
 /// Streams snapshots of the session's sub-agents on `on_event` until [`unwatch_sub_agents`], the
 /// session closes or the window drops the channel. A second call for the same session replaces
 /// the first watch. `excerpts: false` (the frontend setting) sends no assistant text at all;
-/// missing means `true`.
+/// missing means `true`. `focus` names the one sub-agent whose activity log is streamed too
+/// (missing: none); later changes go through [`focus_sub_agent`].
 #[tauri::command]
 pub fn watch_sub_agents(
     manager: Manager<'_>,
@@ -588,12 +589,27 @@ pub fn watch_sub_agents(
     session_id: SessionId,
     on_event: Channel<SubAgentEvent>,
     excerpts: Option<bool>,
+    focus: Option<String>,
 ) -> Result<(), SubAgentError> {
+    let focus = subagents::checked_focus(focus)?;
     let target = manager.sub_agent_target(session_id)?;
-    let source = subagents::source_for(&target, excerpts.unwrap_or(true));
+    let mut source = subagents::source_for(&target, excerpts.unwrap_or(true));
+    source.focus(focus);
     watchers.start(session_id, source, move |event| {
         on_event.send(event).is_ok()
     })
+}
+
+/// Switches the running watch's activity log to `agentId` (`null`: no log). `false` if no
+/// watch runs for the session; an invalid id is refused.
+#[tauri::command]
+pub fn focus_sub_agent(
+    watchers: State<'_, Watchers>,
+    session_id: SessionId,
+    agent_id: Option<String>,
+) -> Result<bool, SubAgentError> {
+    let agent = subagents::checked_focus(agent_id)?;
+    Ok(watchers.focus(session_id, agent))
 }
 
 /// `false` if no watch was running for the session.

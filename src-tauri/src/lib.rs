@@ -337,6 +337,7 @@ pub fn run() -> tauri::Result<()> {
             commands::paste_clipboard_image,
             commands::configure_tray,
             commands::watch_sub_agents,
+            commands::focus_sub_agent,
             commands::unwatch_sub_agents,
             commands::account_status,
             commands::account_sign_in,

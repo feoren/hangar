@@ -83,6 +83,7 @@
     "allow-paste-clipboard-image",
     "allow-configure-tray",
     "allow-watch-sub-agents",
+    "allow-focus-sub-agent",
     "allow-unwatch-sub-agents",
     "allow-account-status",
     "allow-account-sign-in",

@@ -175,11 +175,16 @@ export const api = {
   /**
    * Streams snapshots of the session's sub-agents on `onEvent` (contract:
    * docs/wiki/pages/syntheses/agent-workflow-features.md, item 23). A second call for the same
-   * session replaces the first watch; `excerpts: false` sends no assistant text at all. Read
-   * the messages with `parseSubAgentEvent` (subAgents.ts); their excerpts are never stored.
+   * session replaces the first watch; `excerpts: false` sends no assistant text at all. `focus`
+   * names the sub-agent whose activity log is streamed as well (`null`: none). Read the
+   * messages with `parseSubAgentEvent` and `parseSubAgentLog` (subAgents.ts); their texts are
+   * never stored.
    */
-  watchSubAgents: (sessionId: number, onEvent: Channel, excerpts: boolean) =>
-    invoke<null>("watch_sub_agents", { sessionId, onEvent, excerpts }),
+  watchSubAgents: (sessionId: number, onEvent: Channel, excerpts: boolean, focus: string | null) =>
+    invoke<null>("watch_sub_agents", { sessionId, onEvent, excerpts, focus }),
+  /** Switches the running watch's log to `agentId` (`null`: none); `false` if no watch runs. */
+  focusSubAgent: (sessionId: number, agentId: string | null) =>
+    invoke<boolean>("focus_sub_agent", { sessionId, agentId }),
   /** `true` if a watch was running. */
   unwatchSubAgents: (sessionId: number) => invoke<boolean>("unwatch_sub_agents", { sessionId }),
   /**

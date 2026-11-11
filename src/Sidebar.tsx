@@ -158,13 +158,15 @@ interface Props {
   onOpenAccount: () => void;
   onOpenSettings: () => void;
   /** Sub-agents of the active session for the tree below its row; `null`: none watched. */
-  subAgentTree: { sessionId: number; watchKey: string } | null;
+  subAgentTree: { sessionId: number; watchKey: string; hidden: ReadonlySet<string> } | null;
   /** Session whose sub-agent view is open, otherwise `null`. */
   subAgentsOpen: number | null;
-  /** Sub-agent highlighted in the open view. */
+  /** Sub-agent shown in the open view. */
   subAgentPick: string | null;
-  /** A tree row: opens the view with this sub-agent (`null`: without a pick). */
+  /** A tree row: shows this sub-agent (`null`: the list of all of them). */
   onShowSubAgent: (sessionId: number, agentId: string | null, byKeyboard: boolean) => void;
+  /** Removes finished sub-agents from the tree (by keyboard: the focus stays in the tree). */
+  onDismissSubAgents: (ids: readonly string[], byKeyboard: boolean) => void;
 }
 
 export function Sidebar(props: Props) {
@@ -694,7 +696,9 @@ export function Sidebar(props: Props) {
                 sessionTitle={session.title}
                 watchKey={tree.watchKey}
                 picked={props.subAgentsOpen === session.id ? props.subAgentPick : null}
+                hidden={tree.hidden}
                 onShow={props.onShowSubAgent}
+                onDismiss={props.onDismissSubAgents}
               />
             </li>
           )}

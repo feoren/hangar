@@ -3,7 +3,10 @@
 //! Sub-agents run inside the agent's process and have no terminal of their own; the CLI writes a
 //! transcript per sub-agent. A [`SubAgentSource`] turns those files into a whitelisted
 //! [`Snapshot`] (never prompts, tool inputs or tool results), and a watcher thread per session
-//! polls it and streams changed snapshots to the window.
+//! polls it and streams changed snapshots to the window. For the one sub-agent the window shows
+//! (the focus, [`Watchers::focus`]), the same thread also streams its activity log
+//! ([`LogBatch`]) incrementally: the task, assistant text, tool calls with their key argument and
+//! short results, only with excerpts on; without them only tool names.
 //!
 //! Polling instead of file system notifications: the `notify` crate is CC0-1.0 licensed (outside
 //! the project's license policy) and not in the tree, and a poll of one small folder every
@@ -15,6 +18,7 @@
 //! [`SubAgentKind`] with its own source; see docs/wiki/pages/sources/subagent-transcripts.md.
 
 pub mod claude;
+pub mod claude_log;
 pub mod redact;
 pub mod tail;
 
@@ -99,18 +103,94 @@ pub struct Snapshot {
     pub agents: Vec<SubAgent>,
 }
 
+/// One line of a sub-agent's activity log. Every text is already redacted, cleaned and capped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LogEntry {
+    /// The task the sub-agent was given (or a later user message).
+    Prompt { text: String },
+    /// Assistant text.
+    Text { text: String },
+    /// A tool call with its key argument (file path, command line, pattern), if it has one.
+    Tool {
+        name: String,
+        detail: Option<String>,
+    },
+    /// A tool result: its first non-empty line and how many lines follow.
+    Result {
+        text: Option<String>,
+        #[serde(rename = "moreLines")]
+        more_lines: u32,
+        error: bool,
+    },
+    /// Lines were left out here: only the end of a long transcript is read, and a burst beyond
+    /// [`MAX_LOG_BATCH`] keeps its newest lines.
+    Gap,
+}
+
+impl LogEntry {
+    pub fn prompt(text: String) -> Self {
+        Self::Prompt { text }
+    }
+
+    pub fn text(text: String) -> Self {
+        Self::Text { text }
+    }
+}
+
+/// New log lines of the focused sub-agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogBatch {
+    pub agent_id: String,
+    /// Replaces everything shown before: a new focus, or a transcript that started over.
+    pub reset: bool,
+    pub entries: Vec<LogEntry>,
+}
+
+/// At most this many log lines per event; a burst keeps its newest ones.
+pub const MAX_LOG_BATCH: usize = 400;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SubAgentEvent {
     /// The full current state; replaces the previous one. Sent once at the start and then only
     /// on a change.
     Snapshot(Snapshot),
+    /// Log lines of the focused sub-agent, sent only when there are new ones (or on a reset).
+    Log(LogBatch),
+}
+
+/// Agent ids as they appear in file names (measured for Claude: `a` plus 16 hex digits).
+/// Anything that could leave the folder or look like another file is rejected before a path is
+/// built from it.
+pub fn is_agent_id(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// Turns a CLI's files into snapshots. Implementations keep their read positions between
 /// polls; `now` decides the stale status.
 pub trait SubAgentSource: Send {
     fn poll(&mut self, now: SystemTime) -> Snapshot;
+
+    /// The sub-agent whose log [`Self::poll_log`] follows from now on (`None`: none). Called
+    /// with a validated id ([`is_agent_id`]); the next batch resets the log.
+    fn focus(&mut self, _agent: Option<String>) {}
+
+    /// New log lines of the focused sub-agent since the last call, `None` when there are none.
+    /// Called right after [`Self::poll`], whose scan it may rely on.
+    fn poll_log(&mut self) -> Option<LogBatch> {
+        None
+    }
+}
+
+/// Messages to a running watch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Control {
+    Focus(Option<String>),
 }
 
 /// `excerpts: false` reads no assistant text at all; every `excerpt` is then `null`.
@@ -140,6 +220,22 @@ pub enum SubAgentError {
     Session(#[from] ManagerError),
     #[error("The sub-agent watch could not start: {0}")]
     Thread(#[source] io::Error),
+    #[error("Not a sub-agent id: {0:?}")]
+    AgentId(String),
+}
+
+/// The refused id in an error is cut to this many characters: it comes from the window and ends
+/// up in an error text and maybe a log line.
+const MAX_ERROR_ID_CHARS: usize = 64;
+
+/// `None` stays `None`; an id that fails [`is_agent_id`] is refused.
+pub fn checked_focus(agent: Option<String>) -> Result<Option<String>, SubAgentError> {
+    match agent {
+        Some(id) if !is_agent_id(&id) => Err(SubAgentError::AgentId(
+            id.chars().take(MAX_ERROR_ID_CHARS).collect(),
+        )),
+        other => Ok(other),
+    }
 }
 
 impl Serialize for SubAgentError {
@@ -152,7 +248,7 @@ impl Serialize for SubAgentError {
 /// wake-up, without waiting for it here.
 #[derive(Default)]
 pub struct Watchers {
-    watches: Mutex<HashMap<SessionId, Sender<()>>>,
+    watches: Mutex<HashMap<SessionId, Sender<Control>>>,
 }
 
 impl Watchers {
@@ -179,13 +275,21 @@ impl Watchers {
         removed.is_some()
     }
 
+    /// Switches the running watch's log to `agent` (validated by the caller); `false` if no
+    /// watch runs for the session. The watch polls at once, so the log follows without delay.
+    pub fn focus(&self, session: SessionId, agent: Option<String>) -> bool {
+        lock(&self.watches)
+            .get(&session)
+            .is_some_and(|watch| watch.send(Control::Focus(agent)).is_ok())
+    }
+
     pub fn stop_all(&self) {
-        let all: Vec<Sender<()>> = lock(&self.watches).drain().map(|(_, s)| s).collect();
+        let all: Vec<Sender<Control>> = lock(&self.watches).drain().map(|(_, s)| s).collect();
         drop(all);
     }
 }
 
-fn run(mut source: Box<dyn SubAgentSource>, sink: &dyn SubAgentSink, stopped: &Receiver<()>) {
+fn run(mut source: Box<dyn SubAgentSource>, sink: &dyn SubAgentSink, control: &Receiver<Control>) {
     let mut last: Option<Snapshot> = None;
     loop {
         let snapshot = source.poll(SystemTime::now());
@@ -195,10 +299,21 @@ fn run(mut source: Box<dyn SubAgentSource>, sink: &dyn SubAgentSink, stopped: &R
             }
             last = Some(snapshot);
         }
-        match stopped.recv_timeout(POLL_INTERVAL) {
+        if let Some(batch) = source.poll_log() {
+            if !sink.emit(SubAgentEvent::Log(batch)) {
+                return;
+            }
+        }
+        match control.recv_timeout(POLL_INTERVAL) {
             Err(RecvTimeoutError::Timeout) => {}
-            // Stopped (sender dropped) or, never sent, a message: both end the watch.
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+            Ok(first) => {
+                // Switches that queued up while the poll ran: only the newest counts, so a burst
+                // of clicks costs one reset and one read instead of one per click.
+                let Control::Focus(agent) = control.try_iter().fold(first, |_, newer| newer);
+                source.focus(agent);
+            }
+            // Stopped: the sender was dropped.
+            Err(RecvTimeoutError::Disconnected) => return,
         }
     }
 }
@@ -294,6 +409,143 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    #[test]
+    fn log_events_serialize_as_documented() {
+        let json = serde_json::to_value(SubAgentEvent::Log(LogBatch {
+            agent_id: "a1".into(),
+            reset: true,
+            entries: vec![
+                LogEntry::Gap,
+                LogEntry::prompt("task".into()),
+                LogEntry::text("note".into()),
+                LogEntry::Tool {
+                    name: "Read".into(),
+                    detail: Some("a.rs".into()),
+                },
+                LogEntry::Result {
+                    text: None,
+                    more_lines: 3,
+                    error: true,
+                },
+            ],
+        }))
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "log", "agentId": "a1", "reset": true,
+                "entries": [
+                    { "kind": "gap" },
+                    { "kind": "prompt", "text": "task" },
+                    { "kind": "text", "text": "note" },
+                    { "kind": "tool", "name": "Read", "detail": "a.rs" },
+                    { "kind": "result", "text": null, "moreLines": 3, "error": true },
+                ] })
+        );
+    }
+
+    #[test]
+    fn focus_ids_are_checked() {
+        assert_eq!(checked_focus(None).unwrap(), None);
+        assert_eq!(
+            checked_focus(Some("a0123456789abcdef".into())).unwrap(),
+            Some("a0123456789abcdef".into())
+        );
+        for bad in ["", "..", "a/b", "a\\b", "a.b", "a b"] {
+            assert!(checked_focus(Some(bad.into())).is_err(), "{bad:?}");
+        }
+        assert!(checked_focus(Some("x".repeat(65))).is_err());
+        let Err(SubAgentError::AgentId(shown)) = checked_focus(Some("/".repeat(5000))) else {
+            panic!("refused id expected");
+        };
+        assert_eq!(shown.chars().count(), MAX_ERROR_ID_CHARS);
+    }
+
+    /// Records every focus; the first poll waits until the test has queued its switches.
+    struct Recording {
+        focuses: Arc<StdMutex<Vec<Option<String>>>>,
+        gate: Option<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl SubAgentSource for Recording {
+        fn poll(&mut self, _now: SystemTime) -> Snapshot {
+            if let Some(gate) = self.gate.take() {
+                let _ = gate.recv_timeout(Duration::from_secs(5));
+            }
+            snapshot(true)
+        }
+
+        fn focus(&mut self, agent: Option<String>) {
+            self.focuses.lock().unwrap().push(agent);
+        }
+    }
+
+    #[test]
+    fn queued_focus_switches_collapse_to_the_newest() {
+        let focuses = Arc::new(StdMutex::new(Vec::new()));
+        let (open, gate) = channel();
+        let watchers = Watchers::default();
+        let source = Recording {
+            focuses: Arc::clone(&focuses),
+            gate: Some(gate),
+        };
+        watchers.start(4, Box::new(source), |_| true).unwrap();
+        // The watch is stuck in its first poll: all three wait in the channel.
+        for id in ["a1", "a2", "a3"] {
+            assert!(watchers.focus(4, Some(id.into())));
+        }
+        open.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while focuses.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "no focus arrived");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(POLL_INTERVAL);
+        assert_eq!(*focuses.lock().unwrap(), [Some("a3".to_owned())]);
+        watchers.stop_all();
+    }
+
+    /// Reports every focus it gets as a log batch with that id.
+    struct Focusing(Option<Option<String>>);
+
+    impl SubAgentSource for Focusing {
+        fn poll(&mut self, _now: SystemTime) -> Snapshot {
+            snapshot(true)
+        }
+
+        fn focus(&mut self, agent: Option<String>) {
+            self.0 = Some(agent);
+        }
+
+        fn poll_log(&mut self) -> Option<LogBatch> {
+            let agent = self.0.take()?;
+            Some(LogBatch {
+                agent_id: agent.unwrap_or_default(),
+                reset: true,
+                entries: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn focus_reaches_the_running_watch_at_once() {
+        let watchers = Watchers::default();
+        assert!(!watchers.focus(3, Some("a1".into())));
+        let (tx, rx) = channel();
+        watchers
+            .start(3, Box::new(Focusing(None)), move |e| tx.send(e).is_ok())
+            .unwrap();
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            SubAgentEvent::Snapshot(snapshot(true))
+        );
+        assert!(watchers.focus(3, Some("a1".into())));
+        let Ok(SubAgentEvent::Log(batch)) = rx.recv_timeout(Duration::from_secs(5)) else {
+            panic!("no log batch");
+        };
+        assert_eq!(batch.agent_id, "a1");
+        watchers.stop_all();
     }
 
     #[test]

@@ -1,14 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   errorOf,
+  FOCUS_DEBOUNCE_MS,
+  FocusSender,
   IDLE_WATCH,
+  logOf,
   SubAgentStore,
   viewOf,
   watchKey,
   type SubAgentWatchState,
 } from "./subAgentStore";
-import { EMPTY_VIEW } from "./subAgents";
+import { EMPTY_LOG, EMPTY_VIEW } from "./subAgents";
 
 function message(ids: string[], excerpt: string | null = "Looking at src/") {
   return {
@@ -92,10 +95,107 @@ describe("SubAgentStore", () => {
     expect(errorOf(store.current(), "1:a")).toBeNull();
   });
 
+  it("collects the log of the shown sub-agent only", () => {
+    const store = new SubAgentStore();
+    const key = watchKey(1, "a");
+    const log = (agentId: string, reset: boolean, text: string) => ({
+      type: "log",
+      agentId,
+      reset,
+      entries: [{ kind: "text", text }],
+    });
+    store.retarget(key, true);
+    store.refocus("x");
+    store.receive(key, true, log("x", true, "one"));
+    store.receive(key, true, log("x", false, "two"));
+    store.receive(key, true, log("y", true, "other"));
+    store.receive(watchKey(2, "a"), true, log("x", false, "elsewhere"));
+    const shown = logOf(store.current(), key);
+    expect(shown.agentId).toBe("x");
+    expect(shown.lines.map((line) => line.entry)).toEqual([
+      { kind: "text", text: "one" },
+      { kind: "text", text: "two" },
+    ]);
+    expect(logOf(store.current(), watchKey(2, "a"))).toBe(EMPTY_LOG);
+    // A snapshot leaves the log alone.
+    store.receive(key, true, message(["x"]));
+    expect(logOf(store.current(), key)).toBe(shown);
+    // Another sub-agent starts empty.
+    store.refocus("y");
+    expect(logOf(store.current(), key)).toMatchObject({ agentId: "y", lines: [] });
+  });
+
+  it("forgets the log's texts when excerpts switch off and on another session", () => {
+    const store = new SubAgentStore();
+    store.retarget("1:a", true);
+    store.refocus("x");
+    store.receive("1:a", true, {
+      type: "log",
+      agentId: "x",
+      reset: true,
+      entries: [{ kind: "prompt", text: "task" }],
+    });
+    store.retarget("1:a", false);
+    expect(store.current().log).toMatchObject({ agentId: "x", lines: [] });
+    store.retarget("2:a", false);
+    expect(store.current().log).toMatchObject({ agentId: "x", lines: [] });
+    store.retarget(null, false);
+    expect(store.current()).toBe(IDLE_WATCH);
+  });
+
   it("stops telling a listener that unsubscribed", () => {
     const { store, seen, stop } = watched();
     stop();
     store.retarget("1:a", false);
     expect(seen).toEqual([]);
+  });
+});
+
+describe("FocusSender", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function sender() {
+    vi.useFakeTimers();
+    const sent: [number, string | null][] = [];
+    const focus = new FocusSender(FOCUS_DEBOUNCE_MS, (sessionId, id) => {
+      sent.push([sessionId, id]);
+    });
+    return { focus, sent };
+  }
+
+  it("sends only the last of quick switches, once they settle", () => {
+    const { focus, sent } = sender();
+    focus.started(7, null);
+    focus.want("a1");
+    vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS - 1);
+    focus.want("a2");
+    focus.want("a3");
+    vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS - 1);
+    expect(sent).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(sent).toEqual([[7, "a3"]]);
+    // The watch has it now: the same focus again sends nothing.
+    focus.want("a3");
+    vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("sends nothing without a watch, for its own focus or after it stopped", () => {
+    const { focus, sent } = sender();
+    focus.want("a1");
+    focus.started(7, "a1");
+    focus.want("a1");
+    focus.want("a2");
+    focus.stopped();
+    vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS * 2);
+    expect(sent).toEqual([]);
+    // A restart that already carries the new focus drops the pending switch.
+    focus.started(7, "a1");
+    focus.want("a2");
+    focus.started(8, "a2");
+    vi.advanceTimersByTime(FOCUS_DEBOUNCE_MS * 2);
+    expect(sent).toEqual([]);
   });
 });
