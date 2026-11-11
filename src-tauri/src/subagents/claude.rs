@@ -1359,6 +1359,51 @@ mod tests {
         }
     }
 
+    /// A symbolic link to a file; `false` where the platform refuses it (Windows without
+    /// developer mode or admin rights), so the caller skips that case.
+    fn link_file(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(target, link).is_ok();
+        #[cfg(windows)]
+        return std::os::windows::fs::symlink_file(target, link).is_ok();
+    }
+
+    #[test]
+    fn the_main_transcript_is_never_read_through_a_link() {
+        let fx = Fixture::new("main-links");
+        let outside = fx.dir.path().join("outside");
+        fs::create_dir_all(outside.join(SESSION).join("subagents")).unwrap();
+        let outside_transcript = outside.join(format!("{SESSION}.jsonl"));
+        fs::write(&outside_transcript, "").unwrap();
+        let projects = fx.config().join("projects");
+        fs::create_dir_all(&projects).unwrap();
+        // The project folder links out, under the guessed name and under another one.
+        link_dir(&outside, &projects.join(encode_project(&fx.cwd)));
+        link_dir(&outside, &projects.join("other"));
+        assert_eq!(
+            ClaudeSource::new(&fx.target(), false).main_transcript(),
+            None
+        );
+        // A real project folder whose transcript is a link to a file outside: the session folder
+        // is found, the transcript is not.
+        let project = fx.project("real");
+        fx.subagents(&project);
+        let transcript = project.join(format!("{SESSION}.jsonl"));
+        if link_file(&outside_transcript, &transcript) {
+            assert_eq!(
+                ClaudeSource::new(&fx.target(), false).main_transcript(),
+                None
+            );
+            fs::remove_file(&transcript).unwrap();
+        }
+        // The same place as a regular file is read.
+        fs::write(&transcript, "").unwrap();
+        assert_eq!(
+            ClaudeSource::new(&fx.target(), false).main_transcript(),
+            Some(transcript)
+        );
+    }
+
     #[test]
     fn links_out_of_the_projects_folder_are_not_followed() {
         let fx = Fixture::new("links");
