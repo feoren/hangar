@@ -73,6 +73,10 @@ interface Props {
   updates: ProgramUpdates;
   notesOpen: boolean;
   onToggleNotes: () => void;
+  /** The right panel shows the active session's folder as a file tree. */
+  filesOpen: boolean;
+  /** The folder button on the active row: shows or hides that file tree. */
+  onToggleFiles: () => void;
   /** Launchable entries in the chosen order, hidden ones left out. */
   startable: Profile[];
   /** Installed entries exist, but all of them are hidden. */
@@ -1230,6 +1234,8 @@ function SessionItem({
   onRenameEnd,
   onSessionMenu,
   overlaps,
+  filesOpen,
+  onToggleFiles,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -1386,6 +1392,18 @@ function SessionItem({
       )}
       {!editing && chip !== null && <StatusChip kind={chip} />}
       <div className="session-actions">
+        {active && !editing && (
+          <button
+            type="button"
+            className="icon-button session-files"
+            aria-label={t("files.show")}
+            aria-pressed={filesOpen}
+            title={t("files.show")}
+            onClick={onToggleFiles}
+          >
+            <FolderIcon />
+          </button>
+        )}
         {!editing && (
           <IconButton
             label={t("session.rename")}

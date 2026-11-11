@@ -116,7 +116,8 @@ describe("parseLayout", () => {
     expect(layout.notesWidth).toBe(520);
     const changes = parseLayout(JSON.stringify({ sideOpen: true, sideTab: "changes" }));
     expect(changes.sideTab).toBe("changes");
-    expect(parseLayout(JSON.stringify({ sideTab: "files" })).sideTab).toBe("notes");
+    expect(parseLayout(JSON.stringify({ sideTab: "files" })).sideTab).toBe("files");
+    expect(parseLayout(JSON.stringify({ sideTab: "tree" })).sideTab).toBe("notes");
   });
 
   it("remembers the snap layout and ignores unknown ones", () => {

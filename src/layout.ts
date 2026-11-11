@@ -52,7 +52,7 @@ export const DEFAULT_LAYOUT: Layout = {
   snapLayout: "single",
 };
 
-export type SideTab = "notes" | "changes";
+export type SideTab = "notes" | "changes" | "files";
 
 export function isGroupOpen(layout: Layout, group: SidebarGroup): boolean {
   return !layout.closedGroups.includes(group);
@@ -157,7 +157,7 @@ export function parseLayout(text: string | null): Layout {
       : DEFAULT_LAYOUT.closedGroups,
     fontSize: clampFontSize(number("fontSize", DEFAULT_LAYOUT.fontSize)),
     sideOpen: typeof sideOpen === "boolean" ? sideOpen : DEFAULT_LAYOUT.sideOpen,
-    sideTab: sideTab === "changes" ? "changes" : "notes",
+    sideTab: sideTab === "changes" || sideTab === "files" ? sideTab : "notes",
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
     snapLayout: snapLayout ?? DEFAULT_LAYOUT.snapLayout,
   };

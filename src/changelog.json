@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Das Ordnersymbol an der aktiven Session zeigt ihren Projektordner als Baum. Dateien, die dein Team gerade bearbeitet, tragen den Avatar der Person.",
+        "en": "The folder icon on the active session shows its project folder as a tree. Files your team is editing carry that person’s avatar.",
+        "el": "Το εικονίδιο φακέλου στην ενεργή συνεδρία δείχνει τον φάκελο του έργου ως δέντρο. Τα αρχεία που επεξεργάζεται η ομάδα σου έχουν το avatar του ατόμου.",
+        "es": "El icono de carpeta de la sesión activa muestra su carpeta de proyecto como árbol. Los archivos que edita tu equipo llevan el avatar de esa persona.",
+        "fr": "L’icône de dossier de la session active affiche son dossier de projet en arbre. Les fichiers que ton équipe modifie portent l’avatar de la personne.",
+        "it": "L’icona della cartella sulla sessione attiva mostra la cartella del progetto come albero. I file che il tuo team modifica hanno l’avatar della persona.",
+        "ja": "アクティブなセッションのフォルダーアイコンで、プロジェクトフォルダーをツリー表示します。チームが編集中のファイルにはその人のアバターが付きます。",
+        "pl": "Ikona folderu przy aktywnej sesji pokazuje jej folder projektu jako drzewo. Pliki edytowane przez twój zespół mają awatar tej osoby.",
+        "pt": "O ícone de pasta da sessão ativa mostra a pasta do projeto como árvore. Arquivos que tua equipe está editando trazem o avatar da pessoa.",
+        "ru": "Значок папки у активного сеанса показывает папку проекта деревом. Файлы, которые редактирует твоя команда, отмечены аватаром этого человека.",
+        "tr": "Etkin oturumdaki klasör simgesi proje klasörünü ağaç olarak gösterir. Ekibinin düzenlediği dosyalar o kişinin avatarını taşır.",
+        "zh": "点击活动会话上的文件夹图标，即可以树形显示其项目文件夹。团队正在编辑的文件会显示该成员的头像。"
+      },
+      {
         "de": "Sessions zeigen zuerst ihren Projektordner, das Programm steht darunter. Eine ruhende Session sagt jetzt „macht Pause“ statt „läuft“.",
         "en": "Sessions now lead with their project folder, with the program below. A quiet session now says “taking a break” instead of “running”.",
         "el": "Οι συνεδρίες δείχνουν πρώτα τον φάκελο του έργου και από κάτω το πρόγραμμα. Μια ήσυχη συνεδρία λέει τώρα «κάνει διάλειμμα».",

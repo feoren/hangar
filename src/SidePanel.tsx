@@ -1,6 +1,6 @@
 import { useRef } from "react";
 
-import { useT } from "./i18n";
+import { useT, type MessageKey } from "./i18n";
 import { CloseIcon, DetachIcon } from "./icons";
 import type { SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
@@ -19,12 +19,19 @@ interface Props {
   onEscape: () => void;
   notes: React.ReactNode;
   changes: React.ReactNode;
+  files: React.ReactNode;
 }
 
-const TABS: readonly SideTab[] = ["notes", "changes"];
+const TABS: readonly SideTab[] = ["notes", "changes", "files"];
+
+const TAB_LABELS = {
+  notes: "notes.title",
+  changes: "changes.title",
+  files: "files.title",
+} as const satisfies Record<SideTab, MessageKey>;
 
 /**
- * The right panel: one frame with the tabs "Notes | Changes", one header (detach, close) and the
+ * The right panel: one frame with the tabs "Notes | Changes | Files", one header (detach, close) and the
  * content of the chosen tab. Docked next to the terminal, or in a narrow window as an overlay
  * with a scrim: a click outside or Escape closes it.
  */
@@ -32,9 +39,13 @@ export function SidePanel(props: Props) {
   const { tab, mode } = props;
   const t = useT();
   const tabs = useRef(new Map<SideTab, HTMLButtonElement>());
-  const label = (id: SideTab) => (id === "notes" ? t("notes.title") : t("changes.title"));
-  const keys = (id: SideTab) =>
-    formatShortcut(id === "notes" ? SHORTCUT_LABELS.quickNote : SHORTCUT_LABELS.toggleChanges, t);
+  const label = (id: SideTab) => t(TAB_LABELS[id]);
+  /** The tab with its shortcut, if it has one. */
+  const tooltip = (id: SideTab) => {
+    if (id === "files") return label(id);
+    const shortcut = id === "notes" ? SHORTCUT_LABELS.quickNote : SHORTCUT_LABELS.toggleChanges;
+    return `${label(id)} (${formatShortcut(shortcut, t)})`;
+  };
 
   const panel = (
     <aside
@@ -64,14 +75,15 @@ export function SidePanel(props: Props) {
               aria-selected={id === tab}
               aria-controls={`side-body-${id}`}
               tabIndex={id === tab ? 0 : -1}
-              title={`${label(id)} (${keys(id)})`}
+              title={tooltip(id)}
               onClick={() => {
                 props.onTab(id);
               }}
               onKeyDown={(event) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
                 event.preventDefault();
-                const next = TABS[(TABS.indexOf(id) + 1) % TABS.length] ?? "notes";
+                const step = event.key === "ArrowLeft" ? -1 : 1;
+                const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length] ?? "notes";
                 props.onTab(next);
                 tabs.current.get(next)?.focus();
               }}
@@ -118,6 +130,15 @@ export function SidePanel(props: Props) {
         hidden={tab !== "changes"}
       >
         {tab === "changes" && props.changes}
+      </div>
+      <div
+        className="side-body"
+        id="side-body-files"
+        role="tabpanel"
+        aria-labelledby="side-tab-files"
+        hidden={tab !== "files"}
+      >
+        {tab === "files" && props.files}
       </div>
     </aside>
   );
