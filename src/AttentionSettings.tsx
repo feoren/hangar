@@ -67,7 +67,7 @@ const PREVIEWS: Record<LookState, { status: MessageKey; chip: ChipKind | null }>
   working: { status: "status.working", chip: "working" },
   done: { status: "status.attention", chip: "done" },
   asks: { status: "status.asks", chip: "asks" },
-  idle: { status: "status.running", chip: null },
+  idle: { status: "status.idle", chip: null },
 };
 
 /**

@@ -48,7 +48,7 @@ describe("statusText", () => {
     expect(statusText({ status: "exited", exitCode: 3 }, de)).toBe("mit Fehler beendet");
     expect(statusText({ status: "exited", exitCode: 0 }, de)).toBe("beendet");
     expect(statusText({ status: "exited", exitCode: null }, de)).toBe("beendet");
-    expect(statusText({ status: "running", exitCode: null }, de)).toBe("läuft");
+    expect(statusText({ status: "running", exitCode: null }, de)).toBe("macht Pause");
     expect(statusText({ status: "exited", exitCode: 3 }, en)).toBe("exited with an error");
   });
 

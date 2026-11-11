@@ -77,7 +77,7 @@ describe("statusLine", () => {
   });
 
   it("shows running without any output yet", () => {
-    expect(statusLine(session(), "idle", NO_ACTIVITY, NOW, t, "en")).toBe(t("status.running"));
+    expect(statusLine(session(), "idle", NO_ACTIVITY, NOW, t, "en")).toBe(t("status.idle"));
   });
 
   it("keeps waiting and ended sessions plain", () => {

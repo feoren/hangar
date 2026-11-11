@@ -47,7 +47,7 @@ export function statusText(
     case "starting":
       return t("status.starting");
     case "running":
-      return attention === "working" ? t("status.working") : t("status.running");
+      return attention === "working" ? t("status.working") : t("status.idle");
     case "exited":
       return session.stoppedByUser === true ? t("status.exitedByUser") : t("status.exited");
   }

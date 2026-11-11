@@ -26,7 +26,7 @@ const SHORT_KEYS = [
   "session.restart",
   "session.close",
   "status.starting",
-  "status.running",
+  "status.idle",
   "status.working",
   "status.attention",
   "status.exited",

@@ -159,7 +159,7 @@ const de = {
     "Zeigt Auftrag, Text und Werkzeugaufrufe jedes Sub-Agents mit ihren Befehlen, Dateipfaden und Webadressen sowie die erste Zeile jedes Ergebnisses. Hangar blendet Schlüssel und Passwörter aus, die es erkennt, kann aber nicht jedes finden. Gespeichert wird nichts. Ausgeschaltet stehen nur die Namen der Werkzeuge da.",
 
   "status.starting": "startet",
-  "status.running": "läuft",
+  "status.idle": "macht Pause",
   "status.working": "arbeitet",
   "status.attention": "fertig, wartet auf dich",
   "status.exited": "beendet",
@@ -1168,7 +1168,7 @@ const en: Record<MessageKey, string> = {
     "Shows each sub-agent's task, text, tool calls with their commands, file paths and web addresses, and the first line of each result. Hangar hides keys and passwords it recognizes, but cannot catch every one. Nothing is stored. When off, only tool names show.",
 
   "status.starting": "starting",
-  "status.running": "running",
+  "status.idle": "taking a break",
   "status.working": "working",
   "status.attention": "done, waiting for you",
   "status.exited": "exited",
@@ -2151,7 +2151,7 @@ const el: Record<MessageKey, string> = {
     "Δείχνει την εργασία, το κείμενο και τις κλήσεις εργαλείων κάθε υπο-πράκτορα με τις εντολές, τις διαδρομές αρχείων και τις διευθύνσεις ιστού τους, καθώς και την πρώτη γραμμή κάθε αποτελέσματος. Το Hangar κρύβει τα κλειδιά και τους κωδικούς που αναγνωρίζει, αλλά δεν μπορεί να τα εντοπίσει όλα. Τίποτα δεν αποθηκεύεται. Όταν είναι ανενεργό, φαίνονται μόνο τα ονόματα εργαλείων.",
 
   "status.starting": "εκκινεί",
-  "status.running": "εκτελείται",
+  "status.idle": "κάνει διάλειμμα",
   "status.working": "εργάζεται",
   "status.attention": "έτοιμο, σε περιμένει",
   "status.exited": "τερματίστηκε",
@@ -3167,7 +3167,7 @@ const es: Record<MessageKey, string> = {
     "Muestra la tarea, el texto y las llamadas a herramientas de cada subagente con sus comandos, rutas de archivo y direcciones web, y la primera línea de cada resultado. Hangar oculta las claves y contraseñas que reconoce, pero no puede detectarlas todas. No se guarda nada. Desactivado, solo aparecen los nombres de las herramientas.",
 
   "status.starting": "iniciando",
-  "status.running": "en ejecución",
+  "status.idle": "en pausa",
   "status.working": "trabajando",
   "status.attention": "listo, te espera",
   "status.exited": "finalizada",
@@ -4167,7 +4167,7 @@ const fr: Record<MessageKey, string> = {
     "Affiche la tâche, le texte et les appels d'outils de chaque sous-agent avec leurs commandes, chemins de fichiers et adresses web, ainsi que la première ligne de chaque résultat. Hangar masque les clés et mots de passe qu'il reconnaît, mais ne peut pas tous les repérer. Rien n'est enregistré. Désactivé, seuls les noms des outils s'affichent.",
 
   "status.starting": "démarre",
-  "status.running": "active",
+  "status.idle": "en pause",
   "status.working": "travaille",
   "status.attention": "fini, t'attend",
   "status.exited": "terminée",
@@ -5181,7 +5181,7 @@ const it: Record<MessageKey, string> = {
     "Mostra il compito, il testo e le chiamate agli strumenti di ogni sotto-agente con i loro comandi, percorsi di file e indirizzi web, e la prima riga di ogni risultato. Hangar nasconde le chiavi e le password che riconosce, ma non può individuarle tutte. Non viene salvato nulla. Se disattivato, compaiono solo i nomi degli strumenti.",
 
   "status.starting": "in avvio",
-  "status.running": "attiva",
+  "status.idle": "in pausa",
   "status.working": "al lavoro",
   "status.attention": "finito, ti aspetta",
   "status.exited": "terminata",
@@ -6186,7 +6186,7 @@ const ja: Record<MessageKey, string> = {
     "各サブエージェントのタスク、テキスト、ツール呼び出し（コマンド、ファイルパス、Web アドレスを含む）と、各結果の最初の行を表示します。Hangar は認識できるキーやパスワードを隠しますが、すべてを見つけられるわけではありません。何も保存されません。オフの場合はツール名だけが表示されます。",
 
   "status.starting": "起動中",
-  "status.running": "実行中",
+  "status.idle": "休憩中",
   "status.working": "作業中",
   "status.attention": "完了・入力待ち",
   "status.exited": "終了",
@@ -7188,7 +7188,7 @@ const pl: Record<MessageKey, string> = {
     "Pokazuje zadanie, tekst i wywołania narzędzi każdego podagenta wraz z ich poleceniami, ścieżkami plików i adresami stron oraz pierwszy wiersz każdego wyniku. Hangar ukrywa klucze i hasła, które rozpoznaje, ale nie wychwyci wszystkich. Nic nie jest zapisywane. Po wyłączeniu widać tylko nazwy narzędzi.",
 
   "status.starting": "uruchamia się",
-  "status.running": "działa",
+  "status.idle": "ma przerwę",
   "status.working": "pracuje",
   "status.attention": "gotowe, czeka na ciebie",
   "status.exited": "zakończona",
@@ -8183,7 +8183,7 @@ const pt: Record<MessageKey, string> = {
     "Mostra a tarefa, o texto e as chamadas de ferramentas de cada subagente com seus comandos, caminhos de arquivo e endereços da web, além da primeira linha de cada resultado. O Hangar oculta as chaves e senhas que reconhece, mas não consegue pegar todas. Nada é salvo. Desativado, aparecem só os nomes das ferramentas.",
 
   "status.starting": "iniciando",
-  "status.running": "em execução",
+  "status.idle": "em pausa",
   "status.working": "trabalhando",
   "status.attention": "pronto, aguardando você",
   "status.exited": "encerrada",
@@ -9182,7 +9182,7 @@ const ru: Record<MessageKey, string> = {
     "Показывает задачу, текст и вызовы инструментов каждого субагента с их командами, путями к файлам и веб-адресами, а также первую строку каждого результата. Hangar скрывает ключи и пароли, которые распознаёт, но не может найти все. Ничего не сохраняется. Если выключено, видны только названия инструментов.",
 
   "status.starting": "запускается",
-  "status.running": "запущен",
+  "status.idle": "на паузе",
   "status.working": "работает",
   "status.attention": "готово, ждёт тебя",
   "status.exited": "завершён",
@@ -10169,7 +10169,7 @@ const tr: Record<MessageKey, string> = {
     "Her alt ajanın görevini, metnini ve araç çağrılarını komutları, dosya yolları ve web adresleriyle birlikte, ayrıca her sonucun ilk satırını gösterir. Hangar tanıdığı anahtarları ve parolaları gizler, ancak hepsini yakalayamaz. Hiçbir şey kaydedilmez. Kapalıyken yalnızca araç adları görünür.",
 
   "status.starting": "başlıyor",
-  "status.running": "etkin",
+  "status.idle": "mola veriyor",
   "status.working": "çalışıyor",
   "status.attention": "bitti, seni bekliyor",
   "status.exited": "sonlandı",
@@ -11150,7 +11150,7 @@ const zh: Record<MessageKey, string> = {
     "显示每个子代理的任务、文本和工具调用（包括其命令、文件路径和网址），以及每个结果的第一行。Hangar 会隐藏它能识别的密钥和密码，但无法全部发现。不会保存任何内容。关闭时只显示工具名称。",
 
   "status.starting": "正在启动",
-  "status.running": "运行中",
+  "status.idle": "休息中",
   "status.working": "工作中",
   "status.attention": "已完成，等你操作",
   "status.exited": "已退出",
