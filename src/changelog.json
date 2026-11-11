@@ -4,18 +4,32 @@
     "date": null,
     "items": [
       {
-        "de": "Das Ordnersymbol an der aktiven Session zeigt ihren Projektordner als Baum. Dateien, die dein Team gerade bearbeitet, tragen den Avatar der Person.",
-        "en": "The folder icon on the active session shows its project folder as a tree. Files your team is editing carry that person’s avatar.",
-        "el": "Το εικονίδιο φακέλου στην ενεργή συνεδρία δείχνει τον φάκελο του έργου ως δέντρο. Τα αρχεία που επεξεργάζεται η ομάδα σου έχουν το avatar του ατόμου.",
-        "es": "El icono de carpeta de la sesión activa muestra su carpeta de proyecto como árbol. Los archivos que edita tu equipo llevan el avatar de esa persona.",
-        "fr": "L’icône de dossier de la session active affiche son dossier de projet en arbre. Les fichiers que ton équipe modifie portent l’avatar de la personne.",
-        "it": "L’icona della cartella sulla sessione attiva mostra la cartella del progetto come albero. I file che il tuo team modifica hanno l’avatar della persona.",
-        "ja": "アクティブなセッションのフォルダーアイコンで、プロジェクトフォルダーをツリー表示します。チームが編集中のファイルにはその人のアバターが付きます。",
-        "pl": "Ikona folderu przy aktywnej sesji pokazuje jej folder projektu jako drzewo. Pliki edytowane przez twój zespół mają awatar tej osoby.",
-        "pt": "O ícone de pasta da sessão ativa mostra a pasta do projeto como árvore. Arquivos que tua equipe está editando trazem o avatar da pessoa.",
-        "ru": "Значок папки у активного сеанса показывает папку проекта деревом. Файлы, которые редактирует твоя команда, отмечены аватаром этого человека.",
-        "tr": "Etkin oturumdaki klasör simgesi proje klasörünü ağaç olarak gösterir. Ekibinin düzenlediği dosyalar o kişinin avatarını taşır.",
-        "zh": "点击活动会话上的文件夹图标，即可以树形显示其项目文件夹。团队正在编辑的文件会显示该成员的头像。"
+        "de": "Jede Session zeigt ihren Zustand als Balken am linken Rand. Beim Darüberfahren erscheint nur noch ein „⋯“ mit allen Aktionen, nichts wird mehr abgeschnitten.",
+        "en": "Each session shows its state as a bar on its left edge. Hovering shows a single “⋯” with all actions, so nothing gets cut off anymore.",
+        "el": "Κάθε συνεδρία δείχνει την κατάστασή της με μια μπάρα αριστερά. Στο πέρασμα του ποντικιού εμφανίζεται μόνο ένα «⋯» με όλες τις ενέργειες.",
+        "es": "Cada sesión muestra su estado con una barra a la izquierda. Al pasar el ratón aparece un solo «⋯» con todas las acciones, sin recortar nada.",
+        "fr": "Chaque session montre son état par une barre à gauche. Au survol, un seul « ⋯ » réunit toutes les actions, plus rien n’est tronqué.",
+        "it": "Ogni sessione mostra il suo stato con una barra a sinistra. Al passaggio del mouse appare un solo «⋯» con tutte le azioni, senza tagli.",
+        "ja": "各セッションは左端のバーで状態を示します。マウスを重ねると、すべての操作をまとめた「⋯」だけが表示され、行が途中で切れなくなりました。",
+        "pl": "Każda sesja pokazuje swój stan paskiem po lewej. Po najechaniu pojawia się tylko „⋯” ze wszystkimi działaniami, nic nie jest już obcinane.",
+        "pt": "Cada sessão mostra seu estado com uma barra à esquerda. Ao passar o mouse aparece só um “⋯” com todas as ações, sem cortar nada.",
+        "ru": "Каждый сеанс показывает состояние полоской слева. При наведении появляется только «⋯» со всеми действиями, и ничего больше не обрезается.",
+        "tr": "Her oturum durumunu solda bir çubukla gösterir. Üzerine gelince tüm işlemleri içeren tek bir “⋯” çıkar, artık hiçbir şey kesilmez.",
+        "zh": "每个会话都在左侧边缘用一条细条显示其状态，工作时带有柔和的微光。悬停时不再显示四个图标，只出现一个包含所有操作的“⋯”，各行不再被截断。"
+      },
+      {
+        "de": "„Projektordner anzeigen“ im Menü einer Session zeigt ihren Ordner als Baum. Dateien, die dein Team gerade bearbeitet, tragen den Avatar der Person.",
+        "en": "“Show project folder” in a session’s menu shows its folder as a tree. Files your team is editing carry that person’s avatar.",
+        "el": "Η «Εμφάνιση φακέλου έργου» στο μενού μιας συνεδρίας δείχνει τον φάκελό της ως δέντρο. Τα αρχεία που επεξεργάζεται η ομάδα σου έχουν το avatar του ατόμου.",
+        "es": "«Mostrar carpeta del proyecto» en el menú de una sesión muestra su carpeta como árbol. Los archivos que edita tu equipo llevan el avatar de esa persona.",
+        "fr": "« Afficher le dossier du projet » dans le menu d’une session affiche son dossier en arbre. Les fichiers que ton équipe modifie portent l’avatar de la personne.",
+        "it": "«Mostra cartella del progetto» nel menu di una sessione mostra la sua cartella come albero. I file che il tuo team modifica hanno l’avatar della persona.",
+        "ja": "セッションのメニューの「プロジェクトフォルダーを表示」で、フォルダーをツリー表示します。チームが編集中のファイルにはその人のアバターが付きます。",
+        "pl": "„Pokaż folder projektu” w menu sesji pokazuje jej folder jako drzewo. Pliki edytowane przez twój zespół mają awatar tej osoby.",
+        "pt": "“Mostrar pasta do projeto” no menu de uma sessão mostra a pasta como árvore. Arquivos que tua equipe está editando trazem o avatar da pessoa.",
+        "ru": "«Показать папку проекта» в меню сеанса показывает его папку деревом. Файлы, которые редактирует твоя команда, отмечены аватаром этого человека.",
+        "tr": "Bir oturumun menüsündeki “Proje klasörünü göster”, klasörünü ağaç olarak gösterir. Ekibinin düzenlediği dosyalar o kişinin avatarını taşır.",
+        "zh": "在会话菜单中选择“显示项目文件夹”，即可以树形显示其文件夹。团队正在编辑的文件会显示该成员的头像。"
       },
       {
         "de": "Sessions zeigen zuerst ihren Projektordner, das Programm steht darunter. Eine ruhende Session sagt jetzt „macht Pause“ statt „läuft“.",
@@ -74,18 +88,18 @@
         "zh": "拖动并排会话之间的分隔线即可调整大小。侧边栏中的小图案显示每个会话所在的位置。"
       },
       {
-        "de": "Agent-Sessions zeigen in ihrer Zeile, wie voll der Kontext ist: ein schmaler Balken mit Prozentwert, die genauen Token-Zahlen im Tooltip.",
-        "en": "Agent sessions show how full their context is right in their row: a slim bar with a percentage, the exact token counts in the tooltip.",
-        "el": "Οι συνεδρίες πρακτόρων δείχνουν στη γραμμή τους πόσο γεμάτο είναι το πλαίσιο: μια λεπτή μπάρα με ποσοστό, οι ακριβείς αριθμοί tokens στη συμβουλή.",
-        "es": "Las sesiones de agentes muestran en su fila lo lleno que está su contexto: una barra fina con porcentaje y los tokens exactos en la información emergente.",
-        "fr": "Les sessions d’agents montrent dans leur ligne le remplissage du contexte : une fine barre avec pourcentage, les jetons exacts dans l’infobulle.",
-        "it": "Le sessioni degli agenti mostrano nella loro riga quanto è pieno il contesto: una barra sottile con la percentuale, i token esatti nel tooltip.",
-        "ja": "エージェントのセッションは、行の中でコンテキストの使用率を表示します。細いバーとパーセント、正確なトークン数はツールチップに表示されます。",
-        "pl": "Sesje agentów pokazują w swoim wierszu, jak bardzo zapełniony jest kontekst: cienki pasek z procentem, dokładne liczby tokenów w podpowiedzi.",
-        "pt": "As sessões de agentes mostram na própria linha o quanto o contexto está cheio: uma barra fina com a porcentagem e os tokens exatos na dica.",
-        "ru": "Сеансы агентов показывают в своей строке, насколько заполнен контекст: тонкая полоска с процентами, точные числа токенов во всплывающей подсказке.",
-        "tr": "Ajan oturumları, bağlamlarının ne kadar dolu olduğunu kendi satırında gösterir: yüzdeli ince bir çubuk, tam token sayıları ipucunda.",
-        "zh": "智能体会话在自己的行中显示上下文的使用程度：一条带百分比的细条，精确的 token 数量显示在提示中。"
+        "de": "Agent-Sessions zeigen, wie voll ihr Kontext ist: eine feine Linie am unteren Rand ihrer Zeile, Prozent und genaue Token-Zahlen im Tooltip.",
+        "en": "Agent sessions show how full their context is: a fine line along the bottom of their row, the percentage and exact token counts in the tooltip.",
+        "el": "Οι συνεδρίες πρακτόρων δείχνουν με μια λεπτή γραμμή στο κάτω μέρος πόσο γεμάτο είναι το πλαίσιο. Ποσοστό και tokens στη συμβουλή.",
+        "es": "Las sesiones de agentes muestran con una línea fina al pie de su fila lo lleno que está el contexto; porcentaje y tokens en la información emergente.",
+        "fr": "Les sessions d’agents montrent le remplissage de leur contexte : une fine ligne au bas de leur rangée, le pourcentage et les jetons exacts dans l’infobulle.",
+        "it": "Le sessioni degli agenti mostrano con una linea sottile in fondo alla riga quanto è pieno il contesto; percentuale e token esatti nel tooltip.",
+        "ja": "エージェントのセッションは、コンテキストの使用率を行の下端の細い線で表示します。パーセントと正確なトークン数はツールチップに表示されます。",
+        "pl": "Sesje agentów pokazują, jak bardzo zapełniony jest ich kontekst: cienka linia przy dolnej krawędzi wiersza, procent i dokładne liczby tokenów w podpowiedzi.",
+        "pt": "As sessões de agentes mostram o quanto o contexto está cheio: uma linha fina na borda inferior da linha, a porcentagem e os tokens exatos na dica.",
+        "ru": "Сеансы агентов показывают, насколько заполнен их контекст: тонкая линия у нижнего края строки, проценты и точные числа токенов во всплывающей подсказке.",
+        "tr": "Ajan oturumları bağlamlarının ne kadar dolu olduğunu gösterir: satırlarının alt kenarında ince bir çizgi, yüzde ve tam token sayıları ipucunda.",
+        "zh": "智能体会话显示其上下文的使用程度：行底部的一条细线，百分比和精确的 token 数量显示在提示中。"
       }
     ]
   },

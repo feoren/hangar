@@ -1,10 +1,10 @@
-// Status chip at the right end of a session row (and its small twin in the collapsed rail). Each
-// state has its own shape, so color is never the only signal: working shows three dots, waiting a
-// check (done) or a bell (the program rang, often a question), a failed exit a red exclamation
-// mark, an ordinary exit a quiet square. Pure, so the rules can be tested.
+// What a session's state looks like in the sidebar. Expanded rows carry a thin bar at their left
+// edge in the state's color; the collapsed rail keeps a small chip at the badge's corner. Each
+// state has its own shape there (a check for done, a bell for a question, an exclamation mark for
+// a failed exit), and the row's status line always says it in words, so color is never the only
+// signal. Pure, so the rules can be tested.
 
 import type { AttentionReason, AttentionState } from "./attention";
-import type { MessageKey } from "./i18n";
 import type { SessionView } from "./sessions";
 import type { LookState } from "./stateLook";
 
@@ -22,7 +22,7 @@ export function exitedWithError(
   );
 }
 
-/** Which chip a row shows; `null` for a running or starting session that needs nothing. */
+/** Which state a session shows; `null` for a running or starting session that needs nothing. */
 export function sessionChip(
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
   state: AttentionState,
@@ -41,14 +41,12 @@ export function chipWaits(kind: ChipKind | null): boolean {
   return kind === "done" || kind === "asks";
 }
 
-/** Short visible label; working and an ordinary exit have none, the status line says it. */
-export const CHIP_LABELS: Record<ChipKind, MessageKey | null> = {
-  working: null,
-  done: "chip.done",
-  asks: "chip.asks",
-  failed: "chip.failed",
-  ended: null,
-};
+/** The chips the narrow rail shows instead of its dot: waiting and failed sessions. */
+export type RailChipKind = "done" | "asks" | "failed";
+
+export function railShowsChip(chip: ChipKind | null): chip is RailChipKind {
+  return chip === "done" || chip === "asks" || chip === "failed";
+}
 
 /**
  * Which state look (stateLook.ts) a row takes: a question or decision looks like "asks", any other
@@ -63,4 +61,27 @@ export function rowLook(
   if (state === "attention") return chip === "asks" ? "asks" : "done";
   if (session.status !== "running") return null;
   return state === "working" ? "working" : "idle";
+}
+
+/** Color of a row's left bar: a state look, or one of the states without a look of their own. */
+export type BarState = LookState | "starting" | "ended" | "failed";
+
+/**
+ * The left bar of a session row. A failed exit wins over waiting (the error is the news), then the
+ * row's look; a session without one is either still starting or has ended.
+ */
+export function rowBar(
+  session: Pick<SessionView, "status">,
+  state: AttentionState,
+  chip: ChipKind | null,
+): BarState {
+  if (chip === "failed") return "failed";
+  const look = rowLook(session, state, chip);
+  if (look !== null) return look;
+  return session.status === "starting" ? "starting" : "ended";
+}
+
+/** Class of the bar element (styles.css, `.session-bar.bar-<state>`). */
+export function barClass(bar: BarState): string {
+  return `session-bar bar-${bar}`;
 }

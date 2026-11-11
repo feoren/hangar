@@ -28,8 +28,7 @@ import {
   type LookState,
   type PulseStrength,
 } from "./stateLook";
-import { StatusChip } from "./StatusChip";
-import type { ChipKind } from "./sessionChip";
+import { barClass } from "./sessionChip";
 import type { Theme } from "./theme";
 
 interface Props {
@@ -62,12 +61,12 @@ const COLOR_NAMES: Record<LookPresetId, MessageKey> = {
   pink: "color.pink",
 };
 
-/** What the preview row says and shows, exactly like a session in the sidebar. */
-const PREVIEWS: Record<LookState, { status: MessageKey; chip: ChipKind | null }> = {
-  working: { status: "status.working", chip: "working" },
-  done: { status: "status.attention", chip: "done" },
-  asks: { status: "status.asks", chip: "asks" },
-  idle: { status: "status.idle", chip: null },
+/** What the preview row says, exactly like a session in the sidebar; its left bar shows the state. */
+const PREVIEWS: Record<LookState, MessageKey> = {
+  working: "status.working",
+  done: "status.attention",
+  asks: "status.asks",
+  idle: "status.idle",
 };
 
 /**
@@ -314,17 +313,17 @@ function LookCard({
 
         <div className="attention-preview look-preview" aria-hidden="true">
           <span className={["session", waits ? "attention" : "", lookClass(state)].join(" ")}>
+            <span className={barClass(state)} />
             <span className="session-main">
               <span className="badge">C</span>
               <span className="session-text">
                 <span className="session-title">{t("settings.preview")}</span>
                 <span className="session-meta">
                   <span className={waits ? "dot attention" : "dot running"} />
-                  {t(preview.status)}
+                  {t(preview)}
                 </span>
               </span>
             </span>
-            {preview.chip !== null && <StatusChip kind={preview.chip} />}
           </span>
         </div>
       </div>
