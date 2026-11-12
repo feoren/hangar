@@ -32,6 +32,34 @@
         "zh": "“文件”标签中的活动地图按智能体在最近 1 小时、今天或 7 天内的更改次数为文件和文件夹着色，并可按时间回放。"
       },
       {
+        "de": "Im Tab Änderungen stagst, verwirfst und committest du Dateien direkt. Auf Wunsch schlägt der Agent die Commit-Nachricht vor.",
+        "en": "In the Changes tab you stage, discard and commit files directly. On request, the agent proposes the commit message.",
+        "el": "Στην καρτέλα Αλλαγές κάνεις stage, απορρίπτεις και κάνεις commit αρχεία απευθείας. Αν θέλεις, ο agent προτείνει το μήνυμα commit.",
+        "es": "En la pestaña Cambios preparas, descartas y haces commit de archivos directamente. Si quieres, el agente propone el mensaje del commit.",
+        "fr": "Dans l’onglet Modifications, tu indexes, abandonnes et commites des fichiers directement. Sur demande, l’agent propose le message de commit.",
+        "it": "Nella scheda Modifiche aggiungi allo stage, scarti e fai commit dei file direttamente. Se vuoi, l’agente propone il messaggio di commit.",
+        "ja": "変更タブでファイルを直接ステージ、破棄、コミットできます。必要ならエージェントがコミットメッセージを提案します。",
+        "pl": "W karcie Zmiany dodajesz pliki do stage, odrzucasz zmiany i robisz commit bezpośrednio. Na życzenie agent proponuje opis commita.",
+        "pt": "Na aba Alterações você prepara, descarta e faz commit de arquivos diretamente. Se quiser, o agente propõe a mensagem do commit.",
+        "ru": "Во вкладке «Изменения» можно сразу добавлять файлы в индекс, отменять изменения и делать коммит. По запросу агент предложит сообщение.",
+        "tr": "Değişiklikler sekmesinde dosyaları doğrudan stage’e alır, değişiklikleri atar ve commit edersin. İstersen agent commit mesajını önerir.",
+        "zh": "在“更改”标签中可直接暂存、放弃和提交文件。需要时，代理会建议提交信息。"
+      },
+      {
+        "de": "Ein Klick auf eine Zeile im Diff öffnet ein Kommentarfeld. Enter schickt Datei, Zeile und Kommentar an den Agenten der Session.",
+        "en": "Click a line in a diff to comment on it. Enter sends the file, the line and your comment to the session's agent.",
+        "el": "Ένα κλικ σε μια γραμμή του diff ανοίγει πεδίο σχολίου. Το Enter στέλνει αρχείο, γραμμή και σχόλιο στον agent της συνεδρίας.",
+        "es": "Un clic en una línea del diff abre un campo de comentario. Enter envía el archivo, la línea y el comentario al agente de la sesión.",
+        "fr": "Un clic sur une ligne du diff ouvre un champ de commentaire. Entrée envoie le fichier, la ligne et le commentaire à l’agent de la session.",
+        "it": "Un clic su una riga del diff apre un campo di commento. Invio manda file, riga e commento all’agente della sessione.",
+        "ja": "差分の行をクリックするとコメント欄が開きます。Enter でファイル、行、コメントをセッションのエージェントに送ります。",
+        "pl": "Kliknięcie wiersza w diffie otwiera pole komentarza. Enter wysyła plik, wiersz i komentarz do agenta sesji.",
+        "pt": "Um clique numa linha do diff abre um campo de comentário. Enter envia o arquivo, a linha e o comentário ao agente da sessão.",
+        "ru": "Щелчок по строке в диффе открывает поле комментария. Enter отправляет файл, строку и комментарий агенту сессии.",
+        "tr": "Diff’teki bir satıra tıklamak yorum alanı açar. Enter dosyayı, satırı ve yorumu oturumun agent’ına gönderir.",
+        "zh": "点击差异中的某一行即可打开评论框。按 Enter 会把文件、行号和评论发送给该会话的代理。"
+      },
+      {
         "de": "Im Tab Dateien öffnet ein Doppelklick oder Enter eine Datei in einem eigenen Fenster zum Lesen, mit Zeilennummern, Einklappen und Suche.",
         "en": "In the Files tab, a double click or Enter opens a file in its own read-only window, with line numbers, folding and search.",
         "el": "Στην καρτέλα Αρχεία, διπλό κλικ ή Enter ανοίγει ένα αρχείο σε δικό του παράθυρο μόνο για ανάγνωση, με αριθμούς γραμμών, σύμπτυξη και αναζήτηση.",

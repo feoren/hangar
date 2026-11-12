@@ -588,3 +588,14 @@ Compared whisper.cpp (whisper-rs), Vosk, sherpa-onnx, Windows and macOS speech A
 API and microphone capture (cpal versus getUserMedia). Recommendation: whisper-rs with small q5_1 and
 base q5_1, cpal in the backend, push-to-talk, consent-based model download. Latency and German quality
 are unmeasured. Pages changed: [[local-dictation-research]] (new), index.
+## [2026-11-12] query | Git actions in the Changes tab
+Documented `git_stage`, `git_unstage`, `git_discard` and `git_commit` (session ID, literal
+pathspecs on stdin, path rules, filter refusal, hooks not bypassed) and the line comments to the
+agent. Pages changed: [[commit-history]], index.
+
+## [2026-11-12] query | Git actions hardened after review
+Discard refuses paths through or holding links (junctions included), stage, unstage and discard
+run without repository hooks, deadlines scale with the path count (commit 600 seconds) and name
+the index lock, commit messages refuse control characters, "stage changed and commit" stages
+tracked files only, git's environment drops a calling agent session's markers, and diff line
+comments have a keyboard path. Pages changed: [[commit-history]].

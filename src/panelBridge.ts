@@ -148,6 +148,8 @@ export interface PanelSession {
   program: string;
   /** The repository its Hangar worktree was made from, else `null` (`LocalSession.repo`). */
   repo: string | null;
+  /** Runs an agent, not a plain shell (sessionChip.ts, `runsAgent`): diff comments go to it. */
+  agent: boolean;
 }
 
 /** What the tabs of the detached panel show; the main window computes it. */
@@ -213,9 +215,11 @@ function parseSessions(value: unknown): PanelSession[] | null {
     const running = field(entry, "running");
     const program = field(entry, "program");
     const repo = field(entry, "repo");
+    const agent = field(entry, "agent");
     if (!isId(id) || typeof title !== "string" || typeof running !== "boolean") return null;
     if (typeof program !== "string" || (repo !== null && typeof repo !== "string")) return null;
-    sessions.push({ id, title, running, program, repo });
+    if (typeof agent !== "boolean") return null;
+    sessions.push({ id, title, running, program, repo, agent });
   }
   return sessions;
 }
@@ -255,6 +259,11 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */
 export function panelSessionName(sessions: readonly PanelSession[], id: number): string {
   return sessions.find((session) => session.id === id)?.title ?? `#${String(id)}`;
+}
+
+/** Whether the session runs an agent; `false` for an unknown session. */
+export function panelSessionIsAgent(sessions: readonly PanelSession[], id: number | null): boolean {
+  return sessions.some((session) => session.id === id && session.agent);
 }
 
 /** Logical pixels, as `open_panel_window` takes them. */

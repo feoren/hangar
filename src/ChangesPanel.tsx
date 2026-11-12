@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText } from "./api";
-import { ChangeList } from "./ChangeList";
+import { ChangeList, type FileActions, type LineCommentHandler } from "./ChangeList";
 import type { Overlap, SessionClaims } from "./claims";
 import { ClaimsSection } from "./ClaimsView";
+import { CommitBox } from "./CommitBox";
 import { CommitHistory } from "./CommitHistory";
+import { Dialog } from "./Dialog";
 import { folderName } from "./folders";
-import { parseGitDiff, type GitDiff } from "./gitDiff";
+import { commitMode, discardDeletes, lineComment, stageAllPaths } from "./gitActions";
+import { parseGitDiff, splitPath, type ChangeEntry, type GitDiff } from "./gitDiff";
 import { CHANGES_VIEWS, type ChangesView, type CommitFocus } from "./gitHistory";
 import { useT, type MessageKey } from "./i18n";
 import { RestartIcon } from "./icons";
@@ -17,6 +20,12 @@ import type { TeammateOverlap } from "./team";
 interface Props {
   /** Working folder of the active session; `null` without a session. */
   cwd: string | null;
+  /** The active session, whose folder is shown; the git actions name it. */
+  sessionId: number | null;
+  /** It runs an agent: diff lines take comments and the commit box asks it for a message. */
+  agent: boolean;
+  /** Text into the active session's prompt, as pasted (no Enter). */
+  onSendToAgent: (text: string) => void;
   /**
    * Changes when the diff should be read again: the active session's attention state (an agent
    * that finished a step usually changed files).
@@ -46,6 +55,12 @@ const VIEW_LABELS = {
   commits: "changes.viewCommits",
 } as const satisfies Record<ChangesView, MessageKey>;
 
+/** A text that belongs to one folder: a draft or an error of another folder is not shown. */
+interface ForFolder {
+  cwd: string;
+  text: string;
+}
+
 type Load =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -70,6 +85,16 @@ export function ChangesPanel(props: Props) {
   const [answer, setAnswer] = useState<{ key: string; cwd: string; load: Load } | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const latest = useRef("");
+  /** A git action runs; the panel reads the changes again when it ends. */
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<ForFolder | null>(null);
+  const [draft, setDraft] = useState<ForFolder | null>(null);
+  /** The file whose changes the user wants to throw away, while the question is open. */
+  const [discarding, setDiscarding] = useState<ChangeEntry | null>(null);
+  const send = useRef(props.onSendToAgent);
+  useEffect(() => {
+    send.current = props.onSendToAgent;
+  });
   const reload = `${trigger}\n${String(manual)}`;
   const key = `${cwd ?? ""}\n${reload}\n${view}`;
 
@@ -105,7 +130,64 @@ export function ChangesPanel(props: Props) {
       : answer !== null && answer.cwd === cwd
         ? answer.load
         : { kind: "loading" };
-  const refreshing = cwd !== null && (view === "open" ? answer?.key !== key : historyBusy);
+  // A running git action counts too: a commit with slow hooks shows that something happens.
+  const refreshing = cwd !== null && (view === "open" ? busy || answer?.key !== key : historyBusy);
+
+  const { sessionId } = props;
+  /** Runs one action for the active session, shows git's message if it fails, then reads again. */
+  const runAction = (work: (id: number) => Promise<unknown>, done?: () => void) => {
+    if (sessionId === null || cwd === null || busy) return;
+    setBusy(true);
+    setActionError(null);
+    work(sessionId)
+      .then(() => {
+        done?.();
+      })
+      .catch((e: unknown) => {
+        setActionError({ cwd, text: errorText(e) });
+      })
+      .finally(() => {
+        setBusy(false);
+        setManual((value) => value + 1);
+      });
+  };
+  const actions: FileActions | undefined =
+    sessionId === null
+      ? undefined
+      : {
+          busy,
+          onStage: (entry, stage) => {
+            runAction((id) =>
+              stage ? api.gitStage(id, [entry.path]) : api.gitUnstage(id, [entry.path]),
+            );
+          },
+          onDiscard: setDiscarding,
+        };
+  const onComment = useCallback<LineCommentHandler>((path, line, comment) => {
+    const text = lineComment(path, line, comment);
+    if (text !== null) send.current(text);
+  }, []);
+  const files = load.kind === "done" && load.result.isRepo ? load.result.files : [];
+  const mode = commitMode(files);
+  const message = draft !== null && draft.cwd === cwd ? draft.text : "";
+  const error = actionError !== null && actionError.cwd === cwd ? actionError.text : null;
+  const commit = (text: string) => {
+    // Like a commit with `-a`: changed and deleted files, never untracked ones.
+    const paths = stageAllPaths(files);
+    runAction(
+      async (id) => {
+        if (mode === "stageAll") await api.gitStage(id, paths);
+        await api.gitCommit(id, text);
+      },
+      () => {
+        setDraft(null);
+      },
+    );
+  };
+  const closeDiscard = () => {
+    setDiscarding(null);
+    panel.current?.focus();
+  };
 
   useEffect(() => {
     if (props.focusToken === 0) return;
@@ -156,6 +238,31 @@ export function ChangesPanel(props: Props) {
       </div>
       {view === "open" ? (
         <>
+          {sessionId !== null && cwd !== null && mode !== "none" && (
+            <CommitBox
+              message={message}
+              onMessage={(text) => {
+                setDraft({ cwd, text });
+              }}
+              mode={mode}
+              busy={busy}
+              onCommit={commit}
+              onSuggest={
+                props.agent
+                  ? () => {
+                      props.onSendToAgent(
+                        t(mode === "commit" ? "changes.suggestStaged" : "changes.suggestAll"),
+                      );
+                    }
+                  : undefined
+              }
+            />
+          )}
+          {error !== null && (
+            <p className="changes-hint error-text selectable" role="alert">
+              {t("changes.actionFailed", { error })}
+            </p>
+          )}
           <ClaimsSection
             key={props.claims?.sessionId ?? "none"}
             claims={props.claims}
@@ -164,7 +271,12 @@ export function ChangesPanel(props: Props) {
             nameOf={props.nameOf}
             onShowSession={props.onShowSession}
           />
-          <ChangesBody cwd={cwd} load={load} />
+          <ChangesBody
+            cwd={cwd}
+            load={load}
+            actions={actions}
+            onComment={props.agent ? onComment : undefined}
+          />
         </>
       ) : cwd === null ? (
         <p className="changes-message">{t("changes.noSession")}</p>
@@ -178,11 +290,66 @@ export function ChangesPanel(props: Props) {
           focus={props.focusCommit ?? null}
         />
       )}
+      {discarding !== null && (
+        <DiscardDialog
+          entry={discarding}
+          onCancel={closeDiscard}
+          onConfirm={() => {
+            const path = discarding.path;
+            closeDiscard();
+            runAction((id) => api.gitDiscard(id, [path]));
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function ChangesBody({ cwd, load }: { cwd: string | null; load: Load }) {
+/** Asks before a file's changes are thrown away; an untracked or newly added file is deleted. */
+function DiscardDialog({
+  entry,
+  onCancel,
+  onConfirm,
+}: {
+  entry: ChangeEntry;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+  const deletes = discardDeletes(entry.status);
+  const name = revealInvisible(splitPath(entry.path.replace(/\/$/, "")).name);
+  const path = revealInvisible(entry.path);
+  return (
+    <Dialog labelledBy="discard-title" onClose={onCancel}>
+      <h2 id="discard-title">
+        {deletes ? t("changes.deleteTitle", { name }) : t("changes.discardTitle", { name })}
+      </h2>
+      <p className="muted selectable">
+        {deletes ? t("changes.deleteBody", { path }) : t("changes.discardBody", { path })}
+      </p>
+      <div className="dialog-actions">
+        <button type="button" className="secondary-button" data-autofocus onClick={onCancel}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" className="primary-button danger" onClick={onConfirm}>
+          {deletes ? t("changes.deleteConfirm") : t("changes.discardConfirm")}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+function ChangesBody({
+  cwd,
+  load,
+  actions,
+  onComment,
+}: {
+  cwd: string | null;
+  load: Load;
+  actions: FileActions | undefined;
+  onComment: LineCommentHandler | undefined;
+}) {
   const t = useT();
   if (cwd === null) return <p className="changes-message">{t("changes.noSession")}</p>;
   switch (load.kind) {
@@ -208,7 +375,7 @@ function ChangesBody({ cwd, load }: { cwd: string | null; load: Load }) {
       }
       return (
         <div className="changes-body">
-          <ChangeList result={load.result} />
+          <ChangeList result={load.result} actions={actions} onComment={onComment} />
         </div>
       );
   }

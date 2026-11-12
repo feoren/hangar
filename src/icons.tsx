@@ -225,6 +225,25 @@ export function TrashIcon(props: IconProps) {
   );
 }
 
+/** Arrow turning back: throw a file's changes away (Changes tab). */
+export function DiscardIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5.5 3.5L3 6l2.5 2.5" />
+      <path d="M3 6h6.5a3.5 3.5 0 0 1 0 7H6" />
+    </Svg>
+  );
+}
+
+/** Speech bubble: comment on a line of a diff (to the agent). */
+export function CommentIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 3.5h10a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5H7l-3 2.5v-2.5H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z" />
+    </Svg>
+  );
+}
+
 export function CheckIcon(props: IconProps) {
   return (
     <Svg {...props}>

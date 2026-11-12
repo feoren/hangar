@@ -7562,6 +7562,163 @@ body.resizing-horizontal * {
   margin-left: 12px;
 }
 
+/* Git actions of the uncommitted changes (gitActions.ts): the commit box above the list, a stage
+   box and a discard button per file, a comment field under a diff line. */
+.commit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 10px 2px;
+}
+
+.commit-message {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.commit-message:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.commit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.commit-suggest {
+  margin-right: auto;
+}
+
+.commit-suggest:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.change-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 5px;
+}
+
+.change-row:hover {
+  background: var(--hover);
+}
+
+.change-row .change-head:hover {
+  background: none;
+}
+
+.change-stage {
+  flex: none;
+  margin: 0 0 0 6px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.change-stage[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The diff takes the focus once; the keyboard cursor marks the line Enter or C comments on. */
+.diff.commentable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.diff.commentable:focus-visible .diff-line.cursor {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.diff.commentable:focus-visible .diff-line.cursor .diff-comment-button {
+  opacity: 1;
+}
+
+/* Shown on the row's hover or focus only, so the list stays calm. */
+.change-discard {
+  flex: none;
+  opacity: 0;
+}
+
+.change-row:hover .change-discard,
+.change-discard:focus-visible {
+  opacity: 1;
+}
+
+.change-discard:disabled {
+  cursor: default;
+}
+
+/* The comment field is as wide as the visible diff, not as its longest line. */
+.diff.commentable {
+  container-type: inline-size;
+}
+
+.diff.commentable .diff-line {
+  position: relative;
+  padding-left: 24px;
+}
+
+.diff-comment-button {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--muted);
+  border-radius: 3px;
+  opacity: 0;
+  transform: translateY(-50%);
+}
+
+.diff-line.commentable:hover .diff-comment-button {
+  opacity: 1;
+}
+
+.diff-comment-button:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+.diff-comment-row {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100cqw;
+  padding: 4px 6px;
+  background: var(--panel-raised);
+  border-block: 1px solid var(--border);
+}
+
+.diff-comment-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 /* Dragging a session from the sidebar (useSessionDrag.ts) */
 
 body.session-dragging,
