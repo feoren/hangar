@@ -84,6 +84,8 @@
      off the vertical line with a short elbow, the row's content starting one step to the right. */
   /* Dotted lines need more color than a solid hairline to stay visible. */
   --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* Frame of the session on screen (sidebar). */
+  --active-frame: #000;
   --tree-step: 14px;
   --tree-elbow: 10px;
   /* Air between a guide and what it connects: the elbow stops this far before a row, and a
@@ -496,28 +498,13 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 100vmax var(--row-hover-shade);
 }
 
+/* The session on screen: a black frame around the row, its inside left to the state's look like
+   every other row, so the attention colors keep speaking. The state's colored edge on the left
+   stays. */
 .session.active {
-  --edge-ring: 55%;
-  background: var(--panel-raised);
-  /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
-  isolation: isolate;
-}
-
-/* The session on screen: blue that is strongest at its left edge and fades to the right, which
-   reads as "selected" without a frame. It replaces the row's breathing in its state's color, which
-   matters less for a session you are looking at; the state's edge stays beside it. The plain
-   color is the fade's right end, so the row actions' strip (it inherits only the color) blends
-   in there. */
-.session.active,
-.session.active.look {
-  background-color: color-mix(in srgb, var(--accent) 7%, var(--panel));
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent) 38%, var(--panel)) 0%,
-    color-mix(in srgb, var(--accent) 18%, var(--panel)) 45%,
-    color-mix(in srgb, var(--accent) 7%, var(--panel)) 100%
-  );
-  animation: none;
+  border-top-color: var(--active-frame);
+  border-right-color: var(--active-frame);
+  border-bottom-color: var(--active-frame);
 }
 
 /* Its title in full text color and weight; the others step back a little. */
@@ -563,10 +550,6 @@ h2 .beta-badge {
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
 .session.attention {
   --edge-ring: 45%;
-}
-
-.session.active.attention {
-  --edge-ring: 70%;
 }
 
 .edge-working {
@@ -1318,10 +1301,6 @@ h2 .beta-badge {
 
   .session.attention {
     --edge-ring: 75%;
-  }
-
-  .session.active.attention {
-    --edge-ring: 100%;
   }
 
   /* Still dots, a gentle ramp from left to right, whatever the chosen motion. */
