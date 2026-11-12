@@ -7085,10 +7085,9 @@ body.session-dragging .session-actions {
   align-self: center;
 }
 
-/* "Private | Team" below the target, the two halves sharing the width, with one quiet line on
-   what the chosen mode means. */
+/* "Private | Team" below the target, as wide as the folder card, the two halves sharing it. */
 .start-mode {
-  margin: 0 12px 6px;
+  margin: 0 8px 6px;
 }
 
 .start-mode .segmented {
@@ -7118,20 +7117,9 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
-.start-mode-hint {
-  margin: 4px 2px 0;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: var(--muted);
-}
-
 .empty .start-mode {
   width: min(320px, 100%);
   margin: 4px auto 0;
-}
-
-.empty .start-mode-hint {
-  text-align: center;
 }
 
 /* A program that cannot be a team session while Team is chosen: greyed out, still pointable so

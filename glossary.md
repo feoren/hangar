@@ -109,7 +109,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Oberfläche                                      | UI                                |                                                                             |
 | Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                                                |
 | Zuletzt genutzte Ordner                         | recent folders                    | at most 8                                                                   |
-| Startordner-Menü                                | folder menu                       | "Starts in" menu                                                            |
+| Startordner-Menü                                | folder menu                       | "Project folder" menu                                                       |
 | Startziel                                       | start target                      | where the next session starts, `startTarget.ts`                             |
 | Laufende Projekte                               | running projects                  | project folders of running sessions, folder menu                            |
 | Suchleiste, Treffer                             | search bar, match                 | `SearchBar.tsx`                                                             |
@@ -137,7 +137,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                           |
 | Private Session                                 | private session                   | starts in the folder, no agent gate, never shared; ADR 0008                 |
 | Team-Session                                    | team session                      | own worktree, agent gate, shared with the team; `SessionMode`               |
-| Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Starts in", `startMode.ts`                     |
+| Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Project folder", `startMode.ts`                |
 | Hook-Format (Agent-Gate)                        | hook format                       | how the gate hands hooks to one program, `HookFormat`                       |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel   |

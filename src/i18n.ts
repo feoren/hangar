@@ -443,6 +443,7 @@ const de = {
   "settings.scrollbackSecrets":
     "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
   "sidebar.startsIn": "Startet in",
+  "sidebar.projectFolder": "Projektordner",
   "empty.change": "Ändern",
   "empty.changeLabel": "Startordner ändern",
   "empty.programs": "Programme",
@@ -1570,6 +1571,7 @@ const en: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
   "sidebar.startsIn": "Starts in",
+  "sidebar.projectFolder": "Project folder",
   "empty.change": "Change",
   "empty.changeLabel": "Change start folder",
   "empty.programs": "Programs",
@@ -2691,6 +2693,7 @@ const el: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
   "sidebar.startsIn": "Ξεκινά στο",
+  "sidebar.projectFolder": "Φάκελος έργου",
   "empty.change": "Αλλαγή",
   "empty.changeLabel": "Αλλαγή φακέλου εκκίνησης",
   "empty.programs": "Προγράμματα",
@@ -3829,6 +3832,7 @@ const es: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
   "sidebar.startsIn": "Empieza en",
+  "sidebar.projectFolder": "Carpeta del proyecto",
   "empty.change": "Cambiar",
   "empty.changeLabel": "Cambiar la carpeta de inicio",
   "empty.programs": "Programas",
@@ -4958,6 +4962,7 @@ const fr: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
   "sidebar.startsIn": "Démarre dans",
+  "sidebar.projectFolder": "Dossier du projet",
   "empty.change": "Modifier",
   "empty.changeLabel": "Modifier le dossier de démarrage",
   "empty.programs": "Programmes",
@@ -6098,6 +6103,7 @@ const it: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
   "sidebar.startsIn": "Parte in",
+  "sidebar.projectFolder": "Cartella del progetto",
   "empty.change": "Cambia",
   "empty.changeLabel": "Cambia la cartella di avvio",
   "empty.programs": "Programmi",
@@ -7227,6 +7233,7 @@ const ja: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
   "sidebar.startsIn": "開始フォルダー",
+  "sidebar.projectFolder": "プロジェクトフォルダー",
   "empty.change": "変更",
   "empty.changeLabel": "開始フォルダーを変更",
   "empty.programs": "プログラム",
@@ -8355,6 +8362,7 @@ const pl: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
   "sidebar.startsIn": "Startuje w",
+  "sidebar.projectFolder": "Folder projektu",
   "empty.change": "Zmień",
   "empty.changeLabel": "Zmień folder startowy",
   "empty.programs": "Programy",
@@ -9477,6 +9485,7 @@ const pt: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
   "sidebar.startsIn": "Começa em",
+  "sidebar.projectFolder": "Pasta do projeto",
   "empty.change": "Alterar",
   "empty.changeLabel": "Alterar a pasta inicial",
   "empty.programs": "Programas",
@@ -10601,6 +10610,7 @@ const ru: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
   "sidebar.startsIn": "Запуск в",
+  "sidebar.projectFolder": "Папка проекта",
   "empty.change": "Изменить",
   "empty.changeLabel": "Изменить папку запуска",
   "empty.programs": "Программы",
@@ -11712,6 +11722,7 @@ const tr: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
   "sidebar.startsIn": "Başlangıç klasörü",
+  "sidebar.projectFolder": "Proje klasörü",
   "empty.change": "Değiştir",
   "empty.changeLabel": "Başlangıç klasörünü değiştir",
   "empty.programs": "Programlar",
@@ -12810,6 +12821,7 @@ const zh: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
   "sidebar.startsIn": "启动位置",
+  "sidebar.projectFolder": "项目文件夹",
   "empty.change": "更改",
   "empty.changeLabel": "更改启动位置",
   "empty.programs": "程序",

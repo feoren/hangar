@@ -876,9 +876,7 @@ export function Sidebar(props: Props) {
               <FolderIcon size={16} />
             </span>
             <span className="cwd-text">
-              <span className="cwd-label">
-                {chosen ? t("start.nextIn") : t("sidebar.startsIn")}
-              </span>
+              <span className="cwd-label">{t("sidebar.projectFolder")}</span>
               <span className="cwd-name">{targetName}</span>
               {(targetParent !== null || targetBranch !== null) && (
                 <span className="cwd-sub">
@@ -1577,8 +1575,8 @@ function railShowsChip(chip: ChipKind | null): chip is Exclude<ChipKind, "ended"
 }
 
 /**
- * "Private | Team" below the target (startMode.ts), with one quiet line on what the mode means.
- * Outside a git repository Team is greyed out and the line says why; the start then is private.
+ * "Private | Team" below the target (startMode.ts); each half's tooltip says what the mode means.
+ * Outside a git repository Team is greyed out and its tooltip says why; the start then is private.
  */
 export function StartModeSwitch({
   chosen,
@@ -1593,10 +1591,6 @@ export function StartModeSwitch({
   const name = useId();
   const teamOff = !teamPossible(chance);
   const mode = teamOff ? "private" : chosen;
-  const hint =
-    chosen === "team" && teamOff
-      ? t("start.teamNoRepo")
-      : t(mode === "team" ? "start.teamHint" : "start.privateHint");
   const options: { value: StartMode; label: string; title: string; disabled: boolean }[] = [
     {
       value: "private",
@@ -1635,7 +1629,6 @@ export function StartModeSwitch({
           </label>
         ))}
       </div>
-      <p className={mode === "team" ? "start-mode-hint team" : "start-mode-hint"}>{hint}</p>
     </div>
   );
 }
