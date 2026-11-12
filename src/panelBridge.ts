@@ -144,6 +144,8 @@ export interface PanelSession {
   title: string;
   /** Exited sessions keep their name but take no text. */
   running: boolean;
+  /** Runs an agent, not a plain shell (sessionChip.ts, `runsAgent`): diff comments go to it. */
+  agent: boolean;
 }
 
 /** What the tabs of the detached panel show; the main window computes it. */
@@ -207,8 +209,10 @@ function parseSessions(value: unknown): PanelSession[] | null {
     const id = field(entry, "id");
     const title = field(entry, "title");
     const running = field(entry, "running");
+    const agent = field(entry, "agent");
     if (!isId(id) || typeof title !== "string" || typeof running !== "boolean") return null;
-    sessions.push({ id, title, running });
+    if (typeof agent !== "boolean") return null;
+    sessions.push({ id, title, running, agent });
   }
   return sessions;
 }
@@ -248,6 +252,11 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */
 export function panelSessionName(sessions: readonly PanelSession[], id: number): string {
   return sessions.find((session) => session.id === id)?.title ?? `#${String(id)}`;
+}
+
+/** Whether the session runs an agent; `false` for an unknown session. */
+export function panelSessionIsAgent(sessions: readonly PanelSession[], id: number | null): boolean {
+  return sessions.some((session) => session.id === id && session.agent);
 }
 
 /** Logical pixels, as `open_panel_window` takes them. */

@@ -559,3 +559,15 @@ Filed the contract of the new viewer commands (`file_viewer_stamp`, `file_viewer
 `file_viewer_open_link`), the image and Markdown rules, the live refresh by polling, the tree's
 filter with its bounded path index (`list_session_paths`) and dragging tree rows onto a terminal.
 Pages changed: [[file-viewer]], index.
+
+## [2026-11-12] query | Git actions in the Changes tab
+Documented `git_stage`, `git_unstage`, `git_discard` and `git_commit` (session ID, literal
+pathspecs on stdin, path rules, filter refusal, hooks not bypassed) and the line comments to the
+agent. Pages changed: [[commit-history]], index.
+
+## [2026-11-12] query | Git actions hardened after review
+Discard refuses paths through or holding links (junctions included), stage, unstage and discard
+run without repository hooks, deadlines scale with the path count (commit 600 seconds) and name
+the index lock, commit messages refuse control characters, "stage changed and commit" stages
+tracked files only, git's environment drops a calling agent session's markers, and diff line
+comments have a keyboard path. Pages changed: [[commit-history]].

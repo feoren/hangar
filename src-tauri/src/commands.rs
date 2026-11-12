@@ -23,6 +23,7 @@ use crate::file_viewer::{
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
+use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::icon::{self, IconCache};
@@ -1395,6 +1396,96 @@ pub async fn git_commit_diff(cwd: PathBuf, sha: String) -> Result<GitCommitDiff,
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// The working folder of a session, for the git actions: the window names only the session.
+fn action_folder(manager: &SessionManager, id: SessionId) -> Result<PathBuf, ActionError> {
+    manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(ActionError::UnknownSession(id))
+}
+
+/// Runs one git action (git_actions.rs) on a blocking thread, in the session's folder.
+async fn git_action(
+    manager: &SessionManager,
+    id: SessionId,
+    work: impl FnOnce(&Git, &std::path::Path) -> Result<(), ActionError> + Send + 'static,
+) -> Result<(), ActionError> {
+    let cwd = action_folder(manager, id)?;
+    tauri::async_runtime::spawn_blocking(move || work(&Git::locate()?, &cwd))
+        .await
+        .map_err(|error| ActionError::Task(error.to_string()))?
+}
+
+/// The empty folder stage, unstage and discard name as `core.hooksPath`, below Hangar's local
+/// data folder (git_actions.rs, `no_hooks_folder`).
+fn no_hooks(app: &tauri::AppHandle) -> Result<PathBuf, ActionError> {
+    let data = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| ActionError::NoHooksFolder(error.to_string()))?;
+    git_actions::no_hooks_folder(&data)
+}
+
+/// Stages files of the session's repository; `paths` relative to its root, as `git_diff` lists
+/// them. The repository's hooks do not run.
+#[tauri::command]
+pub async fn git_stage(
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    id: SessionId,
+    paths: Vec<String>,
+) -> Result<(), ActionError> {
+    git_action(&manager, id, move |git, cwd| {
+        git_actions::stage(git, &no_hooks(&app)?, cwd, &paths)
+    })
+    .await
+}
+
+/// Takes files of the session's repository out of the index again; the work tree stays. The
+/// repository's hooks do not run.
+#[tauri::command]
+pub async fn git_unstage(
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    id: SessionId,
+    paths: Vec<String>,
+) -> Result<(), ActionError> {
+    git_action(&manager, id, move |git, cwd| {
+        git_actions::unstage(git, &no_hooks(&app)?, cwd, &paths)
+    })
+    .await
+}
+
+/// Throws away the changes of files (untracked ones are deleted); the window asks first. Paths
+/// through links are refused, the repository's hooks do not run.
+#[tauri::command]
+pub async fn git_discard(
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    id: SessionId,
+    paths: Vec<String>,
+) -> Result<(), ActionError> {
+    git_action(&manager, id, move |git, cwd| {
+        git_actions::discard(git, &no_hooks(&app)?, cwd, &paths)
+    })
+    .await
+}
+
+/// Commits what is staged in the session's repository; hooks run as configured.
+#[tauri::command]
+pub async fn git_commit(
+    manager: Manager<'_>,
+    id: SessionId,
+    message: String,
+) -> Result<(), ActionError> {
+    git_action(&manager, id, move |git, cwd| {
+        git_actions::commit(git, cwd, &message)
+    })
+    .await
 }
 
 /// One folder of a session's file tree (file_tree.rs). The window names only the session and a

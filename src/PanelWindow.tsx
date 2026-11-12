@@ -24,6 +24,7 @@ import {
   loadWindowPrefs,
   PANEL_COMMAND,
   PANEL_CONTEXT,
+  panelSessionIsAgent,
   panelSessionName,
   parsePanelCommand,
   parsePanelContext,
@@ -358,6 +359,14 @@ export function PanelWindow() {
                 api.panelToMain({ kind: "showSession", sessionId: id }).catch(() => undefined);
               }}
               cwd={cwd}
+              sessionId={activeId}
+              agent={
+                panelSessionIsAgent(sessions, activeId) &&
+                sessions.some((session) => session.id === activeId && session.running)
+              }
+              onSendToAgent={(text) => {
+                onSend(text, activeId);
+              }}
               trigger={context.trigger}
               focusToken={changesFocusToken}
               view={changesView}

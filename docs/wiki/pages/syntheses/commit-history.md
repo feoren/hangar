@@ -100,3 +100,99 @@ uncommitted changes, so only its last file opens by itself.
 > only ever passes full ids, so the window shows what it asked for. Observed once with git
 > 2.56.0.windows.4 (a branch named like the first 7 characters of another commit's id), not yet
 > filed as a raw measurement.
+
+## Git actions
+
+The "Uncommitted" view also changes the repository. Code: `src-tauri/src/git_actions.rs` (rules
+and tests with real repositories), commands in `src-tauri/src/commands.rs`, frontend in
+`src/gitActions.ts` (pure rules), `src/CommitBox.tsx`, `src/ChangeList.tsx` and
+`src/ChangesPanel.tsx`. All four commands take the session's ID, never a folder: the backend looks
+up the session's working folder like `reveal_session_folder` does, then runs the same folder
+checks as `git_diff` (`check_folder`, `toplevel`). Granted to the main window and the panel window.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `git_stage` | `id: number`, `paths: string[]` | `null` |
+| `git_unstage` | `id: number`, `paths: string[]` | `null` |
+| `git_discard` | `id: number`, `paths: string[]` | `null` |
+| `git_commit` | `id: number`, `message: string` | `null` |
+
+`paths` are relative to the repository root, exactly as `git_diff` lists them (`/` separated, a
+trailing `/` for an untracked folder), 1 to 10,000 per call, each at most 4096 bytes. Refused
+before git runs: empty, absolute, a drive or `:` on Windows, a NUL, an empty, `.` or `..`
+component (on Windows also one that is empty after trailing dots and spaces), and any `.git`
+component. git itself refuses a path beyond a symbolic link.
+
+- Hooks: stage, unstage and discard pass `-c core.hooksPath=<folder>`, an empty folder
+  `git-no-hooks` below Hangar's local data folder (created on first use; refused if anything is
+  in it), so no repository hook (`post-index-change`, for example) runs for them. Only a commit
+  runs hooks.
+- Links (discard only, checked before git runs): every component of every path below the work
+  tree root is read with `symlink_metadata`; a symbolic link or, on Windows, any reparse point
+  (junctions included, which Git for Windows may take for a plain folder, so `git clean -f -d`
+  could delete the junction target's content) is refused with "<path> leads through or contains a
+  link (symbolic link or junction); discard it in the terminal". An untracked folder is walked
+  without following links, at most 100,000 entries; a larger or unreadable one is refused too.
+- Deadlines: stage, unstage and discard 30 seconds plus 10 ms per path, commit 600 seconds. A
+  timeout says that `.git/index.lock` may be left behind and must be removed by hand once no git
+  runs; Hangar never removes it (another git may hold it).
+- git's environment (all calls, git.rs) also drops `INHERITED_SESSION_MARKERS` of a calling
+  agent session (manager.rs), so its identifiers never reach hooks or helpers.
+
+- Paths reach git as literal pathspecs: `git --literal-pathspecs ... --pathspec-from-file=-
+  --pathspec-file-nul` with the list on stdin, so no path is read as an option, a glob or pathspec
+  magic and no list overflows the command line. `ls-files` and `clean` read no pathspec file;
+  they get the paths after `--`, 64 per call.
+- `git_stage`: `git add --all` (new, changed and deleted files).
+- `git_unstage`: `git reset --quiet`; works without commits too. The original path of a rename
+  is added, so the rename is unstaged as a whole.
+- `git_discard`: tracked files `git restore --source=HEAD --staged --worktree` (a file new in the
+  index is removed; renames with their original path), in a repository without commits
+  `git rm -f` (status lists files there, never folders, so no `-r`); untracked files and folders `git clean -f -d`, which keeps ignored files and
+  nested repositories. Paths without changes are skipped. The window asks first, naming the file
+  and saying it cannot be undone (`Dialog`); for an untracked file or one new in the index it
+  asks to delete the file (`discardDeletes`), because that is what happens.
+- Filters: stage, unstage and discard switch the repository's filter drivers off as the read
+  commands do. When any driver is configured (a global Git LFS install is enough), the files at
+  and below the paths are listed (`ls-files --cached --others --exclude-standard`) and checked with
+  `check-attr filter`; a file a filter would convert is refused with "A file uses a git filter (for
+  example Git LFS); stage or discard it in the terminal", because staging or restoring it without
+  its filter would store or write the wrong content.
+- `git_commit`: `git commit --quiet --file=-`, the trimmed message on stdin (at most 64 KiB; no
+  control characters except tab, LF and CR, no DEL, no C1, so no escape sequence reaches a log
+  reader's terminal). Hooks, signing and the identity run as configured; nothing is bypassed and
+  no filter override is passed, because hooks would inherit it. Deadline 600 seconds. A
+  failure is git's message (stderr, or stdout where git reports there, such as "no changes added
+  to commit"); a missing identity fails with git's "Author identity unknown" text.
+
+Errors are English strings: "Unknown session: N", "Invalid file path: <reason>", "No files given",
+"Too many files: at most 10000 per call", the filter message above, "The commit message is empty",
+"The commit message is too long or holds control characters", the link and timeout messages
+above, plus the existing git errors.
+
+### Frontend
+
+- Per file a stage box (checked: all staged, mixed: partly, empty: unstaged or untracked; a click
+  on a fully staged file unstages it, otherwise it stages) and a discard button on hover. While an
+  action runs the box is `aria-disabled`, not `disabled`, so it keeps the keyboard focus.
+- The commit box sits at the top of the view while there are changes: "Commit" commits what is
+  staged; with nothing staged the button reads "Stage changed and commit" and stages the changed
+  and deleted tracked files first, as a commit with `-a` would (`stageAllPaths`). Untracked files
+  only go in through their own box; with nothing but untracked files the box is hidden. In an agent session "Suggestion from the agent" pastes a request for a commit
+  message (for `git diff --cached`, or `git diff HEAD` when nothing is staged) into its prompt
+  without Enter; the answer appears in the terminal and is not read back.
+- Line comments, agent sessions only: a click on an added or unchanged diff line (or the comment
+  icon on hover) opens a one-line field; Enter pastes `@<path>:<line>: <comment>` into the
+  session's prompt through the notes' send path (bracketed paste, no Enter; the panel window goes
+  through `panel_to_main`). The path is relative to the repository and quoted as a mention is
+  (`mentionText`); the line is the new side's number from the hunk header (`newLineNumbers`).
+  Removed lines take no comment. Keyboard: the diff is one Tab stop (`aria-activedescendant`);
+  arrows, Home and End move a cursor over the commentable lines, Enter or `c` opens the field,
+  Escape closes it and returns the focus to the diff (`diffKey`).
+- After every action the panel reads the changes again; git's message shows above the list.
+
+> [!question] Unverified
+> A hook that runs longer than 600 seconds is killed with the commit, which may leave
+> `.git/index.lock` behind. Not measured. The link check was measured with an NTFS junction
+> (`mklink /J`) on Windows 11 in the unit tests; Unix symbolic links are covered by the same test
+> on Unix runners.

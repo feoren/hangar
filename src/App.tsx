@@ -112,6 +112,7 @@ import {
   PANEL_MESSAGE,
   PANEL_WINDOW_LABEL,
   panelContextPayload,
+  panelSessionIsAgent,
   parsePanelMessage,
   updateWindowPrefs,
   WINDOW_PREFS_KEY,
@@ -2579,8 +2580,12 @@ export function App() {
         id: session.id,
         title: session.title,
         running: session.status !== "exited",
+        agent: runsAgent(
+          profiles.find((profile) => profile.id === session.profileId)?.command,
+          session.kind,
+        ),
       })),
-    [state.sessions],
+    [state.sessions, profiles],
   );
   /** The last payload sent, as JSON: an unchanged context is not sent again. */
   const panelSent = useRef("");
@@ -4333,6 +4338,15 @@ export function App() {
                     nameOf={sessionName}
                     onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}
+                    sessionId={activeSession?.id ?? null}
+                    agent={
+                      activeSession !== undefined &&
+                      activeSession.status !== "exited" &&
+                      panelSessionIsAgent(panelSessions, activeSession.id)
+                    }
+                    onSendToAgent={(text) => {
+                      if (activeSession) sendFromNotes(text, activeSession.id);
+                    }}
                     trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
                     focusToken={changesFocusToken}
                     view={changesView}

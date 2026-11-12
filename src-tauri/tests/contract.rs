@@ -175,6 +175,13 @@ fn panel_window_capability_is_narrow() {
         "allow-git-diff",
         "allow-git-log",
         "allow-git-commit-diff",
+        // The Changes tab works in the panel window too, so it may change the active session's
+        // repository: by session ID only (the backend finds the folder), paths checked, discard
+        // confirmed in the window. It still cannot start, write to or end a session.
+        "allow-git-stage",
+        "allow-git-unstage",
+        "allow-git-discard",
+        "allow-git-commit",
         "allow-list-session-folder",
         "allow-list-session-paths",
         "allow-reveal-session-folder",

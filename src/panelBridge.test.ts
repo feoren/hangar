@@ -6,6 +6,7 @@ import {
   EMPTY_PANEL_CONTEXT,
   isSendable,
   panelContextPayload,
+  panelSessionIsAgent,
   panelSessionName,
   parsePanelCommand,
   parsePanelContext,
@@ -186,8 +187,9 @@ function context(): PanelContext {
     cwd: "C:\\work\\wt a",
     trigger: "working",
     sessions: [
-      { id: 1, title: "Claude", running: true },
-      { id: 2, title: "Codex", running: false },
+      { id: 1, title: "Claude", running: true, agent: true },
+      { id: 2, title: "Codex", running: false, agent: true },
+      { id: 3, title: "pwsh", running: true, agent: false },
     ],
     claims: claims(),
     activities: new Map([["project-1", activity()]]),
@@ -243,7 +245,9 @@ describe("panel context", () => {
       { ...good, trigger: "x".repeat(65) },
       { ...good, trigger: undefined },
       { ...good, sessions: [{ id: 1, title: "a" }] },
-      { ...good, sessions: [{ id: "1", title: "a", running: true }] },
+      { ...good, sessions: [{ id: "1", title: "a", running: true, agent: true }] },
+      { ...good, sessions: [{ id: 1, title: "a", running: true }] },
+      { ...good, sessions: [{ id: 1, title: "a", running: true, agent: "yes" }] },
       { ...good, sessions: "all" },
       { ...good, claims: { enabled: "yes", sessions: [], overlaps: [] } },
       { ...good, claims: undefined },
@@ -265,6 +269,14 @@ describe("panel context", () => {
     const { sessions } = context();
     expect(panelSessionName(sessions, 2)).toBe("Codex");
     expect(panelSessionName(sessions, 9)).toBe("#9");
+  });
+
+  it("tells agent sessions from shells", () => {
+    const { sessions } = context();
+    expect(panelSessionIsAgent(sessions, 1)).toBe(true);
+    expect(panelSessionIsAgent(sessions, 3)).toBe(false);
+    expect(panelSessionIsAgent(sessions, 9)).toBe(false);
+    expect(panelSessionIsAgent(sessions, null)).toBe(false);
   });
 });
 

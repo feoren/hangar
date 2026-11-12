@@ -359,6 +359,17 @@ export const api = {
    */
   gitCommitDiff: (cwd: string, sha: string) => invoke<unknown>("git_commit_diff", { cwd, sha }),
   /**
+   * Git actions on the repository of a session's folder; the backend finds the folder. `paths`
+   * are relative to the repository root, exactly as `gitDiff` lists them. Each rejects with a
+   * text (git's own message where git failed).
+   */
+  gitStage: (id: number, paths: string[]) => invoke<null>("git_stage", { id, paths }),
+  gitUnstage: (id: number, paths: string[]) => invoke<null>("git_unstage", { id, paths }),
+  /** Throws the changes away; untracked files are deleted. Ask the user first. */
+  gitDiscard: (id: number, paths: string[]) => invoke<null>("git_discard", { id, paths }),
+  /** Commits what is staged; hooks run as configured. */
+  gitCommit: (id: number, message: string) => invoke<null>("git_commit", { id, message }),
+  /**
    * One folder of a session's file tree; `relative` is a `/` separated path below the session's
    * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
    * `parseFolderListing`; rejects with a text for an unknown session or a refused path.
