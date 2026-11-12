@@ -201,7 +201,6 @@ const de = {
   "update.failed": "Update fehlgeschlagen: {error}",
   "update.inSidebar": "Update {version} verfügbar. Installieren kannst du es in der Sidebar.",
 
-  "empty.title": "Keine Session offen",
   "empty.body": "Wähl links ein Programm, um zu starten.",
   "empty.sidebarHint": "klappt die Sidebar ein und aus",
   "empty.settingsHint": "öffnet die Einstellungen",
@@ -1330,7 +1329,6 @@ const en: Record<MessageKey, string> = {
   "update.failed": "Update failed: {error}",
   "update.inSidebar": "Update {version} available. You can install it from the sidebar.",
 
-  "empty.title": "No session open",
   "empty.body": "Pick a program on the left to get started.",
   "empty.sidebarHint": "collapses or expands the sidebar",
   "empty.settingsHint": "opens the settings",
@@ -2434,7 +2432,6 @@ const el: Record<MessageKey, string> = {
   "update.inSidebar":
     "Διαθέσιμη ενημέρωση {version}. Μπορείς να την εγκαταστήσεις από την πλευρική στήλη.",
 
-  "empty.title": "Καμία ανοιχτή συνεδρία",
   "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά για να ξεκινήσεις.",
   "empty.sidebarHint": "συμπτύσσει ή αναπτύσσει την πλευρική στήλη",
   "empty.settingsHint": "άνοιγμα ρυθμίσεων",
@@ -3572,7 +3569,6 @@ const es: Record<MessageKey, string> = {
   "update.inSidebar":
     "Actualización {version} disponible. Puedes instalarla desde la barra lateral.",
 
-  "empty.title": "No hay ninguna sesión abierta",
   "empty.body": "Elige un programa a la izquierda para empezar.",
   "empty.sidebarHint": "contrae o expande la barra lateral",
   "empty.settingsHint": "abre la configuración",
@@ -4694,7 +4690,6 @@ const fr: Record<MessageKey, string> = {
   "update.inSidebar":
     "Mise à jour {version} disponible. Tu peux l'installer depuis la barre latérale.",
 
-  "empty.title": "Aucune session ouverte",
   "empty.body": "Choisis un programme à gauche pour commencer.",
   "empty.sidebarHint": "réduit ou développe la barre latérale",
   "empty.settingsHint": "ouvre les paramètres",
@@ -5828,7 +5823,6 @@ const it: Record<MessageKey, string> = {
   "update.failed": "Aggiornamento non riuscito: {error}",
   "update.inSidebar": "Aggiornamento {version} disponibile. Puoi installarlo dalla barra laterale.",
 
-  "empty.title": "Nessuna sessione aperta",
   "empty.body": "Scegli un programma a sinistra per iniziare.",
   "empty.sidebarHint": "comprime o espande la barra laterale",
   "empty.settingsHint": "apre le impostazioni",
@@ -6956,7 +6950,6 @@ const ja: Record<MessageKey, string> = {
   "update.failed": "アップデートに失敗しました: {error}",
   "update.inSidebar": "アップデート {version} があります。サイドバーからインストールできます。",
 
-  "empty.title": "開いているセッションはありません",
   "empty.body": "左側でプログラムを選ぶと開始できます。",
   "empty.sidebarHint": "サイドバーの折りたたみと展開",
   "empty.settingsHint": "設定を開く",
@@ -8079,7 +8072,6 @@ const pl: Record<MessageKey, string> = {
   "update.failed": "Aktualizacja nie powiodła się: {error}",
   "update.inSidebar": "Dostępna aktualizacja {version}. Zainstalujesz ją z paska bocznego.",
 
-  "empty.title": "Brak otwartej sesji",
   "empty.body": "Wybierz program po lewej, aby zacząć.",
   "empty.sidebarHint": "zwija lub rozwija pasek boczny",
   "empty.settingsHint": "otwiera ustawienia",
@@ -9194,7 +9186,6 @@ const pt: Record<MessageKey, string> = {
   "update.failed": "Falha na atualização: {error}",
   "update.inSidebar": "Atualização {version} disponível. Você pode instalá-la pela barra lateral.",
 
-  "empty.title": "Nenhuma sessão aberta",
   "empty.body": "Escolha um programa à esquerda para começar.",
   "empty.sidebarHint": "recolhe ou expande a barra lateral",
   "empty.settingsHint": "abre as configurações",
@@ -10315,7 +10306,6 @@ const ru: Record<MessageKey, string> = {
   "update.failed": "Не удалось обновить: {error}",
   "update.inSidebar": "Доступно обновление {version}. Установить его можно на боковой панели.",
 
-  "empty.title": "Нет открытых сеансов",
   "empty.body": "Выбери программу слева, чтобы начать.",
   "empty.sidebarHint": "сворачивает или разворачивает боковую панель",
   "empty.settingsHint": "открывает настройки",
@@ -11422,7 +11412,6 @@ const tr: Record<MessageKey, string> = {
   "update.failed": "Güncelleme başarısız: {error}",
   "update.inSidebar": "Güncelleme var: {version}. Kenar çubuğundan yükleyebilirsin.",
 
-  "empty.title": "Açık oturum yok",
   "empty.body": "Başlamak için soldan bir program seç.",
   "empty.sidebarHint": "kenar çubuğunu daraltır veya genişletir",
   "empty.settingsHint": "ayarları açar",
@@ -12522,7 +12511,6 @@ const zh: Record<MessageKey, string> = {
   "update.failed": "更新失败：{error}",
   "update.inSidebar": "有可用更新 {version}。可在侧边栏中安装。",
 
-  "empty.title": "没有打开的会话",
   "empty.body": "在左侧选择一个程序即可开始。",
   "empty.sidebarHint": "折叠或展开侧边栏",
   "empty.settingsHint": "打开设置",

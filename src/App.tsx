@@ -3925,7 +3925,6 @@ export function App() {
               )}
               {state.sessions.length === 0 && (
                 <div className="empty">
-                  <h1>{t("empty.title")}</h1>
                   <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
                   <p className="keys">
                     {nextProgram && (

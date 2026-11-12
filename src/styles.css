@@ -2603,13 +2603,6 @@ h2 .beta-badge {
   text-align: center;
 }
 
-.empty h1 {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-}
-
 .empty p {
   margin: 4px 0;
 }
