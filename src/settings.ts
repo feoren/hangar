@@ -2,6 +2,7 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply.
 
+import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
@@ -37,6 +38,8 @@ export interface Settings {
   attentionEnabled: boolean;
   /** Color and pulse of each session state in the sidebar (stateLook.ts). */
   looks: StateLooks;
+  /** How the dots of a working session move (dotAnimation.ts). */
+  dotAnimation: DotAnimation;
   quietSeconds: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
@@ -111,6 +114,7 @@ export function defaultSettings(language: Language): Settings {
     theme: "system",
     attentionEnabled: true,
     looks: DEFAULT_LOOKS,
+    dotAnimation: DEFAULT_DOT_ANIMATION,
     quietSeconds: QUIET_SECONDS.default,
     taskbarFlash: true,
     notifyDesktop: true,
@@ -182,6 +186,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     attentionEnabled: flag("attentionEnabled"),
     // Older versions stored one attention color instead; it carries over to both waiting states.
     looks: parseStateLooks(get("looks"), Reflect.get(raw, "attentionColor")),
+    dotAnimation: parseDotAnimation(get("dotAnimation")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)

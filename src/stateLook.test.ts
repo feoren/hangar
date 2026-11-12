@@ -18,6 +18,7 @@ import {
   pulseLevels,
   PULSE_SECONDS,
   resolvedColor,
+  themeToken,
   withLook,
 } from "./stateLook";
 
@@ -37,6 +38,22 @@ describe("defaults", () => {
     expect(defaultColor("idle", "light")).toBe("#1a7f37");
     const looks = { ...DEFAULT_LOOKS, done: { ...DEFAULT_LOOKS.done, color: "#123456" } };
     expect(resolvedColor(looks, "done", "dark")).toBe("#123456");
+  });
+
+  it("color an error in the theme's red and let it breathe while unseen", () => {
+    expect(LOOK_STATES).toContain("failed");
+    expect(defaultColor("failed", "dark")).toBe("#f47067");
+    expect(defaultColor("failed", "light")).toBe("#cf222e");
+    expect(DEFAULT_LOOKS.failed).toEqual({ color: null, pulse: "medium", seconds: 2.8 });
+    expect(presetsFor("failed")).toEqual(LOOK_PRESETS);
+  });
+
+  it("name the theme token a default color follows", () => {
+    expect(themeToken("working")).toBe("--ok");
+    expect(themeToken("idle")).toBe("--ok");
+    expect(themeToken("failed")).toBe("--error");
+    expect(themeToken("done")).toBeNull();
+    expect(themeToken("asks")).toBeNull();
   });
 });
 
@@ -65,6 +82,12 @@ describe("parseStateLooks", () => {
     expect(looks.working).toEqual({ color: "#aabbcc", pulse: "off", seconds: 4 });
     expect(looks.done).toEqual(DEFAULT_LOOKS.done);
     expect(looks.idle).toEqual(DEFAULT_LOOKS.idle);
+    expect(looks.failed).toEqual(DEFAULT_LOOKS.failed);
+  });
+
+  it("reads a stored failed look", () => {
+    const looks = parseStateLooks({ failed: { color: "#F5A3C7", pulse: "off", seconds: 1 } }, null);
+    expect(looks.failed).toEqual({ color: "#f5a3c7", pulse: "off", seconds: 1 });
   });
 
   it("keeps an explicit default color", () => {
@@ -123,6 +146,8 @@ describe("withLook", () => {
     expect(looks.asks).toEqual({ ...DEFAULT_LOOKS.asks, pulse: "strong" });
     expect(looks.done).toBe(DEFAULT_LOOKS.done);
     expect(looks.working).toBe(DEFAULT_LOOKS.working);
+    expect(looks.failed).toBe(DEFAULT_LOOKS.failed);
+    expect(withLook(DEFAULT_LOOKS, "failed", { pulse: "off" }).failed.pulse).toBe("off");
   });
 });
 

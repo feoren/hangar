@@ -32,8 +32,7 @@ const SHORT_KEYS = [
   "status.exited",
   "status.exitedByUser",
   "orphans.end",
-  "update.install",
-  "update.installNow",
+  "update.pill",
   "update.later",
   "settings.checkNow",
   "common.ok",
@@ -132,13 +131,9 @@ describe("language selection", () => {
 
 describe("translate", () => {
   it("fills in placeholders", () => {
-    expect(translate("de", "update.endsMany", { count: 3 })).toBe(
-      "3 laufende Sessions werden dabei beendet.",
-    );
+    expect(translate("de", "sidebar.waitingCount", { count: 3 })).toBe("Wartend: 3");
     expect(translate("en", "status.exitCode", { code: 1 })).toBe("Exit code 1");
-    expect(translate("ru", "update.endsMany", { count: 5 })).toBe(
-      "Будут закрыты запущенные сеансы: 5.",
-    );
+    expect(translate("ru", "sidebar.waitingCount", { count: 5 })).toBe("Ожидают: 5");
     expect(translate("tr", "update.installingProgress", { version: "1.2.0", percent: 40 })).toBe(
       "Güncelleme yükleniyor: 1.2.0 (%40)",
     );

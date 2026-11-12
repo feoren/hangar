@@ -43,7 +43,7 @@ import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { LayoutGlyph } from "./LayoutGlyph";
 import { placementText, type PanePlacement } from "./paneGlyph";
 import { Splitter } from "./Splitter";
-import { sessionLabels, type SessionLabel } from "./sessionLabel";
+import { detailPlace, sessionLabels, statusSubject, type SessionLabel } from "./sessionLabel";
 import { SidebarFooter } from "./SidebarFooter";
 import {
   detailLine,
@@ -51,15 +51,17 @@ import {
   STATUS_TICK_MS,
   type Activity,
   type DetailLine,
+  type StatusLine,
 } from "./statusLine";
 import type { ThemeSetting } from "./theme";
-import { edgeClass, rowEdge, rowLook, sessionChip, type ChipKind } from "./sessionChip";
+import { edgeClass, rowEdge, rowLook, runsAgent, sessionChip, type ChipKind } from "./sessionChip";
 import { RepoTeammates } from "./RepoTeammates";
 import { lookClass } from "./stateLook";
 import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
+import { pillProgress, updatePill, updatePillHint } from "./updatePill";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
@@ -162,6 +164,8 @@ interface Props {
   onMove: (id: number, index: number) => void;
   onInstallUpdate: () => void;
   onDismissUpdate: () => void;
+  /** Sessions come back after a restart (the update button's tooltip says so). */
+  restoresSessions: boolean;
   /** The Team window is open (the footer's team pill shows it as expanded). */
   teamOpen: boolean;
   onToggleTeam: () => void;
@@ -186,28 +190,6 @@ export function Sidebar(props: Props) {
   const { startable } = props;
   const t = useT();
   const now = useClock(STATUS_TICK_MS);
-  /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
-  const lines = (session: SessionView) => {
-    const state = attention.get(session.id) ?? "idle";
-    return {
-      status: statusLine(
-        session,
-        state,
-        props.activityOf(session.id, now),
-        now,
-        t,
-        props.language,
-        props.reasons.get(session.id) ?? null,
-      ),
-      // A worktree's folder name repeats its branch; the repository's name says more.
-      detail: detailLine(
-        session.worktree ? { ...session, cwd: session.worktree.repoRoot } : session,
-        props.branches.get(session.cwd) ?? null,
-        now,
-        props.language,
-      ),
-    };
-  };
   const root = useRef<HTMLElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
   /** Collapsed or expanded via keyboard: focus moves to the matching button of the new view. */
@@ -285,6 +267,30 @@ export function Sidebar(props: Props) {
   const ownTrees = sessions.filter((s) => sessionGroup(s) === "worktrees");
   // Sessions lead with their project folder; worktree rows keep their branch-named titles.
   const folderLabels = sessionLabels(ordinary, (id) => profileById.get(id)?.name);
+  /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
+  const lines = (session: SessionView) => {
+    const state = attention.get(session.id) ?? "idle";
+    const label = folderLabels.get(session.id) ?? null;
+    return {
+      status: statusLine(
+        statusSubject(label, profileById.get(session.profileId)?.name, session.title),
+        session,
+        state,
+        props.activityOf(session.id, now),
+        now,
+        t,
+        props.language,
+        props.reasons.get(session.id) ?? null,
+      ),
+      // A worktree's folder name repeats its branch; the repository's name says more.
+      detail: detailLine(
+        session.worktree ? { ...session, cwd: session.worktree.repoRoot } : session,
+        props.branches.get(session.cwd) ?? null,
+        now,
+        props.language,
+      ),
+    };
+  };
   const waitingIn = (list: readonly SessionView[]) =>
     list.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
   // Waiting sessions scrolled out of view: a calm hint at that edge of each list.
@@ -346,6 +352,7 @@ export function Sidebar(props: Props) {
       session,
       attention.get(session.id) ?? "idle",
       props.reasons.get(session.id) ?? null,
+      runsAgent(profileById.get(session.profileId)?.command, session.kind),
     );
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
   /** Round button on the sidebar's right edge; the same place collapsed and expanded. */
@@ -482,12 +489,13 @@ export function Sidebar(props: Props) {
         {edgeToggle}
         <ul className="rail-sessions" data-session-list="">
           {sessions.map((session, index) => {
-            // The same folder-first name as the expanded Sessions row: "hangar · Claude Code".
+            // The same name as the expanded row's title; the status names the program after it:
+            // "hangar · Claude Code is working".
             const label = folderLabels.get(session.id);
-            const name =
-              label?.byFolder === true ? `${label.primary} · ${label.secondary}` : session.title;
+            const name = label?.byFolder === true ? label.primary : session.title;
             const state = attention.get(session.id) ?? "idle";
-            const { status, detail: where } = lines(session);
+            const { status: line, detail: where } = lines(session);
+            const status = line.full;
             const detail = exitDetail(session, t);
             const chip = chipOf(session);
             const placement = props.placements.get(session.id);
@@ -742,6 +750,12 @@ export function Sidebar(props: Props) {
             <VersionText version={props.version} className="brand-version" />
           )}
         </span>
+        <UpdatePillButton
+          state={update}
+          running={sessions.filter((s) => s.status !== "exited").length}
+          restoresSessions={props.restoresSessions}
+          onInstall={props.onInstallUpdate}
+        />
       </div>
       {edgeToggle}
       {/* Decorative: separates the app's own controls from the sessions below. */}
@@ -785,12 +799,7 @@ export function Sidebar(props: Props) {
         )}
       </div>
 
-      <UpdateNotice
-        state={update}
-        running={sessions.filter((s) => s.status !== "exited").length}
-        onInstall={props.onInstallUpdate}
-        onDismiss={props.onDismissUpdate}
-      />
+      <UpdateNotice state={update} onDismiss={props.onDismissUpdate} />
 
       {/* Space can only be shared between two open groups. */}
       {sessionsOpen && newSessionOpen && (
@@ -1075,23 +1084,14 @@ function reducedMotion(): boolean {
   );
 }
 
-function UpdateNotice({
-  state,
-  running,
-  onInstall,
-  onDismiss,
-}: {
-  state: UpdateState;
-  running: number;
-  onInstall: () => void;
-  onDismiss: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
+/**
+ * The answers to a manual check (checking, up to date, failed). An available update shows only
+ * as the button in the header.
+ */
+function UpdateNotice({ state, onDismiss }: { state: UpdateState; onDismiss: () => void }) {
   const t = useT();
 
   switch (state.kind) {
-    case "idle":
-      return null;
     case "checking":
       return state.manual ? <div className="notice">{t("update.checking")}</div> : null;
     case "current":
@@ -1114,74 +1114,51 @@ function UpdateNotice({
           </button>
         </div>
       );
-    case "installing":
-      return (
-        <div className="notice accent">
-          <span>
-            {state.percent === null
-              ? t("update.installing", {
-                  version: displayVersion(state.update.version, t("version.beta")),
-                })
-              : t("update.installingProgress", {
-                  version: displayVersion(state.update.version, t("version.beta")),
-                  percent: state.percent,
-                })}
-          </span>
-          <div className="progress" aria-hidden="true">
-            <div className="progress-bar" style={{ width: `${String(state.percent ?? 15)}%` }} />
-          </div>
-        </div>
-      );
-    case "available":
-      return (
-        <div className="notice accent">
-          <span className="notice-title">
-            <DownloadIcon />{" "}
-            {t("update.available", {
-              version: displayVersion(state.update.version, t("version.beta")),
-            })}
-          </span>
-          {state.update.body && <span className="notice-body">{state.update.body}</span>}
-          {confirming && running > 0 ? (
-            <>
-              <span className="notice-body">
-                {running === 1 ? t("update.endsOne") : t("update.endsMany", { count: running })}
-              </span>
-              <div className="notice-actions">
-                <button type="button" className="primary-button" onClick={onInstall}>
-                  {t("update.installNow")}
-                </button>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => {
-                    setConfirming(false);
-                  }}
-                >
-                  {t("common.cancel")}
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="notice-actions">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  if (running > 0) setConfirming(true);
-                  else onInstall();
-                }}
-              >
-                {t("update.install")}
-              </button>
-              <button type="button" className="link-button" onClick={onDismiss}>
-                {t("update.later")}
-              </button>
-            </div>
-          )}
-        </div>
-      );
+    default:
+      return null;
   }
+}
+
+/**
+ * "Update" at the top right of the sidebar, nothing else: one click installs. While installing,
+ * the same pill fills with the progress (a shimmer while the size is unknown) and is disabled.
+ * The tooltip names the version and what happens to running sessions.
+ */
+function UpdatePillButton({
+  state,
+  running,
+  restoresSessions,
+  onInstall,
+}: {
+  state: UpdateState;
+  running: number;
+  restoresSessions: boolean;
+  onInstall: () => void;
+}) {
+  const t = useT();
+  const pill = updatePill(state);
+  if (pill === null) return null;
+  const hint = updatePillHint(pill, running, restoresSessions, t);
+  const progress = pillProgress(pill);
+  return (
+    <button
+      type="button"
+      className={pill.installing ? "update-pill installing" : "update-pill"}
+      title={hint}
+      aria-label={`${t("update.pill")}: ${hint}`}
+      disabled={pill.installing}
+      onClick={onInstall}
+    >
+      {pill.installing && (
+        <span
+          className={progress === null ? "update-pill-fill unknown" : "update-pill-fill"}
+          style={progress === null ? undefined : { width: `${String(progress)}%` }}
+          aria-hidden="true"
+        />
+      )}
+      <span className="update-pill-label">{t("update.pill")}</span>
+    </button>
+  );
 }
 
 /** Second status line as one text for tooltips: folder, branch and run time. */
@@ -1205,7 +1182,7 @@ interface ItemProps extends Props {
   session: SessionView;
   /** Sidebar group of the row, for dragging within it. */
   group: SessionGroup;
-  lines: { status: string; detail: DetailLine };
+  lines: { status: StatusLine; detail: DetailLine };
   /** Folder-first naming of a Sessions row (sessionLabel.ts); `null` keeps title and folder. */
   label: SessionLabel | null;
   look: BadgeLook;
@@ -1255,10 +1232,11 @@ function SessionItem({
   const t = useT();
   const exited = session.status === "exited";
   const waiting = state === "attention";
-  const status = lines.status;
+  const line = lines.status;
+  const status = line.full;
   const where = lines.detail;
   const name = label?.primary ?? session.title;
-  const place = label?.secondary ?? where.folder;
+  const place = detailPlace(label, where.folder);
   const detail = exitDetail(session, t);
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
@@ -1307,7 +1285,8 @@ function SessionItem({
           type="button"
           className="session-main"
           title={[
-            waiting ? `${name} · ${status}` : "",
+            // The status line may be cut at narrow widths; the tooltip always says it in full.
+            `${name} · ${status}`,
             overlap ?? "",
             gateOff ?? "",
             detail,
@@ -1365,14 +1344,23 @@ function SessionItem({
                 {chip !== null && <StatusChip kind={chip} />}
               </span>
             </span>
+            {/* The program leads its status ("Claude Code is working"); the state's shape sits in
+                the chip above, so the icon replaces the former status dot. */}
             <span className="session-meta">
-              <span className={`dot ${waiting ? "attention" : session.status}`} />
+              <Badge look={look} small />
+              {/* Only the sentence ellipsizes; the duration after it stays whole. */}
               <span className={waiting ? "session-status attention-text" : "session-status"}>
-                {status}
+                {line.sentence}
               </span>
+              {line.duration !== null && (
+                <span className="session-status-duration">
+                  <span aria-hidden="true">·</span>
+                  {line.duration}
+                </span>
+              )}
             </span>
             <span className="session-detail">
-              <span className="session-path">{place}</span>
+              {place !== null && <span className="session-path">{place}</span>}
               {session.worktree ? (
                 <span className="session-branch worktree">
                   <span aria-hidden="true">·</span>
@@ -1470,9 +1458,12 @@ function SessionItem({
   );
 }
 
-/** The rail is narrow: only waiting and failed sessions trade their dot for the chip's shape. */
-function railShowsChip(chip: ChipKind | null): chip is "done" | "asks" | "failed" {
-  return chip === "done" || chip === "asks" || chip === "failed";
+/**
+ * Every chip but an ordinary end trades the rail's dot for its shape, so working, pause and
+ * waiting differ there by shape as well; an ended session keeps its quiet dot.
+ */
+function railShowsChip(chip: ChipKind | null): chip is Exclude<ChipKind, "ended"> {
+  return chip !== null && chip !== "ended";
 }
 
 /**

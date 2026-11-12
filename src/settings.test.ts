@@ -34,7 +34,9 @@ describe("parseSettings", () => {
         done: { color: null, pulse: "strong", seconds: 2 },
         asks: { color: "#f0b429", pulse: "off", seconds: 4 },
         idle: { color: null, pulse: "off", seconds: 2.8 },
+        failed: { color: "#f5a3c7", pulse: "subtle", seconds: 1.6 },
       },
+      dotAnimation: "wave",
       quietSeconds: 10,
       taskbarFlash: false,
       notifyDesktop: false,
@@ -82,6 +84,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
+      dotAnimation: "spin",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
@@ -231,6 +234,21 @@ describe("parseSettings", () => {
     expect(parse(1e9)).toBe(SCROLLBACK_LINES.max);
     expect(parse(2240)).toBe(2000);
     expect(parse(2260)).toBe(2500);
+  });
+
+  it("reads looks stored before failed had its own look, and bounces the dots", () => {
+    const old = {
+      looks: {
+        working: { color: "#8cc8ff", pulse: "off", seconds: 2.8 },
+        done: { color: null, pulse: "medium", seconds: 2.8 },
+        asks: { color: null, pulse: "medium", seconds: 2.8 },
+        idle: { color: null, pulse: "off", seconds: 2.8 },
+      },
+    };
+    const parsed = parseSettings(JSON.stringify(old), "de");
+    expect(parsed.looks.working.color).toBe("#8cc8ff");
+    expect(parsed.looks.failed).toEqual(DEFAULT_LOOKS.failed);
+    expect(parsed.dotAnimation).toBe("bounce");
   });
 
   it("drops invalid looks", () => {

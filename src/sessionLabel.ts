@@ -23,6 +23,29 @@ export interface LabelInput {
 }
 
 /**
+ * Who the status line names as its subject ("Claude Code is working"): the program, or for a
+ * numbered twin its numbered title, so two Claude Codes in one folder stay apart. Without a
+ * known program, the session's title.
+ */
+export function statusSubject(
+  label: SessionLabel | null,
+  programName: string | undefined,
+  title: string,
+): string {
+  if (label?.byFolder === true) return label.secondary;
+  return programName ?? title;
+}
+
+/**
+ * The folder at the start of the detail line; `null` when the folder already is the row's title
+ * (the program it replaced there now leads the status line).
+ */
+export function detailPlace(label: SessionLabel | null, folder: string): string | null {
+  if (label === null) return folder;
+  return label.byFolder ? null : label.secondary;
+}
+
+/**
  * Last folder of a path, for Windows, POSIX and WSL paths alike; separators at the end do not
  * count. A drive or the file system root stays as it is ("C:\", "/"). Empty without a path.
  */

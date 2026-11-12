@@ -1,6 +1,6 @@
 // CSS custom properties for the state looks (stateLook.ts). The app sets them on the root; the
-// classes `look-working`, `look-done`, `look-asks` and `look-idle` in styles.css hand them to a
-// row, so the sidebar, the rail, the chips and the settings preview all follow one source.
+// classes `look-working`, `look-done`, `look-asks`, `look-idle` and `look-failed` in styles.css hand
+// them to a row, so the sidebar, the rail, the chips and the settings preview all follow one source.
 
 import { attentionEdges, attentionTint, textOnColor } from "./attentionLook";
 import {
@@ -8,6 +8,7 @@ import {
   lookWaits,
   pulseLevels,
   resolvedColor,
+  themeToken,
   type LookState,
   type StateLooks,
 } from "./stateLook";
@@ -21,10 +22,14 @@ function stateVariables(looks: StateLooks, state: LookState, theme: Theme): [str
   const waits = lookWaits(state);
   const levels = pulseLevels(attentionTint(color, theme).high, look.pulse, waits);
   const edges = attentionEdges(color, theme);
-  // Working and pause without a chosen color keep the theme's own green, exactly as before.
-  const themed = look.color === null && !waits;
+  // Working and pause without a chosen color keep the theme's own green, exactly as before, and
+  // failed its red; so the default follows a theme switch without new values.
+  const token = look.color === null ? themeToken(state) : null;
+  const themed = token !== null;
   const prefix = `--look-${state}`;
-  const tint = themed ? "var(--ok)" : color;
+  const tint = token === null ? color : `var(${token})`;
+  // Red text needs a darker shade in the light theme to keep 4.5 : 1 (`--chip-failed-fg`).
+  const themedText = state === "failed" ? "var(--chip-failed-fg)" : tint;
   return [
     [`${prefix}-color`, tint],
     // Still tint without a pulse and with reduced motion; none at all keeps the row plain.
@@ -34,9 +39,9 @@ function stateVariables(looks: StateLooks, state: LookState, theme: Theme): [str
         ? "transparent"
         : `color-mix(in srgb, ${tint} ${percent(levels.still)}, var(--panel))`,
     ],
-    [`${prefix}-strong`, themed ? "var(--ok)" : edges.strong],
+    [`${prefix}-strong`, themed ? tint : edges.strong],
     // The "working" chip label is text in this color, so it needs 4.5 : 1 instead of 3 : 1.
-    [`${prefix}-text`, themed ? "var(--ok)" : edges.text],
+    [`${prefix}-text`, themed ? themedText : edges.text],
     [`${prefix}-ring`, edges.ring],
     [`${prefix}-chip-bg`, edges.chipBg],
     [`${prefix}-chip-fg`, edges.chipFg],

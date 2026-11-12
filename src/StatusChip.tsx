@@ -27,6 +27,13 @@ function ChipShape({ kind }: { kind: ChipKind }) {
           <span />
         </span>
       );
+    case "paused":
+      return (
+        <span className="status-chip-bars">
+          <span />
+          <span />
+        </span>
+      );
     case "done":
       return <CheckIcon size={11} />;
     case "asks":

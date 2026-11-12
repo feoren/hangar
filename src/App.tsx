@@ -808,6 +808,11 @@ export function App() {
   }, [settings.looks, theme]);
 
   useEffect(() => {
+    // How the working dots move (styles.css, `:root[data-dots]`).
+    document.documentElement.dataset.dots = settings.dotAnimation;
+  }, [settings.dotAnimation]);
+
+  useEffect(() => {
     for (const terminal of terminals.values()) terminal.attention.setConfig(attentionConfig);
   }, [attentionConfig]);
 
@@ -3591,6 +3596,7 @@ export function App() {
             void persistAll().then(() => updater.install(update));
           }}
           onDismissUpdate={updater.dismiss}
+          restoresSessions={settings.restoreSessions}
           teamOpen={teamOpen}
           onToggleTeam={() => {
             if (teamOpen) closeTeam();

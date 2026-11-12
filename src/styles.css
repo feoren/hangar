@@ -326,6 +326,82 @@ h2 .beta-badge {
   }
 }
 
+/* A Hangar update: one small pill at the top right, shaped like the beta badge but filled, since
+   it is a button. It never shrinks; the version beside the name gives way first. */
+.update-pill {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  padding: 0 8px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--on-primary);
+  background: var(--primary);
+  transition: background-color 120ms ease;
+}
+
+.update-pill:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.update-pill:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Installing: the pill turns into an outline that fills from left to right. */
+.update-pill.installing {
+  cursor: default;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: transparent;
+}
+
+.update-pill-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: width 150ms linear;
+}
+
+/* Size unknown yet: a soft light passes through the pill instead. */
+.update-pill-fill.unknown {
+  width: 45%;
+  animation: update-pill-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes update-pill-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(225%);
+  }
+}
+
+.update-pill-label {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-pill,
+  .update-pill-fill {
+    transition: none;
+  }
+
+  .update-pill-fill.unknown {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* Line between the header and the first group, edge to edge: it meets the sidebar's right border,
    where the collapse toggle sits on the crossing. Same place in the rail. The menu button keeps
    10 px to it, the group title below follows after the same 5 px as below every group line, so
@@ -453,7 +529,7 @@ h2 .beta-badge {
 }
 
 .edge-failed {
-  --edge: var(--error);
+  --edge: var(--look-failed-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -640,16 +716,31 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
-/* Second status line: folder, git branch and run time, quieter than the status above it. */
+/* How long it has been working or resting: never cut, the sentence before it gives way. */
+.session-status-duration {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* Third line: folder, git branch and run time, quieter than the status above it. It keeps its
+   height when empty, so rows stay aligned. */
 .session-detail {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  min-height: 1lh;
   overflow: hidden;
   font-size: 11px;
   color: var(--muted);
   opacity: 0.85;
+}
+
+/* Without a folder in front (it is the row's title), the line starts without a separator. */
+.session-detail > :first-child > [aria-hidden="true"]:first-child {
+  display: none;
 }
 
 .session-branch,
@@ -802,7 +893,8 @@ h2 .beta-badge {
 }
 
 .look-done,
-.look-asks {
+.look-asks,
+.look-failed {
   --attention: var(--row-tint);
   --attention-strong: var(--row-strong);
   --attention-ring: var(--row-ring);
@@ -822,6 +914,21 @@ h2 .beta-badge {
   --row-seconds: var(--look-done-seconds);
   --row-pulse: var(--look-done-pulse);
   --row-ring-pulse: var(--look-done-ring-pulse);
+}
+
+/* An error that still waits to be seen: it breathes in its own color, by default the theme's red. */
+.look-failed {
+  --row-tint: var(--look-failed-color);
+  --row-strong: var(--look-failed-strong);
+  --row-ring: var(--look-failed-ring);
+  --row-chip-bg: var(--look-failed-chip-bg);
+  --row-chip-fg: var(--look-failed-chip-fg);
+  --row-low: var(--look-failed-low);
+  --row-high: var(--look-failed-high);
+  --row-fill: var(--look-failed-fill);
+  --row-seconds: var(--look-failed-seconds);
+  --row-pulse: var(--look-failed-pulse);
+  --row-ring-pulse: var(--look-failed-ring-pulse);
 }
 
 .look-asks {
@@ -859,10 +966,6 @@ h2 .beta-badge {
 
 .look .dot.running {
   background: var(--row-strong);
-}
-
-.look .status-chip.working {
-  color: var(--row-text);
 }
 
 /* The actions fade in at the right end of the row on hover or keyboard focus and lie over the
@@ -950,44 +1053,160 @@ h2 .beta-badge {
   border-color: var(--attention-strong);
 }
 
+/* Failed: a soft pill in the failed look's color (the theme's red unless chosen otherwise). */
 .status-chip.failed {
-  color: var(--chip-failed-fg);
-  background: color-mix(in srgb, var(--error) 14%, var(--panel));
-  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+  color: var(--look-failed-text);
+  background: color-mix(in srgb, var(--look-failed-color) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--look-failed-strong) 55%, transparent);
 }
 
 .status-chip.working,
+.status-chip.paused,
 .status-chip.ended {
   padding: 0 4px;
   color: var(--muted);
 }
 
+/* Dots and bars are shapes, not text: the look's strong color keeps 3 : 1 on the sidebar. */
 .status-chip.working {
-  color: var(--ok);
+  color: var(--look-working-strong);
+}
+
+.status-chip.paused {
+  color: var(--look-idle-strong);
+}
+
+/* Pause: two calm bars, no motion. */
+.status-chip-bars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.status-chip-bars span {
+  width: 2.5px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentcolor;
+}
+
+/* Working dots. Their motion comes from the settings (data-dots on the root) or, in the settings'
+   previews, from a dots-* class on an ancestor: custom properties inherit, so the nearest wins.
+   About a second per loop, staggered, so the three read as one calm movement. */
+:root,
+.dots-bounce {
+  --dots-name: dots-bounce;
+  --dots-time: 1.1s;
+  --dots-ease: linear;
+  --dots-stagger: 0.12s;
+}
+
+:root[data-dots="wave"],
+.dots-wave {
+  --dots-name: dots-wave;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.16s;
+}
+
+:root[data-dots="pulse"],
+.dots-pulse {
+  --dots-name: dots-pulse;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.2s;
+}
+
+:root[data-dots="fade"],
+.dots-fade {
+  --dots-name: dots-fade;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.2s;
 }
 
 .status-chip-dots {
+  /* How far a dot rises; the rail's small chip halves it. */
+  --dots-lift: 3px;
+
   display: inline-flex;
   gap: 3px;
 }
 
 .status-chip-dots span {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentcolor;
-  animation: chip-dot 1.2s ease-in-out infinite;
+  transform-origin: 50% 100%;
+  animation: var(--dots-name) var(--dots-time) var(--dots-ease) infinite both;
 }
 
 .status-chip-dots span:nth-child(2) {
-  animation-delay: 0.2s;
+  animation-delay: var(--dots-stagger);
 }
 
 .status-chip-dots span:nth-child(3) {
-  animation-delay: 0.4s;
+  animation-delay: calc(var(--dots-stagger) * 2);
 }
 
-@keyframes chip-dot {
+/* A hop: quick rise that slows at the top, a fall that speeds up, a soft squash on landing, then a
+   rest until the next round. Transform and opacity only, so it stays on the compositor. */
+@keyframes dots-bounce {
+  0% {
+    opacity: 0.55;
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1);
+  }
+
+  24% {
+    opacity: 1;
+    transform: translateY(calc(var(--dots-lift) * -1));
+    animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4);
+  }
+
+  46% {
+    opacity: 0.8;
+    transform: translateY(0) scale(1.15, 0.8);
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  58%,
+  100% {
+    opacity: 0.55;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* A wave without rest: each dot rises and sinks smoothly, one after the other. */
+@keyframes dots-wave {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translateY(calc(var(--dots-lift) * 0.5));
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(calc(var(--dots-lift) * -0.5));
+  }
+}
+
+/* Breathing: each dot grows and shrinks in turn. */
+@keyframes dots-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(-1px) scale(0.6);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Fading: the dots only light up in turn, as in earlier versions. */
+@keyframes dots-fade {
   0%,
   60%,
   100% {
@@ -1022,6 +1241,28 @@ h2 .beta-badge {
   height: 10px;
 }
 
+/* Working and pause have no fill of their own; in the rail they need one over the badge. */
+.status-chip.compact.working,
+.status-chip.compact.paused {
+  background: var(--panel);
+}
+
+.status-chip.compact .status-chip-dots {
+  --dots-lift: 1.5px;
+
+  gap: 1.5px;
+}
+
+.status-chip.compact .status-chip-dots span {
+  width: 3px;
+  height: 3px;
+}
+
+.status-chip.compact .status-chip-bars span {
+  width: 2px;
+  height: 7px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .session-actions {
     transition: none;
@@ -1040,6 +1281,7 @@ h2 .beta-badge {
     --edge-ring: 100%;
   }
 
+  /* Still dots, a gentle ramp from left to right, whatever the chosen motion. */
   .status-chip-dots span {
     animation: none;
   }
@@ -1110,6 +1352,30 @@ h2 .beta-badge {
   width: 26px;
   height: 26px;
   object-fit: contain;
+}
+
+/* The small mark in front of the program name in a session's status line. */
+.badge.small {
+  width: 14px;
+  height: 14px;
+  border-radius: 3.5px;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.badge.small.wide {
+  font-size: 5.5px;
+}
+
+.badge-icon.small img {
+  width: 14px;
+  height: 14px;
+}
+
+/* An ended program steps back: its mark loses its color, as its title does. */
+.session.exited .session-meta .badge {
+  opacity: 0.6;
+  filter: grayscale(1);
 }
 
 /* Expanded next to an expanded Sessions group: height from the splitter; alone, it fills. */
@@ -2788,31 +3054,8 @@ body.resizing-horizontal * {
   background: var(--panel-raised);
 }
 
-.notice.accent {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
 .error-notice {
   border-color: var(--error);
-}
-
-.notice-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.notice-body {
-  color: var(--muted);
-  white-space: pre-line;
-}
-
-.notice-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .primary-button {
@@ -2834,19 +3077,6 @@ body.resizing-horizontal * {
 
 .link-button:hover {
   color: var(--text);
-}
-
-.progress {
-  height: 4px;
-  overflow: hidden;
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.progress-bar {
-  height: 100%;
-  background: var(--accent);
-  transition: width 150ms linear;
 }
 
 /* Dialog */
@@ -3440,10 +3670,6 @@ body.resizing-horizontal * {
   margin: 0;
 }
 
-.attention-preview .badge {
-  background: #3b6fb6;
-}
-
 /* Attention settings: one card per session state. Color on the left, the live preview next to
    it, pulse strength and duration below. */
 .settings-subhead {
@@ -3532,6 +3758,30 @@ body.resizing-horizontal * {
 .look-pulse .range-field {
   flex: 1 1 160px;
   margin-top: 0;
+}
+
+/* How the working dots move: each option shows its own motion next to its name. */
+.look-dots {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.look-dots .segmented {
+  flex-wrap: wrap;
+}
+
+.look-dots-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 11px 4px 6px;
+}
+
+.look-dots-option .status-chip {
+  height: 16px;
 }
 
 .look-card:disabled .look-preview .session {
