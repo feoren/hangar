@@ -35,6 +35,8 @@ Hangar. Record: raw/2026-11-12-terminal-font-coverage-measurement.md.
   come from the upstream packages, not from Fontsource, when Fontsource strips these ranges
   (`src/assets/fonts/`, `src/fonts.css`).
 - Bundled since 0.6.0: Source Code Pro, IBM Plex Mono, Victor Mono (OFL 1.1, regular and bold,
-  about 390 KB together, loaded only when chosen).
+  about 390 KB together). A face loads on first use: the chosen terminal font, and the regular
+  weight of every bundled font once the font picker in Settings is shown (own check in headless
+  Edge: all seven regular faces loaded, about 0.5 MB read from the app bundle).
 - The files are copied unmodified; subsetting them would make them Modified Versions under the
   OFL, which may not carry the Reserved Font Names "Source" and "Plex".

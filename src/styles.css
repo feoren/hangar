@@ -3715,7 +3715,8 @@ body.resizing-horizontal * {
 
 /* Terminal look: a small terminal in the chosen colors, font, size and cursor, with the 16 colors
    beside it. It sticks to the top of the panel while the pickers below it scroll, so every choice
-   shows at once; the shadow in the panel color hides what scrolls past above it. */
+   shows at once; the shadows in the panel color hide what scrolls past above it and the outline
+   of a chosen tile beside it. */
 .terminal-preview {
   position: sticky;
   top: 0;
@@ -3728,7 +3729,9 @@ body.resizing-horizontal * {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 -8px 0 var(--panel-raised);
+  box-shadow:
+    0 -8px 0 var(--panel-raised),
+    0 0 0 2px var(--panel-raised);
 }
 
 .terminal-preview-text {
