@@ -45,6 +45,8 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
   versions the research read), Droid 0.174.0 (the version the CLI reference names). For OpenCode
   an `OPENCODE_CONFIG_CONTENT` already in Hangar's own environment counts like an administrator's
   settings: the session's value would take its place, so OpenCode is not offered then.
+  `Capabilities::team_block` names which of these stands in the way (`TeamBlock`); the window
+  lists installed agents with a fixable reason below the Team list ([[gate-rules]]).
 - **Variables a child Hangar strips.** `hook_recipes::GATE_ENV_NAMES` lists every variable the
   gate sets. `child_env` always removes the token variables (`HANGAR_HOOK_TOKEN`, `HANGAR_GATE`);
   when Hangar itself inherited one of them (it runs inside a gated session), it removes the

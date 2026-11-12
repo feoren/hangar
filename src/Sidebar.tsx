@@ -95,6 +95,7 @@ import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
 import { resourceText } from "./resources";
 import { useSessionResources } from "./useSessionResources";
+import { TeamUnavailable } from "./TeamUnavailable";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -1142,6 +1143,7 @@ export function Sidebar(props: Props) {
               );
             })}
         </ul>
+        {mode === "team" && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 
       {footer}

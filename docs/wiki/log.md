@@ -615,3 +615,9 @@ built in the backend from program and running number (session names only by opt-
 token is bound to its origin, open topics need 16 characters, and there are global (10 a minute)
 and test (5 s) limits. `Cache: no` checked against the ntfy publishing docs.
 Pages changed: [[session-resources-and-phone-push]].
+## [2026-11-12] query | Gate rules and team-capability reasons
+Filed the design of two gate additions: remembered answers ("always" or "never" for a file or
+folder of one project, applied in `gate_service.rs` before the window is asked, deny wins, stored
+tolerantly in `gate-rules.json`, a log of automatic answers) and `TeamBlock`, the reason a program
+cannot be a team session, shown as one collapsed line under Team for fixable reasons only.
+Pages changed: [[gate-rules]] (new), [[agent-gate-adapters]], index.

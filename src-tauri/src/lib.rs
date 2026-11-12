@@ -21,6 +21,7 @@ pub mod file_viewer;
 pub mod filecache;
 pub mod gate;
 pub mod gate_hook;
+pub mod gate_rules;
 pub mod gate_service;
 pub mod git;
 pub mod git_actions;
@@ -227,6 +228,9 @@ pub fn run() -> tauri::Result<()> {
             ));
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
+            // The person's gate rules: local, they name this machine's
+            // repositories.
+            let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
             app.manage(persist::Store::new(local_dir));
             // Local claims: the worker stays idle until the window turns the setting on.
             let claims = claims_service::ClaimsService::default();
@@ -267,6 +271,7 @@ pub fn run() -> tauri::Result<()> {
                     let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, snapshot);
                 },
             );
+            gate.load_rules(gate_rules_file);
             app.state::<SessionManager>()
                 .set_launch_gate(std::sync::Arc::new(gate.clone()));
             // The team shares the sessions of repositories linked to a shared project; the gate
@@ -386,6 +391,8 @@ pub fn run() -> tauri::Result<()> {
             commands::configure_gate,
             commands::gate_snapshot,
             commands::answer_gate,
+            commands::gate_rules,
+            commands::delete_gate_rule,
             commands::save_profile,
             commands::delete_profile,
             commands::profile_env,

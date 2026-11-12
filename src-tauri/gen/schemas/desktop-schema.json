@@ -309,6 +309,12 @@
           "markdownDescription": "Enables the default_cwd command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_gate_rule command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-gate-rule",
+          "markdownDescription": "Enables the delete_gate_rule command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-note",
@@ -379,6 +385,12 @@
           "type": "string",
           "const": "allow-focus-sub-agent",
           "markdownDescription": "Enables the focus_sub_agent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the gate_rules command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-gate-rules",
+          "markdownDescription": "Enables the gate_rules command without any pre-configured scope."
         },
         {
           "description": "Enables the gate_snapshot command without any pre-configured scope.",
@@ -981,6 +993,12 @@
           "markdownDescription": "Denies the default_cwd command without any pre-configured scope."
         },
         {
+          "description": "Denies the delete_gate_rule command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-gate-rule",
+          "markdownDescription": "Denies the delete_gate_rule command without any pre-configured scope."
+        },
+        {
           "description": "Denies the delete_note command without any pre-configured scope.",
           "type": "string",
           "const": "deny-delete-note",
@@ -1051,6 +1069,12 @@
           "type": "string",
           "const": "deny-focus-sub-agent",
           "markdownDescription": "Denies the focus_sub_agent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the gate_rules command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-gate-rules",
+          "markdownDescription": "Denies the gate_rules command without any pre-configured scope."
         },
         {
           "description": "Denies the gate_snapshot command without any pre-configured scope.",

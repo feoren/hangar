@@ -21,6 +21,7 @@ use crate::file_viewer::{
     self, Claim, FileContent, FileStamp, FileViewerError, HeadDiff, Target, Viewers,
 };
 use crate::gate::{Answer, GateSnapshot};
+use crate::gate_rules::GateRule;
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
@@ -1908,6 +1909,18 @@ pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
 #[tauri::command]
 pub fn answer_gate(gate: State<'_, GateService>, id: u64, answer: Answer) -> bool {
     gate.answer(id, answer)
+}
+
+/// The person's gate rules, per project (`gate_rules.rs`).
+#[tauri::command]
+pub fn gate_rules(gate: State<'_, GateService>) -> Vec<GateRule> {
+    gate.rules()
+}
+
+/// Deletes a gate rule; `false` when no rule has that id.
+#[tauri::command]
+pub fn delete_gate_rule(gate: State<'_, GateService>, id: u64) -> bool {
+    gate.delete_rule(id)
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change

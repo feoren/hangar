@@ -82,6 +82,8 @@ const COMMANDS: &[&str] = &[
     "configure_gate",
     "gate_snapshot",
     "answer_gate",
+    "gate_rules",
+    "delete_gate_rule",
     "save_profile",
     "delete_profile",
     "profile_env",

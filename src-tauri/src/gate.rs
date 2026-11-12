@@ -20,6 +20,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::claims::{self, merge_ranges, LineRange, OverlapLevel, WorktreeClaims};
+use crate::gate_rules::{self, RuleAnswer, RuleEffect, RuleScope};
 use crate::git::key_within;
 use crate::session::SessionId;
 use crate::team_share::{self, TeammateFile};
@@ -340,6 +341,16 @@ pub fn denied_reason(path: &str, titles: &[String]) -> String {
         "Hangar: the user did not allow this edit now, because another running session in this \
          repository is changing the file. {} Leave this file alone for now and continue with \
          other work, or ask the user how to proceed.",
+        facts(path, titles)
+    )
+}
+
+/// Why an edit was not made, when the user's gate rule for the file or its folder says no.
+pub fn rule_denied_reason(path: &str, titles: &[String]) -> String {
+    format!(
+        "Hangar: the user's standing rule for this project does not allow editing this file while \
+         another session is changing it. {} Leave this file alone and continue with other work, \
+         or ask the user how to proceed.",
         facts(path, titles)
     )
 }
@@ -931,6 +942,28 @@ pub enum Answer {
     /// This and later edits of the file by the session go ahead without asking.
     AllowFile,
     Deny,
+    /// Allowed, and from now on every such ask about this file in this project is allowed by a
+    /// rule (`gate_rules.rs`).
+    AlwaysFile,
+    /// Allowed, and a rule allows every such ask below the file's folder in this project.
+    AlwaysFolder,
+    /// Denied, and a rule denies every such ask about this file in this project.
+    NeverFile,
+    /// Denied, and a rule denies every such ask below the file's folder in this project.
+    NeverFolder,
+}
+
+impl Answer {
+    /// The gate rule this answer sets, if any.
+    pub fn rule(self) -> Option<(RuleEffect, RuleScope)> {
+        match self {
+            Answer::AllowOnce | Answer::AllowFile | Answer::Deny => None,
+            Answer::AlwaysFile => Some((RuleEffect::Allow, RuleScope::File)),
+            Answer::AlwaysFolder => Some((RuleEffect::Allow, RuleScope::Folder)),
+            Answer::NeverFile => Some((RuleEffect::Deny, RuleScope::File)),
+            Answer::NeverFolder => Some((RuleEffect::Deny, RuleScope::Folder)),
+        }
+    }
 }
 
 /// One edit waiting for the person (event `gate-changed`).
@@ -968,6 +1001,19 @@ pub struct GateSnapshot {
     pub enabled: bool,
     /// Oldest first.
     pub pending: Vec<PendingDecision>,
+    /// Edits a gate rule answered without asking, newest first, at most
+    /// [`gate_rules::LOG_LEN`].
+    pub log: Vec<RuleAnswer>,
+}
+
+/// A waiting decision as the service needs it to apply a new rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Waiting {
+    pub id: u64,
+    pub session: SessionId,
+    pub path: String,
+    /// [`claims::file_key`] of the path.
+    pub key: String,
 }
 
 struct Pending<W> {
@@ -1011,8 +1057,11 @@ pub struct Gate<W> {
     allowed: HashMap<SessionId, HashSet<String>>,
     /// Per session: the conversation id the facts went to and the facts.
     told: HashMap<SessionId, (Option<String>, String)>,
+    /// Edits gate rules answered, newest first.
+    log: std::collections::VecDeque<RuleAnswer>,
     next_id: u64,
     next_ticket: u64,
+    next_log: u64,
 }
 
 impl<W> Default for Gate<W> {
@@ -1023,8 +1072,10 @@ impl<W> Default for Gate<W> {
             pending: BTreeMap::new(),
             allowed: HashMap::new(),
             told: HashMap::new(),
+            log: std::collections::VecDeque::new(),
             next_id: 1,
             next_ticket: 1,
+            next_log: 1,
         }
     }
 }
@@ -1184,7 +1235,10 @@ impl<W> Gate<W> {
     pub fn answer(&mut self, id: u64, answer: Answer) -> Option<Vec<(W, Outcome)>> {
         let pending = self.pending.remove(&id)?;
         let outcome = match answer {
-            Answer::AllowOnce => Outcome::Allow,
+            Answer::AllowOnce | Answer::AlwaysFile | Answer::AlwaysFolder => Outcome::Allow,
+            Answer::NeverFile | Answer::NeverFolder => {
+                Outcome::Deny(rule_denied_reason(&pending.decision.path, &pending.titles))
+            }
             Answer::AllowFile => {
                 self.allowed
                     .entry(pending.decision.session_id)
@@ -1195,6 +1249,49 @@ impl<W> Gate<W> {
             Answer::Deny => Outcome::Deny(denied_reason(&pending.decision.path, &pending.titles)),
         };
         Some(pending.resolve(&outcome))
+    }
+
+    /// The decision `id` while it waits.
+    pub fn waiting(&self, id: u64) -> Option<Waiting> {
+        self.pending.get(&id).map(|p| Waiting {
+            id,
+            session: p.decision.session_id,
+            path: p.decision.path.clone(),
+            key: p.key.clone(),
+        })
+    }
+
+    /// Every waiting decision, oldest first.
+    pub fn all_waiting(&self) -> Vec<Waiting> {
+        self.pending
+            .keys()
+            .filter_map(|id| self.waiting(*id))
+            .collect()
+    }
+
+    /// A gate rule answered the waiting decision `id` (set while it waited); `None` when it
+    /// no longer waits.
+    pub fn settle(&mut self, id: u64, effect: RuleEffect) -> Option<Vec<(W, Outcome)>> {
+        let pending = self.pending.remove(&id)?;
+        let outcome = match effect {
+            RuleEffect::Allow => Outcome::Allow,
+            RuleEffect::Deny => {
+                Outcome::Deny(rule_denied_reason(&pending.decision.path, &pending.titles))
+            }
+        };
+        Some(pending.resolve(&outcome))
+    }
+
+    /// Notes that a gate rule answered an edit, for the window's log; `entry.id` is set
+    /// here. Names are neutralized like a pending decision's; paths stay as given, the window
+    /// shows their invisible characters as it does for a decision's path.
+    pub fn record(&mut self, mut entry: RuleAnswer) {
+        entry.id = self.next_log;
+        self.next_log += 1;
+        entry.session = neutralize(&entry.session);
+        entry.project_name = neutralize(&entry.project_name);
+        self.log.push_front(entry);
+        self.log.truncate(gate_rules::LOG_LEN);
     }
 
     /// Nobody answered in time; `None` when it was answered meanwhile.
@@ -1255,6 +1352,7 @@ impl<W> Gate<W> {
         GateSnapshot {
             enabled: self.enabled,
             pending: self.pending.values().map(|p| p.decision.clone()).collect(),
+            log: self.log.iter().cloned().collect(),
         }
     }
 }
@@ -1603,6 +1701,67 @@ mod tests {
         assert!(gate.snapshot().pending.is_empty());
         // Allowed once means: asked again next time.
         waiting(gate.open(1, "Edit", conflict("src/a.ts"), titles, 7, "c"));
+    }
+
+    #[test]
+    fn rule_answers_resolve_like_their_effect_and_waiting_decisions_can_be_settled() {
+        assert_eq!(Answer::AllowOnce.rule(), None);
+        assert_eq!(Answer::AllowFile.rule(), None);
+        assert_eq!(
+            Answer::NeverFolder.rule(),
+            Some((RuleEffect::Deny, RuleScope::Folder))
+        );
+        let parsed: Answer = serde_json::from_str("\"alwaysFile\"").unwrap();
+        assert_eq!(parsed, Answer::AlwaysFile);
+
+        let mut gate: Gate<&str> = Gate::default();
+        gate.set_enabled(true);
+        let titles = vec!["Codex · feature".to_owned()];
+        let (a, _) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), titles.clone(), 5, "a"));
+        let (b, _) = waiting(gate.open(1, "Edit", conflict("src/B.ts"), titles.clone(), 6, "b"));
+        assert_eq!(
+            gate.answer(a, Answer::AlwaysFolder),
+            Some(vec![("a", Outcome::Allow)])
+        );
+        let all = gate.all_waiting();
+        assert_eq!(all.len(), 1);
+        assert_eq!(
+            (all[0].id, all[0].path.as_str(), all[0].key.as_str()),
+            (b, "src/B.ts", claims::file_key("src/B.ts").as_str())
+        );
+        let settled = gate.settle(b, RuleEffect::Deny).unwrap();
+        let [("b", Outcome::Deny(reason))] = &settled[..] else {
+            panic!("{settled:?}");
+        };
+        assert!(reason.contains("standing rule"), "{reason}");
+        assert_eq!(gate.settle(b, RuleEffect::Deny), None);
+        let (c, _) = waiting(gate.open(1, "Edit", conflict("src/c.ts"), titles, 7, "c"));
+        let resolved = gate.answer(c, Answer::NeverFile).unwrap();
+        assert!(matches!(resolved[..], [("c", Outcome::Deny(_))]));
+    }
+
+    #[test]
+    fn the_rule_log_keeps_the_newest_answers_with_visible_names() {
+        let mut gate: Gate<()> = Gate::default();
+        for n in 0..(gate_rules::LOG_LEN + 5) {
+            gate.record(RuleAnswer {
+                id: 0,
+                at: n as u64,
+                session_id: 1,
+                session: "Claude\u{7}Code".into(),
+                project_name: "app".into(),
+                path: format!("src/{n}.ts"),
+                rule_id: 1,
+                rule_path: "src".into(),
+                scope: RuleScope::Folder,
+                effect: RuleEffect::Allow,
+            });
+        }
+        let log = gate.snapshot().log;
+        assert_eq!(log.len(), gate_rules::LOG_LEN);
+        assert_eq!(log[0].path, format!("src/{}.ts", gate_rules::LOG_LEN + 4));
+        assert!(log.windows(2).all(|pair| pair[0].id > pair[1].id));
+        assert!(log[0].session.contains("<U+0007>"), "{}", log[0].session);
     }
 
     #[test]

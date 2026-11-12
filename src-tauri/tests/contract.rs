@@ -79,6 +79,8 @@ fn commands_are_registered_allowed_and_wired() {
         "configure_gate",
         "gate_snapshot",
         "answer_gate",
+        "gate_rules",
+        "delete_gate_rule",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
     }

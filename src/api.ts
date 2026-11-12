@@ -47,7 +47,24 @@ export interface Profile {
    * for it. Older backends send none.
    */
   teamCapable?: boolean;
+  /**
+   * Why it cannot be a team session on this machine, `null` when it can (`fixedFolder`: only in
+   * its own folder). Older backends send none.
+   */
+  teamBlock?: TeamBlock | null;
 }
+
+/**
+ * Rust `TeamBlock` (agent_catalog.rs). `noHooks` and `notMeasured` come from the catalog; the
+ * others can be fixed on this machine.
+ */
+export type TeamBlock =
+  | { kind: "noHooks" }
+  | { kind: "notMeasured" }
+  | { kind: "unknownVersion" }
+  | { kind: "belowMinVersion"; min: string; installed: string }
+  | { kind: "adminSettings" }
+  | { kind: "fixedFolder" };
 
 /** What Settings saves with `saveProfile` (Rust: `ProfileInput` in profile_edit.rs). */
 export interface ProfileInput {
@@ -438,6 +455,10 @@ export const api = {
   gateSnapshot: () => invoke<unknown>("gate_snapshot"),
   /** `false`: the decision no longer waits (answered elsewhere, timed out, session ended). */
   answerGate: (id: number, answer: GateAnswer) => invoke<boolean>("answer_gate", { id, answer }),
+  /** The gate rules of every project; check with `parseGateRules`. */
+  gateRules: () => invoke<unknown>("gate_rules"),
+  /** `false`: no rule has that id (deleted meanwhile). */
+  deleteGateRule: (id: number) => invoke<boolean>("delete_gate_rule", { id }),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */

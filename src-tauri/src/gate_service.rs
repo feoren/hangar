@@ -39,10 +39,11 @@ use zeroize::Zeroizing;
 use crate::agent_catalog::{Agent, HookFormat};
 use crate::claims::WorktreeClaims;
 use crate::gate::{
-    self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, DECISION_TIMEOUT,
+    self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, Waiting, DECISION_TIMEOUT,
     ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON, ROUTE_USER_PROMPT_SUBMIT,
     ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
+use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
 use crate::hook_http::{self, Head, Status};
 use crate::hook_recipes::{
     self as recipes, Shell, AGENT_CODEX, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL,
@@ -128,6 +129,30 @@ struct Inner {
     /// Makes each start's folder name unique, so removing a finished start's folder never
     /// touches the next start's.
     starts: AtomicUsize,
+    /// The person's gate rules (`gate_rules.rs`) and the file they live in.
+    rules: Mutex<Rules>,
+}
+
+/// The rule book and where it is saved; without a file (tests, before `load_rules`) rules live
+/// in memory only.
+#[derive(Default)]
+struct Rules {
+    file: Option<PathBuf>,
+    book: RuleBook,
+}
+
+impl Rules {
+    fn save(&self) {
+        let Some(file) = &self.file else {
+            return;
+        };
+        if let Err(error) = crate::persist::write_atomic(file, &self.book.to_json()) {
+            eprintln!(
+                "hangar: gate rules not saved to {}: {error}",
+                file.display()
+            );
+        }
+    }
 }
 
 /// Tauri state of the agent gate; clones share one gate.
@@ -172,6 +197,7 @@ impl GateService {
                 helper: Mutex::new(std::env::current_exe().ok()),
                 session_dirs: Mutex::new(HashMap::new()),
                 starts: AtomicUsize::new(0),
+                rules: Mutex::new(Rules::default()),
             }),
         }
     }
@@ -217,15 +243,76 @@ impl GateService {
         lock(&self.inner.gate).snapshot()
     }
 
-    /// The person's answer; `false` when the decision no longer waits.
+    /// The person's answer; `false` when the decision no longer waits. An answer that sets a
+    /// gate rule ([`Answer::rule`]) saves it for the decision's project and answers the
+    /// other waiting decisions it covers at once.
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
+        let rule = answer
+            .rule()
+            .and_then(|(effect, scope)| self.add_rule_for(id, effect, scope));
         let resolved = lock(&self.inner.gate).answer(id, answer);
         let found = resolved.is_some();
         deliver(resolved.into_iter().flatten());
-        if found {
+        let settled = rule.is_some_and(|rule| self.inner.settle_waiting(&rule));
+        if found || settled {
             self.inner.publish();
         }
         found
+    }
+
+    /// Reads the rule book from `file` (Hangar's local data folder); later changes are saved
+    /// there. A missing, unreadable or broken file is an empty book, said on stderr.
+    pub fn load_rules(&self, file: PathBuf) {
+        let book = match crate::persist::read_limited(&file, gate_rules::MAX_FILE_BYTES) {
+            Ok(Some(bytes)) => RuleBook::parse(&bytes),
+            Ok(None) => RuleBook::default(),
+            Err(reason) => {
+                eprintln!("hangar: ignoring {}: {reason}", file.display());
+                RuleBook::default()
+            }
+        };
+        *lock(&self.inner.rules) = Rules {
+            file: Some(file),
+            book,
+        };
+    }
+
+    /// Every gate rule, in the order they were set.
+    pub fn rules(&self) -> Vec<GateRule> {
+        lock(&self.inner.rules).book.rules().to_vec()
+    }
+
+    /// `false` when no rule has that id.
+    pub fn delete_rule(&self, id: u64) -> bool {
+        let mut rules = lock(&self.inner.rules);
+        let removed = rules.book.remove(id);
+        if removed {
+            rules.save();
+        }
+        removed
+    }
+
+    /// The rule an answer sets for decision `id`: its file, or the file's folder, in the project
+    /// of the waiting session. `None` when the decision no longer waits, the session is in no
+    /// known repository, or the path cannot be a rule (a folder rule for a file at the top).
+    fn add_rule_for(&self, id: u64, effect: RuleEffect, scope: RuleScope) -> Option<GateRule> {
+        let waiting = lock(&self.inner.gate).waiting(id)?;
+        let worktrees = (self.inner.worktrees)();
+        let project = worktrees
+            .iter()
+            .find(|w| w.sessions.contains(&waiting.session))?
+            .repo
+            .clone();
+        let path = match scope {
+            RuleScope::File => waiting.path.clone(),
+            RuleScope::Folder => gate_rules::folder_of(&waiting.path)?,
+        };
+        let mut rules = lock(&self.inner.rules);
+        let rule = rules
+            .book
+            .add(&project, &path, scope, effect, now_millis())?;
+        rules.save();
+        Some(rule)
     }
 
     /// Hangar quits: waiting edits are denied, no token works any more.
@@ -685,6 +772,30 @@ impl GateService {
     }
 }
 
+/// The log line for an edit `rule` answered.
+fn log_entry(
+    rule: &GateRule,
+    session: SessionId,
+    titles: &HashMap<SessionId, String>,
+    path: &str,
+) -> RuleAnswer {
+    RuleAnswer {
+        id: 0,
+        at: now_millis(),
+        session_id: session,
+        session: titles
+            .get(&session)
+            .cloned()
+            .unwrap_or_else(|| format!("#{session}")),
+        project_name: rule.project_name.clone(),
+        path: path.to_owned(),
+        rule_id: rule.id,
+        rule_path: rule.path.clone(),
+        scope: rule.scope,
+        effect: rule.effect,
+    }
+}
+
 /// Hands each outcome to its waiting request; a request that gave up meanwhile is gone.
 fn deliver(outcomes: impl IntoIterator<Item = (Waiter, Outcome)>) {
     for (waiter, outcome) in outcomes {
@@ -935,6 +1046,43 @@ fn client_gone(stream: &TcpStream) -> bool {
 }
 
 impl Inner {
+    /// Answers every waiting decision the new `rule` covers and logs each; `true` when any.
+    fn settle_waiting(&self, rule: &GateRule) -> bool {
+        let waiting = lock(&self.gate).all_waiting();
+        if waiting.is_empty() {
+            return false;
+        }
+        let worktrees = (self.worktrees)();
+        let titles = (self.titles)();
+        let covered: Vec<Waiting> = waiting
+            .into_iter()
+            .filter(|w| {
+                worktrees
+                    .iter()
+                    .find(|tree| tree.sessions.contains(&w.session))
+                    .is_some_and(|tree| {
+                        gate_rules::rule_matches(
+                            rule,
+                            &tree.repo,
+                            &w.key,
+                            gate_rules::CASE_INSENSITIVE,
+                        )
+                    })
+            })
+            .collect();
+        let mut gate = lock(&self.gate);
+        let mut any = false;
+        for w in covered {
+            let Some(outcomes) = gate.settle(w.id, rule.effect) else {
+                continue;
+            };
+            deliver(outcomes);
+            gate.record(log_entry(rule, w.session, &titles, &w.path));
+            any = true;
+        }
+        any
+    }
+
     fn publish(&self) {
         let snapshot = lock(&self.gate).snapshot();
         (self.emit)(&snapshot);
@@ -1068,6 +1216,11 @@ impl Inner {
             return Outcome::Allow;
         };
         let titles = (self.titles)();
+        // A gate rule answers before the person is asked; deny rules win.
+        let rule = lock(&self.rules)
+            .book
+            .find(&own.repo, &conflict.key)
+            .cloned();
         let named: Vec<String> = conflict
             .others
             .iter()
@@ -1081,6 +1234,21 @@ impl Inner {
             )
             .collect();
         let shown_path = conflict.path.clone();
+        if let Some(rule) = rule {
+            let outcome = match rule.effect {
+                RuleEffect::Allow => Outcome::Allow,
+                RuleEffect::Deny => Outcome::Deny(gate::rule_denied_reason(&shown_path, &named)),
+            };
+            {
+                let mut gate = lock(&self.gate);
+                if !gate.enabled() {
+                    return Outcome::Allow;
+                }
+                gate.record(log_entry(&rule, session, &titles, &shown_path));
+            }
+            self.publish();
+            return outcome;
+        }
         let (tx, rx) = sync_channel(1);
         let opened = {
             let mut gate = lock(&self.gate);
@@ -1720,6 +1888,124 @@ mod tests {
         assert_eq!(
             post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
             (200, String::new())
+        );
+    }
+
+    #[test]
+    fn gate_rules_answer_before_the_person_is_asked() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture
+            .settings
+            .path()
+            .join("rules")
+            .join("gate-rules.json");
+        fixture.service.load_rules(file.clone());
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let body = edit(&fixture.root, "src/shared.rs");
+
+        // "Always for this folder": this edit goes ahead and the rule is saved for the project.
+        let waiting = {
+            let token = token.clone();
+            let body = body.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let id = next_pending(&fixture.events).pending[0].id;
+        assert!(fixture.service.answer(id, Answer::AlwaysFolder));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        let rules = fixture.service.rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            (rules[0].project.as_str(), rules[0].path.as_str()),
+            ("repo", "src")
+        );
+        assert_eq!(
+            (rules[0].scope, rules[0].effect),
+            (RuleScope::Folder, RuleEffect::Allow)
+        );
+        let saved = RuleBook::parse(&std::fs::read(&file).unwrap());
+        assert_eq!(saved.rules(), rules.as_slice());
+
+        // The next ask is answered by the rule, without a card, and logged.
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+            (200, String::new())
+        );
+        let snapshot = fixture.service.snapshot();
+        assert!(snapshot.pending.is_empty());
+        assert_eq!(snapshot.log.len(), 1);
+        let entry = &snapshot.log[0];
+        assert_eq!(
+            (entry.session_id, entry.path.as_str(), entry.rule_id),
+            (1, "src/shared.rs", rules[0].id)
+        );
+        assert_eq!(entry.effect, RuleEffect::Allow);
+
+        // A deny rule for the file wins over the folder's allow rule.
+        let deny = {
+            let mut book = lock(&fixture.service.inner.rules);
+            book.book
+                .add(
+                    "repo",
+                    "src/shared.rs",
+                    RuleScope::File,
+                    RuleEffect::Deny,
+                    1,
+                )
+                .unwrap()
+        };
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body);
+        assert_eq!(code, 200);
+        let json: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+        let reason = json["hookSpecificOutput"]["permissionDecisionReason"]
+            .as_str()
+            .unwrap();
+        assert!(reason.contains("standing rule"), "{reason}");
+        let log = fixture.service.snapshot().log;
+        assert_eq!((log.len(), log[0].rule_id), (2, deny.id));
+        assert!(log[0].id > log[1].id, "newest first");
+
+        // Deleted, the folder's allow rule answers again.
+        assert!(fixture.service.delete_rule(deny.id));
+        assert!(!fixture.service.delete_rule(deny.id));
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+            (200, String::new())
+        );
+        assert_eq!(
+            RuleBook::parse(&std::fs::read(&file).unwrap())
+                .rules()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn never_for_this_file_denies_now_and_later() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let body = edit(&fixture.root, "src/shared.rs");
+        let waiting = {
+            let token = token.clone();
+            let body = body.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let id = next_pending(&fixture.events).pending[0].id;
+        assert!(fixture.service.answer(id, Answer::NeverFile));
+        let denied = |answer: &str| {
+            let json: serde_json::Value = serde_json::from_str(answer).unwrap();
+            json["hookSpecificOutput"]["permissionDecision"] == "deny"
+        };
+        assert!(denied(&waiting.join().unwrap().1));
+        assert!(denied(
+            &post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body).1
+        ));
+        let rules = fixture.service.rules();
+        assert_eq!(
+            (rules[0].path.as_str(), rules[0].scope),
+            ("src/shared.rs", RuleScope::File)
         );
     }
 

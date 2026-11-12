@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { TeamBlock } from "./api";
+import { createTranslator } from "./i18n";
+
 import {
   DEFAULT_START_MODE,
   effectiveMode,
@@ -10,6 +13,9 @@ import {
   listedFor,
   sessionMode,
   teamBlock,
+  teamBlockHint,
+  teamReason,
+  unavailableForTeam,
   startModeFor,
   teamCapable,
   teamPossible,
@@ -118,5 +124,63 @@ describe("startMode", () => {
     expect(listedFor("team", program(true))).toBe(true);
     // A capable agent whose profile fixes a folder cannot be one either.
     expect(listedFor("team", program(true, "C:/fixed"))).toBe(false);
+  });
+});
+
+describe("agents not available for a team session", () => {
+  const agent = (
+    id: string,
+    teamBlock: TeamBlock | null | undefined,
+    extra: { installed?: boolean; teamCapable?: boolean; cwd?: string | null } = {},
+  ) => ({
+    id,
+    name: id.toUpperCase(),
+    installed: extra.installed ?? true,
+    teamCapable: extra.teamCapable ?? teamBlock === null,
+    cwd: extra.cwd ?? null,
+    teamBlock,
+  });
+
+  it("takes the backend's reason and falls back to the old flag", () => {
+    expect(teamReason(agent("a", { kind: "unknownVersion" }))).toEqual({ kind: "unknownVersion" });
+    expect(teamReason(agent("b", null))).toBeNull();
+    // Older backends: only the flag and the folder.
+    expect(teamReason(agent("c", undefined, { teamCapable: false }))).toEqual({ kind: "noHooks" });
+    expect(teamReason(agent("d", undefined, { teamCapable: true, cwd: "/x" }))).toEqual({
+      kind: "fixedFolder",
+    });
+    // A version reason without its versions is read as an unreadable version.
+    const broken = { ...agent("e", null), teamBlock: { kind: "belowMinVersion" } };
+    expect(teamReason(broken)).toEqual({ kind: "unknownVersion" });
+  });
+
+  it("groups only installed agents with a reason the person can fix, in list order", () => {
+    const profiles = [
+      agent("claude", null),
+      agent("shell", { kind: "noHooks" }),
+      agent("gemini", { kind: "notMeasured" }),
+      agent("opencode", { kind: "belowMinVersion", min: "1.19.5", installed: "1.18.0" }),
+      agent("codex", { kind: "unknownVersion" }),
+      agent("qwen", { kind: "adminSettings" }),
+      agent("pi", { kind: "fixedFolder" }, { teamCapable: true, cwd: "/work" }),
+      agent("missing", { kind: "unknownVersion" }, { installed: false }),
+    ];
+    const found = unavailableForTeam(profiles);
+    expect(found.map((entry) => entry.profile.id)).toEqual(["opencode", "codex", "qwen", "pi"]);
+    expect(
+      unavailableForTeam([agent("claude", null), agent("shell", { kind: "noHooks" })]),
+    ).toEqual([]);
+  });
+
+  it("gives each reason a short hint with the versions", () => {
+    const de = createTranslator("de");
+    expect(teamBlockHint({ kind: "belowMinVersion", min: "1.19.5", installed: "1.18.0" }, de)).toBe(
+      "Version 1.18.0, Team ab 1.19.5: aktualisieren",
+    );
+    expect(teamBlockHint({ kind: "unknownVersion" }, de)).toBe(
+      "Version nicht lesbar: Installation prüfen",
+    );
+    expect(teamBlockHint({ kind: "adminSettings" }, de)).not.toBe("");
+    expect(teamBlockHint({ kind: "fixedFolder" }, de)).not.toBe("");
   });
 });
