@@ -1439,6 +1439,8 @@ pub async fn open_local_url(url: String) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+}
+
 /// Every path below a session's folder for the file tree's filter (file_tree.rs, `PathIndex`):
 /// bounded in number, depth and time, ignored files left out. Takes only the session's ID.
 #[tauri::command]
