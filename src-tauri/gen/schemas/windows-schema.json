@@ -579,6 +579,12 @@
           "markdownDescription": "Enables the reveal_notes_folder command without any pre-configured scope."
         },
         {
+          "description": "Enables the reveal_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reveal-session-folder",
+          "markdownDescription": "Enables the reveal_session_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-profile",
@@ -1153,6 +1159,12 @@
           "type": "string",
           "const": "deny-reveal-notes-folder",
           "markdownDescription": "Denies the reveal_notes_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reveal_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reveal-session-folder",
+          "markdownDescription": "Denies the reveal_session_folder command without any pre-configured scope."
         },
         {
           "description": "Denies the save_profile command without any pre-configured scope.",

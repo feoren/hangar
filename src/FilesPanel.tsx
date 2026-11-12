@@ -28,7 +28,15 @@ import {
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
-import { ChevronIcon, FileIcon, FolderIcon, LinkIcon, OverlapIcon, RestartIcon } from "./icons";
+import {
+  ChevronIcon,
+  FileIcon,
+  FolderIcon,
+  LinkIcon,
+  OverlapIcon,
+  RestartIcon,
+  RevealFolderIcon,
+} from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { personTag, type TeamActivity } from "./team";
@@ -130,7 +138,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   const openFile = (path: string) => {
     setOpenError(null);
     api.openFileViewer(session.id, path).catch((error: unknown) => {
-      setOpenError(errorText(error));
+      setOpenError(t("files.openFailed", { error: errorText(error) }));
     });
   };
 
@@ -247,10 +255,23 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
         >
           <RestartIcon />
         </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={t("files.reveal")}
+          title={t("files.reveal")}
+          onClick={() => {
+            api.revealSessionFolder(session.id).catch((error: unknown) => {
+              setOpenError(t("files.revealFailed", { error: errorText(error) }));
+            });
+          }}
+        >
+          <RevealFolderIcon />
+        </button>
       </div>
       {openError !== null && (
         <p className="changes-message error-text selectable" role="alert">
-          {t("files.openFailed", { error: openError })}
+          {openError}
         </p>
       )}
       {root?.kind === "failed" ? (

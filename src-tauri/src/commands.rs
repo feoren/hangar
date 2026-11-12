@@ -1398,6 +1398,32 @@ pub async fn list_session_folder(
     }
 }
 
+/// Opens the session's folder (the root of its file tree) in Explorer, Finder or the Linux file
+/// manager. Takes only the session's ID: the backend looks up the folder itself, so the frontend
+/// can never name a path to open.
+#[tauri::command]
+pub async fn reveal_session_folder(
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<(), FileTreeError> {
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(FileTreeError::UnknownSession(id))?;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        if !cwd.is_dir() {
+            return Err(FileTreeError::NotAFolder);
+        }
+        crate::desktop::open(&cwd, crate::desktop::Target::Folder).map_err(FileTreeError::Io)
+    });
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
+        Err(_) => Err(FileTreeError::TimedOut),
+    }
+}
+
 // Read-only file viewer windows (file_viewer.rs).
 
 /// Opens a viewer for one file of a session's tree, or brings the open one to the front. The

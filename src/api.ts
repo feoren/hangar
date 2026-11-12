@@ -330,6 +330,8 @@ export const api = {
    */
   listSessionFolder: (id: number, relative: string) =>
     invoke<unknown>("list_session_folder", { id, relative }),
+  /** Opens the session's folder in Explorer, Finder or the file manager; the backend finds it. */
+  revealSessionFolder: (id: number) => invoke<null>("reveal_session_folder", { id }),
   /**
    * Main window and side panel only: opens a read-only viewer window for one file of a session's
    * folder, or brings the one already showing it to the front. `path` is relative to the

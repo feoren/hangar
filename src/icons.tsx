@@ -63,6 +63,16 @@ export function FolderIcon(props: IconProps) {
   );
 }
 
+/** A folder with an arrow out of it: open the folder in the system's file manager. */
+export function RevealFolderIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.5 13H3.5A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.6h4.9A1.5 1.5 0 0 1 14 6.1v1.4" />
+      <path d="M10.5 13.5l3.5-3.5M11 10h3v3" />
+    </Svg>
+  );
+}
+
 export function MenuIcon(props: IconProps) {
   return (
     <Svg {...props}>

@@ -167,6 +167,7 @@ fn panel_window_capability_is_narrow() {
         "allow-git-log",
         "allow-git-commit-diff",
         "allow-list-session-folder",
+        "allow-reveal-session-folder",
         "allow-open-file-viewer",
         "allow-panel-to-main",
         "allow-set-panel-on-top",
