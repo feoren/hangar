@@ -17,25 +17,27 @@ use crate::clipboard_image;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing};
+use crate::file_viewer::{self, Claim, FileContent, FileViewerError, Target, Viewers};
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_activity::{self, ActivityError, GitActivity};
+use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
 use crate::notes::{
     FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
 };
-use crate::notes_window::{self, NotesMessage, NotesWindowError};
 use crate::notify::{self, Notifier};
+use crate::panel_window::{self, PanelMessage, PanelWindowError};
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::secrets::{self, SecretError, SecretStatus};
-use crate::session::{SessionId, SessionInfo, SessionKind};
+use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
@@ -132,7 +134,7 @@ fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
                 copies,
             );
             // Only the main window listens for this.
-            let _ = app.emit_to(notes_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
+            let _ = app.emit_to(panel_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
         });
     if let Err(error) = spawned {
         eprintln!("hangar: update result not checked: {error}");
@@ -469,7 +471,10 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
     manager.list()
 }
 
+/// `mode`: private or team session (ADR 0008); without one, a private session, which never
+/// gets the agent gate and never reaches the team.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
 pub fn create_session(
     manager: Manager<'_>,
     profile_id: String,
@@ -478,14 +483,16 @@ pub fn create_session(
     on_event: Channel<SessionEvent>,
     resume: Option<bool>,
     cli_session_id: Option<String>,
+    mode: Option<SessionMode>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Optional, so existing calls without `resume` or `cliSessionId` stay valid.
+    // Optional, so existing calls without `resume`, `cliSessionId` or `mode` stay valid.
     manager.create_resuming(
         &profile_id,
         cwd,
         size,
         resume.unwrap_or(false),
         cli_session_id.as_deref(),
+        mode.unwrap_or_default(),
         channel_sink(on_event),
     )
 }
@@ -1163,73 +1170,94 @@ pub async fn shared_notes_unlock(
     shared_blocking(shared, move |p| p.unlock(&folder, &code, &label, &untitled)).await
 }
 
-// Detached notes window (notes_window.rs).
+// Detached side panel window (panel_window.rs, ADR 0007).
 
-/// Opens the notes window with its fixed label, URL and size, or brings it to the front if it
-/// is already open. Async: creating a window from a synchronous command deadlocks on Windows.
+/// Opens the panel window with its fixed label and URL, at the remembered size and place when
+/// that is still on a monitor, or brings it to the front if it is already open. Async: creating
+/// a window from a synchronous command deadlocks on Windows.
 #[tauri::command]
-pub async fn open_notes_window(
+pub async fn open_panel_window(
     app: tauri::AppHandle,
     always_on_top: bool,
-) -> Result<(), NotesWindowError> {
-    let focus = |window: tauri::WebviewWindow| -> Result<(), NotesWindowError> {
+    bounds: Option<panel_window::Bounds>,
+) -> Result<(), PanelWindowError> {
+    let focus = |window: tauri::WebviewWindow| -> Result<(), PanelWindowError> {
         let _ = window.unminimize();
         window.show()?;
         window.set_focus()?;
         Ok(())
     };
-    if let Some(window) = app.get_webview_window(notes_window::LABEL) {
+    if let Some(window) = app.get_webview_window(panel_window::LABEL) {
         return focus(window);
     }
-    let built = tauri::WebviewWindowBuilder::new(
+    let monitors: Vec<panel_window::Area> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|monitor| {
+            let scale = monitor.scale_factor().max(0.1);
+            let position = monitor.position();
+            let size = monitor.size();
+            panel_window::Area {
+                x: f64::from(position.x) / scale,
+                y: f64::from(position.y) / scale,
+                width: f64::from(size.width) / scale,
+                height: f64::from(size.height) / scale,
+            }
+        })
+        .collect();
+    let placement = panel_window::placement(bounds, &monitors);
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
-        notes_window::LABEL,
-        tauri::WebviewUrl::App(notes_window::URL.into()),
+        panel_window::LABEL,
+        tauri::WebviewUrl::App(panel_window::URL.into()),
     )
     .title("Hangar")
-    .inner_size(notes_window::WIDTH, notes_window::HEIGHT)
-    .min_inner_size(notes_window::MIN_WIDTH, notes_window::MIN_HEIGHT)
-    .always_on_top(always_on_top)
-    .build();
-    match built {
+    .inner_size(placement.width, placement.height)
+    .min_inner_size(panel_window::MIN_WIDTH, panel_window::MIN_HEIGHT)
+    .always_on_top(always_on_top);
+    if let Some((x, y)) = placement.position {
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
         Ok(_) => Ok(()),
         // Two quick clicks: the other call created it meanwhile.
-        Err(error) => match app.get_webview_window(notes_window::LABEL) {
+        Err(error) => match app.get_webview_window(panel_window::LABEL) {
             Some(window) => focus(window),
             None => Err(error.into()),
         },
     }
 }
 
-/// Keeps the notes window above other windows or not. Only the notes window calls it, for
+/// Keeps the panel window above other windows or not. Only the panel window calls it, for
 /// itself: it holds this command instead of the general `set_always_on_top` permission.
 #[tauri::command]
-pub fn set_notes_on_top(
+pub fn set_panel_on_top(
     window: tauri::WebviewWindow,
     on_top: bool,
-) -> Result<(), NotesWindowError> {
-    notes_window::check_sender(window.label())?;
+) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
     window.set_always_on_top(on_top)?;
     Ok(())
 }
 
-/// The only way from the notes window to the main window: a validated [`NotesMessage`],
-/// delivered as event `notes-message` to `main` alone. The notes window may not emit events
+/// The only way from the panel window to the main window: a validated [`PanelMessage`],
+/// delivered as event `panel-message` to `main` alone. The panel window may not emit events
 /// itself, so it cannot fake events such as `tray-quit`.
 #[tauri::command]
-pub fn notes_to_main(
+pub fn panel_to_main(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    message: NotesMessage,
-) -> Result<(), NotesWindowError> {
-    notes_window::check_sender(window.label())?;
+    message: PanelMessage,
+) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
     message.validate()?;
-    if message == (NotesMessage::ShowMain {}) {
+    if message.shows_main() {
         tray::show_main_window(&app);
     }
     app.emit_to(
-        notes_window::MAIN_LABEL,
-        notes_window::MESSAGE_EVENT,
+        panel_window::MAIN_LABEL,
+        panel_window::MESSAGE_EVENT,
         &message,
     )?;
     Ok(())
@@ -1275,7 +1303,7 @@ fn notification_app_id(app: &tauri::AppHandle) -> String {
 fn activate_session(app: &tauri::AppHandle, id: SessionId) {
     tray::show_main_window(app);
     let _ = app.emit_to(
-        notes_window::MAIN_LABEL,
+        panel_window::MAIN_LABEL,
         "notification-activated",
         NotificationActivated { session_id: id },
     );
@@ -1333,6 +1361,27 @@ pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, Activity
         .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
 }
 
+/// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.
+#[tauri::command]
+pub async fn git_log(cwd: PathBuf, skip: u32, limit: u32) -> Result<GitLog, GitError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_history::log(&Git::locate()?, &cwd, skip, limit)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// The changes of one commit against its first parent, in the shape of `git_diff`'s answer plus
+/// the commit's header. `sha` must be 7 to 64 hex characters.
+#[tauri::command]
+pub async fn git_commit_diff(cwd: PathBuf, sha: String) -> Result<GitCommitDiff, GitError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_history::commit_diff(&Git::locate()?, &cwd, &sha)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
 /// One folder of a session's file tree (file_tree.rs). The window names only the session and a
 /// `/` separated path below its folder; the folder itself comes from the session manager. A
 /// folder that does not answer within [`file_tree::COMMAND_TIMEOUT`] is reported as an error;
@@ -1361,6 +1410,125 @@ pub async fn list_session_folder(
     match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
         Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
         Err(_) => Err(FileTreeError::TimedOut),
+    }
+}
+
+/// Opens the session's folder (the root of its file tree) in Explorer, Finder or the Linux file
+/// manager. Takes only the session's ID: the backend looks up the folder itself, so the frontend
+/// can never name a path to open.
+#[tauri::command]
+pub async fn reveal_session_folder(
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<(), FileTreeError> {
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(FileTreeError::UnknownSession(id))?;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        if !cwd.is_dir() {
+            return Err(FileTreeError::NotAFolder);
+        }
+        crate::desktop::open(&cwd, crate::desktop::Target::Folder).map_err(FileTreeError::Io)
+    });
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
+        Err(_) => Err(FileTreeError::TimedOut),
+    }
+}
+
+// Read-only file viewer windows (file_viewer.rs).
+
+/// Opens a viewer for one file of a session's tree, or brings the open one to the front. The
+/// main window names the session and the file's `/` separated path as `list_session_folder`
+/// takes it; the window gets a fresh label and is bound to that file in [`Viewers`]. Async:
+/// creating a window from a synchronous command deadlocks on Windows.
+#[tauri::command]
+pub async fn open_file_viewer(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    manager: Manager<'_>,
+    viewers: State<'_, Viewers>,
+    session_id: SessionId,
+    path: String,
+) -> Result<(), FileViewerError> {
+    file_viewer::check_opener(window.label())?;
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == session_id)
+        .map(|info| info.cwd)
+        .ok_or(FileViewerError::UnknownSession(session_id))?;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        file_viewer::resolve_file(&cwd, &path).map(|(root, absolute)| Target {
+            session_id,
+            root,
+            path: absolute,
+            relative: path,
+        })
+    });
+    let target = match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))??,
+        Err(_) => return Err(FileViewerError::TimedOut),
+    };
+    let title = target.name();
+    let label = match viewers.claim(target) {
+        Claim::Existing(label) => {
+            // Missing only while the other call is still creating it.
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.unminimize();
+                window.show()?;
+                window.set_focus()?;
+            }
+            return Ok(());
+        }
+        Claim::New(label) => label,
+    };
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App(file_viewer::URL.into()),
+    )
+    .title(title)
+    .inner_size(file_viewer::WIDTH, file_viewer::HEIGHT)
+    .min_inner_size(file_viewer::MIN_WIDTH, file_viewer::MIN_HEIGHT)
+    .resizable(true)
+    .build();
+    match built {
+        Ok(window) => {
+            let viewers = viewers.inner().clone();
+            let closed = label.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Destroyed = event {
+                    viewers.remove(&closed);
+                }
+            });
+            Ok(())
+        }
+        Err(error) => {
+            viewers.remove(&label);
+            Err(error.into())
+        }
+    }
+}
+
+/// The content of the file the calling viewer window was opened for, read again on every call.
+/// The window names no path: its label alone selects the file.
+#[tauri::command]
+pub async fn file_viewer_content(
+    window: tauri::WebviewWindow,
+    viewers: State<'_, Viewers>,
+) -> Result<FileContent, FileViewerError> {
+    file_viewer::check_sender(window.label())?;
+    let target = viewers
+        .target(window.label())
+        .ok_or(FileViewerError::UnknownWindow)?;
+    let task = tauri::async_runtime::spawn_blocking(move || file_viewer::read_target(&target));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))?,
+        Err(_) => Err(FileViewerError::TimedOut),
     }
 }
 

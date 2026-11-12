@@ -10,8 +10,9 @@
 //! website (never the e-mail address; empty when the account has none), per shared session the
 //! agent program, the session title, its state (working, waiting, idle), the repository's root
 //! commit, the changed paths and line ranges on the base side, and the base commit. Never file
-//! contents, diffs or prompts. Only sessions in repository folders the person linked to the
-//! project are shared at all (root commit and clone folder, `team::LinkedRepo`).
+//! contents, diffs or prompts. Only team sessions (ADR 0008) in repository folders the person
+//! linked to the project are shared at all (root commit and clone folder, `team::LinkedRepo`);
+//! private sessions never are ([`team_labels`]).
 
 use std::collections::BTreeMap;
 
@@ -20,7 +21,7 @@ use hangar_team_protocol::limits::MAX_CLAIM_FILES;
 use serde::{Deserialize, Serialize};
 
 use crate::claims::{self, Claim, LineRange, OverlapLevel};
-use crate::session::SessionId;
+use crate::session::{SessionId, SessionInfo, SessionMode};
 
 /// Version of both sealed documents.
 const DOC_VERSION: u32 = 1;
@@ -90,8 +91,32 @@ pub struct SessionLabel {
     pub agent: String,
 }
 
+/// The labels of the sessions the team may see: running or not, only team sessions
+/// ([`SessionMode::Team`]). A private session never gets a label, so [`local_sessions`] leaves it
+/// out of the presence, the shared claims and the repositories offered for linking. Nothing here
+/// depends on the program: what the team sees comes from git, so any agent's team session counts.
+/// `names`: program name per profile id.
+pub fn team_labels(
+    sessions: Vec<SessionInfo>,
+    names: &std::collections::HashMap<String, String>,
+) -> Vec<SessionLabel> {
+    sessions
+        .into_iter()
+        .filter(|info| info.mode == SessionMode::Team)
+        .map(|info| SessionLabel {
+            agent: names.get(&info.profile_id).cloned().unwrap_or_default(),
+            id: info.id,
+            title: info.title,
+        })
+        .collect()
+}
+
 /// This device's sessions in repositories with a known root commit, from the claims of step A
 /// (every session of a worktree gets its claims), the session list and the window's states.
+///
+/// The claims are the diff of the whole worktree and cannot be told apart per session. So a
+/// worktree in which any session has no label (a private session, ADR 0008) is not shared at
+/// all: its changes would otherwise reach the team under a team session's name.
 pub fn local_sessions(
     worktrees: &[claims::WorktreeClaims],
     labels: &[SessionLabel],
@@ -102,6 +127,13 @@ pub fn local_sessions(
         let Some(repo) = &worktree.root_commit else {
             continue;
         };
+        let all_team = worktree
+            .sessions
+            .iter()
+            .all(|id| labels.iter().any(|l| l.id == *id));
+        if !all_team {
+            continue;
+        }
         for id in &worktree.sessions {
             let Some(label) = labels.iter().find(|l| l.id == *id) else {
                 continue;
@@ -809,6 +841,59 @@ mod tests {
             person_tag("Anna", "3f9a2c1b-77aa-4e0f"),
             "Anna #3f9a2c1b\u{2026}"
         );
+    }
+
+    #[test]
+    fn only_team_sessions_get_a_label_whatever_their_program() {
+        let session = |id: SessionId, profile: &str, mode: SessionMode| {
+            let mut info = SessionInfo::new(id, profile.into(), format!("S{id}"), "c:/r".into(), 0);
+            info.mode = mode;
+            info
+        };
+        let names = std::collections::HashMap::from([
+            ("claude".to_owned(), "Claude Code".to_owned()),
+            ("codex".to_owned(), "Codex CLI".to_owned()),
+        ]);
+        let labels = team_labels(
+            vec![
+                session(1, "claude", SessionMode::Private),
+                session(2, "claude", SessionMode::Team),
+                session(3, "codex", SessionMode::Team),
+                session(4, "codex", SessionMode::Private),
+                session(5, "unknown", SessionMode::Team),
+            ],
+            &names,
+        );
+        let ids: Vec<SessionId> = labels.iter().map(|l| l.id).collect();
+        assert_eq!(ids, [2, 3, 5]);
+        assert_eq!(labels[1].agent, "Codex CLI");
+        assert_eq!(labels[2].agent, "");
+        let worktree = |top: &str, sessions: &[SessionId]| claims::WorktreeClaims {
+            repo: "c:/r/.git".into(),
+            root_key: top.into(),
+            name: "r".into(),
+            root_commit: Some("a".repeat(40)),
+            base: None,
+            sessions: sessions.to_vec(),
+            claims: vec![claim("src/private.rs", &[(1, 2)])],
+            truncated: false,
+        };
+        // The claims belong to the whole worktree: while a private session works in it too, its
+        // changes cannot be told apart, so the worktree is not shared at all (private wins).
+        let mixed = local_sessions(
+            &[worktree("c:/r", &[1, 2, 3, 4])],
+            &labels,
+            &BTreeMap::new(),
+        );
+        assert!(mixed.is_empty(), "{mixed:?}");
+        // A worktree of team sessions only is shared; the private one's own folder is not.
+        let shared = local_sessions(
+            &[worktree("c:/wt/team", &[2, 3]), worktree("c:/r", &[1, 4])],
+            &labels,
+            &BTreeMap::new(),
+        );
+        let ids: Vec<SessionId> = shared.iter().map(|s| s.id).collect();
+        assert_eq!(ids, [2, 3]);
     }
 
     #[test]

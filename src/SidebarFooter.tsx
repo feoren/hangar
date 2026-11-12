@@ -1,21 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 
 import { displayName, isSignedIn } from "./account";
-import { accountMenuEntries, type AccountMenuEntry } from "./accountMenu";
 import { Avatar } from "./Avatar";
-import { useT, type Translate } from "./i18n";
+import { useT } from "./i18n";
 import {
-  ChevronIcon,
+  FilesIcon,
   GearIcon,
-  MonitorIcon,
   MoonIcon,
-  NotesIcon,
-  PersonIcon,
-  SignOutIcon,
+  NotePencilIcon,
+  SourceControlIcon,
   SunIcon,
   TeamIcon,
 } from "./icons";
-import { PopupMenu, type PopupItem } from "./PopupMenu";
+import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
 import {
@@ -26,35 +23,34 @@ import {
   teamPill,
   type OnlinePerson,
 } from "./teamOverview";
-import type { ThemeSetting } from "./theme";
-import { account, useAccount } from "./useAccount";
+import type { Theme } from "./theme";
+import { useAccount } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
 /**
- * The sidebar's last row: who is signed in (opens a small menu with the notes, the color mode
- * and signing in or out), the team pill (who is online and whether something needs the person;
- * opens the Team window) and Settings. The rail shows the same as three icons.
+ * The sidebar's last row: who is signed in (a plain button: signed out it opens the Team window to
+ * sign in, signed in Settings, Account), the team pill (who is online and whether something needs
+ * the person; opens the Team window), the right panel's tabs, the light and dark switch and
+ * Settings. The rail shows the same as icons.
  */
 export function SidebarFooter(props: {
   collapsed: boolean;
   teamOpen: boolean;
   onToggleTeam: () => void;
-  /** Settings on the Account section: where a refused sign out says why. */
+  /** Settings on the Account section: where the signed-in person signs out. */
   onOpenAccount: () => void;
-  notesOpen: boolean;
-  onToggleNotes: () => void;
+  /** The right panel's tab on screen in this window, `null` when it is closed or detached. */
+  sideTab: SideTab | null;
+  /** Opens the right panel on this tab (or brings the detached panel to it); shown again: closes. */
+  onToggleSideTab: (tab: SideTab) => void;
   onOpenSettings: () => void;
-  themeSetting: ThemeSetting;
-  onSetTheme: (theme: ThemeSetting) => void;
-  /** A menu entry ran: focus goes back to the terminal unless the entry took it. */
-  onMenuClose: () => void;
+  /** The color mode on screen; the switch flips it (System becomes a fixed choice). */
+  theme: Theme;
+  onToggleTheme: () => void;
 }) {
   const t = useT();
   const { view, projects } = useAccount();
   const teamStore = useTeam();
-  const accountButton = useRef<HTMLButtonElement>(null);
-  /** Account menu, open at this position (above the button when space below is short). */
-  const [menu, setMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(null);
 
   // The pill needs the projects' states even before the Team window was ever opened.
   useEffect(() => {
@@ -72,51 +68,46 @@ export function SidebarFooter(props: {
   const accountLabel = signedIn ? t("sidebar.account", { name }) : t("account.signIn");
   const accountTitle = signedIn ? accountLabel : t("sidebar.signInHint");
 
-  const items = accountMenuEntries(signedIn, props.themeSetting, props.notesOpen).map(
-    (entry): PopupItem =>
-      menuItem(entry, t, {
-        notes: props.onToggleNotes,
-        signIn: () => {
-          if (!props.teamOpen) props.onToggleTeam();
-        },
-        signOut: () => {
-          // A refused sign out shows its reason where signing out lives: Settings, Account.
-          void account.signOut().then((problem) => {
-            if (problem !== null) props.onOpenAccount();
-          });
-        },
-        theme: props.onSetTheme,
-      }),
-  );
-
-  const onAccountClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (menu !== null) {
-      setMenu(null);
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    setMenu(
-      props.collapsed
-        ? { x: rect.right + 6, y: rect.top, flipAbove: rect.bottom }
-        : { x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 },
-    );
+  const onAccountClick = () => {
+    if (signedIn) props.onOpenAccount();
+    else if (!props.teamOpen) props.onToggleTeam();
   };
 
-  const accountMenu = menu !== null && (
-    <PopupMenu
-      items={items}
-      label={t("sidebar.accountMenu")}
-      position={menu}
-      flipAbove={menu.flipAbove}
-      anchor={accountButton}
-      className="account-menu"
-      onClose={(reason) => {
-        setMenu(null);
-        // Escape returns to the button; an entry returns to the terminal.
-        if (reason === "dismiss") accountButton.current?.focus();
-        else props.onMenuClose();
-      }}
-    />
+  const sideTabs = SIDE_TABS.map(({ tab, Icon }) => {
+    const label = t(SIDE_TAB_LABELS[tab]);
+    return (
+      <button
+        key={tab}
+        type="button"
+        className="icon-button footer-side-tab"
+        aria-label={label}
+        aria-pressed={props.sideTab === tab}
+        title={
+          tab === "notes"
+            ? `${label}
+${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) })}`
+            : label
+        }
+        onClick={() => {
+          props.onToggleSideTab(tab);
+        }}
+      >
+        <Icon />
+      </button>
+    );
+  });
+
+  const themeLabel = props.theme === "dark" ? t("sidebar.toLight") : t("sidebar.toDark");
+  const themeSwitch = (
+    <button
+      type="button"
+      className="icon-button footer-theme"
+      aria-label={themeLabel}
+      title={themeLabel}
+      onClick={props.onToggleTheme}
+    >
+      {props.theme === "dark" ? <SunIcon /> : <MoonIcon />}
+    </button>
   );
 
   const settings = (
@@ -149,19 +140,17 @@ export function SidebarFooter(props: {
           </button>
         )}
         <button
-          ref={accountButton}
           type="button"
           className="rail-account"
           aria-label={accountLabel}
-          aria-haspopup="menu"
-          aria-expanded={menu !== null}
           title={accountTitle}
           onClick={onAccountClick}
         >
           <Avatar name="" text={meInitials(user)} size="small" />
         </button>
+        {sideTabs}
+        {themeSwitch}
         {settings}
-        {accountMenu}
       </div>
     );
   }
@@ -170,20 +159,14 @@ export function SidebarFooter(props: {
   return (
     <div className="sidebar-footer">
       <button
-        ref={accountButton}
         type="button"
         className="footer-account"
         aria-label={accountLabel}
-        aria-haspopup="menu"
-        aria-expanded={menu !== null}
         title={accountTitle}
         onClick={onAccountClick}
       >
         <Avatar name="" text={meInitials(user)} />
         <span className="footer-name">{signedIn ? name : t("account.signIn")}</span>
-        <span className="footer-chevron" aria-hidden="true">
-          <ChevronIcon size={12} />
-        </span>
       </button>
       {signedIn && (
         <button
@@ -206,77 +189,19 @@ export function SidebarFooter(props: {
           <span className="team-pill-text">{pillText(pill, t)}</span>
         </button>
       )}
+      <span className="footer-side-tabs">{sideTabs}</span>
+      {themeSwitch}
       {settings}
-      {accountMenu}
     </div>
   );
 }
 
-const THEME_LABEL = {
-  system: "settings.themeSystem",
-  light: "settings.themeLight",
-  dark: "settings.themeDark",
-} as const;
-
-/** One account menu entry as a popup menu row. */
-function menuItem(
-  entry: AccountMenuEntry,
-  t: Translate,
-  run: {
-    notes: () => void;
-    signIn: () => void;
-    signOut: () => void;
-    theme: (theme: ThemeSetting) => void;
-  },
-): PopupItem {
-  switch (entry.kind) {
-    case "notes":
-      return {
-        type: "action",
-        key: "notes",
-        label: entry.open ? t("notes.hide") : t("notes.show"),
-        title: t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) }),
-        icon: <NotesIcon size={14} />,
-        run: run.notes,
-      };
-    case "signIn":
-      return {
-        type: "action",
-        key: "sign-in",
-        label: t("account.signIn"),
-        title: t("sidebar.signInHint"),
-        icon: <PersonIcon size={14} />,
-        run: run.signIn,
-      };
-    case "signOut":
-      return {
-        type: "action",
-        key: "sign-out",
-        label: t("account.signOut"),
-        icon: <SignOutIcon size={14} />,
-        run: run.signOut,
-      };
-    case "themeHeading":
-      return { type: "heading", key: "theme-heading", label: t("settings.theme") };
-    case "theme":
-      return {
-        type: "action",
-        key: `theme-${entry.setting}`,
-        label: t(THEME_LABEL[entry.setting]),
-        current: entry.current,
-        icon:
-          entry.setting === "system" ? (
-            <MonitorIcon size={14} />
-          ) : entry.setting === "light" ? (
-            <SunIcon size={14} />
-          ) : (
-            <MoonIcon size={14} />
-          ),
-        run: () => {
-          run.theme(entry.setting);
-        },
-      };
-    case "separator":
-      return { type: "separator", key: entry.key };
-  }
-}
+/** The right panel's tabs in its own order, each with its icon. */
+const SIDE_TABS = [
+  { tab: "notes", Icon: NotePencilIcon },
+  { tab: "changes", Icon: SourceControlIcon },
+  { tab: "files", Icon: FilesIcon },
+] as const satisfies readonly {
+  tab: SideTab;
+  Icon: (props: { size?: number }) => React.ReactNode;
+}[];

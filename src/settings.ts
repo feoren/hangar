@@ -2,13 +2,14 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply.
 
+import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
 import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
   DEFAULT_TERMINAL_LOOK,
-  isColorScheme,
+  parseColorScheme,
   isCursorStyle,
   isTerminalFont,
   type ColorScheme,
@@ -17,6 +18,7 @@ import {
 } from "./terminalLook";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
+import { DEFAULT_VIEWER_THEME, isViewerTheme, type ViewerTheme } from "./viewerThemes";
 
 const STORAGE_KEY = "hangar.settings";
 
@@ -37,6 +39,8 @@ export interface Settings {
   attentionEnabled: boolean;
   /** Color and pulse of each session state in the sidebar (stateLook.ts). */
   looks: StateLooks;
+  /** How the dots of a working session move (dotAnimation.ts). */
+  dotAnimation: DotAnimation;
   quietSeconds: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
@@ -85,6 +89,8 @@ export interface Settings {
   terminalFont: TerminalFont;
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
+  /** Colors of the file viewer window; every theme follows the app theme (viewerThemes.ts). */
+  viewerTheme: ViewerTheme;
   /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
   snippets: Snippet[];
 }
@@ -111,6 +117,7 @@ export function defaultSettings(language: Language): Settings {
     theme: "system",
     attentionEnabled: true,
     looks: DEFAULT_LOOKS,
+    dotAnimation: DEFAULT_DOT_ANIMATION,
     quietSeconds: QUIET_SECONDS.default,
     taskbarFlash: true,
     notifyDesktop: true,
@@ -131,6 +138,7 @@ export function defaultSettings(language: Language): Settings {
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
     cursorStyle: DEFAULT_TERMINAL_LOOK.cursorStyle,
     cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
+    viewerTheme: DEFAULT_VIEWER_THEME,
     snippets: defaultSnippets(language),
   };
 }
@@ -175,6 +183,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const scheme = get("terminalScheme");
   const font = get("terminalFont");
   const cursorStyle = get("cursorStyle");
+  const viewerTheme = get("viewerTheme");
   const chosenLanguage = isLanguage(language) ? language : defaults.language;
   return {
     language: chosenLanguage,
@@ -182,6 +191,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     attentionEnabled: flag("attentionEnabled"),
     // Older versions stored one attention color instead; it carries over to both waiting states.
     looks: parseStateLooks(get("looks"), Reflect.get(raw, "attentionColor")),
+    dotAnimation: parseDotAnimation(get("dotAnimation")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)
@@ -207,10 +217,11 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     claimsEnabled: flag("claimsEnabled"),
     gateEnabled: flag("gateEnabled"),
     programs: parseProgramPrefs(get("programs")),
-    terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
+    terminalScheme: parseColorScheme(scheme) ?? defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
     cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
     cursorBlink: flag("cursorBlink"),
+    viewerTheme: isViewerTheme(viewerTheme) ? viewerTheme : defaults.viewerTheme,
     snippets: parseSnippets(get("snippets"), chosenLanguage),
   };
 }

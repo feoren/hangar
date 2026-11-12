@@ -1,12 +1,15 @@
 // How each session state looks in the sidebar: its color, how strongly the row pulses and how long
 // one pulse takes. Stored in the settings; `color: null` means the state's own default, so the
-// defaults keep today's look in both themes (working and pause follow the theme's green). Pure, so
-// parsing, defaults and the pulse levels can be tested.
+// defaults keep today's look in both themes (working and pause follow the theme's green, an error
+// its red). Pure, so parsing, defaults and the pulse levels can be tested.
 
 import type { Theme } from "./theme";
 
-/** Working, done (waiting for you), asks (a question or decision) and pause (running, quiet). */
-export const LOOK_STATES = ["working", "done", "asks", "idle"] as const;
+/**
+ * Working, done (waiting for you), asks (a question or decision), pause (running, quiet) and
+ * failed (the program ended with an error).
+ */
+export const LOOK_STATES = ["working", "done", "asks", "idle", "failed"] as const;
 export type LookState = (typeof LOOK_STATES)[number];
 
 export const PULSE_STRENGTHS = ["off", "subtle", "medium", "strong"] as const;
@@ -30,11 +33,16 @@ export const CREAM = "#f2e3c6";
 /** Mirrors `--ok` per theme: the default of working and pause. */
 const OK: Record<Theme, string> = { dark: "#57ab5a", light: "#1a7f37" };
 
+/** Mirrors `--error` per theme: the default of failed. */
+const ERROR: Record<Theme, string> = { dark: "#f47067", light: "#cf222e" };
+
 export const DEFAULT_LOOKS: StateLooks = {
   working: { color: null, pulse: "off", seconds: PULSE_SECONDS.default },
   done: { color: null, pulse: "medium", seconds: PULSE_SECONDS.default },
   asks: { color: null, pulse: "medium", seconds: PULSE_SECONDS.default },
   idle: { color: null, pulse: "off", seconds: PULSE_SECONDS.default },
+  // Breathes while the error still waits to be seen, as a failed exit always did.
+  failed: { color: null, pulse: "medium", seconds: PULSE_SECONDS.default },
 };
 
 /** Done and asks wait for the user: their row is always tinted, even without a pulse. */
@@ -68,7 +76,17 @@ export function normalizeColor(value: unknown): string | null {
 
 /** The color a state shows when the user picked none. */
 export function defaultColor(state: LookState, theme: Theme): string {
+  if (state === "failed") return ERROR[theme];
   return lookWaits(state) ? CREAM : OK[theme];
+}
+
+/**
+ * The theme token a state follows while no color is chosen (`--ok`, `--error`), so the default
+ * switches with the theme; `null` for the waiting states, whose cream is the same in both.
+ */
+export function themeToken(state: LookState): string | null {
+  if (lookWaits(state)) return null;
+  return state === "failed" ? "--error" : "--ok";
 }
 
 /** The color a state shows right now, as `#rrggbb`. */
@@ -139,6 +157,8 @@ export function parseStateLooks(value: unknown, legacyAttentionColor: unknown): 
     done: parseLook(Reflect.get(value, "done"), base.done),
     asks: parseLook(Reflect.get(value, "asks"), base.asks),
     idle: parseLook(Reflect.get(value, "idle"), base.idle),
+    // Missing in settings stored before failed had its own look: the default applies.
+    failed: parseLook(Reflect.get(value, "failed"), base.failed),
   };
 }
 
@@ -195,6 +215,7 @@ export function withLook(
     done: state === "done" ? look : looks.done,
     asks: state === "asks" ? look : looks.asks,
     idle: state === "idle" ? look : looks.idle,
+    failed: state === "failed" ? look : looks.failed,
   };
 }
 

@@ -6,6 +6,8 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[overview]]: state of knowledge, open risks and questions
 
 ## Decisions
+- [[0008-private-and-team-sessions]]: accepted: one switch "Private | Team" per start; a team session has its own worktree, the agent gate and is shared with the team, a private one has neither; team capability comes from the catalog's capabilities and `hook_format` only, presence and claims are agent-independent (sources: 1, updated: 2026-11-12)
+- [[0007-detachable-side-panel]]: accepted: the whole right panel (Notes, Changes, Files) detaches into one backend-created `panel` window; the main window stays the source of truth and pushes a validated context, the panel answers through `panel_to_main`; replaces the notes-only window (sources: 0, updated: 2026-11-12)
 - [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions; phase 1 (solo mode) as built (sources: 1, updated: 2026-11-10)
 - [[0005-team-collaboration]]: proposed: several people and their agents on one project; requirements from the owner interview, end-to-end encrypted Hangar service, reservations, live file claims, merge queue (sources: 0, updated: 2026-11-08)
 - [[0004-notes-per-working-folder]]: notes belong to the working folder, stored as .md in the app data folder, keyed by the normalized path; folder names `general` and `.trash` since 2026-11-08; shared notes in [[0006-encrypted-project-notes]] (sources: 0, updated: 2026-11-10)
@@ -15,7 +17,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Components
 - [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage; the self-hosted relay's differing account API (sources: 1, updated: 2026-11-09)
-- [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-11)
+- [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-12)
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 
 ## Platforms
@@ -30,6 +32,9 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+- [[agent-hooks-per-session-research]]: research (desk, nothing run live): hook mechanism, per-session install, trust and payload shape for Codex 0.167.2, Gemini CLI 0.68.0, Copilot CLI 1.0.109 and Qwen Code 0.27.2; Qwen and Gemini take a settings path env var, Copilot `--plugin-dir`, Codex `-c` plus a trust bypass (sources: 0, updated: 2026-11-12)
+- [[agent-hooks-remaining-agents-research]]: research (desk, nothing run live): which of the other 17 catalog agents can take a per-session edit gate; Pi, Oh My Pi, OpenCode and Droid feasible, Cline, Amp, Crush and Vibe only after a measurement, Aider, Goose, Kimi, Antigravity, Cursor, Kiro, Forge, Kode and Codebuff not possible (sources: 0, updated: 2026-11-12)
+- [[terminal-font-coverage-measurement]]: measurement: Fontsource subsets of Google-hosted mono fonts lack box drawing and block elements, the upstream Source Code Pro, IBM Plex Mono and Victor Mono files have them (sources: 0, updated: 2026-11-12)
 - [[single-instance-lock-measurement]]: measurement: tauri-plugin-single-instance 2.5.5 lock tests on Windows 11: second start forwarded while held, lock held during `RunEvent::Exit`, released by `cleanup_before_exit` (updated: 2026-11-11)
 - [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)
 - [[claude-http-hook-measurement]]: measurement: Claude Code 2.1.319 http hooks via `--settings`: request shape, deny reaches the model, timeout and connection failure fail open, SessionStart takes no http hooks, UserPromptSubmit context works (updated: 2026-11-09)
@@ -60,9 +65,11 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
 - [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate), C (protocol crate), E (team crypto), F part 1 (account sign-in and projects), F part 2a (team connection) and F part 2b (teammates' presence, shared claims, gate on a teammate's file, task reservations) as built (sources: 3, updated: 2026-11-09)
-- [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-12)
+- [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 1, updated: 2026-11-12)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance, also for version queries (sources: 1, updated: 2026-11-12)
-- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-10)
+- [[commit-history]]: contract of git_log and git_commit_diff: commits reachable from HEAD page by page with pushed state against the upstream, and one commit's changes in the shape of git_diff (sources: 0, updated: 2026-11-12)
+- [[file-viewer]]: contract of open_file_viewer and file_viewer_content: read-only viewer window bound to one file of a session's folder, path rules, content rules (2 MiB, binary, BOM), capability; frontend window, viewer themes and the change path in the tree (sources: 0, updated: 2026-11-12)
+- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal), the detached side panel window (commands, messages, context, capability), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-12)
 - [[program-updates]]: contract of check_program_updates, create_update_session and program-update-result, update plan per detected installer, execution rules, cache, 30 min schedule, conditional requests, rate limit pauses, Store apps (sources: 4, updated: 2026-11-12)
 - [[session-restore]]: contract: workspace.json, scrollback per session, create_session with resume, resumeFallback event (sources: 1, updated: 2026-11-07)
 - [[release-rollout]]: build, sign and publish a release as a GitHub release, create the upcoming version with `--next`; refresh the README screenshots (`pnpm readme:shots`, one image per scene); keys, code signing (vendors, variables, verification) (sources: 2, updated: 2026-11-11)

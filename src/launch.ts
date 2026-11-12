@@ -1,4 +1,4 @@
-// Last launched program for Ctrl+Shift+T and the empty state. Only the profile ID is stored,
+// Last launched program for Ctrl+Shift+T and the empty state's hint. Only the profile ID is stored,
 // per machine; if it is missing or the program can no longer be launched, the first one applies.
 
 const LAST_PROGRAM_KEY = "hangar.lastProgram";
@@ -9,11 +9,6 @@ export function pickProgram<T extends { id: string }>(
   lastId: string | null,
 ): T | undefined {
   return startable.find((profile) => profile.id === lastId) ?? startable[0];
-}
-
-/** The first programs, for the large buttons in the empty state. */
-export function quickPrograms<T>(startable: readonly T[], count = 3): T[] {
-  return startable.slice(0, count);
 }
 
 export function loadLastProgram(): string | null {

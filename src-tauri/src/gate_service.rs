@@ -30,7 +30,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use zeroize::Zeroizing;
 
-use crate::agent_catalog::Agent;
+use crate::agent_catalog::{Agent, HookFormat};
 use crate::claims::WorktreeClaims;
 use crate::gate::{
     self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, DECISION_TIMEOUT,
@@ -225,6 +225,23 @@ impl GateService {
         Ok(bound)
     }
 
+    /// Claude Code's `--settings` with the hooks inline, or as a file for a cmd.exe launcher.
+    fn claude_args(
+        &self,
+        port: u16,
+        context: bool,
+        program: &Path,
+    ) -> Result<Vec<String>, GateStatus> {
+        let settings = gate::claude_settings(port, context);
+        let argument = if crate::batch::is_batch(program) {
+            self.settings_file(port, context, &settings)
+                .ok_or(GateStatus::Launcher)?
+        } else {
+            settings
+        };
+        Ok(vec!["--settings".to_owned(), argument])
+    }
+
     /// The hook settings as a file, for a cmd.exe launcher: Hangar refuses `"` in such a
     /// launcher's arguments (batch.rs), so the JSON cannot go inline. `None` when the file's path
     /// holds a character cmd.exe would interpret or the file cannot be written.
@@ -296,6 +313,9 @@ impl LaunchGate for GateService {
     }
 
     fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan {
+        let Some(format) = agent.capabilities.gate_format() else {
+            return GatePlan::Skip;
+        };
         if !self.applies(agent) {
             return GatePlan::Skip;
         }
@@ -307,18 +327,16 @@ impl LaunchGate for GateService {
             }
         };
         let context = agent.capabilities.context_inject;
-        let settings = gate::claude_settings(port, context);
-        let argument = if crate::batch::is_batch(program) {
-            match self.settings_file(port, context, &settings) {
-                Some(path) => path,
-                None => return GatePlan::Unavailable(GateStatus::Launcher),
-            }
-        } else {
-            settings
+        // Each program takes its hooks in its own format; the endpoint and token are the same.
+        let args = match format {
+            HookFormat::ClaudeSettings => match self.claude_args(port, context, program) {
+                Ok(args) => args,
+                Err(status) => return GatePlan::Unavailable(status),
+            },
         };
         let token = lock(&self.inner.gate).register(session);
         GatePlan::Launch(GateLaunch {
-            args: vec!["--settings".to_owned(), argument],
+            args,
             env: vec![(TOKEN_ENV.to_owned(), Zeroizing::new(token))],
         })
     }

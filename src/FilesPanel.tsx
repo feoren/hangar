@@ -11,6 +11,7 @@ import {
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
+  onChangePath,
   treeKey,
   treeReducer,
   treeStep,
@@ -22,11 +23,20 @@ import {
   type TeamEditor,
   type TreeAction,
   type TreeState,
+  mentionText,
 } from "./fileTree";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
-import { ChevronIcon, FileIcon, FolderIcon, LinkIcon, OverlapIcon, RestartIcon } from "./icons";
+import {
+  ChevronIcon,
+  FileIcon,
+  FolderIcon,
+  LinkIcon,
+  OverlapIcon,
+  RestartIcon,
+  RevealFolderIcon,
+} from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { personTag, type TeamActivity } from "./team";
@@ -41,6 +51,8 @@ const AUTO_REFRESH_GAP_MS = 5000;
 const INDENT = 12;
 /** Avatars at the end of a file row before "+N". */
 const MAX_AVATARS = 2;
+/** How long a failed opening stays in the panel. */
+const OPEN_ERROR_MS = 6000;
 /** Trees kept for sessions the panel showed before (expanded folders, focus). */
 const MAX_SAVED_TREES = 24;
 
@@ -74,12 +86,16 @@ interface Props {
   nameOf: (id: number) => string;
   /** Goes up when the tree should take the focus (opened from the session row). */
   focusToken: number;
+  /** Right click on a row: this text (`@path `) goes into the active session's terminal. */
+  onMention: (text: string) => void;
 }
 
 /**
  * The third tab of the right panel: the active session's folder as a tree, as in VS Code's
  * explorer. Folders are listed when opened; files teammates edit carry their avatars, files this
  * worktree changed a letter (M, A, U), and folders show a dot when something inside is marked.
+ * The names along the path to every changed file show in the "working" color. A double click or
+ * Enter opens a file in a read-only viewer window.
  */
 export function FilesPanel(props: Props) {
   const t = useT();
@@ -109,6 +125,22 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   const wantFocus = useRef(false);
 
   const loader = useLoader(session.id, dispatch);
+  const [openError, setOpenError] = useState<string | null>(null);
+  useEffect(() => {
+    if (openError === null) return;
+    const timer = window.setTimeout(() => {
+      setOpenError(null);
+    }, OPEN_ERROR_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [openError]);
+  const openFile = (path: string) => {
+    setOpenError(null);
+    api.openFileViewer(session.id, path).catch((error: unknown) => {
+      setOpenError(t("files.openFailed", { error: errorText(error) }));
+    });
+  };
 
   // Open: read the root and the folders that were open, keeping what the saved tree shows.
   useEffect(() => {
@@ -187,6 +219,10 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
         wantFocus.current = true;
         dispatch({ type: "focus", path: step.path });
         break;
+      case "open":
+        dispatch({ type: "focus", path: step.path });
+        openFile(step.path);
+        break;
       case "expand":
         expand(step.path);
         break;
@@ -219,7 +255,25 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
         >
           <RestartIcon />
         </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={t("files.reveal")}
+          title={t("files.reveal")}
+          onClick={() => {
+            api.revealSessionFolder(session.id).catch((error: unknown) => {
+              setOpenError(t("files.revealFailed", { error: errorText(error) }));
+            });
+          }}
+        >
+          <RevealFolderIcon />
+        </button>
       </div>
+      {openError !== null && (
+        <p className="changes-message error-text selectable" role="alert">
+          {openError}
+        </p>
+      )}
       {root?.kind === "failed" ? (
         <p className="changes-message error-text selectable" role="alert">
           {t("files.failed", { error: root.message })}
@@ -254,6 +308,13 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 onClick={() => {
                   dispatch({ type: "focus", path: row.path });
                   if (row.entry.kind === "dir") toggle(row);
+                }}
+                onOpen={() => {
+                  openFile(row.path);
+                }}
+                onMention={() => {
+                  dispatch({ type: "focus", path: row.path });
+                  props.onMention(mentionText(row.path, row.entry.kind === "dir"));
                 }}
               />
             ),
@@ -404,14 +465,26 @@ function TreeItem(props: {
   nameOf: (id: number) => string;
   setRef: (element: HTMLLIElement | null) => void;
   onClick: () => void;
+  /** Double click on a file: show it in the viewer. */
+  onOpen: () => void;
+  /** Right click: the row's path as an @ mention into the terminal. */
+  onMention: () => void;
 }) {
-  const { row, focused, selected, fileMark, folderMark, nameOf, setRef, onClick } = props;
+  const { row, focused, selected, fileMark, folderMark, nameOf, setRef, onClick, onOpen } = props;
   const t = useT();
   const kind = row.entry.kind;
   const notes = rowNotes(row, fileMark, folderMark, nameOf, t);
-  const className = ["tree-item", row.entry.ignored ? "ignored" : "", selected ? "selected" : ""]
+  const className = [
+    "tree-item",
+    row.entry.ignored ? "ignored" : "",
+    selected ? "selected" : "",
+    onChangePath(kind, fileMark, folderMark) ? "on-path" : "",
+  ]
     .filter(Boolean)
     .join(" ");
+  const tooltip = [revealInvisible(row.path), ...notes];
+  if (kind === "file") tooltip.push(t("files.openHint"));
+  tooltip.push(t("files.mentionHint"));
   return (
     <li
       ref={setRef}
@@ -423,8 +496,13 @@ function TreeItem(props: {
       aria-expanded={kind === "dir" ? row.expanded : undefined}
       aria-selected={selected}
       tabIndex={focused ? 0 : -1}
-      title={[revealInvisible(row.path), ...notes].join("\n")}
+      title={tooltip.join("\n")}
       onClick={onClick}
+      onDoubleClick={kind === "file" ? onOpen : undefined}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        props.onMention();
+      }}
     >
       <span
         className="tree-indent"

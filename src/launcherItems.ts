@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 
 import type { NoteFolder, Profile } from "./api";
 import { folderName } from "./folders";
+import { teamCapable } from "./startMode";
 import { shortPath } from "./format";
 import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
@@ -36,7 +37,8 @@ export interface LauncherContext {
   notesIcon: ReactNode;
   activate: (id: number) => void;
   start: (profile: Profile, folder: string) => void;
-  startInWorktree: (profile: Profile, folder: string) => void;
+  /** A team session (startMode.ts): its own worktree, the agent gate, visible to the team. */
+  startAsTeam: (profile: Profile, folder: string) => void;
   toggleChanges: () => void;
   openNotes: (folder: NoteFolder) => void;
   insertSnippet: (snippet: Snippet) => void;
@@ -87,21 +89,23 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       });
     }
   }
+  // Team sessions only where git allows a worktree and only for programs that can be one.
   for (const place of ctx.places) {
     if (!place.worktree) continue;
     for (const profile of ctx.startable) {
+      if (!teamCapable(profile)) continue;
       items.push({
-        key: `worktree:${profile.id}:${place.path}`,
+        key: `team:${profile.id}:${place.path}`,
         section: "start",
-        label: t("launcher.startInWorktree", {
+        label: t("launcher.startAsTeam", {
           program: profile.name,
           folder: folderName(place.path),
         }),
         detail: shortPath(place.path),
-        keywords: `${place.path} worktree git`,
+        keywords: `${place.path} team worktree git`,
         icon: ctx.badge(profile.id),
         run: () => {
-          ctx.startInWorktree(profile, place.path);
+          ctx.startAsTeam(profile, place.path);
         },
       });
     }

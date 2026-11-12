@@ -12,11 +12,9 @@
   --worktree: #3f9a6e;
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
-  --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
   /* Hover darkens a whole session row a little, whatever its state or tint. */
   --row-hover-shade: color-mix(in srgb, #000 16%, transparent);
   /* The middle tone of the drift, for the backdrop of the row actions. */
-  --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
   --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
@@ -88,6 +86,21 @@
   /* Session row: the colored edge on its left and the thin border that continues around it. */
   --row-edge: 3px;
   --row-border: 1px;
+  /* Tree guides (sub-agent tree, agent groups): a hairline in the border color; each row hangs
+     off the vertical line with a short elbow, the row's content starting one step to the right. */
+  /* Dotted lines need more color than a solid hairline to stay visible. */
+  --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* Frame of the session on screen (sidebar). */
+  --active-frame: #000;
+  --tree-step: 14px;
+  --tree-elbow: 10px;
+  /* Air between a guide and what it connects: the elbow stops this far before a row, and a
+     group's guide starts this far below the header's badge. */
+  --tree-gap: calc(var(--tree-step) - var(--tree-elbow));
+  /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
+     chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
+  --agent-tree-x: 34px;
+  --agent-elbow-y: 16px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -113,9 +126,7 @@
   --accent: #0969da;
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
-  --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
   --row-hover-shade: color-mix(in srgb, #000 6%, transparent);
-  --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -332,6 +343,82 @@ h2 .beta-badge {
   }
 }
 
+/* A Hangar update: one small pill at the top right, shaped like the beta badge but filled, since
+   it is a button. It never shrinks; the version beside the name gives way first. */
+.update-pill {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  padding: 0 8px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--on-primary);
+  background: var(--primary);
+  transition: background-color 120ms ease;
+}
+
+.update-pill:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.update-pill:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Installing: the pill turns into an outline that fills from left to right. */
+.update-pill.installing {
+  cursor: default;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: transparent;
+}
+
+.update-pill-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: width 150ms linear;
+}
+
+/* Size unknown yet: a soft light passes through the pill instead. */
+.update-pill-fill.unknown {
+  width: 45%;
+  animation: update-pill-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes update-pill-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(225%);
+  }
+}
+
+.update-pill-label {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-pill,
+  .update-pill-fill {
+    transition: none;
+  }
+
+  .update-pill-fill.unknown {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* Line between the header and the first group, edge to edge: it meets the sidebar's right border,
    where the collapse toggle sits on the crossing. Same place in the rail. The menu button keeps
    10 px to it, the group title below follows after the same 5 px as below every group line, so
@@ -417,20 +504,58 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 100vmax var(--row-hover-shade);
 }
 
+/* The session on screen: a black frame around the row, its inside left to the state's look like
+   every other row, so the attention colors keep speaking. The state's colored edge on the left
+   stays. */
 .session.active {
-  --edge-ring: 55%;
-  background: var(--panel-raised);
-  /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
-  isolation: isolate;
+  border-top-color: var(--active-frame);
+  border-right-color: var(--active-frame);
+  border-bottom-color: var(--active-frame);
+}
+
+/* Its title in full text color and weight; the others step back a little. */
+.session .session-title {
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+}
+
+.session.active .session-title {
+  font-weight: 650;
+  color: var(--text);
+}
+
+/* The whole way of the tree line from the group header to the row on screen takes the accent:
+   the stub below the header, the line past every row above it, and its own line down to its
+   elbow. The eye follows it from the header to the session the terminal shows. */
+.agent-rows:has(> .session.active)::before,
+.agent-rows > .session:has(~ .session.active) > .tree-guide::before,
+.session.active > .tree-guide::before,
+.session.active > .tree-guide::after {
+  /* Solid on the way to the active row: a dotted hairline in the accent is too faint to follow. */
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.session.active > .tree-guide::before {
+  bottom: auto;
+  height: var(--agent-elbow-y);
+}
+
+/* Below its elbow the line runs on to the next row in its usual color, drawn as dots like the
+   dotted border it replaces. */
+.session.active:not(.tree-last) > .tree-guide {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--tree-guide) 0 1px,
+    transparent 1px 2px
+  );
+  background-repeat: no-repeat;
+  background-position: 0 var(--agent-elbow-y);
+  background-size: var(--hairline) calc(100% - var(--agent-elbow-y));
 }
 
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
 .session.attention {
   --edge-ring: 45%;
-}
-
-.session.active.attention {
-  --edge-ring: 70%;
 }
 
 .edge-working {
@@ -459,7 +584,7 @@ h2 .beta-badge {
 }
 
 .edge-failed {
-  --edge: var(--error);
+  --edge: var(--look-failed-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -473,46 +598,6 @@ h2 .beta-badge {
 .session.active .session-meta,
 .session.active .session-detail {
   color: color-mix(in srgb, var(--muted) 75%, var(--text));
-}
-
-/* The active row: a soft bluish light drifts slowly across it (10 s each way). It sits below the
-   text, so readability stays; waiting rows keep their own breathing instead. The drop line of a
-   drag uses ::after too, so the tint gives way to it. */
-.session.active:not(.attention, .drop-after)::after {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  content: "";
-  pointer-events: none;
-  border-radius: inherit;
-  background-image: linear-gradient(
-    100deg,
-    var(--active-tint-soft) 0%,
-    var(--active-tint-strong) 30%,
-    var(--active-tint-soft) 55%,
-    var(--active-tint-strong) 80%,
-    var(--active-tint-soft) 100%
-  );
-  background-size: 300% 100%;
-  animation: active-drift 10s ease-in-out infinite alternate;
-}
-
-@keyframes active-drift {
-  from {
-    background-position: 0% 50%;
-  }
-
-  to {
-    background-position: 100% 50%;
-  }
-}
-
-/* Without motion: the same tint, standing still. */
-@media (prefers-reduced-motion: reduce) {
-  .session.active:not(.attention, .drop-after)::after {
-    animation: none;
-    background-position: 50% 50%;
-  }
 }
 
 .session-main {
@@ -646,16 +731,31 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
-/* Second status line: folder, git branch and run time, quieter than the status above it. */
+/* How long it has been working or resting: never cut, the sentence before it gives way. */
+.session-status-duration {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* Third line: folder, git branch and run time, quieter than the status above it. It keeps its
+   height when empty, so rows stay aligned. */
 .session-detail {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  min-height: 1lh;
   overflow: hidden;
   font-size: 11px;
   color: var(--muted);
   opacity: 0.85;
+}
+
+/* Without a folder in front (it is the row's title), the line starts without a separator. */
+.session-detail > :first-child > [aria-hidden="true"]:first-child {
+  display: none;
 }
 
 .session-branch,
@@ -808,7 +908,8 @@ h2 .beta-badge {
 }
 
 .look-done,
-.look-asks {
+.look-asks,
+.look-failed {
   --attention: var(--row-tint);
   --attention-strong: var(--row-strong);
   --attention-ring: var(--row-ring);
@@ -828,6 +929,21 @@ h2 .beta-badge {
   --row-seconds: var(--look-done-seconds);
   --row-pulse: var(--look-done-pulse);
   --row-ring-pulse: var(--look-done-ring-pulse);
+}
+
+/* An error that still waits to be seen: it breathes in its own color, by default the theme's red. */
+.look-failed {
+  --row-tint: var(--look-failed-color);
+  --row-strong: var(--look-failed-strong);
+  --row-ring: var(--look-failed-ring);
+  --row-chip-bg: var(--look-failed-chip-bg);
+  --row-chip-fg: var(--look-failed-chip-fg);
+  --row-low: var(--look-failed-low);
+  --row-high: var(--look-failed-high);
+  --row-fill: var(--look-failed-fill);
+  --row-seconds: var(--look-failed-seconds);
+  --row-pulse: var(--look-failed-pulse);
+  --row-ring-pulse: var(--look-failed-ring-pulse);
 }
 
 .look-asks {
@@ -867,10 +983,6 @@ h2 .beta-badge {
   background: var(--row-strong);
 }
 
-.look .status-chip.working {
-  color: var(--row-text);
-}
-
 /* The actions fade in at the right end of the row on hover or keyboard focus and lie over the
    text and info lines, so the row reserves no width for them. Their strip takes the row's own
    background (also mid-breath, as the computed color is inherited) and fades in from the left, so
@@ -902,12 +1014,6 @@ h2 .beta-badge {
   pointer-events: none;
   background-color: inherit;
   mask-image: linear-gradient(to right, transparent, #000);
-}
-
-/* The active row's drifting light lies under the strip; the strip carries its middle tone. */
-.session.active:not(.attention) .session-actions,
-.session.active:not(.attention) .session-actions::before {
-  background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
 }
 
 .session:hover .session-actions,
@@ -949,51 +1055,175 @@ h2 .beta-badge {
   visibility: hidden;
 }
 
-.status-chip.done,
+/* In a row the chip is the bare icon at the top right, in its state's color: no pill, no word. The
+   strong look colors keep 3 : 1 on the sidebar, enough for a shape. */
+.status-chip:not(.compact) {
+  padding: 0 4px;
+  background: none;
+  border-color: transparent;
+}
+
+.status-chip:not(.compact) svg {
+  width: 13px;
+  height: 13px;
+}
+
+.status-chip.done {
+  color: var(--look-done-strong);
+}
+
 .status-chip.asks {
-  color: var(--attention-chip-fg);
-  background: var(--attention-chip-bg);
-  border-color: var(--attention-strong);
+  color: var(--look-asks-strong);
 }
 
 .status-chip.failed {
-  color: var(--chip-failed-fg);
-  background: color-mix(in srgb, var(--error) 14%, var(--panel));
-  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+  color: var(--look-failed-strong);
 }
 
-.status-chip.working,
 .status-chip.ended {
-  padding: 0 4px;
   color: var(--muted);
 }
 
+/* Dots and bars are shapes, not text: the look's strong color keeps 3 : 1 on the sidebar. */
 .status-chip.working {
-  color: var(--ok);
+  color: var(--look-working-strong);
+}
+
+.status-chip.paused {
+  color: var(--look-idle-strong);
+}
+
+/* Pause: two calm bars, no motion. */
+.status-chip-bars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.status-chip-bars span {
+  width: 2.5px;
+  height: 8px;
+  border-radius: 1px;
+  background: currentcolor;
+}
+
+/* Working dots. Their motion comes from the settings (data-dots on the root) or, in the settings'
+   previews, from a dots-* class on an ancestor: custom properties inherit, so the nearest wins.
+   About a second per loop, staggered, so the three read as one calm movement. */
+:root,
+.dots-bounce {
+  --dots-name: dots-bounce;
+  --dots-time: 1.1s;
+  --dots-ease: linear;
+  --dots-stagger: 0.12s;
+}
+
+:root[data-dots="wave"],
+.dots-wave {
+  --dots-name: dots-wave;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.16s;
+}
+
+:root[data-dots="pulse"],
+.dots-pulse {
+  --dots-name: dots-pulse;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.2s;
+}
+
+:root[data-dots="fade"],
+.dots-fade {
+  --dots-name: dots-fade;
+  --dots-time: 1.2s;
+  --dots-ease: ease-in-out;
+  --dots-stagger: 0.2s;
 }
 
 .status-chip-dots {
+  /* How far a dot rises; the rail's small chip halves it. */
+  --dots-lift: 3px;
+
   display: inline-flex;
   gap: 3px;
 }
 
 .status-chip-dots span {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentcolor;
-  animation: chip-dot 1.2s ease-in-out infinite;
+  transform-origin: 50% 100%;
+  animation: var(--dots-name) var(--dots-time) var(--dots-ease) infinite both;
 }
 
 .status-chip-dots span:nth-child(2) {
-  animation-delay: 0.2s;
+  animation-delay: var(--dots-stagger);
 }
 
 .status-chip-dots span:nth-child(3) {
-  animation-delay: 0.4s;
+  animation-delay: calc(var(--dots-stagger) * 2);
 }
 
-@keyframes chip-dot {
+/* A hop: quick rise that slows at the top, a fall that speeds up, a soft squash on landing, then a
+   rest until the next round. Transform and opacity only, so it stays on the compositor. */
+@keyframes dots-bounce {
+  0% {
+    opacity: 0.55;
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.4, 1);
+  }
+
+  24% {
+    opacity: 1;
+    transform: translateY(calc(var(--dots-lift) * -1));
+    animation-timing-function: cubic-bezier(0.6, 0, 0.75, 0.4);
+  }
+
+  46% {
+    opacity: 0.8;
+    transform: translateY(0) scale(1.15, 0.8);
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  58%,
+  100% {
+    opacity: 0.55;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* A wave without rest: each dot rises and sinks smoothly, one after the other. */
+@keyframes dots-wave {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translateY(calc(var(--dots-lift) * 0.5));
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(calc(var(--dots-lift) * -0.5));
+  }
+}
+
+/* Breathing: each dot grows and shrinks in turn. */
+@keyframes dots-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(-1px) scale(0.6);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Fading: the dots only light up in turn, as in earlier versions. */
+@keyframes dots-fade {
   0%,
   60%,
   100% {
@@ -1028,6 +1258,43 @@ h2 .beta-badge {
   height: 10px;
 }
 
+/* In the rail the chip sits over the badge, so it keeps a fill: waiting states a filled circle in
+   their color, the others the panel color behind their shape. */
+.status-chip.compact.done,
+.status-chip.compact.asks {
+  color: var(--attention-chip-fg);
+  background: var(--attention-chip-bg);
+  border-color: var(--attention-strong);
+}
+
+.status-chip.compact.failed {
+  color: var(--look-failed-text);
+  background: color-mix(in srgb, var(--look-failed-color) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--look-failed-strong) 55%, transparent);
+}
+
+.status-chip.compact.working,
+.status-chip.compact.paused,
+.status-chip.compact.ended {
+  background: var(--panel);
+}
+
+.status-chip.compact .status-chip-dots {
+  --dots-lift: 1.5px;
+
+  gap: 1.5px;
+}
+
+.status-chip.compact .status-chip-dots span {
+  width: 3px;
+  height: 3px;
+}
+
+.status-chip.compact .status-chip-bars span {
+  width: 2px;
+  height: 7px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .session-actions {
     transition: none;
@@ -1042,10 +1309,7 @@ h2 .beta-badge {
     --edge-ring: 75%;
   }
 
-  .session.active.attention {
-    --edge-ring: 100%;
-  }
-
+  /* Still dots, a gentle ramp from left to right, whatever the chosen motion. */
   .status-chip-dots span {
     animation: none;
   }
@@ -1118,13 +1382,46 @@ h2 .beta-badge {
   object-fit: contain;
 }
 
-/* Expanded next to an expanded Sessions group: height from the splitter; alone, it fills. */
+/* The dot in front of a session's status line, in the color of its state's look (working, pause,
+   waiting, error). It blinks smoothly at the state's pulse speed, without a halo, so the row around
+   it stays as it is. Rows without a look (an ended session) show a still, quiet grey dot. */
+.state-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.look .state-dot {
+  background: var(--row-strong);
+  animation: state-dot-blink var(--row-seconds, 2s) ease-in-out infinite;
+}
+
+@keyframes state-dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .look .state-dot {
+    animation: none;
+  }
+}
+
+/* Expanded: height from the splitter it shares with the sessions above. */
 .new-session {
   min-height: 110px;
   max-height: calc(100% - 200px);
 }
 
-.new-session.fill,
 .new-session.closed {
   max-height: none;
 }
@@ -1134,8 +1431,8 @@ h2 .beta-badge {
   padding-bottom: 4px;
 }
 
-/* Every pair of neighboring groups is parted by one full-width line, open or closed. Next to an
-   open Sessions group the splitter draws that line, so the group's own line steps back. */
+/* The sessions and the New session group are parted by one full-width line, open or closed.
+   While the group is open the splitter draws that line, so the group's own line steps back. */
 .new-session {
   border-top: var(--hairline) solid var(--border);
 }
@@ -1162,26 +1459,13 @@ h2 .beta-badge {
   flex: 1 1 0;
 }
 
-/* Sessions and worktrees: stacked from the top with no gap between them. With Sessions open the
-   pair takes the free height; the Sessions list yields first and scrolls, the worktrees keep
-   their rows up to their own limit (below). */
+/* The program groups, stacked from the top in one list: together they take the free height and
+   scroll when they need more. */
 .session-groups {
   display: flex;
-  flex: none;
+  flex: 1 1 0;
   flex-direction: column;
   min-height: 0;
-  padding-bottom: 4px;
-}
-
-.session-groups.fill {
-  flex: 1 1 0;
-}
-
-.sidebar-group.sessions-group {
-  flex: 0 1 auto;
-}
-
-.sessions-group:has(+ .worktrees-group) {
   padding-bottom: 4px;
 }
 
@@ -1234,6 +1518,140 @@ h2 .beta-badge {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Program groups: one per program, at the top level like New session and with the same header
+   (chevron, small capitals, 5 px below what is above), plus the program's badge and the number
+   of sessions. Its sessions hang below the header like the sub-agent tree below a row (same
+   guide, elbow and step). The list's own 8 px padding stands in for the header's side padding,
+   so every chevron in the sidebar lines up. */
+.agent-group {
+  margin-bottom: 2px;
+}
+
+.section-title.group-title.agent-group-title {
+  padding: 5px 0 2px;
+}
+
+/* Built on .group-toggle; as tall as the badge plus the padding, so the guide meets it. */
+.agent-group-toggle {
+  min-height: 26px;
+}
+
+/* Folded with the active session inside: the header stands in for the active row. */
+.agent-group-toggle.holds-active {
+  color: var(--text);
+  background: var(--panel-raised);
+  box-shadow: inset var(--row-edge) 0 0 var(--accent);
+}
+
+.agent-group-toggle .badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 8px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.agent-group-toggle .badge.wide {
+  font-size: 6.5px;
+}
+
+.agent-group-toggle .badge-icon img {
+  width: 16px;
+  height: 16px;
+}
+
+/* How many sessions the group holds, in a small circle; two digits stretch it to a pill. */
+.agent-group-count {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  border-radius: 999px;
+}
+
+.agent-group-waiting {
+  flex: none;
+}
+
+.agent-rows {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-rows[hidden] {
+  display: none;
+}
+
+/* From just below the header's badge down to the first row: the badge's bottom sits 7 px above
+   the rows (the button's 5 px padding and the title's 2 px); the guide leaves the same air below
+   it as the elbow leaves before a row. */
+.agent-rows::before {
+  position: absolute;
+  top: calc(-7px + var(--tree-gap));
+  left: var(--agent-tree-x);
+  height: calc(7px - var(--tree-gap));
+  content: "";
+  pointer-events: none;
+  /* Only the left side: the lit path sets a solid style on all sides, and an unset width would
+     then draw the default 3 px on the others. */
+  border-style: dotted;
+  border-color: var(--tree-guide);
+  border-width: 0 0 0 var(--hairline);
+}
+
+.agent-rows > li {
+  margin-left: calc(var(--agent-tree-x) + var(--tree-step));
+}
+
+/* A session row's guide: left of its colored edge, from its top across the gap to the next row,
+   so the line runs on unbroken. */
+.tree-guide {
+  position: absolute;
+  top: calc(-1 * var(--row-border));
+  bottom: calc(-1 * (var(--row-border) + 2px));
+  left: calc(-1 * (var(--tree-step) + var(--row-edge)));
+  width: var(--tree-step);
+  pointer-events: none;
+}
+
+/* More specific than the shared 50 % elbow below: agent rows are three lines tall. */
+.agent-rows .tree-guide::after {
+  top: var(--agent-elbow-y);
+}
+
+.session.tree-last > .tree-guide::before {
+  bottom: auto;
+  height: var(--agent-elbow-y);
+}
+
+/* Below a middle row with its sub-agents open, the guide runs on past them to the next row. */
+.agent-rows > .subagent-tree-row.tree-continues::before {
+  position: absolute;
+  top: 0;
+  bottom: -4px;
+  left: calc(-1 * var(--tree-step));
+  content: "";
+  pointer-events: none;
+  border-left: var(--hairline) dotted var(--tree-guide);
+}
+
+/* The sub-agent tree hangs below the row's state dot now that the row has no badge. */
+.agent-rows .subagent-tree {
+  padding-left: 11px;
 }
 
 /* Collapsed sessions with one waiting: dot with a ring, plus tooltip and screen reader text. */
@@ -1832,24 +2250,29 @@ h2 .beta-badge {
 
 .subagent-tree-item {
   position: relative;
-  padding-left: 14px;
+  padding-left: var(--tree-step);
 }
 
+/* Shared by the sub-agent tree and the agent groups' session rows (.tree-guide). */
 .subagent-tree-item::before,
-.subagent-tree-item::after {
+.subagent-tree-item::after,
+.tree-guide::before,
+.tree-guide::after {
   position: absolute;
   left: 0;
   content: "";
-  border-color: var(--border);
-  border-style: solid;
+  border-color: var(--tree-guide);
+  /* Dotted, so the tree reads as structure and stays quieter than the rows' own edges. */
+  border-style: dotted;
   pointer-events: none;
 }
 
 /* Vertical line through the whole row; the last row's stops at its elbow. */
-.subagent-tree-item::before {
+.subagent-tree-item::before,
+.tree-guide::before {
   top: 0;
   bottom: 0;
-  border-width: 0 0 0 1px;
+  border-width: 0 0 0 var(--hairline);
 }
 
 .subagent-tree-item:last-child::before {
@@ -1857,10 +2280,11 @@ h2 .beta-badge {
 }
 
 /* The elbow to the row. */
-.subagent-tree-item::after {
+.subagent-tree-item::after,
+.tree-guide::after {
   top: 50%;
-  width: 10px;
-  border-width: 1px 0 0;
+  width: var(--tree-elbow);
+  border-width: var(--hairline) 0 0;
 }
 
 .subagent-node {
@@ -2170,13 +2594,6 @@ h2 .beta-badge {
   text-align: center;
 }
 
-.empty h1 {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text);
-}
-
 .empty p {
   margin: 4px 0;
 }
@@ -2254,94 +2671,6 @@ h2 .beta-badge {
 .empty .activity-total {
   margin: 8px 0 0;
   font-size: 11.5px;
-}
-
-/* Up to three buttons side by side; in narrow windows they get narrower instead of wrapping. */
-.empty-programs {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  max-width: 480px;
-  margin: 18px 0 4px;
-  padding: 0;
-  list-style: none;
-}
-
-.empty-programs li {
-  flex: 0 1 150px;
-  min-width: 0;
-}
-
-.empty-program {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 14px 8px 12px;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease;
-}
-
-.empty-program:hover {
-  background: var(--hover);
-  border-color: var(--muted);
-}
-
-.empty-program .badge,
-.empty-program .badge-icon img {
-  width: 34px;
-  height: 34px;
-  font-size: 13px;
-}
-
-.empty-program-name {
-  max-width: 100%;
-  overflow: hidden;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.empty-program-version {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.empty .empty-cwd {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.empty-cwd svg {
-  flex: none;
-}
-
-.empty-change {
-  padding: 2px 4px;
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .empty-program {
-    transition: none;
-  }
 }
 
 kbd {
@@ -2855,42 +3184,45 @@ body.resizing-horizontal * {
 
 /* Notices and buttons */
 
+/* A manual update check's answer: one line in Hangar blue, the button at the right. */
 .notice {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   margin: 6px 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
+  padding: 3px 4px 3px 10px;
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 7px;
-  background: var(--panel-raised);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
 }
 
-.notice.accent {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+.notice-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice .link-button {
+  flex: none;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.notice .link-button:hover {
+  color: var(--text);
 }
 
 .error-notice {
   border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, var(--panel));
 }
 
-.notice-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.notice-body {
-  color: var(--muted);
-  white-space: pre-line;
-}
-
-.notice-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.error-notice .link-button {
+  color: var(--text);
 }
 
 .primary-button {
@@ -2912,19 +3244,6 @@ body.resizing-horizontal * {
 
 .link-button:hover {
   color: var(--text);
-}
-
-.progress {
-  height: 4px;
-  overflow: hidden;
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.progress-bar {
-  height: 100%;
-  background: var(--accent);
-  transition: width 150ms linear;
 }
 
 /* Dialog */
@@ -3356,20 +3675,35 @@ body.resizing-horizontal * {
   display: flex;
 }
 
-/* Color scheme picker: every card drawn in its own scheme (current light or dark variant), the
-   chosen one framed in the accent and checked, so the choice never rests on color alone. */
+/* Color scheme picker: grouped tiles, every tile a short sample drawn in its own scheme (current
+   light or dark variant). The chosen one is framed in the accent and checked, so the choice never
+   rests on color alone. */
 .scheme-picker {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 6px;
+  gap: 12px;
   align-self: stretch;
+}
+
+.scheme-group {
+  display: grid;
+  gap: 6px;
+}
+
+.scheme-group-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scheme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 8px;
 }
 
 .scheme-option {
   position: relative;
   display: grid;
-  gap: 7px;
-  padding: 8px 10px 9px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
   box-shadow: 0 0 0 1px transparent;
@@ -3399,30 +3733,42 @@ body.resizing-horizontal * {
   pointer-events: none;
 }
 
-.scheme-option-name {
-  padding-right: 18px;
+.scheme-option-sample {
+  display: grid;
+  padding: 8px 10px 0;
   overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
 }
 
 .scheme-option-palette {
   display: flex;
   gap: 3px;
+  padding: 7px 10px 8px;
 }
 
 .scheme-option-palette span {
-  width: 12px;
-  height: 8px;
+  flex: 1;
+  max-width: 14px;
+  height: 6px;
   border-radius: 2px;
+}
+
+.scheme-option-name {
+  padding: 5px 30px 6px 10px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* In the scheme's own text color: the accent could vanish on some backgrounds. */
 .scheme-option-check {
   position: absolute;
-  top: 8px;
   right: 8px;
+  bottom: 6px;
   display: none;
 }
 
@@ -3436,28 +3782,136 @@ body.resizing-horizontal * {
   }
 }
 
+/* File viewer themes in Settings: every tile a few lines of code in its own theme (current light
+   or dark variant), the chosen one framed in the accent and checked. */
+.viewer-theme-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+  align-self: stretch;
+}
+
+.viewer-theme-option {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px transparent;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.viewer-theme-option:hover {
+  border-color: var(--muted);
+}
+
+.viewer-theme-option:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.viewer-theme-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.viewer-theme-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewer-theme-code {
+  display: grid;
+  padding: 7px 0 6px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.viewer-theme-line {
+  display: flex;
+}
+
+.viewer-theme-comment {
+  font-style: italic;
+}
+
+.viewer-theme-number {
+  flex: none;
+  width: 24px;
+  padding-right: 9px;
+  text-align: right;
+}
+
+.viewer-theme-name {
+  padding: 5px 30px 6px 10px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* In the theme's own text color: the accent could vanish on some backgrounds. */
+.viewer-theme-check {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  display: none;
+}
+
+.viewer-theme-option:has(input:checked) .viewer-theme-check {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-theme-option {
+    transition: none;
+  }
+}
+
 /* Font size sits between fields in the terminal section and needs their spacing below it. */
 .terminal-look .range-field {
   margin: 0 0 18px;
 }
 
-/* Terminal look: one prompt line in the chosen colors, font and cursor. */
+/* Terminal look: a small terminal in the chosen colors, font, size and cursor, with the 16 colors
+   beside it. It sticks to the top of the panel while the pickers below it scroll, so every choice
+   shows at once; the shadows in the panel color hide what scrolls past above it and the outline
+   of a chosen tile beside it. */
 .terminal-preview {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 6px 0 14px;
-  padding: 10px 12px;
-  font-size: 13px;
-  white-space: nowrap;
+  gap: 16px;
+  margin: 6px 0 16px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  box-shadow:
+    0 -8px 0 var(--panel-raised),
+    0 0 0 2px var(--panel-raised);
 }
 
-.terminal-preview-line {
+.terminal-preview-text {
+  display: grid;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: clip;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.preview-line {
+  display: block;
+  min-height: 1lh;
 }
 
 .terminal-preview-cursor {
@@ -3494,15 +3948,23 @@ body.resizing-horizontal * {
 }
 
 .terminal-preview-palette {
-  display: flex;
+  display: grid;
   flex: none;
-  gap: 3px;
+  grid-template-columns: repeat(8, 12px);
+  gap: 4px;
 }
 
 .terminal-preview-palette span {
-  width: 10px;
-  height: 10px;
+  height: 12px;
   border-radius: 3px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+/* Narrow dialog: the sample gets the full width, the palette would only squeeze it. */
+@media (max-width: 620px) {
+  .terminal-preview-palette {
+    display: none;
+  }
 }
 
 .attention-preview {
@@ -3516,10 +3978,6 @@ body.resizing-horizontal * {
 .attention-preview .session {
   display: flex;
   margin: 0;
-}
-
-.attention-preview .badge {
-  background: #3b6fb6;
 }
 
 /* Attention settings: one card per session state. Color on the left, the live preview next to
@@ -3610,6 +4068,30 @@ body.resizing-horizontal * {
 .look-pulse .range-field {
   flex: 1 1 160px;
   margin-top: 0;
+}
+
+/* How the working dots move: each option shows its own motion next to its name. */
+.look-dots {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.look-dots .segmented {
+  flex-wrap: wrap;
+}
+
+.look-dots-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 11px 4px 6px;
+}
+
+.look-dots-option .status-chip {
+  height: 16px;
 }
 
 .look-card:disabled .look-preview .session {
@@ -4767,34 +5249,18 @@ body.resizing-horizontal * {
   flex: 1;
 }
 
-.notes-detached {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 40px 16px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.notes-detached p {
-  margin: 0;
-}
-
-/* The detached notes window */
-.notes-window {
+/* The detached right panel: the frame fills its own window (PanelWindow.tsx). */
+.panel-window {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--panel);
 }
 
-.notes-window-title {
+.side-panel.window {
   flex: 1;
-  margin: 0;
-  padding: 6px 2px 8px;
-  font-size: 13px;
-  font-weight: 600;
+  width: 100%;
+  max-width: none;
 }
 
 .icon-button.toggle.on {
@@ -5328,38 +5794,14 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
-/* "Own worktree" below "Starts in" in the New session group */
+/* A team session's marker on its row (line 3), before its branch. */
 
 .session-branch.worktree svg {
   color: var(--worktree);
 }
 
-/* Worktree sessions: their own group right below the Sessions list, set apart by a full-width
-   line like the one above Sessions. It keeps its height to its rows, at most 40% of the window
-   (the sidebar's height; a percentage would follow the shared box instead), and scrolls beyond
-   that. It does not shrink: a long Sessions list scrolls first instead of squeezing it. */
-.sidebar-group.worktrees-group {
-  flex: none;
-  max-height: 40vh;
-  border-top: var(--hairline) solid var(--border);
-}
-
-.worktrees-group.closed {
-  max-height: none;
-}
-
-.worktrees-group .group-title svg + .group-label::before {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  vertical-align: 1px;
-  content: "";
-  background: var(--worktree);
-  border-radius: 2px;
-}
-
-/* In the rail: a thin line where the worktree sessions begin, and a green edge on their badge. */
+/* In the rail: a thin line where the next program's sessions begin, and a green edge on the
+   badge of a worktree session. */
 .rail-divider {
   height: var(--hairline);
   margin: 4px 0;
@@ -5628,6 +6070,158 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
+/* "Uncommitted | Commits" below the panel header; two equal halves over the panel's width. */
+.changes-views {
+  display: flex;
+  margin: 8px 10px 2px;
+  font-size: 12px;
+}
+
+.changes-views .segment {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Commit history (CommitHistory.tsx): two lines per commit, the subject first. */
+.commit-group-title {
+  margin: 0;
+  padding: 10px 14px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.commit-list {
+  margin: 0;
+  padding: 2px 6px 4px;
+  list-style: none;
+}
+
+.commit-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  text-align: left;
+  border-radius: 5px;
+}
+
+.commit-head:hover {
+  background: var(--hover);
+}
+
+.commit-head > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.commit-head[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commit-head > svg {
+    transition: none;
+  }
+}
+
+.commit-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.commit-subject {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.commit-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.commit-sha {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.commit-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.commit-age {
+  flex: none;
+}
+
+/* Not on the upstream yet: an arrow (shape), named in the tooltip and for screen readers. */
+.commit-unpushed {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.commit-detail {
+  margin: 0 0 6px 18px;
+}
+
+.commit-detail .changes-summary {
+  padding: 4px 6px 2px;
+}
+
+.commit-detail .changes-hint {
+  margin: 4px 0;
+}
+
+.commit-detail .changes-files {
+  padding: 2px 0 4px;
+}
+
+.commit-body {
+  margin: 2px 6px 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.commit-body-toggle {
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.commit-note {
+  margin: 2px 6px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* File tree in the right panel (FilesPanel.tsx), as in VS Code's explorer: one 22px row per entry,
    indentation guides, the marks at the right end. Begin. */
 .file-tree {
@@ -5648,6 +6242,8 @@ body.resizing-horizontal * {
   padding: 0 8px;
   white-space: nowrap;
   cursor: default;
+  /* A double click opens the file; it must not select the name. */
+  user-select: none;
 }
 
 .tree-item:hover {
@@ -5708,6 +6304,17 @@ body.resizing-horizontal * {
 .tree-item.ignored .tree-name,
 .tree-item.ignored .tree-icon {
   opacity: 0.55;
+}
+
+/* On the path of the worktree's changes: from the top folder down to each changed file, names in
+   the "working" color of the settings (readable on the panel, --look-working-text), icons in its
+   strong shade. The letters and the folder ring say the same without color. */
+.tree-item.on-path .tree-name {
+  color: var(--look-working-text, var(--ok));
+}
+
+.tree-item.on-path .tree-icon {
+  color: var(--look-working-strong, var(--ok));
 }
 
 .tree-marks {
@@ -5797,6 +6404,155 @@ body.resizing-horizontal * {
 }
 
 /* File tree. End. */
+
+/* File viewer window (FileViewerWindow.tsx): the whole window in the chosen viewer theme
+   (--viewer-* from viewerThemes.ts, set on the root), the header as calm as an editor's tab bar.
+   Begin. */
+:root:has(.viewer-window) body {
+  background: var(--viewer-bg);
+}
+
+.viewer-window {
+  --viewer-border: color-mix(in srgb, var(--viewer-fg) 14%, var(--viewer-bg));
+  --viewer-muted: color-mix(in srgb, var(--viewer-fg) 66%, var(--viewer-bg));
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--viewer-fg);
+  background: var(--viewer-bg);
+}
+
+.viewer-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 6px 0 14px;
+  background: var(--viewer-gutter-bg);
+  border-bottom: 1px solid var(--viewer-border);
+  user-select: none;
+}
+
+.viewer-file-icon {
+  display: grid;
+  flex: none;
+  color: var(--viewer-accent);
+}
+
+.viewer-name {
+  flex: 0 1 auto;
+  max-width: 45%;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.viewer-path,
+.viewer-size {
+  font-size: 12px;
+  color: var(--viewer-muted);
+  white-space: nowrap;
+}
+
+.viewer-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.viewer-size {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.viewer-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  color: var(--viewer-muted);
+}
+
+.viewer-button:hover {
+  color: var(--viewer-fg);
+  background: var(--viewer-active-line);
+}
+
+.viewer-button:focus-visible {
+  outline: 2px solid var(--viewer-accent);
+}
+
+.viewer-button[aria-disabled="true"] {
+  cursor: default;
+}
+
+.viewer-button.spinning svg {
+  animation: changes-spin 900ms linear infinite;
+}
+
+/* The file was cut at 2 MiB: one quiet line, tinted in the theme's accent. */
+.viewer-hint {
+  flex: none;
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--viewer-accent) 12%, var(--viewer-bg));
+  border-bottom: 1px solid var(--viewer-border);
+}
+
+.viewer-code {
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer-code .cm-editor {
+  height: 100%;
+}
+
+.viewer-message {
+  margin: 0;
+  padding: 24px 18px;
+  font-size: 13px;
+  color: var(--viewer-muted);
+}
+
+.viewer-message-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--viewer-fg);
+}
+
+.viewer-message-detail {
+  margin: 0;
+  font-family: var(--viewer-font);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-button.spinning svg {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* File viewer window. End. */
 
 /* Profile editor in Settings, Programs */
 
@@ -6306,59 +7062,36 @@ body.session-dragging .session-actions {
   align-self: center;
 }
 
-/* One quiet line below the target: Shift+click for a worktree, or why there is none. */
-.worktree-hint {
+/* "Private | Team" below the target, as wide as the folder card, the two halves sharing it. */
+.start-mode {
+  margin: 0 8px 6px;
+}
+
+.start-mode .segmented {
   display: flex;
+}
+
+.start-mode .segment {
+  display: inline-flex;
+  flex: 1 1 0;
   align-items: center;
-  gap: 6px;
-  margin: 0 12px 6px;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: var(--muted);
-}
-
-.worktree-hint svg {
-  flex: none;
-}
-
-.worktree-hint.off svg {
-  opacity: 0.6;
-}
-
-.empty .worktree-hint {
   justify-content: center;
-  margin-top: 2px;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
 }
 
-/* "+ Worktree" over the end of a program row while it is hovered or focused, so the name does
-   not reflow. */
-.profile-row {
-  position: relative;
+.start-mode .segment:has(input:checked) svg {
+  color: var(--worktree);
 }
 
-.profile-worktree {
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  padding: 2px 7px;
-  background: var(--hover);
-  font-size: 11.5px;
+.segment.disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.segment.disabled:hover {
   color: var(--muted);
-  white-space: nowrap;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  opacity: 0;
-}
-
-.profile-row:hover .profile-worktree,
-.profile-row:has(.profile:focus-visible) .profile-worktree,
-.profile-worktree:focus-visible {
-  opacity: 1;
-}
-
-.profile-worktree:hover {
-  color: var(--text);
-  border-color: var(--worktree);
 }
 
 .profile-update-dot {
@@ -6527,6 +7260,25 @@ body.session-dragging .session-actions {
   color: var(--warn);
 }
 
+/* Taking a saved folder out of the menu: a quiet x, shown on the row's hover and focus. */
+.menu-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.menu-entry.removable:hover .menu-remove,
+.menu-entry.removable:focus-within .menu-remove {
+  opacity: 1;
+}
+
+.menu-remove:hover {
+  color: var(--error);
+  background: var(--hover);
+}
+
 .menu-item.current .menu-label {
   font-weight: 600;
 }
@@ -6551,27 +7303,6 @@ body.session-dragging .session-actions {
   white-space: normal;
 }
 
-/* Empty state: "+ Worktree" below a program card, and the chosen target. */
-.empty-programs li {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.empty-worktree {
-  font-size: 11.5px;
-}
-
-.empty-cwd-name {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.empty .empty-cwd.chosen .empty-cwd-path {
-  color: var(--accent);
-}
-
 /* Short confirmation after Ctrl+Shift+T and update results. */
 .link-notice.start-hint {
   padding: 8px 14px;
@@ -6585,10 +7316,6 @@ body.session-dragging .session-actions {
 @media (prefers-reduced-motion: no-preference) {
   .link-notice.start-hint {
     animation: start-hint-in 160ms ease-out;
-  }
-
-  .profile-worktree {
-    transition: opacity 120ms ease;
   }
 }
 
@@ -7475,36 +8202,28 @@ body.session-dragging .session-actions {
   text-overflow: ellipsis;
 }
 
-/* The name opens a menu: a small chevron says so, pointing up because the menu opens above. */
-.footer-chevron {
-  display: grid;
-  flex: none;
-  place-items: center;
-  margin-left: auto;
-  color: var(--muted);
-  transform: rotate(-90deg);
-}
-
-.footer-account[aria-expanded="true"] {
-  background: var(--hover);
-}
-
-/* Account menu: the chosen color mode gets a check at the row's end, not weight alone. */
-.account-menu .menu-item.current .menu-hint::after {
-  display: inline-block;
-  width: 9px;
-  height: 5px;
-  margin-bottom: 3px;
-  content: "";
-  border-bottom: 1.6px solid var(--accent);
-  border-left: 1.6px solid var(--accent);
-  transform: rotate(-45deg);
-}
-
 .footer-settings {
   flex: none;
   width: 30px;
   height: 30px;
+}
+
+/* The right panel's tabs next to Settings: same size, the open tab marked like a pressed toggle. */
+.footer-side-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.footer-side-tab {
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+
+.footer-side-tab[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 /* State mark of the team: a dot connected, a ring not connected, a dot with a slow halo while

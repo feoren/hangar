@@ -6,7 +6,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
-import { NotesWindow } from "./NotesWindow";
+import { FileViewerWindow } from "./FileViewerWindow";
+import { PanelWindow } from "./PanelWindow";
 import { detectLanguage } from "./i18n";
 import { loadSettings } from "./settings";
 import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
@@ -19,7 +20,12 @@ applyDocumentTheme(
 const root = document.getElementById("root");
 if (!root) throw new Error("Element #root missing in index.html");
 
-// The backend opens the detached notes window with `?window=notes` (notes_window.rs).
-const notesOnly = new URLSearchParams(window.location.search).get("window") === "notes";
+// The backend opens the detached side panel with `?window=panel` (panel_window.rs) and file
+// viewers with `?window=file` (file_viewer.rs).
+const kind = new URLSearchParams(window.location.search).get("window");
 
-createRoot(root).render(<StrictMode>{notesOnly ? <NotesWindow /> : <App />}</StrictMode>);
+createRoot(root).render(
+  <StrictMode>
+    {kind === "panel" ? <PanelWindow /> : kind === "file" ? <FileViewerWindow /> : <App />}
+  </StrictMode>,
+);

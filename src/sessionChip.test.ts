@@ -6,6 +6,7 @@ import {
   exitedWithError,
   rowEdge,
   rowLook,
+  runsAgent,
   sessionChip,
 } from "./sessionChip";
 
@@ -14,9 +15,18 @@ const exited = (exitCode: number | null, stoppedByUser = false) =>
   ({ status: "exited", exitCode, stoppedByUser }) as const;
 
 describe("sessionChip", () => {
-  it("shows nothing for a calm running session", () => {
+  it("shows nothing for a resting shell or a starting session", () => {
     expect(sessionChip(running, "idle", null)).toBeNull();
-    expect(sessionChip({ status: "starting", exitCode: null }, "idle", null)).toBeNull();
+    expect(sessionChip(running, "idle", null, false)).toBeNull();
+    expect(sessionChip({ status: "starting", exitCode: null }, "idle", null, true)).toBeNull();
+  });
+
+  it("shows the pause bars for a resting agent only", () => {
+    expect(sessionChip(running, "idle", null, true)).toBe("paused");
+    expect(sessionChip(running, "working", null, true)).toBe("working");
+    expect(sessionChip(running, "attention", "quiet", true)).toBe("done");
+    expect(sessionChip(exited(0), "idle", null, true)).toBe("ended");
+    expect(sessionChip(exited(2), "idle", null, true)).toBe("failed");
   });
 
   it("shows the working dots while the program works", () => {
@@ -53,6 +63,7 @@ describe("sessionChip", () => {
     expect(chipWaits("asks")).toBe(true);
     expect(chipWaits("failed")).toBe(false);
     expect(chipWaits("working")).toBe(false);
+    expect(chipWaits("paused")).toBe(false);
     expect(chipWaits(null)).toBe(false);
   });
 });
@@ -66,7 +77,15 @@ describe("rowLook", () => {
   it("gives questions and decisions the asks look, any other waiting the done look", () => {
     expect(rowLook(running, "attention", "asks")).toBe("asks");
     expect(rowLook(running, "attention", "done")).toBe("done");
-    expect(rowLook(exited(1), "attention", "failed")).toBe("done");
+  });
+
+  it("gives an unseen error the failed look and a seen one none", () => {
+    expect(rowLook(exited(1), "attention", "failed")).toBe("failed");
+    expect(rowLook(exited(1), "idle", "failed")).toBeNull();
+  });
+
+  it("rests in the pause look with or without the pause chip", () => {
+    expect(rowLook(running, "idle", "paused")).toBe("idle");
   });
 
   it("keeps starting and ended sessions plain", () => {
@@ -98,5 +117,22 @@ describe("rowEdge", () => {
   it("names the CSS class of an edge", () => {
     expect(edgeClass("working")).toBe("edge-working");
     expect(edgeClass("failed")).toBe("edge-failed");
+  });
+});
+
+describe("runsAgent", () => {
+  it("tells agents and other programs from plain shells", () => {
+    expect(runsAgent("claude")).toBe(true);
+    expect(runsAgent("C:\\tools\\codex.cmd")).toBe(true);
+    expect(runsAgent("pwsh.exe")).toBe(false);
+    expect(runsAgent("cmd")).toBe(false);
+    expect(runsAgent("/bin/bash")).toBe(false);
+    expect(runsAgent("wsl.exe")).toBe(false);
+  });
+
+  it("leaves out update sessions and unknown profiles", () => {
+    expect(runsAgent("claude", "update")).toBe(false);
+    expect(runsAgent("claude", "agent")).toBe(true);
+    expect(runsAgent(undefined)).toBe(false);
   });
 });

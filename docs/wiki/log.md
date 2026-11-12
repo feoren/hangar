@@ -461,6 +461,67 @@ guideline pages, vendor site colors and an icon count of the agent executables o
 catalog agent now has a bundled tile: 10 marks from Simple Icons, 12 monograms drawn for Hangar;
 "Automatic" prefers it over the exe icon. Pages changed: [[agent-icons]] (new), [[catalog]].
 
+## [2026-11-12] query | File viewer window contract
+Backend for a read-only file viewer: `open_file_viewer` (main window only) opens a window
+`file-viewer-<n>` bound to one file of a session's folder with the file tree's path rules;
+`file_viewer_content` reads exactly that file for the calling window. Pages changed:
+[[file-viewer]] (new).
+
+## [2026-11-12] query | File viewer window frontend
+Frontend of the file viewer: opening from the Files tab, the lazily loaded read-only CodeMirror
+view, seven viewer themes with dark and light palettes, settings sync through the `storage` event
+and the "working" color along the path to changed files. Pages changed: [[file-viewer]].
+
+## [2026-11-12] query | Commit history contract
+Backend for showing committed changes in the Changes tab: `git_log` (a page of commits from HEAD,
+newest first, each marked pushed when the upstream has it) and `git_commit_diff` (one commit's
+changes against its first parent or the empty tree, in the shape of `git_diff` plus the header).
+Pages changed: [[commit-history]] (new).
+
+## [2026-11-12] ingest | Terminal font coverage measurement
+Measured box drawing, block element, braille and symbol coverage of candidate monospace fonts:
+Fontsource subsets of Google-hosted fonts lack U+2500..U+259F, the upstream Source Code Pro, IBM
+Plex Mono and Victor Mono files cover them, so those three are bundled from upstream. Recorded the
+0.6.0 terminal look (14 schemes with contrast floors, renamed keys, more system fonts). Pages
+changed: [[terminal-font-coverage-measurement]] (new), [[agent-workflow-features]].
+
+## [2026-11-12] query | Detachable side panel
+Decided and built the detachable right panel: one backend-created `panel` window replaces the
+notes-only window and shows Notes, Changes and Files. The main window pushes a validated context
+(`panel-context`) and commands with `emitTo`; the panel answers through `panel_to_main`
+(`sendToTerminal`, `notesChanged`, `showMain`, `showSession`, `ready`) and may open file viewers.
+Size and place are remembered and checked against the monitors. Pages changed:
+[[0007-detachable-side-panel]] (new), [[notes]], [[file-viewer]], [[single-instance]].
+
+## [2026-11-12] decision | Private and team sessions
+The owner replaced the per-program worktree button with a switch "Private | Team". A team session
+has its own worktree, the agent gate and is shared with the team; a private one has none of it.
+Team capability comes from the catalog only (`hook_format` next to the capabilities), presence
+and claims stay agent-independent. Pages changed: [[0008-private-and-team-sessions]] (new),
+[[team-service-v1]], [[agent-workflow-features]].
+
+## [2026-11-12] decision | Private and team sessions, review fixes
+A worktree shared by a private and a team session is not shared with the team; Team is refused
+for programs without a hook format and profiles with a fixed folder; old worktree sessions of
+such programs restore private; sessions without a worktree lose the gate after the upgrade.
+Pages changed: [[0008-private-and-team-sessions]], [[team-service-v1]].
+
+## [2026-11-12] ingest | Per-session edit gates for Codex, Gemini, Copilot and Qwen Code
+Desk research (no hook run against a live model; local `codex --version`, `--help`, `features list`
+only) on pre-edit blocking, context injection and per-session installation. Findings: Qwen Code and
+Gemini CLI take a settings file through an env var (`QWEN_CODE_SYSTEM_SETTINGS_PATH`,
+`GEMINI_CLI_SYSTEM_SETTINGS_PATH`) and concatenate hooks with the user hooks; Copilot CLI takes
+`--plugin-dir` and cannot use a loopback http hook for `preToolUse`; Codex takes `-c` hooks but needs
+`--dangerously-bypass-hook-trust`, passes the whole patch text, and reads project hooks of a linked
+worktree from the root checkout. Open measurements listed in the page. Pages changed:
+[[agent-hooks-per-session-research]] (new).
+
+## [2026-11-12] ingest | Per-session edit gates for the remaining agent CLIs
+Desk research (no agent installed or run) on the 17 catalog agents not covered before, against vendor
+docs, GitHub sources and registry metadata. Pi, Oh My Pi, OpenCode and Droid are feasible; Cline, Amp,
+Crush and Vibe only after a measurement; Aider, Goose, Kimi, Antigravity, Cursor, Kiro, ForgeCode, Kode
+and Codebuff are not possible today. Pages changed: [[agent-hooks-remaining-agents-research]] (new),
+index.
 ## [2026-11-12] query | Activity calendar git contract
 Documented the `git_activity` command (own commits of the last year for the activity calendar in
 the empty window): argv, limits, deduplication and what is skipped. Pages changed:

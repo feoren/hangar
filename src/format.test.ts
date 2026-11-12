@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Profile } from "./api";
 import { createTranslator } from "./i18n";
 import {
+  formatBytes,
   BADGE_COLORS,
   badgeColor,
   badgeText,
@@ -153,5 +154,22 @@ describe("relativeTime", () => {
   it("shows a date after a week, with the year only for other years", () => {
     expect(relativeTime(new Date(2026, 9, 1).getTime(), now, "en")).toBe("Oct 1");
     expect(relativeTime(new Date(2025, 9, 1).getTime(), now, "en")).toBe("Oct 1, 2025");
+  });
+});
+
+describe("formatBytes", () => {
+  it("shows bytes, then binary units with one decimal below 10", () => {
+    expect(formatBytes(0, "en")).toBe("0 B");
+    expect(formatBytes(1023, "en")).toBe("1,023 B");
+    expect(formatBytes(1024, "en")).toBe("1 KiB");
+    expect(formatBytes(1536, "en")).toBe("1.5 KiB");
+    expect(formatBytes(20 * 1024 + 300, "en")).toBe("20 KiB");
+    expect(formatBytes(2 * 1024 * 1024, "en")).toBe("2 MiB");
+    expect(formatBytes(5.25 * 1024 ** 3, "en")).toBe("5.3 GiB");
+  });
+
+  it("uses the language's number format", () => {
+    expect(formatBytes(1536, "de")).toBe("1,5 KiB");
+    expect(formatBytes(1500, "de")).toBe("1,5 KiB");
   });
 });

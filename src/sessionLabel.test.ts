@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { isProgramTitle, projectFolder, sessionLabels, type LabelInput } from "./sessionLabel";
+import {
+  detailPlace,
+  isProgramTitle,
+  projectFolder,
+  sessionLabels,
+  statusSubject,
+  type LabelInput,
+} from "./sessionLabel";
 
 describe("projectFolder", () => {
   it("takes the last folder of Windows, POSIX and WSL paths", () => {
@@ -109,5 +116,41 @@ describe("sessionLabels", () => {
     const labels = sessionLabels([session(1, { kind: "update" }), session(2, { cwd: "" })], nameOf);
     expect(labels.get(1)?.primary).toBe("Claude Code");
     expect(labels.get(2)?.primary).toBe("Claude Code");
+  });
+});
+
+describe("statusSubject", () => {
+  const byFolder = { primary: "hangar", secondary: "Claude Code", byFolder: true };
+  const ownName = { primary: "Review", secondary: "hangar", byFolder: false };
+
+  it("names the program the folder-first title moved out", () => {
+    expect(statusSubject(byFolder, "Claude Code", "Claude Code")).toBe("Claude Code");
+    // Twins keep their numbered title, so the two stay apart.
+    const twin = { ...byFolder, secondary: "Claude Code (2)" };
+    expect(statusSubject(twin, "Claude Code", "Claude Code (2)")).toBe("Claude Code (2)");
+  });
+
+  it("names the program next to a name of its own", () => {
+    expect(statusSubject(ownName, "Codex CLI", "Review")).toBe("Codex CLI");
+    expect(statusSubject(null, "PowerShell 7", "feature/x")).toBe("PowerShell 7");
+  });
+
+  it("falls back to the title for an unknown program", () => {
+    expect(statusSubject(null, undefined, "Old agent")).toBe("Old agent");
+  });
+});
+
+describe("detailPlace", () => {
+  it("leaves out the folder when it already is the title", () => {
+    expect(detailPlace({ primary: "hangar", secondary: "Claude Code", byFolder: true }, "x")).toBe(
+      null,
+    );
+  });
+
+  it("keeps the folder next to a name of its own and in worktree rows", () => {
+    expect(detailPlace({ primary: "Review", secondary: "hangar", byFolder: false }, "x")).toBe(
+      "hangar",
+    );
+    expect(detailPlace(null, "hangar")).toBe("hangar");
   });
 });

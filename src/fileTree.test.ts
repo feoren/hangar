@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FolderEntry, FolderListing } from "./api";
 import type { Claim } from "./claims";
 import {
+  mentionText,
   ancestors,
   avatarStack,
   buildMarks,
@@ -10,6 +11,7 @@ import {
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
+  onChangePath,
   repoToTreeKey,
   rootOffset,
   treeReducer,
@@ -415,12 +417,68 @@ describe("keyboard", () => {
     expect(treeStep(closed, "src", "ArrowRight")).toEqual({ kind: "expand", path: "src" });
   });
 
-  it("never enters a link and selects files with Enter", () => {
+  it("opens files with Enter, selects them with Space and never opens a link", () => {
     expect(treeStep(rows, "out", "ArrowRight")).toEqual({ kind: "none" });
     expect(treeStep(rows, "out", "Enter")).toEqual({ kind: "select", path: "out" });
+    expect(treeStep(rows, "a.txt", "Enter")).toEqual({ kind: "open", path: "a.txt" });
+    expect(treeStep(rows, "src/main.ts", "Enter")).toEqual({ kind: "open", path: "src/main.ts" });
     expect(treeStep(rows, "a.txt", " ")).toEqual({ kind: "select", path: "a.txt" });
     expect(treeStep(rows, "src", "Enter")).toEqual({ kind: "collapse", path: "src" });
     expect(treeStep(rows, "src", "x")).toBeNull();
     expect(treeStep([], null, "ArrowDown")).toBeNull();
+  });
+});
+
+describe("path of the changes", () => {
+  const marks = buildMarks({
+    root: "/r/shop",
+    repoRoot: "/r/shop",
+    peers: [peer("ann", ["docs/guide.md"])],
+    changes: [
+      {
+        root: "/r/shop",
+        claims: [claim("src/app/deep/view.ts"), claim("old/gone.ts", "deleted")],
+      },
+    ],
+    overlaps: [],
+  });
+  const fileMark = (path: string) => marks.files.get(path) ?? null;
+  const folderMark = (path: string) => marks.folders.get(path) ?? null;
+
+  it("marks every folder from the top down to a changed file, whatever is expanded", () => {
+    // The marks come from the claims alone; the tree's expanded folders play no part.
+    for (const folder of ["src", "src/app", "src/app/deep"]) {
+      expect(onChangePath("dir", null, folderMark(folder))).toBe(true);
+    }
+    expect(onChangePath("file", fileMark("src/app/deep/view.ts"), null)).toBe(true);
+  });
+
+  it("keeps the folder of a deleted file on the path", () => {
+    expect(onChangePath("dir", null, folderMark("old"))).toBe(true);
+  });
+
+  it("leaves teammates' files, unchanged rows and links off the path", () => {
+    expect(onChangePath("dir", null, folderMark("docs"))).toBe(false);
+    expect(onChangePath("file", fileMark("docs/guide.md"), null)).toBe(false);
+    expect(onChangePath("file", null, null)).toBe(false);
+    expect(onChangePath("dir", null, null)).toBe(false);
+    const changed = fileMark("src/app/deep/view.ts");
+    expect(onChangePath("symlink", changed, null)).toBe(false);
+  });
+});
+
+describe("mentionText", () => {
+  it("puts an @ before the path from the project's folder, with a space after it", () => {
+    expect(mentionText("src/app.ts", false)).toBe("@src/app.ts ");
+    expect(mentionText("README.md", false)).toBe("@README.md ");
+  });
+
+  it("marks a folder with a trailing slash", () => {
+    expect(mentionText("src/components", true)).toBe("@src/components/ ");
+  });
+
+  it("quotes a path with spaces so the agent reads it as one", () => {
+    expect(mentionText("docs/my notes.md", false)).toBe('@"docs/my notes.md" ');
+    expect(mentionText('a "b" c', false)).toBe("@'a \"b\" c' ");
   });
 });

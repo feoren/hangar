@@ -597,7 +597,7 @@ function parseSessionRepo(value: unknown): SessionRepo | null {
 }
 
 /** The activity of a team; absent counts as empty (an older backend), malformed as `null`. */
-function parseActivity(value: unknown): TeamActivity | null {
+export function parseTeamActivity(value: unknown): TeamActivity | null {
   if (value === undefined) return EMPTY_ACTIVITY;
   const linked = list(field(value, "linked"), parseLinked);
   const peers = list(field(value, "peers"), parsePeer);
@@ -619,7 +619,7 @@ function parseActivity(value: unknown): TeamActivity | null {
 function parseTeamEntry(value: unknown): TeamEntry | null {
   const projectId = text(field(value, "projectId"));
   const status = parseTeamStatus(field(value, "status"));
-  const activity = parseActivity(field(value, "activity"));
+  const activity = parseTeamActivity(field(value, "activity"));
   if (projectId === null || status === null || activity === null) return null;
   return { projectId, status, activity };
 }

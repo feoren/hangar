@@ -3,7 +3,7 @@ title: "Agent workflow features (0.3.0)"
 type: synthesis
 status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
-sources: []
+sources: ["[[terminal-font-coverage-measurement]]"]
 created: 2026-11-08
 updated: 2026-11-12
 ---
@@ -312,6 +312,9 @@ request). Right click opens the menu. No window capability is needed for hiding;
 8. **Worktree**: option "Own worktree" in New session (only for git folders): `create_worktree`,
    then start in it. Sidebar marks such sessions. Closing removes the worktree
    (`remove_worktree`); if it stays, a notice says why.
+   Since 0.6.0 the own worktree is part of a team session and no option of its own: see
+   [[0008-private-and-team-sessions]]. The switch "Private | Team" below "Starts in" replaces the
+   checkbox and the "+ Worktree" button described below; the row's marker is the team icon.
    As built (`src/worktree.ts`): the option is a checkbox below "Starts in", enabled only while
    `git_branches` reports a branch for that folder (the folder is added to the status line's branch
    paths). It is not saved: it applies for the current run to every start in the "Starts in"
@@ -354,6 +357,19 @@ request). Right click opens the menu. No window capability is needed for hiding;
     Consolas; installed ones only), cursor style and blink. Ligatures are left out for now
     (unverified assumption: `@xterm/addon-ligatures` reads font files through Node, which the
     WebView does not offer).
+    As built in 0.6.0 (`src/terminalSchemes.ts`, `src/terminalLook.ts`): 14 schemes in three
+    groups (Hangar and Dusk; the file viewer's families One Dark Pro, GitHub, VS Code, Darcula,
+    Solarized, Catppuccin, Monokai; Dracula, Nord, Gruvbox, Tokyo Night, Rosé Pine), each with a
+    dark and a light variant. Tests hold every variant to foreground 4.5 : 1, every normal and
+    bright accent and the dim gray (bright black) to 3 : 1, and blue on dark backgrounds to 4 : 1;
+    published values are darkened or lightened just enough where they fall short. The released
+    keys `harbor` and `meridian` are read as `github` and `oneDarkPro` (same palettes). Bundled
+    fonts: JetBrains Mono, Fira Code, Geist Mono, Hack, Source Code Pro, IBM Plex Mono, Victor
+    Mono, all with box drawing ([[terminal-font-coverage-measurement]]); system fonts when
+    installed: Cascadia Mono and Code, Consolas, Lucida Console, SF Mono, Menlo, Monaco, DejaVu
+    Sans Mono, Ubuntu Mono, Noto Sans Mono, Liberation Mono. Settings show a sticky preview with
+    a framed agent edit and the 16 colors, scheme tiles with a prompt and a diff, and font tiles
+    set in their own face.
 13. **Session marker**: color and emoji per session (context menu "Marker"), shown in the
     sidebar, pane header and rail; saved in the workspace.
     As built (`src/marker.ts`): a fixed palette of eight colors plus none, stored lowercase; emoji
@@ -619,8 +635,8 @@ menu paste uses the clipboard plugin.
     stable ids.
     As built, sidebar tree (`src/SubAgentTree.tsx`, `subAgentTree` and `watchedSession` in
     `src/subAgents.ts`): one watch at most, for the open view's session, else the active
-    session while the expanded sidebar shows the Sessions group. Without the view it runs with
-    `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
+    session while the expanded sidebar shows its row (its program group is open). Without the
+    view it runs with `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
     key is session plus conversation id only) and dropping excerpts at once when they are no
     longer wanted. The tree lists up to five sub-agents (the shown one, running and newer
     first, in start order, else four plus "N more"); a row shows that sub-agent's log and is

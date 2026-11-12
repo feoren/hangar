@@ -1,20 +1,19 @@
 // Terminal look: color scheme, font and cursor. Every scheme has a light and a dark variant and
 // follows the app theme. The defaults keep the look Hangar had before these settings existed.
 
-import type { ITheme } from "@xterm/xterm";
+import type { ColorScheme } from "./terminalSchemes";
 
-import { TERMINAL_THEMES, type AnsiColor, type Theme } from "./theme";
-
-/** Order of the picker. Saved values are these keys, so a key never changes once released. */
-export const COLOR_SCHEMES = [
-  "hangar",
-  "harbor",
-  "dusk",
-  "meridian",
-  "catppuccin",
-  "solarized",
-] as const;
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
+export {
+  COLOR_SCHEMES,
+  isColorScheme,
+  parseColorScheme,
+  schemeColors,
+  schemePalette,
+  searchColors,
+  type ColorScheme,
+  type SearchColors,
+  type TerminalColors,
+} from "./terminalSchemes";
 
 export const CURSOR_STYLES = ["block", "bar", "underline"] as const;
 export type CursorStyle = (typeof CURSOR_STYLES)[number];
@@ -23,11 +22,34 @@ export type CursorStyle = (typeof CURSOR_STYLES)[number];
  * Fonts Hangar ships as woff2 (src/fonts.css), so they are always available. All of them cover box
  * drawing and block elements, which agent CLIs draw their frames with.
  */
-export const BUNDLED_FONTS = ["JetBrains Mono", "Fira Code", "Geist Mono", "Hack"] as const;
+export const BUNDLED_FONTS = [
+  "JetBrains Mono",
+  "Fira Code",
+  "Geist Mono",
+  "Hack",
+  "Source Code Pro",
+  "IBM Plex Mono",
+  "Victor Mono",
+] as const;
 export type BundledFont = (typeof BUNDLED_FONTS)[number];
 
-/** Offered only when installed; Windows ships Cascadia (11) and Consolas. */
-export const SYSTEM_FONTS = ["Cascadia Mono", "Cascadia Code", "Consolas"] as const;
+/**
+ * Offered only when installed, in this order: Windows (Cascadia ships with 11), macOS, Linux. The
+ * installation check hides every font this machine does not have.
+ */
+export const SYSTEM_FONTS = [
+  "Cascadia Mono",
+  "Cascadia Code",
+  "Consolas",
+  "Lucida Console",
+  "SF Mono",
+  "Menlo",
+  "Monaco",
+  "DejaVu Sans Mono",
+  "Ubuntu Mono",
+  "Noto Sans Mono",
+  "Liberation Mono",
+] as const;
 export type SystemFont = (typeof SYSTEM_FONTS)[number];
 
 /** Every font a setting may name. Saved names from older versions are all still in here. */
@@ -48,10 +70,6 @@ export const DEFAULT_TERMINAL_LOOK: TerminalLook = {
   cursorStyle: "block",
   cursorBlink: true,
 };
-
-export function isColorScheme(value: unknown): value is ColorScheme {
-  return COLOR_SCHEMES.some((scheme) => scheme === value);
-}
 
 export function isCursorStyle(value: unknown): value is CursorStyle {
   return CURSOR_STYLES.some((style) => style === value);
@@ -176,297 +194,4 @@ export function canvasMeasure(): MeasureText | null {
     context.font = cssFont;
     return context.measureText(MEASURE_SAMPLE).width;
   };
-}
-
-export type TerminalColors = Required<
-  Pick<ITheme, "background" | "foreground" | "cursor" | "cursorAccent" | "selectionBackground">
-> &
-  Record<AnsiColor, string>;
-
-// Catppuccin (https://catppuccin.com/palette), terminal colors as in its Windows Terminal port.
-const CATPPUCCIN: Record<Theme, TerminalColors> = {
-  dark: {
-    background: "#1e1e2e",
-    foreground: "#cdd6f4",
-    cursor: "#f5e0dc",
-    cursorAccent: "#1e1e2e",
-    selectionBackground: "#45475a",
-    black: "#45475a",
-    red: "#f38ba8",
-    green: "#a6e3a1",
-    yellow: "#f9e2af",
-    blue: "#89b4fa",
-    magenta: "#f5c2e7",
-    cyan: "#94e2d5",
-    white: "#bac2de",
-    brightBlack: "#7f849c",
-    brightRed: "#f38ba8",
-    brightGreen: "#a6e3a1",
-    brightYellow: "#f9e2af",
-    brightBlue: "#89b4fa",
-    brightMagenta: "#f5c2e7",
-    brightCyan: "#94e2d5",
-    brightWhite: "#a6adc8",
-  },
-  light: {
-    background: "#eff1f5",
-    foreground: "#4c4f69",
-    cursor: "#dc8a78",
-    cursorAccent: "#eff1f5",
-    selectionBackground: "#ccd0da",
-    black: "#5c5f77",
-    red: "#d20f39",
-    green: "#40a02b",
-    yellow: "#df8e1d",
-    blue: "#1e66f5",
-    magenta: "#ea76cb",
-    cyan: "#179299",
-    white: "#acb0be",
-    brightBlack: "#6c6f85",
-    brightRed: "#d20f39",
-    brightGreen: "#40a02b",
-    brightYellow: "#df8e1d",
-    brightBlue: "#1e66f5",
-    brightMagenta: "#ea76cb",
-    brightCyan: "#179299",
-    brightWhite: "#bcc0cc",
-  },
-};
-
-// Solarized (https://ethanschoonover.com/solarized). Unlike the original, the bright colors keep
-// their hue: agent CLIs use them as accents, and the original grays made gray text invisible.
-const SOLARIZED: Record<Theme, TerminalColors> = {
-  dark: {
-    background: "#002b36",
-    foreground: "#93a1a1",
-    cursor: "#93a1a1",
-    cursorAccent: "#002b36",
-    selectionBackground: "#174652",
-    black: "#073642",
-    red: "#dc322f",
-    green: "#859900",
-    yellow: "#b58900",
-    blue: "#268bd2",
-    magenta: "#d33682",
-    cyan: "#2aa198",
-    white: "#eee8d5",
-    brightBlack: "#657b83",
-    brightRed: "#cb4b16",
-    brightGreen: "#859900",
-    brightYellow: "#b58900",
-    brightBlue: "#268bd2",
-    brightMagenta: "#6c71c4",
-    brightCyan: "#2aa198",
-    brightWhite: "#fdf6e3",
-  },
-  light: {
-    background: "#fdf6e3",
-    foreground: "#586e75",
-    cursor: "#586e75",
-    cursorAccent: "#fdf6e3",
-    selectionBackground: "#e6dfc9",
-    black: "#073642",
-    red: "#dc322f",
-    green: "#859900",
-    yellow: "#b58900",
-    blue: "#268bd2",
-    magenta: "#d33682",
-    cyan: "#2aa198",
-    white: "#93a1a1",
-    brightBlack: "#657b83",
-    brightRed: "#cb4b16",
-    brightGreen: "#859900",
-    brightYellow: "#b58900",
-    brightBlue: "#268bd2",
-    brightMagenta: "#6c71c4",
-    brightCyan: "#2aa198",
-    brightWhite: "#586e75",
-  },
-};
-
-// Harbor: a crisp, neutral pair. Light is a white page with deep ink, dark a near-black blue.
-// Yellow stays a dark amber in light mode, so it reads as text and not as a highlight.
-const HARBOR: Record<Theme, TerminalColors> = {
-  dark: {
-    background: "#0d1117",
-    foreground: "#e6edf3",
-    cursor: "#2f81f7",
-    cursorAccent: "#0d1117",
-    selectionBackground: "#264f78",
-    black: "#484f58",
-    red: "#ff7b72",
-    green: "#3fb950",
-    yellow: "#d29922",
-    blue: "#58a6ff",
-    magenta: "#bc8cff",
-    cyan: "#39c5cf",
-    white: "#b1bac4",
-    brightBlack: "#6e7681",
-    brightRed: "#ffa198",
-    brightGreen: "#56d364",
-    brightYellow: "#e3b341",
-    brightBlue: "#79c0ff",
-    brightMagenta: "#d2a8ff",
-    brightCyan: "#56d4dd",
-    brightWhite: "#ffffff",
-  },
-  light: {
-    background: "#ffffff",
-    foreground: "#1f2328",
-    cursor: "#0969da",
-    cursorAccent: "#ffffff",
-    selectionBackground: "#b6e3ff",
-    black: "#24292f",
-    red: "#cf222e",
-    green: "#116329",
-    yellow: "#4d2d00",
-    blue: "#0969da",
-    magenta: "#8250df",
-    cyan: "#1b7c83",
-    white: "#6e7781",
-    brightBlack: "#57606a",
-    brightRed: "#a40e26",
-    brightGreen: "#1a7f37",
-    brightYellow: "#633c01",
-    brightBlue: "#218bff",
-    brightMagenta: "#a475f9",
-    brightCyan: "#3192aa",
-    brightWhite: "#8c959f",
-  },
-};
-
-// Dusk: Harbor's softer sibling. The dark variant is a muted slate with less glare; the palette
-// has no light original, so the light variant is Harbor's light ink on a faintly gray page.
-const DUSK: Record<Theme, TerminalColors> = {
-  dark: {
-    background: "#22272e",
-    foreground: "#adbac7",
-    cursor: "#539bf5",
-    cursorAccent: "#22272e",
-    selectionBackground: "#2f4866",
-    black: "#545d68",
-    red: "#f47067",
-    green: "#57ab5a",
-    yellow: "#c69026",
-    blue: "#539bf5",
-    magenta: "#b083f0",
-    cyan: "#39c5cf",
-    white: "#909dab",
-    brightBlack: "#636e7b",
-    brightRed: "#ff938a",
-    brightGreen: "#6bc46d",
-    brightYellow: "#daaa3f",
-    brightBlue: "#6cb6ff",
-    brightMagenta: "#dcbdfb",
-    brightCyan: "#56d4dd",
-    brightWhite: "#cdd9e5",
-  },
-  light: { ...HARBOR.light, background: "#f6f8fa", cursorAccent: "#f6f8fa" },
-};
-
-// Meridian: warm gray with soft, saturated accents. In the light variant both whites are gray,
-// because the original pure white would vanish on the light page.
-const MERIDIAN: Record<Theme, TerminalColors> = {
-  dark: {
-    background: "#282c34",
-    foreground: "#abb2bf",
-    cursor: "#528bff",
-    cursorAccent: "#282c34",
-    selectionBackground: "#3e4451",
-    black: "#3f4451",
-    red: "#e05561",
-    green: "#8cc265",
-    yellow: "#d18f52",
-    blue: "#4aa5f0",
-    magenta: "#c162de",
-    cyan: "#42b3c2",
-    white: "#d7dae0",
-    brightBlack: "#4f5666",
-    brightRed: "#ff616e",
-    brightGreen: "#a5e075",
-    brightYellow: "#f0a45d",
-    brightBlue: "#4dc4ff",
-    brightMagenta: "#de73ff",
-    brightCyan: "#4cd1e0",
-    brightWhite: "#e6e6e6",
-  },
-  light: {
-    background: "#fafafa",
-    foreground: "#383a42",
-    cursor: "#526fff",
-    cursorAccent: "#fafafa",
-    selectionBackground: "#dfe1e6",
-    black: "#383a42",
-    red: "#e45649",
-    green: "#50a14f",
-    yellow: "#c18401",
-    blue: "#4078f2",
-    magenta: "#a626a4",
-    cyan: "#0184bc",
-    white: "#a0a1a7",
-    brightBlack: "#4f525e",
-    brightRed: "#e06c75",
-    brightGreen: "#98c379",
-    brightYellow: "#e5c07b",
-    brightBlue: "#61afef",
-    brightMagenta: "#c678dd",
-    brightCyan: "#56b6c2",
-    brightWhite: "#b4b5ba",
-  },
-};
-
-const SCHEMES: Record<ColorScheme, Record<Theme, TerminalColors>> = {
-  hangar: TERMINAL_THEMES,
-  harbor: HARBOR,
-  dusk: DUSK,
-  meridian: MERIDIAN,
-  catppuccin: CATPPUCCIN,
-  solarized: SOLARIZED,
-};
-
-/** Always the same object per scheme and theme, so xterm only repaints on a real change. */
-export function schemeColors(scheme: ColorScheme, theme: Theme): TerminalColors {
-  return SCHEMES[scheme][theme];
-}
-
-/** The accents a preview shows for a scheme, in the usual terminal order. */
-export function schemePalette(colors: TerminalColors): string[] {
-  return [colors.red, colors.green, colors.yellow, colors.blue, colors.magenta, colors.cyan];
-}
-
-/** Search hits: every match, and the current one. `#rrggbb` only (xterm's search addon). */
-export interface SearchColors {
-  match: string;
-  active: string;
-}
-
-const SEARCH_COLORS: Record<ColorScheme, Record<Theme, SearchColors>> = {
-  hangar: {
-    dark: { match: "#4a3d14", active: "#8a6416" },
-    light: { match: "#fff1b8", active: "#f5c84c" },
-  },
-  harbor: {
-    dark: { match: "#4a3d14", active: "#8a6416" },
-    light: { match: "#fff1b8", active: "#f5c84c" },
-  },
-  dusk: {
-    dark: { match: "#463b1a", active: "#6c5414" },
-    light: { match: "#fff1b8", active: "#f5c84c" },
-  },
-  meridian: {
-    dark: { match: "#45402a", active: "#6b5520" },
-    light: { match: "#f6e7b0", active: "#ecc35a" },
-  },
-  catppuccin: {
-    dark: { match: "#4d4636", active: "#8a7346" },
-    light: { match: "#f6e3bd", active: "#efc072" },
-  },
-  solarized: {
-    dark: { match: "#2f4a2a", active: "#5c4d07" },
-    light: { match: "#f0e2a8", active: "#e2c45c" },
-  },
-};
-
-export function searchColors(scheme: ColorScheme, theme: Theme): SearchColors {
-  return SEARCH_COLORS[scheme][theme];
 }

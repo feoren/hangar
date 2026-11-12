@@ -34,7 +34,9 @@ describe("parseSettings", () => {
         done: { color: null, pulse: "strong", seconds: 2 },
         asks: { color: "#f0b429", pulse: "off", seconds: 4 },
         idle: { color: null, pulse: "off", seconds: 2.8 },
+        failed: { color: "#f5a3c7", pulse: "subtle", seconds: 1.6 },
       },
+      dotAnimation: "wave",
       quietSeconds: 10,
       taskbarFlash: false,
       notifyDesktop: false,
@@ -55,6 +57,7 @@ describe("parseSettings", () => {
       terminalFont: "JetBrains Mono",
       cursorStyle: "bar",
       cursorBlink: false,
+      viewerTheme: "github",
       snippets: [{ id: "mine", text: "Fix the build" }],
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
@@ -82,6 +85,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
+      dotAnimation: "spin",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
@@ -101,7 +105,7 @@ describe("parseSettings", () => {
   it("replaces invalid terminal look values individually", () => {
     const parsed = parseSettings(
       JSON.stringify({
-        terminalScheme: "dracula",
+        terminalScheme: "midnight",
         terminalFont: "Comic Sans MS",
         cursorStyle: 2,
         cursorBlink: "no",
@@ -120,14 +124,36 @@ describe("parseSettings", () => {
     expect(valid.cursorStyle).toBe("underline");
   });
 
+  it("reads the file viewer theme and falls back to One Dark Pro", () => {
+    expect(defaultSettings("de").viewerTheme).toBe("oneDarkPro");
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("oneDarkPro");
+    for (const theme of ["github", "vscode", "darcula", "solarized", "catppuccin", "monokai"]) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: theme }), "de").viewerTheme).toBe(theme);
+    }
+    for (const wrong of ["GitHub", "atom", 3, null]) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: wrong }), "de").viewerTheme).toBe(
+        "oneDarkPro",
+      );
+    }
+  });
+
   it("keeps saved color schemes from older versions and reads the new ones", () => {
-    for (const scheme of ["hangar", "catppuccin", "solarized", "harbor", "dusk", "meridian"]) {
+    for (const scheme of ["hangar", "catppuccin", "solarized", "dusk", "dracula", "rosePine"]) {
       expect(parseSettings(JSON.stringify({ terminalScheme: scheme }), "de").terminalScheme).toBe(
         scheme,
       );
     }
     expect(parseSettings(JSON.stringify({ terminalScheme: "Harbor" }), "de").terminalScheme).toBe(
       "hangar",
+    );
+  });
+
+  it("moves the renamed schemes Harbor and Meridian to their origins", () => {
+    expect(parseSettings(JSON.stringify({ terminalScheme: "harbor" }), "de").terminalScheme).toBe(
+      "github",
+    );
+    expect(parseSettings(JSON.stringify({ terminalScheme: "meridian" }), "de").terminalScheme).toBe(
+      "oneDarkPro",
     );
   });
 
@@ -231,6 +257,21 @@ describe("parseSettings", () => {
     expect(parse(1e9)).toBe(SCROLLBACK_LINES.max);
     expect(parse(2240)).toBe(2000);
     expect(parse(2260)).toBe(2500);
+  });
+
+  it("reads looks stored before failed had its own look, and bounces the dots", () => {
+    const old = {
+      looks: {
+        working: { color: "#8cc8ff", pulse: "off", seconds: 2.8 },
+        done: { color: null, pulse: "medium", seconds: 2.8 },
+        asks: { color: null, pulse: "medium", seconds: 2.8 },
+        idle: { color: null, pulse: "off", seconds: 2.8 },
+      },
+    };
+    const parsed = parseSettings(JSON.stringify(old), "de");
+    expect(parsed.looks.working.color).toBe("#8cc8ff");
+    expect(parsed.looks.failed).toEqual(DEFAULT_LOOKS.failed);
+    expect(parsed.dotAnimation).toBe("bounce");
   });
 
   it("drops invalid looks", () => {

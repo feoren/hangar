@@ -60,3 +60,45 @@
   font-display: block;
   src: url("./assets/fonts/hack/hack-bold.woff2") format("woff2");
 }
+
+@font-face {
+  font-family: "Source Code Pro";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/source-code-pro/source-code-pro-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Source Code Pro";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/source-code-pro/source-code-pro-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/ibm-plex-mono/ibm-plex-mono-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/ibm-plex-mono/ibm-plex-mono-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Victor Mono";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/victor-mono/victor-mono-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Victor Mono";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/victor-mono/victor-mono-bold.woff2") format("woff2");
+}

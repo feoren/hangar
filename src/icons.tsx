@@ -63,6 +63,16 @@ export function FolderIcon(props: IconProps) {
   );
 }
 
+/** A folder with an arrow out of it: open the folder in the system's file manager. */
+export function RevealFolderIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.5 13H3.5A1.5 1.5 0 0 1 2 11.5v-7A1.5 1.5 0 0 1 3.5 3h2.6l1.5 1.6h4.9A1.5 1.5 0 0 1 14 6.1v1.4" />
+      <path d="M10.5 13.5l3.5-3.5M11 10h3v3" />
+    </Svg>
+  );
+}
+
 export function MenuIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -257,18 +267,6 @@ export function BranchIcon(props: IconProps) {
   );
 }
 
-/** A session's own worktree: a branch growing out of a folder. */
-export function WorktreeIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M2 5.5V12a1 1 0 0 0 1 1h4.5M2 5.5V4a1 1 0 0 1 1-1h2.6l1.4 1.5H9" />
-      <circle cx="12" cy="4.5" r="1.6" />
-      <circle cx="12" cy="11.5" r="1.6" />
-      <path d="M12 6.1v3.8" />
-    </Svg>
-  );
-}
-
 /** The program rang the bell: it probably asks something (status chip). */
 export function BellIcon(props: IconProps) {
   return (
@@ -323,6 +321,16 @@ export function DetachIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M9.5 2.5h4v4M13.5 2.5L8 8" />
+      <path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
+    </Svg>
+  );
+}
+
+/** Arrow into a box: the detached panel goes back into the main window. */
+export function DockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M13.5 2.5L8 8M8 4.5V8h3.5" />
       <path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
     </Svg>
   );
@@ -415,6 +423,39 @@ export function LinkIcon(props: IconProps) {
     <Svg {...props}>
       <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.7.7" />
       <path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.7-.7" />
+    </Svg>
+  );
+}
+
+/** The right panel's Notes tab: a page with a pencil on it. */
+export function NotePencilIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 2.5H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7.5" />
+      <path d="M12.1 2.2l1.7 1.7-5.3 5.3-2.3.6.6-2.3z" />
+    </Svg>
+  );
+}
+
+/** The right panel's Changes tab: source control, a branch leaving the main line. */
+export function SourceControlIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="4.5" cy="3.5" r="1.6" />
+      <circle cx="4.5" cy="12.5" r="1.6" />
+      <circle cx="11.5" cy="5.5" r="1.6" />
+      <path d="M4.5 5.1v5.8M11.5 7.1c0 2.6-2.6 3.1-5.6 4.2" />
+    </Svg>
+  );
+}
+
+/** The right panel's Files tab: two pages, the explorer of the project's files. */
+export function FilesIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.5 1.8h4l2.7 2.7v6.2a1 1 0 0 1-1 1H6.5a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
+      <path d="M10.3 1.8v2.9h2.9" />
+      <path d="M3.3 4.8v8.4a1 1 0 0 0 1 1h5.9" />
     </Svg>
   );
 }

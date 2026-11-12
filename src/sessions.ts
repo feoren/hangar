@@ -3,7 +3,7 @@
 
 import type { SessionInfo, Worktree } from "./api";
 import { hasMarker, type Marker } from "./marker";
-import { groupedOrder, sessionGroup } from "./sessionGroups";
+import { agentGroupOrder, groupedOrder } from "./sessionGroups";
 
 /** A session as the UI shows it: backend data plus flags of our own. */
 export interface SessionView extends SessionInfo {
@@ -63,18 +63,12 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
         withMarker({ ...action.session, restoreOrder: action.order }, action.marker),
         action.worktree,
       );
-      // In front of the first session of its group with a later slot; newly started ones (no
-      // slot) go last. Only its own group counts: the list is grouped, the saved slots may not be.
-      const group = sessionGroup(view);
-      const index = state.sessions.findIndex(
-        (s) =>
-          sessionGroup(s) === group && (s.restoreOrder ?? Number.POSITIVE_INFINITY) > action.order,
-      );
-      const sessions =
-        index < 0
-          ? [...state.sessions, view]
-          : [...state.sessions.slice(0, index), view, ...state.sessions.slice(index)];
-      return { sessions: groupedOrder(sessions), activeId: state.activeId ?? view.id };
+      // Restored sessions in their remembered slot order, newly started ones (no slot) after
+      // them, then grouped. Grouping the slot order (not the list as it grew) keeps the result
+      // independent of the order the sessions arrive in, also for slots saved ungrouped.
+      const slot = (s: SessionView) => s.restoreOrder ?? Number.POSITIVE_INFINITY;
+      const bySlot = [...state.sessions, view].sort((a, b) => slot(a) - slot(b));
+      return { sessions: groupedOrder(bySlot), activeId: state.activeId ?? view.id };
     }
     case "stopRequested":
       return mark(state, action.id, true);
@@ -167,8 +161,14 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     case "moved": {
       const sessions = moveItem(state.sessions, action.id, action.index);
       if (sessions === null) return state;
-      // Across the group border the session stays in its own group (sessionGroups.ts).
+      // Across the group border the session stays in its own group (sessionGroups.ts), and the
+      // agent groups keep their order: a lone session moved to the top must not pull its whole
+      // group up with it.
       const grouped = groupedOrder(sessions);
+      const before = agentGroupOrder(state.sessions);
+      if (agentGroupOrder(grouped).some((key, index) => key !== before[index])) {
+        return state;
+      }
       return grouped.every((s, index) => s === state.sessions[index])
         ? state
         : { ...state, sessions: grouped };

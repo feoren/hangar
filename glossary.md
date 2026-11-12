@@ -42,6 +42,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich (in den Einstellungen)                  | section                           |                                                                             |
 | Sidebar, Seitenleiste                           | sidebar                           |                                                                             |
 | Gruppe (Sidebar)                                | group                             |                                                                             |
+| Agentengruppe (Sidebar)                         | agent group                       | top-level group of one program's sessions, worktree or not; `agentGroupKey` |
 | Trennlinie (ziehbar)                            | splitter                          |                                                                             |
 | Trennlinie (statisch)                           | divider                           |                                                                             |
 | Tastenkürzel, Kürzel                            | shortcut                          |                                                                             |
@@ -108,7 +109,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Oberfläche                                      | UI                                |                                                                             |
 | Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                                                |
 | Zuletzt genutzte Ordner                         | recent folders                    | at most 8                                                                   |
-| Startordner-Menü                                | folder menu                       | "Starts in" menu                                                            |
+| Startordner-Menü                                | folder menu                       | "Project folder" menu                                                       |
 | Startziel                                       | start target                      | where the next session starts, `startTarget.ts`                             |
 | Laufende Projekte                               | running projects                  | project folders of running sessions, folder menu                            |
 | Suchleiste, Treffer                             | search bar, match                 | `SearchBar.tsx`                                                             |
@@ -134,8 +135,15 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Laufzeit (Session)                              | run time                          | since the process started                                                   |
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                  |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                           |
+| Private Session                                 | private session                   | starts in the folder, no agent gate, never shared; ADR 0008                 |
+| Team-Session                                    | team session                      | own worktree, agent gate, shared with the team; `SessionMode`               |
+| Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Project folder", `startMode.ts`                |
+| Hook-Format (Agent-Gate)                        | hook format                       | how the gate hands hooks to one program, `HookFormat`                       |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
 | Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`  |
+| Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel   |
+| Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                            |
+| Nicht gepusht                                   | unpushed                          | on HEAD but not on the upstream; `CommitSummary.pushed`                     |
 | Anspruch (geänderte Datei einer Session)        | claim                             | `claims.rs`; path, kind of change, line ranges on the base side, area       |
 | Überschneidung                                  | overlap                           | `OverlapLevel`: same area, same file, overlapping lines                     |
 | Basis-Commit                                    | base commit                       | HEAD of the session's worktree; lines are compared on this side             |
@@ -178,3 +186,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Reservierungsversuch                            | attempt                           | `AttemptView`; this device's reservation the relay has not granted (yet)    |
 | Reservierter Bereich                            | reserved area                     | a folder a reservation covers; teammates' agents pause there (gate)         |
 | Dateibaum (rechter Bereich)                     | file tree                         | tab `files`; `FilesPanel.tsx`, `fileTree.ts`; folders listed lazily         |
+| Dateiansicht (Fenster)                          | file viewer                       | read-only window for one file; `FileViewerWindow.tsx`, `file_viewer.rs`     |
+| Dateiansicht-Thema                              | viewer theme                      | colors of the file viewer, dark and light; `viewerThemes.ts`                |
+| Änderungspfad                                   | change path                       | folders down to each changed file, marked in the tree; `onChangePath`       |

@@ -1,11 +1,11 @@
-// Status line of a session in the sidebar: what it is doing now ("working for 3 min", "waiting for
-// you", "active 5 min ago") and where it runs (folder, git branch, run time). Pure, with the time
-// passed in, so it can be tested; the sidebar samples it on a shared clock tick.
+// Status line of a session in the sidebar: who is doing what right now ("Claude Code is working",
+// "Claude Code is waiting for you") and where it runs (folder, git branch, run time).
+// Pure, with the time passed in, so it can be tested; the sidebar samples it on a shared clock tick.
 
 import type { AttentionReason, AttentionState } from "./attention";
 import { folderName } from "./folders";
-import { statusText } from "./format";
-import type { Translate } from "./i18n";
+import { PHRASES, statusPhrase, type StatusPhrase } from "./format";
+import type { MessageKey, Translate } from "./i18n";
 import type { SessionView } from "./sessions";
 
 const MINUTE = 60_000;
@@ -42,11 +42,37 @@ export function formatDuration(ms: number, language: string): string | null {
   );
 }
 
+/** Each phrase with the program as its subject, so every language can build its own sentence. */
+const AGENT_PHRASES: Record<StatusPhrase, MessageKey> = {
+  starting: "status.agent.starting",
+  working: "status.agent.working",
+  idle: "status.agent.idle",
+  attention: "status.agent.attention",
+  asks: "status.agent.asks",
+  gate: "status.agent.gate",
+  failed: "status.agent.failed",
+  exited: "status.agent.exited",
+  exitedByUser: "status.agent.exitedByUser",
+};
+
+/** The status line in its parts, so the row can keep the duration whole while the rest ellipsizes. */
+export interface StatusLine {
+  /** Short sentence without the duration: "Claude Code is working". */
+  sentence: string;
+  /** How long it has been working or resting ("3 min"); `null` below a minute and otherwise. */
+  duration: string | null;
+  /** The whole sentence for tooltips: "Claude Code has been working for 3 min". */
+  full: string;
+}
+
 /**
- * First line: the status, refined with how long it has been going on. Waiting and ended sessions
- * keep their plain status text (the exit detail lives in the tooltip).
+ * The row's status line: a short phrase ("working") plus "3 min", and for tooltips the whole
+ * sentence with the program as its subject ("Claude Code has been working for 3 min").
+ * Working and resting say for how long once that is a minute or more; waiting and ended sessions
+ * keep the plain phrase (the exit detail lives in the tooltip).
  */
 export function statusLine(
+  agent: string,
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
   attention: AttentionState,
   activity: Activity,
@@ -54,17 +80,19 @@ export function statusLine(
   t: Translate,
   language: string,
   reason: AttentionReason | null = null,
-): string {
-  const plain = statusText(session, t, attention, reason);
-  if (attention === "attention" || session.status !== "running") return plain;
-  if (attention === "working") {
-    const since = activity.workingSince;
-    const duration = since === null ? null : formatDuration(now - since, language);
-    return duration === null ? plain : t("status.workingFor", { duration });
-  }
-  const last = activity.lastOutput;
-  const ago = last === null ? null : formatDuration(now - last, language);
-  return ago === null ? plain : t("status.activeAgo", { duration: ago });
+): StatusLine {
+  const phrase = statusPhrase(session, attention, reason);
+  const since =
+    phrase === "working" ? activity.workingSince : phrase === "idle" ? activity.lastOutput : null;
+  const duration = since === null ? null : formatDuration(now - since, language);
+  // The agent group's header above the row already names the program; the row keeps it short.
+  const sentence = t(PHRASES[phrase]);
+  if (duration === null) return { sentence, duration, full: t(AGENT_PHRASES[phrase], { agent }) };
+  const full =
+    phrase === "working"
+      ? t("status.agent.workingFor", { agent, duration })
+      : t("status.agent.idleFor", { agent, duration });
+  return { sentence, duration, full };
 }
 
 export interface DetailLine {
@@ -74,7 +102,7 @@ export interface DetailLine {
   runtime: string | null;
 }
 
-/** Second line: folder name, git branch and run time. */
+/** Third line: folder name, git branch and run time. */
 export function detailLine(
   session: Pick<SessionView, "cwd" | "status" | "createdAt">,
   branch: string | null,

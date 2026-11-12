@@ -1,4 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { activityFolders } from "./activity";
+import { ActivityCalendar } from "./ActivityCalendar";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
@@ -47,15 +49,13 @@ import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
-import { activityFolders } from "./activity";
-import { ActivityCalendar } from "./ActivityCalendar";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
-import { FolderMenu } from "./FolderMenu";
 import {
   folderName,
+  forgetFolder,
   loadFolderPrefs,
   recordRecent,
   saveFolderPrefs,
@@ -70,7 +70,7 @@ import {
   type Translate,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
-import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
+import { CloseIcon, NotesIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems } from "./launcherItems";
 import type { Marker } from "./marker";
@@ -78,21 +78,24 @@ import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
-import { groupedOrder, groupPosition, sessionGroup } from "./sessionGroups";
+import { agentGroupKey, groupedOrder, groupPosition } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
-import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
+import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
 import {
   clampFontSize,
   clampNotesWidth,
   clampSidebarWidth,
   DEFAULT_LAYOUT,
   FONT_SIZE,
+  isGroupOpen,
   loadLayout,
   NOTES_WIDTH,
+  openGroup,
   placeNotes,
   saveLayout,
   SIDEBAR_RAIL_WIDTH,
+  toggleAgentGroup,
   toggleGroup,
   type Layout,
   type SideTab,
@@ -101,16 +104,18 @@ import {
 import { parseNoteFolders, type NoteFolderInfo } from "./notes";
 import {
   loadWindowPrefs,
-  NOTES_COMMAND,
-  NOTES_MESSAGE,
-  NOTES_WINDOW_LABEL,
-  parseNotesMessage,
-  saveContext,
-  saveWindowPrefs,
+  PANEL_COMMAND,
+  PANEL_CONTEXT,
+  PANEL_MESSAGE,
+  PANEL_WINDOW_LABEL,
+  panelContextPayload,
+  parsePanelMessage,
+  updateWindowPrefs,
   WINDOW_PREFS_KEY,
-  type NotesCommand,
-  type NotesWindowPrefs,
-} from "./notesBridge";
+  type PanelCommand,
+  type PanelContext,
+  type PanelWindowPrefs,
+} from "./panelBridge";
 import {
   flushNotes,
   NotesPanel,
@@ -133,14 +138,15 @@ import {
   type UpdateOutcome,
 } from "./programUpdates";
 import type { UpdateActions } from "./ProgramUpdateOffer";
+import { resolveStartTarget, runningProjects, startPlaces, worktreeChance } from "./startTarget";
 import {
-  resolveStartTarget,
-  runningProjects,
-  startPlaces,
-  targetTooltip,
-  worktreeChance,
-} from "./startTarget";
-import { WorktreeHint } from "./Sidebar";
+  effectiveMode,
+  loadStartMode,
+  saveStartMode,
+  sessionMode,
+  startModeFor,
+  type StartMode,
+} from "./startMode";
 import {
   backgroundSessions,
   initialSessions,
@@ -257,6 +263,7 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
+import type { ChangesView } from "./gitHistory";
 import { FilesPanel } from "./FilesPanel";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
@@ -413,6 +420,12 @@ export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   /** Folder chosen in the folder menu for the next start only (startTarget.ts). */
   const [chosenCwd, setChosenCwd] = useState<string | null>(null);
+  /** Private or team session for the next start, as the switch shows it (startMode.ts). */
+  const [startMode, setStartModeState] = useState<StartMode>(loadStartMode);
+  const setStartMode = useCallback((mode: StartMode) => {
+    setStartModeState(mode);
+    saveStartMode(mode);
+  }, []);
   const [home, setHome] = useState<string | null>(null);
   const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
@@ -469,13 +482,6 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
-  /** "Starts in" menu of the empty state, open at this position. */
-  const [emptyFolderMenu, setEmptyFolderMenu] = useState<{
-    x: number;
-    y: number;
-    flipAbove: number;
-  } | null>(null);
-  const emptyChangeButton = useRef<HTMLButtonElement>(null);
   /** Search bar of a session; `token` changes on every Ctrl+Shift+F to refocus the field. */
   const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
   /** Pane under files dragged from the file manager. */
@@ -538,13 +544,15 @@ export function App() {
   /** Request for the notes panel (quick note, focus, terminal output); a new token each time. */
   const [notesRequest, setNotesRequest] = useState<NotesRequest | null>(null);
   const notesTokens = useRef(0);
-  /** Goes up when the notes window changed notes: the docked panel reloads. */
+  /** Goes up when the panel window changed notes: the docked panel reloads. */
   const [notesRefresh, setNotesRefresh] = useState(0);
   const notesHandle = useRef<NotesHandle | null>(null);
-  /** Notes in their own window, kept on top; remembered per machine. */
-  const [notesWindow, setNotesWindow] = useState<NotesWindowPrefs>(loadWindowPrefs);
+  /** The right panel in its own window, kept on top; remembered per machine (ADR 0007). */
+  const [panelWindow, setPanelWindow] = useState<PanelWindowPrefs>(loadWindowPrefs);
   /** Changes tab of the right panel (Ctrl+Shift+D): focus on opening. */
   const [changesFocusToken, setChangesFocusToken] = useState(0);
+  /** Uncommitted changes or commits; kept for this window while the tab is closed. */
+  const [changesView, setChangesView] = useState<ChangesView>("open");
   const [filesFocusToken, setFilesFocusToken] = useState(0);
   /** Short confirmation after Ctrl+Shift+T: which program starts where. */
   const [startHint, setStartHint] = useState<string | null>(null);
@@ -810,6 +818,11 @@ export function App() {
   }, [settings.looks, theme]);
 
   useEffect(() => {
+    // How the working dots move (styles.css, `:root[data-dots]`).
+    document.documentElement.dataset.dots = settings.dotAnimation;
+  }, [settings.dotAnimation]);
+
+  useEffect(() => {
     for (const terminal of terminals.values()) terminal.attention.setConfig(attentionConfig);
   }, [attentionConfig]);
 
@@ -1066,10 +1079,11 @@ export function App() {
         .map((session) => ({ id: session.id, title: session.title })),
     [state.sessions],
   );
-  // Detached: the button and menu bring the notes window to the front, they hide nothing.
-  const notesShown = !notesWindow.detached && layout.sideOpen && layout.sideTab === "notes";
-  const changesShown = layout.sideOpen && layout.sideTab === "changes";
-  const filesShown = layout.sideOpen && layout.sideTab === "files";
+  // Detached: the buttons and menu bring the panel window to the front, they hide nothing.
+  const sideShown = layout.sideOpen && !panelWindow.detached;
+  const notesShown = sideShown && layout.sideTab === "notes";
+  const changesShown = sideShown && layout.sideTab === "changes";
+  const filesShown = sideShown && layout.sideTab === "files";
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
@@ -1193,7 +1207,11 @@ export function App() {
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
     subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
-  const subAgentTreeShown = !layout.collapsed && !layout.closedGroups.includes("sessions");
+  // The tree hangs below the active row; a folded program group hides that row, and the tree too.
+  const subAgentTreeShown =
+    !layout.collapsed &&
+    activeSession !== undefined &&
+    !layout.closedAgentGroups.includes(agentGroupKey(activeSession));
   const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
   const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
   const subAgentKey = useSubAgentWatch(
@@ -1484,15 +1502,18 @@ export function App() {
   }, []);
 
   /**
-   * `folder`: start there instead of the start target (quick access). `ownWorktree`: first a
-   * git worktree with a branch of its own is created from that folder, and the session runs in it.
-   * A start in the target uses up a chosen folder: the next one follows the active session again.
+   * `folder`: start there instead of the start target (quick access). `mode` "team": first a git
+   * worktree with a branch of its own is created from that folder, and the session runs in it with
+   * the agent gate (ADR 0008). A start in the target uses up a chosen folder: the next one follows
+   * the active session again.
    */
   const start = useCallback(
-    async (profile: Profile, folder?: string, ownWorktree = false) => {
+    async (profile: Profile, folder?: string, mode: StartMode = "private") => {
       const base = folder ?? targetRef.current;
       let worktree: Worktree | undefined;
-      if (ownWorktree && base !== null) {
+      // A team session needs its worktree; without a folder there is none to make.
+      if (mode === "team" && base === null) return;
+      if (mode === "team" && base !== null) {
         setCreatingWorktree(true);
         try {
           const made = parseWorktree(await api.createWorktree(base, worktreeLabel(profile.name)));
@@ -1518,6 +1539,9 @@ export function App() {
           worktree?.path ?? base,
           INITIAL_SIZE,
           terminal.createChannel(),
+          false,
+          null,
+          worktree === undefined ? "private" : "team",
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1685,6 +1709,10 @@ export function App() {
           createdAt: Date.now(),
           // Kept, so the next save does not lose it and "Restart" resumes this conversation.
           cliSessionId: saved.cliSessionId,
+          mode: sessionMode(
+            saved,
+            profilesRef.current.find((p) => p.id === saved.profileId),
+          ),
         },
       });
       return id;
@@ -1738,6 +1766,9 @@ export function App() {
           terminal.createChannel(),
           true,
           saved.cliSessionId,
+          // Worktree sessions of older workspaces come back as team sessions where the program
+          // can be one.
+          sessionMode(saved, profile),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1790,6 +1821,10 @@ export function App() {
             terminal.createChannel(),
             true,
             session.cliSessionId ?? null,
+            sessionMode(
+              session,
+              profilesRef.current.find((p) => p.id === session.profileId),
+            ),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -1994,16 +2029,16 @@ export function App() {
 
   /** Save everything that would be lost on quit; waits at most QUIT_SAVE_TIMEOUT_MS. */
   const persistAll = useCallback(async () => {
-    // The notes window saves its pending input too and says so (or the timeout ends the wait).
+    // The panel window saves its pending input too and says so (or the timeout ends the wait).
     // A window that is gone (crash) cannot answer, so the quit does not wait for it.
-    const notesWindowSaved = loadWindowPrefs().detached
-      ? Window.getByLabel(NOTES_WINDOW_LABEL)
+    const panelWindowSaved = loadWindowPrefs().detached
+      ? Window.getByLabel(PANEL_WINDOW_LABEL)
           .then((found) =>
             found === null
               ? undefined
               : new Promise<void>((resolve) => {
                   notesSavedRef.current = resolve;
-                  emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "flush" }).catch(() => {
+                  emitTo(PANEL_WINDOW_LABEL, PANEL_COMMAND, { kind: "flush" }).catch(() => {
                     resolve();
                   });
                 }),
@@ -2011,7 +2046,7 @@ export function App() {
           .catch(() => undefined)
       : Promise.resolve();
     const work = Promise.all([
-      notesWindowSaved,
+      panelWindowSaved,
       flushNotes().catch(() => undefined),
       saveWorkspaceNow().catch(() => undefined),
       saveScrollbacks(true).catch(() => undefined),
@@ -2220,12 +2255,14 @@ export function App() {
   }, [updateResult]);
 
   /** After an update session: a calm notice with the outcome, and fresh versions. */
-  /** Notes window events: the current handlers, for the listener attached once below. */
+  /** Panel window events: the current handlers, for the listener attached once below. */
   const notesChangedRef = useRef<() => void>(() => undefined);
+  /** The panel window loaded: it gets the context now. */
+  const panelReadyRef = useRef<() => void>(() => undefined);
   const sendFromNotesRef = useRef<(text: string, sessionId: number | null) => void>(
     () => undefined,
   );
-  /** Resolves the wait on quit once the notes window reports that it saved. */
+  /** Resolves the wait on quit once the panel window reports that it saved. */
   const notesSavedRef = useRef<(() => void) | null>(null);
   const updateResultRef = useRef<(outcome: UpdateOutcome) => void>(() => undefined);
   useEffect(() => {
@@ -2257,15 +2294,20 @@ export function App() {
       listen(TRAY_QUIT, () => void quitRef.current())
         .then(keep)
         .catch(() => undefined);
-      listen(NOTES_MESSAGE, (event) => {
-        // Checked by the backend (notes_to_main) and here again before anything happens.
-        const message = parseNotesMessage(event.payload);
+      listen(PANEL_MESSAGE, (event) => {
+        // Checked by the backend (panel_to_main) and here again before anything happens.
+        const message = parsePanelMessage(event.payload);
         if (message?.kind === "sendToTerminal") {
           sendFromNotesRef.current(message.text, message.sessionId);
         } else if (message?.kind === "notesChanged") {
           notesSavedRef.current?.();
           notesSavedRef.current = null;
           notesChangedRef.current();
+        } else if (message?.kind === "showSession") {
+          // The backend has already brought this window to the front.
+          activateRef.current(message.sessionId);
+        } else if (message?.kind === "ready") {
+          panelReadyRef.current();
         }
       })
         .then(keep)
@@ -2358,39 +2400,99 @@ export function App() {
     };
   });
 
-  /** Notes changed here: the notes window reloads too. */
+  /** Notes changed here: the panel window reloads too. */
   const notesChangedHere = useCallback(() => {
     refreshNoteFolders();
     if (loadWindowPrefs().detached) {
-      emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "refresh" }).catch(() => undefined);
+      emitTo(PANEL_WINDOW_LABEL, PANEL_COMMAND, { kind: "refresh" }).catch(() => undefined);
     }
   }, [refreshNoteFolders]);
 
-  // The notes window reads the sessions from here: "This project" and "Send to …".
+  // What the detached panel shows, computed here: this window stays the single source of truth.
   const activeCwd = activeSession?.cwd ?? null;
+  const panelTrigger = activeSession ? (attention.get(activeSession.id) ?? "idle") : "none";
+  const panelSessions = useMemo(
+    () =>
+      state.sessions.map((session) => ({
+        id: session.id,
+        title: session.title,
+        running: session.status !== "exited",
+      })),
+    [state.sessions],
+  );
+  /** The last payload sent, as JSON: an unchanged context is not sent again. */
+  const panelSent = useRef("");
+  const pushPanelContext = useCallback((context: PanelContext, force: boolean) => {
+    const payload = panelContextPayload(context);
+    const text = JSON.stringify(payload);
+    if (!force && text === panelSent.current) return;
+    panelSent.current = text;
+    emitTo(PANEL_WINDOW_LABEL, PANEL_CONTEXT, payload).catch(() => undefined);
+  }, []);
+  const teamActivities = teamStore.activities;
   useEffect(() => {
-    saveContext({
-      sessionFolder: activeCwd,
-      activeId: state.activeId,
-      sessions: sendTargets,
-    });
-  }, [activeCwd, state.activeId, sendTargets]);
+    if (!panelWindow.detached) return;
+    pushPanelContext(
+      {
+        activeId: state.activeId,
+        cwd: activeCwd,
+        trigger: panelTrigger,
+        sessions: panelSessions,
+        claims,
+        activities: teamActivities,
+      },
+      false,
+    );
+  }, [
+    panelWindow.detached,
+    state.activeId,
+    activeCwd,
+    panelTrigger,
+    panelSessions,
+    claims,
+    teamActivities,
+    pushPanelContext,
+  ]);
+  useEffect(() => {
+    panelReadyRef.current = () => {
+      pushPanelContext(
+        {
+          activeId: state.activeId,
+          cwd: activeCwd,
+          trigger: panelTrigger,
+          sessions: panelSessions,
+          claims,
+          activities: teamActivities,
+        },
+        true,
+      );
+    };
+  });
 
-  // Closing the notes window (its own close button) brings the notes back here.
+  /** New prefs from the panel window; it closed: the panel is docked here again, same tab. */
+  const panelWindowRef = useRef(panelWindow);
+  useEffect(() => {
+    panelWindowRef.current = panelWindow;
+  });
+  const adoptPanelPrefs = useCallback((next: PanelWindowPrefs) => {
+    if (panelWindowRef.current.detached && !next.detached) {
+      setLayout((current) => ({ ...current, sideOpen: true, sideTab: next.tab }));
+    }
+    panelWindowRef.current = next;
+    setPanelWindow(next);
+  }, []);
+
+  // Closing the panel window (its own close or dock button) brings the panel back here.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === WINDOW_PREFS_KEY) setNotesWindow(loadWindowPrefs());
+      if (event.key === WINDOW_PREFS_KEY) adoptPanelPrefs(loadWindowPrefs());
     };
-    // A window that closed without telling (crash): the notes are docked again.
+    // A window that closed without telling (crash): the panel is docked again.
     const onFocus = () => {
       if (!loadWindowPrefs().detached) return;
-      Window.getByLabel(NOTES_WINDOW_LABEL)
+      Window.getByLabel(PANEL_WINDOW_LABEL)
         .then((found) => {
-          if (found === null) {
-            const next = { ...loadWindowPrefs(), detached: false };
-            saveWindowPrefs(next);
-            setNotesWindow(next);
-          }
+          if (found === null) adoptPanelPrefs(updateWindowPrefs({ detached: false }));
         })
         .catch(() => undefined);
     };
@@ -2400,12 +2502,12 @@ export function App() {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [adoptPanelPrefs]);
 
-  // Detached last time: the notes window comes back with the app.
+  // Detached last time: the panel window comes back with the app.
   useEffect(() => {
     const prefs = loadWindowPrefs();
-    if (prefs.detached) api.openNotesWindow(prefs.onTop).catch(() => undefined);
+    if (prefs.detached) api.openPanelWindow(prefs.onTop, prefs.bounds).catch(() => undefined);
   }, []);
 
   /** A folder from the menu or the dialog: it applies to the next start (startTarget.ts). */
@@ -2441,11 +2543,12 @@ export function App() {
     setNotesRequest(make(notesTokens.current));
   };
 
-  /** Command for the detached notes window; the window opens (or comes to the front) first. */
-  const toNotesWindow = (command: NotesCommand | null) => {
+  /** Command for the detached panel window; the window opens (or comes to the front) first. */
+  const toPanelWindow = (command: PanelCommand | null) => {
+    const prefs = loadWindowPrefs();
     api
-      .openNotesWindow(notesWindow.onTop)
-      .then(() => (command ? emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, command) : undefined))
+      .openPanelWindow(prefs.onTop, prefs.bounds)
+      .then(() => (command ? emitTo(PANEL_WINDOW_LABEL, PANEL_COMMAND, command) : undefined))
       .catch(showError);
   };
 
@@ -2472,8 +2575,8 @@ export function App() {
    * them and the terminal gets the focus back.
    */
   const quickNote = () => {
-    if (notesWindow.detached) {
-      toNotesWindow({ kind: "quickNote" });
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "quickNote" });
       return;
     }
     if (layout.sideOpen && focusInNotes()) {
@@ -2486,8 +2589,8 @@ export function App() {
 
   /** Show or hide the notes (menu, sidebar button): opening focuses the list or open note. */
   const toggleNotes = () => {
-    if (notesWindow.detached) {
-      toNotesWindow(null);
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "show", tab: "notes" });
       return;
     }
     if (layout.sideOpen && layout.sideTab === "notes") {
@@ -2499,6 +2602,10 @@ export function App() {
   };
 
   const toggleChanges = () => {
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "show", tab: "changes" });
+      return;
+    }
     if (layout.sideOpen && layout.sideTab === "changes") {
       closeSide();
       return;
@@ -2509,6 +2616,10 @@ export function App() {
 
   /** The folder button on the active session row: its file tree in the right panel, or away. */
   const toggleFiles = () => {
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "show", tab: "files" });
+      return;
+    }
     if (filesShown) {
       closeSide();
       return;
@@ -2519,34 +2630,27 @@ export function App() {
 
   /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
-    if (notesWindow.detached) {
-      toNotesWindow(null);
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "show", tab: "notes" });
       return;
     }
     openSide("notes");
     askNotes((token) => ({ token, kind: "openFolder", folder }));
   };
 
-  const updateNotesWindow = (next: NotesWindowPrefs) => {
-    setNotesWindow(next);
-    saveWindowPrefs(next);
-  };
-
-  /** "Open in own window": the notes move into a window of their own. */
-  const detachNotes = () => {
+  /**
+   * "Open in own window": the whole right panel moves into a window of its own, on the same tab;
+   * the terminal gets the space. Pending note input is saved first, the window reads it again.
+   */
+  const detachPanel = () => {
+    const tab = layout.sideTab;
     void flushNotes().then(() => {
-      updateNotesWindow({ ...notesWindow, detached: true });
+      setPanelWindow(updateWindowPrefs({ detached: true, tab }));
       setLayout((current) => ({ ...current, sideOpen: false }));
-      toNotesWindow(null);
+      panelSent.current = "";
+      toPanelWindow({ kind: "show", tab });
+      focusTerminal();
     });
-  };
-
-  /** "Bring back": the notes window closes, the notes are in the right panel again. */
-  const bringBackNotes = () => {
-    updateNotesWindow({ ...notesWindow, detached: false });
-    emitTo(NOTES_WINDOW_LABEL, NOTES_COMMAND, { kind: "close" }).catch(() => undefined);
-    openSide("notes");
-    askNotes((token) => ({ token, kind: "focus" }));
   };
 
   /** Text from a note into a session, as pasted (bracketed paste, no Enter); that session shows. */
@@ -2569,8 +2673,8 @@ export function App() {
     const text = terminal?.selectionText() ?? "";
     if (text.trim() === "") return;
     const source = activeSession?.title ?? "";
-    if (notesWindow.detached) {
-      toNotesWindow({ kind: "capture", text, source });
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "capture", text, source });
       return;
     }
     openSide("notes");
@@ -2583,7 +2687,7 @@ export function App() {
    */
   const cycleFocus = (step: 1 | -1, fromTerminal: boolean): boolean => {
     const panel = notesHandle.current;
-    if (!layout.sideOpen || layout.sideTab !== "notes" || notesWindow.detached || !panel) {
+    if (!layout.sideOpen || layout.sideTab !== "notes" || panelWindow.detached || !panel) {
       return false;
     }
     const zones = ["terminal" as const, ...panel.zones()];
@@ -2659,7 +2763,7 @@ export function App() {
     setSettings((current) => ({ ...current, ...patch }));
   };
 
-  /** Toggle in the sidebar; if the setting is System, it becomes a fixed choice. */
+  /** Light and dark switch (sidebar footer, menu); if the setting is System, it becomes a fixed choice. */
   const toggleTheme = () => {
     updateSettings({ theme: toggledTheme(theme) });
   };
@@ -2769,9 +2873,14 @@ export function App() {
     branchPaths([...state.sessions, ...places.map((path) => ({ cwd: path }))]),
   );
   const worktree = worktreeChance(branches, targetPath);
-  /** Start in the target; `ownWorktree` only where git allows it. */
-  const startHere = (profile: Profile, ownWorktree = false) => {
-    void start(profile, undefined, ownWorktree && worktree === "yes");
+  /** The mode of the next start in the target: team only where a worktree is possible. */
+  const nextMode = effectiveMode(startMode, worktree);
+  /**
+   * Start in the target as the switch says. The sidebar greys out programs that cannot be team
+   * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
+   */
+  const startHere = (profile: Profile) => {
+    void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
@@ -2798,12 +2907,8 @@ export function App() {
       if (runningPrograms.has(profileId) && !updatingPrograms.has(profileId)) {
         setConfirmUpdate(profileId);
         setLayout((current) =>
-          current.collapsed || current.closedGroups.includes("newSession")
-            ? {
-                ...current,
-                collapsed: false,
-                closedGroups: current.closedGroups.filter((group) => group !== "newSession"),
-              }
+          current.collapsed || !isGroupOpen(current, "newSession")
+            ? { ...openGroup(current, "newSession"), collapsed: false }
             : current,
         );
         return;
@@ -2923,7 +3028,7 @@ export function App() {
     cycleFocusRef.current = cycleFocus;
   });
   // Same condition as cycleFocus: while it holds, F6 in a terminal is for the app alone.
-  const notesDocked = layout.sideOpen && layout.sideTab === "notes" && !notesWindow.detached;
+  const notesDocked = notesShown;
   useEffect(() => {
     setFocusCycleActive(notesDocked);
   }, [notesDocked]);
@@ -3292,7 +3397,6 @@ export function App() {
   const runningOrphans = orphans.filter((session) => session.status !== "exited").length;
   const closingSession =
     closingId === null ? undefined : state.sessions.find((s) => s.id === closingId);
-  const quick = quickPrograms(startable);
   const searchTerminal = search === null ? undefined : terminals.get(search.sessionId);
   const terminalItems: PopupItem[] = [
     {
@@ -3432,7 +3536,7 @@ export function App() {
         focusTerminal();
       },
       start: (profile, folder) => void start(profile, folder),
-      startInWorktree: (profile, folder) => void start(profile, folder, true),
+      startAsTeam: (profile, folder) => void start(profile, folder, "team"),
       toggleChanges,
       openNotes,
       insertSnippet,
@@ -3479,23 +3583,31 @@ export function App() {
           badgeFor={badgeFor}
           versions={programs.versions}
           updates={programUpdates.updates}
-          notesOpen={notesShown}
-          onToggleNotes={toggleNotes}
+          sideTab={notesShown ? "notes" : changesShown ? "changes" : filesShown ? "files" : null}
+          onToggleSideTab={(tab) => {
+            if (tab === "notes") toggleNotes();
+            else if (tab === "changes") toggleChanges();
+            else toggleFiles();
+          }}
           filesOpen={filesShown}
           onToggleFiles={toggleFiles}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
           }}
+          closedAgentGroups={layout.closedAgentGroups}
+          onToggleAgentGroup={(key: string) => {
+            setLayout((current) => toggleAgentGroup(current, key));
+          }}
           onFocusTerminal={focusTerminal}
           version={version}
-          themeSetting={settings.theme}
-          onSetTheme={(next) => {
-            updateSettings({ theme: next });
-          }}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           target={target}
           runningProjects={running}
           worktree={worktree}
+          startMode={startMode}
+          onStartMode={setStartMode}
           collapsed={layout.collapsed}
           width={layout.sidebarWidth}
           footerHeight={layout.footerHeight}
@@ -3542,6 +3654,9 @@ export function App() {
           onToggleFavorite={(path) => {
             setFolders((current) => toggleFavorite(current, path));
           }}
+          onForgetFolder={(path) => {
+            setFolders((current) => forgetFolder(current, path));
+          }}
           onRestart={(id) => {
             void restart(id);
           }}
@@ -3566,7 +3681,7 @@ export function App() {
                           sessionDragView.target.index,
                           (id) => {
                             const session = state.sessions.find((s) => s.id === id);
-                            return session ? sessionGroup(session) : "";
+                            return session ? agentGroupKey(session) : "";
                           },
                         )
                       : null,
@@ -3593,6 +3708,7 @@ export function App() {
             void persistAll().then(() => updater.install(update));
           }}
           onDismissUpdate={updater.dismiss}
+          restoresSessions={settings.restoreSessions}
           teamOpen={teamOpen}
           onToggleTeam={() => {
             if (teamOpen) closeTeam();
@@ -3647,7 +3763,11 @@ export function App() {
             </div>
           )}
           <div
-            className={notesPlacement.mode === "overlay" ? "workspace notes-overlaid" : "workspace"}
+            className={
+              sideShown && notesPlacement.mode === "overlay"
+                ? "workspace notes-overlaid"
+                : "workspace"
+            }
           >
             <div className={state.sessions.length > 0 ? "panes filled" : "panes"} data-panes="">
               {state.sessions.map((session) => {
@@ -3807,93 +3927,7 @@ export function App() {
               )}
               {state.sessions.length === 0 && (
                 <div className="empty">
-                  <h1>{t("empty.title")}</h1>
                   <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
-                  {quick.length > 0 && (
-                    <ul className="empty-programs" aria-label={t("empty.programs")}>
-                      {quick.map((profile) => {
-                        const programVersion = programs.versions.get(profile.id);
-                        return (
-                          <li key={profile.id}>
-                            <button
-                              type="button"
-                              className="empty-program"
-                              title={[profile.command, ...profile.args].join(" ")}
-                              onClick={(event) => {
-                                startHere(profile, event.shiftKey);
-                              }}
-                            >
-                              <Badge look={badgeFor(profile.id)} />
-                              <span className="empty-program-name">{profile.name}</span>
-                              {programVersion && (
-                                <span className="empty-program-version">{programVersion}</span>
-                              )}
-                            </button>
-                            {worktree === "yes" && (
-                              <button
-                                type="button"
-                                className="link-button empty-worktree"
-                                aria-label={t("start.withWorktree", { name: profile.name })}
-                                title={t("start.withWorktree", { name: profile.name })}
-                                onClick={() => {
-                                  startHere(profile, true);
-                                }}
-                              >
-                                {t("start.worktreeButton")}
-                              </button>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  <p className={target.source === "chosen" ? "empty-cwd chosen" : "empty-cwd"}>
-                    <FolderIcon />
-                    <span className="empty-cwd-path" title={targetTooltip(target, t)}>
-                      {target.source === "chosen" ? t("start.nextIn") : t("sidebar.startsIn")}{" "}
-                      <strong className="empty-cwd-name">
-                        {targetPath === null ? "…" : folderName(targetPath)}
-                      </strong>
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      ref={emptyChangeButton}
-                      type="button"
-                      className="link-button empty-change"
-                      aria-label={t("empty.changeLabel")}
-                      aria-haspopup="menu"
-                      aria-expanded={emptyFolderMenu !== null}
-                      onClick={(event) => {
-                        if (emptyFolderMenu !== null) {
-                          setEmptyFolderMenu(null);
-                          return;
-                        }
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setEmptyFolderMenu({
-                          x: rect.left,
-                          y: rect.bottom + 4,
-                          flipAbove: rect.top - 4,
-                        });
-                      }}
-                    >
-                      {t("empty.change")}
-                    </button>
-                    {target.source === "chosen" && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <button
-                          type="button"
-                          className="link-button empty-change"
-                          onClick={() => {
-                            setChosenCwd(null);
-                          }}
-                        >
-                          {t("start.reset")}
-                        </button>
-                      </>
-                    )}
-                  </p>
-                  <WorktreeHint chance={worktree} />
                   <ActivityCalendar
                     folders={activityFolders(
                       folders.favorites,
@@ -3921,7 +3955,7 @@ export function App() {
                 </div>
               )}
             </div>
-            {layout.sideOpen && notesPlacement.mode === "docked" && (
+            {sideShown && notesPlacement.mode === "docked" && (
               <Splitter
                 orientation="vertical"
                 className="notes-edge"
@@ -3939,7 +3973,7 @@ export function App() {
                 }}
               />
             )}
-            {layout.sideOpen && (
+            {sideShown && (
               <SidePanel
                 tab={layout.sideTab}
                 onTab={(tab) => {
@@ -3949,47 +3983,26 @@ export function App() {
                 }}
                 mode={notesPlacement.mode}
                 width={notesPlacement.width}
-                detached={notesWindow.detached}
-                onDetach={detachNotes}
+                onDetach={detachPanel}
                 onClose={closeSide}
                 onEscape={focusTerminal}
                 notes={
-                  notesWindow.detached ? (
-                    <div className="notes-detached">
-                      <p>{t("notes.detached")}</p>
-                      <div className="link-actions">
-                        <button type="button" className="primary-button" onClick={bringBackNotes}>
-                          {t("notes.bringBack")}
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => {
-                            toNotesWindow(null);
-                          }}
-                        >
-                          {t("notes.showWindow")}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <NotesPanel
-                      language={settings.language}
-                      sessionFolder={sessionFolder}
-                      folders={noteFolders}
-                      sessions={sendTargets}
-                      activeSessionId={state.activeId}
-                      request={notesRequest}
-                      refreshToken={notesRefresh}
-                      handle={notesHandle}
-                      onSend={sendFromNotes}
-                      onChanged={notesChangedHere}
-                      onEscape={() => {
-                        if (notesPlacement.mode === "overlay") closeSide();
-                        else focusTerminal();
-                      }}
-                    />
-                  )
+                  <NotesPanel
+                    language={settings.language}
+                    sessionFolder={sessionFolder}
+                    folders={noteFolders}
+                    sessions={sendTargets}
+                    activeSessionId={state.activeId}
+                    request={notesRequest}
+                    refreshToken={notesRefresh}
+                    handle={notesHandle}
+                    onSend={sendFromNotes}
+                    onChanged={notesChangedHere}
+                    onEscape={() => {
+                      if (notesPlacement.mode === "overlay") closeSide();
+                      else focusTerminal();
+                    }}
+                  />
                 }
                 changes={
                   <ChangesPanel
@@ -4009,6 +4022,9 @@ export function App() {
                     cwd={activeSession?.cwd ?? null}
                     trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
                     focusToken={changesFocusToken}
+                    view={changesView}
+                    onView={setChangesView}
+                    language={settings.language}
                   />
                 }
                 files={
@@ -4020,6 +4036,10 @@ export function App() {
                     activities={teamStore.activities}
                     nameOf={sessionName}
                     focusToken={filesFocusToken}
+                    onMention={(text) => {
+                      sendFromNotes(text, null);
+                      focusTerminal();
+                    }}
                   />
                 }
               />
@@ -4252,28 +4272,6 @@ export function App() {
             )}
           </div>
         </main>
-        {emptyFolderMenu !== null && (
-          <FolderMenu
-            target={targetPath}
-            running={running}
-            folders={folders}
-            position={emptyFolderMenu}
-            flipAbove={emptyFolderMenu.flipAbove}
-            anchor={emptyChangeButton}
-            onSelect={selectCwd}
-            onChoose={() => void pickCwd()}
-            onToggleFavorite={(path) => {
-              setFolders((current) => toggleFavorite(current, path));
-            }}
-            onClose={(reason) => {
-              setEmptyFolderMenu(null);
-              // No terminal to return to: the keyboard stays at the button.
-              if (reason === "dismiss" || state.sessions.length === 0) {
-                emptyChangeButton.current?.focus();
-              }
-            }}
-          />
-        )}
         {terminalMenu !== null && (
           <PopupMenu
             items={terminalItems}

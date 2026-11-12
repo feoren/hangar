@@ -45,6 +45,22 @@ describe("lookVariables", () => {
     expect(custom["--look-working-seconds"]).toBe("1s");
   });
 
+  it("keeps the theme's red for an error until a color is chosen", () => {
+    const vars = lookVariables(DEFAULT_LOOKS, "light");
+    expect(vars["--look-failed-color"]).toBe("var(--error)");
+    expect(vars["--look-failed-strong"]).toBe("var(--error)");
+    // Red text needs the darker shade in the light theme.
+    expect(vars["--look-failed-text"]).toBe("var(--chip-failed-fg)");
+    expect(vars["--look-failed-pulse"]).toBe("row-breathe");
+    const custom = lookVariables(
+      { ...DEFAULT_LOOKS, failed: { color: "#f0b429", pulse: "off", seconds: 2.8 } },
+      "dark",
+    );
+    expect(custom["--look-failed-strong"]).toBe(attentionEdges("#f0b429", "dark").strong);
+    expect(custom["--look-failed-text"]).toBe(attentionEdges("#f0b429", "dark").text);
+    expect(custom["--look-failed-pulse"]).toBe("none");
+  });
+
   it("defines every variable for every state", () => {
     const vars = lookVariables(DEFAULT_LOOKS, "dark");
     for (const state of LOOK_STATES) {

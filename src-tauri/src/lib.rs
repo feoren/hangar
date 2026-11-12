@@ -17,19 +17,21 @@ pub mod exe_image;
 pub mod exec_alias;
 pub mod export;
 pub mod file_tree;
+pub mod file_viewer;
 pub mod filecache;
 pub mod gate;
 pub mod gate_service;
 pub mod git;
 pub mod git_activity;
+pub mod git_history;
 pub mod hook_http;
 pub mod icon;
 pub mod install_source;
 pub mod manager;
 pub mod notes;
-pub mod notes_window;
 pub mod notify;
 pub mod output;
+pub mod panel_window;
 pub mod paste_image;
 pub mod persist;
 pub mod proctree;
@@ -110,7 +112,7 @@ pub fn run() -> tauri::Result<()> {
                 )),
                 std::sync::Arc::new(|url: &reqwest::Url| desktop::open_url(url)),
                 std::sync::Arc::new(move |view: &account::AccountView| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, account::EVENT, view);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, view);
                 }),
                 account_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -126,7 +128,7 @@ pub fn run() -> tauri::Result<()> {
                     .clone(),
                 std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
                 std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, team::EVENT, snapshot);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, snapshot);
                 }),
                 team_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -175,6 +177,7 @@ pub fn run() -> tauri::Result<()> {
             app.manage(paste_image::PasteGate::default());
             app.manage(ProbeCaches::default());
             app.manage(file_tree::FileTree::default());
+            app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
             app.manage(subagents::Watchers::default());
             // Context meter of the sessions' rows: one thread for all sessions, numbers only.
@@ -185,7 +188,7 @@ pub fn run() -> tauri::Result<()> {
                 move || sessions.state::<SessionManager>().context_targets(),
                 move |snapshot| {
                     let _ =
-                        events.emit_to(notes_window::MAIN_LABEL, context_usage::EVENT, snapshot);
+                        events.emit_to(panel_window::MAIN_LABEL, context_usage::EVENT, snapshot);
                 },
             );
             if let Err(error) = started {
@@ -217,7 +220,7 @@ pub fn run() -> tauri::Result<()> {
                 move || claims_service::watched_sessions(&sessions.state::<SessionManager>()),
                 move |snapshot| {
                     let _ =
-                        events.emit_to(notes_window::MAIN_LABEL, claims_service::EVENT, snapshot);
+                        events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, snapshot);
                 },
             );
             if let Err(error) = started {
@@ -245,7 +248,7 @@ pub fn run() -> tauri::Result<()> {
                         .collect()
                 },
                 move |snapshot| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, gate_service::EVENT, snapshot);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, snapshot);
                 },
             );
             app.state::<SessionManager>()
@@ -277,15 +280,8 @@ pub fn run() -> tauri::Result<()> {
                         .into_iter()
                         .map(|profile| (profile.id, profile.name))
                         .collect();
-                    let labels = manager
-                        .list()
-                        .into_iter()
-                        .map(|info| team_share::SessionLabel {
-                            agent: names.get(&info.profile_id).cloned().unwrap_or_default(),
-                            id: info.id,
-                            title: info.title,
-                        })
-                        .collect();
+                    // Private sessions stay off the team (ADR 0008).
+                    let labels = team_share::team_labels(manager.list(), &names);
                     (worktrees, labels)
                 });
             let refresh = app.handle().clone();
@@ -340,16 +336,21 @@ pub fn run() -> tauri::Result<()> {
             commands::shared_notes_unlock,
             commands::shared_notes_copy_code,
             commands::shared_notes_cancel,
-            commands::open_notes_window,
-            commands::set_notes_on_top,
-            commands::notes_to_main,
+            commands::open_panel_window,
+            commands::set_panel_on_top,
+            commands::panel_to_main,
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,
             commands::git_branches,
             commands::git_diff,
             commands::git_activity,
+            commands::git_log,
+            commands::git_commit_diff,
             commands::list_session_folder,
+            commands::reveal_session_folder,
+            commands::open_file_viewer,
+            commands::file_viewer_content,
             commands::create_worktree,
             commands::remove_worktree,
             commands::configure_claims,

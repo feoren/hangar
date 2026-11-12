@@ -40,13 +40,16 @@
 #                    read-only; only "claude" so far (docs/wiki/pages/sources/subagent-transcripts.md).
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
-#                    default: { pre_edit_block, context_inject, per_session_config }.
+#                    default: { pre_edit_block, context_inject, per_session_config,
+#                    hook_format }.
 #                    pre_edit_block: a hook can stop an edit before it happens; context_inject: a
 #                    hook can hand the agent facts as context; per_session_config: hooks can be
-#                    given to one session without touching the user's settings files. Hangar
-#                    installs its gate only where pre_edit_block and per_session_config are true,
-#                    and only in the format of Claude Code's `--settings` (the one format built so
-#                    far). A user profile with the same id and program inherits them.
+#                    given to one session without touching the user's settings files;
+#                    hook_format: how Hangar writes its hooks for one session, "claude_settings"
+#                    (Claude Code's `--settings`) is the one format built so far. Hangar
+#                    installs its gate, and lists the program for team sessions, only where
+#                    pre_edit_block and per_session_config are true and hook_format is set.
+#                    A user profile with the same id and program inherits them.
 #   latest           Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
@@ -92,7 +95,7 @@ session_id_args = ["--session-id", "{id}"]
 resume_id_args = ["--resume", "{id}"]
 sub_agents = "claude"
 # Measured with Claude Code 2.1.319: docs/wiki/pages/sources/claude-http-hook-measurement.md.
-capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true }
+capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "claude_settings" }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"

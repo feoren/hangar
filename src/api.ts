@@ -7,7 +7,7 @@ import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
-import type { NotesMessage } from "./notesBridge";
+import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -41,6 +41,11 @@ export interface Profile {
   env?: string[];
   /** Names of the variables whose values live in the OS keychain. */
   secretEnv?: string[];
+  /**
+   * Can run as a team session (startMode.ts): the catalog says the agent gate can be installed
+   * for it. Older backends send none.
+   */
+  teamCapable?: boolean;
 }
 
 /** What Settings saves with `saveProfile` (Rust: `ProfileInput` in profile_edit.rs). */
@@ -85,7 +90,15 @@ export interface SessionInfo {
   subAgents?: boolean;
   /** Whether the gate (gate.ts) watches the current process; older backends send none. */
   gate?: GateStatus;
+  /** Private or team session (ADR 0008); older backends send none. */
+  mode?: SessionMode;
 }
+
+/**
+ * Rust `SessionMode`: a private session has no agent gate and stays off the team; a team session
+ * runs in its own worktree with the gate and is visible to the team (startMode.ts).
+ */
+export type SessionMode = "private" | "team";
 
 /**
  * Rust `GateStatus`: "none" (not for this program, gate off, update session), "active", or why a
@@ -143,8 +156,17 @@ export const api = {
     onEvent: Channel<SessionEvent>,
     resume = false,
     cliSessionId: string | null = null,
+    mode: SessionMode = "private",
   ) =>
-    invoke<SessionInfo>("create_session", { profileId, cwd, size, onEvent, resume, cliSessionId }),
+    invoke<SessionInfo>("create_session", {
+      profileId,
+      cwd,
+      size,
+      onEvent,
+      resume,
+      cliSessionId,
+      mode,
+    }),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
    * its update plan; useful only when `ProgramUpdate.plan` is "run". `expectedPlan` is the
@@ -270,12 +292,16 @@ export const api = {
   /** Check with `parseUnlock`. */
   sharedNotesUnlock: (folder: NoteFolder, code: string, label: string, untitled: string) =>
     invoke<unknown>("shared_notes_unlock", { folder, code, label, untitled }),
-  /** Main window only: opens the notes window or brings it to the front. */
-  openNotesWindow: (alwaysOnTop: boolean) => invoke<null>("open_notes_window", { alwaysOnTop }),
-  /** Notes window only: keeps itself above other windows or not. */
-  setNotesOnTop: (onTop: boolean) => invoke<null>("set_notes_on_top", { onTop }),
-  /** Notes window only: the one way to ask something of the main window (notesBridge.ts). */
-  notesToMain: (message: NotesMessage) => invoke<null>("notes_to_main", { message }),
+  /**
+   * Main window only: opens the detached side panel or brings it to the front. `bounds` is where
+   * it was last; the backend ignores a place that is no longer on a monitor.
+   */
+  openPanelWindow: (alwaysOnTop: boolean, bounds: PanelBounds | null) =>
+    invoke<null>("open_panel_window", { alwaysOnTop, bounds }),
+  /** Panel window only: keeps itself above other windows or not. */
+  setPanelOnTop: (onTop: boolean) => invoke<null>("set_panel_on_top", { onTop }),
+  /** Panel window only: the one way to ask something of the main window (panelBridge.ts). */
+  panelToMain: (message: PanelMessage) => invoke<null>("panel_to_main", { message }),
 
   /**
    * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
@@ -314,12 +340,37 @@ export const api = {
    */
   gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
   /**
+   * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
+   * 1..=100. Check with `parseGitLog` (gitHistory.ts).
+   */
+  gitLog: (cwd: string, skip: number, limit: number) =>
+    invoke<unknown>("git_log", { cwd, skip, limit }),
+  /**
+   * Header and changes of one commit against its first parent, shaped like `git_diff`. Pass only
+   * full ids from `git_log`. Check with `parseCommitDiff` (gitHistory.ts).
+   */
+  gitCommitDiff: (cwd: string, sha: string) => invoke<unknown>("git_commit_diff", { cwd, sha }),
+  /**
    * One folder of a session's file tree; `relative` is a `/` separated path below the session's
    * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
    * `parseFolderListing`; rejects with a text for an unknown session or a refused path.
    */
   listSessionFolder: (id: number, relative: string) =>
     invoke<unknown>("list_session_folder", { id, relative }),
+  /** Opens the session's folder in Explorer, Finder or the file manager; the backend finds it. */
+  revealSessionFolder: (id: number) => invoke<null>("reveal_session_folder", { id }),
+  /**
+   * Main window and side panel only: opens a read-only viewer window for one file of a session's
+   * folder, or brings the one already showing it to the front. `path` is relative to the
+   * session's folder as `listSessionFolder` takes it. Rejects with a text for a refused path or an unknown session.
+   */
+  openFileViewer: (sessionId: number, path: string) =>
+    invoke<null>("open_file_viewer", { sessionId, path }),
+  /**
+   * Viewer window only: its file, read again on every call. Check with `parseFileContent`;
+   * rejects with a text when the file is gone or cannot be read.
+   */
+  fileViewerContent: () => invoke<unknown>("file_viewer_content"),
   /** New branch `hangar/<slug>` and worktree for a session; check with `parseWorktree`. */
   createWorktree: (cwd: string, label: string) =>
     invoke<unknown>("create_worktree", { cwd, label }),
@@ -489,6 +540,44 @@ export function parseFolderListing(value: unknown): FolderListing | null {
     entries: entries.map(folderEntry).filter((entry): entry is FolderEntry => entry !== null),
     truncated: Reflect.get(value, "truncated") === true,
   };
+}
+
+/** Answer of `file_viewer_content` (Rust: `FileContent` in file_viewer.rs). */
+export interface FileContent {
+  /** The file name. */
+  name: string;
+  /** Absolute, for display only. */
+  path: string;
+  /** Relative to the session's folder, `/` separated, as passed to `openFileViewer`. */
+  relativePath: string;
+  /** Bytes on disk, also when only a part was read. */
+  size: number;
+  /** `null` for a binary file. */
+  text: string | null;
+  /** Larger than 2 MiB: `text` holds the first 2 MiB. */
+  truncated: boolean;
+  /** A NUL byte within the first 8 KiB. */
+  binary: boolean;
+}
+
+/** Answer of `file_viewer_content`; `null` if malformed. */
+export function parseFileContent(value: unknown): FileContent | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const name: unknown = Reflect.get(value, "name");
+  const path: unknown = Reflect.get(value, "path");
+  const relativePath: unknown = Reflect.get(value, "relativePath");
+  const size: unknown = Reflect.get(value, "size");
+  const text: unknown = Reflect.get(value, "text");
+  const truncated: unknown = Reflect.get(value, "truncated");
+  const binary: unknown = Reflect.get(value, "binary");
+  if (typeof name !== "string" || name === "") return null;
+  if (typeof path !== "string" || typeof relativePath !== "string") return null;
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return null;
+  if (typeof truncated !== "boolean" || typeof binary !== "boolean") return null;
+  if (text !== null && typeof text !== "string") return null;
+  // A binary file never carries text; text never comes without being decoded.
+  if (binary !== (text === null)) return null;
+  return { name, path, relativePath, size, text, truncated, binary };
 }
 
 /** Result of `export_session`: the path written, `null` when cancelled. */

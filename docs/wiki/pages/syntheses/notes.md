@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-10
+updated: 2026-11-12
 ---
 
 # Notes (contract)
@@ -54,48 +54,57 @@ All commands run in a blocking thread in the backend; errors arrive as readable 
   `.md` name inside `.trash/`, or whose ID or title is invalid, is ignored (its file, if there, is
   adopted again), so an edited `trash.json` cannot move a foreign file into the notes.
 
-## Detached notes window
-Code: `src-tauri/src/notes_window.rs`. The backend creates the window; the frontend cannot create
-webviews. The backend keeps no window geometry.
+## Detached side panel window
+Decision: [[0007-detachable-side-panel]]. Code: `src-tauri/src/panel_window.rs`. Since 0.6.0 the
+whole right panel (Notes, Changes, Files) detaches, not only the notes; the notes-only window
+(label `notes`, `open_notes_window`, `set_notes_on_top`, `notes_to_main`) is gone. The backend
+creates the window; the frontend cannot create webviews.
 
 | Command | Window | Arguments | Result |
 |---|---|---|---|
-| `open_notes_window` | main | `alwaysOnTop: boolean` | `null`; creates the window with label `notes`, URL `index.html?window=notes`, 440 x 640, at least 320 x 360, title "Hangar"; if it exists, only unminimizes, shows and focuses it |
-| `set_notes_on_top` | notes | `onTop: boolean` | `null`; keeps the calling window on top or not; any window other than `notes` fails |
-| `notes_to_main` | notes | `message: NotesMessage` | `null`; delivers the validated message as event `notes-message` to the window `main` only |
+| `open_panel_window` | main | `alwaysOnTop: boolean`, `bounds: { x, y, width, height } \| null` (logical pixels) | `null`; creates the window with label `panel`, URL `index.html?window=panel`, title "Hangar", at least 320 x 360; size from `bounds` (460 x 680 without, or when not finite, not positive or over 16384), position from `bounds` only while a point 80 x 16 px into its title bar lies on a monitor, otherwise the system places it; if it exists, only unminimizes, shows and focuses it |
+| `set_panel_on_top` | panel | `onTop: boolean` | `null`; keeps the calling window on top or not; any window other than `panel` fails |
+| `panel_to_main` | panel | `message: PanelMessage` | `null`; delivers the validated message as event `panel-message` to the window `main` only; `showMain` and `showSession` first bring the main window to the front |
 
 ```ts
-type NotesMessage =
+type PanelMessage =
   | { kind: "sendToTerminal"; text: string; sessionId?: number | null } // main pastes it (bracketed paste)
   | { kind: "notesChanged"; folderKey: string }                          // main reloads that scope
-  | { kind: "showMain" };                                                // backend also brings main to the front
+  | { kind: "showMain" }                                                 // main to the front
+  | { kind: "showSession"; sessionId: number }                           // main activates that session (unknown ids: nothing)
+  | { kind: "ready" };                                                   // the panel listens: main sends its context
 ```
 
 - Validation: unknown kinds or extra fields are rejected when the arguments are read.
   `sendToTerminal.text`: not empty, at most 1 MiB, no control characters except tab, CR and LF
   (an ESC could end bracketed paste early). `folderKey`: `general` or 32 hex digits.
-  `notes_to_main` called from any window other than `notes` fails ("Only the notes window may
-  send notes messages").
-- The frontend opens the notes view when the URL has `?window=notes`.
+  `sessionId`: an unsigned integer. `panel_to_main` called from any window other than `panel`
+  fails ("Only the panel window may send panel messages").
+- `open_file_viewer` accepts the windows `main` and `panel` (both show the Files tab); every
+  other window gets "Only the main window or the side panel may open a file viewer".
+- The frontend opens the panel view when the URL has `?window=panel`.
 
 Capabilities:
 
-- Main window (`capabilities/default.json`): `allow-open-notes-window`,
+- Main window (`capabilities/default.json`): `allow-open-panel-window`,
   `core:window:allow-set-focus`; no `core:webview:allow-create-webview-window` (a contract test
   keeps it out).
-- `notes` window (`capabilities/notes.json`, `windows: ["notes"]`): the note commands above,
-  `allow-notes-to-main`, `allow-set-notes-on-top`, `core:event:allow-listen` and `core:event:allow-unlisten` (listening
-  only, never `allow-emit` or `allow-emit-to`), `core:window:allow-close`,
-  `core:window:allow-destroy` (the close handler destroys the window once input is saved),
-  `core:window:allow-set-focus`, never `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text`
-  (copy; `navigator.clipboard` fails in WebView2). Nothing else of the app (no sessions,
-  profiles, updates, session export). A contract test (`src-tauri/tests/contract.rs`) keeps the
-  list this narrow.
-- Why the notes window may not emit: Tauri events carry no sender. `Event<T>` in
+- `panel` window (`capabilities/panel.json`, `windows: ["panel"]`): the note commands above,
+  `allow-git-diff`, `allow-git-log`, `allow-git-commit-diff`, `allow-list-session-folder`,
+  `allow-open-file-viewer`, `allow-panel-to-main`, `allow-set-panel-on-top`,
+  `core:event:allow-listen` and `core:event:allow-unlisten` (listening only, never `allow-emit`
+  or `allow-emit-to`), `core:window:allow-close`, `core:window:allow-destroy` (the close handler
+  destroys the window once input is saved), `core:window:allow-set-focus`, never
+  `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text` (copy;
+  `navigator.clipboard` fails in WebView2). No session commands; text reaches a session only as
+  a validated paste through the main window (`panel_to_main`). No
+  claims, gate or team commands (the main window pushes what the tabs show), no profiles,
+  updates or session export. A contract test (`src-tauri/tests/contract.rs`) pins the exact list.
+- Why the panel window may not emit: Tauri events carry no sender. `Event<T>` in
   `@tauri-apps/api` has only `event`, `id` and `payload`, and `tauri::Event` in Rust (2.12.5) only
   an id and the payload. The main window therefore cannot tell a `tray-quit` from the backend from
   one emitted by another webview; the narrowed capability is the protection. The main window
-  should still only act on `tray-quit` and on `notes-message`, whose payload the backend has
+  should still only act on `tray-quit` and on `panel-message`, whose payload the backend has
   checked.
 
 ## Notes UI (frontend, as built)
@@ -104,15 +113,24 @@ Capabilities:
   checkbox widget on `TaskMarker` nodes) or the preview (`src/markdownPreview.ts`, task boxes with
   `data-line`). Text logic in `src/noteText.ts` (progress, toggling, excerpt, word count, captured
   output). Writes are debounced 500 ms and flushed on leaving a note and on quit (`flushNotes`).
-- Detached window: the main window writes `hangar.notesWindow` (`{ detached, onTop }`, per
-  machine) and `hangar.notesContext` (active session's folder, running sessions) to localStorage,
-  which both windows share; the notes window follows them through the `storage` event. The main
-  window sends commands as event `notes-command` (`quickNote`, `capture`, `refresh`, `flush`,
-  `close`) with `emitTo("notes", …)`; the notes window checks each payload
-  (`parseNotesCommand`). The notes window only listens and answers through `notes_to_main`:
-  `sendToTerminal` (then `showMain`), and `notesChanged` after a change, which the main window also
-  takes as the reply to `flush` on quit (it waits at most the usual quit timeout). The main window
-  checks every `notes-message` again (`parseNotesMessage`) before it pastes.
+- Detached window (`src/PanelWindow.tsx`, `src/panelBridge.ts`): the main window stays the single
+  source of truth. It pushes the panel context as event `panel-context` with
+  `emitTo("panel", …)`: active session id and folder, its attention state (a change reads the
+  changes again), every session's id, title and whether it runs (names in the claims texts,
+  "Send to" targets), the claims snapshot, and the team activities trimmed to peers, teammates'
+  overlaps and session repositories. An unchanged context (same JSON) is not sent again; the
+  `ready` message forces a send. Commands go as event `panel-command` (`quickNote`, `capture`,
+  `refresh`, `flush`, `show` with a tab). The panel window checks every payload
+  (`parsePanelContext` refuses the whole context if one part is malformed, `parsePanelCommand`)
+  and only listens; it answers through `panel_to_main`: `sendToTerminal` (then `showMain`),
+  `showSession` from a claims warning, `ready` once its context listener is attached, and
+  `notesChanged` after a change, which the main window also takes as the reply to `flush` on
+  quit (it waits at most the usual quit timeout). The main window checks every `panel-message`
+  again (`parsePanelMessage`) before it acts.
+- `hangar.panelWindow` in localStorage (`{ detached, onTop, tab, bounds }`, per machine) is
+  shared by both windows; the panel follows settings and theme through the `storage` event. The
+  old `hangar.notesWindow` is read once when the new key is missing and removed on the next
+  write, as is the old `hangar.notesContext`.
 - Sending text from the app (a note's "Send to", a snippet) goes through `src/appPaste.ts`.
   xterm wraps a paste in bracketed paste markers only while the program has DECSET 2004 on
   (`term.modes.bracketedPasteMode`); otherwise every line break becomes CR and each line but the
@@ -122,13 +140,18 @@ Capabilities:
   answer, and nothing at all if the session closes meanwhile. Ctrl+V
   and Shift+Insert stay unchanged. The editor marks invisible characters with CodeMirror's
   `highlightSpecialChars`, extended by the bidi embeddings, U+2068 and U+2060 to U+2064.
-- The notes window toggles "Always on top" through `set_notes_on_top`, for itself only.
-  Closing the notes window (its own close button, or "Bring back") runs its `onCloseRequested`
-  handler: `@tauri-apps/api` 2.12 awaits it and then calls `destroy()`, so pending input is saved
-  first and `detached` turns false, and the notes are back in the right panel; on quit the
-  `flush` command keeps `detached`, and the next start opens the window again. If the window
-  vanished without a word, the main window finds out on focus (`Window.getByLabel`), and on quit
-  it does not wait for a window that is gone.
+- While detached, the main window shows no right panel (the terminal gets the space); the
+  sidebar buttons, the menu entries and the shortcuts for notes, changes and files bring the
+  panel window to the front on that tab. The panel window toggles "Always on top" through
+  `set_panel_on_top`, for itself only, and remembers its place on move and resize (`screenX`,
+  `screenY`, `innerWidth`, `innerHeight`, already logical pixels, 400 ms after the last change).
+  Closing the panel window (its own close button or "Back into the main window") runs its
+  `onCloseRequested` handler: `@tauri-apps/api` 2.12 awaits it and then calls `destroy()`, so
+  pending input is saved first and `detached` turns false; the main window sees that through
+  the `storage` event and opens the docked panel on the window's last tab. On quit the `flush`
+  command keeps `detached`, and the next start opens the window again. If the window vanished
+  without a word, the main window finds out on focus (`Window.getByLabel`), and on quit it does
+  not wait for a window that is gone.
 
 ## Shared notes (ADR 0006, phase 1)
 Decision: [[0006-encrypted-project-notes]]. Code: `src-tauri/src/project_notes.rs` (app),

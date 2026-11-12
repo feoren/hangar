@@ -12,7 +12,7 @@ use hangar_lib::manager::{
 };
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
-use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, Status};
+use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, SessionMode, Status};
 use hangar_lib::updates::{CommandError, PlatformHint};
 use zeroize::Zeroizing;
 
@@ -706,7 +706,12 @@ fn resume_manager() -> SessionManager {
         shell_profile("r-sleep", &normal_ok, Some(long_wait)),
         shell_profile("r-none", &normal_ok, None),
     ];
-    SessionManager::new(profiles, Vec::new(), std::env::temp_dir())
+    // "r-fail" can be a team session, so the gate test of the fallback can start one.
+    SessionManager::new(
+        profiles,
+        vec![hooked_program("r-fail")],
+        std::env::temp_dir(),
+    )
 }
 
 fn start(
@@ -723,6 +728,28 @@ fn start(
     (info, rx)
 }
 
+/// A team session (ADR 0008): only those get the agent gate.
+fn start_team(
+    manager: &SessionManager,
+    profile_id: &str,
+    resume: bool,
+) -> (SessionInfo, Receiver<SessionEvent>) {
+    let (tx, rx) = channel();
+    let info = manager
+        .create_resuming(
+            profile_id,
+            None,
+            SIZE,
+            resume,
+            None,
+            SessionMode::Team,
+            move |e| tx.send(e).unwrap_or(()),
+        )
+        .unwrap();
+    assert_eq!(info.mode, SessionMode::Team);
+    (info, rx)
+}
+
 fn resumed_flag(manager: &SessionManager, id: u64) -> bool {
     manager.list().iter().find(|s| s.id == id).unwrap().resumed
 }
@@ -732,7 +759,7 @@ fn resume_fails_fast_then_exactly_one_normal_start() {
     let manager = resume_manager();
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
-    let (info, rx) = start(&manager, "r-fail", true);
+    let (info, rx) = start_team(&manager, "r-fail", true);
     assert!(info.resumed);
     let (output, code) = collect_until_exit(&manager, info.id, &rx);
     let position = |needle: &str| {
@@ -765,6 +792,8 @@ fn resume_fails_fast_then_exactly_one_normal_start() {
     };
     assert_eq!(count(&gate.prepared), 2);
     assert_eq!(count(&gate.ended), 2);
+    // The fallback stays a team session.
+    assert_eq!(listed[0].mode, SessionMode::Team);
 }
 
 #[test]
@@ -1219,9 +1248,15 @@ fn restore_resumes_the_stored_id_and_falls_back_under_the_same_id() {
     let (tx, rx) = channel();
     let upper = STORED_ID.to_uppercase();
     let info = manager
-        .create_resuming("ids", None, SIZE, true, Some(&upper), move |e| {
-            tx.send(e).unwrap_or(())
-        })
+        .create_resuming(
+            "ids",
+            None,
+            SIZE,
+            true,
+            Some(&upper),
+            SessionMode::Private,
+            move |e| tx.send(e).unwrap_or(()),
+        )
         .unwrap();
     assert!(info.resumed);
     assert_eq!(info.cli_session_id.as_deref(), Some(STORED_ID));
@@ -1275,11 +1310,27 @@ fn a_conversation_id_in_use_is_not_resumed_twice() {
     });
     let manager = SessionManager::new(vec![long], Vec::new(), std::env::temp_dir());
     let first = manager
-        .create_resuming("ids-long", None, SIZE, true, Some(STORED_ID), |_| {})
+        .create_resuming(
+            "ids-long",
+            None,
+            SIZE,
+            true,
+            Some(STORED_ID),
+            SessionMode::Private,
+            |_| {},
+        )
         .unwrap();
     assert_eq!(first.cli_session_id.as_deref(), Some(STORED_ID));
     let second = manager
-        .create_resuming("ids-long", None, SIZE, true, Some(STORED_ID), |_| {})
+        .create_resuming(
+            "ids-long",
+            None,
+            SIZE,
+            true,
+            Some(STORED_ID),
+            SessionMode::Private,
+            |_| {},
+        )
         .unwrap();
     assert!(!second.resumed);
     let other = second.cli_session_id.clone().unwrap();
@@ -1292,7 +1343,15 @@ fn a_conversation_id_in_use_is_not_resumed_twice() {
 fn invalid_conversation_id_is_refused_before_anything_starts() {
     let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
     for bad in ["", "../x", "0f8fad5b-d9cb-469f-a165-70867728950e x"] {
-        let result = manager.create_resuming("ids", None, SIZE, true, Some(bad), |_| {});
+        let result = manager.create_resuming(
+            "ids",
+            None,
+            SIZE,
+            true,
+            Some(bad),
+            SessionMode::Private,
+            |_| {},
+        );
         assert!(
             matches!(result, Err(ManagerError::CliSessionId(_))),
             "{bad:?}"
@@ -1388,16 +1447,17 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
     }
     let manager = SessionManager::new(
         vec![gated_unix, gate_probe("plain"), gate_probe("ungated")],
-        Vec::new(),
+        vec![
+            hooked_program("gated"),
+            hooked_program("plain"),
+            hooked_program("ungated"),
+        ],
         std::env::temp_dir(),
     );
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
 
-    let (tx, rx) = channel();
-    let info = manager
-        .create("gated", None, SIZE, move |e| tx.send(e).unwrap_or(()))
-        .unwrap();
+    let (info, rx) = start_team(&manager, "gated", false);
     // The session tells the window that the gate watches it.
     assert_eq!(info.gate, GateStatus::Active);
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
@@ -1423,26 +1483,142 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
     );
 
     // Without the gate's answer, the profile's own variable stays.
-    let (tx, rx) = channel();
-    let plain = manager
-        .create("plain", None, SIZE, move |e| tx.send(e).unwrap_or(()))
-        .unwrap();
+    let (plain, rx) = start_team(&manager, "plain", false);
     assert_eq!(plain.gate, GateStatus::None);
     let (output, _) = collect_until_exit(&manager, plain.id, &rx);
     assert!(output.contains("TOKEN=profile-value"), "{output:?}");
     assert!(!output.contains("gate-arg-marker"), "{output:?}");
 
     // A program that could take the gate but does not get it says why.
-    let (tx, rx) = channel();
-    let ungated = manager
-        .create("ungated", None, SIZE, move |e| tx.send(e).unwrap_or(()))
-        .unwrap();
+    let (ungated, rx) = start_team(&manager, "ungated", false);
     assert_eq!(ungated.gate, GateStatus::Launcher);
     collect_until_exit(&manager, ungated.id, &rx);
 
     // Closing tells the gate as well.
     manager.close(plain.id).unwrap();
     assert!(gate.ended.lock().unwrap().contains(&plain.id));
+}
+
+#[test]
+fn a_team_session_needs_a_program_with_a_hook_format() {
+    // No catalog entry: the profile's program takes no hooks Hangar can write.
+    let manager = SessionManager::new(
+        vec![gate_probe("no-hooks")],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let team = manager.create_resuming(
+        "no-hooks",
+        None,
+        SIZE,
+        false,
+        None,
+        SessionMode::Team,
+        |_| {},
+    );
+    assert!(
+        matches!(team, Err(ManagerError::NoTeamSessions(_))),
+        "{team:?}"
+    );
+    // Nothing was started or registered for it.
+    assert!(manager.list().is_empty());
+    // As a private session it starts.
+    let (tx, rx) = channel();
+    let private = manager
+        .create("no-hooks", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(private.mode, SessionMode::Private);
+    collect_until_exit(&manager, private.id, &rx);
+}
+
+#[test]
+fn a_team_session_refuses_a_profile_with_a_folder_of_its_own() {
+    let fixed = std::env::temp_dir();
+    let worktree = std::env::current_dir().unwrap();
+    assert_ne!(fixed, worktree);
+    let mut probe = gate_probe("fixed");
+    probe.cwd = Some(fixed.clone());
+    let manager = SessionManager::new(
+        vec![probe],
+        vec![hooked_program("fixed")],
+        std::env::temp_dir(),
+    );
+    // The profile's folder would win over the team session's worktree.
+    for cwd in [Some(worktree), None] {
+        let team = manager.create_resuming(
+            "fixed",
+            cwd.clone(),
+            SIZE,
+            false,
+            None,
+            SessionMode::Team,
+            |_| {},
+        );
+        assert!(
+            matches!(team, Err(ManagerError::TeamFolderFixed(_))),
+            "{cwd:?}: {team:?}"
+        );
+    }
+    assert!(manager.list().is_empty());
+    // Started in exactly the profile's folder, nothing is bypassed.
+    let (tx, rx) = channel();
+    let same = manager
+        .create_resuming(
+            "fixed",
+            Some(fixed),
+            SIZE,
+            false,
+            None,
+            SessionMode::Team,
+            move |e| tx.send(e).unwrap_or(()),
+        )
+        .unwrap();
+    assert_eq!(same.mode, SessionMode::Team);
+    collect_until_exit(&manager, same.id, &rx);
+}
+
+#[test]
+fn a_private_session_never_gets_the_gate_not_even_after_a_restart() {
+    let manager = SessionManager::new(vec![gate_probe("gated")], Vec::new(), std::env::temp_dir());
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+
+    let (tx, rx) = channel();
+    let info = manager
+        .create("gated", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(info.mode, SessionMode::Private);
+    assert_eq!(info.gate, GateStatus::None);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    // Neither argument nor token: the profile's own variable stays.
+    assert!(output.contains("TOKEN=profile-value"), "{output:?}");
+    assert!(!output.contains("gate-arg-marker"), "{output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(restarted.mode, SessionMode::Private);
+    assert_eq!(restarted.gate, GateStatus::None);
+    collect_until_exit(&manager, info.id, &rx);
+    // The gate was never asked for this session.
+    assert!(!gate.prepared.lock().unwrap().contains(&info.id));
+}
+
+/// A catalog entry for the probe's program that takes Claude Code's hook format, so a user
+/// profile with the same id and program inherits it.
+fn hooked_program(id: &str) -> CatalogAgent {
+    let command = if cfg!(windows) { "cmd" } else { "sh" };
+    let toml = format!(
+        "[[agent]]
+id = {id:?}
+name = {id:?}
+commands = [{command:?}]
+capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = \"claude_settings\" }}
+"
+    );
+    agent_catalog::parse(&toml).unwrap().remove(0)
 }
 
 #[test]
@@ -1454,15 +1630,19 @@ fn a_profile_with_its_own_settings_gets_no_second_one() {
         probe.id = "own-settings-joined".into();
         probe
     };
-    let manager = SessionManager::new(vec![spaced, joined], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(
+        vec![spaced, joined],
+        vec![
+            hooked_program("own-settings"),
+            hooked_program("own-settings-joined"),
+        ],
+        std::env::temp_dir(),
+    );
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
 
     for id in ["own-settings", "own-settings-joined"] {
-        let (tx, rx) = channel();
-        let info = manager
-            .create(id, None, SIZE, move |e| tx.send(e).unwrap_or(()))
-            .unwrap();
+        let (info, rx) = start_team(&manager, id, false);
         assert_eq!(info.gate, GateStatus::ProfileSettings, "{id}");
         let (output, _) = collect_until_exit(&manager, info.id, &rx);
         // Neither the gate's argument nor its token reach the child; the profile's value stays.

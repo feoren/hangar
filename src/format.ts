@@ -2,7 +2,7 @@
 
 import type { Profile } from "./api";
 import type { AttentionReason, AttentionState } from "./attention";
-import type { Translate } from "./i18n";
+import type { MessageKey, Translate } from "./i18n";
 import { exitedWithError } from "./sessionChip";
 import type { SessionView } from "./sessions";
 
@@ -25,32 +25,63 @@ export function shortPath(path: string): string {
   return parts.slice(-2).join("/");
 }
 
+/** What a session is doing, in the words of the status line. */
+export type StatusPhrase =
+  | "starting"
+  | "working"
+  | "idle"
+  | "attention"
+  | "asks"
+  | "gate"
+  | "failed"
+  | "exited"
+  | "exitedByUser";
+
 /**
- * Status for the sidebar. The attention state refines "running" and "exited"; a bell while
- * running says the program asks something. The exit code itself lives in the tooltip.
+ * The phrase for a session. The attention state refines "running" and "exited"; a bell while
+ * running says the program asks something.
  */
+export function statusPhrase(
+  session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
+  attention: AttentionState = "idle",
+  reason: AttentionReason | null = null,
+): StatusPhrase {
+  // A failure stays a failure, also while it waits to be seen: "done" would contradict it.
+  if (exitedWithError(session)) return "failed";
+  if (attention === "attention") {
+    if (reason === "gate" && session.status === "running") return "gate";
+    return reason === "bell" && session.status === "running" ? "asks" : "attention";
+  }
+  switch (session.status) {
+    case "starting":
+      return "starting";
+    case "running":
+      return attention === "working" ? "working" : "idle";
+    case "exited":
+      return session.stoppedByUser === true ? "exitedByUser" : "exited";
+  }
+}
+
+export const PHRASES: Record<StatusPhrase, MessageKey> = {
+  starting: "status.starting",
+  working: "status.working",
+  idle: "status.idle",
+  attention: "status.attention",
+  asks: "status.asks",
+  gate: "status.gate",
+  failed: "status.failed",
+  exited: "status.exited",
+  exitedByUser: "status.exitedByUser",
+};
+
+/** Status without a subject, for places that name the program elsewhere (pane header, tooltips). */
 export function statusText(
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,
   t: Translate,
   attention: AttentionState = "idle",
   reason: AttentionReason | null = null,
 ): string {
-  // A failure stays a failure, also while it waits to be seen: "done" would contradict it.
-  if (exitedWithError(session)) return t("status.failed");
-  if (attention === "attention") {
-    if (reason === "gate" && session.status === "running") return t("status.gate");
-    return reason === "bell" && session.status === "running"
-      ? t("status.asks")
-      : t("status.attention");
-  }
-  switch (session.status) {
-    case "starting":
-      return t("status.starting");
-    case "running":
-      return attention === "working" ? t("status.working") : t("status.idle");
-    case "exited":
-      return session.stoppedByUser === true ? t("status.exitedByUser") : t("status.exited");
-  }
+  return t(PHRASES[statusPhrase(session, attention, reason)]);
 }
 
 /**
@@ -117,4 +148,27 @@ export function relativeTime(then: number, now: number, language: string): strin
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
   }).format(date);
+}
+
+const BYTE_UNITS = ["KiB", "MiB", "GiB", "TiB"] as const;
+
+/**
+ * A file size for display: bytes below 1 KiB, then binary units with one decimal below 10 and
+ * none above, in the language's number format ("2,5 MiB" in German).
+ */
+export function formatBytes(bytes: number, language: string): string {
+  const whole = Math.max(0, Math.round(bytes));
+  if (whole < 1024) return `${new Intl.NumberFormat(language).format(whole)} B`;
+  let value = whole / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value < 10 ? 1 : 0;
+  const number = new Intl.NumberFormat(language, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
+  return `${number} ${BYTE_UNITS[unit] ?? "TiB"}`;
 }

@@ -314,7 +314,7 @@ export class SessionDrag {
           };
         });
         return {
-          target: { kind: "list", index: groupDropIndex(rows, current.id, y) },
+          target: { kind: "list", index: groupDropIndex(rows, current.id, y, this.options.order) },
           overBody: false,
         };
       }

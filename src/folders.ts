@@ -58,6 +58,11 @@ export function toggleFavorite(prefs: FolderPrefs, path: string): FolderPrefs {
   return { ...prefs, favorites: [...prefs.favorites, path].slice(-FAVORITES_LIMIT) };
 }
 
+/** Takes a folder out of the menu: off the favorites and the recent list. */
+export function forgetFolder(prefs: FolderPrefs, path: string): FolderPrefs {
+  return { favorites: without(prefs.favorites, path), recent: without(prefs.recent, path) };
+}
+
 /** Recent folders that are not favorites anyway, so no folder appears twice in the menu. */
 export function recentOnly(prefs: FolderPrefs): string[] {
   return prefs.recent.filter((path) => !isFavorite(prefs, path));

@@ -5,8 +5,9 @@ import { createTranslator } from "./i18n";
 import { buildLauncherItems, type LauncherContext } from "./launcherItems";
 import type { SessionView } from "./sessions";
 
-function profile(id: string): Profile {
+function profile(id: string, teamCapable = false): Profile {
   return {
+    teamCapable,
     id,
     name: id,
     command: id,
@@ -36,7 +37,7 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
   return {
     sessions: [],
     programName: () => undefined,
-    startable: [profile("claude"), profile("pwsh")],
+    startable: [profile("claude", true), profile("pwsh")],
     places: [
       { path: "C:\\src\\hangar", worktree: false },
       { path: "C:\\src\\notes", worktree: false },
@@ -52,7 +53,7 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     notesIcon: null,
     activate: vi.fn(),
     start: vi.fn(),
-    startInWorktree: vi.fn(),
+    startAsTeam: vi.fn(),
     toggleChanges: vi.fn(),
     openNotes: vi.fn(),
     insertSnippet: vi.fn(),
@@ -138,9 +139,9 @@ describe("buildLauncherItems", () => {
     ]);
   });
 
-  it("offers an own worktree only for git folders, and never as a primary entry", () => {
+  it("offers team sessions only for git folders and team-capable programs, never as primary", () => {
     const plain = buildLauncherItems(context());
-    expect(plain.some((item) => item.key.startsWith("worktree:"))).toBe(false);
+    expect(plain.some((item) => item.key.startsWith("team:"))).toBe(false);
 
     const ctx = context({
       places: [
@@ -148,14 +149,12 @@ describe("buildLauncherItems", () => {
         { path: "C:\\src\\notes", worktree: false },
       ],
     });
-    const items = buildLauncherItems(ctx).filter((item) => item.key.startsWith("worktree:"));
-    expect(items.map((item) => item.key)).toEqual([
-      "worktree:claude:C:\\src\\hangar",
-      "worktree:pwsh:C:\\src\\hangar",
-    ]);
+    const items = buildLauncherItems(ctx).filter((item) => item.key.startsWith("team:"));
+    // pwsh is a plain terminal: no team session for it.
+    expect(items.map((item) => item.key)).toEqual(["team:claude:C:\\src\\hangar"]);
     expect(items.every((item) => item.primary !== true)).toBe(true);
     items[0]?.run();
-    expect(ctx.startInWorktree).toHaveBeenCalledWith(
+    expect(ctx.startAsTeam).toHaveBeenCalledWith(
       expect.objectContaining({ id: "claude" }),
       "C:\\src\\hangar",
     );

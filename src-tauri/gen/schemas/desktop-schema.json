@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the export_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the file_viewer_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-file-viewer-content",
+          "markdownDescription": "Enables the file_viewer_content command without any pre-configured scope."
+        },
+        {
           "description": "Enables the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "allow-focus-sub-agent",
@@ -375,10 +381,22 @@
           "markdownDescription": "Enables the git_branches command without any pre-configured scope."
         },
         {
+          "description": "Enables the git_commit_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-commit-diff",
+          "markdownDescription": "Enables the git_commit_diff command without any pre-configured scope."
+        },
+        {
           "description": "Enables the git_diff command without any pre-configured scope.",
           "type": "string",
           "const": "allow-git-diff",
           "markdownDescription": "Enables the git_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the git_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-log",
+          "markdownDescription": "Enables the git_log command without any pre-configured scope."
         },
         {
           "description": "Enables the kill_session command without any pre-configured scope.",
@@ -441,28 +459,34 @@
           "markdownDescription": "Enables the move_note command without any pre-configured scope."
         },
         {
-          "description": "Enables the notes_to_main command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-notes-to-main",
-          "markdownDescription": "Enables the notes_to_main command without any pre-configured scope."
-        },
-        {
           "description": "Enables the notify_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-notify-session",
           "markdownDescription": "Enables the notify_session command without any pre-configured scope."
         },
         {
-          "description": "Enables the open_notes_window command without any pre-configured scope.",
+          "description": "Enables the open_file_viewer command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-open-notes-window",
-          "markdownDescription": "Enables the open_notes_window command without any pre-configured scope."
+          "const": "allow-open-file-viewer",
+          "markdownDescription": "Enables the open_file_viewer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-panel-window",
+          "markdownDescription": "Enables the open_panel_window command without any pre-configured scope."
         },
         {
           "description": "Enables the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-profile-file",
           "markdownDescription": "Enables the open_profile_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the panel_to_main command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-panel-to-main",
+          "markdownDescription": "Enables the panel_to_main command without any pre-configured scope."
         },
         {
           "description": "Enables the paste_clipboard_image command without any pre-configured scope.",
@@ -561,6 +585,12 @@
           "markdownDescription": "Enables the reveal_notes_folder command without any pre-configured scope."
         },
         {
+          "description": "Enables the reveal_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reveal-session-folder",
+          "markdownDescription": "Enables the reveal_session_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-profile",
@@ -585,10 +615,10 @@
           "markdownDescription": "Enables the search_notes command without any pre-configured scope."
         },
         {
-          "description": "Enables the set_notes_on_top command without any pre-configured scope.",
+          "description": "Enables the set_panel_on_top command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-set-notes-on-top",
-          "markdownDescription": "Enables the set_notes_on_top command without any pre-configured scope."
+          "const": "allow-set-panel-on-top",
+          "markdownDescription": "Enables the set_panel_on_top command without any pre-configured scope."
         },
         {
           "description": "Enables the set_profile_secret command without any pre-configured scope.",
@@ -909,6 +939,12 @@
           "markdownDescription": "Denies the export_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the file_viewer_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-file-viewer-content",
+          "markdownDescription": "Denies the file_viewer_content command without any pre-configured scope."
+        },
+        {
           "description": "Denies the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "deny-focus-sub-agent",
@@ -933,10 +969,22 @@
           "markdownDescription": "Denies the git_branches command without any pre-configured scope."
         },
         {
+          "description": "Denies the git_commit_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-commit-diff",
+          "markdownDescription": "Denies the git_commit_diff command without any pre-configured scope."
+        },
+        {
           "description": "Denies the git_diff command without any pre-configured scope.",
           "type": "string",
           "const": "deny-git-diff",
           "markdownDescription": "Denies the git_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the git_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-log",
+          "markdownDescription": "Denies the git_log command without any pre-configured scope."
         },
         {
           "description": "Denies the kill_session command without any pre-configured scope.",
@@ -999,28 +1047,34 @@
           "markdownDescription": "Denies the move_note command without any pre-configured scope."
         },
         {
-          "description": "Denies the notes_to_main command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-notes-to-main",
-          "markdownDescription": "Denies the notes_to_main command without any pre-configured scope."
-        },
-        {
           "description": "Denies the notify_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-notify-session",
           "markdownDescription": "Denies the notify_session command without any pre-configured scope."
         },
         {
-          "description": "Denies the open_notes_window command without any pre-configured scope.",
+          "description": "Denies the open_file_viewer command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-open-notes-window",
-          "markdownDescription": "Denies the open_notes_window command without any pre-configured scope."
+          "const": "deny-open-file-viewer",
+          "markdownDescription": "Denies the open_file_viewer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-panel-window",
+          "markdownDescription": "Denies the open_panel_window command without any pre-configured scope."
         },
         {
           "description": "Denies the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-profile-file",
           "markdownDescription": "Denies the open_profile_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the panel_to_main command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-panel-to-main",
+          "markdownDescription": "Denies the panel_to_main command without any pre-configured scope."
         },
         {
           "description": "Denies the paste_clipboard_image command without any pre-configured scope.",
@@ -1119,6 +1173,12 @@
           "markdownDescription": "Denies the reveal_notes_folder command without any pre-configured scope."
         },
         {
+          "description": "Denies the reveal_session_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reveal-session-folder",
+          "markdownDescription": "Denies the reveal_session_folder command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-profile",
@@ -1143,10 +1203,10 @@
           "markdownDescription": "Denies the search_notes command without any pre-configured scope."
         },
         {
-          "description": "Denies the set_notes_on_top command without any pre-configured scope.",
+          "description": "Denies the set_panel_on_top command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-set-notes-on-top",
-          "markdownDescription": "Denies the set_notes_on_top command without any pre-configured scope."
+          "const": "deny-set-panel-on-top",
+          "markdownDescription": "Denies the set_panel_on_top command without any pre-configured scope."
         },
         {
           "description": "Denies the set_profile_secret command without any pre-configured scope.",

@@ -32,7 +32,9 @@ use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::ProcTree;
 use crate::profile::Profile;
 use crate::secrets::{self, KeyringStore, SecretStore};
-use crate::session::{GateStatus, SessionId, SessionInfo, SessionKind, Status, TransitionError};
+use crate::session::{
+    GateStatus, SessionId, SessionInfo, SessionKind, SessionMode, Status, TransitionError,
+};
 use crate::subagents;
 use crate::updates::{self, CommandError};
 use crate::wsl;
@@ -146,14 +148,6 @@ pub trait LaunchGate: Send + Sync {
     fn ended(&self, session: SessionId);
 }
 
-/// Whether the start arguments already carry Claude Code's `--settings`. Hangar's own would be a
-/// second one, and whether Claude Code merges both or keeps one is not measured, so such a start
-/// goes without the gate instead of risking the user's settings or a silently missing hook.
-pub fn has_own_settings(args: &[String]) -> bool {
-    args.iter()
-        .any(|arg| arg == "--settings" || arg.starts_with("--settings="))
-}
-
 /// Receiver of a session's events (a Tauri channel in production, a closure in tests).
 /// `Sync`, because after a fallback the batch thread of the new process uses the same receiver.
 pub trait EventSink: Send + Sync + 'static {
@@ -202,6 +196,13 @@ pub enum ManagerError {
     BadCwd(PathBuf),
     #[error("The title must not be empty")]
     EmptyTitle,
+    #[error("{0} cannot be a team session yet: Hangar cannot pause its edits")]
+    NoTeamSessions(String),
+    #[error(
+        "{0} cannot be a team session: its profile sets a working folder of its own, which would \
+         replace the session's worktree"
+    )]
+    TeamFolderFixed(String),
     #[error(transparent)]
     CliSessionId(#[from] cli_session::InvalidId),
     #[error("Session {0} has no sub-agents Hangar can show")]
@@ -386,10 +387,11 @@ impl Shared {
                 entry.info.cwd.clone(),
                 entry.size,
                 entry.generation,
-                plan,
+                (plan, entry.info.mode),
                 entry.info.sub_agents,
             )
         };
+        let (plan, mode) = plan;
         sink.emit(SessionEvent::ResumeFallback {
             code,
             cli_session_id: plan.cli_session_id.clone(),
@@ -400,7 +402,7 @@ impl Shared {
             id,
             next,
             &agent,
-            &Launch::normal(&plan.args, SessionKind::Agent),
+            &Launch::normal(&plan.args, SessionKind::Agent, mode),
             &cwd,
             size,
             Arc::clone(sink),
@@ -421,20 +423,45 @@ impl Shared {
     }
 }
 
+/// A team session needs the agent gate (a hook format for its program, ADR 0008) and must run in
+/// the folder it was given, its own worktree: a folder fixed in the profile would win over it
+/// ([`SessionManager::start`]), and the session would work in a shared folder unnoticed.
+fn team_allowed(agent: &Agent, cwd: Option<&Path>) -> Result<(), ManagerError> {
+    if !agent.capabilities.gate() {
+        return Err(ManagerError::NoTeamSessions(agent.profile.name.clone()));
+    }
+    if let Some(fixed) = &agent.profile.cwd {
+        if cwd != Some(fixed.as_path()) {
+            return Err(ManagerError::TeamFolderFixed(agent.profile.name.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// What a new session is: kind and mode, both fixed for its life.
+#[derive(Debug, Clone, Copy)]
+struct Start {
+    kind: SessionKind,
+    mode: SessionMode,
+}
+
 /// How a process starts.
 struct Launch<'a> {
     args: &'a [String],
     /// Started with `resume_args`: a quick failure triggers the fallback.
     resume: bool,
     kind: SessionKind,
+    /// Only team sessions get the agent gate.
+    mode: SessionMode,
 }
 
 impl<'a> Launch<'a> {
-    fn normal(args: &'a [String], kind: SessionKind) -> Self {
+    fn normal(args: &'a [String], kind: SessionKind, mode: SessionMode) -> Self {
         Self {
             args,
             resume: false,
             kind,
+            mode,
         }
     }
 }
@@ -669,6 +696,7 @@ impl SessionManager {
         lock(&self.shared.sessions).get(&id).map(|e| e.info.kind)
     }
 
+    /// A private session ([`SessionMode::Private`]).
     pub fn create(
         &self,
         profile_id: &str,
@@ -679,10 +707,11 @@ impl SessionManager {
         self.create_with(profile_id, cwd, size, false, sink)
     }
 
-    /// Like [`Self::create_with`], with the conversation id stored for this session. With
-    /// `resume` and `resume_id_args`, exactly that conversation is resumed; without an id the
-    /// profile's `resume_args` apply as before ([`Plan::first`]). An id that is not a UUID is an
-    /// error.
+    /// Like [`Self::create_with`], with the conversation id stored for this session and its
+    /// mode. With `resume` and `resume_id_args`, exactly that conversation is resumed; without an
+    /// id the profile's `resume_args` apply as before ([`Plan::first`]). An id that is not a UUID
+    /// is an error. Only a team session gets the agent gate.
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
     pub fn create_resuming(
         &self,
         profile_id: &str,
@@ -690,13 +719,21 @@ impl SessionManager {
         size: TermSize,
         resume: bool,
         cli_session_id: Option<&str>,
+        mode: SessionMode,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        if mode == SessionMode::Team {
+            team_allowed(&agent, cwd.as_deref())?;
+        }
         let title = agent.profile.name.clone();
         let plan = Plan::first(&agent.profile, resume, stored.as_deref());
-        self.start(agent, cwd, size, plan, SessionKind::Agent, title, sink)
+        let kind = Start {
+            kind: SessionKind::Agent,
+            mode,
+        };
+        self.start(agent, cwd, size, plan, kind, title, sink)
     }
 
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
@@ -711,7 +748,15 @@ impl SessionManager {
         resume: bool,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
-        self.create_resuming(profile_id, cwd, size, resume, None, sink)
+        self.create_resuming(
+            profile_id,
+            cwd,
+            size,
+            resume,
+            None,
+            SessionMode::Private,
+            sink,
+        )
     }
 
     /// Starts a program update as a normal session (`kind: update`, title
@@ -755,7 +800,11 @@ impl SessionManager {
         })?;
         let title = format!("Update: {}", agent.profile.name);
         let plan = Plan::normal(&updater.profile, None);
-        self.start(updater, None, size, plan, SessionKind::Update, title, sink)
+        let kind = Start {
+            kind: SessionKind::Update,
+            mode: SessionMode::Private,
+        };
+        self.start(updater, None, size, plan, kind, title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -778,10 +827,11 @@ impl SessionManager {
         cwd: Option<PathBuf>,
         size: TermSize,
         plan: Plan,
-        kind: SessionKind,
+        start: Start,
         title: String,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
+        let Start { kind, mode } = start;
         let profile = &agent.profile;
         // A folder fixed in the profile wins over the one chosen in the sidebar.
         let cwd = profile
@@ -818,6 +868,7 @@ impl SessionManager {
                 SessionInfo::new(id, profile.id.clone(), title, cwd.clone(), now_millis());
             info.resumed = plan.resume;
             info.kind = kind;
+            info.mode = mode;
             set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
             sessions.insert(
                 id,
@@ -836,6 +887,7 @@ impl SessionManager {
             args: &plan.args,
             resume: plan.resume,
             kind,
+            mode,
         };
 
         match spawn(
@@ -864,7 +916,7 @@ impl SessionManager {
         size: TermSize,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
-        let (agent, cwd, generation, kind, plan) = {
+        let (agent, cwd, generation, kind, mode, plan) = {
             let mut sessions = lock(&self.shared.sessions);
             let (kind, profile_id) = sessions
                 .get(&id)
@@ -895,6 +947,7 @@ impl SessionManager {
                 entry.info.cwd.clone(),
                 entry.generation,
                 kind,
+                entry.info.mode,
                 plan,
             )
         };
@@ -903,7 +956,7 @@ impl SessionManager {
             id,
             generation,
             &agent,
-            &Launch::normal(&plan.args, kind),
+            &Launch::normal(&plan.args, kind, mode),
             &cwd,
             size,
             Arc::new(sink),
@@ -1108,12 +1161,17 @@ fn spawn(
         .program;
     let profile = &agent.profile;
     let mut args = launch.args.to_vec();
-    // Update sessions never get the gate: they run an installer, not the agent.
-    let plan = match (launch.kind, shared.launch_gate()) {
-        (SessionKind::Agent, Some(gate)) if has_own_settings(&args) && gate.applies(agent) => {
+    // Only team sessions get the gate; update sessions never: they run an installer, not the
+    // agent.
+    let own_hooks = agent
+        .capabilities
+        .gate_format()
+        .is_some_and(|format| format.conflicts_with(&args));
+    let plan = match (launch.kind, launch.mode, shared.launch_gate()) {
+        (SessionKind::Agent, SessionMode::Team, Some(gate)) if own_hooks && gate.applies(agent) => {
             GatePlan::Unavailable(GateStatus::ProfileSettings)
         }
-        (SessionKind::Agent, Some(gate)) => gate.prepare(id, agent, &program),
+        (SessionKind::Agent, SessionMode::Team, Some(gate)) => gate.prepare(id, agent, &program),
         _ => GatePlan::Skip,
     };
     let gate_status = plan.status();
@@ -1321,10 +1379,12 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_catalog::HookFormat;
 
     #[test]
     fn own_settings_are_found_in_both_spellings_only() {
         let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        let has_own_settings = |list: &[String]| HookFormat::ClaudeSettings.conflicts_with(list);
         assert!(has_own_settings(&args(&[
             "--model",
             "x",

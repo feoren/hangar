@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
@@ -26,19 +26,31 @@ import { SnippetsSettings } from "./SnippetsSettings";
 import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import {
   canvasMeasure,
-  COLOR_SCHEMES,
   CURSOR_STYLES,
   FONT_SAMPLE,
   fontChoices,
   fontStack,
   installedFonts,
   schemeColors,
-  schemePalette,
   type ColorScheme,
   type CursorStyle,
   type SystemFont,
+  type TerminalColors,
 } from "./terminalLook";
-import { THEME_SETTINGS, type Theme, type ThemeSetting } from "./theme";
+import {
+  PREVIEW_LINES as TERMINAL_PREVIEW_LINES,
+  TILE_LINES,
+  type PreviewLine,
+} from "./terminalPreview";
+import { SCHEME_GROUPS, schemesInGroup, type SchemeGroup } from "./terminalSchemes";
+import { THEME_SETTINGS, type AnsiColor, type Theme, type ThemeSetting } from "./theme";
+import {
+  PREVIEW_LINES,
+  VIEWER_THEMES,
+  viewerPalette,
+  type ViewerPalette,
+  type ViewerTheme,
+} from "./viewerThemes";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 import type { UpdateState } from "./useUpdater";
 import { displayVersion } from "./version";
@@ -88,11 +100,36 @@ const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
 /** Proper names, the same in every language. */
 const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {
   hangar: "scheme.hangar",
-  harbor: "scheme.harbor",
   dusk: "scheme.dusk",
-  meridian: "scheme.meridian",
-  catppuccin: "scheme.catppuccin",
+  oneDarkPro: "scheme.oneDarkPro",
+  github: "scheme.github",
+  vscode: "scheme.vscode",
+  darcula: "scheme.darcula",
   solarized: "scheme.solarized",
+  catppuccin: "scheme.catppuccin",
+  monokai: "scheme.monokai",
+  dracula: "scheme.dracula",
+  nord: "scheme.nord",
+  gruvbox: "scheme.gruvbox",
+  tokyoNight: "scheme.tokyoNight",
+  rosePine: "scheme.rosePine",
+};
+
+const SCHEME_GROUP_NAMES: Record<SchemeGroup, MessageKey> = {
+  own: "settings.schemeGroupOwn",
+  editor: "settings.schemeGroupEditor",
+  classic: "settings.schemeGroupClassic",
+};
+
+/** Proper names, the same in every language. */
+const VIEWER_THEME_NAMES: Record<ViewerTheme, MessageKey> = {
+  oneDarkPro: "viewerTheme.oneDarkPro",
+  github: "viewerTheme.github",
+  vscode: "viewerTheme.vscode",
+  darcula: "viewerTheme.darcula",
+  solarized: "viewerTheme.solarized",
+  catppuccin: "viewerTheme.catppuccin",
+  monokai: "viewerTheme.monokai",
 };
 
 const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
@@ -506,6 +543,7 @@ function AppearanceSection(props: Props) {
         </p>
       </div>
       <TerminalLookFields {...props} />
+      <ViewerThemeFields {...props} />
       <div className="settings-row">
         <button
           type="button"
@@ -536,7 +574,7 @@ function TerminalLookFields(props: Props) {
       <h4 id="settings-terminal" className="settings-subtitle">
         {t("settings.terminal")}
       </h4>
-      <TerminalPreview settings={settings} theme={props.theme} />
+      <TerminalPreview settings={settings} theme={props.theme} fontSize={props.fontSize} />
       <div className="field">
         <span id="settings-scheme">{t("settings.colorScheme")}</span>
         <div
@@ -545,35 +583,33 @@ function TerminalLookFields(props: Props) {
           aria-labelledby="settings-scheme"
           aria-describedby="settings-scheme-help"
         >
-          {COLOR_SCHEMES.map((scheme) => {
-            const colors = schemeColors(scheme, props.theme);
-            return (
-              <label
-                key={scheme}
-                className="scheme-option"
-                style={{ background: colors.background, color: colors.foreground }}
-              >
-                <input
-                  type="radio"
-                  name="terminal-scheme"
-                  value={scheme}
-                  checked={settings.terminalScheme === scheme}
-                  onChange={() => {
-                    onChange({ terminalScheme: scheme });
-                  }}
-                />
-                <span className="scheme-option-name">{t(SCHEME_NAMES[scheme])}</span>
-                <span className="scheme-option-palette" aria-hidden="true">
-                  {schemePalette(colors).map((color, index) => (
-                    <span key={index} style={{ background: color }} />
-                  ))}
-                </span>
-                <span className="scheme-option-check">
-                  <CheckIcon size={14} />
-                </span>
-              </label>
-            );
-          })}
+          {SCHEME_GROUPS.map((group) => (
+            <div
+              key={group}
+              className="scheme-group"
+              role="group"
+              aria-labelledby={`scheme-group-${group}`}
+            >
+              <span id={`scheme-group-${group}`} className="scheme-group-title">
+                {t(SCHEME_GROUP_NAMES[group])}
+              </span>
+              <div className="scheme-grid">
+                {schemesInGroup(group).map((scheme) => (
+                  <SchemeTile
+                    key={scheme}
+                    scheme={scheme}
+                    name={t(SCHEME_NAMES[scheme])}
+                    colors={schemeColors(scheme, props.theme)}
+                    font={fontStack(settings.terminalFont)}
+                    checked={settings.terminalScheme === scheme}
+                    onSelect={() => {
+                      onChange({ terminalScheme: scheme });
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
         <p id="settings-scheme-help" className="muted">
           {t("settings.colorSchemeHelp")}
@@ -658,43 +694,221 @@ function TerminalLookFields(props: Props) {
   );
 }
 
-/** A prompt line in the chosen scheme, font and cursor; decoration only. */
-function TerminalPreview({ settings, theme }: { settings: Settings; theme: Theme }) {
+/** Colors of the file viewer window: one tile per theme, each a few lines of code in it. */
+function ViewerThemeFields(props: Props) {
+  const { settings, onChange } = props;
+  const t = useT();
+  return (
+    <section className="settings-section" aria-labelledby="settings-viewer">
+      <h4 id="settings-viewer" className="settings-subtitle">
+        {t("settings.viewer")}
+      </h4>
+      <div className="field">
+        <div
+          className="viewer-theme-picker"
+          role="radiogroup"
+          aria-labelledby="settings-viewer"
+          aria-describedby="settings-viewer-help"
+        >
+          {VIEWER_THEMES.map((theme) => {
+            const palette = viewerPalette(theme, props.theme);
+            return (
+              <label
+                key={theme}
+                className="viewer-theme-option"
+                style={{ background: palette.background, color: palette.foreground }}
+              >
+                <input
+                  type="radio"
+                  name="viewer-theme"
+                  value={theme}
+                  checked={settings.viewerTheme === theme}
+                  onChange={() => {
+                    onChange({ viewerTheme: theme });
+                  }}
+                />
+                <CodeSample palette={palette} font={fontStack(settings.terminalFont)} />
+                <span
+                  className="viewer-theme-name"
+                  style={{ background: palette.activeLine, color: palette.foreground }}
+                >
+                  {t(VIEWER_THEME_NAMES[theme])}
+                </span>
+                <span className="viewer-theme-check">
+                  <CheckIcon size={14} />
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <p id="settings-viewer-help" className="muted">
+          {t("settings.viewerHelp")}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** A few highlighted lines with line numbers in a viewer theme; decoration only. */
+function CodeSample({ palette, font }: { palette: ViewerPalette; font: string }) {
+  return (
+    <span className="viewer-theme-code" aria-hidden="true" style={{ fontFamily: font }}>
+      {PREVIEW_LINES.map((line, index) => (
+        <span key={index} className="viewer-theme-line">
+          <span className="viewer-theme-number" style={{ color: palette.gutterForeground }}>
+            {index + 1}
+          </span>
+          {line.map(([kind, text], piece) => (
+            <span
+              key={piece}
+              style={kind === null ? undefined : { color: palette.tokens[kind] }}
+              className={kind === "comment" ? "viewer-theme-comment" : undefined}
+            >
+              {text}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** One radio tile of the scheme picker: a short sample drawn in the scheme, and its name. */
+function SchemeTile(props: {
+  scheme: ColorScheme;
+  name: string;
+  colors: TerminalColors;
+  font: string;
+  checked: boolean;
+  onSelect: () => void;
+}) {
+  const { colors } = props;
+  return (
+    <label
+      className="scheme-option"
+      style={{ background: colors.background, color: colors.foreground }}
+    >
+      <input
+        type="radio"
+        name="terminal-scheme"
+        value={props.scheme}
+        checked={props.checked}
+        onChange={props.onSelect}
+      />
+      <span className="scheme-option-sample" aria-hidden="true" style={{ fontFamily: props.font }}>
+        <PreviewText lines={TILE_LINES} colors={colors} />
+      </span>
+      <span className="scheme-option-palette" aria-hidden="true">
+        {ACCENT_ROWS[0].map((color) => (
+          <span key={color} style={{ background: colors[color] }} />
+        ))}
+      </span>
+      <span
+        className="scheme-option-name"
+        style={{ background: `color-mix(in srgb, ${colors.foreground} 9%, ${colors.background})` }}
+      >
+        {props.name}
+      </span>
+      <span className="scheme-option-check">
+        <CheckIcon size={14} />
+      </span>
+    </label>
+  );
+}
+
+/** The 16 terminal colors as the usual two rows: normal, then bright. */
+const ACCENT_ROWS: readonly [readonly AnsiColor[], readonly AnsiColor[]] = [
+  ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"],
+  [
+    "brightBlack",
+    "brightRed",
+    "brightGreen",
+    "brightYellow",
+    "brightBlue",
+    "brightMagenta",
+    "brightCyan",
+    "brightWhite",
+  ],
+];
+
+/** Sample lines in a scheme's colors; each line a block, so the frame characters line up. */
+function PreviewText({
+  lines,
+  colors,
+  cursor,
+}: {
+  lines: readonly PreviewLine[];
+  colors: TerminalColors;
+  cursor?: ReactNode;
+}) {
+  return (
+    <>
+      {lines.map((line, index) => (
+        <span key={index} className="preview-line">
+          {line.map(([color, text], piece) => (
+            <span key={piece} style={color === null ? undefined : { color: colors[color] }}>
+              {text}
+            </span>
+          ))}
+          {index === lines.length - 1 ? cursor : null}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * A small terminal in the chosen scheme, font, size and cursor, with the scheme's 16 colors next
+ * to it; decoration only. It stays in view while the pickers below it scroll.
+ */
+function TerminalPreview({
+  settings,
+  theme,
+  fontSize,
+}: {
+  settings: Settings;
+  theme: Theme;
+  fontSize: number;
+}) {
   const colors = schemeColors(settings.terminalScheme, theme);
-  const palette = schemePalette(colors);
+  const cursor = (
+    <span
+      className={[
+        "terminal-preview-cursor",
+        settings.cursorStyle,
+        settings.cursorBlink ? "blink" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{ color: colors.cursor }}
+    />
+  );
   return (
     <div
       className="terminal-preview"
       aria-hidden="true"
-      style={{
-        background: colors.background,
-        color: colors.foreground,
-        fontFamily: fontStack(settings.terminalFont),
-      }}
+      style={{ background: colors.background, color: colors.foreground }}
     >
-      <div className="terminal-preview-line">
-        <span style={{ color: colors.green }}>~/hangar</span>{" "}
-        <span style={{ color: colors.blue }}>main</span>{" "}
-        <span style={{ color: colors.brightBlack }}>$</span> claude{" "}
-        <span
-          className={[
-            "terminal-preview-cursor",
-            settings.cursorStyle,
-            settings.cursorBlink ? "blink" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          style={{ color: colors.cursor }}
-        />
-      </div>
-      <div className="terminal-preview-palette">
-        {palette.map((color, index) => (
-          <span key={index} style={{ background: color }} />
-        ))}
-      </div>
+      <span
+        className="terminal-preview-text"
+        style={{
+          fontFamily: fontStack(settings.terminalFont),
+          fontSize: `${String(Math.min(fontSize, PREVIEW_MAX_FONT_SIZE))}px`,
+        }}
+      >
+        <PreviewText lines={TERMINAL_PREVIEW_LINES} colors={colors} cursor={cursor} />
+      </span>
+      <span className="terminal-preview-palette">
+        {ACCENT_ROWS.map((row) =>
+          row.map((color) => <span key={color} style={{ background: colors[color] }} />),
+        )}
+      </span>
     </div>
   );
 }
+
+/** Above this the sample frame no longer fits next to the palette in the dialog. */
+const PREVIEW_MAX_FONT_SIZE = 15;
 
 function ProgramsSection(props: Props) {
   return (

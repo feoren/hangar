@@ -109,8 +109,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   path, so the agent can attach it.
 - **Snippets and broadcast.** Reusable text snippets, and one message sent to several sessions at
   once.
-- **Your look.** Six terminal color schemes, each in light and dark, and four bundled coding fonts,
-  every one shown in its own colors and typeface. The app follows the system theme or your choice.
+- **Your look.** Fourteen terminal color schemes, each in light and dark and readable in both, and
+  seven bundled coding fonts, every one shown in its own colors and typeface. The app follows the
+  system theme or your choice.
 - **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
   Polish, Russian, Turkish, Greek, Japanese and Chinese.
 - **Always up to date.** Hangar updates itself with signed updates. It looks for new versions of
@@ -158,7 +159,7 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-settings-light.png">
-        <img alt="Settings, Appearance: a live terminal preview, six color schemes shown in their own colors and the bundled terminal fonts" src="docs/images/hangar-settings-dark.png">
+        <img alt="Settings, Appearance: a live terminal preview, the color schemes shown in their own colors and the bundled terminal fonts" src="docs/images/hangar-settings-dark.png">
       </picture>
       <br><sub>Pick a color scheme and font, previewed live.</sub>
     </td>

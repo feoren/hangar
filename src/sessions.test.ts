@@ -29,6 +29,21 @@ function withSessions(ids: number[], activeId: number | null): SessionsState {
 }
 
 describe("sessionsReducer", () => {
+  it("adds a session to its program's agent group, so the list follows the sidebar", () => {
+    const claude = (id: number) => ({ ...session(id), profileId: "claude" });
+    let state: SessionsState = initialSessions;
+    for (const next of [claude(1), session(2), claude(3)]) {
+      state = sessionsReducer(state, { type: "added", session: next });
+    }
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 3, 2]);
+    // Cycling walks the sidebar's order: from 3 on to the shell below it.
+    expect(sessionsReducer(state, { type: "cycled", step: 1 }).activeId).toBe(2);
+    // A move across the agent group's border lands back inside the group.
+    expect(
+      sessionsReducer(state, { type: "moved", id: 2, index: 0 }).sessions.map((s) => s.id),
+    ).toEqual([1, 3, 2]);
+  });
+
   it("replaces a session in the same place and keeps the selection", () => {
     const state = withSessions([1, -1, 2], -1);
     const next = sessionsReducer(state, { type: "replaced", oldId: -1, session: session(7) });
@@ -121,6 +136,27 @@ describe("sessionsReducer", () => {
     });
     expect(first.activeId).toBe(3);
     expect(sessionsReducer(first, { type: "restored", session: session(3), order: 0 })).toBe(first);
+  });
+
+  it("restores a workspace saved before agent groups in slot order within each group", () => {
+    const claude = (id: number) => ({ ...session(id), profileId: "claude" });
+    // Saved ungrouped: claude 1, shell 2, shell 3, claude 4; claude 4 was active, so it comes first.
+    let state = initialSessions;
+    state = sessionsReducer(state, { type: "restored", session: claude(4), order: 3 });
+    state = sessionsReducer(state, { type: "restored", session: claude(1), order: 0 });
+    state = sessionsReducer(state, { type: "restored", session: session(2), order: 1 });
+    state = sessionsReducer(state, { type: "restored", session: session(3), order: 2 });
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 4, 2, 3]);
+    // The same result whatever order the others arrive in.
+    let other = sessionsReducer(initialSessions, {
+      type: "restored",
+      session: claude(4),
+      order: 3,
+    });
+    other = sessionsReducer(other, { type: "restored", session: session(3), order: 2 });
+    other = sessionsReducer(other, { type: "restored", session: session(2), order: 1 });
+    other = sessionsReducer(other, { type: "restored", session: claude(1), order: 0 });
+    expect(other.sessions.map((s) => s.id)).toEqual([1, 4, 2, 3]);
   });
 
   it("keeps the remembered slot on restart for sessions restored later", () => {
@@ -223,18 +259,20 @@ describe("worktree", () => {
     expect("worktree" in (state.sessions[0] ?? {})).toBe(false);
   });
 
-  it("sessions sit in their sidebar group: ordinary ones first, worktree ones after them", () => {
+  it("worktree sessions sit in their program's group, in the order they came", () => {
+    const claude = (id: number) => ({ ...session(id), profileId: "claude" });
     let state = sessionsReducer(initialSessions, { type: "added", session: session(1), worktree });
-    state = sessionsReducer(state, { type: "added", session: session(2) });
-    state = sessionsReducer(state, { type: "added", session: session(3), worktree });
-    state = sessionsReducer(state, { type: "added", session: session(4) });
-    expect(state.sessions.map((s) => s.id)).toEqual([2, 4, 1, 3]);
+    state = sessionsReducer(state, { type: "added", session: claude(2) });
+    state = sessionsReducer(state, { type: "added", session: session(3) });
+    state = sessionsReducer(state, { type: "added", session: claude(4), worktree });
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 3, 2, 4]);
     expect(state.activeId).toBe(4);
 
-    // Moving across the border keeps a session in its own group.
-    const moved = sessionsReducer(state, { type: "moved", id: 2, index: 3 });
-    expect(moved.sessions.map((s) => s.id)).toEqual([4, 2, 1, 3]);
-    expect(sessionsReducer(state, { type: "moved", id: 4, index: 3 })).toBe(state);
+    // Within a group, a worktree session moves past an ordinary one like any other row.
+    const up = sessionsReducer(state, { type: "moved", id: 3, index: 0 });
+    expect(up.sessions.map((s) => s.id)).toEqual([3, 1, 2, 4]);
+    // Across the border, a session stays in its own group.
+    expect(sessionsReducer(state, { type: "moved", id: 4, index: 0 })).toBe(state);
 
     let restored = sessionsReducer(initialSessions, {
       type: "restored",
@@ -243,10 +281,10 @@ describe("worktree", () => {
       worktree,
     });
     restored = sessionsReducer(restored, { type: "restored", session: session(8), order: 1 });
-    expect(restored.sessions.map((s) => s.id)).toEqual([8, 7]);
+    expect(restored.sessions.map((s) => s.id)).toEqual([7, 8]);
   });
 
-  it("restores a workspace saved before the groups in slot order, however the starts finish", () => {
+  it("restores worktree and ordinary sessions in slot order, however the starts finish", () => {
     // Saved slots 0..3: worktree, ordinary, worktree, ordinary; the starts finish as 3, 0, 1, 2.
     const slots: { id: number; order: number; own: boolean }[] = [
       { id: 13, order: 3, own: false },
@@ -263,7 +301,7 @@ describe("worktree", () => {
         ...(slot.own ? { worktree } : {}),
       });
     }
-    expect(state.sessions.map((s) => s.id)).toEqual([11, 13, 10, 12]);
+    expect(state.sessions.map((s) => s.id)).toEqual([10, 11, 12, 13]);
   });
 });
 

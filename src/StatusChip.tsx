@@ -1,18 +1,15 @@
-import { useT } from "./i18n";
 import { AlertIcon, BellIcon, CheckIcon } from "./icons";
-import { CHIP_LABELS, type ChipKind } from "./sessionChip";
+import type { ChipKind } from "./sessionChip";
 
 /**
- * Status chip at the end of a session row's title line. Decorative for screen readers: the row's
- * status line already says the same in words. `compact` (collapsed rail) shows the shape only.
+ * Status icon at the top right of a session row: only the shape, in its state's color, without a
+ * pill or a word. Decorative for screen readers: the row's status line already says the same in
+ * words. `compact` (collapsed rail) sits as a small circle on the badge's corner.
  */
 export function StatusChip({ kind, compact = false }: { kind: ChipKind; compact?: boolean }) {
-  const t = useT();
-  const label = CHIP_LABELS[kind];
   return (
     <span className={`status-chip ${kind}${compact ? " compact" : ""}`} aria-hidden="true">
       <ChipShape kind={kind} />
-      {!compact && label !== null && <span className="status-chip-label">{t(label)}</span>}
     </span>
   );
 }
@@ -23,6 +20,13 @@ function ChipShape({ kind }: { kind: ChipKind }) {
       return (
         <span className="status-chip-dots">
           <span />
+          <span />
+          <span />
+        </span>
+      );
+    case "paused":
+      return (
+        <span className="status-chip-bars">
           <span />
           <span />
         </span>

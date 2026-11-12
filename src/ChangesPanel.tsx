@@ -1,24 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, errorText } from "./api";
+import { ChangeList } from "./ChangeList";
 import type { Overlap, SessionClaims } from "./claims";
 import { ClaimsSection } from "./ClaimsView";
+import { CommitHistory } from "./CommitHistory";
 import { folderName } from "./folders";
-import {
-  CHANGE_LABELS,
-  changeEntries,
-  DIFF_PAGE_LINES,
-  FILE_PAGE,
-  initiallyOpen,
-  lineKind,
-  parseGitDiff,
-  splitPath,
-  type ChangeEntry,
-  type GitDiff,
-} from "./gitDiff";
-import { useT } from "./i18n";
-import { ChevronIcon, RestartIcon } from "./icons";
-import { hasInvisible, revealInvisible } from "./invisible";
+import { parseGitDiff, type GitDiff } from "./gitDiff";
+import { CHANGES_VIEWS, type ChangesView } from "./gitHistory";
+import { useT, type MessageKey } from "./i18n";
+import { RestartIcon } from "./icons";
+import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import type { TeammateOverlap } from "./team";
 
@@ -40,7 +32,17 @@ interface Props {
   teammates: readonly TeammateOverlap[];
   nameOf: (id: number) => string;
   onShowSession: (id: number) => void;
+  /** Uncommitted changes or the commit history; kept by the window while the tab is closed. */
+  view: ChangesView;
+  onView: (view: ChangesView) => void;
+  /** UI language, for relative times and dates. */
+  language: string;
 }
+
+const VIEW_LABELS = {
+  open: "changes.viewOpen",
+  commits: "changes.viewCommits",
+} as const satisfies Record<ChangesView, MessageKey>;
 
 type Load =
   | { kind: "idle" }
@@ -49,23 +51,29 @@ type Load =
   | { kind: "done"; result: GitDiff };
 
 /**
- * Changes of the active session's folder against the last commit, the second tab of the right panel
- * (Ctrl+Shift+D). Read again on open, on a new session, on "Refresh" and whenever the session's
- * attention state changes. Large diffs show a page of lines per file, more on request.
+ * Changes of the active session's folder, the second tab of the right panel (Ctrl+Shift+D): either
+ * what is not committed yet (against the last commit) or the commits themselves. Read again on
+ * open, on a new session, on "Refresh" and whenever the session's attention state changes. Large
+ * diffs show a page of lines per file, more on request.
  */
 export function ChangesPanel(props: Props) {
-  const { cwd, trigger } = props;
+  const { cwd, trigger, view } = props;
   const t = useT();
   const [manual, setManual] = useState(0);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const onHistoryBusy = useCallback((busy: boolean) => {
+    setHistoryBusy(busy);
+  }, []);
   /** Last answer, with the request it belongs to. */
   const [answer, setAnswer] = useState<{ key: string; cwd: string; load: Load } | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const latest = useRef("");
-  const key = `${cwd ?? ""}\n${trigger}\n${String(manual)}`;
+  const reload = `${trigger}\n${String(manual)}`;
+  const key = `${cwd ?? ""}\n${reload}\n${view}`;
 
   useEffect(() => {
     latest.current = key;
-    if (cwd === null) return;
+    if (cwd === null || view !== "open") return;
     const settle = (load: Load) => {
       // An older answer that arrives late must not replace a newer one.
       if (latest.current === key) setAnswer({ key, cwd, load });
@@ -95,7 +103,7 @@ export function ChangesPanel(props: Props) {
       : answer !== null && answer.cwd === cwd
         ? answer.load
         : { kind: "loading" };
-  const refreshing = cwd !== null && answer?.key !== key;
+  const refreshing = cwd !== null && (view === "open" ? answer?.key !== key : historyBusy);
 
   useEffect(() => {
     if (props.focusToken === 0) return;
@@ -128,15 +136,45 @@ export function ChangesPanel(props: Props) {
           <RestartIcon />
         </button>
       </div>
-      <ClaimsSection
-        key={props.claims?.sessionId ?? "none"}
-        claims={props.claims}
-        overlaps={props.overlaps}
-        teammates={props.teammates}
-        nameOf={props.nameOf}
-        onShowSession={props.onShowSession}
-      />
-      <ChangesBody cwd={cwd} load={load} />
+      <div className="changes-views segmented" role="radiogroup" aria-label={t("changes.view")}>
+        {CHANGES_VIEWS.map((option) => (
+          <label key={option} className="segment">
+            <input
+              type="radio"
+              name="changes-view"
+              value={option}
+              checked={view === option}
+              onChange={() => {
+                props.onView(option);
+              }}
+            />
+            <span>{t(VIEW_LABELS[option])}</span>
+          </label>
+        ))}
+      </div>
+      {view === "open" ? (
+        <>
+          <ClaimsSection
+            key={props.claims?.sessionId ?? "none"}
+            claims={props.claims}
+            overlaps={props.overlaps}
+            teammates={props.teammates}
+            nameOf={props.nameOf}
+            onShowSession={props.onShowSession}
+          />
+          <ChangesBody cwd={cwd} load={load} />
+        </>
+      ) : cwd === null ? (
+        <p className="changes-message">{t("changes.noSession")}</p>
+      ) : (
+        <CommitHistory
+          key={cwd}
+          cwd={cwd}
+          reload={reload}
+          language={props.language}
+          onBusy={onHistoryBusy}
+        />
+      )}
     </div>
   );
 }
@@ -165,167 +203,10 @@ function ChangesBody({ cwd, load }: { cwd: string | null; load: Load }) {
       if (load.result.files.length === 0 && load.result.diff === "") {
         return <p className="changes-message">{t("changes.none")}</p>;
       }
-      return <ChangeList result={load.result} />;
+      return (
+        <div className="changes-body">
+          <ChangeList result={load.result} />
+        </div>
+      );
   }
-}
-
-function ChangeList({ result }: { result: GitDiff }) {
-  const t = useT();
-  const entries = useMemo(() => changeEntries(result), [result]);
-  const [open, setOpen] = useState(() => initiallyOpen(entries));
-  // A new answer opens its small files again; files the user opened or closed keep their state.
-  const [openFor, setOpenFor] = useState(entries);
-  if (openFor !== entries) {
-    setOpenFor(entries);
-    const known = new Set(openFor.map((entry) => entry.path));
-    const fresh = initiallyOpen(entries.filter((entry) => !known.has(entry.path)));
-    setOpen((current) => new Set([...current, ...fresh]));
-  }
-  // Thousands of files (a generated folder) would make the panel slow; the totals count them all.
-  const [listed, setListed] = useState(FILE_PAGE);
-  const restFiles = entries.length - listed;
-  const additions = entries.reduce((sum, entry) => sum + entry.additions, 0);
-  const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
-  return (
-    <div className="changes-body">
-      <p className="changes-summary">
-        <span>{t("changes.files", { count: entries.length })}</span>
-        <span className="changes-plus">+{additions}</span>
-        <span className="changes-minus">−{deletions}</span>
-      </p>
-      {result.truncated && <p className="changes-hint">{t("changes.truncated")}</p>}
-      <ul className="changes-files">
-        {entries.slice(0, listed).map((entry) => (
-          <FileItem
-            key={entry.path}
-            entry={entry}
-            open={open.has(entry.path)}
-            truncated={result.truncated}
-            onToggle={() => {
-              setOpen((current) => {
-                const next = new Set(current);
-                if (next.has(entry.path)) next.delete(entry.path);
-                else next.add(entry.path);
-                return next;
-              });
-            }}
-          />
-        ))}
-      </ul>
-      {restFiles > 0 && (
-        <button
-          type="button"
-          className="link-button change-more files"
-          onClick={() => {
-            setListed((value) => value + FILE_PAGE);
-          }}
-        >
-          {t("changes.moreFiles", { count: restFiles })}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function FileItem({
-  entry,
-  open,
-  truncated,
-  onToggle,
-}: {
-  entry: ChangeEntry;
-  open: boolean;
-  truncated: boolean;
-  onToggle: () => void;
-}) {
-  const t = useT();
-  const { folder, name } = splitPath(entry.path);
-  const label = CHANGE_LABELS[entry.kind];
-  const kindName = t(label.name);
-  return (
-    <li className={open ? "change-file open" : "change-file"}>
-      <button
-        type="button"
-        className="change-head"
-        aria-expanded={open}
-        title={[revealInvisible(entry.path), kindName, entry.hidden ? t("changes.hiddenChars") : ""]
-          .filter(Boolean)
-          .join("\n")}
-        onClick={onToggle}
-      >
-        <ChevronIcon size={12} />
-        <span className={`change-kind ${entry.kind}`} aria-hidden="true">
-          {label.letter}
-        </span>
-        <span className="sr-only">{kindName}</span>
-        <span className="change-name">
-          <Revealed text={name} />
-        </span>
-        {folder !== "" && (
-          <span className="change-folder">
-            <Revealed text={folder} />
-          </span>
-        )}
-        {entry.hidden && (
-          <span className="change-warning" title={t("changes.hiddenChars")}>
-            {t("changes.hiddenShort")}
-          </span>
-        )}
-        <span className="change-counts">
-          {entry.additions > 0 && <span className="changes-plus">+{entry.additions}</span>}
-          {entry.deletions > 0 && <span className="changes-minus">−{entry.deletions}</span>}
-        </span>
-      </button>
-      {open && <FileDiffView entry={entry} truncated={truncated} />}
-    </li>
-  );
-}
-
-function FileDiffView({ entry, truncated }: { entry: ChangeEntry; truncated: boolean }) {
-  const t = useT();
-  const [shown, setShown] = useState(DIFF_PAGE_LINES);
-  const diff = entry.diff;
-  if (diff === null) {
-    const note =
-      entry.kind === "untracked"
-        ? t("changes.untrackedNote")
-        : truncated
-          ? t("changes.cutNote")
-          : t("changes.noContent");
-    return <p className="change-note">{note}</p>;
-  }
-  if (diff.binary) return <p className="change-note">{t("changes.binary")}</p>;
-  if (diff.lines.length === 0) return <p className="change-note">{t("changes.noContent")}</p>;
-  const rest = diff.lines.length - shown;
-  return (
-    <>
-      <div className="diff">
-        {diff.lines.slice(0, shown).map((line, index) => (
-          // Lines have no identity of their own; the list only grows at the end.
-          <div
-            key={index}
-            className={
-              hasInvisible(line)
-                ? `diff-line ${lineKind(line)} hidden-chars`
-                : `diff-line ${lineKind(line)}`
-            }
-            title={hasInvisible(line) ? t("changes.hiddenChars") : undefined}
-          >
-            {line === "" ? " " : <Revealed text={line} />}
-          </div>
-        ))}
-      </div>
-      {rest > 0 && (
-        <button
-          type="button"
-          className="link-button change-more"
-          onClick={() => {
-            setShown((value) => value + DIFF_PAGE_LINES);
-          }}
-        >
-          {t("changes.more", { count: rest })}
-        </button>
-      )}
-    </>
-  );
 }
