@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 
-import { useT } from "./i18n";
+import { useT, type MessageKey } from "./i18n";
+import { SNIPPET_VARIABLES, usedVariables, type SnippetVariable } from "./snippetVariables";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import {
@@ -10,6 +11,14 @@ import {
   SNIPPET_MAX_LENGTH,
   type Snippet,
 } from "./snippets";
+
+const VARIABLE_HELP: Record<SnippetVariable, MessageKey> = {
+  file: "snippets.varFile",
+  branch: "snippets.varBranch",
+  selection: "snippets.varSelection",
+  diff: "snippets.varDiff",
+  folder: "snippets.varFolder",
+};
 
 interface Props {
   snippets: Snippet[];
@@ -59,27 +68,53 @@ export function SnippetsSettings({ snippets, onChange }: Props) {
       <p id="snippets-help" className="muted settings-intro">
         {t("snippets.help", { keys: formatShortcut(SHORTCUT_LABELS.launcher, t) })}
       </p>
+      <div className="snippet-variables">
+        <p className="muted">{t("snippets.variables")}</p>
+        <dl>
+          {SNIPPET_VARIABLES.map((name) => (
+            <Fragment key={name}>
+              <dt>
+                <code>{`{{${name}}}`}</code>
+              </dt>
+              <dd className="muted">{t(VARIABLE_HELP[name])}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      </div>
       {snippets.length === 0 && <p className="muted">{t("snippets.empty")}</p>}
       <ol className="snippet-list">
         {snippets.map((snippet, index) => {
           const label = t("snippets.text", { number: index + 1 });
+          // Not an error: unknown names are sent as written, the hint only catches typos.
+          const unknown = usedVariables(snippet.text).unknown;
+          const hintId = `snippet-unknown-${snippet.id}`;
           return (
             <li key={snippet.id} className="snippet-row">
-              <textarea
-                ref={(element) => {
-                  if (element) fields.current.set(snippet.id, element);
-                  else fields.current.delete(snippet.id);
-                }}
-                className="text-input snippet-text"
-                aria-label={label}
-                rows={2}
-                maxLength={SNIPPET_MAX_LENGTH}
-                value={snippet.text}
-                spellCheck={false}
-                onChange={(event) => {
-                  update(snippet.id, event.currentTarget.value);
-                }}
-              />
+              <div className="snippet-field">
+                <textarea
+                  ref={(element) => {
+                    if (element) fields.current.set(snippet.id, element);
+                    else fields.current.delete(snippet.id);
+                  }}
+                  className="text-input snippet-text"
+                  aria-label={label}
+                  aria-describedby={unknown.length > 0 ? hintId : undefined}
+                  rows={2}
+                  maxLength={SNIPPET_MAX_LENGTH}
+                  value={snippet.text}
+                  spellCheck={false}
+                  onChange={(event) => {
+                    update(snippet.id, event.currentTarget.value);
+                  }}
+                />
+                {unknown.length > 0 && (
+                  <p id={hintId} className="muted snippet-unknown">
+                    {t("snippets.unknownHint", {
+                      names: unknown.map((name) => `{{${name}}}`).join(", "),
+                    })}
+                  </p>
+                )}
+              </div>
               <div className="snippet-actions">
                 <button
                   type="button"

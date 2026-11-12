@@ -69,6 +69,11 @@
   --activity-2: color-mix(in srgb, var(--accent) 52%, var(--bg));
   --activity-3: color-mix(in srgb, var(--accent) 76%, var(--bg));
   --activity-4: var(--accent);
+  /* Activity map of the Files tab: four quiet tints of the accent behind a row's text. */
+  --heat-1: color-mix(in srgb, var(--accent) 8%, transparent);
+  --heat-2: color-mix(in srgb, var(--accent) 15%, transparent);
+  --heat-3: color-mix(in srgb, var(--accent) 24%, transparent);
+  --heat-4: color-mix(in srgb, var(--accent) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
@@ -2700,16 +2705,11 @@ button.last-prompt:focus-visible {
   margin: 4px 0;
 }
 
-.keys {
-  margin-top: 16px;
-  font-size: 12px;
-}
-
 /* Activity calendar: 10 px days with 2 px gaps (CELL and GAP in ActivityCalendar.tsx). As wide
    as 53 weeks at most; a narrower window shows fewer weeks, measured on this box. */
 .activity {
   width: 100%;
-  max-width: calc(53 * 12px - 2px);
+  max-width: calc(53 * 17px - 3px);
   margin-top: 22px;
 }
 
@@ -2723,13 +2723,13 @@ button.last-prompt:focus-visible {
 .activity-months,
 .activity-days {
   display: grid;
-  column-gap: 2px;
+  column-gap: 3px;
 }
 
 .activity-months {
-  height: 12px;
-  font-size: 10px;
-  line-height: 12px;
+  height: 14px;
+  font-size: 11px;
+  line-height: 14px;
   text-align: left;
 }
 
@@ -2741,13 +2741,13 @@ button.last-prompt:focus-visible {
 }
 
 .activity-days {
-  grid-template-rows: repeat(7, 10px);
+  grid-template-rows: repeat(7, 14px);
   grid-auto-flow: column;
-  row-gap: 2px;
+  row-gap: 3px;
 }
 
 .activity-day {
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
 .activity-day.level-0 {
@@ -3415,10 +3415,6 @@ body.resizing-horizontal * {
 
 .key-combo {
   white-space: nowrap;
-}
-
-.keys {
-  line-height: 2;
 }
 
 /* Settings */
@@ -6062,6 +6058,137 @@ body.resizing-horizontal * {
   text-align: right;
 }
 
+/* Send to several: the snippet picker sits beside the help line; a refusal shows below. */
+.broadcast-help-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.broadcast-help-row p {
+  flex: 1;
+  min-width: 0;
+}
+
+.broadcast-snippet {
+  flex: none;
+  max-width: 45%;
+}
+
+.broadcast-problem {
+  margin-top: 8px;
+  color: var(--error);
+}
+
+/* Snippet settings: the variables a snippet may use, as a short two-column list. */
+.snippet-variables dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 4px 0 12px;
+}
+
+.snippet-variables dd {
+  margin: 0;
+}
+
+.snippet-variables code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Workspace templates: save and rename dialogs. */
+.dialog.template-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.dialog.template-dialog.small {
+  width: min(400px, calc(100vw - 32px));
+}
+
+.template-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.template-name .text-input {
+  width: 100%;
+}
+
+.template-sessions {
+  margin-top: 12px;
+}
+
+.template-list {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.template-session {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.template-session:hover {
+  background: var(--hover);
+}
+
+.template-session .badge,
+.template-session .badge-icon img {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+  border-radius: 5px;
+}
+
+.template-program,
+.template-folder {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.template-folder,
+.template-mode {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.template-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.template-title {
+  flex: none;
+  width: 150px;
+}
+
+/* The templates button beside the project folder card. */
+.cwd-templates {
+  flex: none;
+  align-self: center;
+}
+
 /* Marker dialog */
 .dialog.marker-dialog {
   width: min(400px, calc(100vw - 32px));
@@ -6151,8 +6278,22 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
+.snippet-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.snippet-unknown {
+  margin: 0;
+  font-size: 12px;
+}
+
 .snippet-text {
   flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 52px;
   font-family: var(--mono);
@@ -6762,6 +6903,109 @@ body.resizing-horizontal * {
 
 .tree-dot.change {
   border: 1.5px solid var(--warn);
+}
+
+/* A collapsed folder: how many others work inside, in the avatars' look. */
+.tree-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--avatar-fg);
+  background: var(--avatar-bg);
+}
+
+/* Activity map: the row's tint by how often agents changed it; hover and selection stay on top. */
+.file-tree.heat .tree-item {
+  transition: background-color 240ms var(--ease-out);
+}
+
+.file-tree.heat .tree-item.heat-1 {
+  background-color: var(--heat-1);
+}
+
+.file-tree.heat .tree-item.heat-2 {
+  background-color: var(--heat-2);
+}
+
+.file-tree.heat .tree-item.heat-3 {
+  background-color: var(--heat-3);
+}
+
+.file-tree.heat .tree-item.heat-4 {
+  background-color: var(--heat-4);
+}
+
+.file-tree.heat .tree-item:hover {
+  background-color: var(--hover);
+}
+
+.file-tree.heat .tree-item.selected {
+  background-color: var(--active-tint-strong);
+}
+
+.heat-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 6px 8px 2px;
+  font-size: 12px;
+}
+
+.heat-windows {
+  display: flex;
+  flex: 1 1 100%;
+}
+
+.heat-windows .segment {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.heat-replay {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 6px;
+}
+
+.heat-slider {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.heat-time {
+  min-width: 44px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.heat-empty {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tree.heat .tree-item {
+    transition: none;
+  }
 }
 
 .tree-hint {
@@ -7824,13 +8068,14 @@ body.session-dragging .session-actions {
   color: var(--warn);
 }
 
-/* Taking a saved folder out of the menu: a quiet x, shown on the row's hover and focus. */
+/* Taking a saved folder out of the menu: a quiet x, always there so it can be found, clearer on
+   the row's hover and focus and red under the pointer. */
 .menu-remove {
   flex: none;
   width: 22px;
   height: 22px;
   color: var(--muted);
-  opacity: 0;
+  opacity: 0.55;
 }
 
 .menu-entry.removable:hover .menu-remove,
@@ -8868,6 +9113,11 @@ body.session-dragging .session-actions {
   box-shadow: 0 0 0 1.5px var(--panel);
 }
 
+/* One of the user's own sessions beside the people: a rounded square, never a circle. */
+.avatar.session {
+  border-radius: 4px;
+}
+
 /* Sidebar footer: account, team pill and Settings in one row. Pinned to the bottom: with every
    group closed nothing above fills the height, and the free space opens above the footer. */
 
@@ -9330,4 +9580,29 @@ body.session-dragging .session-actions {
 .team-requests .team-confirm {
   margin: 0;
   padding: 12px;
+}
+
+/* The open sessions put aside: the panes stay laid out (their size and scrollback survive) but
+   out of sight; the home view takes the body. */
+.panes.put-aside > :not(.empty) {
+  visibility: hidden;
+}
+
+/* The home button in the sidebar header: pressed while the home view shows. */
+.sidebar-home[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.empty.home {
+  position: absolute;
+  inset: 0;
+}
+
+.home-back {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
 }

@@ -370,6 +370,7 @@ export function PanelWindow() {
               session={activeId === null || cwd === null ? null : { id: activeId, cwd }}
               claims={claims}
               activities={activities}
+              sessions={sessions}
               nameOf={nameOf}
               focusToken={filesFocusToken}
               onMention={(text) => {

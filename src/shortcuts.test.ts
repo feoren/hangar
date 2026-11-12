@@ -94,6 +94,13 @@ describe("matchShortcut", () => {
     );
   });
 
+  it("home view with Ctrl+Shift+H, Ctrl+H (Backspace) stays with the terminal", () => {
+    expect(matchShortcut(key("H", "KeyH", { shift: true }))).toBe("home");
+    expect(matchShortcut(key("h", "KeyH"))).toBeNull();
+    expect(ignoresRepeat("home")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.home, createTranslator("en"))).toBe("Ctrl+Shift+H");
+  });
+
   it("overview with Ctrl+Shift+M, Ctrl+M (Enter) and Ctrl+Tab keep their meaning", () => {
     expect(matchShortcut(key("M", "KeyM", { shift: true }))).toBe("overview");
     expect(matchShortcut(key("m", "KeyM"))).toBeNull(); // Enter

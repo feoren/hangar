@@ -143,8 +143,11 @@ export function FolderMenu(props: Props) {
             },
           },
         ],
-        // Running projects come from the sessions, so only saved folders can be taken out.
-        ...(section.kind === "running"
+        // A running project stays listed while its sessions run; the x takes it off the saved
+        // lists (favorites, recent), so it is offered wherever such an entry exists.
+        ...(section.kind === "running" &&
+        !frozen.prefs.favorites.some((path) => folderKey(path) === key) &&
+        !frozen.prefs.recent.some((path) => folderKey(path) === key)
           ? {}
           : {
               remove: {

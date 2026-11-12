@@ -583,6 +583,11 @@ named fields, take paths as given, and drop `@` and expand `~` only for Pi.
 Pages changed: [[opencode-gate-live-measurement]], [[agent-gate-adapters]],
 [[agent-hooks-remaining-agents-research]], index.
 
+## [2026-11-12] ingest | Local dictation research
+Compared whisper.cpp (whisper-rs), Vosk, sherpa-onnx, Windows and macOS speech APIs, the Web Speech
+API and microphone capture (cpal versus getUserMedia). Recommendation: whisper-rs with small q5_1 and
+base q5_1, cpal in the backend, push-to-talk, consent-based model download. Latency and German quality
+are unmeasured. Pages changed: [[local-dictation-research]] (new), index.
 ## [2026-11-12] query | Session resources and push to the phone
 Filed the contracts of two 0.6.0 features: `session_resources` (CPU share of the machine and
 resident memory per session process tree, read from the Job Object on Windows and `/proc` on

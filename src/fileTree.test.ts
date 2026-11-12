@@ -17,6 +17,7 @@ import {
   avatarStack,
   buildMarks,
   folderKeyOf,
+  folderPeople,
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
@@ -26,6 +27,7 @@ import {
   treeReducer,
   treeStep,
   visibleRows,
+  type HolderRef,
   type ItemRow,
   type TeamEditor,
   type TreeAction,
@@ -148,7 +150,81 @@ describe("markings", () => {
     });
     expect([...marks.files.keys()]).toEqual(["src/app.tsx"]);
     expect(marks.files.get("src/app.tsx")?.editors.map((e) => e.member)).toEqual(["ann", "bob"]);
-    expect(marks.folders.get("src")).toEqual({ team: true, change: false });
+    const src = marks.folders.get("src");
+    expect(src?.team).toBe(true);
+    expect(src?.change).toBe(false);
+    expect(src?.editors.map((e) => e.member)).toEqual(["ann", "bob"]);
+    expect(src?.sessions).toEqual([]);
+  });
+
+  it("marks files other worktrees of the repository change, with since when", () => {
+    const sinceOf = (holder: HolderRef, path: string) =>
+      holder.kind === "worktree" && path === "src/a.ts" ? 1000 : null;
+    const marks = buildMarks({
+      root: "C:\\src\\shop",
+      repoRoot: "C:\\src\\shop",
+      peers: [],
+      changes: [{ root: "c:/src/shop", claims: [claim("src/a.ts")] }],
+      overlaps: [{ path: "src/a.ts", session: 5 }],
+      others: [
+        // The tree's own worktree is never "someone else".
+        { root: "C:/src/shop", sessions: [9], claims: [claim("own.ts")] },
+        {
+          root: "c:/wt/shop-x",
+          sessions: [5, 6],
+          claims: [claim("src/a.ts"), claim("lib/gone.ts", "deleted")],
+        },
+      ],
+      sinceOf,
+    });
+    expect(marks.files.get("src/a.ts")).toEqual({
+      editors: [],
+      change: "modified",
+      alsoIn: [
+        { session: 5, since: 1000 },
+        { session: 6, since: 1000 },
+      ],
+    });
+    expect(marks.files.has("own.ts")).toBe(false);
+    expect(marks.files.has("lib/gone.ts")).toBe(false);
+    expect(marks.folders.get("lib")).toEqual({
+      team: true,
+      change: false,
+      editors: [],
+      sessions: [5, 6],
+    });
+    const src = marks.folders.get("src");
+    expect(src === undefined ? 0 : folderPeople(src)).toBe(2);
+  });
+
+  it("counts each person once and each other session on a folder", () => {
+    const marks = buildMarks({
+      root: "/r",
+      repoRoot: "/r",
+      peers: [
+        peer("ann", ["docs/a.md"]),
+        peer("ann", ["docs/b.md"], {
+          device: "ann-laptop",
+          sessions: [
+            {
+              key: "ann-2",
+              agent: "Codex",
+              title: "",
+              state: "working",
+              repo: SHOP,
+              files: ["docs/b.md"],
+              moreFiles: 0,
+            },
+          ],
+        }),
+        peer("bob", ["docs/c.md"]),
+      ],
+      changes: [],
+      overlaps: [],
+      others: [{ root: "/wt/r-1", sessions: [4], claims: [claim("docs/d.md")] }],
+    });
+    const docs = marks.folders.get("docs");
+    expect(docs === undefined ? 0 : folderPeople(docs)).toBe(3);
   });
 
   it("counts a person with the same agent once per file", () => {
@@ -197,10 +273,15 @@ describe("markings", () => {
     expect(marks.files.get("a.txt")).toEqual({
       editors: [],
       change: "conflicted",
-      alsoIn: [7],
+      alsoIn: [{ session: 7, since: null }],
     });
     expect(marks.files.has("lib/gone.ts")).toBe(false);
-    expect(marks.folders.get("lib")).toEqual({ team: false, change: true });
+    expect(marks.folders.get("lib")).toEqual({
+      team: false,
+      change: true,
+      editors: [],
+      sessions: [],
+    });
     expect(marks.files.has("b.txt")).toBe(false);
   });
 
@@ -211,6 +292,7 @@ describe("markings", () => {
       name: member,
       own: false,
       agent,
+      since: null,
     });
     const stack = avatarStack(
       [editor("ann"), editor("ann", "Aider"), editor("bob"), editor("cid"), editor("dan")],
