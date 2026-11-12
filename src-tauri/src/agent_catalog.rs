@@ -187,6 +187,15 @@ pub enum HookFormat {
     /// Codex CLI: `--dangerously-bypass-hook-trust -c hooks.PreToolUse=[…]` running
     /// `hangar gate-hook` through cmd.exe or the shell.
     CodexConfigFlags,
+    /// Pi: `-e <file>` with an in-process extension whose `tool_call` handler asks the endpoint.
+    PiExtension,
+    /// Oh My Pi: the same extension with `-e <file>`.
+    OmpExtension,
+    /// OpenCode: `OPENCODE_CONFIG_CONTENT` naming an in-process plugin file with a
+    /// `tool.execute.before` hook.
+    OpencodePlugin,
+    /// Droid: `--settings <file>` with a `PreToolUse` command hook running `hangar gate-hook`.
+    DroidSettings,
 }
 
 impl HookFormat {
@@ -194,12 +203,20 @@ impl HookFormat {
     /// configuration where Hangar would put its hooks. Hangar's would replace it or be a second
     /// one, and how the program combines both is not measured, so such a start goes without the
     /// gate instead of risking the user's settings or a silently missing hook. Copilot plugin
-    /// folders add up; of Codex's config overrides only one of `hooks` or `hooks.PreToolUse`
-    /// conflicts, as it sets the key Hangar's layer sets.
-    pub fn conflicts_with(self, args: &[String], env: &BTreeMap<String, String>) -> bool {
+    /// folders and Pi extensions add up; of Codex's config overrides only one of `hooks` or
+    /// `hooks.PreToolUse` conflicts, as it sets the key Hangar's layer sets. `env` is the
+    /// profile's plain environment, `secret_env` the names of its keychain variables; both reach
+    /// the program.
+    pub fn conflicts_with(
+        self,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        secret_env: &[String],
+    ) -> bool {
         // Windows compares variable names without case.
         let has_env = |name: &str| {
             env.keys()
+                .chain(secret_env)
                 .any(|key| key == name || (cfg!(windows) && key.eq_ignore_ascii_case(name)))
         };
         match self {
@@ -217,7 +234,19 @@ impl HookFormat {
                         || key.starts_with("hooks.PreToolUse.")
                 })
             }),
-            HookFormat::CopilotPlugin => false,
+            // Extensions add up: Pi loads every `-e`, also with `--no-extensions`.
+            HookFormat::CopilotPlugin | HookFormat::PiExtension => false,
+            // Oh My Pi refuses `--trusted-extension` together with `-e`.
+            HookFormat::OmpExtension => args.iter().any(|arg| {
+                arg == crate::hook_recipes::OMP_TRUSTED_FLAG
+                    || arg.starts_with("--trusted-extension=")
+            }),
+            // Hangar's plugin travels in OPENCODE_CONFIG_CONTENT, which would replace the
+            // profile's own.
+            HookFormat::OpencodePlugin => has_env(crate::hook_recipes::OPENCODE_CONFIG_CONTENT_ENV),
+            HookFormat::DroidSettings => args
+                .iter()
+                .any(|arg| arg == "--settings" || arg.starts_with("--settings=")),
         }
     }
 }
@@ -1193,13 +1222,17 @@ packages={ winget='x y' }
         let claude = caps("claude");
         assert!(claude.pre_edit_block && claude.context_inject && claude.per_session_config);
         assert!(claude.gate());
-        // Recipes: docs/wiki/pages/syntheses/agent-gate-adapters.md. Codex was measured live;
-        // Gemini, Copilot and Qwen have their recipe but wait for that measurement.
+        // Recipes: docs/wiki/pages/syntheses/agent-gate-adapters.md. Codex, OpenCode and Pi were
+        // measured live; the others have their recipe but wait for that measurement.
         for (id, format, measured, floor) in [
             ("codex", HookFormat::CodexConfigFlags, true, "0.167.2"),
             ("gemini", HookFormat::GeminiSystemSettings, false, "0.68.0"),
             ("copilot", HookFormat::CopilotPlugin, false, "1.0.109"),
             ("qwen", HookFormat::QwenSystemSettings, false, "0.27.2"),
+            ("opencode", HookFormat::OpencodePlugin, true, "1.19.5"),
+            ("pi", HookFormat::PiExtension, true, "1.5.2"),
+            ("omp", HookFormat::OmpExtension, false, "18.19.0"),
+            ("droid", HookFormat::DroidSettings, false, "0.174.0"),
         ] {
             let caps = caps(id);
             assert_eq!(caps.hook_format, Some(format), "{id}");
@@ -1210,19 +1243,19 @@ packages={ winget='x y' }
         assert!(claude.measured && claude.min_version.is_none());
         // Context goes in through Qwen's HTTP prompt hook only; the helper hands none yet.
         assert!(caps("qwen").context_inject);
-        for id in ["codex", "gemini", "copilot"] {
+        for id in [
+            "codex", "gemini", "copilot", "opencode", "pi", "omp", "droid",
+        ] {
             assert!(!caps(id).context_inject, "{id}");
         }
-        for id in ["aider", "opencode"] {
-            assert_eq!(caps(id), Capabilities::default(), "{id}");
-            assert!(!caps(id).gate(), "{id}");
-        }
+        assert_eq!(caps("aider"), Capabilities::default());
+        assert!(!caps("aider").gate());
         let gated: Vec<&str> = agents
             .iter()
             .filter(|a| a.capabilities.gate())
             .map(|a| a.id.as_str())
             .collect();
-        assert_eq!(gated, ["claude", "codex"]);
+        assert_eq!(gated, ["claude", "codex", "opencode", "pi"]);
     }
 
     #[test]
@@ -1461,14 +1494,18 @@ commands=['x']
         let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
         let none = BTreeMap::new();
         let format = HookFormat::ClaudeSettings;
-        assert!(format.conflicts_with(&args(&["--settings", "user.json"]), &none));
-        assert!(format.conflicts_with(&args(&["--settings=user.json"]), &none));
-        assert!(!format.conflicts_with(&args(&["--model", "x"]), &none));
+        assert!(format.conflicts_with(&args(&["--settings", "user.json"]), &none, &[]));
+        assert!(format.conflicts_with(&args(&["--settings=user.json"]), &none, &[]));
+        assert!(!format.conflicts_with(&args(&["--model", "x"]), &none, &[]));
         for (name, format) in [
             ("qwen_system_settings", HookFormat::QwenSystemSettings),
             ("gemini_system_settings", HookFormat::GeminiSystemSettings),
             ("copilot_plugin", HookFormat::CopilotPlugin),
             ("codex_config_flags", HookFormat::CodexConfigFlags),
+            ("pi_extension", HookFormat::PiExtension),
+            ("omp_extension", HookFormat::OmpExtension),
+            ("opencode_plugin", HookFormat::OpencodePlugin),
+            ("droid_settings", HookFormat::DroidSettings),
         ] {
             let text = format!(
                 "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = '{name}', measured = true }}
@@ -1485,25 +1522,37 @@ commands=['x']
     fn a_profile_variable_for_the_settings_file_conflicts() {
         let env = |name: &str| BTreeMap::from([(name.to_owned(), "x".to_owned())]);
         let none: Vec<String> = Vec::new();
-        assert!(HookFormat::QwenSystemSettings
-            .conflicts_with(&none, &env("QWEN_CODE_SYSTEM_SETTINGS_PATH")));
-        assert!(HookFormat::GeminiSystemSettings
-            .conflicts_with(&none, &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH")));
+        assert!(HookFormat::QwenSystemSettings.conflicts_with(
+            &none,
+            &env("QWEN_CODE_SYSTEM_SETTINGS_PATH"),
+            &[]
+        ));
+        assert!(HookFormat::GeminiSystemSettings.conflicts_with(
+            &none,
+            &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH"),
+            &[]
+        ));
         assert_eq!(
-            HookFormat::GeminiSystemSettings
-                .conflicts_with(&none, &env("gemini_cli_system_settings_path")),
+            HookFormat::GeminiSystemSettings.conflicts_with(
+                &none,
+                &env("gemini_cli_system_settings_path"),
+                &[]
+            ),
             cfg!(windows)
         );
-        assert!(!HookFormat::QwenSystemSettings
-            .conflicts_with(&none, &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH")));
+        assert!(!HookFormat::QwenSystemSettings.conflicts_with(
+            &none,
+            &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH"),
+            &[]
+        ));
         // Plugin folders add up; the user's own never conflict.
         let own = vec!["--plugin-dir".to_owned(), "mine".to_owned()];
-        assert!(!HookFormat::CopilotPlugin.conflicts_with(&own, &BTreeMap::new()));
+        assert!(!HookFormat::CopilotPlugin.conflicts_with(&own, &BTreeMap::new(), &[]));
         // A user's own Codex hooks override sets the key Hangar's layer sets; other overrides
         // do not touch it.
         let codex = |list: &[&str]| {
             let args: Vec<String> = list.iter().map(|a| (*a).to_owned()).collect();
-            HookFormat::CodexConfigFlags.conflicts_with(&args, &BTreeMap::new())
+            HookFormat::CodexConfigFlags.conflicts_with(&args, &BTreeMap::new(), &[])
         };
         assert!(codex(&["-c", "hooks.PreToolUse=[]"]));
         assert!(codex(&["--config", " hooks = {}"]));
@@ -1513,5 +1562,39 @@ commands=['x']
         assert!(!codex(&["-c", "hooks_extra=1"]));
         assert!(!codex(&["-c"]));
         assert!(!codex(&["hooks.PreToolUse=[]"]));
+    }
+
+    #[test]
+    fn the_plugin_formats_know_what_takes_their_place() {
+        let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        let none = BTreeMap::new();
+        // Pi loads every `-e`, the user's own and `--no-extensions` included.
+        assert!(!HookFormat::PiExtension.conflicts_with(
+            &args(&["-e", "mine.ts", "-ne"]),
+            &none,
+            &[]
+        ));
+        // Oh My Pi refuses its allowlist next to `-e`.
+        let omp = HookFormat::OmpExtension;
+        assert!(omp.conflicts_with(&args(&["--trusted-extension", "/x.ts"]), &none, &[]));
+        assert!(omp.conflicts_with(&args(&["--trusted-extension=/x.ts"]), &none, &[]));
+        assert!(!omp.conflicts_with(&args(&["-e", "mine.ts"]), &none, &[]));
+        // OpenCode: the profile's own inline configuration would be replaced, whether a plain or
+        // a keychain variable; its own configuration folder adds up.
+        let opencode = HookFormat::OpencodePlugin;
+        let inline = BTreeMap::from([("OPENCODE_CONFIG_CONTENT".to_owned(), "{}".to_owned())]);
+        assert!(opencode.conflicts_with(&[], &inline, &[]));
+        assert!(opencode.conflicts_with(&[], &none, &["OPENCODE_CONFIG_CONTENT".to_owned()]));
+        let folder = BTreeMap::from([("OPENCODE_CONFIG_DIR".to_owned(), "x".to_owned())]);
+        assert!(!opencode.conflicts_with(&[], &folder, &[]));
+        assert!(!opencode.conflicts_with(&args(&["--continue"]), &none, &[]));
+        // A keychain variable counts like a plain one for the settings formats too.
+        let secret = ["QWEN_CODE_SYSTEM_SETTINGS_PATH".to_owned()];
+        assert!(HookFormat::QwenSystemSettings.conflicts_with(&[], &none, &secret));
+        // Droid: a second settings file; how two combine is not known.
+        let droid = HookFormat::DroidSettings;
+        assert!(droid.conflicts_with(&args(&["--settings", "a.json"]), &none, &[]));
+        assert!(droid.conflicts_with(&args(&["--settings=a.json"]), &none, &[]));
+        assert!(!droid.conflicts_with(&args(&["--resume"]), &none, &[]));
     }
 }

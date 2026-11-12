@@ -63,6 +63,10 @@ png = "0.18"
 # through tauri, sha2 through tauri-codegen), MIT/Apache-2.0, RustCrypto and uuid-rs.
 uuid = { version = "1", default-features = false, features = ["std", "v4"] }
 sha2 = "0.10"
+# The OpenCode gate names its plugin as a file:// URL (hook_recipes.rs); from_file_path handles
+# drive letters, UNC paths and percent-encoding. Already in the tree through tauri and reqwest
+# (servo/rust-url, MIT/Apache-2.0), so this adds no code.
+url = "2"
 # Checking for new program versions. Same crates and features as tauri-plugin-updater
 # (rustls with ring, system proxy), so no extra code in the build; MIT/Apache-2.0.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }

@@ -5,7 +5,8 @@
 //! Recipes and evidence: docs/wiki/pages/sources/agent-hooks-per-session-research.md and
 //! docs/wiki/pages/syntheses/agent-gate-adapters.md. No recipe ever holds the session's token:
 //! it travels in the child's environment only ([`crate::gate::TOKEN_ENV`] for HTTP hooks,
-//! [`HELPER_ENV`] for the helper command `hangar gate-hook`).
+//! [`HELPER_ENV`] for the helper command `hangar gate-hook` and for the in-process extensions of
+//! Pi, Oh My Pi and OpenCode, which read it themselves).
 
 use std::path::Path;
 
@@ -33,6 +34,16 @@ pub const GEMINI_TRUST_ENV: &str = "GEMINI_CLI_TRUST_WORKSPACE";
 pub const CODEX_TRUST_FLAG: &str = "--dangerously-bypass-hook-trust";
 /// Copilot CLI loads a plugin (with its hooks) from this folder for one run.
 pub const COPILOT_PLUGIN_FLAG: &str = "--plugin-dir";
+/// Pi and Oh My Pi load one extension file for one run (measured with Pi 1.5.2).
+pub const PI_EXTENSION_FLAG: &str = "-e";
+/// Oh My Pi's allowlist flag, which cannot be combined with `-e`.
+pub const OMP_TRUSTED_FLAG: &str = "--trusted-extension";
+/// OpenCode merges this inline configuration over the user's; its `plugin` list names Hangar's
+/// plugin. Measured with 1.19.5: the plugin loads next to the user's own plugins, and unlike a
+/// configuration folder (`OPENCODE_CONFIG_DIR`) nothing is installed with npm.
+pub const OPENCODE_CONFIG_CONTENT_ENV: &str = "OPENCODE_CONFIG_CONTENT";
+/// Droid applies a settings file on top of the user's for one process.
+pub const DROID_SETTINGS_FLAG: &str = "--settings";
 
 /// Qwen Code's tool ids for file edits (`write-file.ts`, `edit.ts`).
 pub const QWEN_EDIT_MATCHER: &str = "^(write_file|edit)$";
@@ -43,11 +54,14 @@ pub const COPILOT_EDIT_MATCHER: &str = "edit|create|apply_patch";
 /// Codex's only file editing tool. Unanchored: `^` is one of the characters a cmd.exe launcher
 /// (npm's `codex.cmd`) must not get ([`crate::batch`]); no other Codex tool name contains it.
 pub const CODEX_EDIT_MATCHER: &str = "apply_patch";
+/// Droid's file editing tools (hooks guide: `Edit`, `Create`, `ApplyPatch`).
+pub const DROID_EDIT_MATCHER: &str = "Edit|Create|ApplyPatch";
 
 /// The helper's agent names, as the hook commands pass them (`hangar gate-hook <agent> <event>`).
 pub const AGENT_GEMINI: &str = "gemini";
 pub const AGENT_COPILOT: &str = "copilot";
 pub const AGENT_CODEX: &str = "codex";
+pub const AGENT_DROID: &str = "droid";
 /// The helper's event names.
 pub const EVENT_BEFORE_TOOL: &str = "before-tool";
 pub const EVENT_PRE_TOOL_USE: &str = "pre-tool-use";
@@ -61,6 +75,16 @@ pub const GEMINI_FILE: &str = "gemini-settings.json";
 pub const COPILOT_DIR: &str = "copilot-plugin";
 pub const COPILOT_MANIFEST: &str = "plugin.json";
 pub const COPILOT_HOOKS: &str = "hooks.json";
+pub const PI_FILE: &str = "hangar-gate.ts";
+pub const OPENCODE_FILE: &str = "hangar-gate.ts";
+pub const DROID_FILE: &str = "droid-settings.json";
+
+/// The shared part of the in-process gate (request, paths, fail-open policy) and each agent's
+/// entry. Plain JavaScript, which is valid TypeScript, so the agents' loaders (jiti for Pi, Bun
+/// for Oh My Pi and OpenCode) take it as a `.ts` module without a build step.
+const PLUGIN_CORE: &str = include_str!("gate_plugins/core.js");
+const PI_ENTRY: &str = include_str!("gate_plugins/pi.js");
+const OPENCODE_ENTRY: &str = include_str!("gate_plugins/opencode.js");
 
 /// Every environment variable the gate sets for a session, of any format. A Hangar started
 /// inside a gated session must not hand them on to its own children (`child_env.rs`).
@@ -70,6 +94,7 @@ pub const GATE_ENV_NAMES: &[&str] = &[
     QWEN_SETTINGS_ENV,
     GEMINI_SETTINGS_ENV,
     GEMINI_TRUST_ENV,
+    OPENCODE_CONFIG_CONTENT_ENV,
 ];
 
 /// Where an administrator's system settings file sits by default: Gemini CLI from its docs and
@@ -96,11 +121,13 @@ pub fn default_system_settings(format: HookFormat) -> Option<&'static Path> {
     Some(Path::new(path))
 }
 
-/// The environment variable that names `format`'s system settings file, if it has one.
+/// The environment variable whose settings the session's own would take the place of, if the
+/// format has one. For OpenCode it is an inline configuration of the user's own.
 pub fn system_settings_env(format: HookFormat) -> Option<&'static str> {
     match format {
         HookFormat::GeminiSystemSettings => Some(GEMINI_SETTINGS_ENV),
         HookFormat::QwenSystemSettings => Some(QWEN_SETTINGS_ENV),
+        HookFormat::OpencodePlugin => Some(OPENCODE_CONFIG_CONTENT_ENV),
         _ => None,
     }
 }
@@ -293,6 +320,43 @@ pub fn codex_args(command: &str, user_args: &[String]) -> Vec<String> {
     args
 }
 
+/// The extension Pi and Oh My Pi load with `-e`: a `tool_call` handler for `write`, `edit` and
+/// (Oh My Pi) `ast_edit` that asks the endpoint with port and token from [`HELPER_ENV`]. The same
+/// text for every session; it holds neither port nor token.
+pub fn pi_extension() -> String {
+    format!("{PLUGIN_CORE}{PI_ENTRY}")
+}
+
+/// The OpenCode plugin: a `tool.execute.before` hook for `write`, `edit`, `multiedit`, `patch`
+/// and `apply_patch` that throws Hangar's reason on a deny.
+pub fn opencode_plugin() -> String {
+    format!("{PLUGIN_CORE}{OPENCODE_ENTRY}")
+}
+
+/// OpenCode's inline configuration for one session: the plugin file as a `file://` URL (measured
+/// form). `None` when the path is not absolute and so has no URL.
+pub fn opencode_config(plugin: &Path) -> Option<String> {
+    let url = url::Url::from_file_path(plugin).ok()?;
+    Some(serde_json::json!({ "plugin": [url.as_str()] }).to_string())
+}
+
+/// Droid's settings for one process: a `PreToolUse` command hook on the edit tools that runs the
+/// helper; Droid takes the timeout in seconds.
+pub fn droid_settings(command: &str) -> String {
+    pretty(&serde_json::json!({
+        "hooks": {
+            "PreToolUse": [{
+                "matcher": DROID_EDIT_MATCHER,
+                "hooks": [{
+                    "type": "command",
+                    "command": command,
+                    "timeout": HOOK_TIMEOUT_SECS,
+                }],
+            }],
+        },
+    }))
+}
+
 fn pretty(value: &serde_json::Value) -> String {
     // A Value always serializes; the fallback keeps the types honest.
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
@@ -320,7 +384,7 @@ mod tests {
         ));
         assert!(!admin_settings_in(Some(std::ffi::OsStr::new("")), None));
         assert!(!admin_settings_in(None, None));
-        // Only the two formats with a system settings file have one.
+        // Only the two formats with a system settings file have a default one.
         for format in [
             HookFormat::GeminiSystemSettings,
             HookFormat::QwenSystemSettings,
@@ -332,10 +396,20 @@ mod tests {
             HookFormat::ClaudeSettings,
             HookFormat::CopilotPlugin,
             HookFormat::CodexConfigFlags,
+            HookFormat::PiExtension,
+            HookFormat::OmpExtension,
+            HookFormat::DroidSettings,
         ] {
             assert!(default_system_settings(format).is_none());
+            assert!(system_settings_env(format).is_none());
             assert!(!admin_settings_present(format));
         }
+        // OpenCode: only the user's own folder variable counts; there is no system file.
+        assert!(default_system_settings(HookFormat::OpencodePlugin).is_none());
+        assert_eq!(
+            system_settings_env(HookFormat::OpencodePlugin),
+            Some("OPENCODE_CONFIG_CONTENT")
+        );
     }
 
     #[test]
@@ -513,6 +587,69 @@ mod tests {
         );
         assert_eq!(entry["matcher"], "edit|create|apply_patch");
         assert_eq!(entry["timeoutSec"], 660);
+    }
+
+    #[test]
+    fn plugins_read_port_and_token_from_the_environment_only() {
+        for (text, entry) in [
+            (pi_extension(), "pi.on(\"tool_call\""),
+            (opencode_plugin(), "\"tool.execute.before\""),
+        ] {
+            assert!(text.contains(entry), "{entry}");
+            assert!(text.contains(&format!("const GATE_ENV = \"{HELPER_ENV}\"")));
+            assert!(text.contains("process.env[GATE_ENV]"));
+            assert!(text.contains(&format!(
+                "const ROUTE = \"{}\"",
+                crate::gate::ROUTE_PRE_TOOL_USE
+            )));
+            // Nothing to install, and no fetch: Node's sends Sec-Fetch-Mode, which the endpoint
+            // refuses as a browser's request.
+            for line in text.lines().filter(|l| l.starts_with("import ")) {
+                assert!(line.contains("\"node:"), "{line}");
+            }
+            assert!(!text.contains("fetch("));
+            // The imports come first, so the joined module parses.
+            let first_code = text
+                .lines()
+                .find(|l| !l.starts_with("//") && !l.trim().is_empty())
+                .unwrap();
+            assert!(first_code.starts_with("import "), "{first_code}");
+            assert!(text.is_ascii());
+        }
+        // Pi takes the default export; OpenCode calls every export, so each has exactly one.
+        assert_eq!(pi_extension().matches("export ").count(), 1);
+        assert_eq!(opencode_plugin().matches("export ").count(), 1);
+    }
+
+    #[test]
+    fn opencode_config_names_the_plugin_as_a_file_url() {
+        let (plugin, expected) = if cfg!(windows) {
+            (
+                r"C:\Users\Ann Lee\AppData\Local\Hangar\gate\sessions\1-2-0\hangar-gate.ts",
+                "file:///C:/Users/Ann%20Lee/AppData/Local/Hangar/gate/sessions/1-2-0/hangar-gate.ts",
+            )
+        } else {
+            (
+                "/home/ann lee/.local/share/hangar/gate/sessions/1-2-0/hangar-gate.ts",
+                "file:///home/ann%20lee/.local/share/hangar/gate/sessions/1-2-0/hangar-gate.ts",
+            )
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&opencode_config(Path::new(plugin)).unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({ "plugin": [expected] }));
+        assert_eq!(opencode_config(Path::new("relative.ts")), None);
+    }
+
+    #[test]
+    fn droid_settings_run_the_helper_on_the_edit_tools() {
+        let command = r#""C:\h\hangar.exe" gate-hook droid pre-tool-use"#;
+        let json: serde_json::Value = serde_json::from_str(&droid_settings(command)).unwrap();
+        let group = &json["hooks"]["PreToolUse"][0];
+        assert_eq!(group["matcher"], "Edit|Create|ApplyPatch");
+        let hook = &group["hooks"][0];
+        assert_eq!(hook["type"], "command");
+        assert_eq!(hook["command"], command);
+        assert_eq!(hook["timeout"], 660);
     }
 
     #[test]

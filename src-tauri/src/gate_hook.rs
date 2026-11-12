@@ -1,12 +1,12 @@
 //! `hangar gate-hook <agent> <event>`: the agent gate's command hook for agent CLIs without HTTP
-//! hooks (Gemini CLI, Copilot CLI, Codex CLI; recipes in `hook_recipes.rs`).
+//! hooks (Gemini CLI, Copilot CLI, Codex CLI, Droid; recipes in `hook_recipes.rs`).
 //!
 //! The agent starts the Hangar executable in this mode with the hook's JSON on stdin. The helper
 //! reads the paths the tool is about to change, asks the running Hangar's endpoint
 //! (`gate_service.rs`, the same request Claude Code sends) once per path and prints the answer in
-//! the agent's own format: nothing for "go ahead", a deny as JSON on stdout (Codex and Copilot
-//! CLI also get the reason on stderr and exit code 2; Gemini CLI exit 0, see [`reply`]), which
-//! each of the three reads as a block. Everything that goes wrong
+//! the agent's own format: nothing for "go ahead", a deny as JSON on stdout (Copilot CLI also
+//! gets the reason on stderr and exit code 2, the others exit 0, see [`reply`]), which each
+//! agent reads as a block. Everything that goes wrong
 //! (no Hangar, the session ended, malformed input) lets the edit through, as a failing HTTP hook
 //! does for Claude Code: the gate coordinates the user's own sessions, it is not a security
 //! boundary.
@@ -27,7 +27,8 @@ use serde_json::Value;
 
 use crate::gate::{DECISION_TIMEOUT, MAX_FIELD_BYTES, ROUTE_PRE_TOOL_USE};
 use crate::hook_recipes::{
-    AGENT_CODEX, AGENT_COPILOT, AGENT_GEMINI, EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE, HELPER_ENV,
+    AGENT_CODEX, AGENT_COPILOT, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE,
+    HELPER_ENV,
 };
 
 /// How long the helper waits in total, below the hooks' own limit (660 s,
@@ -49,6 +50,7 @@ pub enum HookAgent {
     Gemini,
     Copilot,
     Codex,
+    Droid,
 }
 
 impl HookAgent {
@@ -58,6 +60,7 @@ impl HookAgent {
             (AGENT_GEMINI, EVENT_BEFORE_TOOL) => Some(HookAgent::Gemini),
             (AGENT_COPILOT, EVENT_PRE_TOOL_USE) => Some(HookAgent::Copilot),
             (AGENT_CODEX, EVENT_PRE_TOOL_USE) => Some(HookAgent::Codex),
+            (AGENT_DROID, EVENT_PRE_TOOL_USE) => Some(HookAgent::Droid),
             _ => None,
         }
     }
@@ -66,7 +69,7 @@ impl HookAgent {
 #[derive(Debug, thiserror::Error)]
 pub enum HelperError {
     #[error(
-        "usage: hangar gate-hook <gemini before-tool | copilot pre-tool-use | codex pre-tool-use>"
+        "usage: hangar gate-hook <gemini before-tool | copilot pre-tool-use | codex pre-tool-use | droid pre-tool-use>"
     )]
     Usage,
     #[error("the hook input could not be read: {0}")]
@@ -217,7 +220,9 @@ fn string_field(input: &Value, keys: &[&str]) -> Option<String> {
 }
 
 /// Reads one agent's hook input. Gemini CLI and Codex send `tool_name`, `tool_input` and `cwd`
-/// (Codex's `apply_patch` input is `{"command": "<patch>"}`); Copilot CLI sends `toolName`,
+/// (Codex's `apply_patch` input is `{"command": "<patch>"}`), Droid the same Claude Code shape
+/// (`Create` with `file_path`; `Edit` and `ApplyPatch` not documented, so any path key or patch
+/// text counts); Copilot CLI sends `toolName`,
 /// `toolArgs` (object or JSON string) and `cwd`, or the snake case shape for its PascalCase events.
 pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperError> {
     let json: Value = serde_json::from_slice(input).map_err(|_| HelperError::Shape)?;
@@ -226,7 +231,9 @@ pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperErro
     }
     let (tool_keys, args_keys): (&[&str], &[&str]) = match agent {
         HookAgent::Copilot => (&["toolName", "tool_name"], &["toolArgs", "tool_input"]),
-        HookAgent::Gemini | HookAgent::Codex => (&["tool_name"], &["tool_input"]),
+        HookAgent::Gemini | HookAgent::Codex | HookAgent::Droid => {
+            (&["tool_name"], &["tool_input"])
+        }
     };
     let tool = string_field(&json, tool_keys).ok_or(HelperError::Shape)?;
     let args = args_keys
@@ -284,6 +291,23 @@ pub fn reply(agent: HookAgent, verdict: &Verdict) -> Reply {
         Verdict::Ask(reason) => (reason, true),
         Verdict::Deny(reason) => (reason, false),
     };
+    let claude_shape = |decision: &str| {
+        serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": decision,
+                "permissionDecisionReason": reason,
+            }
+        })
+    };
+    // Droid documents Claude Code's answer, "ask" included.
+    if ask && agent == HookAgent::Droid {
+        return Reply {
+            stdout: claude_shape("ask").to_string(),
+            stderr: String::new(),
+            code: 0,
+        };
+    }
     if ask && agent == HookAgent::Copilot {
         return Reply {
             stdout: serde_json::json!({
@@ -308,13 +332,11 @@ pub fn reply(agent: HookAgent, verdict: &Verdict) -> Reply {
         // Measured live with Codex 0.167.2: this JSON with exit 0 blocks the patch; the same JSON
         // with exit 2 and the reason on stderr counts as a failed hook and the patch goes ahead
         // (docs/wiki/pages/sources/codex-gate-live-measurement.md).
-        HookAgent::Codex => json_only(serde_json::json!({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }
-        })),
+        HookAgent::Codex => json_only(claude_shape("deny")),
+        // Droid documents both exit 2 and this JSON as a block; Codex, also documented with both,
+        // was measured to fail open on exit 2 with JSON, so Droid gets the JSON with exit 0
+        // (Droid itself is not measured: not installed).
+        HookAgent::Droid => json_only(claude_shape("deny")),
         // Copilot CLI reads exit 2 as a deny even when stdout says otherwise (docs, not measured).
         HookAgent::Copilot => Reply {
             stdout: serde_json::json!({
@@ -672,9 +694,60 @@ mod tests {
             assert_eq!(answer.code, code);
             assert!(answer.stdout.contains("deny"));
         }
-        for agent in [HookAgent::Gemini, HookAgent::Copilot, HookAgent::Codex] {
+        for agent in [
+            HookAgent::Gemini,
+            HookAgent::Copilot,
+            HookAgent::Codex,
+            HookAgent::Droid,
+        ] {
             let allow = reply(agent, &Verdict::Allow);
             assert_eq!((allow.code, allow.stdout.as_str()), (0, ""));
+        }
+    }
+
+    #[test]
+    fn droid_gets_claude_codes_answer_with_exit_0() {
+        assert_eq!(
+            HookAgent::parse("droid", "pre-tool-use"),
+            Some(HookAgent::Droid)
+        );
+        assert_eq!(HookAgent::parse("droid", "before-tool"), None);
+        for (verdict, decision) in [
+            (Verdict::Deny("no".into()), "deny"),
+            (Verdict::Ask("sure?".into()), "ask"),
+        ] {
+            let answer = reply(HookAgent::Droid, &verdict);
+            assert_eq!((answer.code, answer.stderr.as_str()), (0, ""));
+            let json: Value = serde_json::from_str(&answer.stdout).unwrap();
+            assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+            assert_eq!(json["hookSpecificOutput"]["permissionDecision"], decision);
+        }
+    }
+
+    #[test]
+    fn droid_input_names_its_files() {
+        // Create as documented; Edit and ApplyPatch shapes are not documented, so any path key
+        // or patch text counts.
+        for (tool, input) in [
+            (
+                "Create",
+                serde_json::json!({ "file_path": "/repo/a.rs", "content": "x" }),
+            ),
+            (
+                "Edit",
+                serde_json::json!({ "file_path": "a.rs", "old_str": "x", "new_str": "y" }),
+            ),
+            ("ApplyPatch", serde_json::json!({ "patch": PATCH })),
+        ] {
+            let hook = serde_json::json!({
+                "session_id": "d", "transcript_path": "/t", "cwd": "/repo",
+                "permission_mode": "default", "hook_event_name": "PreToolUse",
+                "tool_name": tool, "tool_input": input,
+            });
+            let call = parse_call(HookAgent::Droid, hook.to_string().as_bytes()).unwrap();
+            assert_eq!(call.tool, tool);
+            assert_eq!(call.cwd.as_deref(), Some("/repo"));
+            assert!(!call.paths.is_empty(), "{tool}");
         }
     }
 
