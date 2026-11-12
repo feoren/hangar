@@ -11,7 +11,6 @@ import {
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
-  peersOf,
   treeKey,
   treeReducer,
   treeStep,
@@ -24,6 +23,7 @@ import {
   type TreeAction,
   type TreeState,
 } from "./fileTree";
+import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
 import { ChevronIcon, FileIcon, FolderIcon, LinkIcon, OverlapIcon, RestartIcon } from "./icons";

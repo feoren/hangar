@@ -1,7 +1,7 @@
-// Status chip at the right end of a session row (and its small twin in the collapsed rail). Each
-// state has its own shape, so color is never the only signal: working shows three dots, waiting a
-// check (done) or a bell (the program rang, often a question), a failed exit a red exclamation
-// mark, an ordinary exit a quiet square. Pure, so the rules can be tested.
+// Status chip at the end of a session row's title line (and its small twin in the collapsed
+// rail). Each state has its own shape, so color is never the only signal: working shows three
+// dots, waiting a check (done) or a bell (the program rang, often a question), a failed exit a red
+// exclamation mark, an ordinary exit a quiet square. Pure, so the rules can be tested.
 
 import type { AttentionReason, AttentionState } from "./attention";
 import type { MessageKey } from "./i18n";

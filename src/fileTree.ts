@@ -5,7 +5,7 @@
 
 import type { FolderEntry, FolderListing } from "./api";
 import type { ChangeKind, Claim } from "./claims";
-import type { PeerView, TeamActivity } from "./team";
+import type { PeerView } from "./team";
 
 // ---------------------------------------------------------------------------------------------
 // Paths
@@ -119,7 +119,7 @@ export interface MarkInput {
   /** `FolderListing.root` and `.repoRoot` of the tree. */
   root: string | null;
   repoRoot: string | null;
-  /** Teammates' devices sharing this repository (`peersOf`). */
+  /** Teammates' devices sharing this repository (`peersOf`, repoPeers.ts). */
   peers: readonly PeerView[];
   /** Claims of this device's sessions with their worktree roots; only the tree's worktree counts. */
   changes: readonly { root: string | null; claims: readonly Claim[] }[];
@@ -211,39 +211,6 @@ export function buildMarks(input: MarkInput): TreeMarks {
   }
 
   return { files, folders };
-}
-
-/**
- * The teammates working in this session's repository: of every shared project this session is
- * shared with, the teammates' sessions with the same root commit, each device once. A project may
- * link several repositories and the presence names files relative to their repository, so the
- * sessions in the other ones stay out.
- */
-export function peersOf(
-  activities: ReadonlyMap<string, TeamActivity>,
-  sessionId: number,
-): PeerView[] {
-  const peers = new Map<string, PeerView>();
-  for (const activity of activities.values()) {
-    const repo = activity.sessionRepos.find((entry) => entry.sessionId === sessionId)?.repo;
-    if (repo === undefined) continue;
-    for (const peer of activity.peers) {
-      const sessions = peer.sessions.filter((session) => session.repo === repo);
-      if (sessions.length === 0) continue;
-      const device = `${peer.member}\n${peer.device}`;
-      const known = peers.get(device);
-      if (known === undefined) {
-        peers.set(device, { ...peer, sessions });
-        continue;
-      }
-      for (const session of sessions) {
-        if (!known.sessions.some((other) => other.key === session.key)) {
-          known.sessions.push(session);
-        }
-      }
-    }
-  }
-  return [...peers.values()];
 }
 
 /** Avatars at the end of a row: each person once, at most `max`, the rest as "+N". */

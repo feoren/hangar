@@ -3,8 +3,8 @@ import { AlertIcon, BellIcon, CheckIcon } from "./icons";
 import { CHIP_LABELS, type ChipKind } from "./sessionChip";
 
 /**
- * Status chip at the right end of a session row. Decorative for screen readers: the row's status
- * line already says the same in words. `compact` (collapsed rail) shows the shape only.
+ * Status chip at the end of a session row's title line. Decorative for screen readers: the row's
+ * status line already says the same in words. `compact` (collapsed rail) shows the shape only.
  */
 export function StatusChip({ kind, compact = false }: { kind: ChipKind; compact?: boolean }) {
   const t = useT();
@@ -28,11 +28,11 @@ function ChipShape({ kind }: { kind: ChipKind }) {
         </span>
       );
     case "done":
-      return <CheckIcon size={12} />;
+      return <CheckIcon size={11} />;
     case "asks":
-      return <BellIcon size={12} />;
+      return <BellIcon size={11} />;
     case "failed":
-      return <AlertIcon size={12} />;
+      return <AlertIcon size={11} />;
     case "ended":
       return <span className="status-chip-square" />;
   }

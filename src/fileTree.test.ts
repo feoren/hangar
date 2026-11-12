@@ -10,7 +10,6 @@ import {
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
-  peersOf,
   repoToTreeKey,
   rootOffset,
   treeReducer,
@@ -21,6 +20,7 @@ import {
   type TreeAction,
   type TreeState,
 } from "./fileTree";
+import { peersOf } from "./repoPeers";
 import { EMPTY_ACTIVITY, type PeerSession, type PeerView, type TeamActivity } from "./team";
 
 const dir = (name: string): FolderEntry => ({ name, kind: "dir", ignored: false });

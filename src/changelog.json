@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Der Status einer Session steht jetzt klein auf der Zeile ihres Titels. Bei Worktrees siehst du dort, wer aus deinem Team im selben Repository arbeitet.",
+        "en": "A session’s status now sits small on its title line. On worktrees you also see there who on your team works in the same repository.",
+        "el": "Η κατάσταση μιας συνεδρίας εμφανίζεται τώρα μικρή στη γραμμή του τίτλου. Στα worktrees βλέπεις εκεί ποιος από την ομάδα σου δουλεύει στο ίδιο repository.",
+        "es": "El estado de una sesión aparece ahora pequeño en la línea del título. En los worktrees ves ahí quién de tu equipo trabaja en el mismo repositorio.",
+        "fr": "L’état d’une session s’affiche désormais en petit sur la ligne du titre. Sur les worktrees, tu y vois qui de ton équipe travaille dans le même dépôt.",
+        "it": "Lo stato di una sessione ora compare piccolo sulla riga del titolo. Nei worktree vedi lì chi del tuo team lavora nello stesso repository.",
+        "ja": "セッションの状態がタイトル行に小さく表示されるようになりました。worktree では、同じリポジトリで作業中のチームメンバーもそこに表示されます。",
+        "pl": "Stan sesji jest teraz widoczny w małej formie w wierszu tytułu. Przy worktree widzisz tam, kto z zespołu pracuje w tym samym repozytorium.",
+        "pt": "O estado de uma sessão agora aparece pequeno na linha do título. Nos worktrees aparece ali quem da tua equipe trabalha no mesmo repositório.",
+        "ru": "Состояние сеанса теперь показано мелко в строке заголовка. У worktree там видно, кто из команды работает в том же репозитории.",
+        "tr": "Bir oturumun durumu artık başlık satırında küçük olarak görünür. Worktree’lerde aynı depoda ekibinden kimin çalıştığını da orada görürsün.",
+        "zh": "会话状态现在以小标签显示在标题行上。在 worktree 中，还会显示团队里谁在同一仓库中工作。"
+      },
+      {
         "de": "Jede Session hat links einen abgerundeten Rand in der Farbe ihres Zustands. Ihre Knöpfe erscheinen beim Zeigen über dem Text und nehmen ihm keinen Platz.",
         "en": "Every session has a rounded left edge in the color of its state. Its buttons appear over the text when you point at it, so they take no room from it.",
         "el": "Κάθε συνεδρία έχει αριστερά ένα στρογγυλεμένο περίγραμμα στο χρώμα της κατάστασής της. Τα κουμπιά της εμφανίζονται πάνω από το κείμενο.",

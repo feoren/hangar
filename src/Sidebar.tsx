@@ -54,6 +54,7 @@ import {
 } from "./statusLine";
 import type { ThemeSetting } from "./theme";
 import { edgeClass, rowEdge, rowLook, sessionChip, type ChipKind } from "./sessionChip";
+import { RepoTeammates } from "./RepoTeammates";
 import { lookClass } from "./stateLook";
 import { groupStepIndex, sessionGroup, type SessionGroup } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
@@ -1356,7 +1357,13 @@ function SessionItem({
                   <span className="sr-only">{gateOff}</span>
                 </span>
               )}
-              {placement !== null && <LayoutGlyph placement={placement} />}
+              {/* Right-aligned at the end of the title line, so the two lines below keep the
+                  full width; the title ellipsizes first. */}
+              <span className="session-title-end">
+                {session.worktree && <RepoTeammates sessionId={session.id} />}
+                {placement !== null && <LayoutGlyph placement={placement} />}
+                {chip !== null && <StatusChip kind={chip} />}
+              </span>
             </span>
             <span className="session-meta">
               <span className={`dot ${waiting ? "attention" : session.status}`} />
@@ -1408,7 +1415,6 @@ function SessionItem({
           </span>
         </button>
       )}
-      {!editing && chip !== null && <StatusChip kind={chip} />}
       <div className="session-actions">
         {active && !editing && (
           <button
