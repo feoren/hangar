@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "panel",
-  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, listing a session's folder and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top (its own command only), focusing and closing it (close, then destroy once pending input is saved). Nothing that starts, writes or ends sessions",
+  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, listing a session's folder and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top (its own command only), focusing and closing it (close, then destroy once pending input is saved). No session commands; text reaches a session only as a validated paste through the main window (panel_to_main)",
   "windows": ["panel"],
   "permissions": [
     "core:event:allow-listen",

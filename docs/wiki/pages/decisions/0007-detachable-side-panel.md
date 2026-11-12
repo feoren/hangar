@@ -117,8 +117,9 @@ Option 3 with transport b.
 - `capabilities/panel.json` (`windows: ["panel"]`): the note commands, `git_diff`, `git_log`,
   `git_commit_diff`, `list_session_folder`, `open_file_viewer`, `panel_to_main`,
   `set_panel_on_top`, listen and unlisten, close, destroy and focus of itself, clipboard write.
-  Nothing that starts, writes to, resizes or ends sessions, no claims, gate, team, account,
-  profile, update, export or dialog commands, no `emit`, no `set_always_on_top`.
+  No session commands (nothing that starts, writes to, resizes or ends sessions); text reaches a
+  session only as a validated paste through the main window (`panel_to_main`). No claims, gate,
+  team, account, profile, update, export or dialog commands, no `emit`, no `set_always_on_top`.
 - New reach compared with the notes window: reading git changes and history of a folder named
   by the caller (`git_diff`, `git_log`, `git_commit_diff` take a path, as for the main window),
   listing a session's folder and opening a viewer for a file inside it (both resolve the folder

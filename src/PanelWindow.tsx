@@ -6,7 +6,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { api, type NoteFolder } from "./api";
 import { ChangesPanel } from "./ChangesPanel";
@@ -34,7 +34,7 @@ import { loadSettings } from "./settings";
 import { focusCycleStep, matchShortcut, nextFocusZone } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
 import { teammateOverlapsBySession, type TeammateOverlap } from "./team";
-import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
+import { applyDocumentTheme, resolveTheme, subscribeSystemTheme, systemPrefersDark } from "./theme";
 
 /** Moving or resizing saves the place after this quiet time. */
 const BOUNDS_SAVE_MS = 400;
@@ -95,13 +95,15 @@ export function PanelWindow() {
   /** The app is quitting: closing this window then does not dock the panel back. */
   const quitting = useRef(false);
   const t = useMemo(() => createTranslator(settings.language), [settings.language]);
+  /** "System" theme: follows the system mode while the window is open, as the main window does. */
+  const systemDark = useSyncExternalStore(subscribeSystemTheme, systemPrefersDark);
 
   useEffect(() => {
     setCurrentLanguage(settings.language);
     document.documentElement.lang = settings.language;
     document.title = `${t(SIDE_TAB_LABELS[tab])} · Hangar`;
-    applyDocumentTheme(resolveTheme(settings.theme, systemPrefersDark()));
-  }, [settings, t, tab]);
+    applyDocumentTheme(resolveTheme(settings.theme, systemDark));
+  }, [settings, t, tab, systemDark]);
 
   /** Shows a tab and gives it the focus, as the main window's shortcuts do. */
   const showTab = useCallback((next: SideTab) => {

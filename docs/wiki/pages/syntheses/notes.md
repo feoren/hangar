@@ -96,7 +96,8 @@ Capabilities:
   or `allow-emit-to`), `core:window:allow-close`, `core:window:allow-destroy` (the close handler
   destroys the window once input is saved), `core:window:allow-set-focus`, never
   `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text` (copy;
-  `navigator.clipboard` fails in WebView2). Nothing that starts, writes or ends sessions, no
+  `navigator.clipboard` fails in WebView2). No session commands; text reaches a session only as
+  a validated paste through the main window (`panel_to_main`). No
   claims, gate or team commands (the main window pushes what the tabs show), no profiles,
   updates or session export. A contract test (`src-tauri/tests/contract.rs`) pins the exact list.
 - Why the panel window may not emit: Tauri events carry no sender. `Event<T>` in
