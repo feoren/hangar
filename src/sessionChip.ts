@@ -5,7 +5,6 @@
 // can be tested.
 
 import type { AttentionReason, AttentionState } from "./attention";
-import type { MessageKey } from "./i18n";
 import { shellKind } from "./pathQuote";
 import type { SessionView } from "./sessions";
 import type { LookState } from "./stateLook";
@@ -57,16 +56,6 @@ export function sessionChip(
 export function chipWaits(kind: ChipKind | null): boolean {
   return kind === "done" || kind === "asks";
 }
-
-/** Short visible label; working, pause and an ordinary exit have none, the status line says it. */
-export const CHIP_LABELS: Record<ChipKind, MessageKey | null> = {
-  working: null,
-  paused: null,
-  done: "chip.done",
-  asks: "chip.asks",
-  failed: "chip.failed",
-  ended: null,
-};
 
 /**
  * Which state look (stateLook.ts) a row takes: a failed exit that still waits to be seen looks

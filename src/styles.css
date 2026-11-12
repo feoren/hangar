@@ -1046,24 +1046,32 @@ h2 .beta-badge {
   visibility: hidden;
 }
 
-.status-chip.done,
-.status-chip.asks {
-  color: var(--attention-chip-fg);
-  background: var(--attention-chip-bg);
-  border-color: var(--attention-strong);
-}
-
-/* Failed: a soft pill in the failed look's color (the theme's red unless chosen otherwise). */
-.status-chip.failed {
-  color: var(--look-failed-text);
-  background: color-mix(in srgb, var(--look-failed-color) 14%, var(--panel));
-  border-color: color-mix(in srgb, var(--look-failed-strong) 55%, transparent);
-}
-
-.status-chip.working,
-.status-chip.paused,
-.status-chip.ended {
+/* In a row the chip is the bare icon at the top right, in its state's color: no pill, no word. The
+   strong look colors keep 3 : 1 on the sidebar, enough for a shape. */
+.status-chip:not(.compact) {
   padding: 0 4px;
+  background: none;
+  border-color: transparent;
+}
+
+.status-chip:not(.compact) svg {
+  width: 13px;
+  height: 13px;
+}
+
+.status-chip.done {
+  color: var(--look-done-strong);
+}
+
+.status-chip.asks {
+  color: var(--look-asks-strong);
+}
+
+.status-chip.failed {
+  color: var(--look-failed-strong);
+}
+
+.status-chip.ended {
   color: var(--muted);
 }
 
@@ -1241,9 +1249,24 @@ h2 .beta-badge {
   height: 10px;
 }
 
-/* Working and pause have no fill of their own; in the rail they need one over the badge. */
+/* In the rail the chip sits over the badge, so it keeps a fill: waiting states a filled circle in
+   their color, the others the panel color behind their shape. */
+.status-chip.compact.done,
+.status-chip.compact.asks {
+  color: var(--attention-chip-fg);
+  background: var(--attention-chip-bg);
+  border-color: var(--attention-strong);
+}
+
+.status-chip.compact.failed {
+  color: var(--look-failed-text);
+  background: color-mix(in srgb, var(--look-failed-color) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--look-failed-strong) 55%, transparent);
+}
+
 .status-chip.compact.working,
-.status-chip.compact.paused {
+.status-chip.compact.paused,
+.status-chip.compact.ended {
   background: var(--panel);
 }
 
