@@ -63,7 +63,9 @@ repository" (unknown, ambiguous, or not a commit such as a tree id), plus the ex
 
 The "Changes" tab has a switch "Uncommitted | Commits" (`ChangesPanel.tsx`; the window keeps the
 choice in `App.tsx` state, not in the settings). `CommitHistory.tsx` reads pages of 30 commits and
-re-reads as many as are listed on "Refresh" and on every attention change of the session.
+re-reads as many as are listed on "Refresh" and on every attention change of the session
+(`readLog`: in pages of at most 100, so a list grown by "Load more" keeps its length; "Load more"
+is off while that read runs).
 `gitHistory.ts` validates both answers (`parseGitLog`, `parseCommitDiff`; only full ids pass),
 merges pages (`appendPage`: no duplicates, an empty page ends the paging) and groups the list into
 "not pushed" and the rest (`commitGroups`). A commit opens in place; its diff is read on the first

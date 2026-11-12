@@ -11,7 +11,7 @@ import {
   commitGroups,
   parseCommitDiff,
   parseGitLog,
-  reloadLimit,
+  readLog,
   type CommitGroup,
   type CommitSummary,
   type GitCommitDiff,
@@ -70,10 +70,8 @@ export function CommitHistory({ cwd, reload, language, onBusy }: Props) {
       setAnswer({ key: reload, load });
       setMore({ kind: "idle" });
     };
-    api
-      .gitLog(cwd, 0, reloadLimit(shown.current))
-      .then((value) => {
-        const log = parseGitLog(value);
+    readLog((skip, limit) => api.gitLog(cwd, skip, limit), shown.current)
+      .then((log) => {
         settle(
           log === null ? { kind: "error", message: t("error.unknown") } : { kind: "done", log },
         );
@@ -210,7 +208,9 @@ export function CommitHistory({ cwd, reload, language, onBusy }: Props) {
         <button
           type="button"
           className="link-button change-more files"
-          disabled={more.kind === "loading"}
+          // While the list is read again, a page would be counted from the old list and could
+          // repeat only known commits, which ends the paging too early.
+          disabled={busy}
           onClick={() => {
             loadMore(log);
           }}

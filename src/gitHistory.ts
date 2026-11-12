@@ -148,6 +148,27 @@ export function reloadLimit(shown: number): number {
   return Math.min(COMMIT_PAGE_MAX, Math.max(COMMIT_PAGE, shown));
 }
 
+/**
+ * The first `shown` commits again (at least one page), in as many backend pages as needed, so a
+ * reload keeps every commit the user loaded with "Load more" instead of cutting the list back to
+ * the backend's largest page. `null` if an answer is malformed; a rejected read rejects.
+ */
+export async function readLog(
+  fetchPage: (skip: number, limit: number) => Promise<unknown>,
+  shown: number,
+): Promise<GitLog | null> {
+  let log = parseGitLog(await fetchPage(0, reloadLimit(shown)));
+  // Ends: every round either adds commits or `appendPage` clears `hasMore`.
+  while (log !== null && log.hasMore && log.commits.length < shown) {
+    const page = parseGitLog(
+      await fetchPage(log.commits.length, reloadLimit(shown - log.commits.length)),
+    );
+    if (page === null) return null;
+    log = appendPage(log, page);
+  }
+  return log;
+}
+
 export interface CommitGroup {
   /** `unpushed`: not on the upstream yet; `pushed`: on it; `all`: no upstream to compare with. */
   kind: "unpushed" | "pushed" | "all";

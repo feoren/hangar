@@ -9,6 +9,7 @@ import {
   isFullSha,
   parseCommitDiff,
   parseGitLog,
+  readLog,
   reloadLimit,
   type CommitSummary,
   type GitLog,
@@ -182,6 +183,64 @@ describe("reloadLimit", () => {
     expect(reloadLimit(0)).toBe(COMMIT_PAGE);
     expect(reloadLimit(60)).toBe(60);
     expect(reloadLimit(400)).toBe(100);
+  });
+});
+
+describe("readLog", () => {
+  /** A history of `total` commits served in pages like `git_log`, recording each request. */
+  function history(total: number) {
+    const shas = Array.from({ length: total }, (_, index) => index.toString(16).padStart(40, "0"));
+    const calls: [number, number][] = [];
+    const fetchPage = (skip: number, limit: number): Promise<unknown> => {
+      calls.push([skip, limit]);
+      const served = Math.min(limit, 100);
+      return Promise.resolve({
+        isRepo: true,
+        commits: shas.slice(skip, skip + served).map((sha) => commit(sha, true)),
+        upstream: null,
+        aheadCount: 0,
+        hasMore: skip + served < total,
+      });
+    };
+    return { fetchPage, calls };
+  }
+
+  it("reads one page when no more is listed", async () => {
+    const { fetchPage, calls } = history(500);
+    const result = await readLog(fetchPage, 0);
+    expect(result?.commits).toHaveLength(COMMIT_PAGE);
+    expect(result?.hasMore).toBe(true);
+    expect(calls).toEqual([[0, COMMIT_PAGE]]);
+  });
+
+  it("keeps every loaded commit beyond the largest page", async () => {
+    const { fetchPage, calls } = history(500);
+    const result = await readLog(fetchPage, 150);
+    expect(result?.commits).toHaveLength(150);
+    expect(result?.hasMore).toBe(true);
+    expect(calls).toEqual([
+      [0, 100],
+      [100, 50],
+    ]);
+  });
+
+  it("stops at the end of a short history", async () => {
+    const { fetchPage } = history(120);
+    const result = await readLog(fetchPage, 300);
+    expect(result?.commits).toHaveLength(120);
+    expect(result?.hasMore).toBe(false);
+  });
+
+  it("returns null for a malformed page", async () => {
+    let first = true;
+    const result = await readLog(() => {
+      const answer: unknown = first
+        ? log([commit(SHA_A, true)], { hasMore: true })
+        : { isRepo: "yes" };
+      first = false;
+      return Promise.resolve(answer);
+    }, 60);
+    expect(result).toBeNull();
   });
 });
 
