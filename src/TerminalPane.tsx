@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -156,6 +156,7 @@ export function TerminalPane(props: Props) {
           <span className="sr-only">{split.status}</span>
         </div>
       )}
+      {visible && <LastPromptBar terminal={terminal} />}
       <div className="pane-body">
         <div ref={host} className="pane-host" />
         {dropping && (
@@ -166,6 +167,50 @@ export function TerminalPane(props: Props) {
         {props.children}
       </div>
     </div>
+  );
+}
+
+/**
+ * The user's last prompt in this session, one line above the terminal; a click scrolls back to
+ * where it was sent (terminal.ts `revealLastPrompt`). Nothing before the first prompt, and in
+ * plain shells, whose command lines are no prompts.
+ */
+function LastPromptBar({ terminal }: { terminal: SessionTerminal }) {
+  const t = useT();
+  const prompt = useSyncExternalStore(
+    (listener) => terminal.subscribeLastPrompt(listener),
+    () => terminal.lastPrompt(),
+  );
+  if (prompt === null) return null;
+  const label = t("prompt.last");
+  if (!prompt.reachable) {
+    return (
+      <div className="last-prompt" title={prompt.text}>
+        <span className="sr-only">{label}: </span>
+        <span className="last-prompt-text">{prompt.text}</span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="last-prompt"
+      title={`${prompt.text}
+${t("prompt.jump")}`}
+      aria-label={`${label}: ${prompt.text}. ${t("prompt.jump")}`}
+      // The keyboard stays in the terminal; the click itself focuses it again.
+      onMouseDown={(event) => {
+        event.preventDefault();
+      }}
+      onClick={() => {
+        terminal.revealLastPrompt();
+      }}
+    >
+      <span className="last-prompt-mark" aria-hidden="true">
+        ›
+      </span>
+      <span className="last-prompt-text">{prompt.text}</span>
+    </button>
   );
 }
 
