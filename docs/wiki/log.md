@@ -515,3 +515,31 @@ Gemini CLI take a settings file through an env var (`QWEN_CODE_SYSTEM_SETTINGS_P
 `--dangerously-bypass-hook-trust`, passes the whole patch text, and reads project hooks of a linked
 worktree from the root checkout. Open measurements listed in the page. Pages changed:
 [[agent-hooks-per-session-research]] (new).
+
+## [2026-11-12] ingest | Agent gate adapters for Qwen Code, Gemini CLI, Copilot CLI and Codex CLI
+Built the four per-session hook recipes of the research page and turned the catalog flags on.
+Measured on Windows 11 (no model call): a GUI-subsystem program works as a hook command through
+cmd.exe, PowerShell and a direct start, PowerShell loses its exit code; Codex 0.167.2 registers a
+`-c hooks.PreToolUse` value as an untrusted `sessionFlags` hook, and cmd.exe eats `^` through npm's
+`codex.cmd`. Gemini CLI, Copilot CLI and Qwen Code were not installed and stay unmeasured. Pages
+changed: [[gate-hook-helper-measurement]] (new), [[agent-gate-adapters]] (new),
+[[agent-hooks-per-session-research]], [[0008-private-and-team-sessions]].
+
+## [2026-11-12] ingest | Gate helper through PowerShell: console build and UTF-8
+Acceptance review measurement: PowerShell turns the console build's exit code 2 into 1 and passes
+UTF-8 stdin and stdout unchanged. The Gemini deny now leaves the helper as JSON with exit 0; a
+Codex `-c`/`--config` that sets `hooks` or `hooks.PreToolUse` now counts as the profile's own
+hook settings. Pages changed: [[gate-hook-helper-measurement]], [[agent-gate-adapters]],
+[[team-service-v1]].
+
+## [2026-11-12] ingest | Codex live run and gate rework
+Owner's decision "measure first". One approved live Codex 0.167.2 measurement (three runs, probe
+as hook command, throwaway repository deleted): the `-c` hook fires on `apply_patch`,
+`HANGAR_GATE` reaches the hook, the patch carries relative paths, and only a JSON deny with exit 0
+blocks the write (exit 2 plus JSON fails open). The helper answers Codex that way now. Codex is
+offered from 0.167.2; Gemini CLI, Copilot CLI and Qwen Code keep their recipes with
+`measured = false`. New: minimum version per format from the catalog, no team offer where an
+administrator's system settings would be replaced, gate variables stripped by a child Hangar,
+path limit, stdin deadline, fresh private session folders, `(`, `)` and `@` refused for cmd.exe.
+Pages changed: [[codex-gate-live-measurement]] (new), [[agent-gate-adapters]],
+[[agent-hooks-per-session-research]], [[0008-private-and-team-sessions]].

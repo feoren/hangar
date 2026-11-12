@@ -442,3 +442,51 @@ fn script_shim_yields_no_icon() {
     // The search only checks whether the file exists, so the entry counts as installed everywhere.
     assert_eq!(icons.get("shim"), Some(&None));
 }
+
+/// Counts how often the gate's version query runs.
+struct CountingVersions(std::sync::atomic::AtomicUsize);
+
+impl hangar_lib::manager::VersionSource for CountingVersions {
+    fn versions(
+        &self,
+        installed: &[(hangar_lib::agent_catalog::Agent, PathBuf)],
+    ) -> HashMap<String, Option<String>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        installed
+            .iter()
+            .map(|(agent, _)| (agent.id().to_owned(), Some("9.9.9".to_owned())))
+            .collect()
+    }
+}
+
+/// The team's session labels need names only and are read on the main thread on every session
+/// state change: `profile_names` must not run the gate's version query, `profiles` does.
+#[test]
+fn profile_names_skip_the_version_query() {
+    #[cfg(windows)]
+    let shell = "cmd";
+    #[cfg(unix)]
+    let shell = "sh";
+    let catalog = hangar_lib::agent_catalog::parse(&format!(
+        "[[agent]]\nid='gated'\nname='Gated'\ncommands=['{shell}']\n\
+         capabilities = {{ pre_edit_block = true, per_session_config = true, \
+         hook_format = 'codex_config_flags', measured = true, min_version = '1.0.0' }}\n"
+    ))
+    .unwrap();
+    let manager = SessionManager::new(Vec::new(), catalog, std::env::temp_dir());
+    let source = std::sync::Arc::new(CountingVersions(Default::default()));
+    manager.set_version_source(source.clone());
+    let count = || source.0.load(std::sync::atomic::Ordering::SeqCst);
+
+    let names = manager.profile_names();
+    assert_eq!(names.get("gated").map(String::as_str), Some("Gated"));
+    assert_eq!(count(), 0);
+
+    let gated = manager
+        .profiles()
+        .into_iter()
+        .find(|view| view.id == "gated")
+        .unwrap();
+    assert_eq!(count(), 1);
+    assert!(gated.team_capable, "9.9.9 reaches the floor 1.0.0");
+}

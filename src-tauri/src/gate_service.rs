@@ -6,9 +6,14 @@
 //! files through its shell without any hook.
 //!
 //! Every session that gets the gate has its own random token. It reaches the agent only through
-//! the PTY child's environment ([`TOKEN_ENV`]) and Claude Code's header interpolation; it is never
-//! written to a file or a log and never sent to the window. A request without a known token is
+//! the PTY child's environment ([`TOKEN_ENV`] for the agents' HTTP hooks, which put it into a
+//! header, [`HELPER_ENV`] for the helper command `hangar gate-hook`); it is never written to a
+//! file, an argument or a log and never sent to the window. A request without a known token is
 //! refused before its body is read.
+//!
+//! How the hooks reach one session depends on the program's [`HookFormat`] (recipes in
+//! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
+//! own under `<data>/gate/sessions/`, removed when the session's process ends.
 //!
 //! Connections: one thread each. Until its head is read and its token known, a connection holds
 //! one of [`MAX_UNAUTHENTICATED`] slots and has [`Limits::head`] in total for the head, however
@@ -34,9 +39,14 @@ use crate::agent_catalog::{Agent, HookFormat};
 use crate::claims::WorktreeClaims;
 use crate::gate::{
     self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, DECISION_TIMEOUT,
-    ROUTE_PRE_TOOL_USE, ROUTE_USER_PROMPT_SUBMIT, TOKEN_ENV,
+    ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON, ROUTE_USER_PROMPT_SUBMIT,
+    ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
 use crate::hook_http::{self, Head, Status};
+use crate::hook_recipes::{
+    self as recipes, Shell, AGENT_CODEX, AGENT_GEMINI, EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE,
+    HELPER_ENV,
+};
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
 use crate::session::{GateStatus, SessionId};
@@ -57,6 +67,9 @@ const WAIT_TICK: Duration = Duration::from_millis(500);
 const LINGER_BYTES: u64 = 64 * 1024;
 /// File name start of the hook settings written for cmd.exe launchers.
 const SETTINGS_PREFIX: &str = "claude-hooks-";
+/// Folder (in the settings folder) with one folder per gated process start that needs files,
+/// named `<port>-<session>-<n>`.
+const SESSIONS_DIR: &str = "sessions";
 
 /// Time limits of one connection; each is a total, not per read.
 #[derive(Debug, Clone, Copy)]
@@ -107,6 +120,13 @@ struct Inner {
     teammates: Mutex<Option<Teammates>>,
     /// The team's reservations, once a team service exists.
     team_tasks: Mutex<Option<TeamTasks>>,
+    /// The Hangar executable that hook commands start as `gate-hook` helper.
+    helper: Mutex<Option<PathBuf>>,
+    /// Hook file folders per session, removed when its process ends.
+    session_dirs: Mutex<HashMap<SessionId, Vec<PathBuf>>>,
+    /// Makes each start's folder name unique, so removing a finished start's folder never
+    /// touches the next start's.
+    starts: AtomicUsize,
 }
 
 /// Tauri state of the agent gate; clones share one gate.
@@ -148,8 +168,17 @@ impl GateService {
                 emit: Box::new(emit),
                 teammates: Mutex::new(None),
                 team_tasks: Mutex::new(None),
+                helper: Mutex::new(std::env::current_exe().ok()),
+                session_dirs: Mutex::new(HashMap::new()),
+                starts: AtomicUsize::new(0),
             }),
         }
+    }
+
+    /// The program hook commands start as `hangar gate-hook`; by default this process's own
+    /// executable.
+    pub fn set_helper(&self, exe: PathBuf) {
+        *lock(&self.inner.helper) = Some(exe);
     }
 
     /// Where the teammates' live claims come from: an edit of a file a teammate's session is
@@ -217,6 +246,7 @@ impl GateService {
         let bound = listener.local_addr()?.port();
         // Settings files of earlier runs name ports that are gone.
         remove_old_settings(&self.inner.settings_dir);
+        remove_old_session_dirs(&self.inner.settings_dir.join(SESSIONS_DIR));
         let inner = Arc::clone(&self.inner);
         thread::Builder::new()
             .name("gate-http".to_owned())
@@ -272,6 +302,213 @@ impl GateService {
             }
         }
     }
+
+    /// The program hook commands run as `hangar gate-hook`.
+    fn helper(&self) -> Result<PathBuf, GateStatus> {
+        lock(&self.inner.helper)
+            .clone()
+            .ok_or(GateStatus::InstallPath)
+    }
+
+    /// A new, empty folder for one start's hook files, remembered for [`LaunchGate::ended`].
+    fn session_dir(&self, port: u16, session: SessionId) -> Result<PathBuf, GateStatus> {
+        let failed = |error: io::Error| {
+            eprintln!("hangar: agent gate folder not created: {error}");
+            GateStatus::HookFiles
+        };
+        let parent = self.inner.settings_dir.join(SESSIONS_DIR);
+        if !parent.is_dir() {
+            std::fs::create_dir_all(&self.inner.settings_dir).map_err(failed)?;
+            match create_private_dir(&parent) {
+                Err(error) if error.kind() != io::ErrorKind::AlreadyExists => {
+                    return Err(failed(error))
+                }
+                _ => {}
+            }
+        }
+        // Created fresh, never reused: a folder that exists already (a crashed run's leftover
+        // with the same port, or one planted there) is skipped, not trusted.
+        for _ in 0..16 {
+            let start = self.inner.starts.fetch_add(1, Ordering::SeqCst);
+            let dir = parent.join(format!("{port}-{session}-{start}"));
+            match create_private_dir(&dir) {
+                Ok(()) => {
+                    lock(&self.inner.session_dirs)
+                        .entry(session)
+                        .or_default()
+                        .push(dir.clone());
+                    return Ok(dir);
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(failed(error)),
+            }
+        }
+        Err(failed(io::ErrorKind::AlreadyExists.into()))
+    }
+
+    /// What one start of a program with `format` gets, without the token: arguments before and
+    /// after the user's, environment, and whether the token goes to the helper
+    /// ([`HELPER_ENV`]) instead of an HTTP hook header ([`TOKEN_ENV`]).
+    fn install(
+        &self,
+        format: HookFormat,
+        session: SessionId,
+        port: u16,
+        context: bool,
+        program: &Path,
+        user_args: &[String],
+    ) -> Result<Install, GateStatus> {
+        let batch = crate::batch::is_batch(program);
+        let path_text = |path: &Path| path.to_string_lossy().into_owned();
+        let install = match format {
+            HookFormat::ClaudeSettings => Install {
+                args: self.claude_args(port, context, program)?,
+                ..Install::default()
+            },
+            HookFormat::QwenSystemSettings => {
+                let dir = self.session_dir(port, session)?;
+                let file = write_file(
+                    &dir,
+                    recipes::QWEN_FILE,
+                    &recipes::qwen_settings(port, context),
+                )?;
+                Install {
+                    env: vec![(recipes::QWEN_SETTINGS_ENV.to_owned(), path_text(&file))],
+                    ..Install::default()
+                }
+            }
+            HookFormat::GeminiSystemSettings => {
+                let command = recipes::helper_command(
+                    &self.helper()?,
+                    AGENT_GEMINI,
+                    EVENT_BEFORE_TOOL,
+                    Shell::for_agent(true),
+                    false,
+                )
+                .map_err(|_| GateStatus::InstallPath)?;
+                let dir = self.session_dir(port, session)?;
+                let file = write_file(
+                    &dir,
+                    recipes::GEMINI_FILE,
+                    &recipes::gemini_settings(&command),
+                )?;
+                Install {
+                    env: vec![
+                        (recipes::GEMINI_SETTINGS_ENV.to_owned(), path_text(&file)),
+                        (recipes::GEMINI_TRUST_ENV.to_owned(), "true".to_owned()),
+                    ],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            HookFormat::CopilotPlugin => {
+                let exe = self.helper()?;
+                let dir = self.session_dir(port, session)?;
+                let plugin = dir.join(recipes::COPILOT_DIR);
+                let plugin_text = path_text(&plugin);
+                // A cmd.exe launcher (npm's copilot.cmd) gets the folder as an argument.
+                if batch && !crate::batch::argument_ok(&plugin_text) {
+                    return Err(GateStatus::Launcher);
+                }
+                create_private_dir(&plugin).map_err(|_| GateStatus::HookFiles)?;
+                write_file(
+                    &plugin,
+                    recipes::COPILOT_MANIFEST,
+                    &recipes::copilot_manifest(),
+                )?;
+                write_file(
+                    &plugin,
+                    recipes::COPILOT_HOOKS,
+                    &recipes::copilot_hooks(&exe),
+                )?;
+                Install {
+                    prepend: vec![recipes::COPILOT_PLUGIN_FLAG.to_owned(), plugin_text],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            HookFormat::CodexConfigFlags => {
+                // Through a cmd.exe launcher (npm's codex.cmd) the value must carry no `"`, so
+                // the path has to stand bare.
+                let command = recipes::helper_command(
+                    &self.helper()?,
+                    AGENT_CODEX,
+                    EVENT_PRE_TOOL_USE,
+                    Shell::for_agent(false),
+                    batch,
+                )
+                .map_err(|_| GateStatus::InstallPath)?;
+                let prepend = recipes::codex_args(&command, user_args);
+                if batch && !prepend.iter().all(|arg| crate::batch::argument_ok(arg)) {
+                    return Err(GateStatus::InstallPath);
+                }
+                Install {
+                    prepend,
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+        };
+        Ok(install)
+    }
+}
+
+/// [`GateService::install`]'s result.
+#[derive(Default)]
+struct Install {
+    prepend: Vec<String>,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    helper: bool,
+}
+
+/// Writes one hook file of a fresh session folder; no agent reads it before the start.
+fn write_file(dir: &Path, name: &str, text: &str) -> Result<PathBuf, GateStatus> {
+    let path = dir.join(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(&path)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
+        .map_err(|error| {
+            eprintln!("hangar: agent gate file not written: {error}");
+            GateStatus::HookFiles
+        })?;
+    Ok(path)
+}
+
+/// Creates exactly `dir` (its parent must exist), failing when it exists already; only the user
+/// may enter it on Unix.
+fn create_private_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(0o700).create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::DirBuilder::new().create(dir)
+    }
+}
+
+/// Removes session folders of earlier runs whose port nobody listens on any more; another
+/// Hangar running at the same time keeps its own.
+fn remove_old_session_dirs(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if settings_port(&name.to_string_lossy()).is_some_and(port_in_use) {
+            continue;
+        }
+        let _ = std::fs::remove_dir_all(entry.path());
+    }
 }
 
 /// Deletes the launcher settings files of earlier runs; a failure only leaves a stale file.
@@ -312,7 +549,13 @@ impl LaunchGate for GateService {
         agent.capabilities.gate() && lock(&self.inner.gate).enabled()
     }
 
-    fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan {
+    fn prepare(
+        &self,
+        session: SessionId,
+        agent: &Agent,
+        program: &Path,
+        args: &[String],
+    ) -> GatePlan {
         let Some(format) = agent.capabilities.gate_format() else {
             return GatePlan::Skip;
         };
@@ -328,24 +571,61 @@ impl LaunchGate for GateService {
         };
         let context = agent.capabilities.context_inject;
         // Each program takes its hooks in its own format; the endpoint and token are the same.
-        let args = match format {
-            HookFormat::ClaudeSettings => match self.claude_args(port, context, program) {
-                Ok(args) => args,
-                Err(status) => return GatePlan::Unavailable(status),
-            },
+        let install = match self.install(format, session, port, context, program, args) {
+            Ok(install) => install,
+            Err(status) => {
+                self.remove_dirs(session);
+                return GatePlan::Unavailable(status);
+            }
         };
-        let token = lock(&self.inner.gate).register(session);
+        let token = Zeroizing::new(lock(&self.inner.gate).register(session));
+        let token_var = if install.helper {
+            (
+                HELPER_ENV.to_owned(),
+                Zeroizing::new(format!("{port}:{}", token.as_str())),
+            )
+        } else {
+            (TOKEN_ENV.to_owned(), token)
+        };
+        let env = install
+            .env
+            .into_iter()
+            .map(|(name, value)| (name, Zeroizing::new(value)))
+            .chain(std::iter::once(token_var))
+            .collect();
         GatePlan::Launch(GateLaunch {
-            args,
-            env: vec![(TOKEN_ENV.to_owned(), Zeroizing::new(token))],
+            prepend: install.prepend,
+            args: install.args,
+            env,
         })
     }
 
     fn ended(&self, session: SessionId) {
         let ended = lock(&self.inner.gate).forget(session);
+        self.remove_dirs(session);
         if !ended.is_empty() {
             deliver(ended);
             self.inner.publish();
+        }
+    }
+}
+
+impl GateService {
+    /// Removes the session's hook folders on a thread of its own: `ended` runs under the
+    /// session lock, which must not wait for the disk.
+    fn remove_dirs(&self, session: SessionId) {
+        let Some(dirs) = lock(&self.inner.session_dirs).remove(&session) else {
+            return;
+        };
+        let removal = thread::Builder::new()
+            .name("gate-cleanup".to_owned())
+            .spawn(move || {
+                for dir in dirs {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+            });
+        if let Err(error) = removal {
+            eprintln!("hangar: agent gate folders not removed: {error}");
         }
     }
 }
@@ -627,15 +907,35 @@ impl Inner {
         stream: &TcpStream,
     ) -> (Status, String) {
         let mut body = reader.take(head.content_length);
-        match head.path.as_str() {
-            ROUTE_PRE_TOOL_USE => match gate::parse_pre_tool_use(&mut body) {
-                Ok(request) => (Status::Ok, self.decide(session, request, stream).body()),
-                Err(_) => (Status::BadRequest, String::new()),
-            },
-            ROUTE_USER_PROMPT_SUBMIT => match gate::parse_prompt_submit(&mut body) {
-                Ok(conversation) => (Status::Ok, self.context(session, conversation.as_deref())),
-                Err(_) => (Status::BadRequest, String::new()),
-            },
+        let path = head.path.as_str();
+        // The JSON routes answer "no decision" with `{}` instead of an empty body.
+        let json = path == ROUTE_PRE_TOOL_USE_JSON || path == ROUTE_USER_PROMPT_SUBMIT_JSON;
+        let filled = |body: String| {
+            if json && body.is_empty() {
+                gate::EMPTY_JSON.to_owned()
+            } else {
+                body
+            }
+        };
+        match path {
+            ROUTE_PRE_TOOL_USE | ROUTE_PRE_TOOL_USE_JSON => {
+                match gate::parse_pre_tool_use(&mut body) {
+                    Ok(request) => (
+                        Status::Ok,
+                        filled(self.decide(session, request, stream).body()),
+                    ),
+                    Err(_) => (Status::BadRequest, String::new()),
+                }
+            }
+            ROUTE_USER_PROMPT_SUBMIT | ROUTE_USER_PROMPT_SUBMIT_JSON => {
+                match gate::parse_prompt_submit(&mut body) {
+                    Ok(conversation) => (
+                        Status::Ok,
+                        filled(self.context(session, conversation.as_deref())),
+                    ),
+                    Err(_) => (Status::BadRequest, String::new()),
+                }
+            }
             _ => (Status::NotFound, String::new()),
         }
     }
@@ -886,11 +1186,12 @@ mod tests {
     }
 
     fn launch(fixture: &Fixture, session: SessionId) -> (u16, String) {
-        let launch = launched(
-            fixture
-                .service
-                .prepare(session, &claude(), Path::new("claude.exe")),
-        );
+        let launch = launched(fixture.service.prepare(
+            session,
+            &claude(),
+            Path::new("claude.exe"),
+            &[],
+        ));
         let token = launch.env[0].1.to_string();
         (fixture.service.port().unwrap(), token)
     }
@@ -1033,16 +1334,16 @@ mod tests {
         let program = Path::new("claude.exe");
         // Off by default: nothing added, no endpoint.
         assert!(matches!(
-            fixture.service.prepare(1, &claude(), program),
+            fixture.service.prepare(1, &claude(), program, &[]),
             GatePlan::Skip
         ));
         assert_eq!(fixture.service.port(), None);
         fixture.service.configure(true);
         assert!(matches!(
-            fixture.service.prepare(1, &plain_agent(), program),
+            fixture.service.prepare(1, &plain_agent(), program, &[]),
             GatePlan::Skip
         ));
-        let launch = launched(fixture.service.prepare(1, &claude(), program));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
         assert_eq!(launch.args[0], "--settings");
         assert!(launch.args[1].contains(&format!("127.0.0.1:{}", fixture.service.port().unwrap())));
         assert_eq!(launch.env[0].0, TOKEN_ENV);
@@ -1053,7 +1354,7 @@ mod tests {
             context_inject: false,
             ..no_context.capabilities
         };
-        let launch = launched(fixture.service.prepare(2, &no_context, program));
+        let launch = launched(fixture.service.prepare(2, &no_context, program, &[]));
         assert!(!launch.args[1].contains("UserPromptSubmit"));
     }
 
@@ -1065,7 +1366,7 @@ mod tests {
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
         let program = Path::new(r"C:\npm\claude.cmd");
-        let launch = launched(fixture.service.prepare(1, &claude(), program));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
         let path = PathBuf::from(&launch.args[1]);
         assert!(path.starts_with(fixture.settings.path()), "{path:?}");
         // What cmd.exe passes on unchanged, as the manager checks before the start.
@@ -1075,7 +1376,7 @@ mod tests {
         assert_eq!(text, gate::claude_settings(port, true));
         assert!(!text.contains(launch.env[0].1.as_str()));
         // A second start reuses the file.
-        let again = launched(fixture.service.prepare(2, &claude(), program));
+        let again = launched(fixture.service.prepare(2, &claude(), program, &[]));
         assert_eq!(again.args[1], launch.args[1]);
     }
 
@@ -1124,12 +1425,12 @@ mod tests {
         );
         service.configure(true);
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd")),
+            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd"), &[]),
             GatePlan::Unavailable(GateStatus::Launcher)
         ));
         // A real program file still gets the gate inline.
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new("claude.exe")),
+            service.prepare(1, &claude(), Path::new("claude.exe"), &[]),
             GatePlan::Launch(_)
         ));
     }
@@ -1568,5 +1869,396 @@ mod tests {
         for name in ["console", "COM10", "LPT", "nullable.rs", "a.con", "src"] {
             assert!(!is_device_name(OsStr::new(name)), "{name}");
         }
+    }
+
+    /// A catalog program with the gate in `format`.
+    fn agent_in(format: &str, context: bool) -> Agent {
+        let toml = format!(
+            "[[agent]]\nid='x'\nname='X'\ncommands=['x']\ncapabilities = {{ pre_edit_block = true, \
+             per_session_config = true, context_inject = {context}, hook_format = '{format}', measured = true }}\n"
+        );
+        Agent::from_catalog(crate::agent_catalog::parse(&toml).unwrap().remove(0))
+    }
+
+    fn helper_exe(spaced: bool) -> PathBuf {
+        PathBuf::from(match (cfg!(windows), spaced) {
+            (true, true) => r"C:\Program Files\Hangar\hangar.exe",
+            (true, false) => r"C:\Users\Ann\AppData\Local\Hangar\hangar.exe",
+            (false, true) => "/opt/Hangar App/hangar",
+            (false, false) => "/opt/hangar/hangar",
+        })
+    }
+
+    fn env_of<'a>(launch: &'a GateLaunch, name: &str) -> Option<&'a str> {
+        launch
+            .env
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// The session's token, from whichever variable carries it.
+    fn token_of(launch: &GateLaunch) -> String {
+        env_of(launch, TOKEN_ENV)
+            .map(str::to_owned)
+            .or_else(|| {
+                env_of(launch, HELPER_ENV)
+                    .and_then(|v| v.split_once(':'))
+                    .map(|(_, token)| token.to_owned())
+            })
+            .unwrap()
+    }
+
+    /// Every file below `dir`, read as text.
+    fn files_below(dir: &Path) -> Vec<(PathBuf, String)> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                found.extend(files_below(&path));
+            } else {
+                found.push((path.clone(), std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+        found
+    }
+
+    /// Neither a file nor an argument holds the token.
+    fn assert_token_only_in_env(fixture: &Fixture, launch: &GateLaunch) {
+        let token = token_of(launch);
+        assert_eq!(token.len(), 64);
+        for arg in launch.prepend.iter().chain(&launch.args) {
+            assert!(!arg.contains(&token), "token in argument {arg}");
+        }
+        for (path, text) in files_below(fixture.settings.path()) {
+            assert!(!text.contains(&token), "token in {path:?}");
+        }
+    }
+
+    fn wait_until_gone(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while path.exists() {
+            assert!(Instant::now() < deadline, "{path:?} stayed");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn qwen_gets_a_settings_file_and_the_token_for_its_header() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let launch = launched(fixture.service.prepare(
+            7,
+            &agent_in("qwen_system_settings", true),
+            Path::new("qwen.exe"),
+            &[],
+        ));
+        let port = fixture.service.port().unwrap();
+        assert!(launch.prepend.is_empty() && launch.args.is_empty());
+        let file = PathBuf::from(env_of(&launch, recipes::QWEN_SETTINGS_ENV).unwrap());
+        assert!(
+            file.starts_with(fixture.settings.path().join(SESSIONS_DIR)),
+            "{file:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            recipes::qwen_settings(port, true)
+        );
+        assert!(env_of(&launch, HELPER_ENV).is_none());
+        assert_token_only_in_env(&fixture, &launch);
+        // The process ends: its folder goes, its token stops working.
+        let token = token_of(&launch);
+        fixture.service.ended(7);
+        wait_until_gone(file.parent().unwrap());
+        let body = edit(&fixture.root, "src/own.rs");
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), &body).0,
+            401
+        );
+    }
+
+    #[test]
+    fn gemini_gets_a_settings_file_that_runs_the_helper() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(true));
+        let launch = launched(fixture.service.prepare(
+            3,
+            &agent_in("gemini_system_settings", false),
+            Path::new("gemini.exe"),
+            &[],
+        ));
+        let file = PathBuf::from(env_of(&launch, recipes::GEMINI_SETTINGS_ENV).unwrap());
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let command = settings["hooks"]["BeforeTool"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(
+            command.contains(helper_exe(true).to_str().unwrap()),
+            "{command}"
+        );
+        assert!(
+            command.ends_with("gate-hook gemini before-tool"),
+            "{command}"
+        );
+        assert_eq!(env_of(&launch, recipes::GEMINI_TRUST_ENV), Some("true"));
+        // The helper gets port and token under the neutral name only.
+        let port = fixture.service.port().unwrap();
+        let gate = env_of(&launch, HELPER_ENV).unwrap();
+        assert!(gate.starts_with(&format!("{port}:")), "{gate}");
+        assert!(env_of(&launch, TOKEN_ENV).is_none());
+        assert_token_only_in_env(&fixture, &launch);
+        fixture.service.ended(3);
+        wait_until_gone(file.parent().unwrap());
+    }
+
+    #[test]
+    fn copilot_gets_a_plugin_folder_before_the_users_arguments() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(true));
+        let launch = launched(fixture.service.prepare(
+            4,
+            &agent_in("copilot_plugin", false),
+            Path::new("copilot.exe"),
+            &["--continue".to_owned()],
+        ));
+        assert_eq!(launch.prepend[0], "--plugin-dir");
+        let plugin = PathBuf::from(&launch.prepend[1]);
+        assert_eq!(launch.prepend.len(), 2);
+        assert!(launch.args.is_empty());
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(plugin.join("plugin.json")).unwrap())
+                .unwrap();
+        assert_eq!(manifest["hooks"], "hooks.json");
+        let hooks: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(plugin.join("hooks.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            hooks["hooks"]["preToolUse"][0]["exec"],
+            helper_exe(true).to_str().unwrap()
+        );
+        assert!(env_of(&launch, HELPER_ENV).is_some());
+        assert_token_only_in_env(&fixture, &launch);
+        fixture.service.ended(4);
+        wait_until_gone(&plugin);
+    }
+
+    #[test]
+    fn codex_gets_its_hook_layer_as_arguments_only() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(true));
+        let codex = agent_in("codex_config_flags", false);
+        let launch = launched(fixture.service.prepare(
+            5,
+            &codex,
+            Path::new("codex.exe"),
+            &["resume".to_owned(), "--last".to_owned()],
+        ));
+        assert_eq!(launch.prepend.len(), 3);
+        assert_eq!(launch.prepend[0], recipes::CODEX_TRUST_FLAG);
+        assert_eq!(launch.prepend[1], "-c");
+        assert!(launch.prepend[2].starts_with("hooks.PreToolUse=["));
+        assert!(
+            launch.prepend[2].contains(helper_exe(true).to_str().unwrap()),
+            "{}",
+            launch.prepend[2]
+        );
+        assert!(launch.args.is_empty());
+        assert_token_only_in_env(&fixture, &launch);
+        // No files: nothing to clean up.
+        assert!(
+            !fixture.settings.path().join(SESSIONS_DIR).exists()
+                || files_below(&fixture.settings.path().join(SESSIONS_DIR)).is_empty()
+        );
+        // The user's own bypass flag is not repeated.
+        let own = launched(fixture.service.prepare(
+            6,
+            &codex,
+            Path::new("codex.exe"),
+            &[recipes::CODEX_TRUST_FLAG.to_owned()],
+        ));
+        assert_eq!(own.prepend[0], "-c");
+    }
+
+    #[test]
+    fn a_cmd_launcher_takes_codexs_layer_only_with_a_bare_path() {
+        if !cfg!(windows) {
+            return;
+        }
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let codex = agent_in("codex_config_flags", false);
+        let shim = Path::new(r"C:\npm\codex.cmd");
+        fixture.service.set_helper(helper_exe(true));
+        assert!(matches!(
+            fixture.service.prepare(1, &codex, shim, &[]),
+            GatePlan::Unavailable(GateStatus::InstallPath)
+        ));
+        fixture.service.set_helper(helper_exe(false));
+        let launch = launched(fixture.service.prepare(1, &codex, shim, &[]));
+        // What the manager checks before starting a cmd.exe launcher.
+        assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
+    }
+
+    #[test]
+    fn a_helper_path_a_shell_would_read_leaves_the_session_without_gate() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let odd = if cfg!(windows) {
+            r"C:\Users\O'Neil\hangar.exe"
+        } else {
+            "/home/o'neil/hangar"
+        };
+        fixture.service.set_helper(PathBuf::from(odd));
+        for format in ["gemini_system_settings", "codex_config_flags"] {
+            assert!(
+                matches!(
+                    fixture
+                        .service
+                        .prepare(1, &agent_in(format, false), Path::new("x.exe"), &[]),
+                    GatePlan::Unavailable(GateStatus::InstallPath)
+                ),
+                "{format}"
+            );
+        }
+        // No token was handed out and no folder stays behind.
+        let body = edit(&fixture.root, "src/own.rs");
+        let port = fixture.service.port().unwrap();
+        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some("x"), &body).0, 401);
+        assert!(lock(&fixture.service.inner.session_dirs).is_empty());
+        // Copilot runs the helper without a shell, so the same path is fine there.
+        launched(fixture.service.prepare(
+            2,
+            &agent_in("copilot_plugin", false),
+            Path::new("copilot.exe"),
+            &[],
+        ));
+    }
+
+    #[test]
+    fn json_routes_answer_no_decision_as_an_empty_object() {
+        let fixture = fixture(Duration::from_millis(300));
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE_JSON,
+                Some(&token),
+                &edit(&fixture.root, "src/own.rs")
+            ),
+            (200, "{}".to_owned())
+        );
+        // A decision carries the event name, as Qwen Code expects.
+        let (code, body) = post(
+            port,
+            ROUTE_PRE_TOOL_USE_JSON,
+            Some(&token),
+            &edit(&fixture.root, "src/shared.rs"),
+        );
+        assert_eq!(code, 200);
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+        let prompt = r#"{"session_id":"q1","hook_event_name":"UserPromptSubmit","prompt":"hi"}"#;
+        let (_, first) = post(port, ROUTE_USER_PROMPT_SUBMIT_JSON, Some(&token), prompt);
+        assert!(first.contains("additionalContext"), "{first}");
+        assert_eq!(
+            post(port, ROUTE_USER_PROMPT_SUBMIT_JSON, Some(&token), prompt),
+            (200, "{}".to_owned())
+        );
+    }
+
+    #[test]
+    fn every_variable_a_format_sets_is_one_a_child_hangar_strips() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(false));
+        let no_profile_env = std::collections::BTreeMap::new();
+        let inside = crate::child_env::changes_with(&no_profile_env, false, true);
+        for (session, format) in [
+            "claude_settings",
+            "qwen_system_settings",
+            "gemini_system_settings",
+            "copilot_plugin",
+            "codex_config_flags",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let launch = launched(fixture.service.prepare(
+                session as SessionId + 1,
+                &agent_in(format, true),
+                Path::new("x.exe"),
+                &[],
+            ));
+            for (name, _) in &launch.env {
+                assert!(
+                    recipes::GATE_ENV_NAMES.contains(&name.as_str()),
+                    "{format}: {name} missing from GATE_ENV_NAMES"
+                );
+                assert!(
+                    inside.contains(&crate::child_env::Change::Remove(name)),
+                    "{format}: {name} not stripped"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_session_folder_that_exists_already_is_never_reused() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let port = fixture.service.ensure_server().unwrap();
+        // Planted where the next start's folder would go, with a file in it.
+        let next = fixture.service.inner.starts.load(Ordering::SeqCst);
+        let planted = fixture
+            .settings
+            .path()
+            .join(SESSIONS_DIR)
+            .join(format!("{port}-9-{next}"));
+        std::fs::create_dir_all(&planted).unwrap();
+        std::fs::write(planted.join(recipes::QWEN_FILE), "planted").unwrap();
+        let launch = launched(fixture.service.prepare(
+            9,
+            &agent_in("qwen_system_settings", false),
+            Path::new("qwen.exe"),
+            &[],
+        ));
+        let file = PathBuf::from(env_of(&launch, recipes::QWEN_SETTINGS_ENV).unwrap());
+        assert!(!file.starts_with(&planted), "{file:?}");
+        assert_eq!(
+            std::fs::read_to_string(planted.join(recipes::QWEN_FILE)).unwrap(),
+            "planted"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(file.parent().unwrap()), 0o700);
+            assert_eq!(mode(&file), 0o600);
+        }
+    }
+
+    #[test]
+    fn old_session_folders_go_unless_their_port_still_listens() {
+        let dir = TempDir::new("gate-sessions-old");
+        let held = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let held_port = held.local_addr().unwrap().port();
+        let free_port = {
+            let probe = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            probe.local_addr().unwrap().port()
+        };
+        let names = [format!("{held_port}-1-0"), format!("{free_port}-2-3")];
+        for name in &names {
+            std::fs::create_dir_all(dir.path().join(name).join("copilot-plugin")).unwrap();
+        }
+        remove_old_session_dirs(dir.path());
+        let left: Vec<bool> = names.iter().map(|n| dir.path().join(n).exists()).collect();
+        assert_eq!(left, [true, false]);
+        drop(held);
     }
 }

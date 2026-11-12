@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [teams, sessions, worktree, gate, hooks, claims, ui]
-sources: ["[[claude-http-hook-measurement]]"]
+sources: ["[[claude-http-hook-measurement]]", "[[agent-hooks-per-session-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]"]
 created: 2026-11-12
 updated: 2026-11-12
 ---
@@ -59,19 +59,24 @@ Option 2.
   replace the team session's worktree. The window greys out both kinds of program while Team is
   chosen and shows the backend's error otherwise.
 - **Folder outside git:** Team is disabled with a tooltip, the switch shows Private.
-- **Which programs:** data only. `ProfileView.teamCapable` is `Capabilities::gate()` from the
-  catalog: `pre_edit_block`, `per_session_config` and a `hook_format` Hangar can write. Nothing
-  in the backend or the window names a program. Today only Claude Code has a format
-  (`hook_format = "claude_settings"`); the others show greyed out with "cannot be a team session
-  yet". A program gets listed by adding its `HookFormat` variant (and the builder for its hook
-  configuration in `gate_service.rs`) and flipping its catalog capabilities.
+- **Which programs:** data only. `ProfileView.teamCapable` is `Capabilities::team_ready`:
+  `pre_edit_block`, `per_session_config`, `measured` and a `hook_format` Hangar can write from
+  the catalog, plus on this machine the installed version at or above `min_version` and no
+  administrator's system settings in the way; `create_session` checks the same. Nothing in the
+  backend or the window names a program. Offered: Claude Code (`claude_settings`) and Codex CLI
+  from 0.167.2 (`codex_config_flags`, measured live, [[codex-gate-live-measurement]]). Qwen Code,
+  Gemini CLI and Copilot CLI have their recipe ([[agent-gate-adapters]]) but stay off until each
+  is measured live once; they and all others show greyed out with "cannot be a team session
+  yet". A program gets listed by adding its `HookFormat` variant (and its recipe in
+  `hook_recipes.rs`), measuring it live and flipping its catalog capabilities.
 - **Mixed teams:** what a teammate sees does not depend on the agent. Presence and shared claims
   come from git: `claims_service::watched_sessions` takes every running agent session regardless
   of its program, the rescan reads git's changes, `team_share::local_sessions` builds the shared
   session from those claims and carries the program only as a display label. Once Codex CLI has
   a hook format, a teammate's Codex team session shows up and its files pause a Claude Code
   session's edit, just like a Claude Code session's would, with no change to presence or claims.
-  Until then no Codex session can be a team session.
+  Since the adapters of [[agent-gate-adapters]] this holds for Codex team sessions, and will for
+  Gemini, Copilot and Qwen once they are measured.
 - **Older workspaces:** a session saved with a worktree is a team session after restore
   (`sessionMode` in `startMode.ts`) when its program can be one; otherwise it comes back private
   in its worktree, never as a team session without the gate. A private session started in 0.6.0
@@ -99,3 +104,6 @@ Option 2.
   `team_share::tests::only_team_sessions_get_a_label_whatever_their_program`,
   `agent_catalog::tests::team_capable_comes_from_the_capabilities_alone`, `src/startMode.test.ts`.
 - Claude Code's hook behavior: [[claude-http-hook-measurement]].
+- The other four formats and what of them is measured: [[agent-gate-adapters]],
+  [[gate-hook-helper-measurement]]; tests `tests/gate_hook.rs`, `hook_recipes::tests`,
+  `gate_hook::tests`, the format tests in `gate_service::tests`.

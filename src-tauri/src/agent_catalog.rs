@@ -5,7 +5,7 @@
 //! `agent_catalog.toml`. User profiles take precedence; a profile with the same `id` replaces the
 //! catalog entry completely.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
@@ -88,45 +88,154 @@ pub struct Capabilities {
     /// program is built.
     #[serde(default)]
     pub hook_format: Option<HookFormat>,
+    /// The recipe was run once against the live program and an edit was really held. Hangar
+    /// offers only what works: a built but unmeasured recipe stays off.
+    #[serde(default)]
+    pub measured: bool,
+    /// Oldest program version the recipe is known to work with (the measured or researched one);
+    /// below it, or with the version unknown, the program is not offered for team sessions.
+    #[serde(default)]
+    pub min_version: Option<MinVersion>,
 }
 
 impl Capabilities {
     /// The gate can be installed for one session and hold its edits, so the program can run as a
-    /// team session. Purely from the catalog's data: no program is named in code.
+    /// team session. Purely from the catalog's data: no program is named in code. What the host
+    /// adds (version, administrator settings) is [`Capabilities::team_ready`].
     pub fn gate(self) -> bool {
         self.gate_format().is_some()
     }
 
     /// The hook format the gate uses for the program, when the gate applies at all.
     pub fn gate_format(self) -> Option<HookFormat> {
-        if self.pre_edit_block && self.per_session_config {
+        if self.pre_edit_block && self.per_session_config && self.measured {
             self.hook_format
         } else {
             None
         }
     }
+
+    /// [`Capabilities::gate`] on this machine: the installed `version` reaches
+    /// [`Capabilities::min_version`] (an unknown version does not), and no administrator's system
+    /// settings would be replaced by the session's file (`admin_settings`,
+    /// [`crate::hook_recipes::admin_settings_present`]).
+    pub fn team_ready(self, version: Option<&str>, admin_settings: bool) -> bool {
+        self.gate()
+            && !admin_settings
+            && self.min_version.is_none_or(|min| {
+                version
+                    .and_then(MinVersion::parse)
+                    .is_some_and(|installed| installed >= min)
+            })
+    }
+}
+
+/// A version as dotted numbers (up to four parts, missing ones count as 0), for the comparison
+/// with a minimum. A pre-release or build suffix (`1.0.0-preview.1`, `2.1.3+abc`) is ignored, so a
+/// preview counts as its release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "String")]
+pub struct MinVersion([u64; 4]);
+
+impl MinVersion {
+    pub fn parse(text: &str) -> Option<Self> {
+        let core = text
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .split(['-', '+', ' '])
+            .next()?;
+        let mut parts = [0u64; 4];
+        let mut count = 0;
+        for part in core.split('.') {
+            if count == parts.len() || part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            parts[count] = part.parse().ok()?;
+            count += 1;
+        }
+        (count > 0).then_some(Self(parts))
+    }
+}
+
+impl TryFrom<String> for MinVersion {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        Self::parse(&text).ok_or_else(|| format!("not a version: {text}"))
+    }
 }
 
 /// A way to give Hangar's hooks to exactly one session of a program. Each agent CLI has its own
-/// hook configuration; a new one is another variant here plus its builder in `gate_service.rs`.
+/// hook configuration; a new one is another variant here plus its recipe in `hook_recipes.rs`,
+/// installed by `gate_service.rs`. Evidence per format:
+/// docs/wiki/pages/syntheses/agent-gate-adapters.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookFormat {
     /// Claude Code's `--settings <json or file>` with HTTP hooks (`gate::claude_settings`).
     ClaudeSettings,
+    /// Qwen Code: a system settings file named by `QWEN_CODE_SYSTEM_SETTINGS_PATH`, HTTP hooks in
+    /// Claude Code's shape.
+    QwenSystemSettings,
+    /// Gemini CLI: a system settings file named by `GEMINI_CLI_SYSTEM_SETTINGS_PATH` with a
+    /// `BeforeTool` command hook running `hangar gate-hook`.
+    GeminiSystemSettings,
+    /// Copilot CLI: `--plugin-dir <folder>` with a plugin whose `preToolUse` hook runs
+    /// `hangar gate-hook` as a program.
+    CopilotPlugin,
+    /// Codex CLI: `--dangerously-bypass-hook-trust -c hooks.PreToolUse=[…]` running
+    /// `hangar gate-hook` through cmd.exe or the shell.
+    CodexConfigFlags,
 }
 
 impl HookFormat {
-    /// The start arguments already carry the program's own hook configuration. Hangar's would be
-    /// a second one, and how the program combines both is not measured, so such a start goes
-    /// without the gate instead of risking the user's settings or a silently missing hook.
-    pub fn conflicts_with(self, args: &[String]) -> bool {
+    /// The start arguments or the profile's environment already carry the program's own
+    /// configuration where Hangar would put its hooks. Hangar's would replace it or be a second
+    /// one, and how the program combines both is not measured, so such a start goes without the
+    /// gate instead of risking the user's settings or a silently missing hook. Copilot plugin
+    /// folders add up; of Codex's config overrides only one of `hooks` or `hooks.PreToolUse`
+    /// conflicts, as it sets the key Hangar's layer sets.
+    pub fn conflicts_with(self, args: &[String], env: &BTreeMap<String, String>) -> bool {
+        // Windows compares variable names without case.
+        let has_env = |name: &str| {
+            env.keys()
+                .any(|key| key == name || (cfg!(windows) && key.eq_ignore_ascii_case(name)))
+        };
         match self {
             HookFormat::ClaudeSettings => args
                 .iter()
                 .any(|arg| arg == "--settings" || arg.starts_with("--settings=")),
+            HookFormat::QwenSystemSettings => has_env(crate::hook_recipes::QWEN_SETTINGS_ENV),
+            HookFormat::GeminiSystemSettings => has_env(crate::hook_recipes::GEMINI_SETTINGS_ENV),
+            // A later `-c hooks=...` or `-c hooks.PreToolUse=...` sets the key of Hangar's layer
+            // and would replace it while the session shows the gate as active.
+            HookFormat::CodexConfigFlags => codex_overrides(args).any(|value| {
+                config_key(value).is_some_and(|key| {
+                    key == "hooks"
+                        || key == "hooks.PreToolUse"
+                        || key.starts_with("hooks.PreToolUse.")
+                })
+            }),
+            HookFormat::CopilotPlugin => false,
         }
     }
+}
+
+/// The values of Codex's `-c <key=value>`, `--config <key=value>` and `--config=<key=value>`.
+fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
+    args.iter().enumerate().filter_map(|(index, arg)| {
+        if arg == "-c" || arg == "--config" {
+            args.get(index + 1).map(String::as_str)
+        } else {
+            arg.strip_prefix("--config=")
+        }
+    })
+}
+
+/// The dotted key of a `key=value` override, without surrounding blanks.
+fn config_key(value: &str) -> Option<&str> {
+    value.split_once('=').map(|(key, _)| key.trim())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1084,18 +1193,83 @@ packages={ winget='x y' }
         let claude = caps("claude");
         assert!(claude.pre_edit_block && claude.context_inject && claude.per_session_config);
         assert!(claude.gate());
-        // Not verified yet (team-service-v1.md, section 1): the step A warning applies.
-        for id in ["codex", "gemini", "copilot", "aider", "opencode"] {
+        // Recipes: docs/wiki/pages/syntheses/agent-gate-adapters.md. Codex was measured live;
+        // Gemini, Copilot and Qwen have their recipe but wait for that measurement.
+        for (id, format, measured, floor) in [
+            ("codex", HookFormat::CodexConfigFlags, true, "0.167.2"),
+            ("gemini", HookFormat::GeminiSystemSettings, false, "0.68.0"),
+            ("copilot", HookFormat::CopilotPlugin, false, "1.0.109"),
+            ("qwen", HookFormat::QwenSystemSettings, false, "0.27.2"),
+        ] {
+            let caps = caps(id);
+            assert_eq!(caps.hook_format, Some(format), "{id}");
+            assert_eq!(caps.measured, measured, "{id}");
+            assert_eq!(caps.gate(), measured, "{id}");
+            assert_eq!(caps.min_version, MinVersion::parse(floor), "{id}");
+        }
+        assert!(claude.measured && claude.min_version.is_none());
+        // Context goes in through Qwen's HTTP prompt hook only; the helper hands none yet.
+        assert!(caps("qwen").context_inject);
+        for id in ["codex", "gemini", "copilot"] {
+            assert!(!caps(id).context_inject, "{id}");
+        }
+        for id in ["aider", "opencode"] {
             assert_eq!(caps(id), Capabilities::default(), "{id}");
             assert!(!caps(id).gate(), "{id}");
         }
-        // Only the Claude Code format is built; any other entry with the gate needs code first.
         let gated: Vec<&str> = agents
             .iter()
             .filter(|a| a.capabilities.gate())
             .map(|a| a.id.as_str())
             .collect();
-        assert_eq!(gated, ["claude"]);
+        assert_eq!(gated, ["claude", "codex"]);
+    }
+
+    #[test]
+    fn versions_compare_by_number_not_by_text() {
+        let v = |text: &str| MinVersion::parse(text).unwrap();
+        assert!(v("0.167.10") > v("0.167.9"));
+        assert!(v("1.0.109") > v("0.999.999"));
+        assert_eq!(v("0.68"), v("0.68.0"));
+        assert_eq!(v("v2.1.3"), v("2.1.3"));
+        // A pre-release or build suffix counts as its release.
+        assert_eq!(v("1.0.0-preview.1"), v("1.0.0"));
+        assert_eq!(v("2.1.319 (Claude Code)"), v("2.1.319"));
+        for bad in ["", "x", "1..2", "1.2.3.4.5", "a.b", "-1"] {
+            assert_eq!(MinVersion::parse(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn team_ready_needs_the_floor_a_known_version_and_no_admin_settings() {
+        let caps = Capabilities {
+            pre_edit_block: true,
+            per_session_config: true,
+            hook_format: Some(HookFormat::CodexConfigFlags),
+            measured: true,
+            min_version: MinVersion::parse("0.167.2"),
+            ..Capabilities::default()
+        };
+        assert!(caps.team_ready(Some("0.167.2"), false));
+        assert!(caps.team_ready(Some("0.168.0"), false));
+        assert!(!caps.team_ready(Some("0.167.1"), false));
+        assert!(!caps.team_ready(None, false));
+        assert!(!caps.team_ready(Some("unknown"), false));
+        assert!(!caps.team_ready(Some("0.168.0"), true));
+        // Without a floor the version does not matter; unmeasured is never ready.
+        let no_floor = Capabilities {
+            min_version: None,
+            ..caps
+        };
+        assert!(no_floor.team_ready(None, false));
+        let unmeasured = Capabilities {
+            measured: false,
+            ..caps
+        };
+        assert!(!unmeasured.team_ready(Some("9.0.0"), false));
+        // The catalog rejects a floor that is not a version.
+        let bad = "[[agent]]\nid='x'\nname='X'\ncommands=['x']\ncapabilities = { min_version = 'soon' }\n";
+        assert!(parse(bad).is_err());
     }
 
     #[test]
@@ -1135,6 +1309,8 @@ commands=['x']
             context_inject: true,
             per_session_config: true,
             hook_format: Some(HookFormat::ClaudeSettings),
+            measured: true,
+            min_version: None,
         };
         let same = merge(vec![user("claude", "claude")], vec![with_gate.clone()]);
         assert!(same[0].capabilities.gate());
@@ -1242,6 +1418,8 @@ commands=['x']
             context_inject: false,
             per_session_config: true,
             hook_format: None,
+            measured: true,
+            min_version: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         // A format alone is not enough either.
@@ -1250,6 +1428,8 @@ commands=['x']
             context_inject: false,
             per_session_config: true,
             hook_format: Some(HookFormat::ClaudeSettings),
+            measured: true,
+            min_version: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         agent.capabilities.pre_edit_block = true;
@@ -1268,7 +1448,7 @@ name='X'
 commands=['x']
 ";
         let with_format = format!(
-            "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = 'claude_settings' }}
+            "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = 'claude_settings', measured = true }}
 "
         );
         let caps = parse(&with_format).unwrap()[0].capabilities;
@@ -1279,9 +1459,59 @@ commands=['x']
         );
         assert!(parse(&unknown).is_err());
         let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        let none = BTreeMap::new();
         let format = HookFormat::ClaudeSettings;
-        assert!(format.conflicts_with(&args(&["--settings", "user.json"])));
-        assert!(format.conflicts_with(&args(&["--settings=user.json"])));
-        assert!(!format.conflicts_with(&args(&["--model", "x"])));
+        assert!(format.conflicts_with(&args(&["--settings", "user.json"]), &none));
+        assert!(format.conflicts_with(&args(&["--settings=user.json"]), &none));
+        assert!(!format.conflicts_with(&args(&["--model", "x"]), &none));
+        for (name, format) in [
+            ("qwen_system_settings", HookFormat::QwenSystemSettings),
+            ("gemini_system_settings", HookFormat::GeminiSystemSettings),
+            ("copilot_plugin", HookFormat::CopilotPlugin),
+            ("codex_config_flags", HookFormat::CodexConfigFlags),
+        ] {
+            let text = format!(
+                "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = '{name}', measured = true }}
+"
+            );
+            assert_eq!(
+                parse(&text).unwrap()[0].capabilities.gate_format(),
+                Some(format)
+            );
+        }
+    }
+
+    #[test]
+    fn a_profile_variable_for_the_settings_file_conflicts() {
+        let env = |name: &str| BTreeMap::from([(name.to_owned(), "x".to_owned())]);
+        let none: Vec<String> = Vec::new();
+        assert!(HookFormat::QwenSystemSettings
+            .conflicts_with(&none, &env("QWEN_CODE_SYSTEM_SETTINGS_PATH")));
+        assert!(HookFormat::GeminiSystemSettings
+            .conflicts_with(&none, &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH")));
+        assert_eq!(
+            HookFormat::GeminiSystemSettings
+                .conflicts_with(&none, &env("gemini_cli_system_settings_path")),
+            cfg!(windows)
+        );
+        assert!(!HookFormat::QwenSystemSettings
+            .conflicts_with(&none, &env("GEMINI_CLI_SYSTEM_SETTINGS_PATH")));
+        // Plugin folders add up; the user's own never conflict.
+        let own = vec!["--plugin-dir".to_owned(), "mine".to_owned()];
+        assert!(!HookFormat::CopilotPlugin.conflicts_with(&own, &BTreeMap::new()));
+        // A user's own Codex hooks override sets the key Hangar's layer sets; other overrides
+        // do not touch it.
+        let codex = |list: &[&str]| {
+            let args: Vec<String> = list.iter().map(|a| (*a).to_owned()).collect();
+            HookFormat::CodexConfigFlags.conflicts_with(&args, &BTreeMap::new())
+        };
+        assert!(codex(&["-c", "hooks.PreToolUse=[]"]));
+        assert!(codex(&["--config", " hooks = {}"]));
+        assert!(codex(&["--config=hooks.PreToolUse.0.matcher='x'"]));
+        assert!(!codex(&["-c", "hooks.PostToolUse=[]"]));
+        assert!(!codex(&["-c", "model=\"o3\"", "resume", "--last"]));
+        assert!(!codex(&["-c", "hooks_extra=1"]));
+        assert!(!codex(&["-c"]));
+        assert!(!codex(&["hooks.PreToolUse=[]"]));
     }
 }

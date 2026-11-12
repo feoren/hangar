@@ -237,7 +237,8 @@ let the edit through. The setting's help text says so.
   all false by default; Claude Code has all three, Codex, Gemini, Copilot and Aider are false
   with a comment pointing here. The gate goes only where `pre_edit_block` and
   `per_session_config` are true, in the one format built so far (Claude Code's `--settings`). A
-  user profile with the same id and program inherits the flags.
+  user profile with the same id and program inherits the flags. Since 2026-11-12 Codex, Gemini,
+  Copilot and Qwen Code have formats too ([[agent-gate-adapters]]).
 - **Launch:** `SessionManager::spawn` asks the `LaunchGate` (`gate_service.rs`) on every start of
   an agent session (first start, restart, resume, resume fallback; never update sessions). When
   the gate is on, it appends `--settings <inline JSON>` (http hooks: `PreToolUse` with matcher
@@ -901,7 +902,8 @@ feeds `local_sessions`, which skips a worktree where a private session works too
 cannot be split per session); local claims of step A cover both. Team is refused for a program
 without a hook format and for a profile with a fixed working folder. A team session always runs in a
 worktree of its own. The catalog's `capabilities` gained `hook_format` (`"claude_settings"` for
-Claude Code, the only one built); the gate needs it next to `pre_edit_block` and
+Claude Code; Qwen Code, Gemini CLI, Copilot CLI and Codex CLI followed, [[agent-gate-adapters]]);
+the gate needs it next to `pre_edit_block` and
 `per_session_config`, and the window lists exactly those programs for team sessions
 (`ProfileView.teamCapable`). The check for a profile's own hook configuration moved with it
 (`HookFormat::conflicts_with`, for Claude Code `--settings` and `--settings=`). Presence and
@@ -911,8 +913,7 @@ shared claims stay agent-independent: they come from git, the program is only a 
 - Claude Code http hook: a connection failure and a timeout fail open (measured,
   [[claude-http-hook-measurement]]); still open whether sub-agent tool calls pass `PreToolUse`
   and how the interactive mode behaves while a hook waits.
-- Codex: path shape of `apply_patch` input; Gemini: hook merging with
-  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`; Copilot: per-session hooks.
+- Codex, Gemini, Copilot and Qwen Code live hook runs: the open rows of [[agent-gate-adapters]].
 - Cost of `git status` and `git diff -U0` on a large repository on Windows: measured, see
   [[claims-rescan-measurement]]. macOS and Linux still open.
 - Exact versions of `chacha20poly1305` and the dalek crates before pinning.

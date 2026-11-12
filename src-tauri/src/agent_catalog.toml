@@ -41,14 +41,22 @@
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
 #                    default: { pre_edit_block, context_inject, per_session_config,
-#                    hook_format }.
+#                    hook_format, measured, min_version }.
 #                    pre_edit_block: a hook can stop an edit before it happens; context_inject: a
 #                    hook can hand the agent facts as context; per_session_config: hooks can be
 #                    given to one session without touching the user's settings files;
-#                    hook_format: how Hangar writes its hooks for one session, "claude_settings"
-#                    (Claude Code's `--settings`) is the one format built so far. Hangar
-#                    installs its gate, and lists the program for team sessions, only where
-#                    pre_edit_block and per_session_config are true and hook_format is set.
+#                    hook_format: how Hangar writes its hooks for one session:
+#                    "claude_settings" (Claude Code's `--settings`), "qwen_system_settings",
+#                    "gemini_system_settings", "copilot_plugin" or "codex_config_flags"
+#                    (recipes in src-tauri/src/hook_recipes.rs and
+#                    docs/wiki/pages/syntheses/agent-gate-adapters.md); measured: the recipe was
+#                    run once against the live program and held an edit; min_version: oldest
+#                    version the recipe is known to work with (checked with the version query of
+#                    ADR 0003). Hangar installs its gate, and lists the program for team
+#                    sessions, only where pre_edit_block, per_session_config and measured are
+#                    true, hook_format is set, the installed version reaches min_version (an
+#                    unknown version does not) and no administrator's system settings file would
+#                    be replaced (Gemini CLI, Qwen Code).
 #                    A user profile with the same id and program inherits them.
 #   latest           Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
@@ -95,7 +103,7 @@ session_id_args = ["--session-id", "{id}"]
 resume_id_args = ["--resume", "{id}"]
 sub_agents = "claude"
 # Measured with Claude Code 2.1.319: docs/wiki/pages/sources/claude-http-hook-measurement.md.
-capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "claude_settings" }
+capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "claude_settings", measured = true }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
@@ -109,9 +117,15 @@ id = "codex"
 name = "Codex CLI"
 commands = ["codex"]
 resume_args = ["resume", "--last"]
-# Hooks exist (PreToolUse on apply_patch) but need trust by hash and the path shape is
-# unverified: team-service-v1.md, section 1. The step A warning applies.
-capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
+# PreToolUse on apply_patch through a session layer (`-c hooks.PreToolUse=[...]`) that runs
+# `hangar gate-hook codex pre-tool-use`; the helper reads every path of the patch. Accepted risk:
+# a `-c` hook is untrusted (measured with 0.167.2), so the start also carries
+# `--dangerously-bypass-hook-trust`, which for that run also lets the repository's own unreviewed
+# hooks run. Shell writes are not hooked; the file watcher stays the second line. Measured live
+# with 0.167.2 (hook fires on apply_patch, HANGAR_GATE arrives, a JSON deny with exit 0 stops the
+# write): docs/wiki/pages/sources/codex-gate-live-measurement.md. 0.167.2 is the floor: the first
+# release with the bypass flag is not known.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "codex_config_flags", measured = true, min_version = "0.167.2" }
 icon = "Cx"
 homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
@@ -125,9 +139,11 @@ id = "gemini"
 name = "Gemini CLI"
 commands = ["gemini"]
 resume_args = ["--resume"]
-# BeforeTool hooks exist; whether user hooks still merge with a per-session settings file is
-# unverified: team-service-v1.md, section 1. The step A warning applies.
-capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
+# BeforeTool on write_file and replace from a per-session system settings file
+# (GEMINI_CLI_SYSTEM_SETTINGS_PATH) that runs `hangar gate-hook gemini before-tool`; the session's
+# folder is trusted for the session (GEMINI_CLI_TRUST_WORKSPACE). Recipe built, live measurement
+# pending (measured = false keeps it off): docs/wiki/pages/syntheses/agent-gate-adapters.md.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "gemini_system_settings", measured = false, min_version = "0.68.0" }
 icon = "G"
 homepage = "https://github.com/google-gemini/gemini-cli"
 install_windows = "npm install -g @google/gemini-cli"
@@ -150,9 +166,11 @@ id = "copilot"
 name = "GitHub Copilot CLI"
 commands = ["copilot"]
 resume_args = ["--continue"]
-# preToolUse hooks exist; per-session hooks are unverified: team-service-v1.md, section 1.
-# The step A warning applies.
-capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
+# preToolUse on edit, create and apply_patch from a plugin loaded with --plugin-dir that runs
+# `hangar gate-hook copilot pre-tool-use` without a shell. Recipe built, live measurement pending
+# (folder trust for plugin hooks is undocumented; measured = false keeps it off):
+# docs/wiki/pages/syntheses/agent-gate-adapters.md.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "copilot_plugin", measured = false, min_version = "1.0.109" }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -188,6 +206,11 @@ packages = { npm = "@moonshot-ai/kimi-code", winget = "MoonshotAI.KimiCodeCLI" }
 id = "qwen"
 name = "Qwen Code"
 commands = ["qwen"]
+# PreToolUse on write_file and edit and UserPromptSubmit as HTTP hooks to Hangar's endpoint, from a
+# per-session system settings file (QWEN_CODE_SYSTEM_SETTINGS_PATH). Recipe built, live
+# measurement pending (measured = false keeps it off):
+# docs/wiki/pages/syntheses/agent-gate-adapters.md.
+capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "qwen_system_settings", measured = false, min_version = "0.27.2" }
 icon = "Q"
 homepage = "https://github.com/QwenLM/qwen-code"
 install_windows = "irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex"

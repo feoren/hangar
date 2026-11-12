@@ -174,7 +174,11 @@ const de = {
   "gate.launcher":
     "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Datenordner enthält Zeichen, die cmd.exe auswerten würde.",
   "gate.profileSettings":
-    "Änderungen werden in dieser Session nicht angehalten: Das Profil übergibt schon eigene --settings, deshalb fügt Hangar keine hinzu.",
+    "Änderungen werden in dieser Session nicht angehalten: Das Profil bringt schon eigene Hook-Einstellungen mit, deshalb fügt Hangar keine hinzu.",
+  "gate.installPath":
+    "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Programm enthält Zeichen, die der Hook-Befehl dieses Agents nicht sicher weitergeben kann.",
+  "gate.hookFiles":
+    "Änderungen werden in dieser Session nicht angehalten: Hangar konnte die Hook-Dateien nicht in seinen Datenordner schreiben.",
   "settings.subAgentExcerpts": "Texte von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
     "Zeigt Auftrag, Text und Werkzeugaufrufe jedes Sub-Agents mit ihren Befehlen, Dateipfaden und Webadressen, die ersten Zeilen jedes Ergebnisses und in der Seitenleiste, woran der neueste Aufruf arbeitet. Hangar blendet Schlüssel und Passwörter aus, die es erkennt, kann aber nicht jedes finden. Gespeichert wird nichts. Ausgeschaltet stehen nur die Namen der Werkzeuge und Zahlen da.",
@@ -1304,7 +1308,11 @@ const en: Record<MessageKey, string> = {
   "gate.launcher":
     "Edits are not paused in this session: the path of Hangar's data folder contains characters cmd.exe would interpret.",
   "gate.profileSettings":
-    "Edits are not paused in this session: its profile already passes its own --settings, so Hangar adds none.",
+    "Edits are not paused in this session: its profile already brings its own hook settings, so Hangar adds none.",
+  "gate.installPath":
+    "Edits are not paused in this session: the path of Hangar's program contains characters this agent's hook command cannot pass on safely.",
+  "gate.hookFiles":
+    "Edits are not paused in this session: Hangar could not write the hook files to its data folder.",
   "settings.subAgentExcerpts": "Show sub-agent text",
   "settings.subAgentExcerptsHelp":
     "Shows each sub-agent's task, text and tool calls with their commands, file paths and web addresses, the first lines of each result, and in the sidebar what the newest call works on. Hangar hides keys and passwords it recognizes, but cannot catch every one. Nothing is stored. When off, only tool names and counts show.",
@@ -2408,7 +2416,11 @@ const el: Record<MessageKey, string> = {
   "gate.launcher":
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του φακέλου δεδομένων του Hangar περιέχει χαρακτήρες που θα ερμήνευε το cmd.exe.",
   "gate.profileSettings":
-    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το προφίλ της περνά ήδη δικές του --settings, γι' αυτό το Hangar δεν προσθέτει άλλες.",
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το προφίλ της φέρνει ήδη δικές του ρυθμίσεις hook, γι' αυτό το Hangar δεν προσθέτει άλλες.",
+  "gate.installPath":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του προγράμματος του Hangar περιέχει χαρακτήρες που η εντολή hook αυτού του πράκτορα δεν μπορεί να μεταφέρει με ασφάλεια.",
+  "gate.hookFiles":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το Hangar δεν μπόρεσε να γράψει τα αρχεία hook στον φάκελο δεδομένων του.",
   "settings.subAgentExcerpts": "Εμφάνιση κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
     "Δείχνει την εργασία, το κείμενο και τις κλήσεις εργαλείων κάθε υπο-πράκτορα με τις εντολές, τις διαδρομές αρχείων και τις διευθύνσεις ιστού τους, τις πρώτες γραμμές κάθε αποτελέσματος και, στην πλευρική στήλη, με τι ασχολείται η πιο πρόσφατη κλήση. Το Hangar κρύβει τα κλειδιά και τους κωδικούς που αναγνωρίζει, αλλά δεν μπορεί να τα εντοπίσει όλα. Τίποτα δεν αποθηκεύεται. Όταν είναι ανενεργό, φαίνονται μόνο τα ονόματα εργαλείων και αριθμοί.",
@@ -3546,7 +3558,11 @@ const es: Record<MessageKey, string> = {
   "gate.launcher":
     "En esta sesión los cambios no se detienen: la ruta de la carpeta de datos de Hangar contiene caracteres que cmd.exe interpretaría.",
   "gate.profileSettings":
-    "En esta sesión los cambios no se detienen: su perfil ya pasa sus propios --settings, así que Hangar no añade otros.",
+    "En esta sesión los cambios no se detienen: su perfil ya trae su propia configuración de hooks, así que Hangar no añade otra.",
+  "gate.installPath":
+    "En esta sesión los cambios no se detienen: la ruta del programa de Hangar contiene caracteres que el comando de hook de este agente no puede pasar de forma segura.",
+  "gate.hookFiles":
+    "En esta sesión los cambios no se detienen: Hangar no pudo escribir los archivos de hooks en su carpeta de datos.",
   "settings.subAgentExcerpts": "Mostrar el texto de los subagentes",
   "settings.subAgentExcerptsHelp":
     "Muestra la tarea, el texto y las llamadas a herramientas de cada subagente con sus comandos, rutas de archivo y direcciones web, las primeras líneas de cada resultado y, en la barra lateral, en qué trabaja la llamada más reciente. Hangar oculta las claves y contraseñas que reconoce, pero no puede detectarlas todas. No se guarda nada. Desactivado, solo aparecen los nombres de las herramientas y las cifras.",
@@ -4669,7 +4685,11 @@ const fr: Record<MessageKey, string> = {
   "gate.launcher":
     "Les modifications ne sont pas retenues dans cette session : le chemin du dossier de données de Hangar contient des caractères que cmd.exe interpréterait.",
   "gate.profileSettings":
-    "Les modifications ne sont pas retenues dans cette session : son profil transmet déjà ses propres --settings, Hangar n'en ajoute donc pas.",
+    "Les modifications ne sont pas retenues dans cette session : son profil apporte déjà ses propres réglages de hooks, Hangar n'en ajoute donc pas.",
+  "gate.installPath":
+    "Les modifications ne sont pas retenues dans cette session : le chemin du programme Hangar contient des caractères que la commande de hook de cet agent ne peut pas transmettre sans risque.",
+  "gate.hookFiles":
+    "Les modifications ne sont pas retenues dans cette session : Hangar n'a pas pu écrire les fichiers de hooks dans son dossier de données.",
   "settings.subAgentExcerpts": "Afficher le texte des sous-agents",
   "settings.subAgentExcerptsHelp":
     "Affiche la tâche, le texte et les appels d'outils de chaque sous-agent avec leurs commandes, chemins de fichiers et adresses web, les premières lignes de chaque résultat et, dans la barre latérale, ce sur quoi porte l'appel le plus récent. Hangar masque les clés et mots de passe qu'il reconnaît, mais ne peut pas tous les repérer. Rien n'est enregistré. Désactivé, seuls les noms des outils et les nombres s'affichent.",
@@ -5805,7 +5825,11 @@ const it: Record<MessageKey, string> = {
   "gate.launcher":
     "In questa sessione le modifiche non vengono fermate: il percorso della cartella dati di Hangar contiene caratteri che cmd.exe interpreterebbe.",
   "gate.profileSettings":
-    "In questa sessione le modifiche non vengono fermate: il suo profilo passa già i propri --settings, quindi Hangar non ne aggiunge altri.",
+    "In questa sessione le modifiche non vengono fermate: il suo profilo porta già le proprie impostazioni degli hook, quindi Hangar non ne aggiunge altre.",
+  "gate.installPath":
+    "In questa sessione le modifiche non vengono fermate: il percorso del programma Hangar contiene caratteri che il comando hook di questo agente non può passare in modo sicuro.",
+  "gate.hookFiles":
+    "In questa sessione le modifiche non vengono fermate: Hangar non è riuscito a scrivere i file degli hook nella sua cartella dati.",
   "settings.subAgentExcerpts": "Mostra il testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
     "Mostra il compito, il testo e le chiamate agli strumenti di ogni sotto-agente con i loro comandi, percorsi di file e indirizzi web, le prime righe di ogni risultato e, nella barra laterale, su cosa lavora la chiamata più recente. Hangar nasconde le chiavi e le password che riconosce, ma non può individuarle tutte. Non viene salvato nulla. Se disattivato, compaiono solo i nomi degli strumenti e i conteggi.",
@@ -6933,7 +6957,11 @@ const ja: Record<MessageKey, string> = {
   "gate.launcher":
     "このセッションでは変更は一時停止されません。Hangar のデータフォルダーのパスに cmd.exe が解釈する文字が含まれています。",
   "gate.profileSettings":
-    "このセッションでは変更は一時停止されません。プロファイルが独自の --settings を既に渡しているため、Hangar は追加しません。",
+    "このセッションでは変更は一時停止されません。プロファイルが独自のフック設定を既に持っているため、Hangar は追加しません。",
+  "gate.installPath":
+    "このセッションでは変更は一時停止されません。Hangar のプログラムのパスに、このエージェントのフックコマンドが安全に渡せない文字が含まれています。",
+  "gate.hookFiles":
+    "このセッションでは変更は一時停止されません。Hangar がデータフォルダーにフック用ファイルを書き込めませんでした。",
   "settings.subAgentExcerpts": "サブエージェントのテキストを表示",
   "settings.subAgentExcerptsHelp":
     "各サブエージェントのタスク、テキスト、ツール呼び出し（コマンド、ファイルパス、Web アドレスを含む）、各結果の最初の数行、そしてサイドバーには最新の呼び出しが扱っている対象を表示します。Hangar は認識できるキーやパスワードを隠しますが、すべてを見つけられるわけではありません。何も保存されません。オフの場合はツール名と数値だけが表示されます。",
@@ -8056,7 +8084,11 @@ const pl: Record<MessageKey, string> = {
   "gate.launcher":
     "W tej sesji zmiany nie są wstrzymywane: ścieżka folderu danych Hangara zawiera znaki, które cmd.exe by zinterpretował.",
   "gate.profileSettings":
-    "W tej sesji zmiany nie są wstrzymywane: jej profil przekazuje już własne --settings, więc Hangar nie dodaje kolejnych.",
+    "W tej sesji zmiany nie są wstrzymywane: jej profil ma już własne ustawienia hooków, więc Hangar nie dodaje kolejnych.",
+  "gate.installPath":
+    "W tej sesji zmiany nie są wstrzymywane: ścieżka programu Hangar zawiera znaki, których polecenie hooka tego agenta nie może bezpiecznie przekazać.",
+  "gate.hookFiles":
+    "W tej sesji zmiany nie są wstrzymywane: Hangar nie mógł zapisać plików hooków w swoim folderze danych.",
   "settings.subAgentExcerpts": "Pokazuj tekst podagentów",
   "settings.subAgentExcerptsHelp":
     "Pokazuje zadanie, tekst i wywołania narzędzi każdego podagenta wraz z ich poleceniami, ścieżkami plików i adresami stron, pierwsze wiersze każdego wyniku, a na pasku bocznym to, czym zajmuje się najnowsze wywołanie. Hangar ukrywa klucze i hasła, które rozpoznaje, ale nie wychwyci wszystkich. Nic nie jest zapisywane. Po wyłączeniu widać tylko nazwy narzędzi i liczby.",
@@ -9172,7 +9204,11 @@ const pt: Record<MessageKey, string> = {
   "gate.launcher":
     "Nesta sessão as alterações não são pausadas: o caminho da pasta de dados do Hangar contém caracteres que o cmd.exe interpretaria.",
   "gate.profileSettings":
-    "Nesta sessão as alterações não são pausadas: o perfil dela já passa os próprios --settings, então o Hangar não adiciona outros.",
+    "Nesta sessão as alterações não são pausadas: o perfil dela já traz as próprias configurações de hooks, então o Hangar não adiciona outras.",
+  "gate.installPath":
+    "Nesta sessão as alterações não são pausadas: o caminho do programa do Hangar contém caracteres que o comando de hook deste agente não consegue repassar com segurança.",
+  "gate.hookFiles":
+    "Nesta sessão as alterações não são pausadas: o Hangar não conseguiu gravar os arquivos de hooks na sua pasta de dados.",
   "settings.subAgentExcerpts": "Mostrar o texto dos subagentes",
   "settings.subAgentExcerptsHelp":
     "Mostra a tarefa, o texto e as chamadas de ferramentas de cada subagente com seus comandos, caminhos de arquivo e endereços da web, as primeiras linhas de cada resultado e, na barra lateral, no que a chamada mais recente está trabalhando. O Hangar oculta as chaves e senhas que reconhece, mas não consegue pegar todas. Nada é salvo. Desativado, aparecem só os nomes das ferramentas e números.",
@@ -10294,7 +10330,11 @@ const ru: Record<MessageKey, string> = {
   "gate.launcher":
     "В этой сессии изменения не приостанавливаются: путь к папке данных Hangar содержит символы, которые cmd.exe стал бы интерпретировать.",
   "gate.profileSettings":
-    "В этой сессии изменения не приостанавливаются: её профиль уже передаёт собственные --settings, поэтому Hangar не добавляет свои.",
+    "В этой сессии изменения не приостанавливаются: её профиль уже приносит собственные настройки хуков, поэтому Hangar не добавляет свои.",
+  "gate.installPath":
+    "В этой сессии изменения не приостанавливаются: путь к программе Hangar содержит символы, которые команда хука этого агента не может безопасно передать.",
+  "gate.hookFiles":
+    "В этой сессии изменения не приостанавливаются: Hangar не смог записать файлы хуков в свою папку данных.",
   "settings.subAgentExcerpts": "Показывать текст субагентов",
   "settings.subAgentExcerptsHelp":
     "Показывает задачу, текст и вызовы инструментов каждого субагента с их командами, путями к файлам и веб-адресами, первые строки каждого результата, а в боковой панели то, над чем работает последний вызов. Hangar скрывает ключи и пароли, которые распознаёт, но не может найти все. Ничего не сохраняется. Если выключено, видны только названия инструментов и числа.",
@@ -11402,7 +11442,11 @@ const tr: Record<MessageKey, string> = {
   "gate.launcher":
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar'ın veri klasörünün yolu, cmd.exe'nin yorumlayacağı karakterler içeriyor.",
   "gate.profileSettings":
-    "Bu oturumda değişiklikler duraklatılmıyor: profili zaten kendi --settings değerini iletiyor, bu yüzden Hangar ek bir tane eklemiyor.",
+    "Bu oturumda değişiklikler duraklatılmıyor: profili zaten kendi hook ayarlarını getiriyor, bu yüzden Hangar ek bir ayar eklemiyor.",
+  "gate.installPath":
+    "Bu oturumda değişiklikler duraklatılmıyor: Hangar programının yolu, bu ajanın hook komutunun güvenle aktaramayacağı karakterler içeriyor.",
+  "gate.hookFiles":
+    "Bu oturumda değişiklikler duraklatılmıyor: Hangar hook dosyalarını veri klasörüne yazamadı.",
   "settings.subAgentExcerpts": "Alt ajan metnini göster",
   "settings.subAgentExcerptsHelp":
     "Her alt ajanın görevini, metnini ve araç çağrılarını komutları, dosya yolları ve web adresleriyle birlikte, her sonucun ilk satırlarını ve kenar çubuğunda en yeni çağrının neyle uğraştığını gösterir. Hangar tanıdığı anahtarları ve parolaları gizler, ancak hepsini yakalayamaz. Hiçbir şey kaydedilmez. Kapalıyken yalnızca araç adları ve sayılar görünür.",
@@ -12504,7 +12548,10 @@ const zh: Record<MessageKey, string> = {
   "gate.noEndpoint": "此会话中的修改不会暂停：Hangar 无法启动本地钩子端点。",
   "gate.launcher": "此会话中的修改不会暂停：Hangar 数据文件夹的路径包含 cmd.exe 会解释的字符。",
   "gate.profileSettings":
-    "此会话中的修改不会暂停：其配置文件已传入自己的 --settings，因此 Hangar 不再添加。",
+    "此会话中的修改不会暂停：其配置文件已自带钩子设置，因此 Hangar 不再添加。",
+  "gate.installPath":
+    "此会话中的修改不会暂停：Hangar 程序的路径包含此代理的钩子命令无法安全传递的字符。",
+  "gate.hookFiles": "此会话中的修改不会暂停：Hangar 无法将钩子文件写入其数据文件夹。",
   "settings.subAgentExcerpts": "显示子代理文本",
   "settings.subAgentExcerptsHelp":
     "显示每个子代理的任务、文本和工具调用（包括其命令、文件路径和网址）、每个结果的前几行，并在侧边栏显示最新调用正在处理的内容。Hangar 会隐藏它能识别的密钥和密码，但无法全部发现。不会保存任何内容。关闭时只显示工具名称和数字。",

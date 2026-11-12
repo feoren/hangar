@@ -377,6 +377,19 @@ fn query_versions(
     }
 }
 
+/// The version query (with its cache) for the agent gate's minimum versions
+/// ([`crate::manager::VersionSource`]).
+pub struct AppVersions(pub tauri::AppHandle);
+
+impl crate::manager::VersionSource for AppVersions {
+    fn versions(
+        &self,
+        installed: &[(crate::agent_catalog::Agent, PathBuf)],
+    ) -> HashMap<String, Option<String>> {
+        query_versions(&self.0, installed, false)
+    }
+}
+
 /// profileId → version or `null`, only for installed entries (ADR 0003). Starts each
 /// program at most once per file state, in parallel and with a time limit; hence on a
 /// blocking thread, not on the async runtime thread.

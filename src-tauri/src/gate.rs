@@ -62,6 +62,13 @@ const MAX_TASK_CHARS: usize = MAX_CONTEXT_CHARS / 2;
 
 pub const ROUTE_PRE_TOOL_USE: &str = "/v1/pre-tool-use";
 pub const ROUTE_USER_PROMPT_SUBMIT: &str = "/v1/user-prompt-submit";
+/// The same hooks for agents that read every answer as JSON (Qwen Code reads a body only with
+/// content type `application/json`, and an empty one is not JSON): "no decision" is `{}` here
+/// instead of an empty body. Claude Code keeps the measured empty answer on the routes above.
+pub const ROUTE_PRE_TOOL_USE_JSON: &str = "/v1/pre-tool-use/json";
+pub const ROUTE_USER_PROMPT_SUBMIT_JSON: &str = "/v1/user-prompt-submit/json";
+/// "No decision" for the JSON routes.
+pub const EMPTY_JSON: &str = "{}";
 
 // ---------------------------------------------------------------------------------------------
 // Launch

@@ -186,6 +186,20 @@
         "zh": "在“启动位置”下方可选择私人或团队。团队会话拥有独立 worktree，重叠修改前会先询问，并且团队可见。"
       },
       {
+        "de": "Neben Claude Code läuft jetzt auch Codex CLI (ab 0.167.2) als Team-Session. Ein Team kann beide mischen.",
+        "en": "Besides Claude Code, Codex CLI (0.167.2 or later) now runs as a team session too. A team can mix both.",
+        "el": "Εκτός από το Claude Code, τώρα και το Codex CLI (0.167.2 ή νεότερο) τρέχει ως ομαδική συνεδρία. Μια ομάδα μπορεί να συνδυάζει και τα δύο.",
+        "es": "Además de Claude Code, ahora Codex CLI (0.167.2 o posterior) también funciona como sesión de equipo. Un equipo puede mezclar ambos.",
+        "fr": "En plus de Claude Code, Codex CLI (0.167.2 ou plus récent) tourne aussi en session d'équipe. Une équipe peut mélanger les deux.",
+        "it": "Oltre a Claude Code, ora anche Codex CLI (0.167.2 o successivo) funziona come sessione di team. Un team può usarli entrambi.",
+        "ja": "Claude Code に加え、Codex CLI（0.167.2 以降）もチームセッションとして動きます。チーム内で両方を混在できます。",
+        "pl": "Oprócz Claude Code jako sesja zespołowa działa teraz także Codex CLI (0.167.2 lub nowszy). Zespół może łączyć oba.",
+        "pt": "Além do Claude Code, agora o Codex CLI (0.167.2 ou mais recente) também roda como sessão de equipe. Uma equipe pode misturar os dois.",
+        "ru": "Кроме Claude Code, командной сессией теперь может быть и Codex CLI (0.167.2 или новее). Команда может сочетать оба.",
+        "tr": "Claude Code'un yanında artık Codex CLI (0.167.2 veya üstü) da ekip oturumu olarak çalışıyor. Bir ekip ikisini karıştırabilir.",
+        "zh": "除 Claude Code 外，Codex CLI（0.167.2 或更高版本）现在也能作为团队会话运行。团队可以混用两者。"
+      },
+      {
         "de": "Sessions ohne eigenen Worktree sind jetzt privat, Agenten halten dort nicht mehr vor überschneidenden Änderungen an. Dafür startest du eine Team-Session.",
         "en": "Sessions without their own worktree are now private, and agents there no longer pause before overlapping edits. Start a team session for that.",
         "el": "Οι συνεδρίες χωρίς δικό τους worktree είναι πλέον ιδιωτικές και οι agents δεν σταματούν πριν από αλληλοεπικαλύψεις. Γι' αυτό ξεκίνα ομαδική συνεδρία.",

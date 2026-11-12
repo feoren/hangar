@@ -222,6 +222,10 @@ export function gateHint(status: GateStatus | undefined, t: Translate): string |
       return t("gate.launcher");
     case "profileSettings":
       return t("gate.profileSettings");
+    case "installPath":
+      return t("gate.installPath");
+    case "hookFiles":
+      return t("gate.hookFiles");
     case "active":
     case "none":
     case undefined:

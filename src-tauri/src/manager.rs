@@ -111,6 +111,9 @@ pub enum SessionEvent {
 
 /// What the agent gate (`gate_service.rs`) adds to one process start of an agent session.
 pub struct GateLaunch {
+    /// Placed before the start arguments: global options of programs whose own arguments may
+    /// begin with a subcommand (`codex resume --last`).
+    pub prepend: Vec<String>,
     /// Appended to the start arguments, before a working folder option.
     pub args: Vec<String>,
     /// Set in the child's environment only, after the profile's own variables.
@@ -144,7 +147,14 @@ pub trait LaunchGate: Send + Sync {
     /// Whether a start of `agent` would get the gate now (program and setting), without
     /// registering anything or starting the endpoint.
     fn applies(&self, agent: &Agent) -> bool;
-    fn prepare(&self, session: SessionId, agent: &Agent, program: &Path) -> GatePlan;
+    /// `args`: the start arguments the gate's own are added to.
+    fn prepare(
+        &self,
+        session: SessionId,
+        agent: &Agent,
+        program: &Path,
+        args: &[String],
+    ) -> GatePlan;
     fn ended(&self, session: SessionId);
 }
 
@@ -423,11 +433,57 @@ impl Shared {
     }
 }
 
-/// A team session needs the agent gate (a hook format for its program, ADR 0008) and must run in
-/// the folder it was given, its own worktree: a folder fixed in the profile would win over it
-/// ([`SessionManager::start`]), and the session would work in a shared folder unnoticed.
-fn team_allowed(agent: &Agent, cwd: Option<&Path>) -> Result<(), ManagerError> {
-    if !agent.capabilities.gate() {
+/// The installed version of programs whose gate needs a minimum version ([`Capabilities`]'s
+/// `min_version`), from the version query of ADR 0003. Set by the app; without one every such
+/// version counts as unknown.
+///
+/// [`Capabilities`]: crate::agent_catalog::Capabilities
+pub trait VersionSource: Send + Sync {
+    /// profile id → version, for the given installed entries.
+    fn versions(&self, installed: &[(Agent, PathBuf)]) -> HashMap<String, Option<String>>;
+}
+
+/// Whether each of `agents` can be a team session on this machine
+/// ([`crate::agent_catalog::Capabilities::team_ready`]): the gate's catalog data, the installed
+/// version against its floor, and no administrator's system settings in the way. Asks
+/// `versions` once, for the programs that need it.
+fn team_ready(
+    agents: &[Agent],
+    versions: Option<&dyn VersionSource>,
+    path: Option<&std::ffi::OsStr>,
+    pathext: Option<&std::ffi::OsStr>,
+) -> HashMap<String, bool> {
+    let needing: Vec<(Agent, PathBuf)> = agents
+        .iter()
+        .filter(|agent| agent.capabilities.gate() && agent.capabilities.min_version.is_some())
+        .filter_map(|agent| installed_entry(agent, path, pathext))
+        .collect();
+    let known = match (versions, needing.is_empty()) {
+        (Some(source), false) => source.versions(&needing),
+        _ => HashMap::new(),
+    };
+    agents
+        .iter()
+        .map(|agent| {
+            let capabilities = agent.capabilities;
+            let admin = capabilities
+                .gate_format()
+                .is_some_and(crate::hook_recipes::admin_settings_present);
+            let version = known.get(agent.id()).and_then(Option::as_deref);
+            (
+                agent.id().to_owned(),
+                capabilities.team_ready(version, admin),
+            )
+        })
+        .collect()
+}
+
+/// A team session needs the agent gate (a hook format for its program that works on this
+/// machine, ADR 0008) and must run in the folder it was given, its own worktree: a folder fixed
+/// in the profile would win over it ([`SessionManager::start`]), and the session would work in a
+/// shared folder unnoticed.
+fn team_allowed(agent: &Agent, ready: bool, cwd: Option<&Path>) -> Result<(), ManagerError> {
+    if !ready {
         return Err(ManagerError::NoTeamSessions(agent.profile.name.clone()));
     }
     if let Some(fixed) = &agent.profile.cwd {
@@ -500,6 +556,9 @@ pub struct SessionManager {
     home: PathBuf,
     next_id: AtomicU64,
     shared: Arc<Shared>,
+    /// Versions for the gate's minimum versions ([`Self::set_version_source`]). Never taken
+    /// together with another lock: cloned, then asked.
+    versions: Mutex<Option<Arc<dyn VersionSource>>>,
 }
 
 impl SessionManager {
@@ -518,6 +577,7 @@ impl SessionManager {
             home,
             next_id: AtomicU64::new(1),
             shared: Arc::new(Shared::new(Arc::new(KeyringStore::default()))),
+            versions: Mutex::new(None),
         }
     }
 
@@ -542,10 +602,45 @@ impl SessionManager {
     pub fn profiles(&self) -> Vec<ProfileView> {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
+        let agents = self.agents();
+        let ready = self.team_ready_for(&agents);
+        agents
+            .iter()
+            .map(|agent| {
+                let mut view = agent.view(path.as_deref(), pathext.as_deref());
+                // Offered only where it works on this machine, not just in the catalog.
+                view.team_capable = ready.get(agent.id()).copied().unwrap_or(false);
+                view
+            })
+            .collect()
+    }
+
+    /// profile id → display name of every entry, without the PATH search and the version query
+    /// of [`Self::profiles`]: cheap enough for callers on the main thread (the team's session
+    /// labels, refreshed on every session state change).
+    pub fn profile_names(&self) -> HashMap<String, String> {
         self.agents()
             .iter()
-            .map(|agent| agent.view(path.as_deref(), pathext.as_deref()))
+            .map(|agent| (agent.id().to_owned(), agent.profile.name.clone()))
             .collect()
+    }
+
+    /// Where the installed versions for the gate's minimum versions come from.
+    pub fn set_version_source(&self, source: Arc<dyn VersionSource>) {
+        *lock(&self.versions) = Some(source);
+    }
+
+    /// [`team_ready`] for `agents` with this manager's version source.
+    fn team_ready_for(&self, agents: &[Agent]) -> HashMap<String, bool> {
+        let path = std::env::var_os("PATH");
+        let pathext = std::env::var_os("PATHEXT");
+        let source = lock(&self.versions).clone();
+        team_ready(
+            agents,
+            source.as_deref(),
+            path.as_deref(),
+            pathext.as_deref(),
+        )
     }
 
     /// Installed entries with their resolved program path, for version and icon queries.
@@ -725,7 +820,12 @@ impl SessionManager {
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
         if mode == SessionMode::Team {
-            team_allowed(&agent, cwd.as_deref())?;
+            let ready = self
+                .team_ready_for(std::slice::from_ref(&agent))
+                .get(agent.id())
+                .copied()
+                .unwrap_or(false);
+            team_allowed(&agent, ready, cwd.as_deref())?;
         }
         let title = agent.profile.name.clone();
         let plan = Plan::first(&agent.profile, resume, stored.as_deref());
@@ -1166,12 +1266,14 @@ fn spawn(
     let own_hooks = agent
         .capabilities
         .gate_format()
-        .is_some_and(|format| format.conflicts_with(&args));
+        .is_some_and(|format| format.conflicts_with(&args, &profile.env));
     let plan = match (launch.kind, launch.mode, shared.launch_gate()) {
         (SessionKind::Agent, SessionMode::Team, Some(gate)) if own_hooks && gate.applies(agent) => {
             GatePlan::Unavailable(GateStatus::ProfileSettings)
         }
-        (SessionKind::Agent, SessionMode::Team, Some(gate)) => gate.prepare(id, agent, &program),
+        (SessionKind::Agent, SessionMode::Team, Some(gate)) => {
+            gate.prepare(id, agent, &program, &args)
+        }
         _ => GatePlan::Skip,
     };
     let gate_status = plan.status();
@@ -1180,6 +1282,7 @@ fn spawn(
         GatePlan::Skip | GatePlan::Unavailable(_) => None,
     };
     if let Some(gate) = &gate {
+        args.splice(0..0, gate.prepend.iter().cloned());
         args.extend(gate.args.iter().cloned());
     }
     if let Some(flag) = agent.cwd_flag {
@@ -1384,7 +1487,9 @@ mod tests {
     #[test]
     fn own_settings_are_found_in_both_spellings_only() {
         let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
-        let has_own_settings = |list: &[String]| HookFormat::ClaudeSettings.conflicts_with(list);
+        let has_own_settings = |list: &[String]| {
+            HookFormat::ClaudeSettings.conflicts_with(list, &std::collections::BTreeMap::new())
+        };
         assert!(has_own_settings(&args(&[
             "--model",
             "x",

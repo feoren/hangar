@@ -9,6 +9,7 @@ use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
 use hangar_lib::manager::{
     GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, TermSize,
+    VersionSource,
 };
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
@@ -1391,10 +1392,12 @@ impl LaunchGate for RecordingGate {
         session: u64,
         agent: &hangar_lib::agent_catalog::Agent,
         _program: &std::path::Path,
+        _args: &[String],
     ) -> GatePlan {
         self.prepared.lock().unwrap().push(session);
         match agent.id() {
             "gated" | "own-settings" => GatePlan::Launch(GateLaunch {
+                prepend: Vec::new(),
                 args: vec!["gate-arg-marker".into()],
                 env: vec![(
                     hangar_lib::gate::TOKEN_ENV.into(),
@@ -1402,6 +1405,17 @@ impl LaunchGate for RecordingGate {
                 )],
             }),
             "ungated" => GatePlan::Unavailable(GateStatus::Launcher),
+            // Options before the user's arguments, like Codex's hook layer and Copilot's plugin
+            // folder: `<program> <prepend> <profile args> <args>`.
+            "prepended" => GatePlan::Launch(GateLaunch {
+                prepend: if cfg!(windows) {
+                    vec!["/d".into(), "/c".into(), "echo".into(), "BEFORE".into()]
+                } else {
+                    vec!["-c".into(), "echo BEFORE \"$@\"".into(), "sh".into()]
+                },
+                args: vec!["AFTER".into()],
+                env: Vec::new(),
+            }),
             _ => GatePlan::Skip,
         }
     }
@@ -1409,6 +1423,21 @@ impl LaunchGate for RecordingGate {
     fn ended(&self, session: u64) {
         self.ended.lock().unwrap().push(session);
     }
+}
+
+#[test]
+fn the_gate_can_put_options_before_the_profiles_arguments() {
+    let command = if cfg!(windows) { "cmd" } else { "sh" };
+    let manager = SessionManager::new(
+        vec![profile("prepended", command, &["PROFILE"])],
+        vec![hooked_program("prepended")],
+        std::env::temp_dir(),
+    );
+    manager.set_launch_gate(Arc::new(RecordingGate::default()));
+    let (info, rx) = start_team(&manager, "prepended", false);
+    assert_eq!(info.gate, GateStatus::Active);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("BEFORE PROFILE AFTER"), "{output:?}");
 }
 
 /// Prints the gate's token and every argument after its own.
@@ -1615,10 +1644,67 @@ fn hooked_program(id: &str) -> CatalogAgent {
 id = {id:?}
 name = {id:?}
 commands = [{command:?}]
-capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = \"claude_settings\" }}
+capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = \"claude_settings\", measured = true }}
 "
     );
     agent_catalog::parse(&toml).unwrap().remove(0)
+}
+
+/// Answers every version query with one fixed version.
+struct FixedVersion(Option<&'static str>);
+
+impl VersionSource for FixedVersion {
+    fn versions(
+        &self,
+        installed: &[(hangar_lib::agent_catalog::Agent, std::path::PathBuf)],
+    ) -> std::collections::HashMap<String, Option<String>> {
+        installed
+            .iter()
+            .map(|(agent, _)| (agent.id().to_owned(), self.0.map(str::to_owned)))
+            .collect()
+    }
+}
+
+#[test]
+fn a_program_below_the_gates_floor_is_not_offered_for_team_sessions() {
+    let mut floored = hooked_program("floored");
+    floored.capabilities.min_version = agent_catalog::MinVersion::parse("2.0.0");
+    let command = if cfg!(windows) { "cmd" } else { "sh" };
+    let manager = SessionManager::new(
+        vec![profile("floored", command, &[])],
+        vec![floored],
+        std::env::temp_dir(),
+    );
+    let team_capable = |manager: &SessionManager| {
+        manager
+            .profiles()
+            .into_iter()
+            .find(|p| p.id == "floored")
+            .unwrap()
+            .team_capable
+    };
+    // No version known (no source yet, or the query found none): not offered, and refused.
+    assert!(!team_capable(&manager));
+    manager.set_version_source(Arc::new(FixedVersion(None)));
+    assert!(!team_capable(&manager));
+    let team = manager.create_resuming(
+        "floored",
+        None,
+        SIZE,
+        false,
+        None,
+        SessionMode::Team,
+        |_| {},
+    );
+    assert!(
+        matches!(team, Err(ManagerError::NoTeamSessions(_))),
+        "{team:?}"
+    );
+    manager.set_version_source(Arc::new(FixedVersion(Some("1.9.9"))));
+    assert!(!team_capable(&manager));
+    manager.set_version_source(Arc::new(FixedVersion(Some("2.0.0"))));
+    assert!(team_capable(&manager));
+    assert!(manager.list().is_empty());
 }
 
 #[test]

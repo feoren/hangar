@@ -50,9 +50,16 @@ pub enum GateStatus {
     /// A cmd.exe launcher (npm's `claude.cmd`): the hooks' settings file could not be written to
     /// a path cmd.exe passes on unchanged.
     Launcher,
-    /// The start arguments (profile or resume) already carry the program's own hook
-    /// configuration; Hangar adds no second one ([`crate::agent_catalog::HookFormat`]).
+    /// The start arguments (profile or resume) or the profile's environment already carry the
+    /// program's own hook configuration; Hangar adds no second one
+    /// ([`crate::agent_catalog::HookFormat`]).
     ProfileSettings,
+    /// The hook command runs `hangar gate-hook` through the agent's shell, and the path of
+    /// Hangar's program holds a character that shell would interpret
+    /// ([`crate::hook_recipes::helper_command`]).
+    InstallPath,
+    /// The session's hook files could not be written to Hangar's data folder.
+    HookFiles,
 }
 
 /// What the frontend learns about a session. The profile's environment (`env`) is left out

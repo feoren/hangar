@@ -12,6 +12,9 @@ updated: 2026-11-12
 
 # Research: per-session edit gates for Codex, Gemini, Copilot and Qwen Code
 
+> [!note] Built
+> The recipes below are implemented, partly measured: [[agent-gate-adapters]].
+
 Question: can Hangar make the four CLIs "team-capable" like Claude Code, meaning (a) hold or block an
 edit before it happens, (b) inject context, (c) install both for one session without touching the
 user's global files. Desk research on 2026-11-12 against vendor docs, GitHub sources and changelogs;
@@ -273,3 +276,15 @@ every path (all hunks plus move targets) to the gate and answers deny if any is 
   shell string on Windows).
 - The catalog comments for codex, gemini and copilot ("per-session hooks unverified") are answered on
   paper; flip the flags only after the measurements in section 7.
+- **Update 2026-11-12:** the owner asked for all four to be team-capable now. Built as in section 5
+  ([[agent-gate-adapters]]): Qwen Code with its HTTP hook, Gemini CLI, Copilot CLI and Codex CLI
+  through the helper `hangar gate-hook`; the catalog flags are on. Of section 7 only the Windows
+  start of the helper and the Codex `-c` value are measured ([[gate-hook-helper-measurement]]);
+  the rest stays open and is listed in [[agent-gate-adapters]]. Deviations from section 5: the
+  Codex matcher is `apply_patch` without anchors and the path stands bare through a cmd.exe
+  launcher (cmd.exe eats `^` and `"` is refused); Qwen's routes answer `{}` for no decision.
+- **Update 2026-11-12, later:** owner's decision "measure first". Codex was run live
+  ([[codex-gate-live-measurement]]): hook fires, `HANGAR_GATE` arrives, the patch has relative
+  paths, and only a JSON deny with exit 0 blocks (exit 2 plus JSON fails open, against the docs).
+  Codex is offered from 0.167.2; Gemini, Copilot and Qwen keep their recipes with
+  `measured = false` until each is measured live.

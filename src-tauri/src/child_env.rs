@@ -43,6 +43,22 @@ impl Target for portable_pty::CommandBuilder {
 /// profile's `env`. That comes after the protection so a profile can change it deliberately; an
 /// empty value for the variable removes it (only its presence counts, not its value).
 pub fn changes(profile_env: &BTreeMap<String, String>, no_cwd_lookup: bool) -> Vec<Change<'_>> {
+    let inside_gate = [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some());
+    changes_with(profile_env, no_cwd_lookup, inside_gate)
+}
+
+/// [`changes`] with `inside_gate`: Hangar itself runs inside a gated session (it inherited a
+/// gate token). Then every variable the gate sets ([`crate::hook_recipes::GATE_ENV_NAMES`]) is
+/// removed, since they all came from that session's gate. Otherwise only the token variables
+/// go: a `GEMINI_CLI_SYSTEM_SETTINGS_PATH` or trust variable without a token is the user's or an
+/// administrator's own and stays for private sessions.
+pub fn changes_with(
+    profile_env: &BTreeMap<String, String>,
+    no_cwd_lookup: bool,
+    inside_gate: bool,
+) -> Vec<Change<'_>> {
     let mut out = vec![
         // Agent CLIs expect a real terminal that supports color.
         Change::Set("TERM", "xterm-256color"),
@@ -53,9 +69,20 @@ pub fn changes(profile_env: &BTreeMap<String, String>, no_cwd_lookup: bool) -> V
             .iter()
             .map(|key| Change::Remove(key)),
     );
-    // A Hangar started inside a gated session must not hand that session's token on. A gated
-    // session gets its own token afterwards, from the gate, never from here.
+    // A Hangar started inside a gated session must not hand that session's token, settings files
+    // or folder trust on. A gated session gets its own afterwards, from the gate, never from here.
     out.push(Change::Remove(crate::gate::TOKEN_ENV));
+    out.push(Change::Remove(crate::hook_recipes::HELPER_ENV));
+    if inside_gate {
+        out.extend(
+            crate::hook_recipes::GATE_ENV_NAMES
+                .iter()
+                .filter(|name| {
+                    **name != crate::gate::TOKEN_ENV && **name != crate::hook_recipes::HELPER_ENV
+                })
+                .map(|name| Change::Remove(name)),
+        );
+    }
     if cfg!(windows) && no_cwd_lookup {
         // Otherwise cmd.exe (and with it every `.cmd` launcher such as `codex.cmd`) looks for
         // `node` in the working folder first, where a foreign project could drop `node.cmd`.
@@ -122,6 +149,20 @@ mod tests {
                 "{all:?}"
             );
         }
+    }
+
+    #[test]
+    fn inside_a_gated_session_every_gate_variable_goes() {
+        let none = BTreeMap::new();
+        let inside = changes_with(&none, false, true);
+        for name in crate::hook_recipes::GATE_ENV_NAMES {
+            assert!(inside.contains(&Change::Remove(name)), "{name}: {inside:?}");
+        }
+        // Outside one, only the token variables: settings and trust are the user's own.
+        let outside = changes_with(&none, false, false);
+        assert!(outside.contains(&Change::Remove(crate::gate::TOKEN_ENV)));
+        assert!(outside.contains(&Change::Remove(crate::hook_recipes::HELPER_ENV)));
+        assert!(!outside.contains(&Change::Remove(crate::hook_recipes::GEMINI_SETTINGS_ENV)));
     }
 
     #[test]

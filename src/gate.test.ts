@@ -251,6 +251,8 @@ describe("gateHint", () => {
     expect(gateHint("noEndpoint", t)).toBe(t("gate.noEndpoint"));
     expect(gateHint("launcher", t)).toBe(t("gate.launcher"));
     expect(gateHint("profileSettings", t)).toBe(t("gate.profileSettings"));
+    expect(gateHint("installPath", t)).toBe(t("gate.installPath"));
+    expect(gateHint("hookFiles", t)).toBe(t("gate.hookFiles"));
     expect(gateHint("active", t)).toBeNull();
     expect(gateHint("none", t)).toBeNull();
     expect(gateHint(undefined, t)).toBeNull();

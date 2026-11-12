@@ -20,10 +20,12 @@ pub mod file_tree;
 pub mod file_viewer;
 pub mod filecache;
 pub mod gate;
+pub mod gate_hook;
 pub mod gate_service;
 pub mod git;
 pub mod git_history;
 pub mod hook_http;
+pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod manager;
@@ -175,6 +177,11 @@ pub fn run() -> tauri::Result<()> {
             }
             app.manage(paste_image::PasteGate::default());
             app.manage(ProbeCaches::default());
+            // Team sessions need a program version at or above the gate's floor (ADR 0003 query).
+            app.state::<SessionManager>()
+                .set_version_source(std::sync::Arc::new(commands::AppVersions(
+                    app.handle().clone(),
+                )));
             app.manage(file_tree::FileTree::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
@@ -274,11 +281,9 @@ pub fn run() -> tauri::Result<()> {
                 .set_local_source(move || {
                     let worktrees = source.state::<claims_service::ClaimsService>().worktrees();
                     let manager = source.state::<SessionManager>();
-                    let names: std::collections::HashMap<String, String> = manager
-                        .profiles()
-                        .into_iter()
-                        .map(|profile| (profile.id, profile.name))
-                        .collect();
+                    // Names only: `profiles()` would run the PATH search and the gate's version
+                    // query on every session state change, here on the main thread.
+                    let names = manager.profile_names();
                     // Private sessions stay off the team (ADR 0008).
                     let labels = team_share::team_labels(manager.list(), &names);
                     (worktrees, labels)
