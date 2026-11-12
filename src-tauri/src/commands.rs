@@ -16,8 +16,10 @@ use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
-use crate::file_tree::{self, FileTree, FileTreeError, FolderListing};
-use crate::file_viewer::{self, Claim, FileContent, FileViewerError, Target, Viewers};
+use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
+use crate::file_viewer::{
+    self, Claim, FileContent, FileStamp, FileViewerError, HeadDiff, Target, Viewers,
+};
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
@@ -1437,6 +1439,31 @@ pub async fn open_local_url(url: String) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+/// Every path below a session's folder for the file tree's filter (file_tree.rs, `PathIndex`):
+/// bounded in number, depth and time, ignored files left out. Takes only the session's ID.
+#[tauri::command]
+pub async fn list_session_paths(
+    manager: Manager<'_>,
+    tree: State<'_, FileTree>,
+    id: SessionId,
+) -> Result<PathIndex, FileTreeError> {
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(FileTreeError::UnknownSession(id))?;
+    let claim = tree.in_flight.claim(id, file_tree::INDEX_FLIGHT_KEY)?;
+    let tree = tree.inner().clone();
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _claim = claim;
+        let git = Git::locate().ok();
+        tree.index(&cwd, git.as_ref())
+    });
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
+        Err(_) => Err(FileTreeError::TimedOut),
+    }
 }
 
 /// Opens the session's folder (the root of its file tree) in Explorer, Finder or the Linux file
@@ -1556,6 +1583,69 @@ pub async fn file_viewer_content(
         Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))?,
         Err(_) => Err(FileViewerError::TimedOut),
     }
+}
+
+/// The calling viewer's target, looked up by its label only.
+fn viewer_target(
+    window: &tauri::WebviewWindow,
+    viewers: &Viewers,
+) -> Result<Target, FileViewerError> {
+    file_viewer::check_sender(window.label())?;
+    viewers
+        .target(window.label())
+        .ok_or(FileViewerError::UnknownWindow)
+}
+
+/// Size and time of the last change of the calling viewer's file; the window asks every second
+/// while it is visible and reads the file again when the stamp changed (live refresh).
+#[tauri::command]
+pub async fn file_viewer_stamp(
+    window: tauri::WebviewWindow,
+    viewers: State<'_, Viewers>,
+) -> Result<FileStamp, FileViewerError> {
+    let target = viewer_target(&window, &viewers)?;
+    let task = tauri::async_runtime::spawn_blocking(move || file_viewer::stamp_target(&target));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))?,
+        Err(_) => Err(FileViewerError::TimedOut),
+    }
+}
+
+/// The calling viewer's file against the last commit (`git diff HEAD -- <file>`).
+#[tauri::command]
+pub async fn file_viewer_diff(
+    window: tauri::WebviewWindow,
+    viewers: State<'_, Viewers>,
+) -> Result<HeadDiff, FileViewerError> {
+    let target = viewer_target(&window, &viewers)?;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        file_viewer::head_diff(&Git::locate()?, &target)
+    });
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))?,
+        Err(_) => Err(FileViewerError::TimedOut),
+    }
+}
+
+/// Opens a link of the Markdown preview in the default browser: only from a viewer window that
+/// still has its file, and only plain http(s) addresses ([`file_viewer::checked_link`]).
+#[tauri::command]
+pub async fn file_viewer_open_link(
+    window: tauri::WebviewWindow,
+    viewers: State<'_, Viewers>,
+    url: String,
+) -> Result<(), FileViewerError> {
+    viewer_target(&window, &viewers)?;
+    let url = file_viewer::checked_link(&url)?;
+    // A link follows a click in the viewer, so the viewer has the focus; a page that opens
+    // links on its own (in the background, in a loop) gets nothing.
+    if !window.is_focused()? || !viewers.allow_link(window.label(), std::time::Instant::now()) {
+        return Err(FileViewerError::LinkRefused);
+    }
+    tauri::async_runtime::spawn_blocking(move || desktop::open_url(&url))
+        .await
+        .map_err(|error| FileViewerError::Task(error.to_string()))?
+        .map_err(FileViewerError::Open)
 }
 
 fn worktrees_dir(store: &Store) -> PathBuf {

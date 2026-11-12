@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { parseExportResult, parseFileContent, parseFolderListing } from "./api";
+import {
+  parseExportResult,
+  parseFileContent,
+  parseFileStamp,
+  parseFolderListing,
+  parseHeadDiff,
+  parsePathIndex,
+} from "./api";
 
 describe("parseFolderListing", () => {
   it("reads a listing", () => {
@@ -98,6 +105,9 @@ describe("parseFileContent", () => {
     text: "const a = 1;\r\n",
     truncated: false,
     binary: false,
+    modified: 1_700_000_000_000,
+    image: null,
+    imageTooLarge: false,
   };
 
   it("reads a text file and a binary file", () => {
@@ -105,6 +115,22 @@ describe("parseFileContent", () => {
     const binary = { ...valid, name: "logo.png", text: null, binary: true };
     expect(parseFileContent(binary)).toEqual(binary);
     expect(parseFileContent({ ...valid, truncated: true, size: 9_000_000 })?.truncated).toBe(true);
+  });
+
+  it("reads images and leaves out a missing stamp", () => {
+    const png = {
+      ...valid,
+      name: "a.png",
+      text: null,
+      binary: true,
+      image: { mime: "image/png", data: "iVBORw0KGgo=" },
+    };
+    expect(parseFileContent(png)?.image).toEqual({ mime: "image/png", data: "iVBORw0KGgo=" });
+    expect(parseFileContent({ ...valid, modified: null })?.modified).toBeNull();
+    expect(parseFileContent({ ...valid, imageTooLarge: true })?.imageTooLarge).toBe(true);
+    // An image that is not one of the five types, or data that is not Base64, is refused whole.
+    expect(parseFileContent({ ...png, image: { mime: "text/html", data: "AA==" } })).toBeNull();
+    expect(parseFileContent({ ...png, image: { mime: "image/png", data: "<svg>" } })).toBeNull();
   });
 
   it("refuses malformed answers", () => {
@@ -128,5 +154,50 @@ describe("parseFileContent", () => {
     ]) {
       expect(parseFileContent(wrong)).toBeNull();
     }
+  });
+});
+
+describe("parsePathIndex", () => {
+  it("reads paths and leaves out malformed ones", () => {
+    const index = parsePathIndex({
+      entries: [
+        { path: "src", kind: "dir" },
+        { path: "src/a b.ts", kind: "file" },
+        { path: "/etc", kind: "file" },
+        { path: "x/", kind: "dir" },
+        { path: "", kind: "file" },
+        { path: "y", kind: "pipe" },
+      ],
+      truncated: true,
+    });
+    expect(index).toEqual({
+      entries: [
+        { path: "src", kind: "dir" },
+        { path: "src/a b.ts", kind: "file" },
+      ],
+      truncated: true,
+    });
+    expect(parsePathIndex({ entries: "x" })).toBeNull();
+    expect(parsePathIndex(null)).toBeNull();
+  });
+});
+
+describe("parseFileStamp and parseHeadDiff", () => {
+  it("reads stamps", () => {
+    expect(parseFileStamp({ modified: 5, size: 3 })).toEqual({ modified: 5, size: 3 });
+    expect(parseFileStamp({ modified: null, size: 0 })).toEqual({ modified: null, size: 0 });
+    expect(parseFileStamp({ modified: "5", size: 3 })).toBeNull();
+    expect(parseFileStamp({ modified: 5, size: -1 })).toBeNull();
+  });
+
+  it("reads diffs", () => {
+    expect(parseHeadDiff({ state: "changed", diff: "@@ x", truncated: false })).toEqual({
+      state: "changed",
+      diff: "@@ x",
+      truncated: false,
+    });
+    expect(parseHeadDiff({ state: "notInHead", diff: "" })?.state).toBe("notInHead");
+    expect(parseHeadDiff({ state: "other", diff: "" })).toBeNull();
+    expect(parseHeadDiff({ state: "same" })).toBeNull();
   });
 });

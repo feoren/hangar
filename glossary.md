@@ -193,3 +193,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Dateiansicht (Fenster)                          | file viewer                       | read-only window for one file; `FileViewerWindow.tsx`, `file_viewer.rs`     |
 | Dateiansicht-Thema                              | viewer theme                      | colors of the file viewer, dark and light; `viewerThemes.ts`                |
 | Änderungspfad                                   | change path                       | folders down to each changed file, marked in the tree; `onChangePath`       |
+| Dateifilter                                     | tree filter                       | field above the file tree; `filterTree`, index from `list_session_paths`    |
+| Erwähnung (@-Pfad)                              | mention                           | `@path ` typed into a terminal by right click or drag; `rowMention`         |
+| Vorschau (Dateiansicht)                         | preview                           | Markdown rendered or image drawn in the file viewer; `ViewerMode`           |
+| Vergleich mit dem letzten Commit                | compare with the last commit      | the file's diff against `HEAD` in the file viewer; `file_viewer_diff`       |
+| Live-Aktualisierung                             | live refresh                      | the file viewer reads its file again when it changed; `pollStamps`          |

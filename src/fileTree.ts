@@ -3,7 +3,7 @@
 // editing a file, changes of this device's sessions). The backend lists one folder per call
 // (`list_session_folder`, file_tree.rs); everything here is pure and tested in fileTree.test.ts.
 
-import type { FolderEntry, FolderListing } from "./api";
+import type { FolderEntry, FolderListing, PathEntry } from "./api";
 import type { ChangeKind, Claim } from "./claims";
 import { quotePath } from "./pathQuote";
 import type { PeerView } from "./team";
@@ -83,6 +83,19 @@ export function ancestors(path: string): string[] {
  */
 export function mentionText(path: string, folder: boolean): string {
   return `@${quotePath(folder ? `${path}/` : path, "agent")} `;
+}
+
+/**
+ * A mention names its path relative to the tree's folder, so only a session working in that same
+ * folder may take a dragged row; another pane's session would read a wrong path.
+ */
+export function takesMention(treeCwd: string, sessionCwd: string): boolean {
+  return folderKeyOf(treeCwd).key === folderKeyOf(sessionCwd).key;
+}
+
+/** The mention of a tree row, for the right click and for dragging it onto a terminal. */
+export function rowMention(row: ItemRow): string {
+  return mentionText(row.path, row.entry.kind === "dir");
 }
 
 export function childPath(parent: string, name: string): string {
@@ -362,6 +375,8 @@ export interface ItemRow {
   /** 1-based position among its siblings, and their number (aria-posinset, aria-setsize). */
   position: number;
   siblings: number;
+  /** Filtered tree: a folder shown only because a match lies inside it. */
+  context?: boolean;
 }
 
 export type HintKind = "loading" | "failed" | "empty" | "truncated";
@@ -415,6 +430,172 @@ export function visibleRows(state: TreeState): TreeRow[] {
   return rows;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Filter
+
+/** Matches the filtered tree shows at most; beyond them a hint asks for a longer filter. */
+export const MAX_FILTER_MATCHES = 300;
+
+/** The filter's words: lower case, split at spaces. */
+export function filterWords(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * How well a path matches, `null` for no match. Every word must appear somewhere in the path and
+ * at least one in the last name, so "src" finds the folder `src` and `src.rs`, not every file
+ * inside `src/`, while "src main" finds `src/main.rs`. A word in the name counts more, at its
+ * start more still.
+ */
+export function filterScore(path: string, words: readonly string[]): number | null {
+  if (words.length === 0) return null;
+  const lower = path.toLowerCase();
+  const name = lower.slice(lower.lastIndexOf("/") + 1);
+  let score = 0;
+  let inName = false;
+  for (const word of words) {
+    if (!lower.includes(word)) return null;
+    if (name.startsWith(word)) {
+      score += 3;
+      inName = true;
+    } else if (name.includes(word)) {
+      score += 2;
+      inName = true;
+    } else {
+      score += 1;
+    }
+  }
+  return inName ? score : null;
+}
+
+/** Every path the tree has read so far: what the filter searches until the full index is in. */
+export function loadedPaths(state: Pick<TreeState, "folders">): PathEntry[] {
+  const paths: PathEntry[] = [];
+  for (const [folder, load] of state.folders) {
+    if (load.kind !== "loaded") continue;
+    for (const entry of load.entries) {
+      paths.push({ path: childPath(folder, entry.name), kind: entry.kind });
+    }
+  }
+  return paths;
+}
+
+export interface FilterResult {
+  /** The matches and the folders above them, as a tree with every such folder open. */
+  rows: ItemRow[];
+  /** Matches in all, also those beyond the limit. */
+  matched: number;
+}
+
+/** One collator for every comparison: `localeCompare` with options builds one per call. */
+const naturalOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Folders first, then the rest, each in natural order (as the backend sorts a folder). */
+function compareEntries(a: PathEntry, b: PathEntry): number {
+  const group = (entry: PathEntry) => (entry.kind === "dir" ? 0 : 1);
+  return (
+    group(a) - group(b) ||
+    naturalOrder.compare(a.path, b.path) ||
+    (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  );
+}
+
+function depthOf(path: string): number {
+  let depth = 0;
+  for (let at = path.indexOf("/"); at >= 0; at = path.indexOf("/", at + 1)) depth += 1;
+  return depth;
+}
+
+/**
+ * The filtered tree: the best `max` matches with the folders that lead to them, those folders
+ * open. Paths appear once even when the source names them twice.
+ */
+export function filterTree(
+  entries: readonly PathEntry[],
+  query: string,
+  max = MAX_FILTER_MATCHES,
+): FilterResult {
+  const words = filterWords(query);
+  const scored: { entry: PathEntry; score: number; depth: number }[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    const score = filterScore(entry.path, words);
+    if (score !== null) scored.push({ entry, score, depth: depthOf(entry.path) });
+  }
+  scored.sort((a, b) => b.score - a.score || a.depth - b.depth || compareEntries(a.entry, b.entry));
+  const kept = scored.slice(0, max).map((item) => item.entry);
+
+  const shown = new Map<string, { entry: PathEntry; matched: boolean }>();
+  for (const entry of kept) shown.set(entry.path, { entry, matched: true });
+  for (const entry of kept) {
+    for (const folder of ancestors(entry.path)) {
+      if (!shown.has(folder)) {
+        shown.set(folder, { entry: { path: folder, kind: "dir" }, matched: false });
+      }
+    }
+  }
+  const children = new Map<string, PathEntry[]>();
+  for (const { entry } of shown.values()) {
+    const cut = entry.path.lastIndexOf("/");
+    const parent = cut < 0 ? "" : entry.path.slice(0, cut);
+    const list = children.get(parent) ?? [];
+    list.push(entry);
+    children.set(parent, list);
+  }
+
+  const rows: ItemRow[] = [];
+  const walk = (folder: string, depth: number) => {
+    const list = (children.get(folder) ?? []).sort(compareEntries);
+    list.forEach((entry, index) => {
+      const open = children.has(entry.path);
+      const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+      rows.push({
+        kind: "item",
+        path: entry.path,
+        name,
+        entry: { name, kind: entry.kind, ignored: false },
+        depth,
+        parent: folder === "" ? null : folder,
+        expanded: open,
+        position: index + 1,
+        siblings: list.length,
+        context: shown.get(entry.path)?.matched !== true,
+      });
+      if (open) walk(entry.path, depth + 1);
+    });
+  };
+  walk("", 0);
+  return { rows, matched: scored.length };
+}
+
+/**
+ * A key on the filtered tree. Moving works as in the tree; folders do not fold, because the
+ * filter decides what shows: Left goes to the folder above, Right, Enter and Space on a folder
+ * show it in the whole tree (`reveal`) with the filter cleared.
+ */
+export function filteredStep(
+  rows: readonly TreeRow[],
+  focused: string | null,
+  key: string,
+): TreeStep | null {
+  const step = treeStep(rows, focused, key);
+  if (step === null || (step.kind !== "expand" && step.kind !== "collapse")) return step;
+  if (key === "ArrowLeft") {
+    const row = rows.find(
+      (item): item is ItemRow => item.kind === "item" && item.path === step.path,
+    );
+    return row?.parent ? { kind: "focus", path: row.parent } : { kind: "none" };
+  }
+  return { kind: "reveal", path: step.path };
+}
+
+/** Folders to open so that `path` shows in the whole tree: those above it and, for a folder, itself. */
+export function revealFolders(path: string, folder: boolean): string[] {
+  return folder ? [...ancestors(path), path] : ancestors(path);
+}
+
 /** What a key on the tree does (WAI-ARIA tree view pattern); `null`: not the tree's key. */
 export type TreeStep =
   | { kind: "focus"; path: string }
@@ -423,7 +604,18 @@ export type TreeStep =
   | { kind: "select"; path: string }
   /** Show the file in the viewer window. */
   | { kind: "open"; path: string }
+  /** Filtered tree: clear the filter and show this folder in the whole tree. */
+  | { kind: "reveal"; path: string }
   | { kind: "none" };
+
+/**
+ * A key typed on the tree that starts the filter: one printable character without Ctrl, Alt or
+ * Meta. Space stays the tree's (it folds a folder).
+ */
+export function startsFilter(key: string, modifiers: boolean): boolean {
+  // Named keys ("Enter", "ArrowDown") are words; a character is one code point.
+  return !modifiers && key !== " " && Array.from(key).length === 1;
+}
 
 export function treeStep(
   rows: readonly TreeRow[],

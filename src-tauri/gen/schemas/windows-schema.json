@@ -357,6 +357,24 @@
           "markdownDescription": "Enables the file_viewer_content command without any pre-configured scope."
         },
         {
+          "description": "Enables the file_viewer_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-file-viewer-diff",
+          "markdownDescription": "Enables the file_viewer_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the file_viewer_open_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-file-viewer-open-link",
+          "markdownDescription": "Enables the file_viewer_open_link command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the file_viewer_stamp command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-file-viewer-stamp",
+          "markdownDescription": "Enables the file_viewer_stamp command without any pre-configured scope."
+        },
+        {
           "description": "Enables the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "allow-focus-sub-agent",
@@ -427,6 +445,12 @@
           "type": "string",
           "const": "allow-list-session-folder",
           "markdownDescription": "Enables the list_session_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_session_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-session-paths",
+          "markdownDescription": "Enables the list_session_paths command without any pre-configured scope."
         },
         {
           "description": "Enables the list_sessions command without any pre-configured scope.",
@@ -951,6 +975,24 @@
           "markdownDescription": "Denies the file_viewer_content command without any pre-configured scope."
         },
         {
+          "description": "Denies the file_viewer_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-file-viewer-diff",
+          "markdownDescription": "Denies the file_viewer_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the file_viewer_open_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-file-viewer-open-link",
+          "markdownDescription": "Denies the file_viewer_open_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the file_viewer_stamp command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-file-viewer-stamp",
+          "markdownDescription": "Denies the file_viewer_stamp command without any pre-configured scope."
+        },
+        {
           "description": "Denies the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "deny-focus-sub-agent",
@@ -1021,6 +1063,12 @@
           "type": "string",
           "const": "deny-list-session-folder",
           "markdownDescription": "Denies the list_session_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_session_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-session-paths",
+          "markdownDescription": "Denies the list_session_paths command without any pre-configured scope."
         },
         {
           "description": "Denies the list_sessions command without any pre-configured scope.",

@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { FolderEntry, FolderListing } from "./api";
+import type { FolderEntry, FolderListing, PathEntry } from "./api";
 import type { Claim } from "./claims";
 import {
   mentionText,
+  filteredStep,
+  filterScore,
+  filterTree,
+  filterWords,
+  loadedPaths,
+  revealFolders,
+  rowMention,
+  startsFilter,
+  takesMention,
   ancestors,
   avatarStack,
   buildMarks,
@@ -480,5 +489,143 @@ describe("mentionText", () => {
   it("quotes a path with spaces so the agent reads it as one", () => {
     expect(mentionText("docs/my notes.md", false)).toBe('@"docs/my notes.md" ');
     expect(mentionText('a "b" c', false)).toBe("@'a \"b\" c' ");
+  });
+});
+
+describe("rowMention", () => {
+  it("is the right click's text for a dragged file or folder", () => {
+    const state = run([
+      { type: "loaded", path: "", listing: listing([dir("src"), file("a b.md")]) },
+    ]);
+    const rows = visibleRows(state).filter((row): row is ItemRow => row.kind === "item");
+    expect(rows.map(rowMention)).toEqual(["@src/ ", '@"a b.md" ']);
+  });
+});
+
+describe("takesMention", () => {
+  it("accepts only a session in the tree's own folder", () => {
+    const app = String.raw`C:\work\app`;
+    expect(takesMention(app, "c:/work/app/")).toBe(true);
+    expect(takesMention("/home/a/app", "/home/a/app")).toBe(true);
+    expect(takesMention("/home/a/app", "/home/a/App")).toBe(false);
+    expect(takesMention(app, String.raw`C:\work\app\src`)).toBe(false);
+    expect(takesMention(app, String.raw`C:\work\other`)).toBe(false);
+  });
+});
+
+describe("tree filter", () => {
+  const paths: PathEntry[] = [
+    { path: "src", kind: "dir" },
+    { path: "src/main.rs", kind: "file" },
+    { path: "src/lib.rs", kind: "file" },
+    { path: "src/ui", kind: "dir" },
+    { path: "src/ui/MainView.tsx", kind: "file" },
+    { path: "docs", kind: "dir" },
+    { path: "docs/main.md", kind: "file" },
+    { path: "README.md", kind: "file" },
+  ];
+
+  it("splits the query into lower case words", () => {
+    expect(filterWords("  Main  RS ")).toEqual(["main", "rs"]);
+    expect(filterWords("   ")).toEqual([]);
+  });
+
+  it("needs every word in the path and one in the name", () => {
+    expect(filterScore("src/main.rs", ["main"])).toBe(3);
+    expect(filterScore("src/domain.rs", ["main"])).toBe(2);
+    expect(filterScore("src/main.rs", ["src", "main"])).toBe(4);
+    // Only in a folder above: not a match, or "src" would list everything inside src/.
+    expect(filterScore("src/lib.rs", ["src"])).toBeNull();
+    expect(filterScore("src/lib.rs", ["lib", "x"])).toBeNull();
+    expect(filterScore("src", [])).toBeNull();
+  });
+
+  it("shows the matches under their folders, all open", () => {
+    const result = filterTree(paths, "main");
+    expect(result.matched).toBe(3);
+    expect(result.rows.map((row) => [row.path, row.depth, row.expanded, row.context])).toEqual([
+      ["docs", 0, true, true],
+      ["docs/main.md", 1, false, false],
+      ["src", 0, true, true],
+      ["src/ui", 1, true, true],
+      ["src/ui/MainView.tsx", 2, false, false],
+      ["src/main.rs", 1, false, false],
+    ]);
+    const ui = result.rows.find((row) => row.path === "src/ui");
+    expect(ui).toMatchObject({ parent: "src", position: 1, siblings: 2 });
+  });
+
+  it("keeps a matching folder a match, also with matches inside", () => {
+    const result = filterTree(paths, "ui");
+    expect(result.rows.map((row) => [row.path, row.context])).toEqual([
+      ["src", true],
+      ["src/ui", false],
+    ]);
+    expect(filterTree(paths, "").rows).toEqual([]);
+    expect(filterTree(paths, "zzz")).toEqual({ rows: [], matched: 0 });
+  });
+
+  it("keeps only the best matches and counts the rest", () => {
+    const many: PathEntry[] = Array.from({ length: 50 }, (_, index) => ({
+      path: `deep/x${String(index)}.txt`,
+      kind: "file",
+    }));
+    many.push({ path: "x.txt", kind: "file" }, { path: "x.txt", kind: "file" });
+    const result = filterTree(many, "x", 5);
+    expect(result.matched).toBe(51);
+    const matches = result.rows.filter((row) => row.context !== true);
+    expect(matches).toHaveLength(5);
+    // The shallow name wins; then numbers sort by value.
+    const kept = matches.map((row) => row.path);
+    expect(kept).toContain("x.txt");
+    expect(kept).toContain("deep/x2.txt");
+    expect(kept).not.toContain("deep/x10.txt");
+  });
+
+  it("searches what the tree has read until the index is in", () => {
+    const state = run([
+      { type: "loaded", path: "", listing: listing([dir("src"), file("a.md")]) },
+      { type: "loaded", path: "src", listing: listing([file("b.ts")]) },
+      { type: "failed", path: "docs", message: "x" },
+    ]);
+    expect(loadedPaths(state)).toEqual([
+      { path: "src", kind: "dir" },
+      { path: "a.md", kind: "file" },
+      { path: "src/b.ts", kind: "file" },
+    ]);
+  });
+
+  it("walks the filtered tree without folding it", () => {
+    const rows = filterTree(paths, "main").rows;
+    expect(filteredStep(rows, "src/ui/MainView.tsx", "ArrowDown")).toEqual({
+      kind: "focus",
+      path: "src/main.rs",
+    });
+    // Left on an open folder goes up instead of closing it; at the top there is nowhere to go.
+    expect(filteredStep(rows, "src/ui", "ArrowLeft")).toEqual({ kind: "focus", path: "src" });
+    expect(filteredStep(rows, "src", "ArrowLeft")).toEqual({ kind: "none" });
+    // Enter on a folder shows it in the whole tree; on a file it opens the file.
+    expect(filteredStep(rows, "src/ui", "Enter")).toEqual({ kind: "reveal", path: "src/ui" });
+    expect(filteredStep(rows, "docs/main.md", "Enter")).toEqual({
+      kind: "open",
+      path: "docs/main.md",
+    });
+    expect(filteredStep(rows, "src", "x")).toBeNull();
+  });
+
+  it("opens the folders on the way when a match is revealed", () => {
+    expect(revealFolders("a/b/c", true)).toEqual(["a", "a/b", "a/b/c"]);
+    expect(revealFolders("a/b/c.txt", false)).toEqual(["a", "a/b"]);
+    expect(revealFolders("top.txt", false)).toEqual([]);
+  });
+
+  it("starts with a typed character, never with a shortcut or Space", () => {
+    expect(startsFilter("a", false)).toBe(true);
+    expect(startsFilter("ä", false)).toBe(true);
+    expect(startsFilter(".", false)).toBe(true);
+    expect(startsFilter("a", true)).toBe(false);
+    expect(startsFilter(" ", false)).toBe(false);
+    expect(startsFilter("ArrowDown", false)).toBe(false);
+    expect(startsFilter("Enter", false)).toBe(false);
   });
 });

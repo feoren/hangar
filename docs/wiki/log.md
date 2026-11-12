@@ -553,3 +553,9 @@ Pages changed: [[codex-gate-live-measurement]] (new), [[agent-gate-adapters]],
 Documented the `git_activity` command (own commits of the last year for the activity calendar in
 the empty window): argv, limits, deduplication and what is skipped. Pages changed:
 [[agent-workflow-features]].
+
+## [2026-11-12] query | File viewer: preview, images, diff against HEAD, live refresh; tree filter and drag
+Filed the contract of the new viewer commands (`file_viewer_stamp`, `file_viewer_diff`,
+`file_viewer_open_link`), the image and Markdown rules, the live refresh by polling, the tree's
+filter with its bounded path index (`list_session_paths`) and dragging tree rows onto a terminal.
+Pages changed: [[file-viewer]], index.

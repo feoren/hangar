@@ -14,12 +14,14 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read as _};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Instant, UNIX_EPOCH};
 
 use serde::{Serialize, Serializer};
 
 use crate::file_tree::{self, FileTreeError};
+use crate::git::{self, Git, GitError};
 use crate::lock;
 use crate::session::SessionId;
 
@@ -38,6 +40,14 @@ pub const BINARY_PROBE_BYTES: usize = 8 * 1024;
 /// A relative path longer than this is refused before touching the file system.
 const MAX_RELATIVE_BYTES: usize = 4096;
 const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+/// Bytes of an image handed to the viewer as Base64; a larger image is not shown, only named.
+pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+/// An SVG must name its `<svg` element within this many leading bytes.
+const SVG_PROBE_BYTES: usize = 4096;
+/// A link longer than this is not opened.
+const MAX_LINK_BYTES: usize = 8 * 1024;
+/// A viewer opens at most one link in this time.
+pub const LINK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileViewerError {
@@ -67,6 +77,14 @@ pub enum FileViewerError {
     TimedOut,
     #[error("File viewer: {0}")]
     Tauri(#[from] tauri::Error),
+    #[error("{0}")]
+    Git(#[from] GitError),
+    #[error("Only web addresses (http, https) open from the file viewer")]
+    InvalidLink,
+    #[error("Links open only from the focused viewer, one per second")]
+    LinkRefused,
+    #[error("The browser could not be opened: {0}")]
+    Open(#[source] io::Error),
 }
 
 impl Serialize for FileViewerError {
@@ -112,6 +130,64 @@ pub struct FileContent {
     /// Larger than [`MAX_BYTES`]; `text` holds the first part, cut on a character boundary.
     pub truncated: bool,
     pub binary: bool,
+    /// Last change on disk, milliseconds since the Unix epoch; `None` where the system has none.
+    pub modified: Option<u64>,
+    /// The picture of a PNG, JPEG, GIF, WebP or SVG file whose content matches its name.
+    pub image: Option<ImageData>,
+    /// An image larger than [`MAX_IMAGE_BYTES`]: not handed over.
+    pub image_too_large: bool,
+}
+
+/// An image as the viewer shows it: `<img src="data:{mime};base64,{data}">`. An SVG is only
+/// ever drawn as an image, where it runs no script and loads nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageData {
+    pub mime: &'static str,
+    pub data: String,
+}
+
+/// What the live refresh compares: a changed time or size means the file changed on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStamp {
+    pub modified: Option<u64>,
+    pub size: u64,
+}
+
+/// How the file stands against the last commit (`HEAD`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DiffState {
+    /// The file lies outside a git work tree.
+    NotRepo,
+    /// The repository has no commit yet.
+    NoHead,
+    /// The last commit does not hold the file (new, untracked or ignored).
+    NotInHead,
+    /// No change against the last commit.
+    Same,
+    Changed,
+}
+
+/// The answer of `file_viewer_diff`: the unified diff of the file against `HEAD`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadDiff {
+    pub state: DiffState,
+    /// Empty unless `state` is `changed`; cut at [`git::MAX_DIFF_BYTES`] on a whole line.
+    pub diff: String,
+    pub truncated: bool,
+}
+
+impl HeadDiff {
+    fn without_diff(state: DiffState) -> Self {
+        Self {
+            state,
+            diff: String::new(),
+            truncated: false,
+        }
+    }
 }
 
 /// Only the main window and the detached side panel open viewers: both show the Files tab.
@@ -200,38 +276,217 @@ fn tree_error(error: FileTreeError) -> FileViewerError {
     }
 }
 
-/// Resolves the target again and reads its content.
-pub fn read_target(target: &Target) -> Result<FileContent, FileViewerError> {
+/// Resolves the target again; the same text naming another file (a folder renamed or swapped
+/// under the session) counts as gone.
+fn resolve_target(target: &Target) -> Result<PathBuf, FileViewerError> {
     let (_, path) = resolve_file(&target.root, &target.relative)?;
-    // Same text, different file: the folder was renamed or swapped under the session.
     if path != target.path {
         return Err(FileViewerError::NotFound);
     }
+    Ok(path)
+}
+
+/// Resolves the target again and reads its content.
+pub fn read_target(target: &Target) -> Result<FileContent, FileViewerError> {
+    let path = resolve_target(target)?;
     let mut file = fs::File::open(&path).map_err(not_found_or_io)?;
     let meta = file.metadata().map_err(FileViewerError::Io)?;
     if !meta.is_file() {
         return Err(FileViewerError::NotAFile);
     }
+    let name = target.name();
+    let mime = image_mime(&name);
+    let limit = if mime.is_some() {
+        MAX_IMAGE_BYTES.max(MAX_BYTES)
+    } else {
+        MAX_BYTES
+    };
     // One byte more than the limit tells a file that grew past it since `metadata`.
-    let mut bytes = Vec::with_capacity(
-        usize::try_from(meta.len())
-            .unwrap_or(MAX_BYTES)
-            .min(MAX_BYTES + 1),
-    );
+    let mut bytes = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(limit).min(limit + 1));
     file.by_ref()
-        .take(MAX_BYTES as u64 + 1)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(FileViewerError::Io)?;
-    let decoded = decode(&bytes);
+    let (image, image_too_large) = match mime {
+        Some(mime) => image_limited(mime, &bytes, MAX_IMAGE_BYTES),
+        None => (None, false),
+    };
+    let decoded = decode(&bytes[..bytes.len().min(MAX_BYTES + 1)]);
     Ok(FileContent {
-        name: target.name(),
+        name,
         path: file_tree::display_path(&path),
         relative_path: target.relative.clone(),
         size: meta.len().max(bytes.len() as u64),
         text: decoded.text,
         truncated: decoded.truncated,
         binary: decoded.binary,
+        modified: modified_millis(&meta),
+        image,
+        image_too_large,
     })
+}
+
+/// Size and time of the last change, for the live refresh; resolves the target like a read.
+pub fn stamp_target(target: &Target) -> Result<FileStamp, FileViewerError> {
+    let path = resolve_target(target)?;
+    let meta = fs::metadata(&path).map_err(not_found_or_io)?;
+    if !meta.is_file() {
+        return Err(FileViewerError::NotAFile);
+    }
+    Ok(FileStamp {
+        modified: modified_millis(&meta),
+        size: meta.len(),
+    })
+}
+
+fn modified_millis(meta: &fs::Metadata) -> Option<u64> {
+    let since = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    u64::try_from(since.as_millis()).ok()
+}
+
+/// The image type a file name stands for; the content still has to match ([`image_limited`]).
+pub fn image_mime(name: &str) -> Option<&'static str> {
+    let (_, extension) = name.rsplit_once('.')?;
+    match extension.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+/// The image of `bytes` (all of the file, at most `limit` + 1 bytes read) and whether it was too
+/// large. Content that does not match the type is no image: the window then shows it as text or
+/// binary, as any other file.
+fn image_limited(mime: &'static str, bytes: &[u8], limit: usize) -> (Option<ImageData>, bool) {
+    if bytes.len() > limit {
+        return (None, true);
+    }
+    if !content_matches(mime, bytes) {
+        return (None, false);
+    }
+    let data = ImageData {
+        mime,
+        data: crate::icon::base64(bytes),
+    };
+    (Some(data), false)
+}
+
+/// The leading bytes match the image type (magic numbers; an SVG names `<svg` early on).
+fn content_matches(mime: &str, bytes: &[u8]) -> bool {
+    match mime {
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg" => bytes.starts_with(b"\xFF\xD8\xFF"),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP",
+        "image/svg+xml" => {
+            let probe = &bytes[..bytes.len().min(SVG_PROBE_BYTES)];
+            !probe.contains(&0)
+                && String::from_utf8_lossy(probe)
+                    .to_ascii_lowercase()
+                    .contains("<svg")
+        }
+        _ => false,
+    }
+}
+
+/// The file against the last commit of the work tree it lies in: `git diff HEAD -- <file>` with
+/// the hardened runner and checks of the changes panel (filters off, no link to a share, the
+/// work tree where git found it). Runs from the file's own folder, so a file in a submodule or a
+/// nested repository compares with that repository.
+pub fn head_diff(git: &Git, target: &Target) -> Result<HeadDiff, FileViewerError> {
+    let path = resolve_target(target)?;
+    let folder = path.parent().ok_or(FileViewerError::NotAFile)?;
+    git::check_folder(folder)?;
+    let deadline = Instant::now() + git::TIMEOUT;
+    let Some(top) = git::toplevel(git, folder, deadline)? else {
+        return Ok(HeadDiff::without_diff(DiffState::NotRepo));
+    };
+    let top = fs::canonicalize(&top).map_err(FileViewerError::Io)?;
+    let Ok(inside) = path.strip_prefix(&top) else {
+        return Ok(HeadDiff::without_diff(DiffState::NotRepo));
+    };
+    let relative = git_relative(inside).ok_or(FileViewerError::InvalidPath("not UTF-8"))?;
+    let neutral = git::filter_overrides(git, &top, deadline)?;
+    let has_head = git
+        .run(
+            &top,
+            ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+            deadline,
+            4096,
+        )?
+        .success;
+    if !has_head {
+        return Ok(HeadDiff::without_diff(DiffState::NoHead));
+    }
+    // `HEAD:<path>` names the path from the top level, literally.
+    let in_head = git
+        .run(
+            &top,
+            ["cat-file", "-e", &format!("HEAD:{relative}")],
+            deadline,
+            4096,
+        )?
+        .success;
+    if !in_head {
+        return Ok(HeadDiff::without_diff(DiffState::NotInHead));
+    }
+    let patch = git.run(
+        &top,
+        neutral
+            .iter()
+            .map(String::as_str)
+            .chain(["--literal-pathspecs"])
+            .chain(git::DIFF_ARGS.iter().copied())
+            .chain(["HEAD", "--", relative.as_str()]),
+        deadline,
+        git::MAX_DIFF_BYTES,
+    )?;
+    if !patch.usable() {
+        return Err(patch.failure().into());
+    }
+    if patch.stdout.is_empty() {
+        return Ok(HeadDiff::without_diff(DiffState::Same));
+    }
+    let truncated = patch.truncated;
+    Ok(HeadDiff {
+        state: DiffState::Changed,
+        diff: git::cut_text(patch.stdout, truncated),
+        truncated,
+    })
+}
+
+/// A path below the top level as git names it: `/` separated; `None` if not UTF-8.
+fn git_relative(inside: &Path) -> Option<String> {
+    let mut parts = Vec::new();
+    for part in inside.components() {
+        match part {
+            Component::Normal(name) => parts.push(name.to_str()?),
+            _ => return None,
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// A link from the Markdown preview, checked before the browser gets it: a plain http(s)
+/// address with a host, of reasonable length. Everything else (`file:`, `javascript:`, app
+/// addresses) is refused.
+pub fn checked_link(text: &str) -> Result<reqwest::Url, FileViewerError> {
+    if text.len() > MAX_LINK_BYTES {
+        return Err(FileViewerError::InvalidLink);
+    }
+    let url = reqwest::Url::parse(text).map_err(|_| FileViewerError::InvalidLink)?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(FileViewerError::InvalidLink);
+    }
+    // `https://user:pass@host` hands credentials over, or hides the real host behind a name that
+    // looks like one (`https://example.com@other.host`).
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(FileViewerError::InvalidLink);
+    }
+    Ok(url)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -315,6 +570,8 @@ pub struct Viewers(Arc<Mutex<ViewerState>>);
 struct ViewerState {
     next: u64,
     targets: HashMap<String, Target>,
+    /// When each viewer last opened a link ([`Viewers::allow_link`]).
+    last_link: HashMap<String, Instant>,
 }
 
 impl Viewers {
@@ -341,7 +598,25 @@ impl Viewers {
     }
 
     pub fn remove(&self, label: &str) {
-        lock(&self.0).targets.remove(label);
+        let mut state = lock(&self.0);
+        state.targets.remove(label);
+        state.last_link.remove(label);
+    }
+
+    /// At most one link per [`LINK_INTERVAL`] and viewer, so a page cannot open browser tabs in a
+    /// loop. Records `now` when it allows one.
+    pub fn allow_link(&self, label: &str, now: Instant) -> bool {
+        let mut state = lock(&self.0);
+        if !state.targets.contains_key(label) {
+            return false;
+        }
+        if let Some(last) = state.last_link.get(label) {
+            if now.saturating_duration_since(*last) < LINK_INTERVAL {
+                return false;
+            }
+        }
+        state.last_link.insert(label.to_owned(), now);
+        true
     }
 }
 
@@ -599,6 +874,217 @@ mod tests {
         );
     }
 
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+
+    #[test]
+    fn image_types_by_name_and_content() {
+        assert_eq!(image_mime("a.PNG"), Some("image/png"));
+        assert_eq!(image_mime("photo.jpeg"), Some("image/jpeg"));
+        assert_eq!(image_mime("x.Jpg"), Some("image/jpeg"));
+        assert_eq!(image_mime("a.gif"), Some("image/gif"));
+        assert_eq!(image_mime("a.webp"), Some("image/webp"));
+        assert_eq!(image_mime("logo.svg"), Some("image/svg+xml"));
+        for none in ["png", "a.txt", "a.png.txt", "a.ico", "a.svgz"] {
+            assert_eq!(image_mime(none), None, "{none}");
+        }
+        assert!(content_matches("image/png", PNG));
+        assert!(content_matches("image/jpeg", b"\xFF\xD8\xFF\xE0rest"));
+        assert!(content_matches("image/gif", b"GIF89a..."));
+        assert!(content_matches(
+            "image/webp",
+            b"RIFF\x10\x00\x00\x00WEBPVP8 "
+        ));
+        assert!(content_matches(
+            "image/svg+xml",
+            b"<?xml version=\"1.0\"?>\n<SVG xmlns=\"x\"/>"
+        ));
+        // A name does not make an image: the content must match.
+        assert!(!content_matches("image/png", b"not a png"));
+        assert!(!content_matches("image/webp", b"RIFF\x10\x00\x00\x00WAVE"));
+        assert!(!content_matches("image/svg+xml", b"<html></html>"));
+        assert!(!content_matches("image/svg+xml", b"<svg\x00"));
+    }
+
+    #[test]
+    fn images_are_capped() {
+        let (image, too_large) = image_limited("image/png", PNG, PNG.len());
+        assert!(!too_large);
+        let image = image.unwrap();
+        assert_eq!(image.mime, "image/png");
+        assert_eq!(image.data, crate::icon::base64(PNG));
+        // One byte over the limit: neither data nor an error, only the flag.
+        assert_eq!(image_limited("image/png", PNG, PNG.len() - 1), (None, true));
+        assert_eq!(image_limited("image/png", b"text", 100), (None, false));
+
+        let dir = TempDir::new("file-viewer-image");
+        fs::write(dir.path().join("a.png"), PNG).unwrap();
+        fs::write(dir.path().join("fake.png"), "plain text").unwrap();
+        fs::write(dir.path().join("logo.svg"), "<svg xmlns=\"x\"></svg>").unwrap();
+        let png = read_target(&target_for(dir.path(), "a.png")).unwrap();
+        assert!(png.binary && png.image.is_some() && !png.image_too_large);
+        let fake = read_target(&target_for(dir.path(), "fake.png")).unwrap();
+        assert!(fake.image.is_none());
+        assert_eq!(fake.text.as_deref(), Some("plain text"));
+        // An SVG is text and an image at once.
+        let svg = read_target(&target_for(dir.path(), "logo.svg")).unwrap();
+        assert_eq!(svg.image.map(|i| i.mime), Some("image/svg+xml"));
+        assert!(svg.text.is_some());
+
+        let mut big = PNG.to_vec();
+        big.resize(MAX_IMAGE_BYTES + 1, 0);
+        fs::write(dir.path().join("big.png"), &big).unwrap();
+        let big = read_target(&target_for(dir.path(), "big.png")).unwrap();
+        assert!(big.image.is_none() && big.image_too_large);
+        assert_eq!(big.size, MAX_IMAGE_BYTES as u64 + 1);
+    }
+
+    #[test]
+    fn stamps_follow_changes_on_disk() {
+        let dir = TempDir::new("file-viewer-stamp");
+        fs::write(dir.path().join("a.txt"), "one").unwrap();
+        let target = target_for(dir.path(), "a.txt");
+        let first = stamp_target(&target).unwrap();
+        assert_eq!(first.size, 3);
+        assert!(first.modified.is_some());
+        assert_eq!(
+            read_target(&target).unwrap().modified,
+            first.modified,
+            "the content carries the stamp it was read with"
+        );
+        fs::write(dir.path().join("a.txt"), "longer").unwrap();
+        assert_ne!(stamp_target(&target).unwrap(), first);
+        fs::remove_file(dir.path().join("a.txt")).unwrap();
+        assert!(matches!(
+            stamp_target(&target),
+            Err(FileViewerError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn links_must_be_web_addresses() {
+        assert_eq!(
+            checked_link("https://example.com/a?b=c#d")
+                .unwrap()
+                .as_str(),
+            "https://example.com/a?b=c#d"
+        );
+        assert!(checked_link("http://example.com").is_ok());
+        for bad in [
+            "file:///C:/Windows/win.ini",
+            "javascript:marker",
+            "tauri://localhost/x",
+            "mailto:a@example.com",
+            "relative/path.md",
+            "",
+            "http://",
+        ] {
+            assert!(
+                matches!(checked_link(bad), Err(FileViewerError::InvalidLink)),
+                "{bad:?} was accepted"
+            );
+        }
+        let long = format!("https://example.com/{}", "a".repeat(MAX_LINK_BYTES));
+        assert!(checked_link(&long).is_err());
+        // Credentials in the address, or a host hidden behind a user name, are refused.
+        for bad in [
+            "https://user:secret@example.com/",
+            "https://user@example.com/",
+            "https://example.com@other.example/",
+            "https://:secret@example.com/",
+        ] {
+            assert!(
+                matches!(checked_link(bad), Err(FileViewerError::InvalidLink)),
+                "{bad:?} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn links_open_at_most_once_a_second_per_viewer() {
+        let viewers = Viewers::default();
+        let target = Target {
+            session_id: 1,
+            root: PathBuf::from("r"),
+            path: PathBuf::from("a"),
+            relative: "a".to_owned(),
+        };
+        let Claim::New(label) = viewers.claim(target) else {
+            panic!("new viewer expected");
+        };
+        let start = Instant::now();
+        assert!(viewers.allow_link(&label, start));
+        assert!(!viewers.allow_link(&label, start + LINK_INTERVAL / 2));
+        assert!(viewers.allow_link(&label, start + LINK_INTERVAL));
+        // Unknown and closed windows open nothing.
+        assert!(!viewers.allow_link("file-viewer-99", start));
+        viewers.remove(&label);
+        assert!(!viewers.allow_link(&label, start + LINK_INTERVAL * 5));
+    }
+
+    #[test]
+    fn git_paths_use_slashes() {
+        assert_eq!(
+            git_relative(&Path::new("a").join("b c").join("d.rs")).as_deref(),
+            Some("a/b c/d.rs")
+        );
+        assert_eq!(git_relative(Path::new("")), None);
+        assert_eq!(git_relative(Path::new("../x")), None);
+    }
+
+    #[test]
+    fn diff_against_the_last_commit() {
+        use crate::git::tests::{git, git_ok, init_repo};
+        let Some(git) = git() else { return };
+        let dir = TempDir::new("file-viewer-diff");
+        let repo = dir.path().join("repo");
+        init_repo(&git, &repo);
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("src/a.txt"), "one\ntwo\n").unwrap();
+        let target = target_for(&repo, "src/a.txt");
+        assert_eq!(head_diff(&git, &target).unwrap().state, DiffState::NoHead);
+
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        let same = head_diff(&git, &target).unwrap();
+        assert_eq!(same, HeadDiff::without_diff(DiffState::Same));
+
+        fs::write(repo.join("src/a.txt"), "one\nzwei\n").unwrap();
+        let changed = head_diff(&git, &target).unwrap();
+        assert_eq!(changed.state, DiffState::Changed);
+        assert!(changed.diff.contains("-two\n+zwei"));
+        assert!(!changed.truncated);
+        // Staged changes count too: the comparison is with the commit, not the index.
+        git_ok(&git, &repo, &["add", "-A"]);
+        assert_eq!(head_diff(&git, &target).unwrap().state, DiffState::Changed);
+
+        // A new file, and one whose name looks like pathspec magic, only compare themselves.
+        fs::write(repo.join("new.txt"), "x\n").unwrap();
+        let new = target_for(&repo, "new.txt");
+        assert_eq!(head_diff(&git, &new).unwrap().state, DiffState::NotInHead);
+        fs::write(repo.join("*.txt"), "x\n").ok();
+        if repo.join("*.txt").exists() {
+            git_ok(&git, &repo, &["add", "-A"]);
+            git_ok(&git, &repo, &["commit", "--quiet", "-m", "second"]);
+            // As a glob, `*.txt` would match this change.
+            fs::write(repo.join("new.txt"), "changed\n").unwrap();
+            let star = target_for(&repo, "*.txt");
+            assert_eq!(head_diff(&git, &star).unwrap().state, DiffState::Same);
+        }
+
+        fs::remove_file(repo.join("src/a.txt")).unwrap();
+        assert!(matches!(
+            head_diff(&git, &target),
+            Err(FileViewerError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn diff_answers_serialize_camel_case() {
+        let json = serde_json::to_value(HeadDiff::without_diff(DiffState::NotInHead)).unwrap();
+        assert_eq!(json["state"], "notInHead");
+        assert_eq!(json["diff"], "");
+    }
+
     #[test]
     fn only_viewer_windows_read_and_only_main_opens() {
         assert!(check_sender("file-viewer-1").is_ok());
@@ -671,8 +1157,17 @@ mod tests {
             text: None,
             truncated: false,
             binary: true,
+            modified: Some(5),
+            image: Some(ImageData {
+                mime: "image/png",
+                data: "AA==".into(),
+            }),
+            image_too_large: false,
         };
         let json = serde_json::to_value(content).unwrap();
+        assert_eq!(json["image"]["mime"], "image/png");
+        assert_eq!(json["imageTooLarge"], false);
+        assert_eq!(json["modified"], 5);
         assert_eq!(json["relativePath"], "a.rs");
         assert!(json["text"].is_null());
         assert_eq!(json["binary"], true);

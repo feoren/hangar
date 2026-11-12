@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { api, errorText, parseFolderListing } from "./api";
+import { api, errorText, parseFolderListing, parsePathIndex, type PathIndex } from "./api";
 import { Avatar } from "./Avatar";
 import { isFileLevel, type ChangeKind, type ClaimsSnapshot } from "./claims";
 import {
   avatarStack,
   buildMarks,
   CHANGE_LETTERS,
+  filteredStep,
+  filterTree,
   folderKeyOf,
   foldersToRefresh,
   INITIAL_TREE,
   isBusyError,
+  loadedPaths,
   onChangePath,
+  revealFolders,
+  rowMention,
+  startsFilter,
   treeKey,
   treeReducer,
   treeStep,
@@ -22,23 +29,26 @@ import {
   type ItemRow,
   type TeamEditor,
   type TreeAction,
+  type TreeRow,
   type TreeState,
-  mentionText,
 } from "./fileTree";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
 import {
   ChevronIcon,
+  CloseIcon,
   FileIcon,
   FolderIcon,
   LinkIcon,
   OverlapIcon,
   RestartIcon,
   RevealFolderIcon,
+  SearchIcon,
 } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import { beyondThreshold } from "./sessionDrag";
 import { personTag, type TeamActivity } from "./team";
 
 /** A listing refused because the same folder is still being read is asked for once more after this. */
@@ -55,6 +65,24 @@ const MAX_AVATARS = 2;
 const OPEN_ERROR_MS = 6000;
 /** Trees kept for sessions the panel showed before (expanded folders, focus). */
 const MAX_SAVED_TREES = 24;
+/** A revealed row is focused once it shows, if that happens within this time. */
+const REVEAL_FOCUS_MS = 3000;
+
+/**
+ * A tree row dragged with the mouse: `move` while it travels, then `drop` where it was let go or
+ * `cancel` (Escape, the pointer lost). Coordinates are CSS pixels of the window.
+ */
+export interface MentionDrag {
+  phase: "move" | "drop" | "cancel";
+  x: number;
+  y: number;
+  /** The row's mention, as the right click types it (`rowMention`). */
+  text: string;
+}
+
+/** The path index for the filter, read once per filter. */
+type IndexLoad =
+  { kind: "idle" } | { kind: "loading" } | { kind: "ready"; index: PathIndex } | { kind: "failed" };
 
 /** The tree of each session the panel showed, while the window lives. */
 const savedTrees = new Map<number, TreeState>();
@@ -88,6 +116,11 @@ interface Props {
   focusToken: number;
   /** Right click on a row: this text (`@path `) goes into the active session's terminal. */
   onMention: (text: string) => void;
+  /**
+   * Rows can be dragged onto a terminal pane (main window only; the detached panel has no
+   * panes). Without it, rows do not drag.
+   */
+  onDragMention?: (drag: MentionDrag) => void;
 }
 
 /**
@@ -161,7 +194,97 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
 
   useEffect(() => loader.onBusy(setRefreshing), [loader]);
 
-  const rows = useMemo(() => visibleRows(state), [state]);
+  // Filter: what the tree has read answers at once, the full index (read once per filter) when
+  // it is in.
+  const [query, setQuery] = useState("");
+  const [indexLoad, setIndexLoad] = useState<IndexLoad>({ kind: "idle" });
+  const filtering = query.trim() !== "";
+  const filterInput = useRef<HTMLInputElement>(null);
+  /** Goes up whenever the index is dropped: an answer to an older request is ignored. */
+  const indexRequest = useRef(0);
+  /** Starting a filter, or a refresh while one runs, reads the index. */
+  const readIndex = () => {
+    const mine = (indexRequest.current += 1);
+    setIndexLoad({ kind: "loading" });
+    api
+      .listSessionPaths(session.id)
+      .then((value) => {
+        if (mine !== indexRequest.current) return;
+        const index = parsePathIndex(value);
+        setIndexLoad(index === null ? { kind: "failed" } : { kind: "ready", index });
+      })
+      .catch(() => {
+        if (mine === indexRequest.current) setIndexLoad({ kind: "failed" });
+      });
+  };
+  /** The filter field shows while it holds text or has the focus; otherwise only its button. */
+  const [filterOpen, setFilterOpen] = useState(false);
+  /** The next render focuses the field (it was just opened and is not in the DOM yet). */
+  const focusFilterNext = useRef(false);
+  useEffect(() => {
+    if (!focusFilterNext.current || filterInput.current === null) return;
+    focusFilterNext.current = false;
+    filterInput.current.focus();
+  });
+  const openFilter = () => {
+    if (filterInput.current !== null) {
+      filterInput.current.focus();
+      return;
+    }
+    focusFilterNext.current = true;
+    setFilterOpen(true);
+  };
+  const changeQuery = (next: string) => {
+    const was = query.trim() !== "";
+    const now = next.trim() !== "";
+    setQuery(next);
+    // Cleared from outside the field (reveal, Escape on the tree): the field closes.
+    if (next === "" && document.activeElement !== filterInput.current) setFilterOpen(false);
+    if (!now) {
+      // Dropped with the filter: the next one reads the folder as it is then.
+      indexRequest.current += 1;
+      setIndexLoad({ kind: "idle" });
+    } else if (!was) {
+      readIndex();
+    }
+  };
+  // Keyed on the folders, not the whole state: moving the focus must not filter again.
+  const folders = state.folders;
+  const source = useMemo(() => {
+    if (!filtering) return null;
+    return indexLoad.kind === "ready" ? indexLoad.index.entries : loadedPaths({ folders });
+  }, [filtering, indexLoad, folders]);
+  const filtered = useMemo(
+    () => (source === null ? null : filterTree(source, query)),
+    [source, query],
+  );
+  const rows: TreeRow[] = useMemo(() => filtered?.rows ?? visibleRows(state), [filtered, state]);
+
+  /** A row revealed from the filter takes the focus once it shows (its folders may still load). */
+  const revealFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const pending = revealFocus.current;
+    if (pending === null) return;
+    const element = items.current.get(pending);
+    if (!element) return;
+    revealFocus.current = null;
+    element.focus();
+    element.scrollIntoView({ block: "nearest" });
+  }, [rows]);
+
+  /** Clears the filter and shows `path` in the whole tree, its folders open. */
+  const reveal = (path: string, folder: boolean) => {
+    for (const each of revealFolders(path, folder)) expand(each);
+    changeQuery("");
+    dispatch({ type: "focus", path });
+    revealFocus.current = path;
+    // A folder that never shows (it failed to load) must not take the focus much later.
+    window.setTimeout(() => {
+      if (revealFocus.current === path) revealFocus.current = null;
+    }, REVEAL_FOCUS_MS);
+  };
+
+  const { canDrag, startDrag, justDropped, ghost, ghostRef } = useRowDrag(props.onDragMention);
   const windows = folderKeyOf(state.root ?? session.cwd).windows;
   const marks = useMemo(() => {
     const overlaps = claims.overlaps
@@ -209,8 +332,25 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
-    if (event.ctrlKey || event.altKey || event.metaKey) return;
-    const step = treeStep(rows, tabStop, event.key);
+    const modifiers = event.ctrlKey || event.altKey || event.metaKey;
+    // Typing on the tree filters it: the character goes into the filter field.
+    if (startsFilter(event.key, modifiers)) {
+      event.preventDefault();
+      changeQuery(query + event.key);
+      openFilter();
+      return;
+    }
+    if (event.key === "Escape" && filtering) {
+      event.preventDefault();
+      const row = itemRows.find((item) => item.path === tabStop);
+      if (row) reveal(row.path, false);
+      else changeQuery("");
+      return;
+    }
+    if (modifiers) return;
+    const step = filtering
+      ? filteredStep(rows, tabStop, event.key)
+      : treeStep(rows, tabStop, event.key);
     if (step === null) return;
     event.preventDefault();
     switch (step.kind) {
@@ -229,13 +369,53 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       case "collapse":
         dispatch({ type: "collapse", path: step.path });
         break;
+      case "reveal":
+        reveal(step.path, true);
+        break;
       case "none":
         break;
     }
   };
 
+  const onFilterKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (query !== "") {
+        changeQuery("");
+        return;
+      }
+      // Empty: the field closes and the tree takes the focus back.
+      setFilterOpen(false);
+      const row = tabStop === null ? null : items.current.get(tabStop);
+      (row ?? panel.current)?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "Enter") {
+      // Into the results: the first match (or the tree's first row).
+      const first = itemRows.find((row) => row.context !== true) ?? itemRows[0];
+      if (first === undefined) return;
+      event.preventDefault();
+      wantFocus.current = true;
+      dispatch({ type: "focus", path: first.path });
+      // Already focused in the state: the effect does not run, so focus the row here.
+      if (state.focused === first.path) items.current.get(first.path)?.focus();
+    }
+  };
+
   const root = state.folders.get("");
   const title = folderName(state.root ?? session.cwd);
+  const filterNote =
+    filtered === null
+      ? null
+      : filtered.matched === 0
+        ? indexLoad.kind === "loading"
+          ? t("files.filterSearching")
+          : t("files.filterNone")
+        : filtered.matched > filtered.rows.filter((row) => row.context !== true).length
+          ? t("files.filterMore")
+          : indexLoad.kind === "ready" && indexLoad.index.truncated
+            ? t("files.filterPartial")
+            : null;
   return (
     <div ref={panel} tabIndex={-1} className="changes files">
       <div className="changes-header">
@@ -251,9 +431,20 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
           title={t("changes.refresh")}
           onClick={() => {
             loader.refresh(stateRef.current);
+            if (filtering) readIndex();
           }}
         >
           <RestartIcon />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={t("files.filter")}
+          title={t("files.filter")}
+          aria-expanded={filterOpen || query !== ""}
+          onClick={openFilter}
+        >
+          <SearchIcon />
         </button>
         <button
           type="button"
@@ -269,16 +460,64 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
           <RevealFolderIcon />
         </button>
       </div>
+      {(filterOpen || query !== "") && (
+        <div className="files-filter">
+          <span className="files-filter-icon" aria-hidden="true">
+            <SearchIcon size={13} />
+          </span>
+          <input
+            ref={filterInput}
+            type="text"
+            className="files-filter-input"
+            value={query}
+            placeholder={t("files.filter")}
+            aria-label={t("files.filter")}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => {
+              changeQuery(event.target.value);
+            }}
+            onKeyDown={onFilterKeyDown}
+            onBlur={(event) => {
+              // Leaving an empty field closes it; the clear button inside keeps it open.
+              const into = event.relatedTarget;
+              if (into instanceof Node && event.currentTarget.parentElement?.contains(into)) {
+                return;
+              }
+              if (event.currentTarget.value === "") setFilterOpen(false);
+            }}
+          />
+          {query !== "" && (
+            <button
+              type="button"
+              className="files-filter-clear"
+              aria-label={t("files.filterClear")}
+              title={t("files.filterClear")}
+              onClick={() => {
+                changeQuery("");
+                filterInput.current?.focus();
+              }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          )}
+        </div>
+      )}
       {openError !== null && (
         <p className="changes-message error-text selectable" role="alert">
           {openError}
         </p>
       )}
-      {root?.kind === "failed" ? (
+      {filterNote !== null && (
+        <p className="changes-message files-filter-note" role="status">
+          {filterNote}
+        </p>
+      )}
+      {!filtering && root?.kind === "failed" ? (
         <p className="changes-message error-text selectable" role="alert">
           {t("files.failed", { error: root.message })}
         </p>
-      ) : root === undefined || root.kind === "loading" ? (
+      ) : !filtering && (root === undefined || root.kind === "loading") ? (
         <p className="changes-message" role="status">
           {t("changes.loading")}
         </p>
@@ -301,28 +540,153 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 fileMark={marks.files.get(treeKey(row.path, windows)) ?? null}
                 folderMark={marks.folders.get(treeKey(row.path, windows)) ?? null}
                 nameOf={nameOf}
+                canDrag={canDrag}
                 setRef={(element) => {
                   if (element) items.current.set(row.path, element);
                   else items.current.delete(row.path);
                 }}
                 onClick={() => {
+                  if (justDropped()) return;
                   dispatch({ type: "focus", path: row.path });
-                  if (row.entry.kind === "dir") toggle(row);
+                  if (row.entry.kind !== "dir") return;
+                  // In the filtered tree a folder does not fold: it shows in the whole tree.
+                  if (filtering) reveal(row.path, true);
+                  else toggle(row);
                 }}
                 onOpen={() => {
                   openFile(row.path);
                 }}
                 onMention={() => {
                   dispatch({ type: "focus", path: row.path });
-                  props.onMention(mentionText(row.path, row.entry.kind === "dir"));
+                  props.onMention(rowMention(row));
+                }}
+                onPointerDown={(event) => {
+                  startDrag(event, row);
                 }}
               />
             ),
           )}
         </ul>
       )}
+      {ghost !== null &&
+        // On the body: a transformed panel would otherwise carry the fixed ghost along.
+        createPortal(
+          <div
+            ref={ghostRef}
+            className="tree-drag-ghost"
+            aria-hidden="true"
+            style={{
+              transform: `translate(${String(ghost.x)}px, ${String(ghost.y)}px)`,
+            }}
+          >
+            {revealInvisible(ghost.text)}
+          </div>,
+          document.body,
+        )}
     </div>
   );
+}
+
+/** Offset of the dragged mention from the pointer, so it never hides the drop point. */
+const GHOST_OFFSET_X = 14;
+const GHOST_OFFSET_Y = 16;
+
+/**
+ * Dragging tree rows onto a terminal pane, with pointer events: Tauri's native file drop owns
+ * HTML5 drag and drop in the window (see useSessionDrag.ts). The drag starts beyond the usual
+ * threshold, so a click or a double click stays one; while it runs the row holds the pointer
+ * capture, so no terminal sees mouse motion with a pressed button. Without a drop target (the
+ * detached panel window) nothing drags.
+ */
+function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
+  const [ghost, setGhost] = useState<{ text: string; x: number; y: number } | null>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  /** Set from the drop until the click that follows it has passed. */
+  const dropped = useRef(false);
+  /** Ends a running drag; called when the panel goes away. */
+  const stop = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      stop.current?.();
+    },
+    [],
+  );
+  const startDrag = (event: React.PointerEvent<HTMLElement>, row: ItemRow) => {
+    if (onDrag === undefined) return;
+    if (event.button !== 0 || !event.isPrimary || stop.current !== null) return;
+    const element = event.currentTarget;
+    const pointer = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const text = rowMention(row);
+    let active = false;
+
+    const finish = (phase: "drop" | "cancel", x: number, y: number) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key, true);
+      stop.current = null;
+      if (element.hasPointerCapture(pointer)) element.releasePointerCapture(pointer);
+      if (!active) return;
+      setGhost(null);
+      dropped.current = true;
+      window.setTimeout(() => {
+        dropped.current = false;
+      }, 0);
+      onDrag({ phase, x, y, text });
+    };
+    const move = (moved: PointerEvent) => {
+      if (moved.pointerId !== pointer) return;
+      if (!active) {
+        if (!beyondThreshold(moved.clientX - startX, moved.clientY - startY)) return;
+        active = true;
+        try {
+          element.setPointerCapture(pointer);
+        } catch {
+          // The pointer is already gone; the drag ends with its pointerup or pointercancel.
+        }
+        setGhost({
+          text: text.trim(),
+          x: moved.clientX + GHOST_OFFSET_X,
+          y: moved.clientY + GHOST_OFFSET_Y,
+        });
+      }
+      const node = ghostRef.current;
+      if (node) {
+        node.style.transform = `translate(${String(moved.clientX + GHOST_OFFSET_X)}px, ${String(moved.clientY + GHOST_OFFSET_Y)}px)`;
+      }
+      onDrag({ phase: "move", x: moved.clientX, y: moved.clientY, text });
+    };
+    const up = (released: PointerEvent) => {
+      if (released.pointerId === pointer) finish("drop", released.clientX, released.clientY);
+    };
+    const cancel = (lost: PointerEvent) => {
+      if (lost.pointerId === pointer) finish("cancel", lost.clientX, lost.clientY);
+    };
+    const key = (pressed: KeyboardEvent) => {
+      if (pressed.key !== "Escape" || !active) return;
+      pressed.preventDefault();
+      pressed.stopPropagation();
+      finish("cancel", startX, startY);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key, true);
+    stop.current = () => {
+      finish("cancel", startX, startY);
+    };
+  };
+
+  return {
+    canDrag: onDrag !== undefined,
+    startDrag,
+    ghost,
+    ghostRef,
+    /** The click after a drop belongs to the drag, not to the row. */
+    justDropped: () => dropped.current,
+  };
 }
 
 /**
@@ -463,12 +827,15 @@ function TreeItem(props: {
   fileMark: FileMark | null;
   folderMark: FolderMark | null;
   nameOf: (id: number) => string;
+  /** Rows can be dragged onto a terminal. */
+  canDrag: boolean;
   setRef: (element: HTMLLIElement | null) => void;
   onClick: () => void;
   /** Double click on a file: show it in the viewer. */
   onOpen: () => void;
   /** Right click: the row's path as an @ mention into the terminal. */
   onMention: () => void;
+  onPointerDown: (event: React.PointerEvent<HTMLLIElement>) => void;
 }) {
   const { row, focused, selected, fileMark, folderMark, nameOf, setRef, onClick, onOpen } = props;
   const t = useT();
@@ -477,6 +844,7 @@ function TreeItem(props: {
   const className = [
     "tree-item",
     row.entry.ignored ? "ignored" : "",
+    row.context === true ? "context" : "",
     selected ? "selected" : "",
     onChangePath(kind, fileMark, folderMark) ? "on-path" : "",
   ]
@@ -485,6 +853,7 @@ function TreeItem(props: {
   const tooltip = [revealInvisible(row.path), ...notes];
   if (kind === "file") tooltip.push(t("files.openHint"));
   tooltip.push(t("files.mentionHint"));
+  if (props.canDrag) tooltip.push(t("files.dragHint"));
   return (
     <li
       ref={setRef}
@@ -503,6 +872,7 @@ function TreeItem(props: {
         event.preventDefault();
         props.onMention();
       }}
+      onPointerDown={props.onPointerDown}
     >
       <span
         className="tree-indent"

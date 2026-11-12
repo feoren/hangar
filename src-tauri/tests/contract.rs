@@ -25,7 +25,12 @@ fn build_commands() -> Vec<String> {
 /// Commands granted to the side panel window and to no other window.
 const PANEL_WINDOW_ONLY: &[&str] = &["panel_to_main", "set_panel_on_top"];
 /// Commands granted to the file viewer windows and to no other window.
-const FILE_VIEWER_ONLY: &[&str] = &["file_viewer_content"];
+const FILE_VIEWER_ONLY: &[&str] = &[
+    "file_viewer_content",
+    "file_viewer_stamp",
+    "file_viewer_diff",
+    "file_viewer_open_link",
+];
 
 #[test]
 fn commands_are_registered_allowed_and_wired() {
@@ -171,6 +176,7 @@ fn panel_window_capability_is_narrow() {
         "allow-git-log",
         "allow-git-commit-diff",
         "allow-list-session-folder",
+        "allow-list-session-paths",
         "allow-reveal-session-folder",
         "allow-open-file-viewer",
         "allow-panel-to-main",
@@ -232,6 +238,9 @@ fn file_viewer_capability_is_narrow() {
         permissions,
         [
             "allow-file-viewer-content",
+            "allow-file-viewer-diff",
+            "allow-file-viewer-open-link",
+            "allow-file-viewer-stamp",
             "clipboard-manager:allow-write-text",
             "core:event:allow-listen",
             "core:event:allow-unlisten",
@@ -249,5 +258,8 @@ fn file_viewer_capability_is_narrow() {
     assert!(main.contains("\"allow-open-file-viewer\""));
     let panel = read("capabilities/panel.json");
     assert!(panel.contains("\"allow-open-file-viewer\""));
-    assert!(!panel.contains("file-viewer-content"));
+    for command in FILE_VIEWER_ONLY {
+        let permission = format!("allow-{}", command.replace('_', "-"));
+        assert!(!panel.contains(&permission), "{permission} in panel.json");
+    }
 }

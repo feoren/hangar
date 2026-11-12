@@ -365,6 +365,11 @@ export const api = {
    */
   listSessionFolder: (id: number, relative: string) =>
     invoke<unknown>("list_session_folder", { id, relative }),
+  /**
+   * Every path below the session's folder for the tree's filter, bounded (20,000 paths, depth,
+   * time) and without ignored files in a repository. Check with `parsePathIndex`.
+   */
+  listSessionPaths: (id: number) => invoke<unknown>("list_session_paths", { id }),
   /** Opens the session's folder in Explorer, Finder or the file manager; the backend finds it. */
   revealSessionFolder: (id: number) => invoke<null>("reveal_session_folder", { id }),
   /**
@@ -379,6 +384,12 @@ export const api = {
    * rejects with a text when the file is gone or cannot be read.
    */
   fileViewerContent: () => invoke<unknown>("file_viewer_content"),
+  /** Viewer window only: size and change time of its file; check with `parseFileStamp`. */
+  fileViewerStamp: () => invoke<unknown>("file_viewer_stamp"),
+  /** Viewer window only: its file against the last commit; check with `parseHeadDiff`. */
+  fileViewerDiff: () => invoke<unknown>("file_viewer_diff"),
+  /** Viewer window only: opens an http(s) link of the Markdown preview in the browser. */
+  fileViewerOpenLink: (url: string) => invoke<null>("file_viewer_open_link", { url }),
   /** New branch `hangar/<slug>` and worktree for a session; check with `parseWorktree`. */
   createWorktree: (cwd: string, label: string) =>
     invoke<unknown>("create_worktree", { cwd, label }),
@@ -550,6 +561,42 @@ export function parseFolderListing(value: unknown): FolderListing | null {
   };
 }
 
+/** One path of `list_session_paths` (Rust: `IndexEntry` in file_tree.rs). */
+export interface PathEntry {
+  /** `/` separated below the session's folder, as the tree names it. */
+  path: string;
+  kind: FolderEntryKind;
+}
+
+/** Answer of `list_session_paths` (Rust: `PathIndex` in file_tree.rs). */
+export interface PathIndex {
+  entries: PathEntry[];
+  /** Cut at a limit: some paths are missing. */
+  truncated: boolean;
+}
+
+function pathEntry(value: unknown): PathEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  const path: unknown = Reflect.get(value, "path");
+  const kind: unknown = Reflect.get(value, "kind");
+  if (typeof path !== "string" || path === "" || path.startsWith("/") || path.endsWith("/")) {
+    return null;
+  }
+  if (kind !== "dir" && kind !== "file" && kind !== "symlink") return null;
+  return { path, kind };
+}
+
+/** Answer of `list_session_paths`; `null` if malformed. Malformed entries are left out. */
+export function parsePathIndex(value: unknown): PathIndex | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const entries: unknown = Reflect.get(value, "entries");
+  if (!Array.isArray(entries)) return null;
+  return {
+    entries: entries.map(pathEntry).filter((entry): entry is PathEntry => entry !== null),
+    truncated: Reflect.get(value, "truncated") === true,
+  };
+}
+
 /** Answer of `file_viewer_content` (Rust: `FileContent` in file_viewer.rs). */
 export interface FileContent {
   /** The file name. */
@@ -566,6 +613,84 @@ export interface FileContent {
   truncated: boolean;
   /** A NUL byte within the first 8 KiB. */
   binary: boolean;
+  /** Last change on disk in milliseconds since 1970; `null` where unknown. */
+  modified: number | null;
+  /** The picture of a PNG, JPEG, GIF, WebP or SVG file whose content matches its name. */
+  image: ImageData | null;
+  /** An image larger than 8 MiB: not handed over. */
+  imageTooLarge: boolean;
+}
+
+const IMAGE_MIMES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+] as const;
+export type ImageMime = (typeof IMAGE_MIMES)[number];
+
+/** An image for `<img src="data:...">`; never inserted as markup, an SVG neither. */
+export interface ImageData {
+  mime: ImageMime;
+  /** Base64. */
+  data: string;
+}
+
+function isImageMime(value: unknown): value is ImageMime {
+  return IMAGE_MIMES.some((mime) => mime === value);
+}
+
+function imageData(value: unknown): ImageData | null {
+  if (typeof value !== "object" || value === null) return null;
+  const mime: unknown = Reflect.get(value, "mime");
+  const data: unknown = Reflect.get(value, "data");
+  if (!isImageMime(mime) || typeof data !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) {
+    return null;
+  }
+  return { mime, data };
+}
+
+/** Answer of `file_viewer_stamp` (Rust: `FileStamp`). */
+export interface FileStamp {
+  modified: number | null;
+  size: number;
+}
+
+/** Answer of `file_viewer_stamp`; `null` if malformed. */
+export function parseFileStamp(value: unknown): FileStamp | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const modified: unknown = Reflect.get(value, "modified");
+  const size: unknown = Reflect.get(value, "size");
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return null;
+  if (modified !== null && (typeof modified !== "number" || !Number.isSafeInteger(modified))) {
+    return null;
+  }
+  return { modified, size };
+}
+
+/** How the file stands against the last commit (Rust: `DiffState`). */
+export type DiffState = "notRepo" | "noHead" | "notInHead" | "same" | "changed";
+
+/** Answer of `file_viewer_diff` (Rust: `HeadDiff`). */
+export interface HeadDiff {
+  state: DiffState;
+  /** Unified diff, empty unless `changed`. */
+  diff: string;
+  /** Cut at 2 MiB on a whole line. */
+  truncated: boolean;
+}
+
+const DIFF_STATES: readonly DiffState[] = ["notRepo", "noHead", "notInHead", "same", "changed"];
+
+/** Answer of `file_viewer_diff`; `null` if malformed. */
+export function parseHeadDiff(value: unknown): HeadDiff | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const state: unknown = Reflect.get(value, "state");
+  const diff: unknown = Reflect.get(value, "diff");
+  const found = DIFF_STATES.find((known) => known === state);
+  if (found === undefined || typeof diff !== "string") return null;
+  return { state: found, diff, truncated: Reflect.get(value, "truncated") === true };
 }
 
 /** Answer of `file_viewer_content`; `null` if malformed. */
@@ -585,7 +710,22 @@ export function parseFileContent(value: unknown): FileContent | null {
   if (text !== null && typeof text !== "string") return null;
   // A binary file never carries text; text never comes without being decoded.
   if (binary !== (text === null)) return null;
-  return { name, path, relativePath, size, text, truncated, binary };
+  const modified: unknown = Reflect.get(value, "modified");
+  const rawImage: unknown = Reflect.get(value, "image");
+  const image = rawImage === null || rawImage === undefined ? null : imageData(rawImage);
+  if (image === null && rawImage !== null && rawImage !== undefined) return null;
+  return {
+    name,
+    path,
+    relativePath,
+    size,
+    text,
+    truncated,
+    binary,
+    modified: typeof modified === "number" && Number.isSafeInteger(modified) ? modified : null,
+    image,
+    imageTooLarge: Reflect.get(value, "imageTooLarge") === true,
+  };
 }
 
 /** Result of `export_session`: the path written, `null` when cancelled. */

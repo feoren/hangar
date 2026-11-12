@@ -671,7 +671,7 @@ impl GitDiff {
     }
 }
 
-const DIFF_ARGS: &[&str] = &[
+pub(crate) const DIFF_ARGS: &[&str] = &[
     "diff",
     "--no-color",
     "--no-ext-diff",

@@ -47,6 +47,20 @@ const MAX_SCANNED: usize = 100_000;
 const MAX_IGNORE_OUTPUT: usize = 4 * 1024 * 1024;
 const GIT_DIR_NAME: &str = ".git";
 
+/// Paths handed to the tree's filter at most ([`FileTree::index`]); the rest is cut and
+/// `truncated` set, so a huge folder cannot flood the window.
+pub const MAX_INDEX_ENTRIES: usize = 20_000;
+/// Folder levels the index walks down outside a repository.
+const MAX_INDEX_DEPTH: usize = 16;
+/// Entries the walk outside a repository reads at most, including the ones it does not keep.
+const MAX_INDEX_SCANNED: usize = 200_000;
+/// Time the index may take; beyond this it is cut and `truncated` set.
+const INDEX_TIME: Duration = Duration::from_secs(5);
+/// Output of `git ls-files` for the index: about 200 bytes per path.
+const MAX_LS_FILES_OUTPUT: usize = 8 * 1024 * 1024;
+/// The in-flight key of an index; no folder path can spell it (it holds a NUL).
+pub const INDEX_FLIGHT_KEY: &str = "\0index";
+
 #[derive(Debug, thiserror::Error)]
 pub enum FileTreeError {
     #[error("Unknown session {0}")]
@@ -104,6 +118,25 @@ pub struct FolderListing {
     pub repo_root: Option<String>,
     pub entries: Vec<FolderEntry>,
     /// More than [`MAX_ENTRIES`] entries; only the first ones in sort order are listed.
+    pub truncated: bool,
+}
+
+/// One path of [`PathIndex`]: `/` separated below the root, as the tree names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexEntry {
+    pub path: String,
+    pub kind: EntryKind,
+}
+
+/// Every path below a session's folder the tree's filter searches: in a repository the files git
+/// tracks or would track (ignored ones left out, as the tree marks them), elsewhere a bounded
+/// walk. Folders come before their contents only by chance; the window sorts what it shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathIndex {
+    pub entries: Vec<IndexEntry>,
+    /// Cut at [`MAX_INDEX_ENTRIES`], the depth or the time limit: some paths are missing.
     pub truncated: bool,
 }
 
@@ -274,6 +307,32 @@ impl FileTree {
         })
     }
 
+    /// Every path below `root` for the tree's filter ([`PathIndex`]). In a repository whose top
+    /// level git confirmed, `git ls-files` names the files (ignored ones left out, as the tree
+    /// marks them), their folders follow from the paths; without git, outside a repository or
+    /// when git fails, a bounded walk that never enters a link reads the folders.
+    pub fn index(&self, root: &Path, git: Option<&Git>) -> Result<PathIndex, FileTreeError> {
+        self.index_limited(root, git, MAX_INDEX_ENTRIES)
+    }
+
+    fn index_limited(
+        &self,
+        root: &Path,
+        git: Option<&Git>,
+        limit: usize,
+    ) -> Result<PathIndex, FileTreeError> {
+        let (root, _) = resolve(root, "")?;
+        let deadline = Instant::now() + INDEX_TIME;
+        if let Some(git) = git {
+            if self.top_level(git, &root).is_some() {
+                if let Some(index) = git_index(git, &root, deadline, limit) {
+                    return Ok(index);
+                }
+            }
+        }
+        walk_index(&root, deadline, limit)
+    }
+
     /// git's top level for `root` with the work tree checks of [`git::toplevel`], resolved like
     /// the root so the window can strip one from the other; `None` outside a repository or when
     /// git refuses or fails. Reused for [`TOP_LEVEL_TTL`].
@@ -437,6 +496,189 @@ fn mark_ignored(git: &Git, folder: &Path, entries: &mut [FolderEntry]) {
     for entry in entries {
         entry.ignored = ignored.contains(entry.name.as_bytes());
     }
+}
+
+/// The index from `git ls-files` in `root`: tracked and untracked files that are not ignored,
+/// relative to `root` and limited to it. `None` when git fails, so the caller walks instead.
+fn git_index(git: &Git, root: &Path, deadline: Instant, limit: usize) -> Option<PathIndex> {
+    git::check_git_links(root).ok()?;
+    let output = git
+        .run(
+            root,
+            [
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            deadline,
+            MAX_LS_FILES_OUTPUT,
+        )
+        .ok()?;
+    if !output.usable() {
+        return None;
+    }
+    let mut index = index_from_paths(root, ls_files_records(&output.stdout), deadline, limit);
+    index.truncated |= output.truncated;
+    Some(index)
+}
+
+/// The paths of `git ls-files -z`. Every record ends with a NUL, so the last piece is empty, or
+/// the record the output limit cut; either way it is dropped.
+fn ls_files_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut pieces: Vec<&[u8]> = output.split(|b| *b == 0).collect();
+    pieces.pop();
+    pieces.into_iter().filter(|piece| !piece.is_empty())
+}
+
+/// Index entries for paths git named: each folder on the way once, then the path itself with its
+/// kind from the file system. A path that is gone (deleted, not yet committed as such) is left
+/// out, as is one the tree could not name (not UTF-8, `\`, `:`, `.git`).
+fn index_from_paths<'a>(
+    root: &Path,
+    paths: impl Iterator<Item = &'a [u8]>,
+    deadline: Instant,
+    limit: usize,
+) -> PathIndex {
+    let mut seen = HashSet::new();
+    let mut plain_folders: HashMap<PathBuf, bool> = HashMap::new();
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    let mut push = |entries: &mut Vec<IndexEntry>, path: &str, kind: EntryKind| -> bool {
+        if !seen.insert(path.to_owned()) {
+            return true;
+        }
+        if entries.len() >= limit {
+            return false;
+        }
+        entries.push(IndexEntry {
+            path: path.to_owned(),
+            kind,
+        });
+        true
+    };
+    'paths: for raw in paths {
+        if Instant::now() >= deadline {
+            truncated = true;
+            break;
+        }
+        let Ok(text) = std::str::from_utf8(raw) else {
+            continue;
+        };
+        // An untracked folder git did not enter (a nested repository) ends in `/`.
+        let (text, folder) = match text.strip_suffix('/') {
+            Some(rest) => (rest, true),
+            None => (text, false),
+        };
+        let Ok(parts) = segments(text) else { continue };
+        if parts.is_empty() {
+            continue;
+        }
+        // Behind a link or junction on the way (git lists untracked files inside a junction):
+        // left out, as the tree never enters links. Each folder is looked at once.
+        let mut folder_path = root.to_path_buf();
+        for part in &parts[..parts.len() - 1] {
+            folder_path.push(part);
+            let plain = *plain_folders.entry(folder_path.clone()).or_insert_with(|| {
+                fs::symlink_metadata(&folder_path)
+                    .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+            });
+            if !plain {
+                continue 'paths;
+            }
+        }
+        let mut on_disk = root.to_path_buf();
+        on_disk.extend(&parts);
+        let kind = match fs::symlink_metadata(&on_disk) {
+            Err(_) => continue,
+            Ok(meta) if meta.file_type().is_symlink() => EntryKind::Symlink,
+            Ok(meta) if meta.is_dir() || folder => EntryKind::Dir,
+            Ok(_) => EntryKind::File,
+        };
+        for (at, _) in text.match_indices('/') {
+            if !push(&mut entries, &text[..at], EntryKind::Dir) {
+                truncated = true;
+                break 'paths;
+            }
+        }
+        if !push(&mut entries, text, kind) {
+            truncated = true;
+            break;
+        }
+    }
+    PathIndex { entries, truncated }
+}
+
+/// The index outside a repository: breadth first, so a cut keeps the upper levels; links are
+/// listed, never entered; `.git` is left out.
+fn walk_index(root: &Path, deadline: Instant, limit: usize) -> Result<PathIndex, FileTreeError> {
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    let mut scanned = 0usize;
+    let mut queue = std::collections::VecDeque::from([(String::new(), 0usize)]);
+    'walk: while let Some((relative, depth)) = queue.pop_front() {
+        let mut folder = root.to_path_buf();
+        if !relative.is_empty() {
+            folder.extend(relative.split('/'));
+            // Swapped for a link since it was listed: not entered.
+            match fs::symlink_metadata(&folder) {
+                Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {}
+                _ => continue,
+            }
+        }
+        let read = match fs::read_dir(&folder) {
+            Ok(read) => read,
+            Err(error) if relative.is_empty() => return Err(FileTreeError::Io(error)),
+            Err(_) => continue,
+        };
+        let mut children = Vec::new();
+        for entry in read {
+            scanned += 1;
+            if scanned > MAX_INDEX_SCANNED || Instant::now() >= deadline {
+                truncated = true;
+                break 'walk;
+            }
+            let Ok(entry) = entry else { continue };
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if segments(name).is_err() {
+                continue;
+            }
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let kind = if file_type.is_symlink() {
+                EntryKind::Symlink
+            } else if file_type.is_dir() {
+                EntryKind::Dir
+            } else {
+                EntryKind::File
+            };
+            children.push((name.to_owned(), kind));
+        }
+        children.sort_by(|a, b| natural_cmp(&a.0, &b.0));
+        for (name, kind) in children {
+            if entries.len() >= limit {
+                truncated = true;
+                break 'walk;
+            }
+            let path = if relative.is_empty() {
+                name
+            } else {
+                format!("{relative}/{name}")
+            };
+            if kind == EntryKind::Dir {
+                if depth + 1 < MAX_INDEX_DEPTH {
+                    queue.push_back((path.clone(), depth + 1));
+                } else {
+                    truncated = true;
+                }
+            }
+            entries.push(IndexEntry { path, kind });
+        }
+    }
+    Ok(PathIndex { entries, truncated })
 }
 
 /// `\\?\C:\x` from `canonicalize` as `C:\x`, `\\?\UNC\host\share` as `\\host\share`.
@@ -845,6 +1087,145 @@ mod tests {
         let listing = list(dir.path(), "", Some(&git)).unwrap();
         assert!(entry(&listing, ":odd").ignored);
         assert!(!entry(&listing, ":(glob)*").ignored);
+    }
+
+    fn index_paths(index: &PathIndex) -> Vec<(&str, EntryKind)> {
+        let mut paths: Vec<(&str, EntryKind)> = index
+            .entries
+            .iter()
+            .map(|e| (e.path.as_str(), e.kind))
+            .collect();
+        paths.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        paths
+    }
+
+    #[test]
+    fn index_walks_folders_without_git() {
+        let dir = TempDir::new("file-tree-index-walk");
+        fs::create_dir_all(dir.path().join(".git/objects")).unwrap();
+        fs::create_dir_all(dir.path().join("src/deep/er")).unwrap();
+        fs::write(dir.path().join("README.md"), "x").unwrap();
+        fs::write(dir.path().join("src/main.rs"), "x").unwrap();
+        fs::write(dir.path().join("src/deep/er/x.txt"), "x").unwrap();
+        let index = FileTree::default().index(dir.path(), None).unwrap();
+        assert!(!index.truncated);
+        assert_eq!(
+            index_paths(&index),
+            [
+                ("README.md", EntryKind::File),
+                ("src", EntryKind::Dir),
+                ("src/deep", EntryKind::Dir),
+                ("src/deep/er", EntryKind::Dir),
+                ("src/deep/er/x.txt", EntryKind::File),
+                ("src/main.rs", EntryKind::File),
+            ]
+        );
+        // Breadth first: a cut keeps the upper levels.
+        let cut = FileTree::default()
+            .index_limited(dir.path(), None, 2)
+            .unwrap();
+        assert!(cut.truncated);
+        assert_eq!(
+            index_paths(&cut),
+            [("README.md", EntryKind::File), ("src", EntryKind::Dir)]
+        );
+        let late = walk_index(dir.path(), Instant::now(), 100).unwrap();
+        assert!(late.truncated);
+        assert!(late.entries.is_empty());
+    }
+
+    #[test]
+    fn index_never_enters_links() {
+        let outside = TempDir::new("file-tree-index-outside");
+        fs::write(outside.path().join("secret.txt"), "x").unwrap();
+        let dir = TempDir::new("file-tree-index-links");
+        if !link_dir(outside.path(), &dir.path().join("out")) {
+            eprintln!("symlinks cannot be created here, skipping");
+            return;
+        }
+        let index = FileTree::default().index(dir.path(), None).unwrap();
+        assert_eq!(index_paths(&index), [("out", EntryKind::Symlink)]);
+    }
+
+    #[test]
+    fn index_of_a_repository_leaves_ignored_files_out() {
+        let Some(git) = git() else { return };
+        let dir = TempDir::new("file-tree-index-git");
+        let repo = dir.path().join("repo");
+        init_repo(&git, &repo);
+        fs::write(repo.join(".gitignore"), "build/\n*.log\n").unwrap();
+        fs::create_dir_all(repo.join("build")).unwrap();
+        fs::create_dir_all(repo.join("src/a b")).unwrap();
+        fs::write(repo.join("build/out.bin"), "x").unwrap();
+        fs::write(repo.join("app.log"), "x").unwrap();
+        fs::write(repo.join("src/a b/lib.rs"), "x").unwrap();
+        fs::write(repo.join("gone.txt"), "x").unwrap();
+        git_ok(&git, &repo, &["add", "gone.txt", "src"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        fs::remove_file(repo.join("gone.txt")).unwrap();
+        fs::write(repo.join("new.txt"), "x").unwrap();
+
+        let tree = FileTree::default();
+        let index = tree.index(&repo, Some(&git)).unwrap();
+        assert!(!index.truncated);
+        assert_eq!(
+            index_paths(&index),
+            [
+                (".gitignore", EntryKind::File),
+                ("new.txt", EntryKind::File),
+                ("src", EntryKind::Dir),
+                ("src/a b", EntryKind::Dir),
+                ("src/a b/lib.rs", EntryKind::File),
+            ]
+        );
+        // From a subfolder: only what lies below it, relative to it.
+        let sub = tree.index(&repo.join("src"), Some(&git)).unwrap();
+        assert_eq!(
+            index_paths(&sub),
+            [("a b", EntryKind::Dir), ("a b/lib.rs", EntryKind::File)]
+        );
+        let cut = tree.index_limited(&repo, Some(&git), 1).unwrap();
+        assert!(cut.truncated);
+        assert_eq!(cut.entries.len(), 1);
+    }
+
+    /// git lists untracked files inside a junction as if it were a folder; the index leaves out
+    /// everything behind a link and keeps the link itself as one.
+    #[test]
+    fn index_leaves_out_paths_behind_links() {
+        let outside = TempDir::new("file-tree-index-behind-outside");
+        fs::write(outside.path().join("secret.txt"), "x").unwrap();
+        let dir = TempDir::new("file-tree-index-behind");
+        fs::create_dir_all(dir.path().join("real")).unwrap();
+        fs::write(dir.path().join("real/a.txt"), "x").unwrap();
+        if !link_dir(outside.path(), &dir.path().join("link")) {
+            eprintln!("folder links cannot be created here, skipping");
+            return;
+        }
+        let paths: [&[u8]; 3] = [b"real/a.txt", b"link/secret.txt", b"link"];
+        let index = index_from_paths(
+            dir.path(),
+            paths.into_iter(),
+            Instant::now() + Duration::from_secs(60),
+            100,
+        );
+        assert_eq!(
+            index_paths(&index),
+            [
+                ("link", EntryKind::Symlink),
+                ("real", EntryKind::Dir),
+                ("real/a.txt", EntryKind::File),
+            ]
+        );
+    }
+
+    #[test]
+    fn ls_files_records_drop_a_cut_last_record() {
+        let records: Vec<&[u8]> = ls_files_records(b"a\0b/c\0").collect();
+        assert_eq!(records, [b"a".as_slice(), b"b/c".as_slice()]);
+        let cut: Vec<&[u8]> = ls_files_records(b"a\0b/c").collect();
+        assert_eq!(cut, [b"a".as_slice()]);
+        assert_eq!(ls_files_records(b"").count(), 0);
     }
 
     #[test]

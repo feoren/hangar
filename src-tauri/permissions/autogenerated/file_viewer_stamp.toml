@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-file-viewer-stamp"
+description = "Enables the file_viewer_stamp command without any pre-configured scope."
+commands.allow = ["file_viewer_stamp"]
+
+[[permission]]
+identifier = "deny-file-viewer-stamp"
+description = "Denies the file_viewer_stamp command without any pre-configured scope."
+commands.deny = ["file_viewer_stamp"]
