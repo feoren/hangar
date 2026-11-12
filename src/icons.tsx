@@ -427,6 +427,17 @@ export function LinkIcon(props: IconProps) {
   );
 }
 
+/** A session's local dev server, opened in the browser. */
+export function GlobeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11" />
+      <path d="M8 2.5c1.6 1.6 2.4 3.4 2.4 5.5S9.6 11.9 8 13.5C6.4 11.9 5.6 10.1 5.6 8S6.4 4.1 8 2.5z" />
+    </Svg>
+  );
+}
+
 /** The right panel's Notes tab: a page with a pencil on it. */
 export function NotePencilIcon(props: IconProps) {
   return (

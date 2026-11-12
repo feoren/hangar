@@ -123,6 +123,15 @@ import {
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
 import { dropText, shellKind } from "./pathQuote";
+import { promptVerdict } from "./promptTitle";
+import { sessionLabels } from "./sessionLabel";
+import {
+  changedFileCount,
+  DONE_NOTICE_MS,
+  finishedWork,
+  offersDoneNotice,
+  type DoneNotice,
+} from "./doneNotice";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
 import { arrangedProfiles, resolveBadge, startableProfiles } from "./programPrefs";
@@ -470,6 +479,17 @@ export function App() {
   const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
   /** Clicked terminal link, for as long as its hint is shown. */
   const [link, setLink] = useState<{ url: string; copied: boolean } | null>(null);
+  /** Newest local dev server address per session, from its current process (devServer.ts). */
+  const [devServers, setDevServers] = useState<ReadonlyMap<number, string>>(() => new Map());
+  /** An agent session just finished with changed files in its folder (doneNotice.ts). */
+  const [doneNotice, setDoneNotice] = useState<DoneNotice | null>(null);
+  /**
+   * The done notice under the pointer or keyboard focus: it stays until let go. Held by identity,
+   * so a notice that vanished while held does not keep the next one.
+   */
+  const [heldDoneNotice, setHeldDoneNotice] = useState<DoneNotice | null>(null);
+  /** Whether the Changes tab shows in the right panel; read by the attention listener. */
+  const changesShownRef = useRef(false);
   /** Text from the app waiting for "Send anyway" (appPaste.ts); the answer goes to the ref. */
   const [pasteCheck, setPasteCheck] = useState<{ warning: PasteWarning; name: string } | null>(
     null,
@@ -1082,6 +1102,9 @@ export function App() {
   const notesShown = sideShown && layout.sideTab === "notes";
   const changesShown = sideShown && layout.sideTab === "changes";
   const filesShown = sideShown && layout.sideTab === "files";
+  useEffect(() => {
+    changesShownRef.current = changesShown;
+  });
 
   if (search !== null && search.sessionId !== state.activeId) setSearch(null);
 
@@ -1389,6 +1412,40 @@ export function App() {
     focusTerminal();
   };
 
+  /**
+   * An agent session stopped working: counts the changed files in its folder and offers them,
+   * unless they are on screen already or the session works again by the time git answers.
+   */
+  const offerDone = useCallback((id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
+    const profile = profilesRef.current.find((p) => p.id === session.profileId);
+    if (profile === undefined || shellKind(profile.command) !== "agent") return;
+    api
+      .gitDiff(session.cwd)
+      .then((answer) => {
+        const terminal = terminals.get(id);
+        const current = stateRef.current.sessions.find((s) => s.id === id);
+        if (terminal === undefined || current === undefined) return;
+        const count = changedFileCount(answer);
+        const offer = offersDoneNotice({
+          count,
+          sessionId: id,
+          state: terminal.attention.state,
+          activeId: activeIdRef.current,
+          changesShown: changesShownRef.current,
+        });
+        if (!offer) return;
+        // The name the sidebar shows: the folder for a session still named after its program.
+        const label = sessionLabels(
+          [current],
+          (profileId) => profilesRef.current.find((p) => p.id === profileId)?.name,
+        ).get(id);
+        setDoneNotice({ sessionId: id, title: label?.primary ?? current.title, count });
+      })
+      .catch(() => undefined);
+  }, []);
+
   /** Connects a terminal to its session ID: exit, attention, visibility. */
   const wire = useCallback(
     (terminal: SessionTerminal, id: number) => {
@@ -1411,6 +1468,42 @@ export function App() {
       terminal.onImagePasteFailed = () => {
         setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
       };
+      // An agent session is named after its first task, unless the user named it (promptTitle.ts).
+      terminal.onPromptLine = (line) => {
+        const session = stateRef.current.sessions.find((s) => s.id === id);
+        const profile = profilesRef.current.find((p) => p.id === session?.profileId);
+        // Placeholders and unknown programs wait: the shell kind decides, and it needs the profile.
+        if (session === undefined || profile === undefined || isPlaceholder(id)) return;
+        const verdict = promptVerdict(
+          {
+            title: session.title,
+            cwd: session.cwd,
+            kind: session.kind,
+            programNames: [profile.name, profile.id],
+            shell: shellKind(profile.command),
+          },
+          line,
+        );
+        if (verdict.kind === "wait") return;
+        terminal.onPromptLine = null;
+        if (verdict.kind === "stop") return;
+        api
+          .rename(id, verdict.title)
+          .then((info) => {
+            dispatch({ type: "updated", session: info });
+          })
+          // Not worth an error: the session keeps its name, the user can still rename it.
+          .catch(() => undefined);
+      };
+      terminal.onDevServer = (url) => {
+        setDevServers((current) => {
+          if ((current.get(id) ?? null) === url) return current;
+          const map = new Map(current);
+          if (url === null) map.delete(id);
+          else map.set(id, url);
+          return map;
+        });
+      };
       // Only state changes arrive here, never individual output chunks. A change of the reason
       // alone (a bell or an exit while already waiting) does not flash or notify again.
       let previous: AttentionState = "idle";
@@ -1426,6 +1519,12 @@ export function App() {
                 windowFocused: windowWatched(),
                 shown: shownRef.current.has(id),
               });
+        // Only work the user asked for: a program's start-up output (also on restore) is no task.
+        if (finishedWork(previous, next, reason) && terminal.takeTyped()) offerDone(id);
+        // New work makes the session's done notice stale.
+        if (next === "working") {
+          setDoneNotice((current) => (current?.sessionId === id ? null : current));
+        }
         previous = next;
         previousReason = reason;
         if (chime !== null) chimes.request(chime, settingsRef.current.chimeVolume);
@@ -1462,7 +1561,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher, chimes],
+    [flasher, chimes, offerDone],
   );
 
   /**
@@ -1893,6 +1992,13 @@ export function App() {
       terminals.delete(id);
       dispatch({ type: "removed", id });
       forgetAttention(id);
+      setDevServers((current) => {
+        if (!current.has(id)) return current;
+        const map = new Map(current);
+        map.delete(id);
+        return map;
+      });
+      setDoneNotice((current) => (current?.sessionId === id ? null : current));
       setRenamingId((current) => (current === id ? null : current));
       if (worktree) {
         // The process may still run in it (close failed), or another session works there: git
@@ -2242,6 +2348,18 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [startHint]);
+  // The done notice is a passing hint: it fades on its own (and on the session's next work), but
+  // not while the pointer or the keyboard is on it, so its button stays reachable.
+  const doneNoticeHeld = doneNotice !== null && heldDoneNotice === doneNotice;
+  useEffect(() => {
+    if (doneNotice === null || doneNoticeHeld) return;
+    const timer = window.setTimeout(() => {
+      setDoneNotice(null);
+    }, DONE_NOTICE_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [doneNotice, doneNoticeHeld]);
   useEffect(() => {
     if (updateResult?.tone !== "ok") return;
     const timer = window.setTimeout(() => {
@@ -2727,6 +2845,31 @@ export function App() {
       if (failed) showError(failed.reason);
     });
     focusActive();
+  };
+
+  /**
+   * The globe on a session row: its dev server in the default browser. Without the backend
+   * command (older backend) the address shows in the link notice to copy, as for terminal links.
+   */
+  const openDevServer = (id: number) => {
+    const url = devServers.get(id);
+    if (url === undefined) return;
+    api.openLocalUrl(url).catch(() => {
+      setLink({ url, copied: false });
+    });
+  };
+
+  /** "Show changes" in the done notice: that session, with its changes in the right panel. */
+  const showDoneChanges = (id: number) => {
+    setDoneNotice(null);
+    if (!stateRef.current.sessions.some((s) => s.id === id)) return;
+    dispatch({ type: "activated", id });
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "show", tab: "changes" });
+      return;
+    }
+    openSide("changes");
+    setChangesFocusToken((token) => token + 1);
   };
 
   const copyLink = () => {
@@ -3589,6 +3732,8 @@ export function App() {
           }}
           filesOpen={filesShown}
           onToggleFiles={toggleFiles}
+          devServers={devServers}
+          onOpenDevServer={openDevServer}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
@@ -4077,6 +4222,57 @@ export function App() {
             {startHint !== null && (
               <div className="link-notice start-hint" role="status" key={startHint}>
                 <span>{startHint}</span>
+              </div>
+            )}
+            {doneNotice !== null && (
+              <div
+                className="link-notice start-hint done-notice"
+                role="status"
+                key={`${String(doneNotice.sessionId)}:${String(doneNotice.count)}`}
+                onMouseEnter={() => {
+                  setHeldDoneNotice(doneNotice);
+                }}
+                onFocus={() => {
+                  setHeldDoneNotice(doneNotice);
+                }}
+                onMouseLeave={(event) => {
+                  if (!event.currentTarget.contains(document.activeElement)) {
+                    setHeldDoneNotice(null);
+                  }
+                }}
+                onBlur={(event) => {
+                  const inside =
+                    event.relatedTarget instanceof Node &&
+                    event.currentTarget.contains(event.relatedTarget);
+                  if (!inside && !event.currentTarget.matches(":hover")) setHeldDoneNotice(null);
+                }}
+              >
+                <span>
+                  {t("changes.done", { title: doneNotice.title, count: doneNotice.count })}
+                </span>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      showDoneChanges(doneNotice.sessionId);
+                    }}
+                  >
+                    {t("changes.doneOpen")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setDoneNotice(null);
+                      focusTerminal();
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
               </div>
             )}
             {planChanged !== null && (

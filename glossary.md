@@ -141,6 +141,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hook-Format (Agent-Gate)                        | hook format                       | how the gate hands hooks to one program, `HookFormat`                       |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel   |
+| Fertig-Hinweis                                  | done notice                       | changed files after an agent session stops working; `doneNotice.ts`         |
+| Name aus dem ersten Prompt                      | prompt title                      | an agent session named after its first task; `promptTitle.ts`               |
+| Dev-Server (lokal)                              | dev server                        | local address found in a session's output; `devServer.ts`, globe on the row |
 | Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                            |
 | Nicht gepusht                                   | unpushed                          | on HEAD but not on the upstream; `CommitSummary.pushed`                     |
 | Anspruch (geänderte Datei einer Session)        | claim                             | `claims.rs`; path, kind of change, line ranges on the base side, area       |
