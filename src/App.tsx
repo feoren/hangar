@@ -133,6 +133,7 @@ import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
 import { setResourcesEnabled } from "./useSessionResources";
+import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
 import {
   changedFileCount,
@@ -740,9 +741,11 @@ export function App() {
       pushes.setSender(null);
     };
   }, [pushes]);
-  // The rows' CPU and memory: the store asks the backend only while this is on.
+  // The sessions' CPU and memory and the machine's system bar: both stores ask the backend only
+  // while this is on.
   useEffect(() => {
     setResourcesEnabled(settings.showResources);
+    setSystemUsageEnabled(settings.showResources);
   }, [settings.showResources]);
   const profilesRef = useRef(profiles);
   /** Values for new terminals, also from asynchronous flows (restore). */

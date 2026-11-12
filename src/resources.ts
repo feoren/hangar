@@ -1,6 +1,6 @@
 // CPU and memory of each session's whole process tree (Rust: `SessionResources` in
 // src-tauri/src/resources.rs). The window asks every RESOURCE_POLL_MS while it is visible and the
-// setting is on; the session row shows the numbers in its tooltip and an outlier as a small mark.
+// setting is on; the session's peek shows the numbers and its row an outlier as a small mark.
 
 import type { Translate } from "./i18n";
 

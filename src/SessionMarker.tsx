@@ -11,16 +11,27 @@ export function markerColorText(marker: Marker | undefined, t: Translate): strin
 
 /**
  * Session marker before the title: a small color dot and the emoji. The color is named for
- * screen readers, the emoji is read as part of the text.
+ * screen readers, the emoji is read as part of the text. `tooltip` off leaves the dot without a
+ * tooltip (session rows have none).
  */
-export function SessionMarker({ marker }: { marker: Marker | undefined }) {
+export function SessionMarker({
+  marker,
+  tooltip = true,
+}: {
+  marker: Marker | undefined;
+  tooltip?: boolean;
+}) {
   const t = useT();
   if (!hasMarker(marker)) return null;
   const colorText = markerColorText(marker, t);
   return (
     <span className="session-marker">
       {marker.color !== null && (
-        <span className="marker-dot" style={{ background: marker.color }} title={colorText}>
+        <span
+          className="marker-dot"
+          style={{ background: marker.color }}
+          title={tooltip ? colorText : undefined}
+        >
           <span className="sr-only">{colorText}</span>
         </span>
       )}

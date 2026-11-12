@@ -86,7 +86,6 @@ const de = {
   "sidebar.toDark": "Dunkles Design",
 
   "session.newName": "Neuer Name",
-  "session.renameHint": "Doppelklick zum Umbenennen",
   "session.rename": "Umbenennen",
   "session.openDevServer": "{url} im Browser öffnen",
   "session.restart": "Neu starten",
@@ -436,9 +435,14 @@ const de = {
   "session.outlier":
     "Ausreißer: hält seit einer Weile einen ganzen Kern beschäftigt oder braucht viel Speicher",
   "settings.resources": "Ressourcen",
-  "settings.showResources": "CPU und Speicher je Session zeigen",
+  "settings.showResources": "CPU, Speicher und GPU zeigen",
   "settings.showResourcesHelp":
-    "Im Tooltip der Session, für das Programm und alles, was es startet. Die CPU ist ein Anteil der ganzen Maschine. Ein Zeichen markiert Ausreißer: 30 Sekunden lang ein ganzer Kern oder mehr als 4 GB Speicher.",
+    "Eine Zeile über Neue Session zeigt die Last der ganzen Maschine. Ruht die Maus auf einer Session, nennt die Vorschau ihren Anteil, für das Programm und alles, was es startet. Ein Zeichen markiert Ausreißer: 30 Sekunden lang ein ganzer Kern oder mehr als 4 GB Speicher.",
+  "system.usage": "Systemauslastung",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} ausgelastet",
   "push.heading": "Aufs Handy",
   "push.help":
     "Eine Nachricht an dein Handy, wenn eine Session eine Minute lang auf dich wartet, fertig ist oder fehlschlägt. Sie nennt Programm, Nummer und Zustand, nie Terminalinhalt. Die Ruhezeiten gelten auch hier.",
@@ -1418,7 +1422,6 @@ const en: Record<MessageKey, string> = {
   "sidebar.toDark": "Dark theme",
 
   "session.newName": "New name",
-  "session.renameHint": "Double-click to rename",
   "session.rename": "Rename",
   "session.openDevServer": "Open {url} in the browser",
   "session.restart": "Restart",
@@ -1759,9 +1762,14 @@ const en: Record<MessageKey, string> = {
   "session.resourcesMemory": "Memory {memory}",
   "session.outlier": "Outlier: has kept a whole core busy for a while or uses a lot of memory",
   "settings.resources": "Resources",
-  "settings.showResources": "Show CPU and memory per session",
+  "settings.showResources": "Show CPU, memory and GPU",
   "settings.showResourcesHelp":
-    "In the session's tooltip, for the program and everything it starts. CPU is a share of the whole machine. A mark flags outliers: a whole core for 30 seconds or more than 4 GB of memory.",
+    "A row above New session shows the load of the whole machine. Resting the mouse on a session shows its share in the peek, for the program and everything it starts. A mark flags outliers: a whole core for 30 seconds or more than 4 GB of memory.",
+  "system.usage": "System load",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} in use",
   "push.heading": "To your phone",
   "push.help":
     "A message to your phone when a session has waited for you for a minute, is done or failed. It names the program, number and state, never terminal content. Quiet hours apply here too.",
@@ -2715,7 +2723,6 @@ const el: Record<MessageKey, string> = {
   "sidebar.toDark": "Σκοτεινό θέμα",
 
   "session.newName": "Νέο όνομα",
-  "session.renameHint": "Διπλό κλικ για μετονομασία",
   "session.rename": "Μετονομασία",
   "session.openDevServer": "Άνοιξε το {url} στον περιηγητή",
   "session.restart": "Επανεκκίνηση",
@@ -3071,9 +3078,14 @@ const el: Record<MessageKey, string> = {
   "session.outlier":
     "Ακραία τιμή: απασχολεί εδώ και λίγο έναν ολόκληρο πυρήνα ή χρησιμοποιεί πολλή μνήμη",
   "settings.resources": "Πόροι",
-  "settings.showResources": "Εμφάνιση CPU και μνήμης ανά συνεδρία",
+  "settings.showResources": "Εμφάνιση CPU, μνήμης και GPU",
   "settings.showResourcesHelp":
-    "Στη συμβουλή της συνεδρίας, για το πρόγραμμα και ό,τι ξεκινά. Η CPU είναι μερίδιο ολόκληρου του μηχανήματος. Ένα σήμα δείχνει ακραίες τιμές: ένας ολόκληρος πυρήνας για 30 δευτερόλεπτα ή πάνω από 4 GB μνήμης.",
+    "Μια γραμμή πάνω από τη Νέα συνεδρία δείχνει το φορτίο ολόκληρου του μηχανήματος. Αν αφήσεις το ποντίκι σε μια συνεδρία, η προεπισκόπηση δείχνει το μερίδιό της, για το πρόγραμμα και ό,τι ξεκινά. Ένα σημάδι δείχνει τις ακραίες τιμές: ολόκληρος πυρήνας για 30 δευτερόλεπτα ή πάνω από 4 GB μνήμης.",
+  "system.usage": "Φορτίο συστήματος",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} σε χρήση",
   "push.heading": "Στο κινητό",
   "push.help":
     "Ένα μήνυμα στο κινητό σου όταν μια συνεδρία σε περιμένει ένα λεπτό, τελειώσει ή αποτύχει. Αναφέρει πρόγραμμα, αριθμό και κατάσταση, ποτέ περιεχόμενο τερματικού. Οι ώρες ησυχίας ισχύουν κι εδώ.",
@@ -4057,7 +4069,6 @@ const es: Record<MessageKey, string> = {
   "sidebar.toDark": "Tema oscuro",
 
   "session.newName": "Nuevo nombre",
-  "session.renameHint": "Doble clic para cambiar el nombre",
   "session.rename": "Cambiar nombre",
   "session.openDevServer": "Abrir {url} en el navegador",
   "session.restart": "Reiniciar",
@@ -4406,9 +4417,14 @@ const es: Record<MessageKey, string> = {
   "session.resourcesMemory": "Memoria {memory}",
   "session.outlier": "Valor atípico: lleva un rato ocupando un núcleo entero o usa mucha memoria",
   "settings.resources": "Recursos",
-  "settings.showResources": "Mostrar CPU y memoria por sesión",
+  "settings.showResources": "Mostrar CPU, memoria y GPU",
   "settings.showResourcesHelp":
-    "En la información de la sesión, para el programa y todo lo que inicia. La CPU es una parte de toda la máquina. Una marca señala valores atípicos: un núcleo entero durante 30 segundos o más de 4 GB de memoria.",
+    "Una fila sobre Nueva sesión muestra la carga de toda la máquina. Al dejar el ratón sobre una sesión, la vista previa muestra su parte, para el programa y todo lo que inicia. Una marca señala valores atípicos: un núcleo entero durante 30 segundos o más de 4 GB de memoria.",
+  "system.usage": "Carga del sistema",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} en uso",
   "push.heading": "Al móvil",
   "push.help":
     "Un mensaje a tu móvil cuando una sesión lleva un minuto esperándote, termina o falla. Dice el programa, el número y el estado, nunca contenido del terminal. Las horas de silencio también cuentan aquí.",
@@ -5378,7 +5394,6 @@ const fr: Record<MessageKey, string> = {
   "sidebar.toDark": "Thème sombre",
 
   "session.newName": "Nouveau nom",
-  "session.renameHint": "Double-clic pour renommer",
   "session.rename": "Renommer",
   "session.openDevServer": "Ouvrir {url} dans le navigateur",
   "session.restart": "Redémarrer",
@@ -5730,9 +5745,14 @@ const fr: Record<MessageKey, string> = {
   "session.outlier":
     "Valeur aberrante : occupe un cœur entier depuis un moment ou utilise beaucoup de mémoire",
   "settings.resources": "Ressources",
-  "settings.showResources": "Afficher CPU et mémoire par session",
+  "settings.showResources": "Afficher CPU, mémoire et GPU",
   "settings.showResourcesHelp":
-    "Dans l’info-bulle de la session, pour le programme et tout ce qu’il lance. Le CPU est une part de toute la machine. Un signe marque les valeurs aberrantes : un cœur entier pendant 30 secondes ou plus de 4 Go de mémoire.",
+    "Une ligne au-dessus de Nouvelle session montre la charge de toute la machine. En laissant la souris sur une session, l’aperçu montre sa part, pour le programme et tout ce qu’il lance. Un signe marque les valeurs aberrantes : un cœur entier pendant 30 secondes ou plus de 4 Go de mémoire.",
+  "system.usage": "Charge du système",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name} : {value} utilisé",
   "push.heading": "Sur ton téléphone",
   "push.help":
     "Un message sur ton téléphone quand une session t’attend depuis une minute, se termine ou échoue. Il donne le programme, le numéro et l’état, jamais le contenu du terminal. Les heures calmes s’appliquent aussi.",
@@ -6719,7 +6739,6 @@ const it: Record<MessageKey, string> = {
   "sidebar.toDark": "Tema scuro",
 
   "session.newName": "Nuovo nome",
-  "session.renameHint": "Doppio clic per rinominare",
   "session.rename": "Rinomina",
   "session.openDevServer": "Apri {url} nel browser",
   "session.restart": "Riavvia",
@@ -7068,9 +7087,14 @@ const it: Record<MessageKey, string> = {
   "session.resourcesMemory": "Memoria {memory}",
   "session.outlier": "Anomalia: tiene occupato un intero core da un po' o usa molta memoria",
   "settings.resources": "Risorse",
-  "settings.showResources": "Mostra CPU e memoria per sessione",
+  "settings.showResources": "Mostra CPU, memoria e GPU",
   "settings.showResourcesHelp":
-    "Nel suggerimento della sessione, per il programma e tutto ciò che avvia. La CPU è una quota dell'intera macchina. Un segno indica le anomalie: un intero core per 30 secondi o più di 4 GB di memoria.",
+    "Una riga sopra Nuova sessione mostra il carico dell'intera macchina. Lasciando il mouse su una sessione, l'anteprima ne mostra la quota, per il programma e tutto ciò che avvia. Un segno indica le anomalie: un intero core per 30 secondi o più di 4 GB di memoria.",
+  "system.usage": "Carico di sistema",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} in uso",
   "push.heading": "Sul telefono",
   "push.help":
     "Un messaggio sul tuo telefono quando una sessione ti aspetta da un minuto, termina o fallisce. Indica programma, numero e stato, mai il contenuto del terminale. Anche qui valgono le ore di silenzio.",
@@ -8045,7 +8069,6 @@ const ja: Record<MessageKey, string> = {
   "sidebar.toDark": "ダークテーマ",
 
   "session.newName": "新しい名前",
-  "session.renameHint": "ダブルクリックで名前を変更",
   "session.rename": "名前を変更",
   "session.openDevServer": "{url} をブラウザーで開く",
   "session.restart": "再起動",
@@ -8391,9 +8414,14 @@ const ja: Record<MessageKey, string> = {
   "session.resourcesMemory": "メモリ {memory}",
   "session.outlier": "外れ値: しばらく CPU コア 1 つ分を使い続けているか、メモリを多く使っています",
   "settings.resources": "リソース",
-  "settings.showResources": "セッションごとの CPU とメモリを表示",
+  "settings.showResources": "CPU、メモリ、GPU を表示",
   "settings.showResourcesHelp":
-    "セッションのツールチップに、プログラムとそれが起動したものすべての値を表示します。CPU はマシン全体に対する割合です。外れ値には印が付きます: 30 秒間コア 1 つ分を使い続ける、またはメモリ 4 GB 超。",
+    "新しいセッションの上の 1 行に、マシン全体の負荷を表示します。セッションにマウスを置くと、プレビューにそのプログラムと起動したものすべての使用量が出ます。外れ値には印が付きます: 30 秒間コア 1 つ分を使い続けるか、メモリが 4 GB を超えた場合です。",
+  "system.usage": "システム負荷",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} 使用中",
   "push.heading": "スマートフォンへ",
   "push.help":
     "セッションが 1 分間あなたを待っているとき、完了したとき、失敗したときにスマートフォンへ通知します。プログラム、番号、状態だけを送り、ターミナルの内容は送りません。おやすみ時間もここに適用されます。",
@@ -9369,7 +9397,6 @@ const pl: Record<MessageKey, string> = {
   "sidebar.toDark": "Ciemny motyw",
 
   "session.newName": "Nowa nazwa",
-  "session.renameHint": "Kliknij dwukrotnie, aby zmienić nazwę",
   "session.rename": "Zmień nazwę",
   "session.openDevServer": "Otwórz {url} w przeglądarce",
   "session.restart": "Uruchom ponownie",
@@ -9713,9 +9740,14 @@ const pl: Record<MessageKey, string> = {
   "session.resourcesMemory": "Pamięć {memory}",
   "session.outlier": "Odstający: od dłuższej chwili zajmuje cały rdzeń lub zużywa dużo pamięci",
   "settings.resources": "Zasoby",
-  "settings.showResources": "Pokazuj CPU i pamięć sesji",
+  "settings.showResources": "Pokazuj CPU, pamięć i GPU",
   "settings.showResourcesHelp":
-    "W podpowiedzi sesji, dla programu i wszystkiego, co uruchamia. CPU to udział całej maszyny. Znak oznacza sesje odstające: cały rdzeń przez 30 sekund lub ponad 4 GB pamięci.",
+    "Wiersz nad Nowa sesja pokazuje obciążenie całej maszyny. Gdy kursor spocznie na sesji, podgląd pokazuje jej udział, dla programu i wszystkiego, co uruchamia. Znak oznacza sesje odstające: cały rdzeń przez 30 sekund lub ponad 4 GB pamięci.",
+  "system.usage": "Obciążenie systemu",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} w użyciu",
   "push.heading": "Na telefon",
   "push.help":
     "Wiadomość na twój telefon, gdy sesja czeka na ciebie od minuty, kończy się lub zawodzi. Podaje program, numer i stan, nigdy treści terminala. Godziny ciszy obowiązują także tutaj.",
@@ -10680,7 +10712,6 @@ const pt: Record<MessageKey, string> = {
   "sidebar.toDark": "Tema escuro",
 
   "session.newName": "Novo nome",
-  "session.renameHint": "Clique duas vezes para renomear",
   "session.rename": "Renomear",
   "session.openDevServer": "Abrir {url} no navegador",
   "session.restart": "Reiniciar",
@@ -11027,9 +11058,14 @@ const pt: Record<MessageKey, string> = {
   "session.resourcesMemory": "Memória {memory}",
   "session.outlier": "Fora do padrão: ocupa um núcleo inteiro há algum tempo ou usa muita memória",
   "settings.resources": "Recursos",
-  "settings.showResources": "Mostrar CPU e memória por sessão",
+  "settings.showResources": "Mostrar CPU, memória e GPU",
   "settings.showResourcesHelp":
-    "Na dica da sessão, para o programa e tudo o que ele inicia. A CPU é uma parte da máquina inteira. Uma marca aponta sessões fora do padrão: um núcleo inteiro por 30 segundos ou mais de 4 GB de memória.",
+    "Uma linha acima de Nova sessão mostra a carga da máquina inteira. Ao deixar o mouse sobre uma sessão, a prévia mostra a parte dela, para o programa e tudo o que ele inicia. Uma marca aponta sessões fora do padrão: um núcleo inteiro por 30 segundos ou mais de 4 GB de memória.",
+  "system.usage": "Carga do sistema",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} em uso",
   "push.heading": "No celular",
   "push.help":
     "Uma mensagem no seu celular quando uma sessão espera por você há um minuto, termina ou falha. Ela traz o programa, o número e o estado, nunca conteúdo do terminal. As horas de silêncio valem aqui também.",
@@ -12000,7 +12036,6 @@ const ru: Record<MessageKey, string> = {
   "sidebar.toDark": "Тёмная тема",
 
   "session.newName": "Новое имя",
-  "session.renameHint": "Двойной щелчок для переименования",
   "session.rename": "Переименовать",
   "session.openDevServer": "Открыть {url} в браузере",
   "session.restart": "Перезапустить",
@@ -12344,9 +12379,14 @@ const ru: Record<MessageKey, string> = {
   "session.resourcesMemory": "Память {memory}",
   "session.outlier": "Выброс: уже какое-то время занимает целое ядро или тратит много памяти",
   "settings.resources": "Ресурсы",
-  "settings.showResources": "Показывать CPU и память сессий",
+  "settings.showResources": "Показывать CPU, память и GPU",
   "settings.showResourcesHelp":
-    "В подсказке сессии, для программы и всего, что она запускает. CPU показан как доля всей машины. Значок отмечает выбросы: целое ядро в течение 30 секунд или больше 4 ГБ памяти.",
+    "Строка над «Новым сеансом» показывает нагрузку всей машины. Если задержать мышь на сессии, превью покажет её долю, для программы и всего, что она запускает. Значок отмечает выбросы: целое ядро в течение 30 секунд или больше 4 ГБ памяти.",
+  "system.usage": "Нагрузка системы",
+  "system.cpu": "CPU",
+  "system.memory": "ОЗУ",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: занято {value}",
   "push.heading": "На телефон",
   "push.help":
     "Сообщение на твой телефон, когда сессия ждёт тебя минуту, завершилась или упала. Только программа, номер и состояние, никогда содержимое терминала. Тихие часы действуют и здесь.",
@@ -13306,7 +13346,6 @@ const tr: Record<MessageKey, string> = {
   "sidebar.toDark": "Koyu tema",
 
   "session.newName": "Yeni ad",
-  "session.renameHint": "Yeniden adlandırmak için çift tıkla",
   "session.rename": "Yeniden adlandır",
   "session.openDevServer": "{url} adresini tarayıcıda aç",
   "session.restart": "Yeniden başlat",
@@ -13649,9 +13688,14 @@ const tr: Record<MessageKey, string> = {
   "session.outlier":
     "Aykırı değer: bir süredir tam bir çekirdeği meşgul ediyor veya çok bellek kullanıyor",
   "settings.resources": "Kaynaklar",
-  "settings.showResources": "Oturum başına CPU ve belleği göster",
+  "settings.showResources": "CPU, bellek ve GPU göster",
   "settings.showResourcesHelp":
-    "Oturumun ipucunda, program ve başlattığı her şey için. CPU tüm makinenin bir payıdır. Bir işaret aykırı değerleri gösterir: 30 saniye boyunca tam bir çekirdek veya 4 GB üzeri bellek.",
+    "Yeni oturum’un üstündeki satır tüm makinenin yükünü gösterir. Fareyi bir oturumun üzerinde tutunca önizleme, program ve başlattığı her şey için onun payını gösterir. Bir işaret aykırı değerleri gösterir: 30 saniye boyunca tam bir çekirdek veya 4 GB üzeri bellek.",
+  "system.usage": "Sistem yükü",
+  "system.cpu": "CPU",
+  "system.memory": "RAM",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: {value} kullanımda",
   "push.heading": "Telefona",
   "push.help":
     "Bir oturum bir dakikadır seni beklediğinde, bittiğinde veya başarısız olduğunda telefonuna bir mesaj. Program, numara ve durumu içerir, asla terminal içeriği değil. Sessiz saatler burada da geçerli.",
@@ -14609,7 +14653,6 @@ const zh: Record<MessageKey, string> = {
   "sidebar.toDark": "深色主题",
 
   "session.newName": "新名称",
-  "session.renameHint": "双击即可重命名",
   "session.rename": "重命名",
   "session.openDevServer": "在浏览器中打开 {url}",
   "session.restart": "重启",
@@ -14937,9 +14980,14 @@ const zh: Record<MessageKey, string> = {
   "session.resourcesMemory": "内存 {memory}",
   "session.outlier": "异常: 一段时间以来占满一个完整的 CPU 核心，或占用大量内存",
   "settings.resources": "资源",
-  "settings.showResources": "显示每个会话的 CPU 和内存",
+  "settings.showResources": "显示 CPU、内存和 GPU",
   "settings.showResourcesHelp":
-    "显示在会话的提示中，包括程序及其启动的所有进程。CPU 是占整台机器的比例。异常会带有标记: 30 秒内占满一个完整核心，或内存超过 4 GB。",
+    "“新建会话”上方的一行显示整台机器的负载。鼠标停在会话上时，预览会显示它的占用，包括程序及其启动的所有进程。异常会带有标记: 30 秒内占满一个完整核心，或内存超过 4 GB。",
+  "system.usage": "系统负载",
+  "system.cpu": "CPU",
+  "system.memory": "内存",
+  "system.gpu": "GPU",
+  "system.gauge": "{name}: 已用 {value}",
   "push.heading": "推送到手机",
   "push.help":
     "当会话等你满一分钟、完成或失败时，向你的手机发送消息。只包含程序、编号和状态，绝不包含终端内容。免打扰时段同样适用。",

@@ -53,6 +53,7 @@ const COMMANDS: &[&str] = &[
     "create_update_session",
     "notify_session",
     "session_resources",
+    "system_usage",
     "push_settings",
     "push_save",
     "push_test",

@@ -118,10 +118,15 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_IO",
   "Win32_System_Ioctl",
   "Win32_System_JobObjects",
+  # PdhOpenQueryW and friends: the GPU load of the system bar from the "GPU Engine" performance
+  # counter (system_usage.rs). Bindings only, pdh.dll ships with Windows.
+  "Win32_System_Performance",
   # K32GetProcessMemoryInfo: the working set of each process of a session (proctree.rs).
   "Win32_System_ProcessStatus",
   # Uninstall keys, to tell how a program was installed (install_source.rs).
   "Win32_System_Registry",
+  # GlobalMemoryStatusEx: memory in use for the system bar (system_usage.rs). Bindings only.
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
   # ShellExecuteW: web pages open in the default browser (desktop.rs).
   "Win32_UI_Shell",

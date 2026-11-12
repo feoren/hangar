@@ -6,6 +6,7 @@ import {
   PEEK_REFRESH_MS,
   peekPosition,
   peekWidth,
+  peekShows,
   sameLines,
   type PeekAnchor,
 } from "./peek";
@@ -75,19 +76,23 @@ interface Props {
   title: string;
   /** The state in words, so color is never the only signal. */
   status: string;
-  /** What the row's tooltip would warn about (peekNotes), one muted line each. */
+  /** What the row only hints at, spelled out (peekNotes), one muted line each. */
   notes: readonly string[];
   /** Badge of the session's program. */
   badge: React.ReactNode;
   /** CSS class of the state's edge color (`edge-*`, sessionChip.ts). */
   edge: string;
-  /** The session's last lines; `null` when it has none to show (say, it is on screen). */
-  readLines: () => readonly string[] | null;
+  /**
+   * The session's last lines (`null` when it has none yet); no reader for a session on screen
+   * anyway, whose peek then shows only its title, status and notes.
+   */
+  readLines: (() => readonly string[] | null) | null;
 }
 
 /**
  * The last lines of a session's terminal beside the sidebar, read from its buffer (no extra
- * terminal), refreshed every PEEK_REFRESH_MS. Purely visual: hidden from screen readers, never
+ * terminal), refreshed every PEEK_REFRESH_MS; for a session on screen only its title, status and
+ * notes. Purely visual: hidden from screen readers, never
  * focused and transparent to the mouse, so the row below keeps its hover and its click.
  */
 export function SessionPeek({ anchor, title, status, notes, badge, edge, readLines }: Props) {
@@ -95,13 +100,13 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
   useEffect(() => {
     reader.current = readLines;
   });
-  const [lines, setLines] = useState<readonly string[] | null>(() => readLines());
+  const [lines, setLines] = useState<readonly string[] | null>(() => readLines?.() ?? null);
   const box = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      const fresh = reader.current();
+      const fresh = reader.current?.() ?? null;
       setLines((current) => (sameLines(current, fresh) ? current : fresh));
     }, PEEK_REFRESH_MS);
     return () => {
@@ -109,7 +114,7 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
     };
   }, [anchor.id]);
 
-  const shown = lines !== null && lines.length > 0;
+  const shown = peekShows(readLines !== null, lines);
   const lineCount = lines?.length ?? 0;
   // Measured before paint, so the peek never shows at a wrong place first.
   useLayoutEffect(() => {
@@ -150,7 +155,9 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
           {note}
         </span>
       ))}
-      <pre className="session-peek-lines">{lines.join("\n")}</pre>
+      {lines !== null && lines.length > 0 && (
+        <pre className="session-peek-lines">{lines.join("\n")}</pre>
+      )}
     </div>,
     document.body,
   );

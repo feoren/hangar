@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-system-usage"
+description = "Enables the system_usage command without any pre-configured scope."
+commands.allow = ["system_usage"]
+
+[[permission]]
+identifier = "deny-system-usage"
+description = "Denies the system_usage command without any pre-configured scope."
+commands.deny = ["system_usage"]

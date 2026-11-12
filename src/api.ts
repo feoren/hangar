@@ -346,6 +346,8 @@ export const api = {
     invoke<unknown>("notify_session", { id, title, body }),
   /** CPU and memory of every running session's process tree (resources.ts parses it). */
   sessionResources: () => invoke<unknown>("session_resources"),
+  /** CPU, memory and GPU of the whole machine in percent (systemUsage.ts parses it). */
+  systemUsage: () => invoke<unknown>("system_usage"),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
   pushSettings: () => invoke<unknown>("push_settings"),
   /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */

@@ -1,7 +1,7 @@
 // How full a session's context window is, filling the rest of its row's detail line up to the
 // right edge: a bar that takes the free width, the share and the tokens used of the window
-// ("━━━━── 12 % · 137k / 1M"), the exact numbers in the tooltip. Nothing shows until the agent
-// answered once or for programs Hangar cannot read. Re-renders only when this session's numbers
+// ("━━━━── 12 % · 137k / 1M"), the exact numbers for screen readers. No tooltip: session rows
+// have none. Nothing shows until the agent answered once or for programs Hangar cannot read. Re-renders only when this session's numbers
 // change.
 
 import { useT } from "./i18n";
@@ -21,7 +21,7 @@ export function ContextMeter({ sessionId, language }: Props) {
   const share = contextShare(context);
   const hint = contextHint(context, language, t);
   return (
-    <span className={share >= HIGH_SHARE ? "session-context high" : "session-context"} title={hint}>
+    <span className={share >= HIGH_SHARE ? "session-context high" : "session-context"}>
       <span aria-hidden="true">·</span>
       <span className="session-context-bar" aria-hidden="true">
         <span

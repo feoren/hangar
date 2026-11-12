@@ -85,8 +85,8 @@ export function statusText(
 }
 
 /**
- * Exit code for the tooltip, only when it says something: non-zero and not ended by the user (then
- * the code is just that of the termination anyway). Otherwise empty.
+ * Exit code for the session peek, only when it says something: non-zero and not ended by the user
+ * (then the code is just that of the termination anyway). Otherwise empty.
  */
 export function exitDetail(
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,

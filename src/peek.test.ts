@@ -5,6 +5,7 @@ import {
   PEEK_MAX_WIDTH,
   PEEK_MIN_WIDTH,
   peekNotes,
+  peekShows,
   peekPosition,
   peekWidth,
   sameLines,
@@ -86,5 +87,45 @@ describe("peekNotes", () => {
     expect(peekNotes({})).toEqual([]);
     expect(peekNotes({ overlap: null, gateOff: "  ", cwd: "/home/me" })).toEqual(["/home/me"]);
     expect(peekNotes({ overlap: "same", gateOff: "same" })).toEqual(["same"]);
+  });
+
+  it("names the program before the folder", () => {
+    expect(
+      peekNotes({ program: "PowerShell 7 · 7.6.9", devServer: "http://localhost:5173", cwd: "/a" }),
+    ).toEqual(["http://localhost:5173", "PowerShell 7 · 7.6.9", "/a"]);
+  });
+
+  it("spells out what a row only marks, action first and the folder last", () => {
+    expect(
+      peekNotes({
+        cwd: "/home/me/app",
+        devServer: "http://localhost:5173",
+        resources: "CPU 12 % · 340 MB",
+        outlier: "Outlier",
+        exit: "Exit code 1",
+        gateOff: "Gate is off",
+        overlap: "Also changed by #2",
+      }),
+    ).toEqual([
+      "Also changed by #2",
+      "Gate is off",
+      "Exit code 1",
+      "Outlier",
+      "CPU 12 % · 340 MB",
+      "http://localhost:5173",
+      "/home/me/app",
+    ]);
+  });
+});
+
+describe("peekShows", () => {
+  it("waits for lines when it shows the terminal", () => {
+    expect(peekShows(true, null)).toBe(false);
+    expect(peekShows(true, [])).toBe(false);
+    expect(peekShows(true, ["$ ls"])).toBe(true);
+  });
+
+  it("always shows for a session on screen, without lines", () => {
+    expect(peekShows(false, null)).toBe(true);
   });
 });

@@ -1448,6 +1448,126 @@ h2 .beta-badge {
   padding-bottom: 10px;
 }
 
+/* System bar: one row as tall as a group header above New session; CPU, RAM and GPU of the
+   machine. Each gauge is a small tile whose background is the sparkline of the last minute, with
+   the name on the left and the share on the right on top of it, so all three keep their graph,
+   name and value down to the narrowest sidebar (200 px). */
+.system-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.gauge {
+  --gauge-color: var(--accent);
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--gauge-color) 6%, transparent);
+}
+
+.gauge.warn {
+  --gauge-color: var(--warn);
+}
+
+.gauge-name,
+.gauge-value {
+  position: relative;
+  z-index: 1;
+}
+
+.gauge-name {
+  font-weight: 600;
+}
+
+.gauge-graph {
+  position: absolute;
+  inset: 0;
+}
+
+.gauge-spark {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gauge-scroll {
+  animation: gauge-scroll 1500ms linear;
+}
+
+/* One unit of the sparkline is one reading (systemUsage.ts SPARK_WIDTH): the new reading slides
+   in from the right over the poll interval. */
+@keyframes gauge-scroll {
+  from {
+    transform: translateX(1px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.gauge-area {
+  fill: color-mix(in srgb, var(--gauge-color) 18%, transparent);
+}
+
+.gauge-line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--gauge-color) 70%, transparent);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Reduced motion: the current share as the tile's bottom edge instead of the sparkline. */
+.gauge-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: none;
+  height: 2px;
+  background: var(--border);
+}
+
+.gauge-fill {
+  display: block;
+  height: 100%;
+  background: var(--gauge-color);
+}
+
+.gauge-value {
+  color: var(--text);
+}
+
+.gauge.warn .gauge-value {
+  color: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gauge-spark {
+    display: none;
+  }
+
+  .gauge-bar {
+    display: block;
+  }
+}
+
 /* Collapsible sidebar groups */
 
 .sidebar-group {

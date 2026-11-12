@@ -1,8 +1,8 @@
 ---
 title: Session resources and push to the phone
 type: synthesis
-tags: [sessions, resources, process-tree, notifications, push, keychain, contract]
-sources: []
+tags: [sessions, resources, system-bar, process-tree, notifications, push, keychain, contract]
+sources: ["[[system-usage-measurement]]"]
 created: 2026-11-12
 updated: 2026-11-12
 ---
@@ -14,10 +14,15 @@ trees, keychain, network), the window decides when to ask and what to show.
 
 ## Resources per session
 
-**What it shows.** The tooltip of a session row names `CPU 12 % · 340 MB` for the session's whole
-process tree (the PTY child and everything it starts). A session that is an outlier gets a small
-gauge mark in its title line, in the warning color; the tooltip and the screen reader text say why.
-Setting `showResources` (Settings > Attention > Resources, default on); off, the window never asks.
+**What it shows.** The session peek (resting the mouse on a row) names `CPU 12 % · 340 MB` for the
+session's whole process tree (the PTY child and everything it starts). A session that is an
+outlier gets a small gauge mark in its title line, in the warning color; the peek and the screen
+reader text say why. Session rows have no tooltip, neither on the row nor on the context meter
+or the marker dot inside it: what a row only marks (overlap, gate off, exit code, outlier,
+resources, dev server address, program and version) is spelled out in the peek (`peek.ts`
+`peekNotes`), and the screen reader labels carry the same. A session on screen anyway (active or
+in a pane) peeks too, then without terminal lines (`peekShows`). Setting `showResources` (Settings > Attention >
+Resources, default on) also controls the system bar below; off, the window never asks.
 
 **Contract.**
 
@@ -70,6 +75,68 @@ the handle.
 **No new dependency.** `sysinfo` would cover all platforms but is not in the tree and pulls a
 large Windows API surface; the Job Object Hangar already holds per session answers both questions
 on Windows with one more `windows-sys` feature.
+
+## System bar
+
+**What it shows.** One row (24 px, as tall as a group header) above the New session group:
+`CPU 23 %`, `RAM 61 %`, `GPU 8 %` of the whole machine. Each gauge is a small tile whose
+background is a sparkline of the last minute (41 readings at 1.5 s) that slides one reading to the
+left over each poll interval, with the name on the left and the share on the right on top. With
+`prefers-reduced-motion` the sparkline gives way to a still bar along the tile's bottom edge.
+Measured headless in Edge with Segoe UI (raw/2026-11-12-system-bar-layout-measurement.md): at 200, 272 and 560 px sidebar width, "100 %" in all 12
+languages fits every tile without overflow (`scrollWidth == clientWidth`, at least 3 px between
+name and value at 200 px; sparkline 60 px wide at 200 px, 84 px at 272 px). A gauge turns
+to the warning color from 85 %. A value the platform cannot give is `null` and its gauge is
+hidden; with no value at all the row is gone. Not shown in the collapsed rail. Screen readers get a
+group "System load" with one text per gauge; the graphs are `aria-hidden`.
+
+**Contract.**
+
+| Layer | Name | Shape |
+| ----- | ---- | ----- |
+| Command (main window only) | `system_usage` | `() -> SystemUsage` |
+| Rust | `system_usage::SystemUsage` | `{ cpu, memory, gpu: number \| null }`, percent 0 to 100, one decimal |
+| TS | `systemUsage.ts` `parseSystemUsage` | the same, clamped; malformed answers are dropped |
+
+**Polling.** `useSystemUsage.ts` is one store for all three gauges. It asks every
+`SYSTEM_POLL_MS` (1.5 s) only while the setting is on, the window is visible and the bar is
+mounted. Each reading moves the histories on; a reading equal to the last one is not published, so
+React does not render for it. The backend caches an answer for 1 s (`CACHE_FOR`) and holds its
+lock while reading, so concurrent callers share one reading.
+
+**Same setting as the session resources.** `showResources` controls both rather than a second
+switch: both are load numbers that poll the backend, and someone who does not want one rarely
+wants the other. Fewer controls; the label became "Show CPU, memory and GPU".
+
+**Sampling** (`src-tauri/src/system_usage.rs`).
+
+- CPU: busy share of all processors between two readings, `(total - idle) / total` over the
+  deltas; `null` on the first reading or when a counter goes backwards. Windows `GetSystemTimes`
+  (kernel time includes idle); Linux `/proc/stat` aggregate line, idle is `idle + iowait`, total
+  the first eight fields (guest time is already part of user time).
+- Memory: `(total - available) / total`. Windows `GlobalMemoryStatusEx` (`ullTotalPhys`,
+  `ullAvailPhys`; windows-sys feature `Win32_System_SystemInformation`); Linux `/proc/meminfo`
+  `MemTotal` and `MemAvailable`.
+- GPU (Windows only): one PDH query on the counter `GPU Engine(*)\Utilization Percentage`, added
+  with `PdhAddEnglishCounterW` so the path resolves on every display language, opened on the first
+  reading and kept open (windows-sys feature `Win32_System_Performance`). The counter is a rate:
+  the first collection only sets the baseline, so the first answer has `gpu: null`. Instance names
+  look like `pid_1234_luid_0x0_0xD1B5_phys_0_eng_3_engtype_VideoDecode`; `gpu_percent` sums the
+  processes per engine (luid, phys, eng) and takes the busiest engine, capped at 100. Chosen over
+  "sum of the 3D engines" because the task manager reads the same counters this way: a video
+  decode or compute job on its own engine shows as load while 3D is idle. Without the counter (no
+  WDDM 2.0 driver) the query is given up for good and the GPU stays `null`.
+- Linux GPU and macOS: `null`; there is no vendor-neutral source on Linux and no reader yet on
+  macOS.
+
+**Measured** ([[system-usage-measurement]]): one reading with 806 GPU engine instances took about
+2 ms; `Get-Counter` on the same counter, grouped by engine the same way, agreed within a couple of
+percent a moment later.
+
+> [!question] Unverified
+> Agreement with the task manager's GPU figure has not been compared side by side; the method
+> follows how it is commonly described (busiest engine). The Linux path is tested only through
+> its parsers.
 
 ## Push to the phone
 

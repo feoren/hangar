@@ -62,27 +62,59 @@ export function peekPosition(
   return { left, top };
 }
 
-/** What a row's tooltip would warn about; the peek takes the tooltip's place while it shows. */
+/**
+ * What a row only hints at with a small mark, spelled out: session rows have no tooltip, so the
+ * peek is where these are read.
+ */
 export interface PeekNoteSources {
   /** Another session or a teammate changes the same files (claims.ts marker text). */
   overlap?: string | null | undefined;
   /** Why the gate is off for this session (gate.ts gateHint). */
   gateOff?: string | null | undefined;
+  /** Exit code of a session that failed (format.ts exitDetail). */
+  exit?: string | null | undefined;
+  /** "CPU 12 % · 340 MB" (resources.ts resourceText). */
+  resources?: string | null | undefined;
+  /** Why the session is marked as an outlier. */
+  outlier?: string | null | undefined;
+  /** Address of the dev server the session runs. */
+  devServer?: string | null | undefined;
+  /** The session's program and its version ("PowerShell 7 · 7.6.9"). */
+  program?: string | null | undefined;
   /** The session's working folder. */
   cwd?: string | null | undefined;
 }
 
 /**
- * The muted lines under the peek's title: overlap first (it needs action), then the gate note,
- * then the working folder. Empty and repeated texts are left out.
+ * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
+ * then the load, the dev server and the program, then the working folder. Empty and repeated texts are left
+ * out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
   const notes: string[] = [];
-  for (const text of [sources.overlap, sources.gateOff, sources.cwd]) {
+  const ordered = [
+    sources.overlap,
+    sources.gateOff,
+    sources.exit,
+    sources.outlier,
+    sources.resources,
+    sources.devServer,
+    sources.program,
+    sources.cwd,
+  ];
+  for (const text of ordered) {
     const line = text?.trim() ?? "";
     if (line !== "" && !notes.includes(line)) notes.push(line);
   }
   return notes;
+}
+
+/**
+ * Whether a peek shows: one with terminal lines once it has some, one without (the session is on
+ * screen anyway) always, for its title, status and notes.
+ */
+export function peekShows(withLines: boolean, lines: readonly string[] | null): boolean {
+  return !withLines || (lines !== null && lines.length > 0);
 }
 
 export function sameLines(a: readonly string[] | null, b: readonly string[] | null): boolean {

@@ -621,3 +621,18 @@ folder of one project, applied in `gate_service.rs` before the window is asked, 
 tolerantly in `gate-rules.json`, a log of automatic answers) and `TeamBlock`, the reason a program
 cannot be a team session, shown as one collapsed line under Team for fixable reasons only.
 Pages changed: [[gate-rules]] (new), [[agent-gate-adapters]], index.
+
+## [2026-11-12] ingest | System bar and session rows without tooltip
+Filed the system bar contract (`system_usage`: machine CPU from GetSystemTimes or /proc/stat,
+memory from GlobalMemoryStatusEx or /proc/meminfo, GPU as the busiest engine of the PDH counter
+GPU Engine Utilization Percentage, one shared poll every 1.5 s, same setting as the session
+resources) and the own measurement (about 2 ms per reading, Get-Counter cross-check). Session rows
+lost their tooltip; overlap, gate, exit code, outlier, resources and dev server moved into the peek.
+Pages changed: [[session-resources-and-phone-push]], [[system-usage-measurement]] (new), index.
+
+## [2026-11-12] query | System bar layout and peek for sessions on screen
+The system bar's gauges became tiles with the sparkline as background; measured headless at 200,
+272 and 560 px in all 12 languages without overflow. The peek now also shows for the active and
+pane-placed sessions (without terminal lines) and names the program and version; the context
+meter and the marker dot in a session row lost their tooltips.
+Pages changed: [[session-resources-and-phone-push]].

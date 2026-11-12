@@ -410,18 +410,18 @@
         "zh": "在 设置 > 提醒 中设置免打扰时段：开始和结束时间，可跨越午夜。在此期间不闪烁、不发声、不通知。"
       },
       {
-        "de": "Der Tooltip jeder Session zeigt CPU und Speicher ihres Programms samt allem, was es startet. Ein Zeichen markiert Ausreißer.",
-        "en": "Each session's tooltip shows the CPU and memory of its program and everything it starts. A mark flags outliers.",
-        "el": "Η συμβουλή κάθε συνεδρίας δείχνει CPU και μνήμη του προγράμματος και όσων ξεκινά. Ένα σήμα δείχνει τις ακραίες τιμές.",
-        "es": "La información de cada sesión muestra la CPU y la memoria de su programa y de todo lo que inicia. Una marca señala los valores atípicos.",
-        "fr": "L’info-bulle de chaque session indique le CPU et la mémoire de son programme et de tout ce qu’il lance. Un signe marque les valeurs aberrantes.",
-        "it": "Il suggerimento di ogni sessione mostra CPU e memoria del suo programma e di tutto ciò che avvia. Un segno indica le anomalie.",
-        "ja": "各セッションのツールチップに、プログラムとそれが起動したものすべての CPU とメモリを表示します。外れ値には印が付きます。",
-        "pl": "Podpowiedź każdej sesji pokazuje CPU i pamięć jej programu oraz wszystkiego, co uruchamia. Znak oznacza sesje odstające.",
-        "pt": "A dica de cada sessão mostra a CPU e a memória do programa e de tudo o que ele inicia. Uma marca aponta sessões fora do padrão.",
-        "ru": "Подсказка каждой сессии показывает CPU и память её программы и всего, что она запускает. Значок отмечает выбросы.",
-        "tr": "Her oturumun ipucu, programının ve başlattığı her şeyin CPU ve bellek kullanımını gösterir. Bir işaret aykırı değerleri belirtir.",
-        "zh": "每个会话的提示会显示其程序及其启动的所有进程的 CPU 和内存。异常会带有标记。"
+        "de": "Eine Zeile über Neue Session zeigt CPU, RAM und GPU als kleine Verläufe. Ruht die Maus auf einer Session, nennt die Vorschau ihre CPU und ihren Speicher.",
+        "en": "A row above New session shows CPU, RAM and GPU as small graphs. Resting the mouse on a session shows its own CPU and memory in the peek.",
+        "el": "Μια γραμμή πάνω από τη Νέα συνεδρία δείχνει CPU, RAM και GPU σε μικρά γραφήματα. Η προεπισκόπηση μιας συνεδρίας δείχνει τη δική της CPU και μνήμη.",
+        "es": "Una fila sobre Nueva sesión muestra CPU, RAM y GPU en pequeños gráficos. Al dejar el ratón sobre una sesión, la vista previa muestra su CPU y memoria.",
+        "fr": "Une ligne au-dessus de Nouvelle session montre CPU, RAM et GPU en petits graphiques. L’aperçu d’une session indique son propre CPU et sa mémoire.",
+        "it": "Una riga sopra Nuova sessione mostra CPU, RAM e GPU in piccoli grafici. Lasciando il mouse su una sessione, l'anteprima ne mostra CPU e memoria.",
+        "ja": "新しいセッションの上の 1 行に CPU、RAM、GPU を小さなグラフで表示します。セッションにマウスを置くと、プレビューにその CPU とメモリが出ます。",
+        "pl": "Wiersz nad Nowa sesja pokazuje CPU, RAM i GPU na małych wykresach. Gdy kursor spocznie na sesji, podgląd pokazuje jej CPU i pamięć.",
+        "pt": "Uma linha acima de Nova sessão mostra CPU, RAM e GPU em pequenos gráficos. Ao deixar o mouse sobre uma sessão, a prévia mostra a CPU e a memória dela.",
+        "ru": "Строка над «Новым сеансом» показывает CPU, ОЗУ и GPU маленькими графиками. Превью сессии показывает её собственные CPU и память.",
+        "tr": "Yeni oturum’un üstündeki satır CPU, RAM ve GPU’yu küçük grafiklerle gösterir. Bir oturumun önizlemesi kendi CPU ve bellek kullanımını gösterir.",
+        "zh": "“新建会话”上方的一行以小图表显示 CPU、内存和 GPU。鼠标停在会话上时，预览会显示它自己的 CPU 和内存。"
       },
       {
         "de": "Auf Wunsch kommt eine Nachricht per ntfy oder Pushover aufs Handy, wenn eine Session auf dich wartet oder endet. Unter Einstellungen > Aufmerksamkeit.",

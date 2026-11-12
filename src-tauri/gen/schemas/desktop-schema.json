@@ -765,6 +765,12 @@
           "markdownDescription": "Enables the shared_notes_unlock command without any pre-configured scope."
         },
         {
+          "description": "Enables the system_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-system-usage",
+          "markdownDescription": "Enables the system_usage command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_answer_release command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-answer-release",
@@ -1447,6 +1453,12 @@
           "type": "string",
           "const": "deny-shared-notes-unlock",
           "markdownDescription": "Denies the shared_notes_unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the system_usage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-system-usage",
+          "markdownDescription": "Denies the system_usage command without any pre-configured scope."
         },
         {
           "description": "Denies the team_answer_release command without any pre-configured scope.",

@@ -45,6 +45,7 @@ use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
+use crate::system_usage::{SystemMonitor, SystemUsage};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
 use crate::team_share::SessionState;
@@ -1366,6 +1367,18 @@ pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
             .sample(std::time::Instant::now(), || {
                 app.state::<SessionManager>().tree_usages()
             })
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Load of the whole machine (CPU, memory, GPU) for the sidebar's system bar. Asked like
+/// `session_resources`: only while the window is visible and the setting is on.
+#[tauri::command]
+pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<SystemMonitor>()
+            .sample(std::time::Instant::now())
     })
     .await
     .unwrap_or_default()
