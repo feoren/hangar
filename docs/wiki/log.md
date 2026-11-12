@@ -444,3 +444,8 @@ Security review: the version query ran in the temporary folder without
 Sessions and version queries now share one environment rule (`src-tauri/src/child_env.rs`) and the
 queries run in `version-probe` in the app data folder. Pages changed: [[0003-program-versions]],
 [[cmd-launcher]].
+
+## [2026-11-12] query | Stricter execution alias targets
+Security review: alias targets were only checked for an `X:\` prefix. They now need plain
+components (no `.`, `..` or device names, after Microsoft's naming rules), a fixed local drive,
+and for a Store install a `WindowsApps` folder. Pages changed: [[app-execution-alias]].

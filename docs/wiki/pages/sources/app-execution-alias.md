@@ -43,3 +43,10 @@ Microsoft Store (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`).
 ## Significance for Hangar
 `src-tauri/src/exec_alias.rs` reads the alias; icons ([[0003-program-versions]]) and file stamps
 use the target, update plans treat the copy as a Store install ([[program-updates]]).
+
+The target is only trusted as a plain path: absolute on a drive, no empty, `.` or `..` component,
+no reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, the
+superscript `¹²³` variants, also with an extension), after Microsoft's
+[Naming Files, Paths, and Namespaces](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file),
+and only on a fixed local drive (`GetDriveTypeW`, as the gate does). A Store install additionally
+needs a target inside a `WindowsApps` folder; aliases into `C:\Windows\SystemApps` are not one.

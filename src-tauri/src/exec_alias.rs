@@ -29,9 +29,50 @@ pub struct ExecAlias {
     pub target: PathBuf,
 }
 
+/// Reserved device names after Microsoft's "Naming Files, Paths, and Namespaces"
+/// (learn.microsoft.com/windows/win32/fileio/naming-a-file): a path component with such a name,
+/// also followed by an extension (`NUL.txt`), opens the device instead of a file.
+const DEVICE_NAMES: &[&str] = &["CON", "PRN", "AUX", "NUL"];
+
+fn is_device_name(component: &str) -> bool {
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or(component)
+        .trim_end_matches(' ')
+        .to_uppercase();
+    if DEVICE_NAMES.contains(&stem.as_str()) {
+        return true;
+    }
+    ["COM", "LPT"].iter().any(|prefix| {
+        let mut rest = stem.strip_prefix(prefix).unwrap_or_default().chars();
+        // The superscript digits count as digits too, per the same page.
+        matches!(
+            (rest.next(), rest.next()),
+            (Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+        )
+    })
+}
+
+/// An absolute path on a drive (`X:\...`) whose components are all plain names: none empty, no
+/// `.` or `..`, no device name. Hangar reads what the alias names (icon, size, time), so it must
+/// not climb out of the package or point at a device.
+fn plain_target(target: &str) -> bool {
+    let bytes = target.as_bytes();
+    let drive =
+        bytes.len() > 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\';
+    drive
+        && target[3..].split(['\\', '/']).all(|component| {
+            !component.is_empty()
+                && component != "."
+                && component != ".."
+                && !is_device_name(component)
+        })
+}
+
 /// Reads a `REPARSE_DATA_BUFFER` (as returned by `FSCTL_GET_REPARSE_POINT`). `None` for another
-/// tag, a truncated buffer, fewer than three strings, empty strings or a target that is not an
-/// absolute drive path (`X:\`).
+/// tag, a truncated buffer, fewer than three strings, empty strings or a target that is not a
+/// plain absolute drive path ([`plain_target`]).
 pub fn parse(buffer: &[u8]) -> Option<ExecAlias> {
     let word = |at: usize| -> Option<u32> {
         Some(u32::from_le_bytes(buffer.get(at..at + 4)?.try_into().ok()?))
@@ -56,11 +97,7 @@ pub fn parse(buffer: &[u8]) -> Option<ExecAlias> {
     let package = next()?;
     let app_id = next()?;
     let target = next()?;
-    let drive_path = {
-        let bytes = target.as_bytes();
-        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\'
-    };
-    drive_path.then(|| ExecAlias {
+    plain_target(&target).then(|| ExecAlias {
         package,
         app_id,
         target: PathBuf::from(target),
@@ -111,7 +148,8 @@ pub fn read(path: &Path) -> Option<ExecAlias> {
         return None;
     }
     buffer.truncate(usize::try_from(returned).ok()?);
-    parse(&buffer)
+    // Only a target on a fixed local drive: a network or removable drive is not read from.
+    parse(&buffer).filter(|alias| crate::gate::local_fixed_drive(&alias.target))
 }
 
 #[cfg(not(windows))]
@@ -190,6 +228,59 @@ mod tests {
             assert_eq!(parse(&full[..cut]), None, "{cut}");
         }
         assert_eq!(parse(&[]), None);
+    }
+
+    #[test]
+    fn targets_are_plain_paths_without_devices_or_climbing() {
+        for bad in [
+            r"C:\Program Files\WindowsApps\..\..\Windows\System32\cmd.exe",
+            r"C:\Program Files\WindowsApps\.\pwsh.exe",
+            r"C:\Program Files\\pwsh.exe",
+            r"C:\Program Files/WindowsApps/../x.exe",
+            r"C:\x\CON",
+            r"C:\x\nul.txt",
+            r"C:\x\Aux.tar.gz",
+            r"C:\x\COM1.exe",
+            r"C:\x\lpt9",
+            r"C:\x\COM¹.exe",
+            r"C:\x\LPT³",
+            r"C:\x\NUL .txt",
+            r"C:\x\pwsh.exe\",
+            r"C:\",
+        ] {
+            assert_eq!(
+                parse(&buffer(APPEXECLINK_TAG, &["p", "p!App", bad])),
+                None,
+                "{bad}"
+            );
+        }
+        // Names that only start like a device are fine.
+        for good in [
+            r"C:\x\CONSOLE.exe",
+            r"C:\x\com10.exe",
+            r"C:\x\nullable\a.exe",
+            TARGET,
+        ] {
+            assert!(
+                parse(&buffer(APPEXECLINK_TAG, &["p", "p!App", good])).is_some(),
+                "{good}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn only_fixed_local_drives() {
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        let fixed = crate::gate::local_fixed_drive;
+        assert!(fixed(Path::new(&format!(r"{system}\Windows\x.exe"))));
+        // A drive letter without a drive behind it.
+        let free = (b'D'..=b'Z')
+            .map(char::from)
+            .find(|letter| !Path::new(&format!(r"{letter}:\")).exists())
+            .unwrap();
+        assert!(!fixed(Path::new(&format!(r"{free}:\x\a.exe"))));
+        assert!(!fixed(Path::new(r"\\server\share\a.exe")));
     }
 
     #[test]

@@ -1119,7 +1119,18 @@ fn match_native(paths: &[&Path], loc: &Locations, probe: &dyn Probe) -> Option<I
 /// before everything else, because the package folder lies below Program Files and would
 /// otherwise count as a machine-wide setup program updated by winget.
 fn match_store(program: &Path, probe: &dyn Probe, loc: &Locations) -> Option<Install> {
-    if let Some(alias) = probe.exec_alias(program) {
+    let in_windows_apps = |path: &Path| {
+        path.components().any(|part| {
+            matches!(part, Component::Normal(name)
+                if name.to_str().is_some_and(|n| n.eq_ignore_ascii_case("WindowsApps")))
+        })
+    };
+    // Aliases into system folders (`C:\Windows\SystemApps`) belong to Windows, not to a Store
+    // package; only a target inside a `WindowsApps` folder counts.
+    if let Some(alias) = probe
+        .exec_alias(program)
+        .filter(|alias| in_windows_apps(&alias.target))
+    {
         let root = alias.target.parent()?.to_path_buf();
         return Some(install(
             Installer::Store,
@@ -2117,6 +2128,17 @@ mod tests {
             unix: Some("x upgrade".into()),
         });
         assert_eq!(plan_for(&hinted, &alias, &probe).kind(), PlanKind::Run);
+        // An alias into a system folder (such as `C:\Windows\SystemApps`) is no Store package.
+        let system_app = touch(&windows_apps.join(exe("system")));
+        probe.aliases.insert(
+            system_app.clone(),
+            ExecAlias {
+                package: "MicrosoftWindows.Client.CBS_cw5n1h2txyewy".into(),
+                app_id: "MicrosoftWindows.Client.CBS_cw5n1h2txyewy!App".into(),
+                target: touch(&t.path().join("Windows/SystemApps/CBS").join(exe("app"))),
+            },
+        );
+        assert_eq!(detect(&system_app, &pk, &probe), Detection::Unknown);
         // A program next to the alias folder that is no alias stays unknown.
         let plain = touch(&windows_apps.join(exe("plain")));
         assert_eq!(detect(&plain, &pk, &probe), Detection::Unknown);

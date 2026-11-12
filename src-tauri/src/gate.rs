@@ -887,7 +887,7 @@ fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
 /// Whether `top` lies on a fixed local drive. On Windows a mapped network drive (`Z:`) or a
 /// removable one is not looked into; elsewhere `git::is_remote` is the only check.
 #[cfg(windows)]
-fn local_fixed_drive(top: &std::path::Path) -> bool {
+pub(crate) fn local_fixed_drive(top: &std::path::Path) -> bool {
     use std::path::{Component, Prefix};
     /// `DRIVE_FIXED` of `GetDriveTypeW`.
     const DRIVE_FIXED: u32 = 3;
@@ -909,7 +909,7 @@ fn local_fixed_drive(top: &std::path::Path) -> bool {
 }
 
 #[cfg(not(windows))]
-fn local_fixed_drive(_top: &std::path::Path) -> bool {
+pub(crate) fn local_fixed_drive(_top: &std::path::Path) -> bool {
     true
 }
 
