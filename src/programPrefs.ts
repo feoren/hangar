@@ -174,21 +174,32 @@ export function availableProfiles(profiles: readonly Profile[]): Profile[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Icons that "Automatic" can choose from, both optional. */
+export interface AutoIcons {
+  /** Bundled icon of a catalog agent (agentIcons.ts). */
+  agent?: string | undefined;
+  /** Icon extracted from the program file (Windows .exe). */
+  program?: string | undefined;
+}
+
 /**
- * Badge for an ID: the user's own preference first; "Automatic" takes the program icon, otherwise
- * letters from the profile or ID on a stable color.
+ * Badge for an ID: the user's own preference first. "Automatic" takes the bundled agent icon,
+ * then the program icon, otherwise letters from the profile or ID on a stable color. The bundled
+ * icon wins over the program icon because the program icon depends on how the CLI was installed
+ * (an .exe has one, an npm or pip script has none), and the same agent should always look alike.
  */
 export function resolveBadge(
   id: string,
   profile: Profile | undefined,
-  programIcon: string | undefined,
+  icons: AutoIcons,
   prefs: ProgramPrefs,
 ): BadgeLook {
   const choice = iconChoice(prefs, id);
   if (choice?.kind === "image") return { kind: "image", src: choice.src };
   if (choice?.kind === "letters")
     return { kind: "letters", text: choice.text, color: choice.color };
-  if (programIcon) return { kind: "image", src: programIcon };
+  if (icons.agent) return { kind: "image", src: icons.agent };
+  if (icons.program) return { kind: "image", src: icons.program };
   return { kind: "letters", text: badgeText(profile, id), color: badgeColor(id) };
 }
 

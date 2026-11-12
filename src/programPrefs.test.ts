@@ -160,13 +160,17 @@ describe("visibility and icons", () => {
     expect(iconMode(withIcon(set, "a", null), "a")).toBe("auto");
   });
 
-  it("resolves the badge: preference, then program icon, then letters", () => {
+  it("resolves the badge: preference, then agent icon, then program icon, then letters", () => {
     const p = profile("claude");
-    expect(resolveBadge("claude", p, PNG, DEFAULT_PROGRAM_PREFS)).toEqual({
+    const AGENT = "/assets/claude.svg";
+    expect(
+      resolveBadge("claude", p, { agent: AGENT, program: PNG }, DEFAULT_PROGRAM_PREFS),
+    ).toEqual({ kind: "image", src: AGENT });
+    expect(resolveBadge("claude", p, { program: PNG }, DEFAULT_PROGRAM_PREFS)).toEqual({
       kind: "image",
       src: PNG,
     });
-    expect(resolveBadge("claude", p, undefined, DEFAULT_PROGRAM_PREFS)).toEqual({
+    expect(resolveBadge("claude", p, {}, DEFAULT_PROGRAM_PREFS)).toEqual({
       kind: "letters",
       text: "C",
       color: badgeColor("claude"),
@@ -176,14 +180,14 @@ describe("visibility and icons", () => {
       text: "Cl",
       color: "#8a5cc2",
     });
-    expect(resolveBadge("claude", p, PNG, letters)).toEqual({
+    expect(resolveBadge("claude", p, { agent: AGENT, program: PNG }, letters)).toEqual({
       kind: "letters",
       text: "Cl",
       color: "#8a5cc2",
     });
     const own = "data:image/png;base64,AAAA";
     const image = withIcon(DEFAULT_PROGRAM_PREFS, "claude", { kind: "image", src: own });
-    expect(resolveBadge("claude", undefined, undefined, image)).toEqual({
+    expect(resolveBadge("claude", undefined, { agent: AGENT }, image)).toEqual({
       kind: "image",
       src: own,
     });

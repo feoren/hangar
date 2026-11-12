@@ -45,6 +45,7 @@ import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths } from "./gitBranches";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
+import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
@@ -2968,7 +2969,10 @@ export function App() {
     resolveBadge(
       profileId,
       profileById.get(profileId),
-      programs.icons.get(profileId),
+      // "Show program icons" off means letters for every program, bundled icons included.
+      settings.showIcons
+        ? { agent: agentIcon(profileId), program: programs.icons.get(profileId) }
+        : {},
       settings.programs,
     );
   const openWhatsNew = () => {

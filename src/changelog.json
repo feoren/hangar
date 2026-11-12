@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Jeder bekannte Agent hat jetzt ein eigenes Icon im gleichen Stil, egal wie du ihn installiert hast. Eigene Icons aus den Einstellungen gelten weiter.",
+        "en": "Every known agent now has its own icon in one consistent style, however you installed it. Icons you chose in Settings still take precedence.",
+        "el": "Κάθε γνωστός agent έχει τώρα δικό του εικονίδιο στο ίδιο στυλ, όπως κι αν τον εγκατέστησες. Τα εικονίδια που διάλεξες στις Ρυθμίσεις ισχύουν ακόμα.",
+        "es": "Cada agente conocido tiene ahora su propio icono con un estilo uniforme, lo hayas instalado como sea. Los iconos que elegiste en Ajustes siguen mandando.",
+        "fr": "Chaque agent connu a désormais sa propre icône dans un style uniforme, quelle que soit son installation. Les icônes choisies dans les Réglages priment.",
+        "it": "Ogni agente noto ha ora una sua icona in uno stile uniforme, comunque tu l’abbia installato. Le icone scelte nelle Impostazioni hanno la precedenza.",
+        "ja": "既知のエージェントすべてに、インストール方法に関係なく統一されたスタイルの専用アイコンが付きました。設定で選んだアイコンは引き続き優先されます。",
+        "pl": "Każdy znany agent ma teraz własną ikonę w spójnym stylu, niezależnie od sposobu instalacji. Ikony wybrane w Ustawieniach nadal mają pierwszeństwo.",
+        "pt": "Cada agente conhecido tem agora o seu próprio ícone num estilo uniforme, seja como for instalado. Os ícones escolhidos nas Definições continuam a valer.",
+        "ru": "У каждого известного агента теперь свой значок в едином стиле, как бы он ни был установлен. Значки, выбранные в настройках, по-прежнему важнее.",
+        "tr": "Bilinen her ajanın artık nasıl kurduğundan bağımsız, aynı tarzda kendi simgesi var. Ayarlarda seçtiğin simgeler yine önceliklidir.",
+        "zh": "每个已知的代理现在都有自己的图标，风格统一，与安装方式无关。你在设置中选择的图标仍然优先。"
+      },
+      {
         "de": "Der Status einer Session steht jetzt klein auf der Zeile ihres Titels. Bei Worktrees siehst du dort, wer aus deinem Team im selben Repository arbeitet.",
         "en": "A session’s status now sits small on its title line. On worktrees you also see there who on your team works in the same repository.",
         "el": "Η κατάσταση μιας συνεδρίας εμφανίζεται τώρα μικρή στη γραμμή του τίτλου. Στα worktrees βλέπεις εκεί ποιος από την ομάδα σου δουλεύει στο ίδιο repository.",

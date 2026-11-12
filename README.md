@@ -236,4 +236,6 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 
 ## License
 
-The desktop app is licensed under the [MIT License](LICENSE).
+The desktop app is licensed under the [MIT License](LICENSE). The agent icons name their sources,
+licenses and trademark notes in [`src/assets/agent-icons/NOTICE.md`](src/assets/agent-icons/NOTICE.md);
+the bundled fonts carry their licenses next to them in `src/assets/fonts/`.
