@@ -84,8 +84,13 @@
      off the vertical line with a short elbow, the row's content starting one step to the right. */
   /* Dotted lines need more color than a solid hairline to stay visible. */
   --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* Frame of the session on screen (sidebar): Hangar blue. */
+  --active-frame: var(--accent);
   --tree-step: 14px;
   --tree-elbow: 10px;
+  /* Air between a guide and what it connects: the elbow stops this far before a row, and a
+     group's guide starts this far below the header's badge. */
+  --tree-gap: calc(var(--tree-step) - var(--tree-elbow));
   /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
      chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
   --agent-tree-x: 34px;
@@ -493,28 +498,10 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 100vmax var(--row-hover-shade);
 }
 
+/* The session on screen: a frame in Hangar blue all around the row, the left edge included; its inside
+   keeps the state's look like every other row, so the attention colors keep speaking. */
 .session.active {
-  --edge-ring: 55%;
-  background: var(--panel-raised);
-  /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
-  isolation: isolate;
-}
-
-/* The session on screen: blue that is strongest at its left edge and fades to the right, which
-   reads as "selected" without a frame. It replaces the row's breathing in its state's color, which
-   matters less for a session you are looking at; the state's edge stays beside it. The plain
-   color is the fade's right end, so the row actions' strip (it inherits only the color) blends
-   in there. */
-.session.active,
-.session.active.look {
-  background-color: color-mix(in srgb, var(--accent) 7%, var(--panel));
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent) 38%, var(--panel)) 0%,
-    color-mix(in srgb, var(--accent) 18%, var(--panel)) 45%,
-    color-mix(in srgb, var(--accent) 7%, var(--panel)) 100%
-  );
-  animation: none;
+  border-color: var(--active-frame);
 }
 
 /* Its title in full text color and weight; the others step back a little. */
@@ -560,10 +547,6 @@ h2 .beta-badge {
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
 .session.attention {
   --edge-ring: 45%;
-}
-
-.session.active.attention {
-  --edge-ring: 70%;
 }
 
 .edge-working {
@@ -1317,10 +1300,6 @@ h2 .beta-badge {
     --edge-ring: 75%;
   }
 
-  .session.active.attention {
-    --edge-ring: 100%;
-  }
-
   /* Still dots, a gentle ramp from left to right, whatever the chosen motion. */
   .status-chip-dots span {
     animation: none;
@@ -1608,13 +1587,14 @@ h2 .beta-badge {
   display: none;
 }
 
-/* From the header's badge down to the first row: across the button's 5 px padding and the
-   title's 2 px. */
+/* From just below the header's badge down to the first row: the badge's bottom sits 7 px above
+   the rows (the button's 5 px padding and the title's 2 px); the guide leaves the same air below
+   it as the elbow leaves before a row. */
 .agent-rows::before {
   position: absolute;
-  top: -7px;
+  top: calc(-7px + var(--tree-gap));
   left: var(--agent-tree-x);
-  height: 7px;
+  height: calc(7px - var(--tree-gap));
   content: "";
   pointer-events: none;
   /* Only the left side: the lit path sets a solid style on all sides, and an unset width would
