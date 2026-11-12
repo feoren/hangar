@@ -7210,6 +7210,25 @@ body.session-dragging .session-actions {
   color: var(--warn);
 }
 
+/* Taking a saved folder out of the menu: a quiet x, shown on the row's hover and focus. */
+.menu-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.menu-entry.removable:hover .menu-remove,
+.menu-entry.removable:focus-within .menu-remove {
+  opacity: 1;
+}
+
+.menu-remove:hover {
+  color: var(--error);
+  background: var(--hover);
+}
+
 .menu-item.current .menu-label {
   font-weight: 600;
 }

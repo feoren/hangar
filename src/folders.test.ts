@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_FOLDERS,
   folderKey,
+  forgetFolder,
   folderName,
   isFavorite,
   loadFolderPrefs,
@@ -72,6 +73,17 @@ describe("favorites", () => {
     prefs = recordRecent(prefs, "/b");
     prefs = toggleFavorite(prefs, "/a");
     expect(recentOnly(prefs)).toEqual(["/b"]);
+  });
+});
+
+describe("forgetFolder", () => {
+  it("takes a folder off both lists, matching Windows paths without case", () => {
+    const prefs = { favorites: ["C:/Work/a", "C:/b"], recent: ["c:/work/a/", "D:/c"] };
+    expect(forgetFolder(prefs, String.raw`C:\work\A`)).toEqual({
+      favorites: ["C:/b"],
+      recent: ["D:/c"],
+    });
+    expect(forgetFolder(prefs, "E:/none")).toEqual(prefs);
   });
 });
 

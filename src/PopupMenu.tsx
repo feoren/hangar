@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
+import { CloseIcon } from "./icons";
 import { firstIndex, fitInViewport, menuCommand, secondaryCommand, type NavEntry } from "./menuNav";
 
 /** Second button at the end of a row, e.g. the favorite star or "+ Worktree". */
@@ -30,6 +31,11 @@ export type PopupItem =
       current?: boolean;
       /** Also reachable with Right arrow, Shift+Enter and Shift+click on the row. */
       secondary?: PopupSecondary;
+      /**
+       * Takes the row out of its list (a folder from the menu): a small x at the row's end, shown
+       * on hover and focus, and the Delete key on the row. The menu stays open.
+       */
+      remove?: { label: string; run: () => void };
       run: () => void;
     }
   | { type: "separator"; key: string }
@@ -160,6 +166,14 @@ export function PopupMenu({
     item.secondary.run();
   };
 
+  const runRemove = (index: number) => {
+    const item = items[index];
+    if (!item || item.type !== "action" || !item.remove) return;
+    item.remove.run();
+    // The row is gone; the keyboard stays in the menu.
+    panel.current?.focus();
+  };
+
   const focusRow = (index: number, secondary: boolean) => {
     setCurrent(index);
     setOnSecondary(secondary);
@@ -169,6 +183,11 @@ export function PopupMenu({
   const onKeyDown = (event: React.KeyboardEvent) => {
     event.stopPropagation();
     const item = items[current];
+    if (event.key === "Delete" && item?.type === "action" && item.remove) {
+      event.preventDefault();
+      runRemove(current);
+      return;
+    }
     const hasSecondary = item?.type === "action" && item.secondary !== undefined;
     const second = secondaryCommand(event, hasSecondary, onSecondary);
     if (second !== null) {
@@ -235,10 +254,15 @@ export function PopupMenu({
           );
         }
         const secondary = item.secondary;
+        const remove = item.remove;
         return (
           <li
             key={item.key}
-            className={secondary ? "menu-entry with-secondary" : "menu-entry"}
+            className={
+              secondary || remove
+                ? `menu-entry with-secondary${remove ? " removable" : ""}`
+                : "menu-entry"
+            }
             role="none"
           >
             <button
@@ -302,6 +326,20 @@ export function PopupMenu({
                 }}
               >
                 {secondary.icon}
+              </button>
+            )}
+            {remove && (
+              <button
+                type="button"
+                className="menu-remove icon-button"
+                aria-label={remove.label}
+                title={remove.label}
+                tabIndex={-1}
+                onClick={() => {
+                  runRemove(index);
+                }}
+              >
+                <CloseIcon size={12} />
               </button>
             )}
           </li>

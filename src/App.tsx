@@ -53,6 +53,7 @@ import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import {
   folderName,
+  forgetFolder,
   loadFolderPrefs,
   recordRecent,
   saveFolderPrefs,
@@ -3650,6 +3651,9 @@ export function App() {
           }}
           onToggleFavorite={(path) => {
             setFolders((current) => toggleFavorite(current, path));
+          }}
+          onForgetFolder={(path) => {
+            setFolders((current) => forgetFolder(current, path));
           }}
           onRestart={(id) => {
             void restart(id);

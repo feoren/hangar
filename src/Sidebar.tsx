@@ -172,6 +172,8 @@ interface Props {
   /** Back from a chosen folder to the default target. */
   onResetTarget: () => void;
   onToggleFavorite: (path: string) => void;
+  /** Takes a saved folder out of the folder menu. */
+  onForgetFolder: (path: string) => void;
   onRestart: (id: number) => void;
   onKill: (id: number) => void;
   onClose: (id: number) => void;
@@ -352,6 +354,7 @@ export function Sidebar(props: Props) {
     onSelect: props.onSelectCwd,
     onChoose: props.onPickCwd,
     onToggleFavorite: props.onToggleFavorite,
+    onForget: props.onForgetFolder,
   };
 
   /** Mouse (detail > 0): focus to the terminal. Keyboard (detail 0): focus stays on the button. */
