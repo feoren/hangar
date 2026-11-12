@@ -29,6 +29,21 @@ function withSessions(ids: number[], activeId: number | null): SessionsState {
 }
 
 describe("sessionsReducer", () => {
+  it("adds a session to its program's agent group, so the list follows the sidebar", () => {
+    const claude = (id: number) => ({ ...session(id), profileId: "claude" });
+    let state: SessionsState = initialSessions;
+    for (const next of [claude(1), session(2), claude(3)]) {
+      state = sessionsReducer(state, { type: "added", session: next });
+    }
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 3, 2]);
+    // Cycling walks the sidebar's order: from 3 on to the shell below it.
+    expect(sessionsReducer(state, { type: "cycled", step: 1 }).activeId).toBe(2);
+    // A move across the agent group's border lands back inside the group.
+    expect(
+      sessionsReducer(state, { type: "moved", id: 2, index: 0 }).sessions.map((s) => s.id),
+    ).toEqual([1, 3, 2]);
+  });
+
   it("replaces a session in the same place and keeps the selection", () => {
     const state = withSessions([1, -1, 2], -1);
     const next = sessionsReducer(state, { type: "replaced", oldId: -1, session: session(7) });
@@ -121,6 +136,27 @@ describe("sessionsReducer", () => {
     });
     expect(first.activeId).toBe(3);
     expect(sessionsReducer(first, { type: "restored", session: session(3), order: 0 })).toBe(first);
+  });
+
+  it("restores a workspace saved before agent groups in slot order within each group", () => {
+    const claude = (id: number) => ({ ...session(id), profileId: "claude" });
+    // Saved ungrouped: claude 1, shell 2, shell 3, claude 4; claude 4 was active, so it comes first.
+    let state = initialSessions;
+    state = sessionsReducer(state, { type: "restored", session: claude(4), order: 3 });
+    state = sessionsReducer(state, { type: "restored", session: claude(1), order: 0 });
+    state = sessionsReducer(state, { type: "restored", session: session(2), order: 1 });
+    state = sessionsReducer(state, { type: "restored", session: session(3), order: 2 });
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 4, 2, 3]);
+    // The same result whatever order the others arrive in.
+    let other = sessionsReducer(initialSessions, {
+      type: "restored",
+      session: claude(4),
+      order: 3,
+    });
+    other = sessionsReducer(other, { type: "restored", session: session(3), order: 2 });
+    other = sessionsReducer(other, { type: "restored", session: session(2), order: 1 });
+    other = sessionsReducer(other, { type: "restored", session: claude(1), order: 0 });
+    expect(other.sessions.map((s) => s.id)).toEqual([1, 4, 2, 3]);
   });
 
   it("keeps the remembered slot on restart for sessions restored later", () => {

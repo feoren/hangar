@@ -33,6 +33,8 @@ export interface Layout {
   collapsed: boolean;
   /** Collapsed groups; only their title row remains. */
   closedGroups: SidebarGroup[];
+  /** Folded agent groups inside Sessions and Worktrees, by key (sessionGroups.ts agentGroupKey). */
+  closedAgentGroups: string[];
   fontSize: number;
   /** Right panel visible next to the terminal. */
   sideOpen: boolean;
@@ -50,6 +52,7 @@ export const DEFAULT_LAYOUT: Layout = {
   footerHeight: FOOTER_HEIGHT.default,
   collapsed: false,
   closedGroups: [],
+  closedAgentGroups: [],
   fontSize: FONT_SIZE.default,
   sideOpen: false,
   sideTab: "notes",
@@ -77,6 +80,29 @@ export function toggleGroup(layout: Layout, group: SidebarGroup): Layout {
     ? [...layout.closedGroups, group]
     : layout.closedGroups.filter((other) => other !== group);
   return { ...layout, closedGroups: SIDEBAR_GROUPS.filter((id) => closed.includes(id)) };
+}
+
+/** At most this many folded agent groups are remembered; the oldest ones go first. */
+export const CLOSED_AGENT_GROUPS_MAX = 64;
+const AGENT_GROUP_KEY_MAX = 200;
+
+/** Folds or unfolds an agent group; the newest fold goes last. */
+export function toggleAgentGroup(layout: Layout, key: string): Layout {
+  const closed = layout.closedAgentGroups.includes(key)
+    ? layout.closedAgentGroups.filter((other) => other !== key)
+    : [...layout.closedAgentGroups, key].slice(-CLOSED_AGENT_GROUPS_MAX);
+  return { ...layout, closedAgentGroups: closed };
+}
+
+/** Stored agent group keys: strings only, each once, short, at most the newest 64. */
+export function parseClosedAgentGroups(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const keys: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item === "" || item.length > AGENT_GROUP_KEY_MAX) continue;
+    if (!keys.includes(item)) keys.push(item);
+  }
+  return keys.slice(-CLOSED_AGENT_GROUPS_MAX);
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -168,6 +194,9 @@ export function parseLayout(text: string | null): Layout {
     closedGroups: Array.isArray(closed)
       ? SIDEBAR_GROUPS.filter((group) => closed.includes(group))
       : DEFAULT_LAYOUT.closedGroups,
+    closedAgentGroups: parseClosedAgentGroups(
+      "closedAgentGroups" in raw ? raw.closedAgentGroups : undefined,
+    ),
     fontSize: clampFontSize(number("fontSize", DEFAULT_LAYOUT.fontSize)),
     sideOpen: typeof sideOpen === "boolean" ? sideOpen : DEFAULT_LAYOUT.sideOpen,
     sideTab: sideTab === "changes" || sideTab === "files" ? sideTab : "notes",

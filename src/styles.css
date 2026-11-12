@@ -82,6 +82,17 @@
   /* Session row: the colored edge on its left and the thin border that continues around it. */
   --row-edge: 3px;
   --row-border: 1px;
+  /* Tree guides (sub-agent tree, agent groups): a hairline in the border color; each row hangs
+     off the vertical line with a short elbow, the row's content starting one step to the right. */
+  --tree-guide: var(--border);
+  --tree-step: 14px;
+  --tree-elbow: 10px;
+  /* Agent groups: the header sits one tree step in from the group header above it (whose chevron
+     starts 8 px into the list), the guide runs below the header's badge center (indent, 12 px
+     chevron, 6 px gap, half the 18 px badge), the elbow meets the title line. */
+  --agent-indent: calc(8px + var(--tree-step));
+  --agent-tree-x: calc(var(--agent-indent) + 27px);
+  --agent-elbow-y: 16px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -1529,6 +1540,133 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
+/* Agent groups inside Sessions and Worktrees: one per program, its sessions hanging below the
+   header like the sub-agent tree below a row (same guide, elbow and step). The header is quieter
+   than the group titles above it: no capitals, a smaller badge. */
+.agent-group {
+  margin-bottom: 4px;
+}
+
+.agent-group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Built on .group-toggle: the same chevron, size, turn and gap as the group headers above. */
+.agent-group-toggle {
+  min-height: 28px;
+  padding: 5px 8px 5px var(--agent-indent);
+  color: var(--muted);
+}
+
+/* Folded with the active session inside: the header stands in for the active row. */
+.agent-group-toggle.holds-active {
+  background: var(--panel-raised);
+  box-shadow: inset var(--row-edge) 0 0 var(--accent);
+}
+
+.agent-group-toggle .badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 8.5px;
+}
+
+.agent-group-toggle .badge.wide {
+  font-size: 7px;
+}
+
+.agent-group-toggle .badge-icon img {
+  width: 18px;
+  height: 18px;
+}
+
+.agent-group-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--muted) 35%, var(--text));
+}
+
+.agent-group-toggle:hover .agent-group-name {
+  color: var(--text);
+}
+
+.agent-group-count {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-group-waiting {
+  flex: none;
+}
+
+.agent-rows {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-rows[hidden] {
+  display: none;
+}
+
+/* From the header's badge down to the first row. */
+.agent-rows::before {
+  position: absolute;
+  top: -5px;
+  left: var(--agent-tree-x);
+  height: 5px;
+  content: "";
+  pointer-events: none;
+  border-left: var(--hairline) solid var(--tree-guide);
+}
+
+.agent-rows > li {
+  margin-left: calc(var(--agent-tree-x) + var(--tree-step));
+}
+
+/* A session row's guide: left of its colored edge, from its top across the gap to the next row,
+   so the line runs on unbroken. */
+.tree-guide {
+  position: absolute;
+  top: calc(-1 * var(--row-border));
+  bottom: calc(-1 * (var(--row-border) + 2px));
+  left: calc(-1 * (var(--tree-step) + var(--row-edge)));
+  width: var(--tree-step);
+  pointer-events: none;
+}
+
+/* More specific than the shared 50 % elbow below: agent rows are three lines tall. */
+.agent-rows .tree-guide::after {
+  top: var(--agent-elbow-y);
+}
+
+.session.tree-last > .tree-guide::before {
+  bottom: auto;
+  height: var(--agent-elbow-y);
+}
+
+/* Below a middle row with its sub-agents open, the guide runs on past them to the next row. */
+.agent-rows > .subagent-tree-row.tree-continues::before {
+  position: absolute;
+  top: 0;
+  bottom: -4px;
+  left: calc(-1 * var(--tree-step));
+  content: "";
+  pointer-events: none;
+  border-left: var(--hairline) solid var(--tree-guide);
+}
+
+/* The sub-agent tree hangs below the row's state dot now that the row has no badge. */
+.agent-rows .subagent-tree {
+  padding-left: 11px;
+}
+
 /* Collapsed sessions with one waiting: dot with a ring, plus tooltip and screen reader text. */
 .group-waiting {
   display: inline-grid;
@@ -2125,24 +2263,28 @@ h2 .beta-badge {
 
 .subagent-tree-item {
   position: relative;
-  padding-left: 14px;
+  padding-left: var(--tree-step);
 }
 
+/* Shared by the sub-agent tree and the agent groups' session rows (.tree-guide). */
 .subagent-tree-item::before,
-.subagent-tree-item::after {
+.subagent-tree-item::after,
+.tree-guide::before,
+.tree-guide::after {
   position: absolute;
   left: 0;
   content: "";
-  border-color: var(--border);
+  border-color: var(--tree-guide);
   border-style: solid;
   pointer-events: none;
 }
 
 /* Vertical line through the whole row; the last row's stops at its elbow. */
-.subagent-tree-item::before {
+.subagent-tree-item::before,
+.tree-guide::before {
   top: 0;
   bottom: 0;
-  border-width: 0 0 0 1px;
+  border-width: 0 0 0 var(--hairline);
 }
 
 .subagent-tree-item:last-child::before {
@@ -2150,10 +2292,11 @@ h2 .beta-badge {
 }
 
 /* The elbow to the row. */
-.subagent-tree-item::after {
+.subagent-tree-item::after,
+.tree-guide::after {
   top: 50%;
-  width: 10px;
-  border-width: 1px 0 0;
+  width: var(--tree-elbow);
+  border-width: var(--hairline) 0 0;
 }
 
 .subagent-node {

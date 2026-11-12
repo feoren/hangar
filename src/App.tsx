@@ -76,7 +76,7 @@ import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
-import { groupedOrder, groupPosition, sessionGroup } from "./sessionGroups";
+import { agentGroupKey, groupedOrder, groupPosition } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
@@ -91,6 +91,7 @@ import {
   placeNotes,
   saveLayout,
   SIDEBAR_RAIL_WIDTH,
+  toggleAgentGroup,
   toggleGroup,
   type Layout,
   type SideTab,
@@ -3569,6 +3570,10 @@ export function App() {
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
           }}
+          closedAgentGroups={layout.closedAgentGroups}
+          onToggleAgentGroup={(key: string) => {
+            setLayout((current) => toggleAgentGroup(current, key));
+          }}
           onFocusTerminal={focusTerminal}
           version={version}
           themeSetting={settings.theme}
@@ -3648,7 +3653,7 @@ export function App() {
                           sessionDragView.target.index,
                           (id) => {
                             const session = state.sessions.find((s) => s.id === id);
-                            return session ? sessionGroup(session) : "";
+                            return session ? agentGroupKey(session) : "";
                           },
                         )
                       : null,

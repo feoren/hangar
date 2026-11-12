@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clampFontSize,
+  CLOSED_AGENT_GROUPS_MAX,
   clampFooterHeight,
   clampNotesWidth,
   clampSidebarWidth,
@@ -16,6 +17,7 @@ import {
   SESSION_LIST_MIN,
   SIDEBAR_WIDTH,
   TERMINAL_MIN_WIDTH,
+  toggleAgentGroup,
   toggleGroup,
 } from "./layout";
 
@@ -91,6 +93,7 @@ describe("parseLayout", () => {
       footerHeight: 250,
       collapsed: true,
       closedGroups: [],
+      closedAgentGroups: [],
       fontSize: 16,
       sideOpen: false,
       sideTab: "notes",
@@ -197,5 +200,39 @@ describe("sidebar groups", () => {
     expect(old.sidebarWidth).toBe(300);
     expect(old.closedGroups).toEqual(["sessions", "newSession"]);
     expect(isGroupOpen(old, "worktrees")).toBe(true);
+  });
+
+  it("fold agent groups by key and remember them", () => {
+    const one = toggleAgentGroup(DEFAULT_LAYOUT, "sessions:claude");
+    const two = toggleAgentGroup(one, "worktrees:claude");
+    expect(two.closedAgentGroups).toEqual(["sessions:claude", "worktrees:claude"]);
+    expect(toggleAgentGroup(two, "sessions:claude").closedAgentGroups).toEqual([
+      "worktrees:claude",
+    ]);
+    expect(parseLayout(JSON.stringify(two)).closedAgentGroups).toEqual([
+      "sessions:claude",
+      "worktrees:claude",
+    ]);
+  });
+
+  it("read folded agent groups robustly and keep at most the newest ones", () => {
+    const read = (closedAgentGroups: unknown) =>
+      parseLayout(JSON.stringify({ closedAgentGroups })).closedAgentGroups;
+    // Layouts saved before agent groups existed start with every agent group open.
+    expect(parseLayout(JSON.stringify({ sidebarWidth: 300 })).closedAgentGroups).toEqual([]);
+    expect(read("sessions:claude")).toEqual([]);
+    expect(read(["sessions:a", 3, null, "", "sessions:a", "x".repeat(201)])).toEqual([
+      "sessions:a",
+    ]);
+    const many = Array.from(
+      { length: CLOSED_AGENT_GROUPS_MAX + 5 },
+      (_, i) => `sessions:${String(i)}`,
+    );
+    const kept = read(many);
+    expect(kept).toHaveLength(CLOSED_AGENT_GROUPS_MAX);
+    expect(kept[0]).toBe("sessions:5");
+    let layout = DEFAULT_LAYOUT;
+    for (const key of many) layout = toggleAgentGroup(layout, key);
+    expect(layout.closedAgentGroups).toHaveLength(CLOSED_AGENT_GROUPS_MAX);
   });
 });

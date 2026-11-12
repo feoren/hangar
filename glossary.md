@@ -42,6 +42,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich (in den Einstellungen)                  | section                           |                                                                             |
 | Sidebar, Seitenleiste                           | sidebar                           |                                                                             |
 | Gruppe (Sidebar)                                | group                             |                                                                             |
+| Agentengruppe (Sidebar)                         | agent group                       | sessions of one program inside Sessions or Worktrees; `agentGroupKey`       |
 | Trennlinie (ziehbar)                            | splitter                          |                                                                             |
 | Trennlinie (statisch)                           | divider                           |                                                                             |
 | Tastenkürzel, Kürzel                            | shortcut                          |                                                                             |
