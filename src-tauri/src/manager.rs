@@ -551,6 +551,16 @@ impl SessionManager {
             .collect()
     }
 
+    /// Profiles with an update session that has not ended. Their programs are being replaced; the
+    /// periodic version query leaves them alone until the update reports its result.
+    pub fn updating_profiles(&self) -> HashSet<String> {
+        lock(&self.shared.sessions)
+            .values()
+            .filter(|e| e.info.kind == SessionKind::Update && e.info.status != Status::Exited)
+            .map(|e| e.info.profile_id.clone())
+            .collect()
+    }
+
     /// How the update of the entry would run on this machine ([`install_source::plan`]).
     pub fn update_plan(&self, profile_id: &str) -> Result<(Agent, UpdatePlan), ManagerError> {
         let path = std::env::var_os("PATH");

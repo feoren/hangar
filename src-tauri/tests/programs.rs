@@ -1,7 +1,7 @@
 //! Integration tests with real programs, without a PTY: version query (ADR 0003) including
 //! the time limit, and program icons.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -272,8 +272,26 @@ fn redetect_bypasses_the_remembered_version() {
         version_of(version::detect(&installed, &cache, &probe_dir())).as_deref(),
         Some("7.7.7")
     );
+    // A program being updated right now is left alone: its remembered version stays.
+    let updating = HashSet::from(["present".to_owned()]);
     assert_eq!(
-        version_of(version::redetect(&installed, &cache, &probe_dir())).as_deref(),
+        version_of(version::redetect(
+            &installed,
+            &cache,
+            &probe_dir(),
+            &updating
+        ))
+        .as_deref(),
+        Some("7.7.7")
+    );
+    assert_eq!(
+        version_of(version::redetect(
+            &installed,
+            &cache,
+            &probe_dir(),
+            &HashSet::new()
+        ))
+        .as_deref(),
         Some("8.8.8")
     );
     // The new answer is remembered for the plain query as well.

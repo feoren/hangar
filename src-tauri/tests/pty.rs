@@ -581,6 +581,8 @@ fn second_update_of_same_program_is_rejected() {
         manager.create_update("slow", SIZE, |_| {}),
         Err(ManagerError::UpdateRunning(name)) if name == "Slow"
     ));
+    // The periodic version query leaves a program alone while it is being updated.
+    assert!(manager.updating_profiles().contains("slow"));
     // The agent itself may start alongside; only duplicate updates are blocked.
     let agent = manager.create("slow", None, SIZE, |_| {}).unwrap();
     manager.close(agent.id).unwrap();
@@ -589,6 +591,7 @@ fn second_update_of_same_program_is_rejected() {
     manager.kill(first.id).unwrap();
     collect_until_exit(&manager, first.id, &rx);
     wait_for_status(&manager, first.id, Status::Exited);
+    assert!(manager.updating_profiles().is_empty());
     let second = manager.create_update("slow", SIZE, |_| {}).unwrap();
     assert!(matches!(
         manager.restart(first.id, SIZE, |_| {}),

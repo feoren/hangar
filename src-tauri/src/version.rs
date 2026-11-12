@@ -9,7 +9,7 @@
 //! The arguments come only from the catalog, the profile or the built-in exceptions, never from
 //! frontend input.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -268,29 +268,33 @@ pub fn detect(
     cache: &VersionCache,
     cwd: &Path,
 ) -> HashMap<String, Option<String>> {
-    detect_with(installed, cache, false, cwd)
+    detect_with(installed, cache, None, cwd)
 }
 
 /// Like [`detect`], but queries every entry anew and remembers the new answers. For the
-/// periodic update check, so an offer disappears once the program is current.
+/// periodic update check, so an offer disappears once the program is current. Profiles in
+/// `keep` (an update session is replacing their program right now) keep their remembered
+/// version; the update reports the new one when it ends.
 pub fn redetect(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
     cwd: &Path,
+    keep: &HashSet<String>,
 ) -> HashMap<String, Option<String>> {
-    detect_with(installed, cache, true, cwd)
+    detect_with(installed, cache, Some(keep), cwd)
 }
 
 fn detect_with(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
-    refresh: bool,
+    refresh_except: Option<&HashSet<String>>,
     cwd: &Path,
 ) -> HashMap<String, Option<String>> {
     thread::scope(|scope| {
         let jobs: Vec<_> = installed
             .iter()
             .map(|(agent, program)| {
+                let refresh = refresh_except.is_some_and(|keep| !keep.contains(agent.id()));
                 let job = thread::Builder::new()
                     .name(format!("version-{}", agent.id()))
                     .spawn_scoped(scope, move || {

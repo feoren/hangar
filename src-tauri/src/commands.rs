@@ -351,7 +351,8 @@ pub async fn open_profile_file(app: tauri::AppHandle) -> Result<(), String> {
 
 /// The version query, run in Hangar's own probe folder in the app data folder
 /// ([`version::probe_folder`]). Without that folder nothing is started and every version is
-/// unknown. `refresh` asks the programs again even when a version is remembered.
+/// unknown. `refresh` asks the programs again even when a version is remembered, except those an
+/// update session is replacing right now.
 fn query_versions(
     app: &tauri::AppHandle,
     installed: &[(crate::agent_catalog::Agent, PathBuf)],
@@ -359,7 +360,10 @@ fn query_versions(
 ) -> HashMap<String, Option<String>> {
     let cache = &app.state::<ProbeCaches>().versions;
     match version::probe_folder(app.state::<Store>().dir()) {
-        Ok(cwd) if refresh => version::redetect(installed, cache, &cwd),
+        Ok(cwd) if refresh => {
+            let updating = app.state::<SessionManager>().updating_profiles();
+            version::redetect(installed, cache, &cwd, &updating)
+        }
         Ok(cwd) => version::detect(installed, cache, &cwd),
         Err(error) => {
             eprintln!("hangar: no folder for the version query: {error}");
