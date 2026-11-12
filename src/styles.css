@@ -526,10 +526,34 @@ h2 .beta-badge {
   color: var(--text);
 }
 
-/* The tree line's elbow into the row on screen takes the accent too, so the eye finds it from the
-   group header. */
+/* The whole way of the tree line from the group header to the row on screen takes the accent:
+   the stub below the header, the line past every row above it, and its own line down to its
+   elbow. The eye follows it from the header to the session the terminal shows. */
+.agent-rows:has(> .session.active)::before,
+.agent-rows > .session:has(~ .session.active) > .tree-guide::before,
+.session.active > .tree-guide::before,
 .session.active > .tree-guide::after {
+  /* Solid on the way to the active row: a dotted hairline in the accent is too faint to follow. */
+  border-style: solid;
   border-color: var(--accent);
+}
+
+.session.active > .tree-guide::before {
+  bottom: auto;
+  height: var(--agent-elbow-y);
+}
+
+/* Below its elbow the line runs on to the next row in its usual color, drawn as dots like the
+   dotted border it replaces. */
+.session.active:not(.tree-last) > .tree-guide {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--tree-guide) 0 1px,
+    transparent 1px 2px
+  );
+  background-repeat: no-repeat;
+  background-position: 0 var(--agent-elbow-y);
+  background-size: var(--hairline) calc(100% - var(--agent-elbow-y));
 }
 
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
