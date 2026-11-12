@@ -113,6 +113,10 @@ pub fn team_labels(
 
 /// This device's sessions in repositories with a known root commit, from the claims of step A
 /// (every session of a worktree gets its claims), the session list and the window's states.
+///
+/// The claims are the diff of the whole worktree and cannot be told apart per session. So a
+/// worktree in which any session has no label (a private session, ADR 0008) is not shared at
+/// all: its changes would otherwise reach the team under a team session's name.
 pub fn local_sessions(
     worktrees: &[claims::WorktreeClaims],
     labels: &[SessionLabel],
@@ -123,6 +127,13 @@ pub fn local_sessions(
         let Some(repo) = &worktree.root_commit else {
             continue;
         };
+        let all_team = worktree
+            .sessions
+            .iter()
+            .all(|id| labels.iter().any(|l| l.id == *id));
+        if !all_team {
+            continue;
+        }
         for id in &worktree.sessions {
             let Some(label) = labels.iter().find(|l| l.id == *id) else {
                 continue;
@@ -857,18 +868,30 @@ mod tests {
         assert_eq!(ids, [2, 3, 5]);
         assert_eq!(labels[1].agent, "Codex CLI");
         assert_eq!(labels[2].agent, "");
-        // A private session is missing from what the team sees, even with claims in its worktree.
-        let worktree = claims::WorktreeClaims {
+        let worktree = |top: &str, sessions: &[SessionId]| claims::WorktreeClaims {
             repo: "c:/r/.git".into(),
-            root_key: "c:/r".into(),
+            root_key: top.into(),
             name: "r".into(),
             root_commit: Some("a".repeat(40)),
             base: None,
-            sessions: vec![1, 2, 3, 4],
-            claims: vec![claim("src/a.rs", &[(1, 2)])],
+            sessions: sessions.to_vec(),
+            claims: vec![claim("src/private.rs", &[(1, 2)])],
             truncated: false,
         };
-        let shared = local_sessions(&[worktree], &labels, &BTreeMap::new());
+        // The claims belong to the whole worktree: while a private session works in it too, its
+        // changes cannot be told apart, so the worktree is not shared at all (private wins).
+        let mixed = local_sessions(
+            &[worktree("c:/r", &[1, 2, 3, 4])],
+            &labels,
+            &BTreeMap::new(),
+        );
+        assert!(mixed.is_empty(), "{mixed:?}");
+        // A worktree of team sessions only is shared; the private one's own folder is not.
+        let shared = local_sessions(
+            &[worktree("c:/wt/team", &[2, 3]), worktree("c:/r", &[1, 4])],
+            &labels,
+            &BTreeMap::new(),
+        );
         let ids: Vec<SessionId> = shared.iter().map(|s| s.id).collect();
         assert_eq!(ids, [2, 3]);
     }
