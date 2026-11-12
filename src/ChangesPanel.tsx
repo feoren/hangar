@@ -9,7 +9,11 @@ import {
   changeEntries,
   DIFF_PAGE_LINES,
   FILE_PAGE,
-  initiallyOpen,
+  autoOpenPath,
+  isFileOpen,
+  NO_CHOICES,
+  toggleFile,
+  type OpenChoices,
   lineKind,
   parseGitDiff,
   splitPath,
@@ -172,15 +176,9 @@ function ChangesBody({ cwd, load }: { cwd: string | null; load: Load }) {
 function ChangeList({ result }: { result: GitDiff }) {
   const t = useT();
   const entries = useMemo(() => changeEntries(result), [result]);
-  const [open, setOpen] = useState(() => initiallyOpen(entries));
-  // A new answer opens its small files again; files the user opened or closed keep their state.
-  const [openFor, setOpenFor] = useState(entries);
-  if (openFor !== entries) {
-    setOpenFor(entries);
-    const known = new Set(openFor.map((entry) => entry.path));
-    const fresh = initiallyOpen(entries.filter((entry) => !known.has(entry.path)));
-    setOpen((current) => new Set([...current, ...fresh]));
-  }
+  // Only the last file opens by itself; files the user opened or closed keep their state.
+  const auto = useMemo(() => autoOpenPath(entries), [entries]);
+  const [choices, setChoices] = useState<OpenChoices>(NO_CHOICES);
   // Thousands of files (a generated folder) would make the panel slow; the totals count them all.
   const [listed, setListed] = useState(FILE_PAGE);
   const restFiles = entries.length - listed;
@@ -199,15 +197,12 @@ function ChangeList({ result }: { result: GitDiff }) {
           <FileItem
             key={entry.path}
             entry={entry}
-            open={open.has(entry.path)}
+            open={isFileOpen(entry.path, auto, choices)}
             truncated={result.truncated}
             onToggle={() => {
-              setOpen((current) => {
-                const next = new Set(current);
-                if (next.has(entry.path)) next.delete(entry.path);
-                else next.add(entry.path);
-                return next;
-              });
+              setChoices((current) =>
+                toggleFile(current, entry.path, isFileOpen(entry.path, auto, current)),
+              );
             }}
           />
         ))}

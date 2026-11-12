@@ -25,10 +25,6 @@ export interface GitDiff {
 export const DIFF_PAGE_LINES = 300;
 /** Files listed at first and per "Show more"; the totals above the list count all of them. */
 export const FILE_PAGE = 500;
-/** Files up to this many lines open by themselves ... */
-const AUTO_OPEN_FILE_LINES = 200;
-/** ... as long as the open files together stay below this. */
-const AUTO_OPEN_TOTAL_LINES = 800;
 
 function count(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
@@ -256,18 +252,45 @@ export function changeEntries(result: GitDiff): ChangeEntry[] {
   return entries;
 }
 
-/** Files open from the start: small ones, while the total stays short enough to read. */
-export function initiallyOpen(entries: readonly ChangeEntry[]): Set<string> {
-  const open = new Set<string>();
-  let total = 0;
-  for (const entry of entries) {
-    const size = entry.diff?.lines.length ?? 0;
-    if (size === 0 || size > AUTO_OPEN_FILE_LINES) continue;
-    if (total + size > AUTO_OPEN_TOTAL_LINES) break;
-    total += size;
-    open.add(entry.path);
+/**
+ * The one file open by itself: the last one in the list that has a diff to show. Everything above
+ * it stays closed, so the list reads as an overview and the newest change is right there.
+ */
+export function autoOpenPath(entries: readonly ChangeEntry[]): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry !== undefined && (entry.diff?.lines.length ?? 0) > 0) return entry.path;
   }
-  return open;
+  return null;
+}
+
+/** Files the user opened or closed by hand; they keep that state across refreshes. */
+export interface OpenChoices {
+  opened: ReadonlySet<string>;
+  closed: ReadonlySet<string>;
+}
+
+export const NO_CHOICES: OpenChoices = { opened: new Set(), closed: new Set() };
+
+/** A hand choice wins; otherwise only the automatically opened file is open. */
+export function isFileOpen(path: string, auto: string | null, choices: OpenChoices): boolean {
+  if (choices.opened.has(path)) return true;
+  if (choices.closed.has(path)) return false;
+  return path === auto;
+}
+
+/** `choices` after the user toggled `path`, which was `open` before. */
+export function toggleFile(choices: OpenChoices, path: string, open: boolean): OpenChoices {
+  const opened = new Set(choices.opened);
+  const closed = new Set(choices.closed);
+  if (open) {
+    opened.delete(path);
+    closed.add(path);
+  } else {
+    closed.delete(path);
+    opened.add(path);
+  }
+  return { opened, closed };
 }
 
 /** Folder part and file name, so the list can show the name first. */

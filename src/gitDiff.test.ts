@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   changeEntries,
   changeKind,
-  initiallyOpen,
+  autoOpenPath,
+  isFileOpen,
+  NO_CHOICES,
+  toggleFile,
   lineKind,
   parseGitDiff,
   splitDiff,
@@ -167,9 +170,9 @@ describe("changeEntries", () => {
     expect(entries[2]).toMatchObject({ additions: 0, deletions: 1 });
   });
 
-  it("opens small files first and stays below the total budget", () => {
-    const open = initiallyOpen(changeEntries(result));
-    expect([...open]).toEqual(["src/app.ts", "gone.txt"]);
+  it("opens only the last file that has a diff", () => {
+    // The binary file and the pure rename after it have no lines to show.
+    expect(autoOpenPath(changeEntries(result))).toBe("gone.txt");
     const big: GitDiff = {
       ...result,
       diff: [
@@ -177,9 +180,29 @@ describe("changeEntries", () => {
         "@@ -0,0 +1,500 @@",
         ...Array.from({ length: 500 }, () => "+x"),
       ].join("\n"),
-      files: [{ path: "big.txt", status: "A ", additions: 500, deletions: 0 }],
+      files: [
+        { path: "big.txt", status: "A ", additions: 500, deletions: 0 },
+        { path: "later.txt", status: "??", additions: 0, deletions: 0 },
+      ],
     };
-    expect(initiallyOpen(changeEntries(big)).size).toBe(0);
+    // A file without a diff (untracked, not read) is skipped; size does not matter.
+    expect(autoOpenPath(changeEntries(big))).toBe("big.txt");
+    expect(autoOpenPath([])).toBeNull();
+  });
+
+  it("keeps the user's choices over the automatic one", () => {
+    expect(isFileOpen("a", "a", NO_CHOICES)).toBe(true);
+    expect(isFileOpen("b", "a", NO_CHOICES)).toBe(false);
+    const closedA = toggleFile(NO_CHOICES, "a", true);
+    expect(isFileOpen("a", "a", closedA)).toBe(false);
+    const openedB = toggleFile(closedA, "b", false);
+    expect(isFileOpen("b", "a", openedB)).toBe(true);
+    // A new last file opens by itself; the earlier one closes unless the user opened it.
+    expect(isFileOpen("a", "c", openedB)).toBe(false);
+    expect(isFileOpen("b", "c", openedB)).toBe(true);
+    expect(isFileOpen("c", "c", openedB)).toBe(true);
+    const reopened = toggleFile(openedB, "a", false);
+    expect(isFileOpen("a", "c", reopened)).toBe(true);
   });
 });
 
