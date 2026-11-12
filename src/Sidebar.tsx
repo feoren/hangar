@@ -67,7 +67,7 @@ import {
   type DetailLine,
   type StatusLine,
 } from "./statusLine";
-import type { ThemeSetting } from "./theme";
+import type { Theme } from "./theme";
 import { edgeClass, rowEdge, rowLook, runsAgent, sessionChip, type ChipKind } from "./sessionChip";
 import { RepoTeammates } from "./RepoTeammates";
 import { lookClass } from "./stateLook";
@@ -114,8 +114,9 @@ interface Props {
   /** Hangar's own version (as getVersion returns it), `null` until known. */
   version: string | null;
   /** Chosen color mode ("System" follows the system); set from the account menu. */
-  themeSetting: ThemeSetting;
-  onSetTheme: (theme: ThemeSetting) => void;
+  /** The color mode on screen, for the footer's light and dark switch. */
+  theme: Theme;
+  onToggleTheme: () => void;
   /** Where the next session starts (startTarget.ts). */
   target: StartTarget;
   /** Project folders of the running sessions, for the folder menu. */
@@ -399,9 +400,8 @@ export function Sidebar(props: Props) {
       sideTab={props.sideTab}
       onToggleSideTab={props.onToggleSideTab}
       onOpenSettings={props.onOpenSettings}
-      themeSetting={props.themeSetting}
-      onSetTheme={props.onSetTheme}
-      onMenuClose={props.onMenuClose}
+      theme={props.theme}
+      onToggleTheme={props.onToggleTheme}
     />
   );
 

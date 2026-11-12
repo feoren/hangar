@@ -8133,32 +8133,6 @@ body.session-dragging .session-actions {
   text-overflow: ellipsis;
 }
 
-/* The name opens a menu: a small chevron says so, pointing up because the menu opens above. */
-.footer-chevron {
-  display: grid;
-  flex: none;
-  place-items: center;
-  margin-left: auto;
-  color: var(--muted);
-  transform: rotate(-90deg);
-}
-
-.footer-account[aria-expanded="true"] {
-  background: var(--hover);
-}
-
-/* Account menu: the chosen color mode gets a check at the row's end, not weight alone. */
-.account-menu .menu-item.current .menu-hint::after {
-  display: inline-block;
-  width: 9px;
-  height: 5px;
-  margin-bottom: 3px;
-  content: "";
-  border-bottom: 1.6px solid var(--accent);
-  border-left: 1.6px solid var(--accent);
-  transform: rotate(-45deg);
-}
-
 .footer-settings {
   flex: none;
   width: 30px;

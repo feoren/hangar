@@ -2760,7 +2760,7 @@ export function App() {
     setSettings((current) => ({ ...current, ...patch }));
   };
 
-  /** Toggle in the sidebar; if the setting is System, it becomes a fixed choice. */
+  /** Light and dark switch (sidebar footer, menu); if the setting is System, it becomes a fixed choice. */
   const toggleTheme = () => {
     updateSettings({ theme: toggledTheme(theme) });
   };
@@ -3598,10 +3598,8 @@ export function App() {
           }}
           onFocusTerminal={focusTerminal}
           version={version}
-          themeSetting={settings.theme}
-          onSetTheme={(next) => {
-            updateSettings({ theme: next });
-          }}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           target={target}
           runningProjects={running}
           worktree={worktree}
