@@ -1266,7 +1266,7 @@ fn spawn(
     let own_hooks = agent
         .capabilities
         .gate_format()
-        .is_some_and(|format| format.conflicts_with(&args, &profile.env));
+        .is_some_and(|format| format.conflicts_with(&args, &profile.env, &profile.secret_env));
     let plan = match (launch.kind, launch.mode, shared.launch_gate()) {
         (SessionKind::Agent, SessionMode::Team, Some(gate)) if own_hooks && gate.applies(agent) => {
             GatePlan::Unavailable(GateStatus::ProfileSettings)
@@ -1488,7 +1488,7 @@ mod tests {
     fn own_settings_are_found_in_both_spellings_only() {
         let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
         let has_own_settings = |list: &[String]| {
-            HookFormat::ClaudeSettings.conflicts_with(list, &std::collections::BTreeMap::new())
+            HookFormat::ClaudeSettings.conflicts_with(list, &std::collections::BTreeMap::new(), &[])
         };
         assert!(has_own_settings(&args(&[
             "--model",

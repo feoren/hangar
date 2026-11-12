@@ -560,6 +560,28 @@ Filed the contract of the new viewer commands (`file_viewer_stamp`, `file_viewer
 filter with its bounded path index (`list_session_paths`) and dragging tree rows onto a terminal.
 Pages changed: [[file-viewer]], index.
 
+## [2026-11-12] ingest | Gate adapters for Pi, Oh My Pi, OpenCode and Droid
+Built the four recipes from [[agent-hooks-remaining-agents-research]]: an in-process extension
+for Pi and Oh My Pi (`-e`), an OpenCode plugin in a per-session `OPENCODE_CONFIG_DIR`, and a Droid
+`--settings` file running `hangar gate-hook droid pre-tool-use`. The extension and plugin ask the
+endpoint with `node:http` (Node's `fetch` sends `sec-fetch-mode`, which the endpoint refuses) and
+fail open. Approved live measurements: OpenCode 1.19.5 (three turns, free model) and Pi 1.5.2
+(two runs ended at expired sign-ins, the third used a live Pi with a scripted model); both are
+offered from those versions. Oh My Pi and Droid are not installed and stay `measured = false`.
+Pages changed: [[opencode-gate-live-measurement]] (new), [[pi-gate-live-measurement]] (new),
+[[agent-gate-adapters]], [[agent-hooks-remaining-agents-research]], index.
+
+## [2026-11-12] ingest | OpenCode gate through OPENCODE_CONFIG_CONTENT; review fixes
+Security review follow-up. Two approved live OpenCode 1.19.5 turns: the gate plugin named as a
+`file://` URL in `OPENCODE_CONFIG_CONTENT` loads without a configuration folder or npm install, a
+deny still keeps the write from happening, and a temporary plugin in the user's
+`~/.config/opencode/plugins` kept loading next to it. The recipe now uses that variable
+(`GATE_ENV_NAMES`, conflict with a profile's plain or keychain `OPENCODE_CONFIG_CONTENT`, not
+offered where Hangar's environment sets it). Conflicts now also look at keychain variable names.
+The in-process plugins look tools up as own keys only, read patch text only from the patch tools'
+named fields, take paths as given, and drop `@` and expand `~` only for Pi.
+Pages changed: [[opencode-gate-live-measurement]], [[agent-gate-adapters]],
+[[agent-hooks-remaining-agents-research]], index.
 ## [2026-11-12] query | Git actions in the Changes tab
 Documented `git_stage`, `git_unstage`, `git_discard` and `git_commit` (session ID, literal
 pathspecs on stdin, path rules, filter refusal, hooks not bypassed) and the line comments to the

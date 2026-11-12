@@ -42,6 +42,7 @@ describe("parseSettings", () => {
       notifyDesktop: false,
       chime: false,
       chimeVolume: 70,
+      quietHours: { enabled: true, from: 1380, to: 360 },
       keepInTray: true,
       showVersions: false,
       showIcons: false,

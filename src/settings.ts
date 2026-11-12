@@ -16,6 +16,7 @@ import {
   type CursorStyle,
   type TerminalFont,
 } from "./terminalLook";
+import { DEFAULT_QUIET_HOURS, parseQuietHours, type QuietHours } from "./quietHours";
 import { isSessionGrouping, type SessionGrouping } from "./sessionGroups";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
@@ -51,6 +52,8 @@ export interface Settings {
   chime: boolean;
   /** Chime volume in percent (CHIME_VOLUME). */
   chimeVolume: number;
+  /** Daily window without taskbar flash, chime and desktop notifications (quietHours.ts). */
+  quietHours: QuietHours;
   /**
    * Closing the window only hides it; an icon in the notification area brings it back or quits
    * (tray.ts). Off: closing quits, as before.
@@ -126,6 +129,7 @@ export function defaultSettings(language: Language): Settings {
     notifyDesktop: true,
     chime: true,
     chimeVolume: CHIME_VOLUME.default,
+    quietHours: DEFAULT_QUIET_HOURS,
     keepInTray: false,
     showVersions: true,
     showIcons: true,
@@ -208,6 +212,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
       typeof volume === "number" && Number.isFinite(volume)
         ? clampChimeVolume(volume)
         : defaults.chimeVolume,
+    quietHours: parseQuietHours(get("quietHours")),
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),

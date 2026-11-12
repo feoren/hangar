@@ -256,6 +256,20 @@
         "zh": "除 Claude Code 外，Codex CLI（0.167.2 或更高版本）现在也能作为团队会话运行。团队可以混用两者。"
       },
       {
+        "de": "OpenCode (ab 1.19.5) und Pi (ab 1.5.2) laufen jetzt ebenfalls als Team-Session und halten vor Änderungen an, an denen gerade jemand anderes arbeitet.",
+        "en": "OpenCode (1.19.5 or later) and Pi (1.5.2 or later) now run as team sessions too and pause before editing a file someone else is changing.",
+        "el": "Το OpenCode (1.19.5 ή νεότερο) και το Pi (1.5.2 ή νεότερο) τρέχουν τώρα ως ομαδικές συνεδρίες και σταματούν πριν αλλάξουν αρχείο που αλλάζει άλλος.",
+        "es": "OpenCode (1.19.5 o posterior) y Pi (1.5.2 o posterior) ya funcionan como sesiones de equipo y se detienen antes de editar un archivo que otro está cambiando.",
+        "fr": "OpenCode (1.19.5 ou plus) et Pi (1.5.2 ou plus) tournent aussi en session d'équipe et s'arrêtent avant de modifier un fichier qu'un autre change.",
+        "it": "Anche OpenCode (1.19.5 o successivo) e Pi (1.5.2 o successivo) funzionano come sessioni di team e si fermano prima di modificare un file che un altro cambia.",
+        "ja": "OpenCode（1.19.5 以降）と Pi（1.5.2 以降）もチームセッションとして動くようになり、他の人が変更中のファイルを編集する前に一時停止します。",
+        "pl": "OpenCode (1.19.5 lub nowszy) i Pi (1.5.2 lub nowszy) działają teraz także jako sesje zespołowe i zatrzymują się przed edycją pliku, który zmienia ktoś inny.",
+        "pt": "O OpenCode (1.19.5 ou mais recente) e o Pi (1.5.2 ou mais recente) agora rodam como sessões de equipe e pausam antes de editar um arquivo que outro muda.",
+        "ru": "OpenCode (1.19.5 или новее) и Pi (1.5.2 или новее) теперь тоже работают как командные сессии и ждут, прежде чем править файл, который меняет другой.",
+        "tr": "OpenCode (1.19.5 veya üstü) ve Pi (1.5.2 veya üstü) artık ekip oturumu olarak da çalışıyor ve başkasının değiştirdiği bir dosyayı düzenlemeden önce duraklıyor.",
+        "zh": "OpenCode（1.19.5 或更高版本）和 Pi（1.5.2 或更高版本）现在也能作为团队会话运行，并会在编辑他人正在修改的文件前暂停。"
+      },
+      {
         "de": "Sessions ohne eigenen Worktree sind jetzt privat, Agenten halten dort nicht mehr vor überschneidenden Änderungen an. Dafür startest du eine Team-Session.",
         "en": "Sessions without their own worktree are now private, and agents there no longer pause before overlapping edits. Start a team session for that.",
         "el": "Οι συνεδρίες χωρίς δικό τους worktree είναι πλέον ιδιωτικές και οι agents δεν σταματούν πριν από αλληλοεπικαλύψεις. Γι' αυτό ξεκίνα ομαδική συνεδρία.",
@@ -310,6 +324,34 @@
         "ru": "Ctrl+Shift+M показывает все сессии живыми плитками с последними строками. Стрелки выбирают, Enter открывает.",
         "tr": "Ctrl+Shift+M tüm oturumları son satırlarıyla canlı kutucuklar olarak gösterir. Oklar seçer, Enter açar.",
         "zh": "Ctrl+Shift+M 以实时图块显示所有会话及其最后几行。方向键选择，按 Enter 打开。"
+      },
+      {
+        "de": "Ruht die Maus kurz auf einer Session in der Seitenleiste, zeigt Hangar daneben ihre letzten Zeilen, ohne dass du wechseln musst.",
+        "en": "Rest the mouse on a session in the sidebar for a moment and Hangar shows its last lines beside it, without switching.",
+        "el": "Αν αφήσεις για λίγο το ποντίκι πάνω σε μια συνεδρία στην πλευρική στήλη, το Hangar δείχνει δίπλα τις τελευταίες γραμμές της, χωρίς εναλλαγή.",
+        "es": "Deja el ratón un momento sobre una sesión de la barra lateral y Hangar muestra al lado sus últimas líneas, sin cambiar de sesión.",
+        "fr": "Laisse la souris un instant sur une session de la barre latérale : Hangar affiche ses dernières lignes à côté, sans changer de session.",
+        "it": "Lascia il mouse per un attimo su una sessione nella barra laterale e Hangar ne mostra accanto le ultime righe, senza cambiare sessione.",
+        "ja": "サイドバーのセッションにマウスを少し置くと、切り替えなくても、その最後の数行が横に表示されます。",
+        "pl": "Przytrzymaj chwilę mysz nad sesją na pasku bocznym, a Hangar pokaże obok jej ostatnie wiersze, bez przełączania.",
+        "pt": "Deixe o mouse um instante sobre uma sessão na barra lateral e o Hangar mostra ao lado as últimas linhas dela, sem trocar de sessão.",
+        "ru": "Задержи мышь на сеансе в боковой панели, и Hangar покажет рядом его последние строки, без переключения.",
+        "tr": "Fareyi kenar çubuğundaki bir oturumun üzerinde kısa süre tut, Hangar geçiş yapmadan son satırlarını yanında gösterir.",
+        "zh": "将鼠标在侧边栏的会话上稍作停留，Hangar 会在旁边显示它的最后几行，无需切换。"
+      },
+      {
+        "de": "Ruhezeiten unter Einstellungen > Aufmerksamkeit, auch über Mitternacht: In dieser Zeit blinkt nichts, kein Ton, keine Benachrichtigung.",
+        "en": "Quiet hours in Settings > Attention: from and to, also across midnight. No flashing, sound or notifications during them.",
+        "el": "Ώρες ησυχίας στις Ρυθμίσεις > Ειδοποίηση: από και έως, και μετά τα μεσάνυχτα. Τότε χωρίς αναλαμπή, ήχο ή ειδοποιήσεις.",
+        "es": "Horas de silencio en Configuración > Avisos: desde y hasta, también pasada la medianoche. Sin parpadeo, sonido ni notificaciones.",
+        "fr": "Heures calmes dans Paramètres > Mise en évidence : de et à, même après minuit. Pas de clignotement, de son ni de notification.",
+        "it": "Ore di silenzio in Impostazioni > Avvisi: dalle e alle, anche oltre la mezzanotte. Niente lampeggio, suoni o notifiche.",
+        "ja": "設定 > 通知 におやすみ時間を追加しました。開始と終了は日付をまたいでも指定できます。その間は点滅、音、通知がありません。",
+        "pl": "Godziny ciszy w Ustawienia > Sygnalizacja: od i do, także po północy. Wtedy bez migania, dźwięku i powiadomień.",
+        "pt": "Horário de silêncio em Configurações > Avisos: de e até, também passando da meia-noite. Sem piscar, som ou notificações.",
+        "ru": "Часы тишины в Настройки > Оповещения: с и до, в том числе через полночь. В это время без мигания, звука и уведомлений.",
+        "tr": "Ayarlar > Uyarılar altında sessiz saatler: başlangıç ve bitiş, gece yarısını geçse de. Bu sürede yanıp sönme, ses ve bildirim yok.",
+        "zh": "在 设置 > 提醒 中设置免打扰时段：开始和结束时间，可跨越午夜。在此期间不闪烁、不发声、不通知。"
       }
     ]
   },

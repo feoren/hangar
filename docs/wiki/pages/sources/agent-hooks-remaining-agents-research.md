@@ -151,3 +151,15 @@ are fail open on crash or timeout.
 - Pi, Oh My Pi, OpenCode and Droid can become team-capable; Pi, OMP and OpenCode without the helper
   command. Following the rule that Hangar offers only what works, every agent in section 4 and the
   conditional candidates stay off the Team list until a measurement says otherwise.
+- Built on 2026-11-12 ([[agent-gate-adapters]]): OpenCode is offered from 1.19.5
+  ([[opencode-gate-live-measurement]]: plugin named in `OPENCODE_CONFIG_CONTENT`, because
+  `OPENCODE_CONFIG_DIR` makes OpenCode run an npm install in that folder; `write` with
+  `filePath`, a thrown deny stops it) and Pi from 1.5.2 ([[pi-gate-live-measurement]]: `-e`
+  without trust prompt, `{ block: true }` stops `write`; scripted model). Oh My Pi and Droid have
+  their recipes but stay off until measured (not installed).
+
+> [!warning] Contradiction
+> Section 2 suggests `fetch` for the in-process gate. Node's `fetch` sends `sec-fetch-mode`
+> (seen at a probe endpoint with Node 26.13.1, recorded in
+> `raw/2026-11-12-pi-gate-live-measurement.md`), which Hangar's endpoint refuses as a browser
+> request; the extension uses `node:http` instead, which sends no `Origin` or `Sec-Fetch-*` header.

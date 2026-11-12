@@ -7,7 +7,8 @@
 //!
 //! Every session that gets the gate has its own random token. It reaches the agent only through
 //! the PTY child's environment ([`TOKEN_ENV`] for the agents' HTTP hooks, which put it into a
-//! header, [`HELPER_ENV`] for the helper command `hangar gate-hook`); it is never written to a
+//! header, [`HELPER_ENV`] for the helper command `hangar gate-hook` and the in-process extensions
+//! of Pi, Oh My Pi and OpenCode); it is never written to a
 //! file, an argument or a log and never sent to the window. A request without a known token is
 //! refused before its body is read.
 //!
@@ -44,8 +45,8 @@ use crate::gate::{
 };
 use crate::hook_http::{self, Head, Status};
 use crate::hook_recipes::{
-    self as recipes, Shell, AGENT_CODEX, AGENT_GEMINI, EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE,
-    HELPER_ENV,
+    self as recipes, Shell, AGENT_CODEX, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL,
+    EVENT_PRE_TOOL_USE, HELPER_ENV,
 };
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
@@ -444,6 +445,60 @@ impl GateService {
                 }
                 Install {
                     prepend,
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            // The extension asks the endpoint itself; it reads port and token from HELPER_ENV.
+            HookFormat::PiExtension | HookFormat::OmpExtension => {
+                let dir = self.session_dir(port, session)?;
+                let file_text = path_text(&dir.join(recipes::PI_FILE));
+                // A cmd.exe launcher (npm's pi.cmd) gets the file as an argument.
+                if batch && !crate::batch::argument_ok(&file_text) {
+                    return Err(GateStatus::Launcher);
+                }
+                write_file(&dir, recipes::PI_FILE, &recipes::pi_extension())?;
+                Install {
+                    prepend: vec![recipes::PI_EXTENSION_FLAG.to_owned(), file_text],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            HookFormat::OpencodePlugin => {
+                // Named inline rather than through a configuration folder: OpenCode runs an npm
+                // install in every configuration folder it starts with (measured).
+                let dir = self.session_dir(port, session)?;
+                let plugin = write_file(&dir, recipes::OPENCODE_FILE, &recipes::opencode_plugin())?;
+                let config = recipes::opencode_config(&plugin).ok_or(GateStatus::HookFiles)?;
+                Install {
+                    env: vec![(recipes::OPENCODE_CONFIG_CONTENT_ENV.to_owned(), config)],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            HookFormat::DroidSettings => {
+                // Which shell Droid runs a hook command in is not documented; a double quoted
+                // path reads the same in cmd.exe and a POSIX shell.
+                let command = recipes::helper_command(
+                    &self.helper()?,
+                    AGENT_DROID,
+                    EVENT_PRE_TOOL_USE,
+                    Shell::for_agent(false),
+                    false,
+                )
+                .map_err(|_| GateStatus::InstallPath)?;
+                let dir = self.session_dir(port, session)?;
+                let file_text = path_text(&dir.join(recipes::DROID_FILE));
+                if batch && !crate::batch::argument_ok(&file_text) {
+                    return Err(GateStatus::Launcher);
+                }
+                write_file(
+                    &dir,
+                    recipes::DROID_FILE,
+                    &recipes::droid_settings(&command),
+                )?;
+                Install {
+                    prepend: vec![recipes::DROID_SETTINGS_FLAG.to_owned(), file_text],
                     helper: true,
                     ..Install::default()
                 }
@@ -2113,7 +2168,11 @@ mod tests {
             "/home/o'neil/hangar"
         };
         fixture.service.set_helper(PathBuf::from(odd));
-        for format in ["gemini_system_settings", "codex_config_flags"] {
+        for format in [
+            "gemini_system_settings",
+            "codex_config_flags",
+            "droid_settings",
+        ] {
             assert!(
                 matches!(
                     fixture
@@ -2129,13 +2188,141 @@ mod tests {
         let port = fixture.service.port().unwrap();
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some("x"), &body).0, 401);
         assert!(lock(&fixture.service.inner.session_dirs).is_empty());
-        // Copilot runs the helper without a shell, so the same path is fine there.
-        launched(fixture.service.prepare(
-            2,
-            &agent_in("copilot_plugin", false),
-            Path::new("copilot.exe"),
+        // Copilot runs the helper without a shell, and the in-process extensions run no helper,
+        // so the same path is fine there.
+        for (session, format) in [
+            (2, "copilot_plugin"),
+            (3, "pi_extension"),
+            (4, "opencode_plugin"),
+        ] {
+            launched(fixture.service.prepare(
+                session,
+                &agent_in(format, false),
+                Path::new("x.exe"),
+                &[],
+            ));
+        }
+    }
+
+    #[test]
+    fn pi_and_omp_get_the_extension_file_before_the_users_arguments() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        for (session, format) in [(11, "pi_extension"), (12, "omp_extension")] {
+            let launch = launched(fixture.service.prepare(
+                session,
+                &agent_in(format, false),
+                Path::new("pi.exe"),
+                &["--continue".to_owned()],
+            ));
+            assert_eq!(launch.prepend.len(), 2, "{format}");
+            assert_eq!(launch.prepend[0], "-e");
+            let file = PathBuf::from(&launch.prepend[1]);
+            assert!(file.is_absolute(), "{file:?}");
+            assert!(
+                file.starts_with(fixture.settings.path().join(SESSIONS_DIR)),
+                "{file:?}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&file).unwrap(),
+                recipes::pi_extension()
+            );
+            assert!(launch.args.is_empty());
+            // The extension reads port and token from the helper's variable.
+            let port = fixture.service.port().unwrap();
+            assert!(env_of(&launch, HELPER_ENV)
+                .unwrap()
+                .starts_with(&format!("{port}:")));
+            assert!(env_of(&launch, TOKEN_ENV).is_none());
+            assert_token_only_in_env(&fixture, &launch);
+            fixture.service.ended(session);
+            wait_until_gone(file.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn opencode_gets_its_plugin_named_in_an_inline_configuration() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let launch = launched(fixture.service.prepare(
+            13,
+            &agent_in("opencode_plugin", false),
+            Path::new("opencode.exe"),
+            &["--continue".to_owned()],
+        ));
+        assert!(launch.prepend.is_empty() && launch.args.is_empty());
+        let config: serde_json::Value =
+            serde_json::from_str(env_of(&launch, recipes::OPENCODE_CONFIG_CONTENT_ENV).unwrap())
+                .unwrap();
+        let url = url::Url::parse(config["plugin"][0].as_str().unwrap()).unwrap();
+        let plugin = url.to_file_path().unwrap();
+        let dir = plugin.parent().unwrap().to_path_buf();
+        assert!(
+            dir.starts_with(fixture.settings.path().join(SESSIONS_DIR)),
+            "{dir:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&plugin).unwrap(),
+            recipes::opencode_plugin()
+        );
+        // The plugin file only: no configuration folder for OpenCode to install into.
+        assert_eq!(files_below(&dir).len(), 1);
+        assert!(env_of(&launch, "OPENCODE_CONFIG_DIR").is_none());
+        assert!(env_of(&launch, HELPER_ENV).is_some());
+        assert_token_only_in_env(&fixture, &launch);
+        fixture.service.ended(13);
+        wait_until_gone(&dir);
+    }
+
+    #[test]
+    fn droid_gets_a_settings_file_that_runs_the_helper() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(true));
+        let launch = launched(fixture.service.prepare(
+            14,
+            &agent_in("droid_settings", false),
+            Path::new("droid.exe"),
+            &["--resume".to_owned()],
+        ));
+        assert_eq!(launch.prepend[0], "--settings");
+        assert_eq!(launch.prepend.len(), 2);
+        let file = PathBuf::from(&launch.prepend[1]);
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(
+            command.contains(helper_exe(true).to_str().unwrap()),
+            "{command}"
+        );
+        assert!(
+            command.ends_with("gate-hook droid pre-tool-use"),
+            "{command}"
+        );
+        assert!(env_of(&launch, HELPER_ENV).is_some());
+        assert_token_only_in_env(&fixture, &launch);
+        fixture.service.ended(14);
+        wait_until_gone(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_cmd_launcher_takes_the_extension_file_only_where_cmd_passes_it_on() {
+        if !cfg!(windows) {
+            return;
+        }
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let shim = Path::new(r"C:\npm\pi.cmd");
+        let launch = launched(fixture.service.prepare(
+            15,
+            &agent_in("pi_extension", false),
+            shim,
             &[],
         ));
+        // What the manager checks before starting a cmd.exe launcher.
+        assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
     }
 
     #[test]
@@ -2185,6 +2372,10 @@ mod tests {
             "gemini_system_settings",
             "copilot_plugin",
             "codex_config_flags",
+            "pi_extension",
+            "omp_extension",
+            "opencode_plugin",
+            "droid_settings",
         ]
         .into_iter()
         .enumerate()

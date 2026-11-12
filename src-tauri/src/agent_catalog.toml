@@ -47,7 +47,8 @@
 #                    given to one session without touching the user's settings files;
 #                    hook_format: how Hangar writes its hooks for one session:
 #                    "claude_settings" (Claude Code's `--settings`), "qwen_system_settings",
-#                    "gemini_system_settings", "copilot_plugin" or "codex_config_flags"
+#                    "gemini_system_settings", "copilot_plugin", "codex_config_flags",
+#                    "pi_extension", "omp_extension", "opencode_plugin" or "droid_settings"
 #                    (recipes in src-tauri/src/hook_recipes.rs and
 #                    docs/wiki/pages/syntheses/agent-gate-adapters.md); measured: the recipe was
 #                    run once against the live program and held an edit; min_version: oldest
@@ -56,7 +57,8 @@
 #                    sessions, only where pre_edit_block, per_session_config and measured are
 #                    true, hook_format is set, the installed version reaches min_version (an
 #                    unknown version does not) and no administrator's system settings file would
-#                    be replaced (Gemini CLI, Qwen Code).
+#                    be replaced (Gemini CLI, Qwen Code; for OpenCode an OPENCODE_CONFIG_CONTENT
+#                    of the user's own in Hangar's environment).
 #                    A user profile with the same id and program inherits them.
 #   latest           Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
@@ -237,6 +239,14 @@ id = "opencode"
 name = "OpenCode"
 commands = ["opencode"]
 resume_args = ["--continue"]
+# tool.execute.before on write, edit, multiedit, patch and apply_patch from an in-process plugin
+# named in OPENCODE_CONFIG_CONTENT (`plugin` = its file:// URL); it asks Hangar's endpoint itself
+# with HANGAR_GATE and throws the reason on a deny. Not OPENCODE_CONFIG_DIR: OpenCode runs an npm
+# install in such a folder on every start. Measured live with 1.19.5 (hook fires before the write,
+# HANGAR_GATE arrives, a deny keeps the file from being written, the user's own plugins still
+# load, nothing is installed): docs/wiki/pages/sources/opencode-gate-live-measurement.md. Shell
+# writes are not hooked.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5" }
 icon = "OC"
 homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"
@@ -292,6 +302,11 @@ id = "pi"
 name = "Pi"
 commands = ["pi"]
 resume_args = ["--continue"]
+# tool_call on write and edit from an in-process extension loaded with `-e <file>`; it asks
+# Hangar's endpoint itself with HANGAR_GATE and blocks with the reason on a deny. Measured with a
+# live Pi 1.5.2 process and a scripted model (hook fires before the write, HANGAR_GATE arrives, a
+# deny keeps the file from being written): docs/wiki/pages/sources/pi-gate-live-measurement.md.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "pi_extension", measured = true, min_version = "1.5.2" }
 icon = "Pi"
 homepage = "https://github.com/earendil-works/pi"
 install_windows = "powershell -c \"irm https://pi.dev/install.ps1 | iex\""
@@ -304,6 +319,10 @@ self_update = { args = ["update"], aware = true }
 id = "omp"
 name = "Oh My Pi"
 commands = ["omp"]
+# Pi's extension with `-e <file>`; Oh My Pi also gates ast_edit and reads patch text. Recipe built,
+# live measurement pending (not installed; measured = false keeps it off):
+# docs/wiki/pages/syntheses/agent-gate-adapters.md. Floor: the version the research read.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "omp_extension", measured = false, min_version = "18.19.0" }
 icon = "OP"
 homepage = "https://github.com/can1357/oh-my-pi"
 install_windows = "irm https://omp.sh/install.ps1 | iex"
@@ -370,6 +389,12 @@ id = "droid"
 name = "Droid (Factory)"
 commands = ["droid"]
 resume_args = ["--resume"]
+# PreToolUse on Edit, Create and ApplyPatch from a settings file given with `--settings <file>`
+# that runs `hangar gate-hook droid pre-tool-use`. Recipe built, live measurement pending (not
+# installed; whether `--settings` carries hooks in the interactive REPL is undocumented;
+# measured = false keeps it off): docs/wiki/pages/syntheses/agent-gate-adapters.md. Floor: the
+# version the CLI reference names.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "droid_settings", measured = false, min_version = "0.174.0" }
 icon = "D"
 homepage = "https://docs.factory.com/cli/getting-started/quickstart"
 
