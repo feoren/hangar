@@ -7040,21 +7040,6 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
-/* A program that cannot be a team session while Team is chosen: greyed out, still pointable so
-   its tooltip says why. */
-.profile-row.unsupported .profile {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.profile-row.unsupported .profile svg {
-  display: none;
-}
-
-.profile-row.unsupported:hover {
-  background: none;
-}
-
 .profile-update-dot {
   flex: none;
 }

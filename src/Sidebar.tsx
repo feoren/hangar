@@ -27,14 +27,7 @@ import {
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
-import {
-  isTeamSession,
-  listedFor,
-  startModeFor,
-  teamPossible,
-  teamUnsupportedHint,
-  type StartMode,
-} from "./startMode";
+import { isTeamSession, listedFor, teamPossible, type StartMode } from "./startMode";
 import {
   clampFooterHeight,
   FOOTER_HEIGHT,
@@ -462,15 +455,12 @@ export function Sidebar(props: Props) {
         .filter((profile) => listedFor(mode, profile))
         .map((profile): PopupItem => {
           const version = versions.get(profile.id);
-          const unsupported = startModeFor(mode, profile) === null;
           return {
             type: "action",
             key: profile.id,
             label: profile.name,
             ...(version === undefined ? {} : { detail: version }),
-            ...(unsupported ? { title: teamUnsupportedHint(profile, t) } : {}),
             icon: <Badge look={badgeFor(profile.id)} />,
-            disabled: unsupported,
             run: () => {
               props.onStart(profile);
             },
@@ -936,30 +926,25 @@ export function Sidebar(props: Props) {
           onChange={props.onStartMode}
         />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
+        {mode === "team" &&
+          !props.allHidden &&
+          !startable.some((profile) => listedFor(mode, profile)) && (
+            <p className="hint group-hint">{t("start.noTeamAgents")}</p>
+          )}
         <ul className="profile-list">
           {startable
             .filter((profile) => listedFor(mode, profile))
             .map((profile) => {
               const version = versions.get(profile.id);
               const programUpdate = props.updates.get(profile.id);
-              // Greyed out but still pointable, so its tooltip can say why.
-              const unsupported = startModeFor(mode, profile) === null;
               return (
-                <li
-                  key={profile.id}
-                  className={unsupported ? "profile-row unsupported" : "profile-row"}
-                >
+                <li key={profile.id} className="profile-row">
                   <button
                     type="button"
                     className="profile"
-                    aria-disabled={unsupported ? "true" : undefined}
-                    title={
-                      unsupported
-                        ? teamUnsupportedHint(profile, t)
-                        : [profile.command, ...profile.args].join(" ")
-                    }
+                    title={[profile.command, ...profile.args].join(" ")}
                     onClick={() => {
-                      if (!unsupported) props.onStart(profile);
+                      props.onStart(profile);
                     }}
                   >
                     <Badge look={badgeFor(profile.id)} />

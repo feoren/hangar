@@ -754,9 +754,7 @@ const de = {
   "start.teamHint":
     "Eigener Worktree, Rückfrage vor überschneidenden Änderungen, für dein Team sichtbar.",
   "start.teamNoRepo": "Team-Sessions brauchen ein Git-Repository, dieser Ordner liegt in keinem.",
-  "start.teamUnsupported": "{name} kann noch keine Team-Session sein.",
-  "start.teamFixedFolder":
-    "{name} hat im Profil einen festen Ordner und kann daher keine Team-Session mit eigenem Worktree sein.",
+  "start.noTeamAgents": "Keiner deiner installierten Agenten kann als Team-Session laufen.",
   "start.started": "{name} startet in {folder}",
   "folders.running": "Laufende Projekte",
   "folders.favorites": "Favoriten",
@@ -1871,9 +1869,7 @@ const en: Record<MessageKey, string> = {
   "start.privateHint": "Right in the folder, just for you.",
   "start.teamHint": "Own worktree, asks before overlapping edits, visible to your team.",
   "start.teamNoRepo": "Team sessions need a git repository, and this folder is not in one.",
-  "start.teamUnsupported": "{name} cannot be a team session yet.",
-  "start.teamFixedFolder":
-    "{name} has a fixed folder in its profile, so it cannot be a team session with its own worktree.",
+  "start.noTeamAgents": "None of your installed agents can run as a team session.",
   "start.started": "{name} starts in {folder}",
   "folders.running": "Running projects",
   "folders.favorites": "Favorites",
@@ -2999,9 +2995,8 @@ const el: Record<MessageKey, string> = {
     "Δικό της worktree, ερώτηση πριν από αλληλοεπικαλυπτόμενες αλλαγές, ορατή στην ομάδα σου.",
   "start.teamNoRepo":
     "Οι ομαδικές συνεδρίες χρειάζονται αποθετήριο git, και αυτός ο φάκελος δεν είναι σε κάποιο.",
-  "start.teamUnsupported": "Το {name} δεν μπορεί ακόμη να είναι ομαδική συνεδρία.",
-  "start.teamFixedFolder":
-    "Το {name} έχει σταθερό φάκελο στο προφίλ του, οπότε δεν μπορεί να είναι ομαδική συνεδρία με δικό της worktree.",
+  "start.noTeamAgents":
+    "Κανένας από τους εγκατεστημένους πράκτορές σου δεν μπορεί να τρέξει ως συνεδρία ομάδας.",
   "start.started": "Το {name} ξεκινά στο {folder}",
   "folders.running": "Ενεργά έργα",
   "folders.favorites": "Αγαπημένα",
@@ -4129,9 +4124,7 @@ const es: Record<MessageKey, string> = {
     "Worktree propio, pregunta antes de cambios que se solapan, visible para tu equipo.",
   "start.teamNoRepo":
     "Las sesiones de equipo necesitan un repositorio git, y esta carpeta no está en ninguno.",
-  "start.teamUnsupported": "{name} aún no puede ser una sesión de equipo.",
-  "start.teamFixedFolder":
-    "{name} tiene una carpeta fija en su perfil, así que no puede ser una sesión de equipo con worktree propio.",
+  "start.noTeamAgents": "Ninguno de tus agentes instalados puede ejecutarse como sesión de equipo.",
   "start.started": "{name} empieza en {folder}",
   "folders.running": "Proyectos en marcha",
   "folders.favorites": "Favoritas",
@@ -5261,9 +5254,7 @@ const fr: Record<MessageKey, string> = {
     "Worktree dédié, demande avant les modifications qui se chevauchent, visible par ton équipe.",
   "start.teamNoRepo":
     "Les sessions d'équipe ont besoin d'un dépôt git, et ce dossier n'en fait pas partie.",
-  "start.teamUnsupported": "{name} ne peut pas encore être une session d'équipe.",
-  "start.teamFixedFolder":
-    "{name} a un dossier fixe dans son profil, il ne peut donc pas être une session d'équipe avec son propre worktree.",
+  "start.noTeamAgents": "Aucun de tes agents installés ne peut tourner en session d'équipe.",
   "start.started": "{name} démarre dans {folder}",
   "folders.running": "Projets en cours",
   "folders.favorites": "Favoris",
@@ -6391,9 +6382,8 @@ const it: Record<MessageKey, string> = {
     "Worktree dedicato, chiede prima di modifiche sovrapposte, visibile al tuo team.",
   "start.teamNoRepo":
     "Le sessioni di team richiedono un repository git, e questa cartella non è in nessuno.",
-  "start.teamUnsupported": "{name} non può ancora essere una sessione di team.",
-  "start.teamFixedFolder":
-    "{name} ha una cartella fissa nel profilo, quindi non può essere una sessione di team con un worktree proprio.",
+  "start.noTeamAgents":
+    "Nessuno dei tuoi agenti installati può essere eseguito come sessione di team.",
   "start.started": "{name} parte in {folder}",
   "folders.running": "Progetti in corso",
   "folders.favorites": "Preferiti",
@@ -7518,9 +7508,8 @@ const ja: Record<MessageKey, string> = {
   "start.teamHint": "専用の worktree、重なる変更の前に確認、チームに表示。",
   "start.teamNoRepo":
     "チームセッションには git リポジトリが必要ですが、このフォルダーはリポジトリ内にありません。",
-  "start.teamUnsupported": "{name} はまだチームセッションにできません。",
-  "start.teamFixedFolder":
-    "{name} はプロファイルでフォルダーが固定されているため、専用の worktree を持つチームセッションにできません。",
+  "start.noTeamAgents":
+    "インストール済みのエージェントでチームセッションとして実行できるものはありません。",
   "start.started": "{name} を {folder} で開始します",
   "folders.running": "実行中のプロジェクト",
   "folders.favorites": "お気に入り",
@@ -8636,9 +8625,7 @@ const pl: Record<MessageKey, string> = {
   "start.teamHint":
     "Własny worktree, pytanie przed nakładającymi się zmianami, widoczna dla zespołu.",
   "start.teamNoRepo": "Sesje zespołowe wymagają repozytorium git, a ten folder w żadnym nie leży.",
-  "start.teamUnsupported": "{name} nie może jeszcze być sesją zespołową.",
-  "start.teamFixedFolder":
-    "{name} ma w profilu stały folder, więc nie może być sesją zespołową z własnym worktree.",
+  "start.noTeamAgents": "Żaden z zainstalowanych agentów nie może działać jako sesja zespołu.",
   "start.started": "{name} startuje w {folder}",
   "folders.running": "Uruchomione projekty",
   "folders.favorites": "Ulubione",
@@ -9760,9 +9747,7 @@ const pt: Record<MessageKey, string> = {
     "Worktree próprio, pergunta antes de alterações sobrepostas, visível para sua equipe.",
   "start.teamNoRepo":
     "Sessões de equipe precisam de um repositório git, e esta pasta não está em nenhum.",
-  "start.teamUnsupported": "{name} ainda não pode ser uma sessão de equipe.",
-  "start.teamFixedFolder":
-    "{name} tem uma pasta fixa no perfil, então não pode ser uma sessão de equipe com worktree próprio.",
+  "start.noTeamAgents": "Nenhum dos seus agentes instalados pode rodar como sessão de equipe.",
   "start.started": "{name} começa em {folder}",
   "folders.running": "Projetos em execução",
   "folders.favorites": "Favoritos",
@@ -10873,9 +10858,7 @@ const ru: Record<MessageKey, string> = {
   "start.privateHint": "Прямо в папке, только для тебя.",
   "start.teamHint": "Свой worktree, вопрос перед пересекающимися изменениями, видна команде.",
   "start.teamNoRepo": "Командным сессиям нужен git-репозиторий, а эта папка не в нём.",
-  "start.teamUnsupported": "{name} пока не может быть командной сессией.",
-  "start.teamFixedFolder":
-    "У {name} в профиле задана постоянная папка, поэтому это не может быть командная сессия со своим worktree.",
+  "start.noTeamAgents": "Ни один из установленных агентов не может работать как командная сессия.",
   "start.started": "{name} запускается в {folder}",
   "folders.running": "Запущенные проекты",
   "folders.favorites": "Избранное",
@@ -11983,9 +11966,7 @@ const tr: Record<MessageKey, string> = {
   "start.privateHint": "Doğrudan klasörde, yalnızca senin için.",
   "start.teamHint": "Ayrı worktree, çakışan değişikliklerden önce sorar, ekibine görünür.",
   "start.teamNoRepo": "Ekip oturumları bir git deposu gerektirir, bu klasör hiçbirinde değil.",
-  "start.teamUnsupported": "{name} henüz ekip oturumu olamaz.",
-  "start.teamFixedFolder":
-    "{name} profilinde sabit bir klasör var, bu yüzden kendi worktree'si olan bir ekip oturumu olamaz.",
+  "start.noTeamAgents": "Kurulu ajanlarının hiçbiri ekip oturumu olarak çalışamaz.",
   "start.started": "{name}, {folder} içinde başlıyor",
   "folders.running": "Çalışan projeler",
   "folders.favorites": "Favoriler",
@@ -13063,9 +13044,7 @@ const zh: Record<MessageKey, string> = {
   "start.privateHint": "直接在文件夹中，仅你自己。",
   "start.teamHint": "独立 worktree，重叠修改前先询问，团队可见。",
   "start.teamNoRepo": "团队会话需要 git 仓库，而此文件夹不在任何仓库中。",
-  "start.teamUnsupported": "{name} 暂时还不能作为团队会话。",
-  "start.teamFixedFolder":
-    "{name} 的配置中固定了文件夹，因此不能作为拥有独立 worktree 的团队会话。",
+  "start.noTeamAgents": "你安装的代理都不能作为团队会话运行。",
   "start.started": "{name} 正在 {folder} 中启动",
   "folders.running": "运行中的项目",
   "folders.favorites": "收藏",
