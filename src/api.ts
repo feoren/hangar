@@ -315,6 +315,18 @@ export const api = {
    */
   listSessionFolder: (id: number, relative: string) =>
     invoke<unknown>("list_session_folder", { id, relative }),
+  /**
+   * Main window only: opens a read-only viewer window for one file of a session's folder, or
+   * brings the one already showing it to the front. `path` is relative to the session's folder as
+   * `listSessionFolder` takes it. Rejects with a text for a refused path or an unknown session.
+   */
+  openFileViewer: (sessionId: number, path: string) =>
+    invoke<null>("open_file_viewer", { sessionId, path }),
+  /**
+   * Viewer window only: its file, read again on every call. Check with `parseFileContent`;
+   * rejects with a text when the file is gone or cannot be read.
+   */
+  fileViewerContent: () => invoke<unknown>("file_viewer_content"),
   /** New branch `hangar/<slug>` and worktree for a session; check with `parseWorktree`. */
   createWorktree: (cwd: string, label: string) =>
     invoke<unknown>("create_worktree", { cwd, label }),
@@ -484,6 +496,44 @@ export function parseFolderListing(value: unknown): FolderListing | null {
     entries: entries.map(folderEntry).filter((entry): entry is FolderEntry => entry !== null),
     truncated: Reflect.get(value, "truncated") === true,
   };
+}
+
+/** Answer of `file_viewer_content` (Rust: `FileContent` in file_viewer.rs). */
+export interface FileContent {
+  /** The file name. */
+  name: string;
+  /** Absolute, for display only. */
+  path: string;
+  /** Relative to the session's folder, `/` separated, as passed to `openFileViewer`. */
+  relativePath: string;
+  /** Bytes on disk, also when only a part was read. */
+  size: number;
+  /** `null` for a binary file. */
+  text: string | null;
+  /** Larger than 2 MiB: `text` holds the first 2 MiB. */
+  truncated: boolean;
+  /** A NUL byte within the first 8 KiB. */
+  binary: boolean;
+}
+
+/** Answer of `file_viewer_content`; `null` if malformed. */
+export function parseFileContent(value: unknown): FileContent | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const name: unknown = Reflect.get(value, "name");
+  const path: unknown = Reflect.get(value, "path");
+  const relativePath: unknown = Reflect.get(value, "relativePath");
+  const size: unknown = Reflect.get(value, "size");
+  const text: unknown = Reflect.get(value, "text");
+  const truncated: unknown = Reflect.get(value, "truncated");
+  const binary: unknown = Reflect.get(value, "binary");
+  if (typeof name !== "string" || name === "") return null;
+  if (typeof path !== "string" || typeof relativePath !== "string") return null;
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return null;
+  if (typeof truncated !== "boolean" || typeof binary !== "boolean") return null;
+  if (text !== null && typeof text !== "string") return null;
+  // A binary file never carries text; text never comes without being decoded.
+  if (binary !== (text === null)) return null;
+  return { name, path, relativePath, size, text, truncated, binary };
 }
 
 /** Result of `export_session`: the path written, `null` when cancelled. */

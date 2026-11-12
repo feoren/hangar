@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseExportResult, parseFolderListing } from "./api";
+import { parseExportResult, parseFileContent, parseFolderListing } from "./api";
 
 describe("parseFolderListing", () => {
   it("reads a listing", () => {
@@ -86,5 +86,47 @@ describe("parseExportResult", () => {
     expect(() => parseExportResult(42)).toThrow();
     expect(() => parseExportResult("")).toThrow();
     expect(() => parseExportResult({ path: "x" })).toThrow();
+  });
+});
+
+describe("parseFileContent", () => {
+  const valid = {
+    name: "main.ts",
+    path: "C:\\work\\app\\src\\main.ts",
+    relativePath: "src/main.ts",
+    size: 2048,
+    text: "const a = 1;\r\n",
+    truncated: false,
+    binary: false,
+  };
+
+  it("reads a text file and a binary file", () => {
+    expect(parseFileContent(valid)).toEqual(valid);
+    const binary = { ...valid, name: "logo.png", text: null, binary: true };
+    expect(parseFileContent(binary)).toEqual(binary);
+    expect(parseFileContent({ ...valid, truncated: true, size: 9_000_000 })?.truncated).toBe(true);
+  });
+
+  it("refuses malformed answers", () => {
+    for (const wrong of [
+      null,
+      "text",
+      [valid],
+      { ...valid, name: "" },
+      { ...valid, name: 3 },
+      { ...valid, path: null },
+      { ...valid, relativePath: undefined },
+      { ...valid, size: -1 },
+      { ...valid, size: 1.5 },
+      { ...valid, size: "12" },
+      { ...valid, text: 12 },
+      { ...valid, truncated: "no" },
+      { ...valid, binary: undefined },
+      // Text and the binary flag must agree.
+      { ...valid, binary: true },
+      { ...valid, text: null },
+    ]) {
+      expect(parseFileContent(wrong)).toBeNull();
+    }
   });
 });

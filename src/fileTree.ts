@@ -213,6 +213,20 @@ export function buildMarks(input: MarkInput): TreeMarks {
   return { files, folders };
 }
 
+/**
+ * The row lies on the path of this worktree's changes: a changed file, or a folder with a change
+ * somewhere inside (also while it is collapsed). Its name then shows in the "working" color, so
+ * the way from the top folder down to every file the agent touched stands out.
+ */
+export function onChangePath(
+  kind: FolderEntry["kind"],
+  fileMark: FileMark | null,
+  folderMark: FolderMark | null,
+): boolean {
+  if (kind === "dir") return folderMark?.change === true;
+  return kind === "file" && fileMark !== null && fileMark.change !== null;
+}
+
 /** Avatars at the end of a row: each person once, at most `max`, the rest as "+N". */
 export function avatarStack(
   editors: readonly TeamEditor[],
@@ -397,6 +411,8 @@ export type TreeStep =
   | { kind: "expand"; path: string }
   | { kind: "collapse"; path: string }
   | { kind: "select"; path: string }
+  /** Show the file in the viewer window. */
+  | { kind: "open"; path: string }
   | { kind: "none" };
 
 export function treeStep(
@@ -435,7 +451,10 @@ export function treeStep(
           ? { kind: "collapse", path: current.path }
           : { kind: "expand", path: current.path };
       }
-      return { kind: "select", path: current.path };
+      // Enter opens a file in the viewer, as in VS Code's explorer; links are never opened.
+      return key === "Enter" && current.entry.kind === "file"
+        ? { kind: "open", path: current.path }
+        : { kind: "select", path: current.path };
     default:
       return null;
   }

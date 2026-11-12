@@ -466,3 +466,8 @@ Backend for a read-only file viewer: `open_file_viewer` (main window only) opens
 `file-viewer-<n>` bound to one file of a session's folder with the file tree's path rules;
 `file_viewer_content` reads exactly that file for the calling window. Pages changed:
 [[file-viewer]] (new).
+
+## [2026-11-12] query | File viewer window frontend
+Frontend of the file viewer: opening from the Files tab, the lazily loaded read-only CodeMirror
+view, seven viewer themes with dark and light palettes, settings sync through the `storage` event
+and the "working" color along the path to changed files. Pages changed: [[file-viewer]].

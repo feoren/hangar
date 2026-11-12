@@ -149,3 +149,26 @@ export function relativeTime(then: number, now: number, language: string): strin
     ...(sameYear ? {} : { year: "numeric" }),
   }).format(date);
 }
+
+const BYTE_UNITS = ["KiB", "MiB", "GiB", "TiB"] as const;
+
+/**
+ * A file size for display: bytes below 1 KiB, then binary units with one decimal below 10 and
+ * none above, in the language's number format ("2,5 MiB" in German).
+ */
+export function formatBytes(bytes: number, language: string): string {
+  const whole = Math.max(0, Math.round(bytes));
+  if (whole < 1024) return `${new Intl.NumberFormat(language).format(whole)} B`;
+  let value = whole / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value < 10 ? 1 : 0;
+  const number = new Intl.NumberFormat(language, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
+  return `${number} ${BYTE_UNITS[unit] ?? "TiB"}`;
+}

@@ -3588,6 +3588,99 @@ body.resizing-horizontal * {
   }
 }
 
+/* File viewer themes in Settings: every tile a few lines of code in its own theme (current light
+   or dark variant), the chosen one framed in the accent and checked. */
+.viewer-theme-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+  align-self: stretch;
+}
+
+.viewer-theme-option {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px transparent;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.viewer-theme-option:hover {
+  border-color: var(--muted);
+}
+
+.viewer-theme-option:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.viewer-theme-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.viewer-theme-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewer-theme-code {
+  display: grid;
+  padding: 7px 0 6px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.viewer-theme-line {
+  display: flex;
+}
+
+.viewer-theme-comment {
+  font-style: italic;
+}
+
+.viewer-theme-number {
+  flex: none;
+  width: 24px;
+  padding-right: 9px;
+  text-align: right;
+}
+
+.viewer-theme-name {
+  padding: 5px 30px 6px 10px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* In the theme's own text color: the accent could vanish on some backgrounds. */
+.viewer-theme-check {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  display: none;
+}
+
+.viewer-theme-option:has(input:checked) .viewer-theme-check {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-theme-option {
+    transition: none;
+  }
+}
+
 /* Font size sits between fields in the terminal section and needs their spacing below it. */
 .terminal-look .range-field {
   margin: 0 0 18px;
@@ -5820,6 +5913,8 @@ body.resizing-horizontal * {
   padding: 0 8px;
   white-space: nowrap;
   cursor: default;
+  /* A double click opens the file; it must not select the name. */
+  user-select: none;
 }
 
 .tree-item:hover {
@@ -5880,6 +5975,17 @@ body.resizing-horizontal * {
 .tree-item.ignored .tree-name,
 .tree-item.ignored .tree-icon {
   opacity: 0.55;
+}
+
+/* On the path of the worktree's changes: from the top folder down to each changed file, names in
+   the "working" color of the settings (readable on the panel, --look-working-text), icons in its
+   strong shade. The letters and the folder ring say the same without color. */
+.tree-item.on-path .tree-name {
+  color: var(--look-working-text, var(--ok));
+}
+
+.tree-item.on-path .tree-icon {
+  color: var(--look-working-strong, var(--ok));
 }
 
 .tree-marks {
@@ -5969,6 +6075,155 @@ body.resizing-horizontal * {
 }
 
 /* File tree. End. */
+
+/* File viewer window (FileViewerWindow.tsx): the whole window in the chosen viewer theme
+   (--viewer-* from viewerThemes.ts, set on the root), the header as calm as an editor's tab bar.
+   Begin. */
+:root:has(.viewer-window) body {
+  background: var(--viewer-bg);
+}
+
+.viewer-window {
+  --viewer-border: color-mix(in srgb, var(--viewer-fg) 14%, var(--viewer-bg));
+  --viewer-muted: color-mix(in srgb, var(--viewer-fg) 66%, var(--viewer-bg));
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--viewer-fg);
+  background: var(--viewer-bg);
+}
+
+.viewer-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 6px 0 14px;
+  background: var(--viewer-gutter-bg);
+  border-bottom: 1px solid var(--viewer-border);
+  user-select: none;
+}
+
+.viewer-file-icon {
+  display: grid;
+  flex: none;
+  color: var(--viewer-accent);
+}
+
+.viewer-name {
+  flex: 0 1 auto;
+  max-width: 45%;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.viewer-path,
+.viewer-size {
+  font-size: 12px;
+  color: var(--viewer-muted);
+  white-space: nowrap;
+}
+
+.viewer-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.viewer-size {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.viewer-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  color: var(--viewer-muted);
+}
+
+.viewer-button:hover {
+  color: var(--viewer-fg);
+  background: var(--viewer-active-line);
+}
+
+.viewer-button:focus-visible {
+  outline: 2px solid var(--viewer-accent);
+}
+
+.viewer-button[aria-disabled="true"] {
+  cursor: default;
+}
+
+.viewer-button.spinning svg {
+  animation: changes-spin 900ms linear infinite;
+}
+
+/* The file was cut at 2 MiB: one quiet line, tinted in the theme's accent. */
+.viewer-hint {
+  flex: none;
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--viewer-accent) 12%, var(--viewer-bg));
+  border-bottom: 1px solid var(--viewer-border);
+}
+
+.viewer-code {
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer-code .cm-editor {
+  height: 100%;
+}
+
+.viewer-message {
+  margin: 0;
+  padding: 24px 18px;
+  font-size: 13px;
+  color: var(--viewer-muted);
+}
+
+.viewer-message-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--viewer-fg);
+}
+
+.viewer-message-detail {
+  margin: 0;
+  font-family: var(--viewer-font);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-button.spinning svg {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* File viewer window. End. */
 
 /* Profile editor in Settings, Programs */
 

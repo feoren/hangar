@@ -70,6 +70,30 @@ the session's folder`, `Links are not followed in the file viewer`, `The file no
 its file`, `Unknown file viewer window`, `The file cannot be read: <io error>`, `The file did not
 answer in time` (15 s, as the file tree).
 
+## Frontend
+
+- Opening: double click on a file row or Enter on a focused file in the "Files" tab
+  (`FilesPanel.tsx`, `treeStep` returns `open`); links are never opened. A refused path shows
+  `files.openFailed` in the panel for 6 s.
+- Window: `main.tsx` renders `FileViewerWindow.tsx` for `?window=file`. The only Tauri calls are
+  `file_viewer_content` and the clipboard plugin's `writeText` (copy path); the title comes from
+  the backend, `document.title` only mirrors it. The content goes into CodeMirror as document
+  text, never as HTML.
+- Editor: `viewerEditor.ts` (read-only CodeMirror 6 with line numbers, folding, search) is a
+  dynamic import, and `@codemirror/language-data` loads each language's parser on demand, so the
+  main bundle carries neither.
+- Look: `viewerThemes.ts` holds seven families (`oneDarkPro`, `github`, `vscode`, `darcula`,
+  `solarized`, `catppuccin`, `monokai`), each with a dark and a light palette that follows the
+  app theme; the choice is `viewerTheme` in the settings (Settings, Appearance). The palettes are
+  applied as `--viewer-*` CSS variables, so a switch never rebuilds the editor. Token colors keep
+  the originals' contrast (Solarized and Catppuccin Latte are below 4.5:1 for some tokens); the
+  text, line number and active line number contrasts are pinned by `viewerThemes.test.ts`.
+- Settings changes reach an open viewer through the `storage` event of the shared localStorage,
+  as in the detached notes window ([[notes]]).
+- Tree colors: rows on the path to a file this worktree changed (`onChangePath` in
+  `fileTree.ts`) show their name in the "working" color; the change letter and the folder dot say
+  the same without color.
+
 ## Capability `file-viewer`
 
 Windows `file-viewer-*`: `core:event:allow-listen`, `core:event:allow-unlisten`,

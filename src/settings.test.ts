@@ -57,6 +57,7 @@ describe("parseSettings", () => {
       terminalFont: "JetBrains Mono",
       cursorStyle: "bar",
       cursorBlink: false,
+      viewerTheme: "github",
       snippets: [{ id: "mine", text: "Fix the build" }],
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
@@ -121,6 +122,19 @@ describe("parseSettings", () => {
     );
     expect(valid.terminalScheme).toBe("catppuccin");
     expect(valid.cursorStyle).toBe("underline");
+  });
+
+  it("reads the file viewer theme and falls back to One Dark Pro", () => {
+    expect(defaultSettings("de").viewerTheme).toBe("oneDarkPro");
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("oneDarkPro");
+    for (const theme of ["github", "vscode", "darcula", "solarized", "catppuccin", "monokai"]) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: theme }), "de").viewerTheme).toBe(theme);
+    }
+    for (const wrong of ["GitHub", "atom", 3, null]) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: wrong }), "de").viewerTheme).toBe(
+        "oneDarkPro",
+      );
+    }
   });
 
   it("keeps saved color schemes from older versions and reads the new ones", () => {

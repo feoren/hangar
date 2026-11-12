@@ -18,6 +18,7 @@ import {
 } from "./terminalLook";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
+import { DEFAULT_VIEWER_THEME, isViewerTheme, type ViewerTheme } from "./viewerThemes";
 
 const STORAGE_KEY = "hangar.settings";
 
@@ -88,6 +89,8 @@ export interface Settings {
   terminalFont: TerminalFont;
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
+  /** Colors of the file viewer window; every theme follows the app theme (viewerThemes.ts). */
+  viewerTheme: ViewerTheme;
   /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
   snippets: Snippet[];
 }
@@ -135,6 +138,7 @@ export function defaultSettings(language: Language): Settings {
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
     cursorStyle: DEFAULT_TERMINAL_LOOK.cursorStyle,
     cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
+    viewerTheme: DEFAULT_VIEWER_THEME,
     snippets: defaultSnippets(language),
   };
 }
@@ -179,6 +183,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const scheme = get("terminalScheme");
   const font = get("terminalFont");
   const cursorStyle = get("cursorStyle");
+  const viewerTheme = get("viewerTheme");
   const chosenLanguage = isLanguage(language) ? language : defaults.language;
   return {
     language: chosenLanguage,
@@ -216,6 +221,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
     cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
     cursorBlink: flag("cursorBlink"),
+    viewerTheme: isViewerTheme(viewerTheme) ? viewerTheme : defaults.viewerTheme,
     snippets: parseSnippets(get("snippets"), chosenLanguage),
   };
 }

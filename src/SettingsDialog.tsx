@@ -39,6 +39,13 @@ import {
   type SystemFont,
 } from "./terminalLook";
 import { THEME_SETTINGS, type Theme, type ThemeSetting } from "./theme";
+import {
+  PREVIEW_LINES,
+  VIEWER_THEMES,
+  viewerPalette,
+  type ViewerPalette,
+  type ViewerTheme,
+} from "./viewerThemes";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 import type { UpdateState } from "./useUpdater";
 import { displayVersion } from "./version";
@@ -93,6 +100,17 @@ const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {
   meridian: "scheme.meridian",
   catppuccin: "scheme.catppuccin",
   solarized: "scheme.solarized",
+};
+
+/** Proper names, the same in every language. */
+const VIEWER_THEME_NAMES: Record<ViewerTheme, MessageKey> = {
+  oneDarkPro: "viewerTheme.oneDarkPro",
+  github: "viewerTheme.github",
+  vscode: "viewerTheme.vscode",
+  darcula: "viewerTheme.darcula",
+  solarized: "viewerTheme.solarized",
+  catppuccin: "viewerTheme.catppuccin",
+  monokai: "viewerTheme.monokai",
 };
 
 const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
@@ -506,6 +524,7 @@ function AppearanceSection(props: Props) {
         </p>
       </div>
       <TerminalLookFields {...props} />
+      <ViewerThemeFields {...props} />
       <div className="settings-row">
         <button
           type="button"
@@ -655,6 +674,85 @@ function TerminalLookFields(props: Props) {
         <span>{t("settings.cursorBlink")}</span>
       </label>
     </section>
+  );
+}
+
+/** Colors of the file viewer window: one tile per theme, each a few lines of code in it. */
+function ViewerThemeFields(props: Props) {
+  const { settings, onChange } = props;
+  const t = useT();
+  return (
+    <section className="settings-section" aria-labelledby="settings-viewer">
+      <h4 id="settings-viewer" className="settings-subtitle">
+        {t("settings.viewer")}
+      </h4>
+      <div className="field">
+        <div
+          className="viewer-theme-picker"
+          role="radiogroup"
+          aria-labelledby="settings-viewer"
+          aria-describedby="settings-viewer-help"
+        >
+          {VIEWER_THEMES.map((theme) => {
+            const palette = viewerPalette(theme, props.theme);
+            return (
+              <label
+                key={theme}
+                className="viewer-theme-option"
+                style={{ background: palette.background, color: palette.foreground }}
+              >
+                <input
+                  type="radio"
+                  name="viewer-theme"
+                  value={theme}
+                  checked={settings.viewerTheme === theme}
+                  onChange={() => {
+                    onChange({ viewerTheme: theme });
+                  }}
+                />
+                <CodeSample palette={palette} font={fontStack(settings.terminalFont)} />
+                <span
+                  className="viewer-theme-name"
+                  style={{ background: palette.activeLine, color: palette.foreground }}
+                >
+                  {t(VIEWER_THEME_NAMES[theme])}
+                </span>
+                <span className="viewer-theme-check">
+                  <CheckIcon size={14} />
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <p id="settings-viewer-help" className="muted">
+          {t("settings.viewerHelp")}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** A few highlighted lines with line numbers in a viewer theme; decoration only. */
+function CodeSample({ palette, font }: { palette: ViewerPalette; font: string }) {
+  return (
+    <span className="viewer-theme-code" aria-hidden="true" style={{ fontFamily: font }}>
+      {PREVIEW_LINES.map((line, index) => (
+        <span key={index} className="viewer-theme-line">
+          <span className="viewer-theme-number" style={{ color: palette.gutterForeground }}>
+            {index + 1}
+          </span>
+          {line.map(([kind, text], piece) => (
+            <span
+              key={piece}
+              style={kind === null ? undefined : { color: palette.tokens[kind] }}
+              className={kind === "comment" ? "viewer-theme-comment" : undefined}
+            >
+              {text}
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
   );
 }
 
