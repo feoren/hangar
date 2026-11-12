@@ -62,7 +62,6 @@ import {
   recordRecent,
   samePath,
   saveFolderPrefs,
-  setFolderColor,
   toggleFavorite,
   type FolderPrefs,
 } from "./folders";
@@ -4269,9 +4268,6 @@ export function App() {
           }}
           onMoveFavorite={(path, target, after) => {
             setFolders((current) => moveFavorite(current, path, target, after));
-          }}
-          onFolderColor={(path, color) => {
-            setFolders((current) => setFolderColor(current, path, color));
           }}
           templates={templates}
           onStartTemplate={(id) => void startTemplate(id)}

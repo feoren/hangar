@@ -45,7 +45,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Agentengruppe (Sidebar)                         | agent group                       | top-level group of one program's sessions, worktree or not; `agentGroupKey`          |
 | Projektgruppe (Sidebar)                         | project group                     | top-level group of one project folder's sessions; `sessionGroupKey`                  |
 | Gruppierung (Sidebar)                           | session grouping                  | by program or by project; `SessionGrouping`                                          |
-| Ordnerfarbe                                     | folder color                      | color of a project folder, marker palette; `FolderPrefs.colors`                      |
 | Trennlinie (ziehbar)                            | splitter                          |                                                                                      |
 | Trennlinie (statisch)                           | divider                           |                                                                                      |
 | Tastenkürzel, Kürzel                            | shortcut                          |                                                                                      |

@@ -188,34 +188,6 @@ export function secondaryCommand(
   return null;
 }
 
-/** What a key does in a row of color swatches inside a menu. */
-export type SwatchCommand =
-  | { kind: "focus"; index: number }
-  | { kind: "pick" }
-  /** Escape: the swatches close, the menu stays. */
-  | { kind: "dismiss" }
-  | null;
-
-/**
- * Left and Right move between the `count` swatches (no wrap, like a toolbar), Enter or Space
- * picks the focused one, Escape closes the row. Up and Down stay with the menu.
- */
-export function swatchCommand(input: KeyInput, index: number, count: number): SwatchCommand {
-  switch (input.key) {
-    case "ArrowLeft":
-      return { kind: "focus", index: Math.max(0, index - 1) };
-    case "ArrowRight":
-      return { kind: "focus", index: Math.min(count - 1, index + 1) };
-    case "Enter":
-    case " ":
-      return { kind: "pick" };
-    case "Escape":
-      return { kind: "dismiss" };
-    default:
-      return null;
-  }
-}
-
 /** A row that can be dragged to another place: its key and vertical middle on screen. */
 export interface ReorderRow {
   key: string;
