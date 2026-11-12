@@ -86,6 +86,9 @@
   --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
   --tree-step: 14px;
   --tree-elbow: 10px;
+  /* Air between a guide and what it connects: the elbow stops this far before a row, and a
+     group's guide starts this far below the header's badge. */
+  --tree-gap: calc(var(--tree-step) - var(--tree-elbow));
   /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
      chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
   --agent-tree-x: 34px;
@@ -1608,13 +1611,14 @@ h2 .beta-badge {
   display: none;
 }
 
-/* From the header's badge down to the first row: across the button's 5 px padding and the
-   title's 2 px. */
+/* From just below the header's badge down to the first row: the badge's bottom sits 7 px above
+   the rows (the button's 5 px padding and the title's 2 px); the guide leaves the same air below
+   it as the elbow leaves before a row. */
 .agent-rows::before {
   position: absolute;
-  top: -7px;
+  top: calc(-7px + var(--tree-gap));
   left: var(--agent-tree-x);
-  height: 7px;
+  height: calc(7px - var(--tree-gap));
   content: "";
   pointer-events: none;
   /* Only the left side: the lit path sets a solid style on all sides, and an unset width would
