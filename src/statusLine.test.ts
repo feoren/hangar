@@ -47,7 +47,7 @@ describe("statusLine", () => {
     reason: Parameters<typeof statusLine>[7] = null,
   ) => statusLine("Claude Code", session(extra), state, activity, NOW, t, "en", reason).full;
 
-  it("keeps the duration apart from the short sentence, so it is never cut", () => {
+  it("keeps the duration apart from the short phrase, so it is never cut", () => {
     const working = statusLine(
       "Claude Code",
       session(),
@@ -57,8 +57,9 @@ describe("statusLine", () => {
       t,
       "en",
     );
+    // The group header above the row names the program; the row says only what it does.
     expect(working).toEqual({
-      sentence: "Claude Code is working",
+      sentence: "working",
       duration: "3 min",
       full: "Claude Code has been working for 3 min",
     });
@@ -71,7 +72,7 @@ describe("statusLine", () => {
       t,
       "en",
     );
-    expect(resting.sentence).toBe("Claude Code is taking a break");
+    expect(resting.sentence).toBe("taking a break");
     expect(resting.duration).toBe("5 min");
   });
 
@@ -86,7 +87,7 @@ describe("statusLine", () => {
       "en",
     );
     expect(fresh).toEqual({
-      sentence: "Claude Code is working",
+      sentence: "working",
       duration: null,
       full: "Claude Code is working",
     });

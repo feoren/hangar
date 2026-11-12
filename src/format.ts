@@ -62,7 +62,7 @@ export function statusPhrase(
   }
 }
 
-const PHRASES: Record<StatusPhrase, MessageKey> = {
+export const PHRASES: Record<StatusPhrase, MessageKey> = {
   starting: "status.starting",
   working: "status.working",
   idle: "status.idle",

@@ -4,7 +4,7 @@
 
 import type { AttentionReason, AttentionState } from "./attention";
 import { folderName } from "./folders";
-import { statusPhrase, type StatusPhrase } from "./format";
+import { PHRASES, statusPhrase, type StatusPhrase } from "./format";
 import type { MessageKey, Translate } from "./i18n";
 import type { SessionView } from "./sessions";
 
@@ -66,7 +66,8 @@ export interface StatusLine {
 }
 
 /**
- * The row's status line with the program as its subject: "Claude Code is working" plus "3 min".
+ * The row's status line: a short phrase ("working") plus "3 min", and for tooltips the whole
+ * sentence with the program as its subject ("Claude Code has been working for 3 min").
  * Working and resting say for how long once that is a minute or more; waiting and ended sessions
  * keep the plain phrase (the exit detail lives in the tooltip).
  */
@@ -84,8 +85,9 @@ export function statusLine(
   const since =
     phrase === "working" ? activity.workingSince : phrase === "idle" ? activity.lastOutput : null;
   const duration = since === null ? null : formatDuration(now - since, language);
-  const sentence = t(AGENT_PHRASES[phrase], { agent });
-  if (duration === null) return { sentence, duration, full: sentence };
+  // The agent group's header above the row already names the program; the row keeps it short.
+  const sentence = t(PHRASES[phrase]);
+  if (duration === null) return { sentence, duration, full: t(AGENT_PHRASES[phrase], { agent }) };
   const full =
     phrase === "working"
       ? t("status.agent.workingFor", { agent, duration })

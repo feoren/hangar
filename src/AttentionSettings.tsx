@@ -77,15 +77,13 @@ const COLOR_NAMES: Record<LookPresetId, MessageKey> = {
 
 /** What the preview row says and shows, exactly like a session in the sidebar. */
 const PREVIEWS: Record<LookState, { status: MessageKey; chip: ChipKind }> = {
-  working: { status: "status.agent.working", chip: "working" },
-  done: { status: "status.agent.attention", chip: "done" },
-  asks: { status: "status.agent.asks", chip: "asks" },
-  idle: { status: "status.agent.idle", chip: "paused" },
-  failed: { status: "status.agent.failed", chip: "failed" },
+  working: { status: "status.working", chip: "working" },
+  done: { status: "status.attention", chip: "done" },
+  asks: { status: "status.asks", chip: "asks" },
+  idle: { status: "status.idle", chip: "paused" },
+  failed: { status: "status.failed", chip: "failed" },
 };
 
-/** The program the preview rows name; a product name, the same in every language. */
-const PREVIEW_AGENT = "Claude Code";
 const PREVIEW_BADGE: BadgeLook = { kind: "letters", text: "C", color: badgeColor("claude") };
 
 /** States whose look shows without attention: a resting session and an error. */
@@ -351,7 +349,7 @@ function LookCard({
                 <span className="session-meta">
                   <span className="state-dot" aria-hidden="true" />
                   <span className={waits ? "session-status attention-text" : "session-status"}>
-                    {t(preview.status, { agent: PREVIEW_AGENT })}
+                    {t(preview.status)}
                   </span>
                 </span>
               </span>
