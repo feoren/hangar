@@ -3,6 +3,7 @@ import { playChime } from "./chimeAudio";
 import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnimation";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
+import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
 import { edgeClass } from "./sessionChip";
 import {
@@ -195,7 +196,66 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             {t("settings.chimePreview")}
           </button>
         </div>
+
+        <QuietHoursField
+          value={settings.quietHours}
+          onChange={(quietHours) => {
+            onChange({ quietHours });
+          }}
+        />
       </fieldset>
+    </>
+  );
+}
+
+/**
+ * Quiet hours: on or off, and the local times between which Hangar neither flashes, chimes nor
+ * notifies. The end may lie before the start; the window then runs over midnight.
+ */
+function QuietHoursField({
+  value,
+  onChange,
+}: {
+  value: QuietHours;
+  onChange: (value: QuietHours) => void;
+}) {
+  const t = useT();
+  const time = (key: "from" | "to", label: string) => (
+    <label className="quiet-hours-time">
+      <span>{label}</span>
+      <input
+        type="time"
+        className="text-input"
+        value={formatClockTime(value[key])}
+        disabled={!value.enabled}
+        onChange={(event) => {
+          // A cleared field keeps the last time; the window never ends up half defined.
+          const minutes = parseClockTime(event.currentTarget.value);
+          if (minutes !== null) onChange({ ...value, [key]: minutes });
+        }}
+      />
+    </label>
+  );
+  return (
+    <>
+      <CheckField
+        id="quiet-hours"
+        checked={value.enabled}
+        label={t("settings.quietHours")}
+        help={t("settings.quietHoursHelp")}
+        onChange={(enabled) => {
+          onChange({ ...value, enabled });
+        }}
+      />
+      <div className="quiet-hours-row">
+        {time("from", t("settings.quietFrom"))}
+        {time("to", t("settings.quietTo"))}
+      </div>
+      {value.enabled && value.from === value.to && (
+        <p className="muted settings-help" role="status">
+          {t("settings.quietHoursEmpty")}
+        </p>
+      )}
     </>
   );
 }

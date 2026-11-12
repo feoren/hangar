@@ -3706,6 +3706,24 @@ body.resizing-horizontal * {
   margin: 2px 0 0 26px;
 }
 
+/* Quiet hours: two times side by side, indented like the help text under their checkbox. */
+.quiet-hours-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: -4px 0 10px 26px;
+}
+
+.quiet-hours-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quiet-hours-time:has(input:disabled) {
+  opacity: 0.55;
+}
+
 .chime-row .range-field {
   flex: 1;
   margin-top: 0;
@@ -5848,6 +5866,95 @@ body.resizing-horizontal * {
 
 .overview-lines {
   height: calc(12 * 1.35em);
+  margin: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  white-space: pre;
+  background: var(--terminal-bg);
+  border-radius: 5px;
+}
+
+/* Session peek: the last lines of a session beside its sidebar row while the mouse rests on it.
+   Purely visual; the mouse passes through to the row below. */
+.session-peek {
+  position: fixed;
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  color: var(--text);
+  pointer-events: none;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--edge, var(--border));
+  border-radius: 8px;
+  box-shadow: 0 12px 32px var(--shadow);
+  animation: session-peek-in 120ms ease-out;
+}
+
+@keyframes session-peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-peek {
+    animation: none;
+  }
+}
+
+.session-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-peek-head .badge,
+.session-peek-head .badge-icon img {
+  width: 18px;
+  height: 18px;
+  font-size: 8.5px;
+  border-radius: 4px;
+}
+
+.session-peek-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-peek-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-peek-note {
+  min-width: 0;
+  margin-top: -2px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-peek-lines {
   margin: 0;
   padding: 6px 8px;
   overflow: hidden;

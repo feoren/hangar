@@ -129,6 +129,7 @@ import {
 import { SidePanel } from "./SidePanel";
 import { dropText, shellKind } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
+import { noticesAt } from "./quietHours";
 import { sessionLabels } from "./sessionLabel";
 import {
   changedFileCount,
@@ -278,6 +279,7 @@ import { ChangesPanel } from "./ChangesPanel";
 import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
 import { tailLines } from "./overview";
+import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
 import { SessionSearchDialog } from "./SessionSearchDialog";
 import type { LineMatch } from "./sessionSearch";
@@ -939,7 +941,7 @@ export function App() {
     const first = fresh[0];
     if (first === undefined) return;
     setClaimNotice({ overlap: first, key: Date.now() });
-    const current = settingsRef.current;
+    const current = noticesAt(settingsRef.current, new Date());
     if (!current.notifyDesktop || !current.attentionEnabled || document.hasFocus()) return;
     const name = (id: number) =>
       stateRef.current.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
@@ -949,7 +951,7 @@ export function App() {
   // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
   // notification once, under the same settings as a session that starts waiting.
   const gate = useGate(gateActive(settings), (fresh) => {
-    const current = settingsRef.current;
+    const current = noticesAt(settingsRef.current, new Date());
     if (!current.attentionEnabled) return;
     const watched = windowWatched();
     if (current.chime && fresh.some((d) => !(watched && shownRef.current.has(d.sessionId)))) {
@@ -1012,7 +1014,7 @@ export function App() {
     if (first === undefined) return;
     const now = Date.now();
     setTeamNotice({ overlap: first, key: now });
-    const current = settingsRef.current;
+    const current = noticesAt(settingsRef.current, new Date());
     if (!current.notifyDesktop || !current.attentionEnabled || document.hasFocus()) return;
     // Teammates' devices decide how many collisions arrive: the desktop hears of a few at most.
     if (!teammateNoticeDue(teammateNotifiedAt.current, now)) return;
@@ -1066,7 +1068,7 @@ export function App() {
         session: notice.sessionId,
       };
     }
-    const current = settingsRef.current;
+    const current = noticesAt(settingsRef.current, new Date());
     if (desktop === null || !current.notifyDesktop || !current.attentionEnabled) return;
     if (document.hasFocus() || !teammateNoticeDue(taskNotifiedAt.current, now)) return;
     taskNotifiedAt.current = now;
@@ -1535,12 +1537,13 @@ export function App() {
       let previousReason: AttentionReason | null = null;
       terminal.setAttentionListener((next, reason) => {
         const entered = previous !== "attention" || next !== "attention";
+        const notices = noticesAt(settingsRef.current, new Date());
         const session = stateRef.current.sessions.find((s) => s.id === id);
         const chime =
           session === undefined || isPlaceholder(id)
             ? null
             : chimeFor({ previous, previousReason, next, reason }, sessionExit(session, terminal), {
-                enabled: settingsRef.current.chime && settingsRef.current.attentionEnabled,
+                enabled: notices.chime && notices.attentionEnabled,
                 windowFocused: windowWatched(),
                 shown: shownRef.current.has(id),
               });
@@ -1562,11 +1565,11 @@ export function App() {
         });
         if (!entered) return;
         flasher.attentionChanged(next, {
-          enabled: settingsRef.current.taskbarFlash,
+          enabled: notices.taskbarFlash,
           windowFocused: document.hasFocus(),
         });
         const notify = shouldNotify(next, {
-          enabled: settingsRef.current.notifyDesktop,
+          enabled: notices.notifyDesktop,
           windowFocused: document.hasFocus(),
         });
         if (notify && session && !isPlaceholder(id)) {
@@ -4014,6 +4017,12 @@ export function App() {
           subAgentPick={subAgentPick}
           onShowSubAgent={showSubAgent}
           onDismissSubAgents={dismissSubAgents}
+          peekLines={(id) => {
+            // A session on screen needs no peek; its own terminal shows more.
+            if (shownRef.current.has(id)) return null;
+            const terminal = terminals.get(id);
+            return terminal ? tailLines(terminal.rowSource(), PEEK_LINES) : null;
+          }}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
             const update = updater.state.update;

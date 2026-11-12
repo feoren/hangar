@@ -15,6 +15,7 @@ import {
 } from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
+import { peekNotes } from "./peek";
 import { useT } from "./i18n";
 import {
   AlertIcon,
@@ -48,6 +49,7 @@ import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
+import { SessionPeek, useSessionPeek } from "./SessionPeek";
 import { shortBranch } from "./worktree";
 import { revealInvisible } from "./invisible";
 import type { EdgeHint } from "./waitingHint";
@@ -230,6 +232,11 @@ interface Props {
   onShowSubAgent: (sessionId: number, agentId: string | null, byKeyboard: boolean) => void;
   /** Removes finished sub-agents from the tree (by keyboard: the focus stays in the tree). */
   onDismissSubAgents: (ids: readonly string[], byKeyboard: boolean) => void;
+  /**
+   * The last lines of a session's terminal for the peek beside its row; `null` when the session
+   * has none to show, for instance because it is on screen.
+   */
+  peekLines: (id: number) => readonly string[] | null;
 }
 
 export function Sidebar(props: Props) {
@@ -295,6 +302,22 @@ export function Sidebar(props: Props) {
     return "";
   };
   const moveHint = t("session.moveHint");
+  // No peek while a row is dragged or renamed: both need the mouse and the eye on the list.
+  const peekState = useSessionPeek(props.drag === null && props.renamingId === null);
+  const { peek } = peekState;
+  /** The peeked session, unless it is on screen anyway (active or in a pane). */
+  const peekSession =
+    peek === null || peek.id === activeId || props.placements.has(peek.id)
+      ? undefined
+      : sessions.find((s) => s.id === peek.id);
+  /** Mouse handlers of a session row for the peek. */
+  const peekHandlers = (id: number): PeekEvents => ({
+    onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
+      peekState.enter(id, event.currentTarget);
+    },
+    onMouseLeave: peekState.leave,
+    onPointerDownCapture: peekState.leave,
+  });
 
   useEffect(() => {
     if (!refocusToggle.current) return;
@@ -439,6 +462,31 @@ export function Sidebar(props: Props) {
       onToggleTheme={props.onToggleTheme}
     />
   );
+  const peekView =
+    peek === null || peekSession === undefined ? null : (
+      <SessionPeek
+        key={peek.id}
+        anchor={peek}
+        title={[
+          peekSession.marker?.emoji,
+          folderLabels.get(peekSession.id)?.primary ?? peekSession.title,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        status={lines(peekSession).status.full}
+        // The row's tooltip stays away while the peek shows; its warnings move in here.
+        notes={peekNotes({
+          overlap: props.overlaps.get(peekSession.id),
+          gateOff: gateHint(peekSession.gate, t),
+          cwd: peekSession.cwd,
+        })}
+        badge={<Badge look={badgeFor(peekSession.profileId)} />}
+        edge={edgeClass(
+          rowEdge(peekSession, attention.get(peekSession.id) ?? "idle", chipOf(peekSession)),
+        )}
+        readLines={() => props.peekLines(peekSession.id)}
+      />
+    );
 
   if (collapsed) {
     // First the target (opens the folder menu), then the programs, then runnable updates.
@@ -535,7 +583,7 @@ export function Sidebar(props: Props) {
     }
     const newKeys = formatShortcut(SHORTCUT_LABELS.newSession, t);
     return (
-      <aside className="sidebar collapsed" ref={root}>
+      <aside className="sidebar collapsed" ref={root} onScrollCapture={peekState.leave}>
         {/* The menu sits in a head as tall as the expanded header, so the line below it and the
             round toggle on it stay at the same height in both states. */}
         <div className="rail-head">
@@ -588,6 +636,7 @@ export function Sidebar(props: Props) {
                 <li
                   data-session-row={session.id}
                   data-session-group={group}
+                  {...peekHandlers(session.id)}
                   className={[
                     dragClass(session.id),
                     session.worktree === undefined ? "" : "rail-worktree",
@@ -598,24 +647,29 @@ export function Sidebar(props: Props) {
                   <button
                     type="button"
                     className={className.filter(Boolean).join(" ")}
-                    title={[
-                      `${name} · ${status}`,
-                      props.overlaps.get(session.id) ?? "",
-                      detailText(where, t),
-                      session.worktree
-                        ? t("worktree.sessionHint", {
-                            branch: revealInvisible(session.worktree.branch),
-                          })
-                        : "",
-                      session.cwd,
-                      placeText,
-                      markerColorText(session.marker, t),
-                      detail,
-                      programLine(profileById.get(session.profileId), versions),
-                      moveHint,
-                    ]
-                      .filter(Boolean)
-                      .join("\n")}
+                    // While the peek shows beside the row, a tooltip would only cover it.
+                    title={
+                      peekSession?.id === session.id
+                        ? undefined
+                        : [
+                            `${name} · ${status}`,
+                            props.overlaps.get(session.id) ?? "",
+                            detailText(where, t),
+                            session.worktree
+                              ? t("worktree.sessionHint", {
+                                  branch: revealInvisible(session.worktree.branch),
+                                })
+                              : "",
+                            session.cwd,
+                            placeText,
+                            markerColorText(session.marker, t),
+                            detail,
+                            programLine(profileById.get(session.profileId), versions),
+                            moveHint,
+                          ]
+                            .filter(Boolean)
+                            .join("\n")
+                    }
                     aria-label={[
                       session.marker?.emoji,
                       name,
@@ -737,6 +791,7 @@ export function Sidebar(props: Props) {
           )}
           {footer}
         </div>
+        {peekView}
       </aside>
     );
   }
@@ -815,6 +870,8 @@ export function Sidebar(props: Props) {
                   dragClass={rowDrag}
                   moveHint={moveHint}
                   placement={props.placements.get(session.id) ?? null}
+                  peeking={peekSession?.id === session.id}
+                  peekEvents={peekHandlers(session.id)}
                   {...props}
                   onClose={onClose}
                   onKill={onKill}
@@ -849,7 +906,7 @@ export function Sidebar(props: Props) {
     });
 
   return (
-    <aside className="sidebar" ref={root}>
+    <aside className="sidebar" ref={root} onScrollCapture={peekState.leave}>
       <div className="sidebar-header">
         <AppMenu groups={props.menu} onClose={props.onMenuClose} />
         <span className="brand">
@@ -1096,6 +1153,7 @@ export function Sidebar(props: Props) {
           props.onWidth(SIDEBAR_WIDTH.default);
         }}
       />
+      {peekView}
     </aside>
   );
 }
@@ -1400,7 +1458,17 @@ function programLine(profile: Profile | undefined, versions: ProgramVersions): s
   return profile && version ? labelWithVersion(profile.name, version) : "";
 }
 
+/** Mouse handlers of a session row for the peek (useSessionPeek). */
+interface PeekEvents {
+  onMouseEnter: (event: React.MouseEvent<HTMLElement>) => void;
+  onMouseLeave: () => void;
+  onPointerDownCapture: () => void;
+}
+
 interface ItemProps extends Props {
+  /** The peek shows beside this row, so its tooltip stays away. */
+  peeking: boolean;
+  peekEvents: PeekEvents;
   session: SessionView;
   /** Group of the row (sessionGroupKey), for dragging within it. */
   groupKey: string;
@@ -1444,6 +1512,8 @@ function SessionItem({
   moveHint,
   placement,
   onRowKey,
+  peeking,
+  peekEvents,
   onDragStart,
   onActivate,
   onRestart,
@@ -1490,7 +1560,12 @@ function SessionItem({
     .join(" ");
 
   return (
-    <li className={className} data-session-row={session.id} data-session-group={groupKey}>
+    <li
+      className={className}
+      data-session-row={session.id}
+      data-session-group={groupKey}
+      {...peekEvents}
+    >
       {/* Guide line and elbow from the agent group's header, drawn like the sub-agent tree's. */}
       <span className="tree-guide" aria-hidden="true" />
       {editing ? (
@@ -1522,24 +1597,31 @@ function SessionItem({
         <button
           type="button"
           className="session-main"
-          title={[
-            // The status line may be cut at narrow widths; the tooltip always says it in full.
-            `${name} · ${status}`,
-            overlap ?? "",
-            gateOff ?? "",
-            devServer ?? "",
-            detail,
-            session.worktree && isTeamSession(session)
-              ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
-              : "",
-            session.cwd,
-            program,
-            placement !== null ? placementText(t, placement) : "",
-            t("session.renameHint"),
-            moveHint,
-          ]
-            .filter(Boolean)
-            .join("\n")}
+          // While the peek shows beside the row, a tooltip would only cover it.
+          title={
+            peeking
+              ? undefined
+              : [
+                  // The status line may be cut at narrow widths; the tooltip always says it in full.
+                  `${name} · ${status}`,
+                  overlap ?? "",
+                  gateOff ?? "",
+                  devServer ?? "",
+                  detail,
+                  session.worktree && isTeamSession(session)
+                    ? t("worktree.sessionHint", {
+                        branch: revealInvisible(session.worktree.branch),
+                      })
+                    : "",
+                  session.cwd,
+                  program,
+                  placement !== null ? placementText(t, placement) : "",
+                  t("session.renameHint"),
+                  moveHint,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+          }
           aria-current={active ? "true" : undefined}
           onClick={() => {
             onActivate(session.id);

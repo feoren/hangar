@@ -132,6 +132,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Schnellzugriff                                  | quick access, launcher            | `launcher.ts`; "launcher" in code                                                    |
 | Suche in allen Sessions                         | search across sessions            | `sessionSearch.ts`; output and scrollback of every open terminal                     |
 | Übersicht (alle Sessions als Kacheln)           | overview, tile                    | `overview.ts`; live tiles with the last lines of each session                        |
+| Hover-Vorschau (Session)                        | session peek                      | `peek.ts`, `SessionPeek.tsx`; last lines beside a sidebar row while the mouse rests  |
+| Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification  |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                        |
 | An mehrere senden                               | broadcast                         | `broadcast.ts`                                                                       |
 | Markierung (Session)                            | session marker                    | `marker.ts`; color and emoji                                                         |
