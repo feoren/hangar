@@ -3,7 +3,15 @@ import { useEffect } from "react";
 import { displayName, isSignedIn } from "./account";
 import { Avatar } from "./Avatar";
 import { useT } from "./i18n";
-import { DiffIcon, FolderIcon, GearIcon, MoonIcon, NotesIcon, SunIcon, TeamIcon } from "./icons";
+import {
+  FilesIcon,
+  GearIcon,
+  MoonIcon,
+  NotePencilIcon,
+  SourceControlIcon,
+  SunIcon,
+  TeamIcon,
+} from "./icons";
 import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
@@ -190,9 +198,9 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
 
 /** The right panel's tabs in its own order, each with its icon. */
 const SIDE_TABS = [
-  { tab: "notes", Icon: NotesIcon },
-  { tab: "changes", Icon: DiffIcon },
-  { tab: "files", Icon: FolderIcon },
+  { tab: "notes", Icon: NotePencilIcon },
+  { tab: "changes", Icon: SourceControlIcon },
+  { tab: "files", Icon: FilesIcon },
 ] as const satisfies readonly {
   tab: SideTab;
   Icon: (props: { size?: number }) => React.ReactNode;
