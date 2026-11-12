@@ -23,7 +23,12 @@ import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
-import { nextTabIndex, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
+import {
+  nextTabIndex,
+  SECTION_NAMES,
+  SETTINGS_SECTIONS,
+  type SettingsSection,
+} from "./settingsSections";
 import {
   canvasMeasure,
   CURSOR_STYLES,
@@ -86,16 +91,6 @@ interface Props {
   onCheckUpdates: () => void;
   onClose: () => void;
 }
-
-const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
-  general: "settings.general",
-  appearance: "settings.appearance",
-  attention: "settings.attention",
-  programs: "settings.programs",
-  snippets: "settings.snippets",
-  account: "settings.account",
-  updates: "settings.updates",
-};
 
 /** Proper names, the same in every language. */
 const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {

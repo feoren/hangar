@@ -5614,6 +5614,147 @@ body.resizing-horizontal * {
   border-top: 1px solid var(--border);
 }
 
+/* Search across sessions: the quick access frame, hits as lines of output under their session. */
+.dialog.session-search {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.launcher-section.search-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.search-session .badge,
+.search-session .badge-icon img {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  border-radius: 4px;
+}
+
+.launcher-option.search-hit {
+  min-height: 26px;
+  padding-left: 32px;
+}
+
+.search-excerpt {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.search-excerpt mark {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+}
+
+/* Overview: every session as a tile with its last lines. The tile's top edge carries the state's
+   color (.edge-*), the head names the state in words. */
+.dialog.overview {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 14px;
+}
+
+.dialog .overview-title {
+  margin: 0 4px 10px;
+  font-size: 15px;
+}
+
+.overview-grid {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.overview-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--edge, var(--border));
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.overview-tile:hover {
+  background: var(--hover);
+}
+
+.overview-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.overview-tile[aria-current="true"] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.overview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.overview-head .badge,
+.overview-head .badge-icon img {
+  width: 18px;
+  height: 18px;
+  font-size: 8.5px;
+  border-radius: 4px;
+}
+
+.overview-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.overview-status {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.overview-lines {
+  height: calc(12 * 1.35em);
+  margin: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  white-space: pre;
+  background: var(--terminal-bg);
+  border-radius: 5px;
+}
+
 /* Send to several */
 .dialog.broadcast {
   width: min(520px, calc(100vw - 32px));

@@ -8,6 +8,12 @@ import { parseGitDiff, type GitDiff } from "./gitDiff";
 export type ChangesView = "open" | "commits";
 export const CHANGES_VIEWS: readonly ChangesView[] = ["open", "commits"];
 
+/** A commit the history should open and scroll to; a new `token` asks again for the same one. */
+export interface CommitFocus {
+  sha: string;
+  token: number;
+}
+
 /** Commits per page of the list (and per "Load more"). */
 export const COMMIT_PAGE = 30;
 /** Largest page the backend serves (`limit` is clamped to 1..=100). */

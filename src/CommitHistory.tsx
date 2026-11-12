@@ -12,6 +12,7 @@ import {
   parseCommitDiff,
   parseGitLog,
   readLog,
+  type CommitFocus,
   type CommitGroup,
   type CommitSummary,
   type GitCommitDiff,
@@ -32,6 +33,8 @@ interface Props {
   language: string;
   /** Whether the list is being read, for the spinning refresh button. */
   onBusy: (busy: boolean) => void;
+  /** A commit to open and scroll to once the list is there (quick access). */
+  focus?: CommitFocus | null;
 }
 
 type ListLoad =
@@ -51,9 +54,12 @@ const MINUTE_MS = 60_000;
  * panel. Commits the upstream lacks come first. A click opens a commit in place with its message
  * and its files, shown like the work tree's changes; each commit's diff is read once per panel.
  */
-export function CommitHistory({ cwd, reload, language, onBusy }: Props) {
+export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: Props) {
   const t = useT();
   const now = useClock(MINUTE_MS);
+  const body = useRef<HTMLDivElement>(null);
+  /** The focus request already served, so a reload does not jump back to it. */
+  const servedFocus = useRef<number | null>(null);
   const [answer, setAnswer] = useState<{ key: string; load: ListLoad } | null>(null);
   const [more, setMore] = useState<More>({ kind: "idle" });
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -154,6 +160,28 @@ export function CommitHistory({ cwd, reload, language, onBusy }: Props) {
     if (!open && (known === undefined || known.kind === "error")) readCommit(sha);
   };
 
+  // Quick access chose a commit: open it and bring it into view once the list is there. A commit
+  // beyond the loaded pages simply leaves the list as it is.
+  const loadedLog = load.kind === "done" ? load.log : null;
+  useEffect(() => {
+    if (focus === null || loadedLog === null || servedFocus.current === focus.token) return;
+    servedFocus.current = focus.token;
+    if (!loadedLog.commits.some((commit) => commit.sha === focus.sha)) return;
+    const known = details.get(focus.sha);
+    // Next frame: the list is on screen, so opening the commit can scroll it into view after.
+    requestAnimationFrame(() => {
+      setExpanded((current) => new Set(current).add(focus.sha));
+      if (known === undefined || known.kind === "error") readCommit(focus.sha);
+      requestAnimationFrame(() => {
+        body.current
+          ?.querySelector(`[data-sha="${CSS.escape(focus.sha)}"]`)
+          ?.scrollIntoView({ block: "start" });
+      });
+    });
+    // Runs per request and list; `details` and `readCommit` are read at that moment on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, loadedLog]);
+
   switch (load.kind) {
     case "loading":
       return (
@@ -175,7 +203,7 @@ export function CommitHistory({ cwd, reload, language, onBusy }: Props) {
   if (log.commits.length === 0) return <p className="changes-message">{t("history.none")}</p>;
 
   return (
-    <div className="changes-body">
+    <div ref={body} className="changes-body">
       {commitGroups(log).map((group) => (
         <section key={group.kind} className="commit-group">
           {group.kind !== "all" && (
@@ -260,7 +288,7 @@ function CommitItem({
     .filter(Boolean)
     .join("\n");
   return (
-    <li className={open ? "commit open" : "commit"}>
+    <li className={open ? "commit open" : "commit"} data-sha={commit.sha}>
       <button
         type="button"
         className="commit-head"

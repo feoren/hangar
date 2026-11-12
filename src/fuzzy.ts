@@ -51,6 +51,13 @@ export function matchWord(word: string, text: string): FuzzyMatch | null {
   const n = haystack.length;
   if (m === 0) return { score: 0, positions: [] };
   if (m > n) return null;
+  // Cheap rejection first: most texts (e.g. thousands of file paths) do not contain the letters
+  // in order at all, and the scoring below allocates per row.
+  let next = 0;
+  for (let j = 0; j < n && next < m; j += 1) {
+    if (haystack[j] === query[next]) next += 1;
+  }
+  if (next < m) return null;
   // best[i][j]: best score with query[i] matched at text[j]; from[i][j]: where query[i-1] sat.
   const best: number[][] = [];
   const from: number[][] = [];

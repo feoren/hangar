@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Dialog } from "./Dialog";
 import { highlightRuns } from "./fuzzy";
@@ -21,6 +21,11 @@ export interface LauncherItem extends LauncherEntry {
 interface Props {
   /** Builds the entries once on open; quick access is short lived, so a snapshot is enough. */
   buildItems: () => LauncherItem[];
+  /**
+   * Entries that need the backend (files, commits), started once on open. Each adds its entries
+   * when it arrives; a failed one adds nothing, the rest of quick access works as before.
+   */
+  loaders?: readonly (() => Promise<LauncherItem[]>)[];
   /** Closed without running anything (Escape, click outside); the caller returns focus. */
   onClose: () => void;
   /** An entry was chosen: the dialog is closed first, then `item.run()` follows. */
@@ -30,31 +35,55 @@ interface Props {
 const SECTION_NAMES: Record<LauncherSection, MessageKey> = {
   sessions: "sidebar.sessions",
   start: "launcher.start",
+  files: "files.title",
   notes: "notes.title",
+  commits: "changes.viewCommits",
   snippets: "settings.snippets",
+  settings: "settings.title",
   commands: "launcher.commands",
 };
 
 /**
- * Quick access (Ctrl+Shift+P): one field, at most eight results in sections. Arrows choose,
- * Enter runs, Escape closes. Combobox pattern: the focus stays in the field, the chosen entry is
- * announced via aria-activedescendant.
+ * Quick access (Ctrl+Shift+P): one field for sessions, programs, files, notes, commits, snippets,
+ * settings and commands; a few results per section. Arrows choose, Enter runs, Escape closes.
+ * Combobox pattern: the focus stays in the field, the chosen entry is announced via
+ * aria-activedescendant.
  */
-export function LauncherDialog({ buildItems, onClose, onRun }: Props) {
+export function LauncherDialog({ buildItems, loaders, onClose, onRun }: Props) {
   const t = useT();
   const id = useId();
-  const [items] = useState(buildItems);
+  const [items, setItems] = useState(buildItems);
   const [query, setQuery] = useState("");
-  const sections = useMemo(() => rankEntries(items, query), [items, query]);
+  // Ranking thousands of files may take a moment; typing stays immediate.
+  const ranked = useDeferredValue(query);
+  const sections = useMemo(() => rankEntries(items, ranked), [items, ranked]);
   const flat = useMemo(() => flatEntries(sections), [sections]);
   const [chosen, setSelected] = useState(() => firstSelectable(flat));
   const list = useRef<HTMLDivElement>(null);
 
+  // Once on open; the loaders are a snapshot like the items.
+  const startLoaders = useRef(loaders);
+  useEffect(() => {
+    let open = true;
+    for (const load of startLoaders.current ?? []) {
+      load()
+        .then((more) => {
+          if (open && more.length > 0) setItems((current) => [...current, ...more]);
+        })
+        .catch(() => {
+          // Optional entries: without them quick access still finds everything else.
+        });
+    }
+    return () => {
+      open = false;
+    };
+  }, []);
+
   // New query: the best entry is chosen again (adjusted during render, no flash of the old one).
   // New items with the same query (a session changed state) keep the choice where it still fits.
-  const [rankedFor, setRankedFor] = useState(query);
-  if (rankedFor !== query) {
-    setRankedFor(query);
+  const [rankedFor, setRankedFor] = useState(ranked);
+  if (rankedFor !== ranked) {
+    setRankedFor(ranked);
     setSelected(firstSelectable(flat));
   }
   const selected =

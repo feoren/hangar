@@ -4,16 +4,97 @@
 
 import type { ReactNode } from "react";
 
-import type { NoteFolder, Profile } from "./api";
+import type { NoteFolder, PathEntry, Profile } from "./api";
+import type { MenuGroup, MenuItem } from "./AppMenu";
 import { folderName } from "./folders";
 import { teamCapable } from "./startMode";
 import { shortPath } from "./format";
+import type { CommitSummary } from "./gitHistory";
 import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
 import type { NoteFolderInfo } from "./notes";
 import type { SessionView } from "./sessions";
+import { SECTION_NAMES, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import { snippetLabel, type Snippet } from "./snippets";
 import { LAYOUT_IDS, LAYOUT_NAMES, type LayoutId } from "./snapLayouts";
+
+/** A working entry of the app menu, as a command of quick access. */
+export interface MenuCommand {
+  label: string;
+  /** Menu and submenu names above the entry, e.g. ["View"]. */
+  path: string[];
+  shortcut?: string;
+  run: () => void;
+}
+
+/**
+ * The entries of the app menu that can run right now, in menu order. Disabled entries are left
+ * out: quick access shows only what works.
+ */
+export function menuCommands(groups: readonly MenuGroup[]): MenuCommand[] {
+  const commands: MenuCommand[] = [];
+  const walk = (items: readonly MenuItem[], path: string[]) => {
+    for (const item of items) {
+      if (item.type === "separator" || item.disabled === true) continue;
+      if (item.type === "submenu") {
+        walk(item.items, [...path, item.label]);
+        continue;
+      }
+      commands.push({
+        label: item.label,
+        path,
+        ...(item.shortcut === undefined ? {} : { shortcut: item.shortcut }),
+        run: item.run,
+      });
+    }
+  };
+  for (const group of groups) walk(group.items, [group.label]);
+  return commands;
+}
+
+/** Files (no folders) of the active session's path index; found only by searching. */
+export function fileItems(
+  entries: readonly PathEntry[],
+  open: (path: string) => void,
+  icon: ReactNode,
+): LauncherItem[] {
+  return entries
+    .filter((entry) => entry.kind === "file")
+    .map((entry) => {
+      const slash = entry.path.lastIndexOf("/");
+      const name = entry.path.slice(slash + 1);
+      return {
+        key: `file:${entry.path}`,
+        section: "files",
+        label: name,
+        ...(slash < 0 ? {} : { detail: entry.path.slice(0, slash) }),
+        icon,
+        run: () => {
+          open(entry.path);
+        },
+      };
+    });
+}
+
+/** Recent commits of the active session's folder; found by subject, id or author. */
+export function commitItems(
+  commits: readonly CommitSummary[],
+  open: (sha: string) => void,
+  t: Translate,
+  icon: ReactNode,
+): LauncherItem[] {
+  return commits.map((commit) => ({
+    key: `commit:${commit.sha}`,
+    section: "commits",
+    label: commit.subject === "" ? t("history.noSubject") : commit.subject,
+    detail: commit.shortSha,
+    keywords: `${commit.sha} ${commit.author}`,
+    icon,
+    run: () => {
+      open(commit.sha);
+    },
+  }));
+}
 
 export interface LauncherContext {
   sessions: readonly SessionView[];
@@ -51,6 +132,12 @@ export interface LauncherContext {
    * `shown` makes the entry hide the view.
    */
   subAgents: { shown: boolean; toggle: () => void } | null;
+  /** Opens the Settings dialog on this section. */
+  openSettings: (section: SettingsSection) => void;
+  /** The app menu: its working entries become commands, so every action can be found here. */
+  menu: readonly MenuGroup[];
+  /** Labels of menu entries that quick access leaves out (e.g. the one that opens it). */
+  skipLabels: readonly string[];
 }
 
 export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
@@ -189,5 +276,36 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
     disabled: !ctx.canBroadcast,
     run: ctx.openBroadcast,
   });
+  for (const section of SETTINGS_SECTIONS) {
+    items.push({
+      key: `settings:${section}`,
+      section: "settings",
+      label: t(SECTION_NAMES[section]),
+      detail: t("settings.title"),
+      run: () => {
+        ctx.openSettings(section);
+      },
+    });
+  }
+  // Every other menu entry that works right now. Entries the commands above already cover (same
+  // label, or a layout already offered as "View: …") appear once.
+  const known = new Set([
+    ...items.filter((item) => item.section === "commands").map((item) => item.label),
+    ...LAYOUT_IDS.map((layout) => t(LAYOUT_NAMES[layout])),
+    ...ctx.skipLabels,
+  ]);
+  for (const command of menuCommands(ctx.menu)) {
+    if (known.has(command.label)) continue;
+    known.add(command.label);
+    const path = command.path.join(" › ");
+    items.push({
+      key: `menu:${path}:${command.label}`,
+      section: "commands",
+      label: command.label,
+      detail: command.shortcut ?? path,
+      keywords: path,
+      run: command.run,
+    });
+  }
   return items;
 }

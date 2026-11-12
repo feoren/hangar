@@ -7,7 +7,7 @@ import { ClaimsSection } from "./ClaimsView";
 import { CommitHistory } from "./CommitHistory";
 import { folderName } from "./folders";
 import { parseGitDiff, type GitDiff } from "./gitDiff";
-import { CHANGES_VIEWS, type ChangesView } from "./gitHistory";
+import { CHANGES_VIEWS, type ChangesView, type CommitFocus } from "./gitHistory";
 import { useT, type MessageKey } from "./i18n";
 import { RestartIcon } from "./icons";
 import { revealInvisible } from "./invisible";
@@ -35,6 +35,8 @@ interface Props {
   /** Uncommitted changes or the commit history; kept by the window while the tab is closed. */
   view: ChangesView;
   onView: (view: ChangesView) => void;
+  /** A commit to open in the history (quick access); a new token opens it again. */
+  focusCommit?: CommitFocus | null;
   /** UI language, for relative times and dates. */
   language: string;
 }
@@ -173,6 +175,7 @@ export function ChangesPanel(props: Props) {
           reload={reload}
           language={props.language}
           onBusy={onHistoryBusy}
+          focus={props.focusCommit ?? null}
         />
       )}
     </div>

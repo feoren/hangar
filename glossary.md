@@ -127,6 +127,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Geteilte Ansicht                                | split view                        | `split.ts`; one, two side by side or four in a grid                         |
 | Fokussierter Bereich                            | focused pane                      | the pane with the active session                                            |
 | Schnellzugriff                                  | quick access, launcher            | `launcher.ts`; "launcher" in code                                           |
+| Suche in allen Sessions                         | search across sessions            | `sessionSearch.ts`; output and scrollback of every open terminal            |
+| Übersicht (alle Sessions als Kacheln)           | overview, tile                    | `overview.ts`; live tiles with the last lines of each session               |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                               |
 | An mehrere senden                               | broadcast                         | `broadcast.ts`                                                              |
 | Markierung (Session)                            | session marker                    | `marker.ts`; color and emoji                                                |

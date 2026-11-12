@@ -179,7 +179,9 @@ your own accounts, on your own machine. The desktop app is open source under the
    in your browser, then _Connect_ the project. Teammates who join the same project see each other
    in the Team window.
 
-Ctrl+Shift+P opens quick access, Ctrl+Shift+N a quick note and Ctrl+, the settings.
+Ctrl+Shift+P opens quick access (sessions, files, commits, settings and every menu command),
+Ctrl+Shift+S searches the output of all sessions, Ctrl+Shift+M shows all sessions as live tiles,
+Ctrl+Shift+N opens a quick note and Ctrl+, the settings.
 
 ## Teams and privacy
 

@@ -84,6 +84,24 @@ describe("matchShortcut", () => {
     expect(formatShortcut(SHORTCUT_LABELS.launcher, createTranslator("en"))).toBe("Ctrl+Shift+P");
   });
 
+  it("search across sessions with Ctrl+Shift+S, Ctrl+S stays with the shell", () => {
+    expect(matchShortcut(key("S", "KeyS", { shift: true }))).toBe("searchAll");
+    expect(matchShortcut(key("s", "KeyS"))).toBeNull(); // forward history search
+    expect(matchShortcut(key("S", "KeyS", { shift: true, alt: true }))).toBeNull();
+    expect(ignoresRepeat("searchAll")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.searchAll, createTranslator("de"))).toBe(
+      "Strg+Umschalt+S",
+    );
+  });
+
+  it("overview with Ctrl+Shift+M, Ctrl+M (Enter) and Ctrl+Tab keep their meaning", () => {
+    expect(matchShortcut(key("M", "KeyM", { shift: true }))).toBe("overview");
+    expect(matchShortcut(key("m", "KeyM"))).toBeNull(); // Enter
+    expect(matchShortcut(key("Tab", "Tab"))).toBe("nextSession");
+    expect(ignoresRepeat("overview")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.overview, createTranslator("en"))).toBe("Ctrl+Shift+M");
+  });
+
   it("repeats held keys only where repeating is wanted", () => {
     expect(ignoresRepeat("newSession")).toBe(true);
     expect(ignoresRepeat("toggleSidebar")).toBe(true);

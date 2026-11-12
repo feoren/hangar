@@ -212,6 +212,48 @@
         "ru": "Сессии без своего worktree теперь личные, и агенты в них больше не останавливаются перед пересекающимися изменениями. Для этого запусти командную сессию.",
         "tr": "Kendi worktree'si olmayan oturumlar artık özel; buradaki agent'lar çakışan değişikliklerden önce durmuyor. Bunun için bir ekip oturumu başlat.",
         "zh": "没有独立 worktree 的会话现在为私人会话，其中的代理在重叠修改前不再暂停。如需暂停，请启动团队会话。"
+      },
+      {
+        "de": "Der Schnellzugriff (Strg+Umschalt+P) findet jetzt auch Dateien der Session, Notizen, Commits, Einstellungen und jeden Menübefehl.",
+        "en": "Quick access (Ctrl+Shift+P) now also finds the session's files, notes, commits, settings and every menu command.",
+        "el": "Η γρήγορη πρόσβαση (Ctrl+Shift+P) βρίσκει τώρα και αρχεία της συνεδρίας, σημειώσεις, commits, ρυθμίσεις και κάθε εντολή μενού.",
+        "es": "El acceso rápido (Ctrl+Mayús+P) ahora también encuentra archivos de la sesión, notas, commits, ajustes y cualquier comando del menú.",
+        "fr": "L’accès rapide (Ctrl+Maj+P) trouve aussi les fichiers de la session, les notes, les commits, les paramètres et chaque commande du menu.",
+        "it": "L'accesso rapido (Ctrl+Maiusc+P) ora trova anche file della sessione, note, commit, impostazioni e ogni comando del menu.",
+        "ja": "クイックアクセス (Ctrl+Shift+P) で、セッションのファイル、メモ、コミット、設定、すべてのメニューコマンドも見つかるようになりました。",
+        "pl": "Szybki dostęp (Ctrl+Shift+P) znajduje teraz także pliki sesji, notatki, commity, ustawienia i każde polecenie menu.",
+        "pt": "O acesso rápido (Ctrl+Shift+P) agora também encontra arquivos da sessão, notas, commits, configurações e todos os comandos do menu.",
+        "ru": "Быстрый доступ (Ctrl+Shift+P) теперь находит и файлы сессии, заметки, коммиты, настройки и любую команду меню.",
+        "tr": "Hızlı erişim (Ctrl+Shift+P) artık oturumun dosyalarını, notları, commit'leri, ayarları ve her menü komutunu da bulur.",
+        "zh": "快速访问（Ctrl+Shift+P）现在也能找到会话的文件、笔记、提交、设置和每个菜单命令。"
+      },
+      {
+        "de": "Strg+Umschalt+S durchsucht die Ausgabe aller Sessions samt Verlauf. Enter springt zur Fundstelle.",
+        "en": "Ctrl+Shift+S searches the output of every session, scrollback included. Enter jumps to the spot.",
+        "el": "Το Ctrl+Shift+S αναζητά στην έξοδο όλων των συνεδριών, μαζί με το ιστορικό. Το Enter σε πηγαίνει στο σημείο.",
+        "es": "Ctrl+Mayús+S busca en la salida de todas las sesiones, historial incluido. Enter salta al resultado.",
+        "fr": "Ctrl+Maj+S cherche dans la sortie de toutes les sessions, historique compris. Entrée mène à l’endroit trouvé.",
+        "it": "Ctrl+Maiusc+S cerca nell'output di tutte le sessioni, cronologia inclusa. Invio porta al punto trovato.",
+        "ja": "Ctrl+Shift+S で、スクロールバックを含むすべてのセッションの出力を検索できます。Enter でその場所へ移動します。",
+        "pl": "Ctrl+Shift+S przeszukuje wyjście wszystkich sesji razem z historią. Enter przenosi do znalezionego miejsca.",
+        "pt": "Ctrl+Shift+S pesquisa a saída de todas as sessões, histórico incluído. Enter leva ao ponto encontrado.",
+        "ru": "Ctrl+Shift+S ищет в выводе всех сессий вместе с историей. Enter переходит к найденному месту.",
+        "tr": "Ctrl+Shift+S tüm oturumların çıktısını geçmiş dahil arar. Enter bulunan yere götürür.",
+        "zh": "Ctrl+Shift+S 可搜索所有会话的输出，包括滚动历史。按 Enter 跳到该位置。"
+      },
+      {
+        "de": "Strg+Umschalt+M zeigt alle Sessions als Kacheln mit ihren letzten Zeilen, live. Pfeiltasten wählen, Enter öffnet.",
+        "en": "Ctrl+Shift+M shows every session as a live tile with its last lines. Arrow keys choose, Enter opens.",
+        "el": "Το Ctrl+Shift+M δείχνει όλες τις συνεδρίες ως ζωντανά πλακίδια με τις τελευταίες γραμμές. Βέλη για επιλογή, Enter για άνοιγμα.",
+        "es": "Ctrl+Mayús+M muestra todas las sesiones como mosaicos en vivo con sus últimas líneas. Flechas para elegir, Enter abre.",
+        "fr": "Ctrl+Maj+M affiche chaque session en tuile vivante avec ses dernières lignes. Les flèches choisissent, Entrée ouvre.",
+        "it": "Ctrl+Maiusc+M mostra tutte le sessioni come riquadri dal vivo con le ultime righe. Frecce per scegliere, Invio apre.",
+        "ja": "Ctrl+Shift+M で、すべてのセッションを最新の行付きのライブタイルで表示します。矢印キーで選び、Enter で開きます。",
+        "pl": "Ctrl+Shift+M pokazuje wszystkie sesje jako kafelki na żywo z ostatnimi wierszami. Strzałki wybierają, Enter otwiera.",
+        "pt": "Ctrl+Shift+M mostra todas as sessões como blocos ao vivo com as últimas linhas. Setas escolhem, Enter abre.",
+        "ru": "Ctrl+Shift+M показывает все сессии живыми плитками с последними строками. Стрелки выбирают, Enter открывает.",
+        "tr": "Ctrl+Shift+M tüm oturumları son satırlarıyla canlı kutucuklar olarak gösterir. Oklar seçer, Enter açar.",
+        "zh": "Ctrl+Shift+M 以实时图块显示所有会话及其最后几行。方向键选择，按 Enter 打开。"
       }
     ]
   },

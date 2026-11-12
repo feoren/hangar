@@ -30,6 +30,14 @@ import { PromptLineTracker } from "./promptTitle";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
+import {
+  columnOf,
+  relocate,
+  rowOfOffset,
+  type CellText,
+  type LineMatch,
+  type RowSource,
+} from "./sessionSearch";
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
 import { guardSecondaryClick } from "./terminalMouse";
@@ -468,6 +476,51 @@ export class SessionTerminal {
 
   clearSearch(): void {
     this.searchAddon.clearDecorations();
+  }
+
+  /**
+   * The visible buffer as rows for the search across sessions and the overview. Reads lazily: the
+   * caller decides how many rows to touch and when to pause.
+   */
+  rowSource(): RowSource {
+    const buffer = this.term.buffer.active;
+    return {
+      length: buffer.length,
+      row: (index) => {
+        const line = buffer.getLine(index);
+        return line === undefined
+          ? undefined
+          : { text: line.translateToString(false), wrapped: line.isWrapped };
+      },
+    };
+  }
+
+  /**
+   * Scrolls to a hit of the search across sessions and selects it. The line is looked up again
+   * by its text, since new output may have moved it; `false` when it is gone.
+   */
+  revealMatch(match: Pick<LineMatch, "row" | "text" | "start" | "length">): boolean {
+    const buffer = this.term.buffer.active;
+    const line = relocate(this.rowSource(), match.row, match.text);
+    if (line === null) return false;
+    const cellsOf = (row: number): CellText[] => {
+      const bufferLine = buffer.getLine(row);
+      if (!bufferLine) return [];
+      const cells: CellText[] = [];
+      for (let column = 0; column < bufferLine.length; column += 1) {
+        const cell = bufferLine.getCell(column);
+        cells.push({ chars: cell?.getChars() ?? "", width: cell?.getWidth() ?? 1 });
+      }
+      return cells;
+    };
+    const from = rowOfOffset(line, match.start);
+    const to = rowOfOffset(line, match.start + match.length);
+    const startColumn = columnOf(cellsOf(from.row), from.offset);
+    const endColumn = columnOf(cellsOf(to.row), to.offset);
+    const length = (to.row - from.row) * this.term.cols + endColumn - startColumn;
+    this.term.scrollToLine(Math.max(0, from.row - Math.floor(this.term.rows / 2)));
+    this.term.select(startColumn, from.row, Math.max(1, length));
+    return true;
   }
 
   clear(): void {
