@@ -113,12 +113,9 @@ fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
             let manager = app.state::<SessionManager>();
             let found = manager.installed_one(&watch.profile_id);
             let after = found.as_ref().and_then(|(agent, program)| {
-                version::detect(
-                    &[(agent.clone(), program.clone())],
-                    &app.state::<ProbeCaches>().versions,
-                )
-                .remove(agent.id())
-                .flatten()
+                query_versions(&app, &[(agent.clone(), program.clone())], false)
+                    .remove(agent.id())
+                    .flatten()
             });
             let copies = found.map_or_else(Vec::new, |(agent, _)| {
                 install_source::copies(&agent.candidates, &SystemProbe)
@@ -352,6 +349,28 @@ pub async fn open_profile_file(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|error| error.to_string())?
 }
 
+/// The version query, run in Hangar's own probe folder in the app data folder
+/// ([`version::probe_folder`]). Without that folder nothing is started and every version is
+/// unknown. `refresh` asks the programs again even when a version is remembered.
+fn query_versions(
+    app: &tauri::AppHandle,
+    installed: &[(crate::agent_catalog::Agent, PathBuf)],
+    refresh: bool,
+) -> HashMap<String, Option<String>> {
+    let cache = &app.state::<ProbeCaches>().versions;
+    match version::probe_folder(app.state::<Store>().dir()) {
+        Ok(cwd) if refresh => version::redetect(installed, cache, &cwd),
+        Ok(cwd) => version::detect(installed, cache, &cwd),
+        Err(error) => {
+            eprintln!("hangar: no folder for the version query: {error}");
+            installed
+                .iter()
+                .map(|(agent, _)| (agent.id().to_owned(), None))
+                .collect()
+        }
+    }
+}
+
 /// profileId → version or `null`, only for installed entries (ADR 0003). Starts each
 /// program at most once per file state, in parallel and with a time limit; hence on a
 /// blocking thread, not on the async runtime thread.
@@ -361,7 +380,7 @@ pub async fn detect_versions(
 ) -> Result<HashMap<String, Option<String>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let installed = app.state::<SessionManager>().installed();
-        version::detect(&installed, &app.state::<ProbeCaches>().versions)
+        query_versions(&app, &installed, false)
     })
     .await
     .map_err(|error| error.to_string())
@@ -399,12 +418,7 @@ pub async fn check_program_updates(
             .into_iter()
             .filter(|(agent, _)| agent.profile.latest.is_some())
             .collect();
-        let cache = &handle.state::<ProbeCaches>().versions;
-        let versions = if redetect.unwrap_or(false) {
-            version::redetect(&installed, cache)
-        } else {
-            version::detect(&installed, cache)
-        };
+        let versions = query_versions(&handle, &installed, redetect.unwrap_or(false));
         let running = manager.running_profiles();
         let items = updates::items(&installed, &versions, &running, &SystemProbe);
         let dir = handle.state::<Store>().dir().to_path_buf();

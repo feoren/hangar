@@ -31,6 +31,16 @@ fn no_env() -> BTreeMap<String, String> {
 /// itself has its own test.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Working folder of the version queries in these tests, like the app's own probe folder.
+fn probe_dir() -> PathBuf {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join("programs");
+    version::probe_folder(&base).unwrap()
+}
+
 #[cfg(windows)]
 #[test]
 fn version_of_cmd_with_builtin_exception() {
@@ -40,6 +50,7 @@ fn version_of_cmd_with_builtin_exception() {
         &version::version_args(None, &cmd),
         &no_env(),
         PROBE_TIMEOUT,
+        &probe_dir(),
     )
     .unwrap();
     // "Microsoft Windows [Version 10.0.x.y]"
@@ -55,6 +66,7 @@ fn version_of_windows_powershell_is_not_the_windows_version() {
         &version::version_args(None, &powershell),
         &no_env(),
         PROBE_TIMEOUT,
+        &probe_dir(),
     )
     .unwrap();
     assert!(version.starts_with("5.1"), "{version}");
@@ -68,6 +80,7 @@ fn version_of_a_small_program() {
         &args(&["-c", "echo tool 1.2.3"]),
         &no_env(),
         PROBE_TIMEOUT,
+        &probe_dir(),
     );
     assert_eq!(version.as_deref(), Some("1.2.3"));
 }
@@ -78,7 +91,13 @@ fn stderr_counts_when_stdout_has_no_version() {
     let (program, list) = ("cmd", ["/d", "/c", "echo none & echo 4.5.6 1>&2 & exit 2"]);
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo none; echo 4.5.6 >&2; exit 2"]);
-    let version = version::probe(&find(program), &args(&list), &no_env(), PROBE_TIMEOUT);
+    let version = version::probe(
+        &find(program),
+        &args(&list),
+        &no_env(),
+        PROBE_TIMEOUT,
+        &probe_dir(),
+    );
     assert_eq!(version.as_deref(), Some("4.5.6"));
 }
 
@@ -89,7 +108,13 @@ fn profile_env_reaches_the_query() {
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo $HANGAR_TEST_VERSION"]);
     let env = BTreeMap::from([("HANGAR_TEST_VERSION".to_owned(), "3.14.15".to_owned())]);
-    let version = version::probe(&find(program), &args(&list), &env, PROBE_TIMEOUT);
+    let version = version::probe(
+        &find(program),
+        &args(&list),
+        &env,
+        PROBE_TIMEOUT,
+        &probe_dir(),
+    );
     assert_eq!(version.as_deref(), Some("3.14.15"));
 }
 
@@ -110,6 +135,7 @@ fn time_limit_kills_the_process_tree() {
         &args(&list),
         &no_env(),
         Duration::from_secs(1),
+        &probe_dir(),
     );
     let elapsed = started.elapsed();
     assert_eq!(version.as_deref(), Some("9.8.7"));
@@ -122,7 +148,13 @@ fn time_limit_kills_the_process_tree() {
 fn unknown_program_yields_no_version() {
     let missing = std::env::temp_dir().join("hangar-does-not-exist-4711");
     assert_eq!(
-        version::probe(&missing, &args(&["--version"]), &no_env(), PROBE_TIMEOUT),
+        version::probe(
+            &missing,
+            &args(&["--version"]),
+            &no_env(),
+            PROBE_TIMEOUT,
+            &probe_dir()
+        ),
         None
     );
 }
@@ -165,14 +197,48 @@ fn detect_only_installed_and_with_cache() {
     );
     let installed = manager.installed();
     let cache = VersionCache::default();
-    let versions = version::detect(&installed, &cache);
+    let versions = version::detect(&installed, &cache, &probe_dir());
     assert_eq!(versions.len(), 1);
     assert_eq!(versions["present"].as_deref(), Some("7.7.7"));
 
     // The second call comes from the cache, without starting the program.
     let started = Instant::now();
-    assert_eq!(version::detect(&installed, &cache), versions);
+    assert_eq!(version::detect(&installed, &cache, &probe_dir()), versions);
     assert!(started.elapsed() < Duration::from_millis(50));
+}
+
+/// An npm launcher calls a bare `node`; cmd.exe would look for it in the working folder first.
+/// A `node.cmd` planted in the probe folder must never run, not even with the profile asking
+/// for nothing special.
+#[cfg(windows)]
+#[test]
+fn version_query_ignores_a_node_in_its_working_folder() {
+    // A calling agent (Claude Code, for one) may already set the variable for this test process;
+    // the query must set it itself. Windows only, where changing the environment while other
+    // threads read it is safe.
+    std::env::remove_var(hangar_lib::manager::NO_CWD_IN_EXE_PATH);
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join("planted node");
+    let _ = std::fs::remove_dir_all(&base);
+    let cwd = version::probe_folder(&base).unwrap();
+    let marker = cwd.join("planted-marker.txt");
+    std::fs::write(
+        cwd.join("node.cmd"),
+        "@echo off\r\necho planted> \"%~dp0planted-marker.txt\"\r\necho 6.6.6\r\n",
+    )
+    .unwrap();
+    let shim_dir = base.join("shim");
+    std::fs::create_dir_all(&shim_dir).unwrap();
+    let shim = shim_dir.join("tool.cmd");
+    std::fs::write(&shim, "@echo off\r\nnode --version\r\n").unwrap();
+
+    let version = version::probe(&shim, &args(&["--version"]), &no_env(), PROBE_TIMEOUT, &cwd);
+    assert!(!marker.exists(), "the planted node.cmd ran");
+    assert_ne!(version.as_deref(), Some("6.6.6"));
+    std::fs::remove_dir_all(&base).unwrap();
 }
 
 /// A launcher whose file stamp stays the same while the program behind it changes (npm swaps
@@ -192,7 +258,7 @@ fn redetect_bypasses_the_remembered_version() {
     let cache = VersionCache::default();
     let version_of = |found: HashMap<String, Option<String>>| found["present"].clone();
     assert_eq!(
-        version_of(version::detect(&installed, &cache)).as_deref(),
+        version_of(version::detect(&installed, &cache, &probe_dir())).as_deref(),
         Some("7.7.7")
     );
 
@@ -203,16 +269,16 @@ fn redetect_bypasses_the_remembered_version() {
             .insert("HANGAR_TEST_VERSION".into(), "8.8.8".into());
     }
     assert_eq!(
-        version_of(version::detect(&installed, &cache)).as_deref(),
+        version_of(version::detect(&installed, &cache, &probe_dir())).as_deref(),
         Some("7.7.7")
     );
     assert_eq!(
-        version_of(version::redetect(&installed, &cache)).as_deref(),
+        version_of(version::redetect(&installed, &cache, &probe_dir())).as_deref(),
         Some("8.8.8")
     );
     // The new answer is remembered for the plain query as well.
     assert_eq!(
-        version_of(version::detect(&installed, &cache)).as_deref(),
+        version_of(version::detect(&installed, &cache, &probe_dir())).as_deref(),
         Some("8.8.8")
     );
 }
@@ -335,6 +401,7 @@ fn version_through_an_execution_alias() {
         &version::version_args(None, &pwsh),
         &no_env(),
         PROBE_TIMEOUT,
+        &probe_dir(),
     );
     assert!(version.is_some_and(|v| v.starts_with('7')));
 }

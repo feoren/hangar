@@ -9,7 +9,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions; phase 1 (solo mode) as built (sources: 1, updated: 2026-11-10)
 - [[0005-team-collaboration]]: proposed: several people and their agents on one project; requirements from the owner interview, end-to-end encrypted Hangar service, reservations, live file claims, merge queue (sources: 0, updated: 2026-11-08)
 - [[0004-notes-per-working-folder]]: notes belong to the working folder, stored as .md in the app data folder, keyed by the normalized path; folder names `general` and `.trash` since 2026-11-08; shared notes in [[0006-encrypted-project-notes]] (sources: 0, updated: 2026-11-10)
-- [[0003-program-versions]]: program versions via a `--version` call with timeout and cache; program icons (sources: 0, updated: 2026-11-07)
+- [[0003-program-versions]]: program versions via a `--version` call with timeout and cache; program icons; queries run in an own probe folder (sources: 0, updated: 2026-11-12)
 - [[0002-version-scheme]]: versions X.Y.Z-Build (internally X.Y.Z+Build), build number from Git; the code always carries the upcoming version (sources: 2, updated: 2026-11-08)
 - [[0001-foundation]]: foundation: Tauri 2, portable-pty, xterm.js, output flow, process tree (sources: 1, updated: 2026-11-07)
 
@@ -60,7 +60,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
 - [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate), C (protocol crate), E (team crypto), F part 1 (account sign-in and projects), F part 2a (team connection) and F part 2b (teammates' presence, shared claims, gate on a teammate's file, task reservations) as built (sources: 3, updated: 2026-11-09)
 - [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-11)
-- [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance (sources: 1, updated: 2026-11-08)
+- [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance, also for version queries (sources: 1, updated: 2026-11-12)
 - [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-10)
 - [[program-updates]]: contract of check_program_updates, create_update_session and program-update-result, update plan per detected installer, execution rules, cache, 30 min schedule, conditional requests, rate limit pauses, Store apps (sources: 4, updated: 2026-11-12)
 - [[session-restore]]: contract: workspace.json, scrollback per session, create_session with resume, resumeFallback event (sources: 1, updated: 2026-11-07)

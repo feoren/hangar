@@ -4,7 +4,7 @@ type: synthesis
 tags: [windows, security, portable-pty, cmd, sessions]
 sources: ["[[cmd-launcher-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-12
 ---
 
 # Launching .cmd/.bat launcher scripts safely (Windows)
@@ -78,8 +78,11 @@ with such characters; that now fails clearly instead of going wrong silently.
 > differently. The same holds for the escaping in Rust std.
 
 ## Not affected
-- Version queries (`src-tauri/src/version.rs`) start through `std::process::Command`;
-  their working folder is the temp folder, not the project.
+- Version queries (`src-tauri/src/version.rs`) start through `std::process::Command` in Hangar's
+  own `version-probe` folder in the app data folder, not the project and not the temp folder, and
+  always with `NoDefaultCurrentDirectoryInExePath=1` (same rule and opt-out as sessions,
+  `src-tauri/src/child_env.rs`). Test: `version_query_ignores_a_node_in_its_working_folder`
+  (a planted `node.cmd` in that folder does not run).
 
 > [!question] Unverified
 > That `std::process::Command` has escaped `.cmd` arguments by cmd.exe rules since Rust 1.77.2

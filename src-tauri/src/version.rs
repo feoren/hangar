@@ -1,8 +1,11 @@
 //! Versions of the installed programs (ADR 0003).
 //!
 //! The program is started without a PTY with fixed version arguments: empty stdin, stdout and
-//! stderr redirected, working folder = temporary folder, environment as for sessions. After the
-//! time limit, or at the latest once the output is collected, the process tree is killed.
+//! stderr redirected, working folder = Hangar's own empty folder [`PROBE_FOLDER`] in the app
+//! data folder (never the temporary folder, where anyone could drop a `node.cmd` for an npm
+//! launcher to find), environment as for sessions ([`crate::child_env`]) with the program lookup
+//! in the working folder switched off. After the time limit, or at the latest once the output
+//! is collected, the process tree is killed.
 //! The arguments come only from the catalog, the profile or the built-in exceptions, never from
 //! frontend input.
 
@@ -17,7 +20,6 @@ use std::time::{Duration, Instant};
 
 use crate::agent_catalog::Agent;
 use crate::filecache::{FileCache, FileStamp};
-use crate::manager::INHERITED_SESSION_MARKERS;
 use crate::proctree::ProcTree;
 
 pub const TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,6 +27,16 @@ pub const TIMEOUT: Duration = Duration::from_secs(5);
 const OUTPUT_LIMIT: u64 = 64 * 1024;
 /// How long to keep waiting for remaining output after killing the process tree.
 const DRAIN_GRACE: Duration = Duration::from_millis(500);
+
+/// Working folder of the version query, inside the app data folder.
+pub const PROBE_FOLDER: &str = "version-probe";
+
+/// Creates (if needed) and returns the working folder of the version query below `app_data`.
+pub fn probe_folder(app_data: &Path) -> std::io::Result<PathBuf> {
+    let dir = app_data.join(PROBE_FOLDER);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -107,6 +119,7 @@ pub fn probe(
     args: &[String],
     env: &BTreeMap<String, String>,
     timeout: Duration,
+    cwd: &Path,
 ) -> Option<String> {
     let mut command = Command::new(program);
     command
@@ -114,14 +127,10 @@ pub fn probe(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .current_dir(std::env::temp_dir());
+        .current_dir(cwd);
     // The same environment as a session, so a profile `env` (a config folder, say) applies.
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
-    for key in INHERITED_SESSION_MARKERS {
-        command.env_remove(key);
-    }
-    command.envs(env);
+    // The program lookup in the working folder is always off: no version query needs it.
+    crate::child_env::apply(&mut command, env, true);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -229,6 +238,7 @@ fn cached_version(
     program: &Path,
     cache: &VersionCache,
     refresh: bool,
+    cwd: &Path,
 ) -> Option<String> {
     let (key, program) = cache_key(agent, program)?;
     if !refresh {
@@ -240,7 +250,7 @@ fn cached_version(
     if !crate::exe_image::is_launchable(&program) {
         return None;
     }
-    let version = probe(&program, &key.1, &agent.profile.env, TIMEOUT);
+    let version = probe(&program, &key.1, &agent.profile.env, TIMEOUT, cwd);
     cache.insert(key, version.clone());
     version
 }
@@ -252,11 +262,13 @@ pub fn remembered(agent: &Agent, program: &Path, cache: &VersionCache) -> Option
 }
 
 /// Queries all entries in parallel: profileId → version or `None`.
+/// `cwd`: the working folder of the queries ([`probe_folder`]).
 pub fn detect(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
+    cwd: &Path,
 ) -> HashMap<String, Option<String>> {
-    detect_with(installed, cache, false)
+    detect_with(installed, cache, false, cwd)
 }
 
 /// Like [`detect`], but queries every entry anew and remembers the new answers. For the
@@ -264,14 +276,16 @@ pub fn detect(
 pub fn redetect(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
+    cwd: &Path,
 ) -> HashMap<String, Option<String>> {
-    detect_with(installed, cache, true)
+    detect_with(installed, cache, true, cwd)
 }
 
 fn detect_with(
     installed: &[(Agent, PathBuf)],
     cache: &VersionCache,
     refresh: bool,
+    cwd: &Path,
 ) -> HashMap<String, Option<String>> {
     thread::scope(|scope| {
         let jobs: Vec<_> = installed
@@ -280,7 +294,7 @@ fn detect_with(
                 let job = thread::Builder::new()
                     .name(format!("version-{}", agent.id()))
                     .spawn_scoped(scope, move || {
-                        cached_version(agent, program, cache, refresh)
+                        cached_version(agent, program, cache, refresh, cwd)
                     });
                 (agent.id().to_owned(), job)
             })
@@ -412,7 +426,11 @@ mod tests {
         agent.profile.version_args = Some(Vec::new());
         let cache = VersionCache::default();
         // A path that would surely fail at startup; empty arguments do not get that far.
-        let result = detect(&[(agent, PathBuf::from("does-not-exist"))], &cache);
+        let result = detect(
+            &[(agent, PathBuf::from("does-not-exist"))],
+            &cache,
+            &std::env::temp_dir(),
+        );
         assert_eq!(result.get("a"), Some(&None));
     }
 }

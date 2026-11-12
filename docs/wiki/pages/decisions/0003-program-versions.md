@@ -6,7 +6,7 @@ superseded_by:
 tags: [agents, version, sidebar]
 sources: []
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-12
 ---
 
 # ADR 0003: Showing program versions
@@ -23,8 +23,10 @@ Not recorded separately; the reasons above rule out reading file metadata and le
 
 ## Decision
 - **Query by calling the program:** the backend launches the resolved program with version arguments. No PTY, empty stdin,
-  stdout and stderr redirected, working folder = a temporary folder, environment as for sessions (inherited
-  agent markers removed), timeout 5 s, after which the process tree is killed. On Windows with
+  stdout and stderr redirected, working folder = Hangar's own `version-probe` folder in the app data folder
+  (until 2026-11-12 the temporary folder, where anyone could drop a `node.cmd` for an npm launcher to
+  find), environment as for sessions through the shared `src-tauri/src/child_env.rs` (inherited agent
+  markers removed, `NoDefaultCurrentDirectoryInExePath=1` on Windows, see [[cmd-launcher]]), timeout 5 s, after which the process tree is killed. On Windows with
   `CREATE_NO_WINDOW`, so that no console windows flash up.
 - **Arguments:** default `["--version"]`. Can be overridden per catalog entry and per profile through the optional
   field `version_args`. Built-in exceptions by program name: `powershell` →

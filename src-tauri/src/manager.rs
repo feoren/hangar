@@ -1133,30 +1133,12 @@ fn spawn(
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     command.cwd(cwd);
-    // Agent CLIs expect a real terminal that supports color.
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
-    for key in INHERITED_SESSION_MARKERS {
-        command.env_remove(key);
-    }
     // A Hangar started inside a gated session must not hand that session's token on.
     command.env_remove(crate::gate::TOKEN_ENV);
-    if cfg!(windows) && (launch.kind == SessionKind::Update || batch) {
-        // Otherwise cmd.exe (and with it every `.cmd` launcher script such as `npm.cmd` or `codex.cmd`)
-        // looks for programs in the working folder first, where a foreign project could drop `node.cmd`.
-        // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
-        // Set before the profile environment so a profile can change it deliberately.
-        command.env(NO_CWD_IN_EXE_PATH, "1");
-    }
-    for (key, value) in &profile.env {
-        // Only the presence of the variable counts, not its value. An empty value in the profile
-        // therefore turns the protection off instead of leaving it set with an empty value.
-        if value.is_empty() && key.eq_ignore_ascii_case(NO_CWD_IN_EXE_PATH) {
-            command.env_remove(key);
-        } else {
-            command.env(key, value);
-        }
-    }
+    // No program lookup in the working folder for update sessions and `.cmd`/`.bat` launchers.
+    // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
+    let no_cwd_lookup = launch.kind == SessionKind::Update || batch;
+    crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
     // Straight into the child's environment; the values are not kept anywhere else.
     for (name, value) in
         secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)

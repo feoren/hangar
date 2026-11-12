@@ -437,3 +437,10 @@ A program found as an execution alias, or below `Program Files\WindowsApps`, is 
 install: no winget command and no administrator rights, reason `store-managed` ("The Microsoft
 Store keeps this program up to date."). Checked before the Program Files rule that used to call
 the package folder a machine-wide setup. Pages changed: [[program-updates]].
+
+## [2026-11-12] query | Version queries in their own folder
+Security review: the version query ran in the temporary folder without
+`NoDefaultCurrentDirectoryInExePath`, so an npm launcher could start a `node.cmd` planted there.
+Sessions and version queries now share one environment rule (`src-tauri/src/child_env.rs`) and the
+queries run in `version-probe` in the app data folder. Pages changed: [[0003-program-versions]],
+[[cmd-launcher]].

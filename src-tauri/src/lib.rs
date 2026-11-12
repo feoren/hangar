@@ -5,6 +5,7 @@ pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
 pub mod batch;
+pub mod child_env;
 pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
