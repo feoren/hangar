@@ -24,8 +24,9 @@ const OUT_DIR = path.join(REPO, "docs/images");
 
 const WIDTH = 1296;
 const HEIGHT = 839;
-// Wide enough for the version and its beta badge in the sidebar header.
-const SIDEBAR_WIDTH = 320;
+// Wide enough for the version and its beta badge in the sidebar header, and for a session row's
+// second line with its branch and context meter.
+const SIDEBAR_WIDTH = 352;
 const KB = 1024;
 const SCHEMES = ["dark", "light"];
 const TITLE = "README-SHOTS-HARNESS";
@@ -51,6 +52,12 @@ const working = (count) => `(() => {
   return rows.filter((row) => row.textContent.includes("working")).length >= ${count};
 })()`;
 
+/**
+ * Every scene waits for the same sidebar first: Claude Code and Codex CLI working, and Gemini CLI
+ * done (it went quiet after its answer). Aider asks from the start, PowerShell rests.
+ */
+const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
+
 /** Takes the focus away from where a click left it, so no focus ring shows. */
 const BLUR = `(() => {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -74,27 +81,61 @@ const reveal = (selector) => `(() => {
  */
 const SCENES = [
   {
+    // Three sessions side by side with a dragged splitter, every row state in the sidebar.
     name: "overview",
     file: "hangar",
     maxBytes: 400 * KB,
-    steps: [{ ready: shows(".subagent-node", "Write retry tests") }, { ready: working(2) }],
+    layout: {
+      snapLayout: "mainStack",
+      paneRatios: { mainStack: [0.55, 0.52] },
+      // Room for every session row; the launcher shows in the other scenes.
+      closedGroups: ["newSession"],
+    },
+    steps: [{ ready: shows(".subagent-node", "tester") }],
   },
   {
     name: "subagent",
     file: "hangar-subagent",
     maxBytes: 300 * KB,
+    layout: { closedGroups: ["newSession"] },
     steps: [
-      { ready: shows(".subagent-node", "Write retry tests") },
+      { ready: shows(".subagent-node", "tester") },
       {
-        run: click(".subagent-node", "Write retry tests"),
+        run: click(".subagent-node", "tester"),
         ready: shows(".subagent-log .log-line", "Checking the timing"),
       },
+    ],
+  },
+  {
+    // The Files tab with the folders open where this session and the teammates work.
+    name: "files",
+    file: "hangar-files",
+    maxBytes: 300 * KB,
+    layout: {
+      snapLayout: "single",
+      sideOpen: true,
+      sideTab: "files",
+      notesWidth: 360,
+      closedGroups: ["newSession"],
+    },
+    steps: [
+      { ready: shows(".team-pill", "online") },
+      { ready: shows(".file-tree .tree-item", "src") },
+      { run: click(".file-tree .tree-item", "src"), ready: shows(".tree-item", "payments") },
+      { run: click(".tree-item", "payments"), ready: shows(".tree-item", "webhook.ts") },
+      { run: click(".tree-item", "emails"), ready: shows(".tree-item", "checkout.de.json") },
+      { run: click(".tree-item", "search"), ready: shows(".tree-item", "rank.ts") },
+      { run: click(".tree-item", "webhook.ts"), ready: shows(".tree-item.selected", "webhook.ts") },
+      { ready: shows(".tree-people") },
+      { run: BLUR, ready: "true" },
     ],
   },
   {
     name: "team",
     file: "hangar-team",
     maxBytes: 300 * KB,
+    // A narrower sidebar keeps the teammates' avatars on the worktree row clear of the window.
+    layout: { sidebarWidth: 300 },
     steps: [
       { ready: shows(".team-pill", "online") },
       { run: click(".team-pill"), ready: shows(".team-window .team-peer", "Jonas Berg") },
@@ -256,14 +297,14 @@ async function render(page, url, scene, scheme, version) {
         const text = document.body.innerText;
         const version = document.querySelector(".brand-version");
         return (
-          sessions.length === 4 &&
+          sessions.length === 5 &&
           text.includes("asks") &&
           text.includes("working") &&
           version !== null &&
           version.textContent.includes(${JSON.stringify(shown)})
         );
       })()`),
-    { what: `four sessions, agents working, Aider asking and version ${shown}` },
+    { what: `five sessions, agents working, Aider asking and version ${shown}` },
   );
   await page.evaluate("document.fonts.ready.then(() => true)");
   // The version (with its beta badge) must be readable, not cut off with an ellipsis. If this
@@ -275,10 +316,10 @@ async function render(page, url, scene, scheme, version) {
   if (missing > 0) {
     throw new Error(`The version ${shown} is cut off in the sidebar header by ${missing} px.`);
   }
-  for (const [index, step] of scene.steps.entries()) {
+  for (const [index, step] of [{ ready: SETTLED }, ...scene.steps].entries()) {
     if (step.run) await page.evaluate(step.run);
     await waitFor(() => page.evaluate(step.ready), {
-      what: `step ${index + 1} of the scene ${scene.name}`,
+      what: index === 0 ? "the settled sidebar" : `step ${index} of the scene ${scene.name}`,
     });
   }
   // Let the terminals settle, then move the pointer away, stop the spinners and the clock, and

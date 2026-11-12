@@ -1,8 +1,9 @@
 // In-memory stand-in for the Tauri backend, used only for the README screenshots. It answers the
 // IPC calls the frontend makes and plays a scripted, fictional scene in the project "acme-shop":
-// Claude Code working with sub-agents next to Codex CLI in its own worktree, Aider waiting for an
-// answer, a PowerShell, a signed-in account with two teammates online, and a few notes. The
-// driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
+// Claude Code working with sub-agents next to Codex CLI in its own worktree, Gemini CLI done with
+// the API docs, Aider waiting for an answer, a resting PowerShell, a signed-in account with two
+// teammates online, the project's file tree and a few notes. The driver (run.mjs) picks what each
+// screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
 declare const __README_SHOTS_VERSION__: string;
@@ -39,6 +40,8 @@ const MINUTE = 60_000;
 const ROOT = "C:\\src\\acme-shop";
 const WORKTREE = "C:\\src\\acme-shop-cart-rounding";
 const WORKTREE_BRANCH = "hangar/cart-rounding";
+const DOCS = "C:\\src\\acme-docs";
+const INFRA = "C:\\src\\acme-infra";
 
 function catalogProfile(id: string, name: string, resumeArgs: string[] | null) {
   return {
@@ -110,9 +113,9 @@ const workspace = {
     },
     {
       key: uuid(3),
-      profileId: "aider",
-      cwd: ROOT,
-      title: "Aider",
+      profileId: "gemini",
+      cwd: DOCS,
+      title: "Gemini CLI",
       order: 2,
       color: null,
       emoji: null,
@@ -120,10 +123,20 @@ const workspace = {
     },
     {
       key: uuid(4),
-      profileId: "pwsh",
+      profileId: "aider",
       cwd: ROOT,
-      title: "PowerShell",
+      title: "Aider",
       order: 3,
+      color: null,
+      emoji: null,
+      worktree: null,
+    },
+    {
+      key: uuid(5),
+      profileId: "pwsh",
+      cwd: INFRA,
+      title: "PowerShell",
+      order: 4,
       color: null,
       emoji: null,
       worktree: null,
@@ -131,7 +144,7 @@ const workspace = {
   ],
 };
 /** Minutes each session has been running, in creation order. */
-const AGE_MINUTES = [52, 47, 31, 64];
+const AGE_MINUTES = [52, 47, 38, 31, 64];
 
 // ANSI helpers
 const E = "\x1b[";
@@ -230,7 +243,7 @@ const codexOut = lines([
   dim("  └ ") + green("✓") + " 23 passed " + dim("(1.4 s)"),
   "",
   "• " + bold("Edited") + " src/cart/total.test.ts " + dim("(") + green("+9") + dim(")"),
-  dim("    48 ") + green('+ it("sums discounted lines exactly", () => {'),
+  dim("    48 ") + green('+ it("sums discounted lines", () => {'),
   dim("    49 ") + green("+   const cart = lines(3, 9.99, 1 / 3);"),
   dim("    50 ") + green("+   expect(total(cart)).toBe(19.98);"),
   dim("    51 ") + green("+ });"),
@@ -246,6 +259,45 @@ const codexFooter = lines([
   "",
   dim("  ⏎ send   ⇧⏎ newline   ⌃T transcript"),
 ]);
+
+// Gemini CLI streams its answer in a few pieces and then rests: it worked, went quiet and now
+// waits ("done" in the sidebar).
+const geminiBox = (mark: string, text: string) => {
+  const width = 40;
+  return lines([
+    dim("╭" + "─".repeat(width) + "╮"),
+    dim("│ ") + mark + " " + text + " ".repeat(Math.max(0, width - 3 - text.length)) + dim("│"),
+    dim("╰" + "─".repeat(width) + "╯"),
+  ]);
+};
+const geminiOut = [
+  lines([
+    dim("Tips: ask questions, edit files, run commands."),
+    "",
+    cyan("> ") + "Document the refund endpoints in docs/api",
+    "",
+    magenta("✦") + " I'll read the OpenAPI spec and the order",
+    "  pages first, then write the refund page.",
+    "",
+    geminiBox(green("✔"), "ReadFile openapi/refunds.yaml"),
+    geminiBox(green("✔"), "ReadFile docs/api/orders.md"),
+    "",
+  ]),
+  lines([
+    geminiBox(green("✔"), "WriteFile docs/api/refunds.md"),
+    "",
+    magenta("✦") + " Done. docs/api/refunds.md covers create,",
+    "  list and cancel, each with a curl example",
+    "  and the error codes from the spec.",
+    "",
+  ]),
+  lines([
+    dim("╭" + "─".repeat(40) + "╮"),
+    dim("│ ") + cyan(">") + dim("   Type your message or @path/to/file") + dim(" │"),
+    dim("╰" + "─".repeat(40) + "╯"),
+    dim("~\\src\\acme-docs (main*)") + "     " + dim("gemini-2.5-pro"),
+  ]),
+];
 
 const aiderOut = lines([
   dim("Aider v0.86.2"),
@@ -265,10 +317,9 @@ const aiderOut = lines([
 const pwshOut = lines([
   "PowerShell 7.6.9",
   "",
-  green(`PS ${ROOT}> `) + "git status --short",
-  " M src/payments/webhook.ts",
-  " M src/payments/webhook.test.ts",
-  green(`PS ${ROOT}> `),
+  green(`PS ${INFRA}> `) + "git pull",
+  "Already up to date.",
+  green(`PS ${INFRA}> `),
 ]);
 
 const CODEX_START_SECONDS = 41;
@@ -280,6 +331,7 @@ function codexSpinner(seconds: number, frame: number): string {
 const scripts: Record<string, string> = {
   claude: CLEAR + HIDE_CURSOR + claudeOut,
   codex: CLEAR + codexOut + codexSpinner(CODEX_START_SECONDS, 0) + codexFooter,
+  gemini: CLEAR + (geminiOut[0] ?? ""),
   aider: CLEAR + aiderOut,
   pwsh: CLEAR + pwshOut,
 };
@@ -366,13 +418,20 @@ function createSession(args: Args): unknown {
         (s, f) => `${RESTORE_CURSOR}${E}2K${claudeSpinner(s, f)}`,
       );
     }
+    // The rest of Gemini's answer, then silence: it worked and now waits.
+    if (profileId === "gemini") {
+      geminiOut.slice(1).forEach((piece, index) => {
+        setTimeout(() => output(id, piece), 500 * (index + 1));
+      });
+    }
     // A bell makes Aider show up as "asks you something" in the sidebar.
     if (profileId === "aider") setTimeout(() => output(id, "\x07"), 300);
   }, 600);
   return info;
 }
 
-// Sub-agents of the Claude Code session: one finished, two still running.
+// Sub-agents of the Claude Code session: one finished, two still running. Named by their type, as
+// Claude Code lists its background agents, with what they do right now and their tokens.
 const subAgents = [
   {
     id: "agent-map",
@@ -383,18 +442,24 @@ const subAgents = [
     startedAt: ago(3 * MINUTE + 20_000),
     lastActivity: ago(2 * MINUTE + 39_000),
     tool: "Grep",
+    target: "handleWebhook",
+    note: null,
+    tokens: 38_420,
     excerpt: "Two callers: the order service and the refund job. Both pass the raw event.",
   },
   {
     id: "agent-tests",
     description: "Write retry tests",
-    agentType: "general-purpose",
+    agentType: "tester",
     spawnDepth: 1,
     status: "running",
     startedAt: ago(MINUTE + 52_000),
     lastActivity: ago(2_000),
-    tool: "Bash",
-    excerpt: "The give-up case expects 4 calls but sees 5.",
+    tool: "Read",
+    target: "webhook.test.ts",
+    note: null,
+    tokens: 61_870,
+    excerpt: "All 17 tests pass. Checking the timing assertions once more.",
   },
   {
     id: "agent-logging",
@@ -405,9 +470,21 @@ const subAgents = [
     startedAt: ago(48_000),
     lastActivity: ago(5_000),
     tool: "Grep",
+    target: "logger.error",
+    note: null,
+    tokens: 24_150,
     excerpt: null,
   },
 ];
+
+/** A tool result Claude Code sums up in one line ("Read 84 lines"). */
+const summed = (summary: unknown) => ({
+  kind: "result",
+  lines: [],
+  moreLines: 0,
+  error: false,
+  summary,
+});
 
 const subAgentLogs: Record<string, unknown[]> = {
   "agent-tests": [
@@ -420,16 +497,11 @@ const subAgentLogs: Record<string, unknown[]> = {
     },
     { kind: "text", text: "I'll read the handler and the existing tests first." },
     { kind: "tool", name: "Read", detail: "src/payments/webhook.ts" },
-    { kind: "result", text: 'import { send } from "./client";', moreLines: 83, error: false },
+    summed({ kind: "read", lines: 84 }),
     { kind: "tool", name: "Read", detail: "src/payments/webhook.test.ts" },
-    {
-      kind: "result",
-      text: 'import { describe, expect, it, vi } from "vitest";',
-      moreLines: 41,
-      error: false,
-    },
+    summed({ kind: "read", lines: 42 }),
     { kind: "tool", name: "Grep", detail: "sleep\\( in src/payments" },
-    { kind: "result", text: "src/payments/webhook.ts:42", moreLines: 0, error: false },
+    summed({ kind: "matches", count: 1 }),
     {
       kind: "text",
       text:
@@ -437,33 +509,48 @@ const subAgentLogs: Record<string, unknown[]> = {
         "I'll add three cases next to the existing ones.",
     },
     { kind: "tool", name: "Edit", detail: "src/payments/webhook.test.ts" },
-    { kind: "result", text: "Updated with 38 additions", moreLines: 0, error: false },
+    summed({ kind: "edited", added: 38, removed: 0 }),
     { kind: "tool", name: "Bash", detail: "pnpm vitest run src/payments" },
     {
       kind: "result",
-      text: "FAIL  gives up after 4 attempts: expected 4 calls, got 5",
+      lines: ["FAIL  gives up after 4 attempts", "AssertionError: expected 4 calls, got 5"],
       moreLines: 12,
       error: true,
+      summary: null,
     },
     {
       kind: "text",
       text: "The test counts the first try as a retry. Fixing the expectation, the handler is right.",
     },
     { kind: "tool", name: "Edit", detail: "src/payments/webhook.test.ts" },
-    { kind: "result", text: "Updated with 1 addition and 1 removal", moreLines: 0, error: false },
+    summed({ kind: "edited", added: 1, removed: 1 }),
     { kind: "tool", name: "Bash", detail: "pnpm vitest run src/payments" },
-    { kind: "result", text: "Test Files  1 passed (1)", moreLines: 2, error: false },
+    {
+      kind: "result",
+      lines: ["Test Files  1 passed (1)", "     Tests  17 passed (17)"],
+      moreLines: 1,
+      error: false,
+      summary: null,
+    },
     { kind: "text", text: "All 17 tests pass. Checking the timing assertions once more." },
     { kind: "tool", name: "Read", detail: "src/payments/webhook.test.ts" },
   ],
 };
+/** Tool calls per sub-agent so far, for the footer of its log. */
+const toolUses: Record<string, number> = { "agent-tests": 11 };
 
 /** The watch's channel per session, and the sub-agent whose log it streams. */
 const subAgentWatch = new Map<number, number>();
 
 function sendSubAgentLog(channel: number, focus: unknown): void {
   if (typeof focus !== "string") return;
-  send(channel, { type: "log", agentId: focus, reset: true, entries: subAgentLogs[focus] ?? [] });
+  send(channel, {
+    type: "log",
+    agentId: focus,
+    reset: true,
+    entries: subAgentLogs[focus] ?? [],
+    toolUses: toolUses[focus] ?? 0,
+  });
 }
 
 function watchSubAgents(args: Args): null {
@@ -541,6 +628,7 @@ const teamSnapshot = {
                 state: "working",
                 files: ["src/emails/checkout.de.json", "src/emails/checkout.fr.json"],
                 moreFiles: 0,
+                repo: ACME_ROOT_COMMIT,
               },
               {
                 key: "mika-2",
@@ -549,6 +637,7 @@ const teamSnapshot = {
                 state: "idle",
                 files: [],
                 moreFiles: 0,
+                repo: ACME_ROOT_COMMIT,
               },
             ],
           },
@@ -566,14 +655,16 @@ const teamSnapshot = {
                 state: "waiting",
                 files: ["src/search/rank.ts"],
                 moreFiles: 0,
+                repo: ACME_ROOT_COMMIT,
               },
               {
                 key: "jonas-2",
                 agent: "Gemini CLI",
-                title: "API docs",
+                title: "Load tests",
                 state: "working",
-                files: ["docs/api/orders.md", "docs/api/refunds.md", "docs/api/webhooks.md"],
+                files: ["tests/load/checkout.k6.js", "src/payments/refund.ts"],
                 moreFiles: 0,
+                repo: ACME_ROOT_COMMIT,
               },
             ],
           },
@@ -626,7 +717,8 @@ const teamSnapshot = {
         ],
         attempts: [],
         notices: [],
-        sessions: [1, 2, 3, 4],
+        sessions: [1, 2, 3, 4, 5],
+        sessionRepos: [1, 2, 4].map((sessionId) => ({ sessionId, repo: ACME_ROOT_COMMIT })),
       },
     },
   ],
@@ -706,6 +798,86 @@ function readNote(args: Args): unknown {
   return note?.content ?? null;
 }
 
+// The file tree of acme-shop: folders first, as the backend lists them. "!" marks an entry git
+// ignores, a trailing "/" a folder.
+const tree: Record<string, string[]> = {
+  "": [
+    ".github/",
+    "docs/",
+    "!node_modules/",
+    "src/",
+    "tests/",
+    ".gitignore",
+    "package.json",
+    "pnpm-lock.yaml",
+    "README.md",
+    "tsconfig.json",
+  ],
+  src: ["admin/", "cart/", "emails/", "payments/", "search/", "index.ts"],
+  "src/emails": ["checkout.de.json", "checkout.en.json", "checkout.fr.json"],
+  "src/payments": ["client.ts", "refund.ts", "retry.ts", "webhook.test.ts", "webhook.ts"],
+  "src/search": ["rank.test.ts", "rank.ts"],
+  tests: ["e2e/", "load/"],
+};
+
+function listSessionFolder(args: Args): unknown {
+  const id = typeof args.id === "number" ? args.id : -1;
+  const relative = typeof args.relative === "string" ? args.relative : "";
+  const info = sessions.get(id);
+  const root = typeof info?.cwd === "string" ? info.cwd : ROOT;
+  const names = root === ROOT ? (tree[relative] ?? []) : [];
+  return {
+    root,
+    repoRoot: root === ROOT ? ROOT : null,
+    entries: names.map((raw) => {
+      const ignored = raw.startsWith("!");
+      const name = raw.replace(/^!/, "").replace(/\/$/, "");
+      return { name, kind: raw.endsWith("/") ? "dir" : "file", ignored };
+    }),
+    truncated: false,
+  };
+}
+
+// What this device's sessions changed: the Claude Code session in acme-shop and Codex CLI in its
+// worktree. The file tree shows them as git letters, the sidebar knows no collision.
+const claimsSession = (sessionId: number, root: string, claims: [string, string][]) => ({
+  sessionId,
+  state: { kind: "ready" },
+  root: root.replace(/\\/g, "/"),
+  base: "4e1f0c2",
+  sharedWith: [],
+  claims: claims.map(([path, kind]) => ({
+    path,
+    kind,
+    wholeFile: kind !== "modified",
+    ranges: kind === "modified" ? [{ start: 38, end: 44 }] : [],
+    area: path.split("/").slice(0, 2).join("/"),
+  })),
+  truncated: false,
+  level: "none",
+  overlapCount: 0,
+  overlapsTruncated: false,
+});
+const claimsSnapshot = {
+  enabled: true,
+  sessions: [
+    claimsSession(1, ROOT, [
+      ["src/payments/webhook.ts", "modified"],
+      ["src/payments/webhook.test.ts", "modified"],
+      ["src/payments/retry.ts", "untracked"],
+    ]),
+    claimsSession(2, WORKTREE, [
+      ["src/cart/total.ts", "modified"],
+      ["src/cart/total.test.ts", "modified"],
+    ]),
+  ],
+  overlaps: [],
+};
+
+// How full the agent's context window is (the meter in its sidebar row); the backend reads it
+// from Claude Code's transcript only.
+const contextUsage = { sessions: [{ sessionId: 1, used: 123_000, window: 1_000_000 }] };
+
 // Events: the frontend listens through the event plugin; the mock answers some right away.
 const listeners = new Map<string, number[]>();
 let nextEventId = 1;
@@ -741,6 +913,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
     );
   },
   git_diff: () => ({ files: [] }),
+  list_session_folder: listSessionFolder,
+  context_usage: () => contextUsage,
   configure_tray: () => null,
   create_session: createSession,
   rename_session: (args) => {
@@ -777,11 +951,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
   team_status: () => teamStatus,
   team_pending_confirmations: () => [],
   team_session_states: () => undefined,
-  // Features these scenes do not show (file claims, gates): nothing to report.
-  profile_path: () => null,
   configure_claims: () => null,
+  claims_snapshot: () => claimsSnapshot,
+  // Features these scenes do not show (gates): nothing to report.
+  profile_path: () => null,
   configure_gate: () => null,
-  claims_snapshot: () => null,
   gate_snapshot: () => null,
 };
 
