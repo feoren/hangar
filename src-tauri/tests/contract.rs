@@ -91,6 +91,8 @@ fn commands_are_registered_allowed_and_wired() {
         "team_pending_confirmations",
         "team_confirm",
         "team_reject",
+        // The activity calendar runs git in folders the window names: main window only.
+        "git_activity",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));

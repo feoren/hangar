@@ -309,6 +309,11 @@ export const api = {
    */
   gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
   /**
+   * The user's own commits of about the last year in the repositories of these folders (at most
+   * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
+   */
+  gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
+  /**
    * One folder of a session's file tree; `relative` is a `/` separated path below the session's
    * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
    * `parseFolderListing`; rejects with a text for an unknown session or a refused path.

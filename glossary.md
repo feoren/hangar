@@ -135,6 +135,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                  |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                           |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
+| Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`  |
 | Anspruch (geänderte Datei einer Session)        | claim                             | `claims.rs`; path, kind of change, line ranges on the base side, area       |
 | Überschneidung                                  | overlap                           | `OverlapLevel`: same area, same file, overlapping lines                     |
 | Basis-Commit                                    | base commit                       | HEAD of the session's worktree; lines are compared on this side             |

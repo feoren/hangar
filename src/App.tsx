@@ -47,6 +47,8 @@ import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
+import { activityFolders } from "./activity";
+import { ActivityCalendar } from "./ActivityCalendar";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
@@ -3892,6 +3894,14 @@ export function App() {
                     )}
                   </p>
                   <WorktreeHint chance={worktree} />
+                  <ActivityCalendar
+                    folders={activityFolders(
+                      folders.favorites,
+                      folders.recent,
+                      state.sessions.map((session) => session.cwd),
+                    )}
+                    language={settings.language}
+                  />
                   <p className="keys">
                     {nextProgram && (
                       <>

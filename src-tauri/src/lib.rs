@@ -21,6 +21,7 @@ pub mod filecache;
 pub mod gate;
 pub mod gate_service;
 pub mod git;
+pub mod git_activity;
 pub mod hook_http;
 pub mod icon;
 pub mod install_source;
@@ -347,6 +348,7 @@ pub fn run() -> tauri::Result<()> {
             commands::notify_session,
             commands::git_branches,
             commands::git_diff,
+            commands::git_activity,
             commands::list_session_folder,
             commands::create_worktree,
             commands::remove_worktree,

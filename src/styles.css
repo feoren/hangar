@@ -65,6 +65,12 @@
   --diff-hunk: #a5b4fc;
   /* Snap layouts: an unlit zone in a thumbnail; follows --muted in both themes. */
   --snap-zone: color-mix(in srgb, var(--muted) 34%, transparent);
+  /* Activity calendar: a day without commits, then four steps of the accent blue. */
+  --activity-0: color-mix(in srgb, var(--muted) 14%, transparent);
+  --activity-1: color-mix(in srgb, var(--accent) 30%, var(--bg));
+  --activity-2: color-mix(in srgb, var(--accent) 52%, var(--bg));
+  --activity-3: color-mix(in srgb, var(--accent) 76%, var(--bg));
+  --activity-4: var(--accent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
@@ -2155,8 +2161,10 @@ h2 .beta-badge {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* `safe`: in a short window the top stays reachable instead of being cut off above. */
+  justify-content: safe center;
   height: 100%;
+  overflow: hidden auto;
   padding: 0 16px;
   color: var(--muted);
   text-align: center;
@@ -2176,6 +2184,76 @@ h2 .beta-badge {
 .keys {
   margin-top: 16px;
   font-size: 12px;
+}
+
+/* Activity calendar: 10 px days with 2 px gaps (CELL and GAP in ActivityCalendar.tsx). As wide
+   as 53 weeks at most; a narrower window shows fewer weeks, measured on this box. */
+.activity {
+  width: 100%;
+  max-width: calc(53 * 12px - 2px);
+  margin-top: 22px;
+}
+
+.activity-calendar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.activity-months,
+.activity-days {
+  display: grid;
+  column-gap: 2px;
+}
+
+.activity-months {
+  height: 12px;
+  font-size: 10px;
+  line-height: 12px;
+  text-align: left;
+}
+
+/* A label may run past its own column into the next ones. */
+.activity-months span {
+  grid-row: 1;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.activity-days {
+  grid-template-rows: repeat(7, 10px);
+  grid-auto-flow: column;
+  row-gap: 2px;
+}
+
+.activity-day {
+  border-radius: 2px;
+}
+
+.activity-day.level-0 {
+  background: var(--activity-0);
+}
+
+.activity-day.level-1 {
+  background: var(--activity-1);
+}
+
+.activity-day.level-2 {
+  background: var(--activity-2);
+}
+
+.activity-day.level-3 {
+  background: var(--activity-3);
+}
+
+.activity-day.level-4 {
+  background: var(--activity-4);
+}
+
+.empty .activity-total {
+  margin: 8px 0 0;
+  font-size: 11.5px;
 }
 
 /* Up to three buttons side by side; in narrow windows they get narrower instead of wrapping. */
