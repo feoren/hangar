@@ -1,6 +1,6 @@
 [package]
 name = "hangar"
-version = "0.5.0"
+version = "0.5.0+241"
 description = "Terminal sessions and agent CLIs in one window"
 edition = "2021"
 # Oldest Rust the code is written for: the standard library APIs in use need 1.89 (found by
