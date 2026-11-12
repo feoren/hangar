@@ -16,6 +16,7 @@ import {
 } from "./attention";
 import { readClipboard, writeClipboard } from "./clipboard";
 import { pasteFromClipboard } from "./clipboardPaste";
+import { DevServerDetector } from "./devServer";
 import {
   clipboardWriteText,
   menuSelection,
@@ -25,6 +26,7 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
+import { PromptLineTracker } from "./promptTitle";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
@@ -131,6 +133,20 @@ export class SessionTerminal {
   onLink: ((url: string) => void) | null = null;
   /** The clipboard held an image but no text, and saving the image failed. */
   onImagePasteFailed: (() => void) | null = null;
+  /**
+   * Lines the user submits with Enter, while the app may still name the session after its first
+   * task (promptTitle.ts); `null` stops the tracking.
+   */
+  onPromptLine: ((line: string) => void) | null = null;
+  private readonly promptLines = new PromptLineTracker();
+  /**
+   * The newest local dev server address in the current process's output changed (devServer.ts);
+   * `null` when the process ended or started again. Called on changes only, never per chunk.
+   */
+  onDevServer: ((url: string | null) => void) | null = null;
+  private readonly devServer = new DevServerDetector();
+  /** The user typed, pasted or sent text since `takeTyped` last asked. */
+  private typedSinceTaken = false;
   /** How the program in the session reads a pasted image path; the app knows its profile. */
   shellKind: () => ShellKind = () => "agent";
   /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
@@ -199,9 +215,11 @@ export class SessionTerminal {
 
     this.term.onData((data) => {
       this.send(data);
+      this.trackPrompt(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
+      this.typedSinceTaken = true;
       this.attention.typed();
       this.programSelection.keyTyped();
     });
@@ -224,6 +242,8 @@ export class SessionTerminal {
 
   /** A new channel per process start: a Tauri channel belongs to exactly one backend call. */
   createChannel(): Channel<SessionEvent> {
+    // A new process: an address from the old one belongs to a server that is gone.
+    this.forgetDevServer();
     const channel = new Channel<SessionEvent>();
     channel.onmessage = (event) => {
       this.handleEvent(event);
@@ -508,6 +528,7 @@ export class SessionTerminal {
     const clean = sanitizePaste(text);
     // An image path can arrive after the session was closed.
     if (clean === "" || this.disposed) return;
+    this.typedSinceTaken = true;
     this.attention.typed();
     this.term.paste(clean);
   }
@@ -524,7 +545,34 @@ export class SessionTerminal {
   /** Enter, as if typed: runs what was pasted before. */
   submit(): void {
     this.attention.typed();
+    this.typedSinceTaken = true;
     this.send("\r");
+    this.trackPrompt("\r");
+  }
+
+  /**
+   * Whether the user gave the session input since the last call; resets. Work that follows input
+   * is a task the user asked for, unlike a program's own start-up output.
+   */
+  takeTyped(): boolean {
+    const typed = this.typedSinceTaken;
+    this.typedSinceTaken = false;
+    return typed;
+  }
+
+  /** Only while the app listens; typed input is small, so this costs nothing measurable. */
+  private trackPrompt(data: string): void {
+    if (this.onPromptLine === null) return;
+    for (const line of this.promptLines.feed(data)) this.emitPromptLine(line);
+  }
+
+  /** Read anew per line: the listener may stop itself after the first one. */
+  private emitPromptLine(line: string): void {
+    this.onPromptLine?.(line);
+  }
+
+  private forgetDevServer(): void {
+    if (this.devServer.reset()) this.onDevServer?.(null);
   }
 
   private send(data: string): void {
@@ -627,6 +675,8 @@ export class SessionTerminal {
     this.onFallback = null;
     this.onLink = null;
     this.onImagePasteFailed = null;
+    this.onPromptLine = null;
+    this.onDevServer = null;
     this.attentionListener = null;
     this.searchListener = null;
     this.attention.dispose();
@@ -652,6 +702,7 @@ export class SessionTerminal {
       this.lastOutputAt = performance.now();
       this.endRestoreGrace();
       this.attention.output(event.bytes);
+      if (this.devServer.feed(event.data)) this.onDevServer?.(this.devServer.url);
       // Acknowledge as soon as xterm has processed the chunk: this is the backpressure to the backend.
       this.term.write(event.data, () => {
         this.acknowledge(event.bytes);
@@ -660,6 +711,7 @@ export class SessionTerminal {
     }
     this.exitCode = event.code;
     this.programSelection.reset();
+    this.forgetDevServer();
     const code = event.code === null ? t("terminal.unknownCode") : String(event.code);
     this.term.write(`\r\n\x1b[2m${t("terminal.exited", { code })}\x1b[0m\r\n`);
     this.onExit?.(event.code);

@@ -2,7 +2,8 @@
 //!
 //! Callers only pass paths the backend determined itself (notes folder, profiles.toml).
 //! The frontend never names a path, so this never becomes a command for opening arbitrary files.
-//! Web pages ([`open_url`]) are only http(s) addresses the backend checked (the account's pages).
+//! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages
+//! and a local dev server a session printed ([`local_dev_url`]).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -101,6 +102,24 @@ pub fn checked_url(url: &reqwest::Url) -> io::Result<&str> {
     Ok(url.as_str())
 }
 
+/// A dev server address from a session's output, if it is one: http or https, a loopback host
+/// (`localhost`, `127.0.0.1`, `[::1]`), an explicit port, no user name or password. Anything else
+/// is refused, so the frontend cannot use the command to open arbitrary pages or programs.
+pub fn local_dev_url(text: &str) -> Option<reqwest::Url> {
+    let url = reqwest::Url::parse(text).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    // The parser has normalized the host: lower case, IPv4 in dotted form, IPv6 compressed.
+    let loopback = matches!(url.host_str()?, "localhost" | "127.0.0.1" | "[::1]");
+    // `port()` is `None` for the scheme's default port, which a dev server never prints alone.
+    let port = url.port()?;
+    (loopback && port != 0).then_some(url)
+}
+
 /// Program and arguments that open an http(s) address in the default browser, without a shell.
 #[cfg(not(windows))]
 pub fn url_command(url: &reqwest::Url) -> io::Result<(PathBuf, Vec<std::ffi::OsString>)> {
@@ -183,6 +202,37 @@ fn spawn_detached(mut command: Command) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_loopback_dev_servers_with_a_port_open() {
+        for ok in [
+            "http://localhost:5173/",
+            "http://LOCALHOST:3000/app?x=1",
+            "https://127.0.0.1:8443",
+            "http://[::1]:8080/",
+            "http://[0:0:0:0:0:0:0:1]:8080/",
+        ] {
+            assert!(local_dev_url(ok).is_some(), "{ok}");
+        }
+        for refused in [
+            "http://localhost/",
+            "http://localhost:80/",
+            "http://localhost:0/",
+            "http://example.com:3000/",
+            "http://localhost.example.com:3000/",
+            "http://127.0.0.2:3000/",
+            "http://0.0.0.0:3000/",
+            "http://user:secret@localhost:3000/",
+            "http://user@localhost:3000/",
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "ftp://localhost:21/",
+            "localhost:3000",
+            "",
+        ] {
+            assert!(local_dev_url(refused).is_none(), "{refused}");
+        }
+    }
 
     #[test]
     fn path_is_a_single_argument_without_shell() {

@@ -89,6 +89,8 @@ fn commands_are_registered_allowed_and_wired() {
         "account_projects",
         "account_set_base_url",
         "account_open",
+        // Opening a dev server address in the browser is the main window's.
+        "open_local_url",
         // The team connection: sharing a project and confirming devices is the main window's.
         "team_status",
         "team_enable",

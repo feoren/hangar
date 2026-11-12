@@ -354,6 +354,7 @@ pub fn run() -> tauri::Result<()> {
             commands::git_commit_diff,
             commands::list_session_folder,
             commands::reveal_session_folder,
+            commands::open_local_url,
             commands::open_file_viewer,
             commands::file_viewer_content,
             commands::create_worktree,

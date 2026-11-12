@@ -7305,6 +7305,15 @@ body.session-dragging .session-actions {
   padding: 8px 14px;
 }
 
+/* An agent finished with changed files (doneNotice.ts): one line, the button at its end. */
+.link-notice.done-notice {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+}
+
 .link-notice.update-problem,
 .link-notice.paste-check {
   border-color: color-mix(in srgb, var(--warn) 60%, transparent);
@@ -7334,6 +7343,14 @@ body.session-dragging .session-actions {
 }
 
 .session-gate-off {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+}
+
+/* A dev server runs in the session (devServer.ts): a quiet globe; the actions' globe opens it. */
+.session-dev-server {
   display: inline-flex;
   flex: none;
   align-items: center;

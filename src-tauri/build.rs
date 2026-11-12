@@ -59,6 +59,7 @@ const COMMANDS: &[&str] = &[
     "git_commit_diff",
     "list_session_folder",
     "reveal_session_folder",
+    "open_local_url",
     "open_file_viewer",
     "file_viewer_content",
     "create_worktree",

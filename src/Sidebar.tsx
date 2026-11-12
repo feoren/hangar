@@ -18,6 +18,7 @@ import {
   DownloadIcon,
   EditIcon,
   FolderIcon,
+  GlobeIcon,
   HangarLogo,
   OverlapIcon,
   PlusIcon,
@@ -135,6 +136,10 @@ interface Props {
   overlaps: ReadonlyMap<number, string>;
   /** Sessions shown in a pane of a split layout: layout and zone, for the row's miniature. */
   placements: ReadonlyMap<number, PanePlacement>;
+  /** Newest local dev server address per session (devServer.ts); missing: none. */
+  devServers: ReadonlyMap<number, string>;
+  /** The globe on a row: opens that session's dev server in the browser. */
+  onOpenDevServer: (id: number) => void;
   /** UI language, for the compact durations. */
   language: string;
   /** Session whose name is being edited in the sidebar right now. */
@@ -1322,6 +1327,8 @@ function SessionItem({
   overlaps,
   filesOpen,
   onToggleFiles,
+  devServers,
+  onOpenDevServer,
   language,
 }: ItemProps) {
   const t = useT();
@@ -1335,6 +1342,9 @@ function SessionItem({
   const detail = exitDetail(session, t);
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
+  const devServer = devServers.get(session.id);
+  const openDevServer =
+    devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
     "session",
     active ? "active" : "",
@@ -1386,6 +1396,7 @@ function SessionItem({
             `${name} · ${status}`,
             overlap ?? "",
             gateOff ?? "",
+            devServer ?? "",
             detail,
             session.worktree && isTeamSession(session)
               ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
@@ -1436,6 +1447,12 @@ function SessionItem({
                   full width; the title ellipsizes first. */}
               <span className="session-title-end">
                 {session.worktree && <RepoTeammates sessionId={session.id} />}
+                {/* A quiet sign that a dev server runs; the globe in the actions opens it. */}
+                {devServer !== undefined && (
+                  <span className="session-dev-server" aria-hidden="true">
+                    <GlobeIcon size={12} />
+                  </span>
+                )}
                 {placement !== null && <LayoutGlyph placement={placement} />}
                 {chip !== null && <StatusChip kind={chip} />}
               </span>
@@ -1500,6 +1517,16 @@ function SessionItem({
         </button>
       )}
       <div className="session-actions">
+        {openDevServer !== null && !editing && (
+          <IconButton
+            label={openDevServer}
+            onClick={() => {
+              onOpenDevServer(session.id);
+            }}
+          >
+            <GlobeIcon />
+          </IconButton>
+        )}
         {active && !editing && (
           <button
             type="button"

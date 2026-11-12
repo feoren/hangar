@@ -327,6 +327,12 @@ export const api = {
   notifySession: (id: number, title: string, body: string) =>
     invoke<unknown>("notify_session", { id, title, body }),
   /**
+   * Opens a local dev server address (devServer.ts) in the default browser. The backend accepts
+   * only http(s) on a loopback host with a port and rejects anything else; until a backend has
+   * the command, the call rejects and the caller shows the address to copy instead.
+   */
+  openLocalUrl: (url: string) => invoke<null>("open_local_url", { url }),
+  /**
    * Branch per folder (at most 64, read from `.git`, no process): branch name, the short hash of
    * a detached HEAD, or `null` outside a repository. Check with `parseBranches`.
    */
