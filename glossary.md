@@ -141,6 +141,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hook-Format (Agent-Gate)                        | hook format                       | how the gate hands hooks to one program, `HookFormat`                       |
 | Hook-Helfer (Agent-Gate)                        | gate helper                       | `hangar gate-hook`, `gate_hook.rs`; an agent's command hook                 |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
+| Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`  |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel   |
 | Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                            |
 | Nicht gepusht                                   | unpushed                          | on HEAD but not on the upstream; `CommitSummary.pushed`                     |

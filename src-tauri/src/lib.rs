@@ -23,6 +23,7 @@ pub mod gate;
 pub mod gate_hook;
 pub mod gate_service;
 pub mod git;
+pub mod git_activity;
 pub mod git_history;
 pub mod hook_http;
 pub mod hook_recipes;
@@ -348,6 +349,7 @@ pub fn run() -> tauri::Result<()> {
             commands::notify_session,
             commands::git_branches,
             commands::git_diff,
+            commands::git_activity,
             commands::git_log,
             commands::git_commit_diff,
             commands::list_session_folder,

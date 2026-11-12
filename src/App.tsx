@@ -1,4 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { activityFolders } from "./activity";
+import { ActivityCalendar } from "./ActivityCalendar";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Image } from "@tauri-apps/api/image";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
@@ -3926,6 +3928,14 @@ export function App() {
               {state.sessions.length === 0 && (
                 <div className="empty">
                   <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
+                  <ActivityCalendar
+                    folders={activityFolders(
+                      folders.favorites,
+                      folders.recent,
+                      state.sessions.map((session) => session.cwd),
+                    )}
+                    language={settings.language}
+                  />
                   <p className="keys">
                     {nextProgram && (
                       <>

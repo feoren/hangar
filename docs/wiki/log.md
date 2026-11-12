@@ -549,3 +549,7 @@ administrator's system settings would be replaced, gate variables stripped by a 
 path limit, stdin deadline, fresh private session folders, `(`, `)` and `@` refused for cmd.exe.
 Pages changed: [[codex-gate-live-measurement]] (new), [[agent-gate-adapters]],
 [[agent-hooks-per-session-research]], [[0008-private-and-team-sessions]].
+## [2026-11-12] query | Activity calendar git contract
+Documented the `git_activity` command (own commits of the last year for the activity calendar in
+the empty window): argv, limits, deduplication and what is skipped. Pages changed:
+[[agent-workflow-features]].

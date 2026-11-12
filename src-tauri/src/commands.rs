@@ -21,6 +21,7 @@ use crate::file_viewer::{self, Claim, FileContent, FileViewerError, Target, View
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
+use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
@@ -1362,6 +1363,15 @@ pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
     tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
         .await
         .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// The user's own commits in the repositories of `folders`, for the activity calendar
+/// (git_activity.rs). Folders that are no repository are skipped, not reported.
+#[tauri::command]
+pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, ActivityError> {
+    tauri::async_runtime::spawn_blocking(move || git_activity::activity(&Git::locate()?, &folders))
+        .await
+        .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
 }
 
 /// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.

@@ -337,6 +337,11 @@ export const api = {
    */
   gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
   /**
+   * The user's own commits of about the last year in the repositories of these folders (at most
+   * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
+   */
+  gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
+  /**
    * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
    * 1..=100. Check with `parseGitLog` (gitHistory.ts).
    */

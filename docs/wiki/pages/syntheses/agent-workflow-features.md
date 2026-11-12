@@ -114,6 +114,17 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   --no-textconv` (repositories without commits: `git diff --cached` plus working tree), at most
   2 MiB (`truncated` then true). Untracked files appear in `files` with status `??` and no
   content.
+- `git_activity(folders: string[]) -> { commits: number[], truncated: boolean }`: author times
+  (Unix seconds) of the user's own commits for the activity calendar in the empty window. At
+  most 24 folders (more refuse the call); each folder passes the same folder check as
+  `git_diff`, then `git rev-parse --show-toplevel`; one repository counts once. Per repository
+  `git config --get user.email` (none: skipped), then `git log --branches --tags --remotes
+  --no-merges --no-show-signature --fixed-strings --regexp-ignore-case --author=<email>
+  "--since=378 days ago" --format="%H %at"`; the angle brackets keep a longer address that ends
+  with the user's from matching. Commits are deduplicated by hash across folders (worktrees,
+  clones). Limits: 10 s per git call, 20 s for all repositories, 4 MiB output per log, 50 000
+  commits; reaching one sets `truncated`. Folders that fail are skipped, not reported. The
+  window buckets the times into local days (`activity.ts`) and renders nothing without commits.
 - `create_worktree(cwd: string, label: string) -> Worktree`:
   `{ path: string, branch: string, repoRoot: string }`. Finds the repository root of `cwd`, creates
   branch `hangar/<slug>` from `HEAD` and the worktree under
