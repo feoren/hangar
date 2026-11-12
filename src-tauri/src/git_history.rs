@@ -343,8 +343,10 @@ pub fn parse_log(output: &[u8]) -> Vec<CommitSummary> {
 }
 
 /// `git log -1` with [`HEADER_FORMAT`]. The body is cut at [`MAX_BODY_BYTES`] on a character
-/// boundary; `None` if the fixed fields are missing or malformed.
-pub fn parse_header(output: &[u8]) -> Option<CommitHeader> {
+/// boundary; `None` if the fixed fields are missing or malformed. `truncated`: the output cap cut
+/// it, which a subject alone can do (git joins a first paragraph without blank lines into one
+/// line), so a missing body then means an empty one instead of a malformed header.
+pub fn parse_header(output: &[u8], truncated: bool) -> Option<CommitHeader> {
     let mut fields = output.splitn(7, |b| *b == 0);
     let sha = std::str::from_utf8(fields.next()?).ok()?;
     let short_sha = std::str::from_utf8(fields.next()?).ok()?;
@@ -352,7 +354,11 @@ pub fn parse_header(output: &[u8]) -> Option<CommitHeader> {
     let time = std::str::from_utf8(fields.next()?).ok()?;
     let author = fields.next()?;
     let subject = fields.next()?;
-    let body = fields.next()?;
+    let body = match fields.next() {
+        Some(body) => body,
+        None if truncated => &[],
+        None => return None,
+    };
     if !is_full_sha(sha) || !sha.starts_with(short_sha) || short_sha.is_empty() {
         return None;
     }
@@ -465,7 +471,7 @@ pub fn commit_diff(git: &Git, cwd: &Path, sha: &str) -> Result<GitCommitDiff, Gi
     if !header.usable() {
         return Err(header.failure());
     }
-    let commit = parse_header(&header.stdout)
+    let commit = parse_header(&header.stdout, header.truncated)
         .ok_or_else(|| GitError::Failed("git printed an unreadable commit header".to_owned()))?;
 
     let neutral = filter_overrides(git, &root, deadline)?;
@@ -602,7 +608,7 @@ mod tests {
         let output = format!(
             "{SHA_A}\x000123456\x00{SHA_B} {SHA_A}\x00-5\x00Ana\x00Merge x\x00Line one\n\nLine \x1f three\n\n"
         );
-        let header = parse_header(output.as_bytes()).unwrap();
+        let header = parse_header(output.as_bytes(), false).unwrap();
         assert_eq!(header.sha, SHA_A);
         assert_eq!(header.parents, [SHA_B, SHA_A]);
         assert_eq!(header.authored_at, -5);
@@ -611,7 +617,7 @@ mod tests {
 
         // Root commit: no parents, empty body.
         let root = format!("{SHA_A}\x000123456\x00\x001\x00Ana\x00first\x00\n");
-        let header = parse_header(root.as_bytes()).unwrap();
+        let header = parse_header(root.as_bytes(), false).unwrap();
         assert!(header.parents.is_empty());
         assert_eq!(header.body, "");
 
@@ -620,7 +626,7 @@ mod tests {
             "{SHA_A}\x000123456\x00\x001\x00a\x00s\x00{}",
             "\u{e4}".repeat(MAX_BODY_BYTES)
         );
-        let body = parse_header(long.as_bytes()).unwrap().body;
+        let body = parse_header(long.as_bytes(), false).unwrap().body;
         assert!(body.len() <= MAX_BODY_BYTES && body.len() >= MAX_BODY_BYTES - 1);
 
         for bad in [
@@ -629,8 +635,14 @@ mod tests {
             format!("{SHA_A}\x000123456\x00HEAD\x001\x00a\x00s\x00b"),
             "xyz\x00x\x00\x001\x00a\x00s\x00b".to_owned(),
         ] {
-            assert_eq!(parse_header(bad.as_bytes()), None, "{bad:?}");
+            assert_eq!(parse_header(bad.as_bytes(), false), None, "{bad:?}");
         }
+
+        // Cut by the output cap inside the subject: the body is empty, the subject capped.
+        let cut = format!("{SHA_A}\x000123456\x00\x001\x00a\x00{}", "x".repeat(5000));
+        let header = parse_header(cut.as_bytes(), true).unwrap();
+        assert_eq!(header.subject.chars().count(), MAX_SUBJECT_CHARS);
+        assert_eq!(header.body, "");
     }
 
     #[test]
@@ -859,5 +871,30 @@ mod tests {
         assert!(result.changes.diff.len() <= MAX_DIFF_BYTES);
         assert!(result.changes.diff.ends_with('\n'));
         assert_eq!(result.changes.files[0].additions, 300_000);
+    }
+
+    #[test]
+    fn subject_longer_than_the_header_cap() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-history-subject");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        // Lines without a blank one between them form one subject line of about 80 KiB.
+        let message: String = (0..8000).map(|i| format!("line {i:05}\n")).collect();
+        assert!(message.len() > MAX_HEADER_BYTES);
+        write(&repo.join("message.txt"), &message);
+        write(&repo.join("a.txt"), "a\n");
+        git_ok(&git, &repo, &["add", "a.txt"]);
+        git_ok(&git, &repo, &["commit", "-q", "-F", "message.txt"]);
+        let sha = head(&git, &repo);
+
+        let result = commit_diff(&git, &repo, &sha).unwrap();
+        assert_eq!(result.commit.sha, sha);
+        assert!(result.commit.subject.starts_with("line 00000 line 00001"));
+        assert_eq!(result.commit.subject.chars().count(), MAX_SUBJECT_CHARS);
+        assert_eq!(result.commit.body, "");
+        let listed = log(&git, &repo, 0, 10).unwrap();
+        assert_eq!(listed.commits.len(), 1);
+        assert_eq!(listed.commits[0].subject, result.commit.subject);
     }
 }
