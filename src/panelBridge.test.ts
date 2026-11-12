@@ -192,7 +192,7 @@ function context(): PanelContext {
         title: "Claude",
         running: true,
         program: "Claude Code",
-        repo: String.raw`C:workshop`,
+        repo: String.raw`C:\work\shop`,
         agent: true,
       },
       { id: 2, title: "Codex", running: false, program: "", repo: null, agent: true },
