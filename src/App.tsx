@@ -255,6 +255,7 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
+import type { ChangesView } from "./gitHistory";
 import { FilesPanel } from "./FilesPanel";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
@@ -543,6 +544,8 @@ export function App() {
   const [notesWindow, setNotesWindow] = useState<NotesWindowPrefs>(loadWindowPrefs);
   /** Changes tab of the right panel (Ctrl+Shift+D): focus on opening. */
   const [changesFocusToken, setChangesFocusToken] = useState(0);
+  /** Uncommitted changes or commits; kept for this window while the tab is closed. */
+  const [changesView, setChangesView] = useState<ChangesView>("open");
   const [filesFocusToken, setFilesFocusToken] = useState(0);
   /** Short confirmation after Ctrl+Shift+T: which program starts where. */
   const [startHint, setStartHint] = useState<string | null>(null);
@@ -4005,6 +4008,9 @@ export function App() {
                     cwd={activeSession?.cwd ?? null}
                     trigger={activeSession ? (attention.get(activeSession.id) ?? "idle") : "none"}
                     focusToken={changesFocusToken}
+                    view={changesView}
+                    onView={setChangesView}
+                    language={settings.language}
                   />
                 }
                 files={

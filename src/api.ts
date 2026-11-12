@@ -309,6 +309,17 @@ export const api = {
    */
   gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
   /**
+   * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
+   * 1..=100. Check with `parseGitLog` (gitHistory.ts).
+   */
+  gitLog: (cwd: string, skip: number, limit: number) =>
+    invoke<unknown>("git_log", { cwd, skip, limit }),
+  /**
+   * Header and changes of one commit against its first parent, shaped like `git_diff`. Pass only
+   * full ids from `git_log`. Check with `parseCommitDiff` (gitHistory.ts).
+   */
+  gitCommitDiff: (cwd: string, sha: string) => invoke<unknown>("git_commit_diff", { cwd, sha }),
+  /**
    * One folder of a session's file tree; `relative` is a `/` separated path below the session's
    * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
    * `parseFolderListing`; rejects with a text for an unknown session or a refused path.

@@ -59,6 +59,17 @@ strings: "The folder is not inside a git repository" (`git_commit_diff` outside 
 "Invalid commit id: expected 7 to 64 hexadecimal characters", "The commit was not found in this
 repository" (unknown, ambiguous, or not a commit such as a tree id), plus the existing git errors.
 
+## Frontend
+
+The "Changes" tab has a switch "Uncommitted | Commits" (`ChangesPanel.tsx`; the window keeps the
+choice in `App.tsx` state, not in the settings). `CommitHistory.tsx` reads pages of 30 commits and
+re-reads as many as are listed on "Refresh" and on every attention change of the session.
+`gitHistory.ts` validates both answers (`parseGitLog`, `parseCommitDiff`; only full ids pass),
+merges pages (`appendPage`: no duplicates, an empty page ends the paging) and groups the list into
+"not pushed" and the rest (`commitGroups`). A commit opens in place; its diff is read on the first
+open and kept while the panel is mounted, and it is shown with the same `ChangeList` as the
+uncommitted changes, so only its last file opens by itself.
+
 ## How it runs
 
 - `git_log`: `git log --no-show-signature --no-notes --no-decorate --no-color --encoding=UTF-8

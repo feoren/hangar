@@ -5893,6 +5893,158 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
+/* "Uncommitted | Commits" below the panel header; two equal halves over the panel's width. */
+.changes-views {
+  display: flex;
+  margin: 8px 10px 2px;
+  font-size: 12px;
+}
+
+.changes-views .segment {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Commit history (CommitHistory.tsx): two lines per commit, the subject first. */
+.commit-group-title {
+  margin: 0;
+  padding: 10px 14px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.commit-list {
+  margin: 0;
+  padding: 2px 6px 4px;
+  list-style: none;
+}
+
+.commit-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  text-align: left;
+  border-radius: 5px;
+}
+
+.commit-head:hover {
+  background: var(--hover);
+}
+
+.commit-head > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.commit-head[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commit-head > svg {
+    transition: none;
+  }
+}
+
+.commit-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.commit-subject {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.commit-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.commit-sha {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.commit-author {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  unicode-bidi: isolate;
+}
+
+.commit-age {
+  flex: none;
+}
+
+/* Not on the upstream yet: an arrow (shape), named in the tooltip and for screen readers. */
+.commit-unpushed {
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.commit-detail {
+  margin: 0 0 6px 18px;
+}
+
+.commit-detail .changes-summary {
+  padding: 4px 6px 2px;
+}
+
+.commit-detail .changes-hint {
+  margin: 4px 0;
+}
+
+.commit-detail .changes-files {
+  padding: 2px 0 4px;
+}
+
+.commit-body {
+  margin: 2px 6px 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.commit-body-toggle {
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.commit-note {
+  margin: 2px 6px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* File tree in the right panel (FilesPanel.tsx), as in VS Code's explorer: one 22px row per entry,
    indentation guides, the marks at the right end. Begin. */
 .file-tree {

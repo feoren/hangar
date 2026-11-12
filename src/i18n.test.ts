@@ -45,6 +45,9 @@ const SHORT_KEYS = [
   "teamWindow.tab.people",
   "teamWindow.tab.requests",
   "teamWindow.connect",
+  "changes.viewOpen",
+  "changes.viewCommits",
+  "history.more",
 ] as const;
 
 describe("dictionaries", () => {
