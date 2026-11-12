@@ -12,8 +12,8 @@ import { api } from "./api";
 import { useT, type Language, type Translate } from "./i18n";
 
 /** Cell size and gap in pixels; the same values as `.activity` in styles.css. */
-const CELL = 10;
-const GAP = 2;
+const CELL = 14;
+const GAP = 3;
 
 function dayTitle(day: ActivityDay, date: Intl.DateTimeFormat, t: Translate): string {
   const text = date.format(day.date);

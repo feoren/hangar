@@ -27,7 +27,8 @@ export type AppAction =
   | "find"
   | "launcher"
   | "searchAll"
-  | "overview";
+  | "overview"
+  | "home";
 
 type KeyInfo = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">;
 
@@ -55,6 +56,9 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   // Overview of all sessions as tiles. Ctrl+Tab already switches to the next session, and Ctrl+M
   // alone is Enter in every terminal.
   if (event.shiftKey && event.code === "KeyM") return "overview";
+  // The home view (H for home): the sessions step aside and keep running. Ctrl+H alone is
+  // Backspace in every terminal.
+  if (event.shiftKey && event.code === "KeyH") return "home";
   // By character instead of key position: on a German keyboard "+" sits elsewhere than on US.
   if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") return "fontBigger";
   if (!event.shiftKey && (event.key === "-" || event.code === "NumpadSubtract")) {
@@ -131,7 +135,8 @@ export function ignoresRepeat(action: AppAction): boolean {
     action === "find" ||
     action === "launcher" ||
     action === "searchAll" ||
-    action === "overview"
+    action === "overview" ||
+    action === "home"
   );
 }
 
@@ -159,6 +164,7 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   find: { mods: ["ctrl", "shift"], key: "F" },
   searchAll: { mods: ["ctrl", "shift"], key: "S" },
   overview: { mods: ["ctrl", "shift"], key: "M" },
+  home: { mods: ["ctrl", "shift"], key: "H" },
   launcher: { mods: ["ctrl", "shift"], key: "P" },
 };
 

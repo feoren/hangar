@@ -27,6 +27,7 @@ import {
   FolderIcon,
   GlobeIcon,
   HangarLogo,
+  HomeIcon,
   OverlapIcon,
   PlusIcon,
   RestartIcon,
@@ -51,6 +52,8 @@ import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
 import { shortBranch } from "./worktree";
+import type { WorkspaceTemplate } from "./templates";
+import { TemplatesMenu } from "./TemplatesMenu";
 import { revealInvisible } from "./invisible";
 import type { EdgeHint } from "./waitingHint";
 import { Revealed } from "./Revealed";
@@ -170,6 +173,10 @@ interface Props {
   onWidth: (width: number) => void;
   onFooterHeight: (height: number) => void;
   onToggleCollapsed: () => void;
+  /** The home view (calendar) is on screen while sessions keep running in the background. */
+  homeShown: boolean;
+  /** Shows the home view, or the sessions again (Ctrl+Shift+H). */
+  onHome: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
   /** Starts a program in the target, as the switch says (private or team session). */
@@ -197,6 +204,13 @@ interface Props {
   onMoveFavorite: (path: string, target: string, after: boolean) => void;
   /** Gives a project folder a color; `null` takes it away. */
   onFolderColor: (path: string, color: FolderColor | null) => void;
+  /** Workspace templates; their button next to the folder card shows once one exists. */
+  templates: readonly WorkspaceTemplate[];
+  onStartTemplate: (id: string) => void;
+  onRenameTemplate: (id: string) => void;
+  onDeleteTemplate: (id: string) => void;
+  /** "Save sessions as template"; `null` while no session runs. */
+  onSaveTemplate: (() => void) | null;
   /** Sessions grouped by program or by project folder. */
   grouping: SessionGrouping;
   onGrouping: (grouping: SessionGrouping) => void;
@@ -594,6 +608,7 @@ export function Sidebar(props: Props) {
           <span className="rail-logo" title={`Hangar ${appVersion}`.trim()}>
             <HangarLogo size={20} />
           </span>
+          {sessions.length > 0 && <HomeButton shown={props.homeShown} onHome={props.onHome} />}
           {/* Number of waiting sessions, also when the list scrolls; a ring, not color alone. */}
           {waitingCount > 0 && (
             <span className="rail-waiting" title={waitingText}>
@@ -916,6 +931,7 @@ export function Sidebar(props: Props) {
             <VersionText version={props.version} className="brand-version" />
           )}
         </span>
+        {sessions.length > 0 && <HomeButton shown={props.homeShown} onHome={props.onHome} />}
         <UpdatePillButton
           state={update}
           running={sessions.filter((s) => s.status !== "exited").length}
@@ -1064,6 +1080,14 @@ export function Sidebar(props: Props) {
               <CloseIcon size={12} />
             </button>
           )}
+          <TemplatesMenu
+            templates={props.templates}
+            onStart={props.onStartTemplate}
+            onRename={props.onRenameTemplate}
+            onDelete={props.onDeleteTemplate}
+            onSave={props.onSaveTemplate}
+            onAction={props.onMenuClose}
+          />
         </div>
         {folderMenu !== null && (
           <FolderMenu
@@ -1397,6 +1421,24 @@ function UpdateNotice({ state, onDismiss }: { state: UpdateState; onDismiss: () 
     default:
       return null;
   }
+}
+
+/** Home view and back; pressed while the sessions are aside. */
+function HomeButton({ shown, onHome }: { shown: boolean; onHome: () => void }) {
+  const t = useT();
+  const label = shown ? t("home.showSessions") : t("home.show");
+  return (
+    <button
+      type="button"
+      className="icon-button sidebar-home"
+      aria-pressed={shown}
+      aria-label={label}
+      title={`${label} (${formatShortcut(SHORTCUT_LABELS.home, t)})`}
+      onClick={onHome}
+    >
+      <HomeIcon size={15} />
+    </button>
+  );
 }
 
 /**

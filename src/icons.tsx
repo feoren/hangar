@@ -476,6 +476,13 @@ export function HeatIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M3.5 13V10M8 13V6.5M12.5 13V3" />
+/** Three stacked panes: a workspace template, a set of sessions started together. */
+export function TemplateIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 2.2l5.6 2.8L8 7.8 2.4 5z" />
+      <path d="M2.4 8L8 10.8 13.6 8" />
+      <path d="M2.4 11L8 13.8 13.6 11" />
     </Svg>
   );
 }
@@ -492,6 +499,12 @@ export function PauseIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M5.5 3.5v9M10.5 3.5v9" />
+/** The home view: a house. */
+export function HomeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 7.5 8 3l5.5 4.5" />
+      <path d="M4 6.5v6.5h3v-3.5h2V13h3V6.5" />
     </Svg>
   );
 }
