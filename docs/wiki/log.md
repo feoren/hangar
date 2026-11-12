@@ -471,3 +471,10 @@ Backend for a read-only file viewer: `open_file_viewer` (main window only) opens
 Frontend of the file viewer: opening from the Files tab, the lazily loaded read-only CodeMirror
 view, seven viewer themes with dark and light palettes, settings sync through the `storage` event
 and the "working" color along the path to changed files. Pages changed: [[file-viewer]].
+
+## [2026-11-12] ingest | Terminal font coverage measurement
+Measured box drawing, block element, braille and symbol coverage of candidate monospace fonts:
+Fontsource subsets of Google-hosted fonts lack U+2500..U+259F, the upstream Source Code Pro, IBM
+Plex Mono and Victor Mono files cover them, so those three are bundled from upstream. Recorded the
+0.6.0 terminal look (14 schemes with contrast floors, renamed keys, more system fonts). Pages
+changed: [[terminal-font-coverage-measurement]] (new), [[agent-workflow-features]].
