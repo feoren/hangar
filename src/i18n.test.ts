@@ -78,14 +78,23 @@ describe("dictionaries", () => {
     }
   });
 
+  // One lookup per key and one assertion at the end: a search through the German list per key
+  // grew with the square of the key count and ran past the test timeout on slower CI runners.
   it("use the same placeholders as German in every language", () => {
+    const german = new Map<string, string>(Object.entries(de));
+    const mismatches: string[] = [];
     for (const language of LANGUAGES) {
       for (const [key, text] of Object.entries(DICTIONARIES[language])) {
-        expect(placeholders(text), `${language}:${key}`).toEqual(
-          placeholders(Object.entries(de).find(([k]) => k === key)?.[1] ?? ""),
-        );
+        const expected = placeholders(german.get(key) ?? "");
+        const actual = placeholders(text);
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          mismatches.push(
+            `${language}:${key} ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`,
+          );
+        }
       }
     }
+    expect(mismatches).toEqual([]);
   });
 
   // SettingsDialog puts the version after this text as an element with a beta badge.
