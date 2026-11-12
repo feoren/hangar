@@ -501,6 +501,26 @@ h2 .beta-badge {
   background: var(--panel-raised);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
   isolation: isolate;
+  /* The row on screen must stand out from rows that breathe in their state's color: an accent ring
+     around it (an outline, so it adds to the state's edge instead of replacing it). */
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Its title in full text color and weight; the others step back a little. */
+.session .session-title {
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+}
+
+.session.active .session-title {
+  font-weight: 650;
+  color: var(--text);
+}
+
+/* The tree line's elbow into the row on screen takes the accent too, so the eye finds it from the
+   group header. */
+.session.active > .tree-guide::after {
+  border-color: var(--accent);
 }
 
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
