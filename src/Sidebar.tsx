@@ -1186,22 +1186,32 @@ function UpdateNotice({ state, onDismiss }: { state: UpdateState; onDismiss: () 
 
   switch (state.kind) {
     case "checking":
-      return state.manual ? <div className="notice">{t("update.checking")}</div> : null;
-    case "current":
+      return state.manual ? (
+        <div className="notice">
+          <span className="notice-text">{t("update.checking")}</span>
+        </div>
+      ) : null;
+    case "current": {
+      const text = t("update.current", {
+        version: displayVersion(state.version, t("version.beta")),
+      });
       return (
         <div className="notice">
-          <span>
-            {t("update.current", { version: displayVersion(state.version, t("version.beta")) })}
+          <span className="notice-text" title={text}>
+            {text}
           </span>
           <button type="button" className="link-button" onClick={onDismiss}>
             {t("common.ok")}
           </button>
         </div>
       );
+    }
     case "error":
       return (
         <div className="notice error-notice" role="alert">
-          <span>{state.message}</span>
+          <span className="notice-text" title={state.message}>
+            {state.message}
+          </span>
           <button type="button" className="link-button" onClick={onDismiss}>
             {t("common.ok")}
           </button>
