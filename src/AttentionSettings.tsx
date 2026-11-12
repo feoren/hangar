@@ -349,7 +349,7 @@ function LookCard({
               <span className="session-text">
                 <span className="session-title">{t("settings.preview")}</span>
                 <span className="session-meta">
-                  <Badge look={PREVIEW_BADGE} small />
+                  <span className="state-dot" aria-hidden="true" />
                   <span className={waits ? "session-status attention-text" : "session-status"}>
                     {t(preview.status, { agent: PREVIEW_AGENT })}
                   </span>
