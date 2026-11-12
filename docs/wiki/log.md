@@ -454,3 +454,9 @@ and for a Store install a `WindowsApps` folder. Pages changed: [[app-execution-a
 Security review: the stored entity tag goes back to the source as `If-None-Match`, so "nothing
 that identifies the user" no longer held. The contract now names the tag and why a server could
 recognize a client by it. Pages changed: [[program-updates]].
+
+## [2026-11-12] ingest | Bundled agent icons
+Simple Icons 16.37.0 data, disclaimer and license, the Primer Octicons license, three brand
+guideline pages, vendor site colors and an icon count of the agent executables on Windows. Every
+catalog agent now has a bundled tile: 10 marks from Simple Icons, 12 monograms drawn for Hangar;
+"Automatic" prefers it over the exe icon. Pages changed: [[agent-icons]] (new), [[catalog]].

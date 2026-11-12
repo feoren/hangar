@@ -21,7 +21,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Platforms
 
 ## Agent CLIs
-- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, unverified points (sources: 1, updated: 2026-11-07)
+- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, bundled icons and their precedence, unverified points (sources: 2, updated: 2026-11-12)
 - [[resume]]: resume_args per agent with evidence, behavior without a previous conversation, limits of --continue (sources: 2, updated: 2026-11-07)
 - [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages, comparison rules (sources: 2, updated: 2026-11-08)
 
@@ -49,6 +49,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[cmd-launcher-measurement]]: measurement: .cmd launcher scripts via portable-pty, node from the working folder, injection via `&`, `"`, `%` (updated: 2026-11-08)
 - [[update-sources]]: research and measurement: npm, PyPI and GitHub endpoints per agent, OpenCode packages (updated: 2026-11-07)
 - [[github-conditional-requests]]: GitHub REST docs and measurement: ETag and If-None-Match, 304 counts unauthenticated, rate limit headers and waits (updated: 2026-11-12)
+- [[agent-icons]]: Simple Icons 16.37.0 licenses per icon (CC0, Copilot MIT), brand guidelines, vendor site colors, which agent programs carry an exe icon on Windows (updated: 2026-11-12)
 - [[app-execution-alias]]: Store app execution aliases: AppExecLink reparse data after libuv, what std and Get-AuthenticodeSignature do on the empty alias file, start in ConPTY (updated: 2026-11-12)
 - [[resume-measurement]]: measurement: claude, codex, opencode, pi, aider with resume_args in an empty folder (updated: 2026-11-07)
 - [[version-number-wikipedia]]: Wikipedia: major, minor, revision and build number (updated: 2026-11-07)
