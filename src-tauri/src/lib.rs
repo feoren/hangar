@@ -40,7 +40,9 @@ pub mod proctree;
 pub mod profile;
 pub mod profile_edit;
 pub mod project_notes;
+pub mod push;
 pub mod resolve;
+pub mod resources;
 pub mod secrets;
 pub mod session;
 pub mod single_instance;
@@ -140,6 +142,11 @@ pub fn run() -> tauri::Result<()> {
             );
             team.start_enabled();
             app.manage(team);
+            // Push to the phone: off until the user sets up a provider; secrets in the keychain.
+            app.manage(push::PushService::new(
+                &config_dir,
+                std::sync::Arc::new(secrets::KeyringStore::with_service(push::KEYCHAIN_SERVICE)),
+            ));
             app.manage(ProfileLoad {
                 error: Mutex::new(error),
                 dir: config_dir,
@@ -186,6 +193,7 @@ pub fn run() -> tauri::Result<()> {
             app.manage(file_tree::FileTree::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
+            app.manage(resources::ResourceMonitor::default());
             app.manage(subagents::Watchers::default());
             // Context meter of the sessions' rows: one thread for all sessions, numbers only.
             let context = context_usage::ContextUsage::default();
@@ -347,6 +355,11 @@ pub fn run() -> tauri::Result<()> {
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,
+            commands::session_resources,
+            commands::push_settings,
+            commands::push_save,
+            commands::push_test,
+            commands::push_session,
             commands::git_branches,
             commands::git_diff,
             commands::git_activity,

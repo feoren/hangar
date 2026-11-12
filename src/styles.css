@@ -3724,6 +3724,39 @@ body.resizing-horizontal * {
   opacity: 0.55;
 }
 
+/* Push to the phone (PhonePushSettings.tsx): full-width address, a secret with its remove link,
+   the events in one row and the two buttons with their status. */
+.push-settings .push-url,
+.push-secret-row {
+  width: 100%;
+  max-width: 420px;
+}
+
+.push-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.push-secret-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.push-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
+.push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 .chime-row .range-field {
   flex: 1;
   margin-top: 0;
@@ -7983,6 +8016,15 @@ body.session-dragging .session-actions {
    places at the top of the Changes tab, and the one-time notice. Warm, not alarming: an overlap
    is a hint to coordinate, not an error. */
 .session-overlap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--warn);
+}
+
+/* A session that has used a lot of CPU or memory for a while (resources.ts): the same warm
+   color, the numbers are in the row's tooltip. */
+.session-outlier {
   display: inline-flex;
   flex: none;
   align-items: center;

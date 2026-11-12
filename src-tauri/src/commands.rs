@@ -38,6 +38,8 @@ use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
+use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
+use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
@@ -1348,6 +1350,90 @@ pub async fn notify_session(
     })
     .await
     .unwrap_or(false)
+}
+
+// Session resources (resources.rs) and push to the phone (push.rs).
+
+/// CPU and memory of every running session's process tree. The window asks every few seconds
+/// while it is visible and the setting is on; nothing samples in between, and an answer younger
+/// than a second is repeated.
+#[tauri::command]
+pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<ResourceMonitor>()
+            .sample(std::time::Instant::now(), || {
+                app.state::<SessionManager>().tree_usages()
+            })
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The keychain may take a moment or ask the user, hence on a blocking thread.
+async fn push_blocking<T: Send + 'static>(
+    app: tauri::AppHandle,
+    work: impl FnOnce(&PushService) -> Result<T, PushError> + Send + 'static,
+) -> Result<T, PushError> {
+    tauri::async_runtime::spawn_blocking(move || work(&app.state::<PushService>()))
+        .await
+        .map_err(|_| PushError::Task)?
+}
+
+/// The push settings and which secrets are stored (never their values).
+#[tauri::command]
+pub async fn push_settings(app: tauri::AppHandle) -> Result<PushView, PushError> {
+    push_blocking(app, PushService::view).await
+}
+
+/// Saves the push settings; secrets go to the keychain only.
+#[tauri::command]
+pub async fn push_save(app: tauri::AppHandle, input: PushInput) -> Result<PushView, PushError> {
+    push_blocking(app, move |push| push.save(input)).await
+}
+
+/// Sends `text` once with the saved settings; at most one test every few seconds.
+#[tauri::command]
+pub async fn push_test(app: tauri::AppHandle, text: String) -> Result<(), PushError> {
+    let (client, request) = push_blocking(app, move |push| {
+        let request = push.for_test(&text, std::time::Instant::now())?;
+        Ok((push.client()?, request))
+    })
+    .await?;
+    push::deliver(&client, request).await
+}
+
+/// A push for a session's new state; `false` when none was due (see
+/// [`PushService::for_session`]). `template` is the window's translated sentence with one
+/// `{name}`; the backend fills in the session's program and number (or its name, if allowed).
+#[tauri::command]
+pub async fn push_session(
+    app: tauri::AppHandle,
+    id: SessionId,
+    event: PushEvent,
+    template: String,
+) -> Result<bool, PushError> {
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        let sessions: Vec<(SessionId, String, String)> = manager
+            .list()
+            .into_iter()
+            .map(|info| (info.id, info.profile_id, info.title))
+            .collect();
+        let names = push::session_names(&sessions, &manager.profile_names(), id)
+            .ok_or(PushError::UnknownSession)?;
+        let push = app.state::<PushService>();
+        match push.for_session(id, event, &template, &names, std::time::Instant::now())? {
+            Some(request) => Ok::<_, PushError>(Some((push.client()?, request))),
+            None => Ok(None),
+        }
+    })
+    .await
+    .map_err(|_| PushError::Task)??;
+    let Some((client, request)) = prepared else {
+        return Ok(false);
+    };
+    push::deliver(&client, request).await?;
+    Ok(true)
 }
 
 // Git and worktrees (git.rs, worktree.rs), on a blocking thread because git may take seconds.

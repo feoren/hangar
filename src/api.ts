@@ -8,6 +8,7 @@ import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
+import type { PushEvent, PushInput } from "./phonePush";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -326,6 +327,21 @@ export const api = {
    */
   notifySession: (id: number, title: string, body: string) =>
     invoke<unknown>("notify_session", { id, title, body }),
+  /** CPU and memory of every running session's process tree (resources.ts parses it). */
+  sessionResources: () => invoke<unknown>("session_resources"),
+  /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
+  pushSettings: () => invoke<unknown>("push_settings"),
+  /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */
+  pushSave: (input: PushInput) => invoke<unknown>("push_save", { input }),
+  /** Sends `text` once with the saved settings. Rejects with an error kind. */
+  pushTest: (text: string) => invoke<null>("push_test", { text }),
+  /**
+   * A push for a session's new state; `false` when none was due (no provider, event not chosen,
+   * a push for this session less than 30 s ago, ten pushes in the last minute). `template` is the
+   * translated sentence with one `{name}`; the backend fills in program and number.
+   */
+  pushSession: (id: number, event: PushEvent, template: string) =>
+    invoke<boolean>("push_session", { id, event, template }),
   /**
    * Opens a local dev server address (devServer.ts) in the default browser. The backend accepts
    * only http(s) on a loopback host with a port and rejects anything else; until a backend has

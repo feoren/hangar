@@ -549,6 +549,30 @@
           "markdownDescription": "Enables the program_icons command without any pre-configured scope."
         },
         {
+          "description": "Enables the push_save command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-save",
+          "markdownDescription": "Enables the push_save command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the push_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-session",
+          "markdownDescription": "Enables the push_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the push_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-settings",
+          "markdownDescription": "Enables the push_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the push_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-test",
+          "markdownDescription": "Enables the push_test command without any pre-configured scope."
+        },
+        {
           "description": "Enables the read_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-read-note",
@@ -643,6 +667,12 @@
           "type": "string",
           "const": "allow-search-notes",
           "markdownDescription": "Enables the search_notes command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the session_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-resources",
+          "markdownDescription": "Enables the session_resources command without any pre-configured scope."
         },
         {
           "description": "Enables the set_panel_on_top command without any pre-configured scope.",
@@ -1167,6 +1197,30 @@
           "markdownDescription": "Denies the program_icons command without any pre-configured scope."
         },
         {
+          "description": "Denies the push_save command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-save",
+          "markdownDescription": "Denies the push_save command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the push_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-session",
+          "markdownDescription": "Denies the push_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the push_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-settings",
+          "markdownDescription": "Denies the push_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the push_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-test",
+          "markdownDescription": "Denies the push_test command without any pre-configured scope."
+        },
+        {
           "description": "Denies the read_note command without any pre-configured scope.",
           "type": "string",
           "const": "deny-read-note",
@@ -1261,6 +1315,12 @@
           "type": "string",
           "const": "deny-search-notes",
           "markdownDescription": "Denies the search_notes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-resources",
+          "markdownDescription": "Denies the session_resources command without any pre-configured scope."
         },
         {
           "description": "Denies the set_panel_on_top command without any pre-configured scope.",

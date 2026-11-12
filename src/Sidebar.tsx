@@ -27,6 +27,7 @@ import {
   FolderIcon,
   GlobeIcon,
   HangarLogo,
+  GaugeIcon,
   OverlapIcon,
   PlusIcon,
   RestartIcon,
@@ -95,6 +96,8 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
+import { resourceText } from "./resources";
+import { useSessionResources } from "./useSessionResources";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -1544,6 +1547,11 @@ function SessionItem({
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
+  // Only while the setting is on and the window visible; the tooltip names the numbers, the row
+  // shows a mark for an outlier only.
+  const resources = useSessionResources(session.id);
+  const usage = resources === undefined ? "" : resourceText(resources, language, t);
+  const outlier = resources?.outlier === true ? t("session.outlier") : null;
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
@@ -1604,6 +1612,7 @@ function SessionItem({
               : [
                   // The status line may be cut at narrow widths; the tooltip always says it in full.
                   `${name} · ${status}`,
+                  outlier ?? "",
                   overlap ?? "",
                   gateOff ?? "",
                   devServer ?? "",
@@ -1615,6 +1624,7 @@ function SessionItem({
                     : "",
                   session.cwd,
                   program,
+                  usage,
                   placement !== null ? placementText(t, placement) : "",
                   t("session.renameHint"),
                   moveHint,
@@ -1648,6 +1658,12 @@ function SessionItem({
                 <span className="session-overlap">
                   <OverlapIcon size={12} />
                   <span className="sr-only">{overlap}</span>
+                </span>
+              )}
+              {outlier !== null && (
+                <span className="session-outlier">
+                  <GaugeIcon size={12} />
+                  <span className="sr-only">{outlier}</span>
                 </span>
               )}
               {/* Rare and lasting (no endpoint, unusable data path): visible, but quiet. */}

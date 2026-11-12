@@ -375,6 +375,16 @@ export function OverlapIcon(props: IconProps) {
   );
 }
 
+/** Gauge with the needle far right: a session that uses a lot of CPU or memory. */
+export function GaugeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 11.5a5.5 5.5 0 1 1 11 0" />
+      <path d="M8 11.5l3.2-3.4" />
+    </Svg>
+  );
+}
+
 /** Gear: settings. */
 export function GearIcon(props: IconProps) {
   return (

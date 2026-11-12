@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-push-test"
+description = "Enables the push_test command without any pre-configured scope."
+commands.allow = ["push_test"]
+
+[[permission]]
+identifier = "deny-push-test"
+description = "Denies the push_test command without any pre-configured scope."
+commands.deny = ["push_test"]
