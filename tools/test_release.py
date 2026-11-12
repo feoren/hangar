@@ -363,17 +363,27 @@ class NextVersionTest(unittest.TestCase):
             self.assertEqual(release.current_version(), "0.1.0")
 
 
-def run_verify_script(path):
+def run_shell(script, env=None):
     shell = shutil.which("pwsh") or shutil.which("powershell")
-    env = dict(os.environ, HANGAR_VERIFY_PATH=str(path))
     result = subprocess.run(
-        [shell, "-NoProfile", "-NonInteractive", "-Command", release.VERIFY_SCRIPT],
+        [shell, "-NoProfile", "-NonInteractive", "-Command", script],
         env=env,
         capture_output=True,
         text=True,
         check=True,
     )
     return result.stdout.strip()
+
+
+def run_verify_script(path):
+    return run_shell(release.VERIFY_SCRIPT, dict(os.environ, HANGAR_VERIFY_PATH=str(path)))
+
+
+def shell_image():
+    """The executable of the running shell. `shutil.which` may find a Microsoft Store execution
+    alias instead (an empty reparse-point file in WindowsApps), which Get-AuthenticodeSignature
+    cannot open; the process path is the signed file inside the package."""
+    return Path(run_shell("(Get-Process -Id $PID).Path"))
 
 
 @unittest.skipUnless(sys.platform == "win32", "Get-AuthenticodeSignature exists only on Windows")
@@ -391,8 +401,11 @@ class VerifyScriptTest(unittest.TestCase):
         self.assertIn("NotSigned", problem)
 
     def test_signed_file_with_timestamp(self):
-        # pwsh.exe and powershell.exe carry an embedded, timestamped Microsoft signature.
-        shell = Path(shutil.which("pwsh") or shutil.which("powershell"))
+        # pwsh.exe and powershell.exe carry a timestamped Microsoft signature (embedded, or through
+        # the system catalog for Windows PowerShell).
+        shell = shell_image()
+        self.assertTrue(shell.is_file(), shell)
+        self.assertGreater(shell.stat().st_size, 0, shell)
         self.assertIsNone(release.signature_problem(run_verify_script(shell)))
 
 
