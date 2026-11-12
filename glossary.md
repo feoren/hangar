@@ -206,3 +206,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Vorschau (Dateiansicht)                         | preview                           | Markdown rendered or image drawn in the file viewer; `ViewerMode`                    |
 | Vergleich mit dem letzten Commit                | compare with the last commit      | the file's diff against `HEAD` in the file viewer; `file_viewer_diff`                |
 | Live-Aktualisierung                             | live refresh                      | the file viewer reads its file again when it changed; `pollStamps`                   |
+| Aktivitätskarte                                 | activity map                      | Files tab; rows tinted in heat levels 1 to 4 (`heatLevel`); `fileActivity.ts`        |
+| Änderungsereignis                               | change event                      | a file newly held, or held with other lines; `ActivityEvent`                         |
+| Ereignisprotokoll (Aktivitätskarte)             | event log                         | the activity map's capped change events per project; `EventLog`, `activityStore.ts`  |
+| Projekt (Aktivitätskarte)                       | activity project                  | a repository's main folder with its Hangar worktrees; `projectKeyOf`                 |
+| Zeitraum (Aktivitätskarte)                      | time window                       | last hour, today, 7 days; `HeatWindow`                                               |
+| Abspielen (Aktivitätskarte)                     | replay                            | the time window in `PLAY_STEPS` steps, play and pause                                |
+| Halter (einer Datei)                            | file holder                       | a teammate session or a worktree of this device changing a file                      |

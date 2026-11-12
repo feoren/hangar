@@ -69,6 +69,11 @@
   --activity-2: color-mix(in srgb, var(--accent) 52%, var(--bg));
   --activity-3: color-mix(in srgb, var(--accent) 76%, var(--bg));
   --activity-4: var(--accent);
+  /* Activity map of the Files tab: four quiet tints of the accent behind a row's text. */
+  --heat-1: color-mix(in srgb, var(--accent) 8%, transparent);
+  --heat-2: color-mix(in srgb, var(--accent) 15%, transparent);
+  --heat-3: color-mix(in srgb, var(--accent) 24%, transparent);
+  --heat-4: color-mix(in srgb, var(--accent) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 272px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
@@ -6731,6 +6736,109 @@ body.resizing-horizontal * {
   border: 1.5px solid var(--warn);
 }
 
+/* A collapsed folder: how many others work inside, in the avatars' look. */
+.tree-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--avatar-fg);
+  background: var(--avatar-bg);
+}
+
+/* Activity map: the row's tint by how often agents changed it; hover and selection stay on top. */
+.file-tree.heat .tree-item {
+  transition: background-color 240ms var(--ease-out);
+}
+
+.file-tree.heat .tree-item.heat-1 {
+  background-color: var(--heat-1);
+}
+
+.file-tree.heat .tree-item.heat-2 {
+  background-color: var(--heat-2);
+}
+
+.file-tree.heat .tree-item.heat-3 {
+  background-color: var(--heat-3);
+}
+
+.file-tree.heat .tree-item.heat-4 {
+  background-color: var(--heat-4);
+}
+
+.file-tree.heat .tree-item:hover {
+  background-color: var(--hover);
+}
+
+.file-tree.heat .tree-item.selected {
+  background-color: var(--active-tint-strong);
+}
+
+.heat-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 6px 8px 2px;
+  font-size: 12px;
+}
+
+.heat-windows {
+  display: flex;
+  flex: 1 1 100%;
+}
+
+.heat-windows .segment {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.heat-replay {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 6px;
+}
+
+.heat-slider {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.heat-time {
+  min-width: 44px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.heat-empty {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tree.heat .tree-item {
+    transition: none;
+  }
+}
+
 .tree-hint {
   height: 22px;
   padding-right: 8px;
@@ -8824,6 +8932,11 @@ body.session-dragging .session-actions {
   font-size: 7.5px;
   letter-spacing: 0;
   box-shadow: 0 0 0 1.5px var(--panel);
+}
+
+/* One of the user's own sessions beside the people: a rounded square, never a circle. */
+.avatar.session {
+  border-radius: 4px;
 }
 
 /* Sidebar footer: account, team pill and Settings in one row. Pinned to the bottom: with every

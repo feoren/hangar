@@ -144,6 +144,10 @@ export interface PanelSession {
   title: string;
   /** Exited sessions keep their name but take no text. */
   running: boolean;
+  /** Its program's name, for the Files tab's avatars; empty when unknown. */
+  program: string;
+  /** The repository its Hangar worktree was made from, else `null` (`LocalSession.repo`). */
+  repo: string | null;
 }
 
 /** What the tabs of the detached panel show; the main window computes it. */
@@ -207,8 +211,11 @@ function parseSessions(value: unknown): PanelSession[] | null {
     const id = field(entry, "id");
     const title = field(entry, "title");
     const running = field(entry, "running");
+    const program = field(entry, "program");
+    const repo = field(entry, "repo");
     if (!isId(id) || typeof title !== "string" || typeof running !== "boolean") return null;
-    sessions.push({ id, title, running });
+    if (typeof program !== "string" || (repo !== null && typeof repo !== "string")) return null;
+    sessions.push({ id, title, running, program, repo });
   }
   return sessions;
 }

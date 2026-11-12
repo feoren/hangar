@@ -470,3 +470,28 @@ export function FilesIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** The Files tab's activity map: three bars of growing strength, as a heat scale. */
+export function HeatIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 13V10M8 13V6.5M12.5 13V3" />
+    </Svg>
+  );
+}
+
+export function PlayIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 3.2v9.6L12.6 8z" fill="currentColor" />
+    </Svg>
+  );
+}
+
+export function PauseIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5.5 3.5v9M10.5 3.5v9" />
+    </Svg>
+  );
+}

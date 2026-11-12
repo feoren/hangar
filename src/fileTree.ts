@@ -113,6 +113,15 @@ export interface TeamEditor {
   /** Another device of the signed-in person. */
   own: boolean;
   agent: string;
+  /** Since when this device first saw them on the file (ms), `null` when unknown. */
+  since: number | null;
+}
+
+/** One of this device's other sessions changing a file, in another worktree of the repository. */
+export interface SessionEditor {
+  session: number;
+  /** Since when the change is held (ms), `null` when unknown (seen only as a collision). */
+  since: number | null;
 }
 
 export interface FileMark {
@@ -120,15 +129,19 @@ export interface FileMark {
   editors: TeamEditor[];
   /** How the folder's worktree changed the file (the session's own claims), `null` if unchanged. */
   change: ChangeKind | null;
-  /** This device's other sessions (other worktrees) that change the file too, by ID. */
-  alsoIn: number[];
+  /** This device's other sessions (other worktrees) that change the file too. */
+  alsoIn: SessionEditor[];
 }
 
 export interface FolderMark {
-  /** A teammate edits something inside. */
+  /** A teammate or another session of this device changes something inside. */
   team: boolean;
   /** Something inside is changed in this worktree. */
   change: boolean;
+  /** Who changes something inside: teammates, each person and agent once ... */
+  editors: TeamEditor[];
+  /** ... and this device's other sessions, by ID. */
+  sessions: number[];
 }
 
 export interface TreeMarks {
@@ -137,6 +150,18 @@ export interface TreeMarks {
 }
 
 export const NO_MARKS: TreeMarks = { files: new Map(), folders: new Map() };
+
+/** Whose hold on a file `MarkInput.sinceOf` is asked about. */
+export type HolderRef =
+  | { kind: "team"; member: string; device: string; session: string }
+  | { kind: "worktree"; root: string };
+
+/** Another worktree of the same repository with sessions of this device in it. */
+export interface OtherWorktree {
+  root: string;
+  sessions: readonly number[];
+  claims: readonly Claim[];
+}
 
 export interface MarkInput {
   /** `FolderListing.root` and `.repoRoot` of the tree. */
@@ -148,6 +173,10 @@ export interface MarkInput {
   changes: readonly { root: string | null; claims: readonly Claim[] }[];
   /** Files of the session that other sessions of this device change too (repository relative). */
   overlaps: readonly { path: string; session: number }[];
+  /** Other worktrees of the repository and their sessions (`otherWorktrees`, fileActivity.ts). */
+  others?: readonly OtherWorktree[];
+  /** Since when a holder holds a repository relative path (fileActivity.ts), `null` if unknown. */
+  sinceOf?: (holder: HolderRef, path: string) => number | null;
 }
 
 /** Worse changes win when two sessions report the same file differently. */
@@ -163,16 +192,36 @@ function sameEditor(a: TeamEditor, b: TeamEditor): boolean {
   return a.member === b.member && a.device === b.device && a.agent === b.agent;
 }
 
+/** The earlier of two times; an unknown time gives way to a known one. */
+function earlier(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.min(a, b);
+}
+
+function addEditor(list: TeamEditor[], editor: TeamEditor): void {
+  const known = list.find((other) => sameEditor(other, editor));
+  if (known === undefined) list.push({ ...editor });
+  else known.since = earlier(known.since, editor.since);
+}
+
+function addSession(list: SessionEditor[], editor: SessionEditor): void {
+  const known = list.find((other) => other.session === editor.session);
+  if (known === undefined) list.push({ ...editor });
+  else known.since = earlier(known.since, editor.since);
+}
+
 /**
- * Every marking of the tree: teammates' files, the worktree's changes and collisions with this
- * device's other sessions, keyed by `treeKey`, plus the folders that contain them. Outside a
- * repository, or with a root outside it, nothing is marked.
+ * Every marking of the tree: teammates' files, the worktree's changes and the files this device's
+ * other sessions change (other worktrees, collisions), keyed by `treeKey`, plus the folders that
+ * contain them. Outside a repository, or with a root outside it, nothing is marked.
  */
 export function buildMarks(input: MarkInput): TreeMarks {
   const offset = rootOffset(input.root, input.repoRoot);
   if (offset === null || input.root === null || input.repoRoot === null) return NO_MARKS;
   const windows = folderKeyOf(input.root).windows;
   const repo = folderKeyOf(input.repoRoot).key;
+  const sinceOf = input.sinceOf ?? (() => null);
   const files = new Map<string, FileMark>();
   const folders = new Map<string, FolderMark>();
   const mark = (path: string): FileMark | null => {
@@ -185,29 +234,43 @@ export function buildMarks(input: MarkInput): TreeMarks {
     }
     return entry;
   };
-  const markFolders = (path: string, team: boolean) => {
+  const folderMarks = (path: string): FolderMark[] => {
     const key = repoToTreeKey(path, offset, windows);
-    if (key === null) return;
-    for (const folder of ancestors(key)) {
-      const entry = folders.get(folder) ?? { team: false, change: false };
-      folders.set(folder, team ? { ...entry, team: true } : { ...entry, change: true });
-    }
+    if (key === null) return [];
+    return ancestors(key).map((folder) => {
+      let entry = folders.get(folder);
+      if (entry === undefined) {
+        entry = { team: false, change: false, editors: [], sessions: [] };
+        folders.set(folder, entry);
+      }
+      return entry;
+    });
   };
 
   for (const peer of input.peers) {
     for (const session of peer.sessions) {
-      const editor: TeamEditor = {
+      const holder: HolderRef = {
+        kind: "team",
         member: peer.member,
         device: peer.device,
-        name: peer.name,
-        own: peer.own,
-        agent: session.agent,
+        session: session.key,
       };
       for (const path of session.files) {
         const entry = mark(path);
         if (entry === null) continue;
-        if (!entry.editors.some((known) => sameEditor(known, editor))) entry.editors.push(editor);
-        markFolders(path, true);
+        const editor: TeamEditor = {
+          member: peer.member,
+          device: peer.device,
+          name: peer.name,
+          own: peer.own,
+          agent: session.agent,
+          since: sinceOf(holder, path),
+        };
+        addEditor(entry.editors, editor);
+        for (const folder of folderMarks(path)) {
+          folder.team = true;
+          addEditor(folder.editors, editor);
+        }
       }
     }
   }
@@ -223,17 +286,44 @@ export function buildMarks(input: MarkInput): TreeMarks {
           entry.change = claim.kind;
         }
       }
-      markFolders(claim.path, false);
+      for (const folder of folderMarks(claim.path)) folder.change = true;
+    }
+  }
+
+  for (const worktree of input.others ?? []) {
+    // The tree's own worktree is the change coloring above, not someone else.
+    if (folderKeyOf(worktree.root).key === repo) continue;
+    const holder: HolderRef = { kind: "worktree", root: worktree.root };
+    for (const claim of worktree.claims) {
+      const since = sinceOf(holder, claim.path);
+      // A deleted file has no row; its folders still show who works there.
+      const entry = claim.kind === "deleted" ? null : mark(claim.path);
+      const inside = folderMarks(claim.path);
+      for (const session of worktree.sessions) {
+        if (entry !== null) addSession(entry.alsoIn, { session, since });
+        for (const folder of inside) {
+          folder.team = true;
+          if (!folder.sessions.includes(session)) folder.sessions.push(session);
+        }
+      }
     }
   }
 
   for (const overlap of input.overlaps) {
     const entry = mark(overlap.path);
     if (entry === null) continue;
-    if (!entry.alsoIn.includes(overlap.session)) entry.alsoIn.push(overlap.session);
+    addSession(entry.alsoIn, { session: overlap.session, since: null });
   }
 
   return { files, folders };
+}
+
+/**
+ * How many others work inside a folder, for the count on a collapsed folder: each person once (as
+ * `avatarStack` counts them) and each of this device's other sessions.
+ */
+export function folderPeople(mark: FolderMark): number {
+  return avatarStack(mark.editors, 0).more + mark.sessions.length;
 }
 
 /**

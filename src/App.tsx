@@ -283,6 +283,8 @@ import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
 import { SessionSearchDialog } from "./SessionSearchDialog";
 import type { LineMatch } from "./sessionSearch";
+import { useActivityRecorder } from "./activityStore";
+import { localSessionsOf } from "./fileActivity";
 import { FilesPanel, type MentionDrag } from "./FilesPanel";
 import { takesMention } from "./fileTree";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
@@ -987,6 +989,13 @@ export function App() {
   // Shared projects (team service step F part 2b): the teammates' sessions that collide with
   // ours join the same marker, Changes block and one-time notice as the user's own sessions.
   const teamStore = useTeam();
+  /** This device's sessions for the Files tab: names, programs and repositories. */
+  const localSessions = useMemo(
+    () => localSessionsOf(state.sessions, profiles),
+    [state.sessions, profiles],
+  );
+  // The Files tab's activity map hears every claims and team update here, in the main window.
+  useActivityRecorder(claims, teamStore.activities, localSessions);
   const teammatesById = useMemo(
     () => teammateOverlapsBySession(teamStore.activities),
     [teamStore.activities],
@@ -2578,12 +2587,14 @@ export function App() {
   const panelTrigger = activeSession ? (attention.get(activeSession.id) ?? "idle") : "none";
   const panelSessions = useMemo(
     () =>
-      state.sessions.map((session) => ({
+      state.sessions.map((session, index) => ({
         id: session.id,
         title: session.title,
         running: session.status !== "exited",
+        program: localSessions[index]?.program ?? "",
+        repo: localSessions[index]?.repo ?? null,
       })),
-    [state.sessions],
+    [state.sessions, localSessions],
   );
   /** The last payload sent, as JSON: an unchanged context is not sent again. */
   const panelSent = useRef("");
@@ -4357,6 +4368,7 @@ export function App() {
                     }
                     claims={claims}
                     activities={teamStore.activities}
+                    sessions={localSessions}
                     nameOf={sessionName}
                     focusToken={filesFocusToken}
                     onMention={(text) => {

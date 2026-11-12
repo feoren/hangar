@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Im Tab Dateien zeigen kleine Avatare, welche Dateien dein Team oder deine anderen Sessions gerade ändern, mit Programm und seit wann.",
+        "en": "In the Files tab, small avatars show which files your teammates or your other sessions are changing right now, with the program and since when.",
+        "el": "Στην καρτέλα Αρχεία, μικρά avatar δείχνουν ποια αρχεία αλλάζει τώρα η ομάδα σου ή οι άλλες σου συνεδρίες, με το πρόγραμμα και από πότε.",
+        "es": "En la pestaña Archivos, pequeños avatares muestran qué archivos cambian ahora tu equipo o tus otras sesiones, con el programa y desde cuándo.",
+        "fr": "Dans l’onglet Fichiers, de petits avatars montrent les fichiers que ton équipe ou tes autres sessions modifient, avec le programme et depuis quand.",
+        "it": "Nella scheda File, piccoli avatar mostrano quali file stanno cambiando il tuo team o le tue altre sessioni, con il programma e da quando.",
+        "ja": "ファイルタブで、チームのメンバーやほかのセッションがいま変更しているファイルに小さなアバターが付きます。プログラム名と開始時刻も表示されます。",
+        "pl": "W karcie Pliki małe awatary pokazują, które pliki zmienia teraz twój zespół lub twoje inne sesje, wraz z programem i od kiedy.",
+        "pt": "Na aba Arquivos, pequenos avatares mostram quais arquivos sua equipe ou suas outras sessões estão alterando agora, com o programa e desde quando.",
+        "ru": "Во вкладке «Файлы» маленькие аватары показывают, какие файлы сейчас меняют твоя команда или другие твои сессии, с программой и временем начала.",
+        "tr": "Dosyalar sekmesinde küçük avatarlar, ekibinin veya diğer oturumlarının şu an hangi dosyaları değiştirdiğini program ve başlangıç saatiyle gösterir.",
+        "zh": "在“文件”标签中，小头像会标出团队成员或你的其他会话正在更改的文件，并显示所用程序和开始时间。"
+      },
+      {
+        "de": "Die Aktivitätskarte im Tab Dateien färbt Dateien und Ordner danach, wie oft Agenten sie geändert haben, für Stunde, heute oder 7 Tage, auch zum Abspielen.",
+        "en": "The activity map in the Files tab tints files and folders by how often agents changed them in the last hour, today or 7 days, and can replay that time.",
+        "el": "Ο χάρτης δραστηριότητας στα Αρχεία χρωματίζει αρχεία και φακέλους ανάλογα με τις αλλαγές των πρακτόρων σε ώρα, σήμερα ή 7 ημέρες, με αναπαραγωγή.",
+        "es": "El mapa de actividad en Archivos tiñe archivos y carpetas según cuánto los cambiaron los agentes en la última hora, hoy o 7 días, y puede reproducirlo.",
+        "fr": "La carte d’activité de l’onglet Fichiers colore fichiers et dossiers selon les modifications des agents sur une heure, aujourd’hui ou 7 jours, rejouables.",
+        "it": "La mappa delle attività nella scheda File colora file e cartelle in base a quanto gli agenti li hanno cambiati in un’ora, oggi o 7 giorni, con riproduzione.",
+        "ja": "ファイルタブのアクティビティマップは、直近 1 時間、今日、7 日間にエージェントが変更した回数でファイルとフォルダーを色分けし、時間に沿って再生できます。",
+        "pl": "Mapa aktywności w karcie Pliki barwi pliki i foldery według tego, jak często agenci je zmieniali w ostatniej godzinie, dziś lub w 7 dni, z odtwarzaniem.",
+        "pt": "O mapa de atividade na aba Arquivos colore arquivos e pastas conforme os agentes os alteraram na última hora, hoje ou em 7 dias, e reproduz esse período.",
+        "ru": "Карта активности во вкладке «Файлы» подсвечивает файлы и папки по числу изменений агентов за час, сегодня или 7 дней и умеет воспроизводить этот период.",
+        "tr": "Dosyalar sekmesindeki etkinlik haritası, dosya ve klasörleri ajanların son bir saatte, bugün veya 7 günde ne sıklıkla değiştirdiğine göre renklendirir.",
+        "zh": "“文件”标签中的活动地图按智能体在最近 1 小时、今天或 7 天内的更改次数为文件和文件夹着色，并可按时间回放。"
+      },
+      {
         "de": "Im Tab Dateien öffnet ein Doppelklick oder Enter eine Datei in einem eigenen Fenster zum Lesen, mit Zeilennummern, Einklappen und Suche.",
         "en": "In the Files tab, a double click or Enter opens a file in its own read-only window, with line numbers, folding and search.",
         "el": "Στην καρτέλα Αρχεία, διπλό κλικ ή Enter ανοίγει ένα αρχείο σε δικό του παράθυρο μόνο για ανάγνωση, με αριθμούς γραμμών, σύμπτυξη και αναζήτηση.",
