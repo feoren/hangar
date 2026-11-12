@@ -471,6 +471,289 @@ fn copilot_hook_runs_the_helper_as_a_program() {
 }
 
 #[test]
+fn droid_hook_command_round_trips_through_the_shell() {
+    let fixture = fixture("gate-hook-droid");
+    let launch = launched(fixture.service.prepare(
+        1,
+        &catalog_agent("droid"),
+        Path::new("droid.exe"),
+        &[],
+    ));
+    assert_eq!(launch.prepend[0], "--settings");
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&launch.prepend[1]).unwrap()).unwrap();
+    let command_line = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let gate = gate_env(&launch);
+    let input = serde_json::json!({
+        "session_id": "d", "transcript_path": "t", "cwd": fixture.root,
+        "permission_mode": "default", "hook_event_name": "PreToolUse",
+        "tool_name": "Edit", "tool_input": { "file_path": "src/shared.rs" },
+    })
+    .to_string();
+    let answering =
+        std::thread::spawn(move || run(through_shell(&command_line, false), &gate, &input));
+    answer_next(&fixture, Answer::Deny).join().unwrap();
+    let output = answering.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["hookSpecificOutput"]["permissionDecision"], "deny");
+}
+
+/// Loads a gate extension or plugin the way the agent does (an ES module whose handler gets the
+/// tool call) and prints what it returned; the agent itself is not needed.
+const PLUGIN_DRIVER: &str = r#"
+import { pathToFileURL } from "node:url";
+const [kind, file, toolName, argsJson, cwd] = process.argv.slice(2);
+const mod = await import(pathToFileURL(file).href);
+const args = JSON.parse(argsJson);
+if (kind === "pi") {
+  let handler;
+  mod.default({ on: (name, h) => { if (name === "tool_call") handler = h; } });
+  const result = await handler({ toolName, input: args }, { cwd, hasUI: false });
+  console.log(JSON.stringify({ result: result ?? null }));
+} else {
+  const hooks = await mod.HangarGate({ directory: cwd });
+  try {
+    await hooks["tool.execute.before"]({ tool: toolName }, { args });
+    console.log(JSON.stringify({ result: null }));
+  } catch (error) {
+    console.log(JSON.stringify({ thrown: String(error.message) }));
+  }
+}
+"#;
+
+/// Whether Node can run the plugin tests. A machine without Node skips them; CI installs Node in
+/// the same job, so there a missing Node fails instead of passing unnoticed.
+fn node_available() -> bool {
+    let found = Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    assert!(
+        found || std::env::var_os("CI").is_none(),
+        "node not found, but CI must run the plugin tests"
+    );
+    found
+}
+
+/// Runs the plugin text `source` under Node as an ES module with one tool call.
+fn run_plugin(
+    dir: &TempDir,
+    kind: &str,
+    source: &Path,
+    tool: &str,
+    args: serde_json::Value,
+    cwd: &Path,
+    gate: &str,
+) -> Output {
+    let module = dir.0.join(format!("{kind}-gate.mjs"));
+    std::fs::copy(source, &module).unwrap();
+    let driver = dir.0.join("driver.mjs");
+    std::fs::write(&driver, PLUGIN_DRIVER).unwrap();
+    let mut command = Command::new("node");
+    command
+        .arg(&driver)
+        .arg(kind)
+        .arg(&module)
+        .arg(tool)
+        .arg(args.to_string())
+        .arg(cwd);
+    run(command, gate, "")
+}
+
+fn plugin_answer(output: &Output) -> serde_json::Value {
+    assert!(output.status.success(), "{output:?}");
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|e| panic!("{e}: {output:?}"))
+}
+
+#[test]
+fn pi_extension_asks_the_endpoint_and_blocks_on_a_deny() {
+    if !node_available() {
+        eprintln!("node not found; the Pi extension test is skipped");
+        return;
+    }
+    let fixture = fixture("gate-plugin-pi");
+    let dir = TempDir::new("gate-plugin-pi-run");
+    let launch = launched(fixture.service.prepare(
+        1,
+        &catalog_agent("pi"),
+        Path::new("pi.exe"),
+        &[],
+    ));
+    let file = PathBuf::from(&launch.prepend[1]);
+    let gate = gate_env(&launch);
+    // A file nobody else changes, named relative to the session's folder: no decision.
+    let answer = plugin_answer(&run_plugin(
+        &dir,
+        "pi",
+        &file,
+        "write",
+        serde_json::json!({ "path": "src/own.rs", "content": "x" }),
+        &fixture.root,
+        &gate,
+    ));
+    assert_eq!(answer["result"], serde_json::Value::Null);
+    // A read is never asked about.
+    let answer = plugin_answer(&run_plugin(
+        &dir,
+        "pi",
+        &file,
+        "read",
+        serde_json::json!({ "path": "src/shared.rs" }),
+        &fixture.root,
+        &gate,
+    ));
+    assert_eq!(answer["result"], serde_json::Value::Null);
+    // A patch in Pi's `write` content names no file, and `__proto__` is no tool.
+    for (tool, args) in [
+        (
+            "write",
+            serde_json::json!({ "path": "src/own.rs",
+                                "content": "*** Begin Patch\n*** Add File: src/shared.rs\n" }),
+        ),
+        ("__proto__", serde_json::json!({ "path": "src/shared.rs" })),
+    ] {
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            "pi",
+            &file,
+            tool,
+            args,
+            &fixture.root,
+            &gate,
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{tool}");
+    }
+    // The other session's file, named the way Pi's tools accept it (a leading "@"), waits for
+    // the person, who denies.
+    let answering = {
+        let (file, root, gate) = (file.clone(), fixture.root.clone(), gate.clone());
+        let dir = TempDir::new("gate-plugin-pi-held");
+        std::thread::spawn(move || {
+            run_plugin(
+                &dir,
+                "pi",
+                &file,
+                "edit",
+                serde_json::json!({ "path": "@src/shared.rs", "edits": [] }),
+                &root,
+                &gate,
+            )
+        })
+    };
+    answer_next(&fixture, Answer::Deny).join().unwrap();
+    let answer = plugin_answer(&answering.join().unwrap());
+    assert_eq!(answer["result"]["block"], true);
+    let reason = answer["result"]["reason"].as_str().unwrap();
+    assert!(reason.contains("src/shared.rs"), "{reason}");
+    // Once the session ended, its token is dead and the edit goes ahead (fail open).
+    fixture.service.ended(1);
+    let answer = plugin_answer(&run_plugin(
+        &dir,
+        "pi",
+        &file_copy_after_end(&dir, "pi"),
+        "edit",
+        serde_json::json!({ "path": "src/shared.rs", "edits": [] }),
+        &fixture.root,
+        &gate,
+    ));
+    assert_eq!(answer["result"], serde_json::Value::Null);
+}
+
+/// The module copied into the test folder before the session's own folder went away.
+fn file_copy_after_end(dir: &TempDir, kind: &str) -> PathBuf {
+    let kept = dir.0.join(format!("{kind}-kept.mjs"));
+    std::fs::copy(dir.0.join(format!("{kind}-gate.mjs")), &kept).unwrap();
+    kept
+}
+
+#[test]
+fn opencode_plugin_asks_the_endpoint_and_throws_on_a_deny() {
+    if !node_available() {
+        eprintln!("node not found; the OpenCode plugin test is skipped");
+        return;
+    }
+    let fixture = fixture("gate-plugin-opencode");
+    let dir = TempDir::new("gate-plugin-opencode-run");
+    let launch = launched(fixture.service.prepare(
+        1,
+        &catalog_agent("opencode"),
+        Path::new("opencode.exe"),
+        &[],
+    ));
+    let config: serde_json::Value = launch
+        .env
+        .iter()
+        .find(|(name, _)| name == hook_recipes::OPENCODE_CONFIG_CONTENT_ENV)
+        .map(|(_, value)| serde_json::from_str(value.as_str()).unwrap())
+        .unwrap();
+    let file = url::Url::parse(config["plugin"][0].as_str().unwrap())
+        .unwrap()
+        .to_file_path()
+        .unwrap();
+    let gate = gate_env(&launch);
+    // Each of these goes ahead at once; one that were asked about would wait for the person and
+    // run into the run limit.
+    let patch_in_content = "*** Begin Patch\n*** Add File: src/shared.rs\n*** End Patch\n";
+    for (tool, args) in [
+        (
+            "write",
+            serde_json::json!({ "filePath": fixture.root.join("src").join("own.rs"), "content": "x" }),
+        ),
+        // File content that looks like a patch names no file.
+        (
+            "write",
+            serde_json::json!({ "filePath": fixture.root.join("src").join("own.rs"),
+                                "content": patch_in_content }),
+        ),
+        // OpenCode takes a path as given: "@src/shared.rs" is another file than src/shared.rs.
+        (
+            "edit",
+            serde_json::json!({ "filePath": "@src/shared.rs", "oldString": "a", "newString": "b" }),
+        ),
+        // Only the plugin's own tool table counts, not what an object inherits.
+        (
+            "constructor",
+            serde_json::json!({ "filePath": fixture.root.join("src").join("shared.rs") }),
+        ),
+    ] {
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            "opencode",
+            &file,
+            tool,
+            args.clone(),
+            &fixture.root,
+            &gate,
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{tool} {args}");
+    }
+    let answering = {
+        let (file, root, gate) = (file.clone(), fixture.root.clone(), gate.clone());
+        let dir = TempDir::new("gate-plugin-opencode-held");
+        std::thread::spawn(move || {
+            run_plugin(
+                &dir,
+                "opencode",
+                &file,
+                "edit",
+                serde_json::json!({ "filePath": root.join("src").join("shared.rs"),
+                                    "oldString": "a", "newString": "b" }),
+                &root,
+                &gate,
+            )
+        })
+    };
+    answer_next(&fixture, Answer::Deny).join().unwrap();
+    let answer = plugin_answer(&answering.join().unwrap());
+    let thrown = answer["thrown"].as_str().unwrap();
+    assert!(thrown.contains("src/shared.rs"), "{thrown}");
+}
+
+#[test]
 fn a_binary_without_the_helper_marker_is_refused_without_spawning() {
     let dir = TempDir::new("gate-hook-marker");
     let stale = dir.0.join("stale.bin");
