@@ -498,13 +498,10 @@ h2 .beta-badge {
   box-shadow: inset 0 0 0 100vmax var(--row-hover-shade);
 }
 
-/* The session on screen: a black frame around the row, its inside left to the state's look like
-   every other row, so the attention colors keep speaking. The state's colored edge on the left
-   stays. */
+/* The session on screen: a black frame all around the row, the left edge included; its inside
+   keeps the state's look like every other row, so the attention colors keep speaking. */
 .session.active {
-  border-top-color: var(--active-frame);
-  border-right-color: var(--active-frame);
-  border-bottom-color: var(--active-frame);
+  border-color: var(--active-frame);
 }
 
 /* Its title in full text color and weight; the others step back a little. */
