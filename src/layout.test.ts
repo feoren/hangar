@@ -9,6 +9,7 @@ import {
   DEFAULT_LAYOUT,
   FOOTER_HEIGHT,
   isGroupOpen,
+  openGroup,
   NOTES_WIDTH,
   OVERLAY_BELOW,
   OVERLAY_GAP,
@@ -160,16 +161,15 @@ describe("parseLayout", () => {
 
 describe("sidebar groups", () => {
   it("are all open initially", () => {
-    expect(isGroupOpen(DEFAULT_LAYOUT, "sessions")).toBe(true);
     expect(isGroupOpen(DEFAULT_LAYOUT, "newSession")).toBe(true);
+    expect(DEFAULT_LAYOUT.closedAgentGroups).toEqual([]);
   });
 
-  it("expand and collapse in a fixed order", () => {
+  it("expand and collapse", () => {
     const one = toggleGroup(DEFAULT_LAYOUT, "newSession");
     expect(isGroupOpen(one, "newSession")).toBe(false);
-    const both = toggleGroup(one, "sessions");
-    expect(both.closedGroups).toEqual(["sessions", "newSession"]);
-    expect(toggleGroup(both, "newSession").closedGroups).toEqual(["sessions"]);
+    expect(one.closedGroups).toEqual(["newSession"]);
+    expect(toggleGroup(one, "newSession").closedGroups).toEqual([]);
   });
 
   it("are read robustly: unknown and duplicate entries are dropped", () => {
@@ -177,62 +177,79 @@ describe("sidebar groups", () => {
       parseLayout(JSON.stringify({ closedGroups })).closedGroups;
     expect(read(["newSession", "memos", "newSession", 3])).toEqual(["newSession"]);
     // The notes group of 0.2 is gone: the right panel is the one place for notes.
-    expect(read(["newSession", "notes", "sessions"])).toEqual(["sessions", "newSession"]);
+    expect(read(["newSession", "notes"])).toEqual(["newSession"]);
     // The team group of 0.3 moved into the Team window.
-    expect(read(["team", "sessions"])).toEqual(["sessions"]);
-    expect(read("sessions")).toEqual([]);
+    expect(read(["team", "newSession"])).toEqual(["newSession"]);
+    expect(read("newSession")).toEqual([]);
     expect(read(null)).toEqual([]);
     expect(parseLayout(JSON.stringify({ fontSize: 12 })).closedGroups).toEqual([]);
   });
 
-  it("keep the worktree group between sessions and new session", () => {
-    const closed = toggleGroup(toggleGroup(DEFAULT_LAYOUT, "newSession"), "worktrees");
-    expect(closed.closedGroups).toEqual(["worktrees", "newSession"]);
-    expect(
-      parseLayout(JSON.stringify({ closedGroups: ["newSession", "worktrees"] })).closedGroups,
-    ).toEqual(["worktrees", "newSession"]);
-  });
-
-  it("load a layout saved before the worktree group existed: it starts open", () => {
+  it("load a layout from the time of the Sessions and Worktrees groups", () => {
+    // Both made way for one group per program: their folds are dropped, the programs start open.
     const old = parseLayout(
-      JSON.stringify({ sidebarWidth: 300, closedGroups: ["sessions", "newSession", "team"] }),
+      JSON.stringify({ sidebarWidth: 300, closedGroups: ["sessions", "worktrees", "newSession"] }),
     );
     expect(old.sidebarWidth).toBe(300);
-    expect(old.closedGroups).toEqual(["sessions", "newSession"]);
-    expect(isGroupOpen(old, "worktrees")).toBe(true);
+    expect(old.closedGroups).toEqual(["newSession"]);
+    expect(old.closedAgentGroups).toEqual([]);
   });
 
-  it("fold agent groups by key and remember them", () => {
-    const one = toggleAgentGroup(DEFAULT_LAYOUT, "sessions:claude");
-    const two = toggleAgentGroup(one, "worktrees:claude");
-    expect(two.closedAgentGroups).toEqual(["sessions:claude", "worktrees:claude"]);
-    expect(toggleAgentGroup(two, "sessions:claude").closedAgentGroups).toEqual([
-      "worktrees:claude",
-    ]);
+  it("fold program groups by key and remember them", () => {
+    const one = toggleAgentGroup(DEFAULT_LAYOUT, "program:claude");
+    const two = toggleAgentGroup(one, "program:pwsh");
+    expect(two.closedAgentGroups).toEqual(["program:claude", "program:pwsh"]);
+    expect(toggleAgentGroup(two, "program:claude").closedAgentGroups).toEqual(["program:pwsh"]);
     expect(parseLayout(JSON.stringify(two)).closedAgentGroups).toEqual([
-      "sessions:claude",
-      "worktrees:claude",
+      "program:claude",
+      "program:pwsh",
     ]);
   });
 
-  it("read folded agent groups robustly and keep at most the newest ones", () => {
+  it("migrate folds of the agent groups nested in Sessions and Worktrees", () => {
     const read = (closedAgentGroups: unknown) =>
       parseLayout(JSON.stringify({ closedAgentGroups })).closedAgentGroups;
-    // Layouts saved before agent groups existed start with every agent group open.
+    // Folded among the ordinary sessions: stays folded.
+    expect(read(["sessions:claude"])).toEqual(["program:claude"]);
+    // A worktree fold alone does not fold the whole program now.
+    expect(read(["worktrees:claude"])).toEqual([]);
+    expect(read(["worktrees:codex", "sessions:codex", "program:codex"])).toEqual(["program:codex"]);
+    // A profile id may hold a colon itself.
+    expect(read(["sessions:a:b"])).toEqual(["program:a:b"]);
+    expect(read(["sessions:", "program:", "claude", "team:x"])).toEqual([]);
+    // Migrating twice changes nothing.
+    expect(read(read(["sessions:claude", "program:pwsh"]))).toEqual([
+      "program:claude",
+      "program:pwsh",
+    ]);
+  });
+
+  it("read folded program groups robustly and keep at most the newest ones", () => {
+    const read = (closedAgentGroups: unknown) =>
+      parseLayout(JSON.stringify({ closedAgentGroups })).closedAgentGroups;
+    // Layouts saved before program groups existed start with every group open.
     expect(parseLayout(JSON.stringify({ sidebarWidth: 300 })).closedAgentGroups).toEqual([]);
-    expect(read("sessions:claude")).toEqual([]);
-    expect(read(["sessions:a", 3, null, "", "sessions:a", "x".repeat(201)])).toEqual([
-      "sessions:a",
+    expect(read("program:claude")).toEqual([]);
+    expect(read(["program:a", 3, null, "", "program:a", "program:" + "x".repeat(201)])).toEqual([
+      "program:a",
     ]);
     const many = Array.from(
       { length: CLOSED_AGENT_GROUPS_MAX + 5 },
-      (_, i) => `sessions:${String(i)}`,
+      (_, i) => `program:${String(i)}`,
     );
     const kept = read(many);
     expect(kept).toHaveLength(CLOSED_AGENT_GROUPS_MAX);
-    expect(kept[0]).toBe("sessions:5");
+    expect(kept[0]).toBe("program:5");
     let layout = DEFAULT_LAYOUT;
     for (const key of many) layout = toggleAgentGroup(layout, key);
     expect(layout.closedAgentGroups).toHaveLength(CLOSED_AGENT_GROUPS_MAX);
+  });
+});
+
+describe("openGroup", () => {
+  it("opens a closed group and leaves an open one as it is", () => {
+    const closed = toggleGroup(DEFAULT_LAYOUT, "newSession");
+    expect(openGroup(closed, "newSession").closedGroups).toEqual([]);
+    expect(openGroup(DEFAULT_LAYOUT, "newSession")).toBe(DEFAULT_LAYOUT);
   });
 });

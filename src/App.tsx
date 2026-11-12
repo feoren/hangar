@@ -86,8 +86,10 @@ import {
   clampSidebarWidth,
   DEFAULT_LAYOUT,
   FONT_SIZE,
+  isGroupOpen,
   loadLayout,
   NOTES_WIDTH,
+  openGroup,
   placeNotes,
   saveLayout,
   SIDEBAR_RAIL_WIDTH,
@@ -1203,7 +1205,11 @@ export function App() {
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
     subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
-  const subAgentTreeShown = !layout.collapsed && !layout.closedGroups.includes("sessions");
+  // The tree hangs below the active row; a folded program group hides that row, and the tree too.
+  const subAgentTreeShown =
+    !layout.collapsed &&
+    activeSession !== undefined &&
+    !layout.closedAgentGroups.includes(agentGroupKey(activeSession));
   const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
   const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
   const subAgentKey = useSubAgentWatch(
@@ -2877,12 +2883,8 @@ export function App() {
       if (runningPrograms.has(profileId) && !updatingPrograms.has(profileId)) {
         setConfirmUpdate(profileId);
         setLayout((current) =>
-          current.collapsed || current.closedGroups.includes("newSession")
-            ? {
-                ...current,
-                collapsed: false,
-                closedGroups: current.closedGroups.filter((group) => group !== "newSession"),
-              }
+          current.collapsed || !isGroupOpen(current, "newSession")
+            ? { ...openGroup(current, "newSession"), collapsed: false }
             : current,
         );
         return;

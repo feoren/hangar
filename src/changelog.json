@@ -60,6 +60,20 @@
         "zh": "在“更改”标签中可在未提交的更改和提交之间切换。未推送的提交排在最前，点击即可查看该提交改动的文件。"
       },
       {
+        "de": "Die Seitenleiste gruppiert Sessions nach Programm, etwa Claude Code oder PowerShell. Jede Gruppe zeigt Icon und Anzahl und lässt sich einklappen.",
+        "en": "The sidebar groups sessions by program, such as Claude Code or PowerShell. Each group shows its icon and count and can be folded.",
+        "el": "Η πλαϊνή στήλη ομαδοποιεί τις συνεδρίες ανά πρόγραμμα, π.χ. Claude Code ή PowerShell. Κάθε ομάδα δείχνει εικονίδιο και πλήθος και διπλώνει.",
+        "es": "La barra lateral agrupa las sesiones por programa, como Claude Code o PowerShell. Cada grupo muestra su icono y cuántas hay y se puede plegar.",
+        "fr": "La barre latérale regroupe les sessions par programme, comme Claude Code ou PowerShell. Chaque groupe montre son icône et son nombre et se replie.",
+        "it": "La barra laterale raggruppa le sessioni per programma, come Claude Code o PowerShell. Ogni gruppo mostra icona e numero e si può comprimere.",
+        "ja": "サイドバーはセッションをプログラムごとにまとめます (Claude Code、PowerShell など)。各グループはアイコンと件数を表示し、折りたためます。",
+        "pl": "Pasek boczny grupuje sesje według programu, np. Claude Code lub PowerShell. Każda grupa pokazuje ikonę i liczbę i można ją zwinąć.",
+        "pt": "A barra lateral agrupa as sessões por programa, como Claude Code ou PowerShell. Cada grupo mostra o ícone e a contagem e pode ser recolhido.",
+        "ru": "Боковая панель группирует сессии по программам, например Claude Code или PowerShell. У каждой группы есть значок и счётчик, её можно свернуть.",
+        "tr": "Kenar çubuğu oturumları programa göre gruplar, örneğin Claude Code veya PowerShell. Her grup simgesini ve sayısını gösterir, daraltılabilir.",
+        "zh": "侧边栏按程序对会话分组，例如 Claude Code 或 PowerShell。每个组显示图标和数量，并可折叠。"
+      },
+      {
         "de": "In den Änderungen klappt nur noch die letzte Datei von selbst auf. So bleibt die Liste eine Übersicht.",
         "en": "In Changes, only the last file opens by itself now, so the list stays an overview.",
         "el": "Στις Αλλαγές ανοίγει πλέον μόνο το τελευταίο αρχείο από μόνο του, έτσι η λίστα μένει συνοπτική.",

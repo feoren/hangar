@@ -87,11 +87,9 @@
   --tree-guide: var(--border);
   --tree-step: 14px;
   --tree-elbow: 10px;
-  /* Agent groups: the header sits one tree step in from the group header above it (whose chevron
-     starts 8 px into the list), the guide runs below the header's badge center (indent, 12 px
-     chevron, 6 px gap, half the 18 px badge), the elbow meets the title line. */
-  --agent-indent: calc(8px + var(--tree-step));
-  --agent-tree-x: calc(var(--agent-indent) + 27px);
+  /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
+     chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
+  --agent-tree-x: 34px;
   --agent-elbow-y: 16px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
@@ -1422,13 +1420,12 @@ h2 .beta-badge {
   }
 }
 
-/* Expanded next to an expanded Sessions group: height from the splitter; alone, it fills. */
+/* Expanded: height from the splitter it shares with the sessions above. */
 .new-session {
   min-height: 110px;
   max-height: calc(100% - 200px);
 }
 
-.new-session.fill,
 .new-session.closed {
   max-height: none;
 }
@@ -1438,8 +1435,8 @@ h2 .beta-badge {
   padding-bottom: 4px;
 }
 
-/* Every pair of neighboring groups is parted by one full-width line, open or closed. Next to an
-   open Sessions group the splitter draws that line, so the group's own line steps back. */
+/* The sessions and the New session group are parted by one full-width line, open or closed.
+   While the group is open the splitter draws that line, so the group's own line steps back. */
 .new-session {
   border-top: var(--hairline) solid var(--border);
 }
@@ -1466,26 +1463,13 @@ h2 .beta-badge {
   flex: 1 1 0;
 }
 
-/* Sessions and worktrees: stacked from the top with no gap between them. With Sessions open the
-   pair takes the free height; the Sessions list yields first and scrolls, the worktrees keep
-   their rows up to their own limit (below). */
+/* The program groups, stacked from the top in one list: together they take the free height and
+   scroll when they need more. */
 .session-groups {
   display: flex;
-  flex: none;
+  flex: 1 1 0;
   flex-direction: column;
   min-height: 0;
-  padding-bottom: 4px;
-}
-
-.session-groups.fill {
-  flex: 1 1 0;
-}
-
-.sidebar-group.sessions-group {
-  flex: 0 1 auto;
-}
-
-.sessions-group:has(+ .worktrees-group) {
   padding-bottom: 4px;
 }
 
@@ -1540,64 +1524,54 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
-/* Agent groups inside Sessions and Worktrees: one per program, its sessions hanging below the
-   header like the sub-agent tree below a row (same guide, elbow and step). The header is quieter
-   than the group titles above it: no capitals, a smaller badge. */
+/* Program groups: one per program, at the top level like New session and with the same header
+   (chevron, small capitals, 5 px below what is above), plus the program's badge and the number
+   of sessions. Its sessions hang below the header like the sub-agent tree below a row (same
+   guide, elbow and step). The list's own 8 px padding stands in for the header's side padding,
+   so every chevron in the sidebar lines up. */
 .agent-group {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
-.agent-group-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 500;
+.section-title.group-title.agent-group-title {
+  padding: 5px 0 2px;
 }
 
-/* Built on .group-toggle: the same chevron, size, turn and gap as the group headers above. */
+/* Built on .group-toggle; as tall as the badge plus the padding, so the guide meets it. */
 .agent-group-toggle {
-  min-height: 28px;
-  padding: 5px 8px 5px var(--agent-indent);
-  color: var(--muted);
+  min-height: 26px;
 }
 
 /* Folded with the active session inside: the header stands in for the active row. */
 .agent-group-toggle.holds-active {
+  color: var(--text);
   background: var(--panel-raised);
   box-shadow: inset var(--row-edge) 0 0 var(--accent);
 }
 
 .agent-group-toggle .badge {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  font-size: 8.5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 8px;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .agent-group-toggle .badge.wide {
-  font-size: 7px;
+  font-size: 6.5px;
 }
 
 .agent-group-toggle .badge-icon img {
-  width: 18px;
-  height: 18px;
-}
-
-.agent-group-name {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--muted) 35%, var(--text));
-}
-
-.agent-group-toggle:hover .agent-group-name {
-  color: var(--text);
+  width: 16px;
+  height: 16px;
 }
 
 .agent-group-count {
   flex: none;
-  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
 }
 
 .agent-group-waiting {
@@ -1615,12 +1589,13 @@ h2 .beta-badge {
   display: none;
 }
 
-/* From the header's badge down to the first row. */
+/* From the header's badge down to the first row: across the button's 5 px padding and the
+   title's 2 px. */
 .agent-rows::before {
   position: absolute;
-  top: -5px;
+  top: -7px;
   left: var(--agent-tree-x);
-  height: 5px;
+  height: 7px;
   content: "";
   pointer-events: none;
   border-left: var(--hairline) solid var(--tree-guide);
@@ -5809,32 +5784,8 @@ body.resizing-horizontal * {
   color: var(--worktree);
 }
 
-/* Worktree sessions: their own group right below the Sessions list, set apart by a full-width
-   line like the one above Sessions. It keeps its height to its rows, at most 40% of the window
-   (the sidebar's height; a percentage would follow the shared box instead), and scrolls beyond
-   that. It does not shrink: a long Sessions list scrolls first instead of squeezing it. */
-.sidebar-group.worktrees-group {
-  flex: none;
-  max-height: 40vh;
-  border-top: var(--hairline) solid var(--border);
-}
-
-.worktrees-group.closed {
-  max-height: none;
-}
-
-.worktrees-group .group-title svg + .group-label::before {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  vertical-align: 1px;
-  content: "";
-  background: var(--worktree);
-  border-radius: 2px;
-}
-
-/* In the rail: a thin line where the worktree sessions begin, and a green edge on their badge. */
+/* In the rail: a thin line where the next program's sessions begin, and a green edge on the
+   badge of a worktree session. */
 .rail-divider {
   height: var(--hairline);
   margin: 4px 0;

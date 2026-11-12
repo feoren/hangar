@@ -63,14 +63,7 @@ import type { ThemeSetting } from "./theme";
 import { edgeClass, rowEdge, rowLook, runsAgent, sessionChip, type ChipKind } from "./sessionChip";
 import { RepoTeammates } from "./RepoTeammates";
 import { lookClass } from "./stateLook";
-import {
-  agentGroupKey,
-  agentGroups,
-  groupStepIndex,
-  sessionGroup,
-  shownSessions,
-  type SessionGroup,
-} from "./sessionGroups";
+import { agentGroupKey, agentGroups, groupStepIndex, shownSessions } from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
@@ -105,7 +98,7 @@ interface Props {
   badgeFor: (profileId: string) => BadgeLook;
   closedGroups: readonly SidebarGroup[];
   onToggleGroup: (group: SidebarGroup) => void;
-  /** Folded agent groups (sessionGroups.ts agentGroupKey). */
+  /** Folded program groups of the session list (sessionGroups.ts agentGroupKey). */
   closedAgentGroups: readonly string[];
   onToggleAgentGroup: (key: string) => void;
   /** After a mouse click on a header button: focus goes back to the terminal. */
@@ -279,10 +272,8 @@ export function Sidebar(props: Props) {
       ?.scrollIntoView({ block: "nearest" });
   }, [activeId, collapsed]);
 
-  // Two groups: ordinary sessions, and the ones in their own worktree (sessionGroups.ts).
-  const ordinary = sessions.filter((s) => sessionGroup(s) === "sessions");
-  const ownTrees = sessions.filter((s) => sessionGroup(s) === "worktrees");
   // Sessions lead with their project folder; worktree rows keep their branch-named titles.
+  const ordinary = sessions.filter((s) => s.worktree === undefined);
   const folderLabels = sessionLabels(ordinary, (id) => profileById.get(id)?.name);
   /** Both lines of a session's status; the same text for the row and the rail's tooltip. */
   const lines = (session: SessionView) => {
@@ -311,26 +302,18 @@ export function Sidebar(props: Props) {
   const waitingIn = (list: readonly SessionView[]) =>
     list.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
   const agentOpen = (key: string) => !props.closedAgentGroups.includes(key);
-  /** Rows a list shows: folded agent groups show none. */
-  const shownIn = (list: readonly SessionView[]) =>
-    agentGroups(list).flatMap((group) => shownSessions(group.sessions, agentOpen(group.key)));
-  const shownOrdinary = shownIn(ordinary);
-  const shownTrees = shownIn(ownTrees);
-  // Waiting sessions scrolled out of view: a calm hint at that edge of each list. Rows in a folded
-  // agent group are not there to scroll to; their group's header shows them instead.
+  /** Rows on screen: folded program groups show none. */
+  const shown = agentGroups(sessions).flatMap((group) =>
+    shownSessions(group.sessions, agentOpen(group.key)),
+  );
+  // Waiting sessions scrolled out of view: a calm hint at that edge of the list. Rows in a folded
+  // program group are not there to scroll to; their group's header shows them instead.
   const sessionList = useRef<HTMLUListElement>(null);
-  const worktreeList = useRef<HTMLUListElement>(null);
   const edgeHints = useWaitingEdges(
     sessionList,
-    shownOrdinary.map((s) => s.id),
-    waitingIn(shownOrdinary),
-    !collapsed && !props.closedGroups.includes("sessions"),
-  );
-  const worktreeHints = useWaitingEdges(
-    worktreeList,
-    shownTrees.map((s) => s.id),
-    waitingIn(shownTrees),
-    !collapsed && !props.closedGroups.includes("worktrees"),
+    shown.map((s) => s.id),
+    waitingIn(shown),
+    !collapsed,
   );
   const revealRow = (id: number) => {
     root.current
@@ -530,17 +513,20 @@ export function Sidebar(props: Props) {
               state === "attention" ? "attention" : "",
               lookClass(rowLook(session, state, chip)),
             ];
-            const group = sessionGroup(session);
+            const group = agentGroupKey(session);
             const previous = sessions[index - 1];
-            // A thin line where the worktree sessions begin, as the two groups do when expanded.
-            const divider = previous !== undefined && sessionGroup(previous) !== group;
+            // A thin line where the next program's sessions begin, as its group does expanded.
+            const divider = previous !== undefined && agentGroupKey(previous) !== group;
             return (
               <Fragment key={session.id}>
                 {divider && <li className="rail-divider" aria-hidden="true" />}
                 <li
                   data-session-row={session.id}
-                  data-session-group={agentGroupKey(session)}
-                  className={[dragClass(session.id), group === "worktrees" ? "rail-worktree" : ""]
+                  data-session-group={group}
+                  className={[
+                    dragClass(session.id),
+                    session.worktree === undefined ? "" : "rail-worktree",
+                  ]
                     .filter(Boolean)
                     .join(" ")}
                 >
@@ -690,38 +676,17 @@ export function Sidebar(props: Props) {
     );
   }
 
-  const sessionsOpen = open("sessions");
-  const worktreesOpen = open("worktrees");
   const newSessionOpen = open("newSession");
   const subAgentTree = props.subAgentTree;
-  const sessionsTitle = sessionsOpen
-    ? t("sidebar.sessions")
-    : t("sidebar.sessionsCount", { count: ordinary.length });
-  const worktreesTitle = worktreesOpen
-    ? t("sidebar.worktrees")
-    : t("sidebar.worktreesCount", { count: ownTrees.length });
-  /** Collapsed group title: a ring with the number of waiting sessions inside it. */
-  const groupWaiting = (list: readonly SessionView[], open: boolean) => {
-    const count = waitingIn(list).length;
-    if (open || count === 0) return null;
-    const text = t("sidebar.waitingCount", { count });
-    return (
-      <span className="group-waiting" title={text}>
-        <span className="dot attention" aria-hidden="true" />
-        <span className="sr-only">{text}</span>
-      </span>
-    );
-  };
   /**
-   * The rows of one group's list, gathered per program into agent groups whose rows hang off the
-   * header like a tree; the sub-agent tree hangs below the active row.
+   * The sessions, one group per program whose rows hang off its header like a tree; the
+   * sub-agent tree hangs below the active row.
    */
-  const rows = (list: readonly SessionView[], group: SessionGroup) => {
-    const labels = group === "sessions" ? folderLabels : new Map<number, SessionLabel>();
-    return agentGroups(list).map((agents) => {
+  const programGroups = () =>
+    agentGroups(sessions).map((agents) => {
       const open = agentOpen(agents.key);
-      const shown = shownSessions(agents.sessions, open);
-      const shownIds = new Set(shown.map((s) => s.id));
+      const groupRows = shownSessions(agents.sessions, open);
+      const shownIds = new Set(groupRows.map((s) => s.id));
       const hiddenWaiting = waitingIn(agents.sessions.filter((s) => !shownIds.has(s.id))).length;
       const profile = profileById.get(agents.profileId);
       return (
@@ -732,13 +697,13 @@ export function Sidebar(props: Props) {
           look={badgeFor(agents.profileId)}
           count={agents.sessions.length}
           open={open}
-          hasRows={shown.length > 0}
+          hasRows={groupRows.length > 0}
           hiddenWaiting={hiddenWaiting}
           holdsActive={!open && agents.sessions.some((s) => s.id === activeId)}
           onToggle={props.onToggleAgentGroup}
         >
-          {shown.map((session, index) => {
-            const last = index === shown.length - 1;
+          {groupRows.map((session, index) => {
+            const last = index === groupRows.length - 1;
             const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
             // With a tree below the row, "drop after" draws its line below the tree.
             const drag = dragClass(session.id);
@@ -748,7 +713,7 @@ export function Sidebar(props: Props) {
               <Fragment key={session.id}>
                 <SessionItem
                   lines={lines(session)}
-                  label={labels.get(session.id) ?? null}
+                  label={folderLabels.get(session.id) ?? null}
                   session={session}
                   groupKey={agents.key}
                   last={last}
@@ -768,7 +733,7 @@ export function Sidebar(props: Props) {
                   onRowKey={onRowKey}
                 />
                 {/* The tree belongs to the row above it; as its own item, the row's layout stays.
-                    Below a middle row, the agent group's guide line runs on past it. */}
+                    Below a middle row, the program group's guide line runs on past it. */}
                 {tree !== null && (
                   <li
                     className={["subagent-tree-row", last ? "" : "tree-continues", treeDrag]
@@ -792,7 +757,6 @@ export function Sidebar(props: Props) {
         </AgentGroupSection>
       );
     });
-  };
 
   return (
     <aside className="sidebar" ref={root}>
@@ -816,48 +780,25 @@ export function Sidebar(props: Props) {
       {/* Decorative: separates the app's own controls from the sessions below. */}
       <div className="sidebar-rule" aria-hidden="true" />
 
-      {/* Sessions and worktrees stack from the top, the worktrees right below the last session;
-          an open Sessions group lends the pair the free height. */}
-      <div className={sessionsOpen ? "session-groups fill" : "session-groups"}>
-        <GroupSection
-          group="sessions"
-          title={sessionsTitle}
-          open={sessionsOpen}
-          className="sessions-group"
-          onToggle={props.onToggleGroup}
-          marker={groupWaiting(ordinary, sessionsOpen)}
+      {/* One group per program, top to bottom; together they take the free height and scroll. */}
+      <div className="session-groups">
+        <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
+        <ul
+          className="session-list"
+          data-session-list=""
+          aria-label={t("sidebar.sessions")}
+          ref={sessionList}
         >
-          <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
-          <ul className="session-list" data-session-list="" ref={sessionList}>
-            {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
-            {rows(ordinary, "sessions")}
-          </ul>
-          <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
-        </GroupSection>
-
-        {/* Only while a session works in its own worktree; an empty group would just be noise. */}
-        {ownTrees.length > 0 && (
-          <GroupSection
-            group="worktrees"
-            title={worktreesTitle}
-            open={worktreesOpen}
-            className={worktreesOpen ? "worktrees-group" : "worktrees-group closed"}
-            onToggle={props.onToggleGroup}
-            marker={groupWaiting(ownTrees, worktreesOpen)}
-          >
-            <WaitingEdge edge="above" hint={worktreeHints.above} onReveal={revealRow} />
-            <ul className="session-list" data-session-list="" ref={worktreeList}>
-              {rows(ownTrees, "worktrees")}
-            </ul>
-            <WaitingEdge edge="below" hint={worktreeHints.below} onReveal={revealRow} />
-          </GroupSection>
-        )}
+          {sessions.length === 0 && <li className="hint">{t("sidebar.noSessions")}</li>}
+          {programGroups()}
+        </ul>
+        <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </div>
 
       <UpdateNotice state={update} onDismiss={props.onDismissUpdate} />
 
-      {/* Space can only be shared between two open groups. */}
-      {sessionsOpen && newSessionOpen && (
+      {/* The sessions and an open New session group share the height. */}
+      {newSessionOpen && (
         <Splitter
           orientation="horizontal"
           value={props.footerHeight}
@@ -878,14 +819,8 @@ export function Sidebar(props: Props) {
         group="newSession"
         title={t("sidebar.newSession")}
         open={newSessionOpen}
-        className={
-          newSessionOpen
-            ? sessionsOpen
-              ? "new-session"
-              : "new-session fill"
-            : "new-session closed"
-        }
-        style={newSessionOpen && sessionsOpen ? { height: props.footerHeight } : undefined}
+        className={newSessionOpen ? "new-session" : "new-session closed"}
+        style={newSessionOpen ? { height: props.footerHeight } : undefined}
         onToggle={props.onToggleGroup}
       >
         <div className={chosen ? "cwd-row chosen" : "cwd-row"}>
@@ -1052,7 +987,7 @@ export function Sidebar(props: Props) {
 }
 
 /**
- * Collapsible group of the sidebar (sessions, new session, more later). The title is a
+ * Collapsible group of the sidebar (new session, more later). The title is a
  * button (Enter, Space); when collapsed, only the title row remains. The content stays in the DOM
  * (hidden) so that aria-controls always points at an element.
  */
@@ -1102,9 +1037,10 @@ function GroupSection({
 }
 
 /**
- * The sessions of one program inside Sessions or Worktrees: a header with the program's badge,
- * name and number of sessions, its rows hanging below like a tree. Folded, the header names the
- * waiting sessions it hides and whether the active session is among them.
+ * The sessions of one program, worktree or not: a header like the other groups' (chevron, small
+ * capitals) with the program's badge and number of sessions, its rows hanging below like a tree.
+ * Folded, the header names the waiting sessions it hides and whether the active session is among
+ * them.
  */
 function AgentGroupSection({
   groupKey,
@@ -1138,7 +1074,7 @@ function AgentGroupSection({
   const activeText = t("sidebar.agentGroupHoldsActive");
   return (
     <li className={open ? "agent-group" : "agent-group closed"}>
-      <h3 className="agent-group-title">
+      <h2 className="section-title group-title agent-group-title">
         <button
           type="button"
           className={
@@ -1161,7 +1097,7 @@ function AgentGroupSection({
         >
           <ChevronIcon size={12} />
           <Badge look={look} />
-          <span className="agent-group-name">{name}</span>
+          <span className="group-label">{name}</span>
           <span className="agent-group-count" aria-hidden="true">
             {count}
           </span>
@@ -1174,7 +1110,7 @@ function AgentGroupSection({
             </span>
           )}
         </button>
-      </h3>
+      </h2>
       <ul id={bodyId} className="agent-rows" hidden={!hasRows}>
         {children}
       </ul>
