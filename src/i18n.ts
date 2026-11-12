@@ -386,7 +386,7 @@ const de = {
   "settings.programUpdates": "Programm-Updates",
   "settings.checkProgramUpdates": "Nach Updates der Programme suchen",
   "settings.checkProgramUpdatesHelp":
-    "Hangar fragt dazu npm, PyPI und GitHub nach der neuesten Version. Gesendet wird nur die Adresse des Pakets. Installiert wird nur, wenn du auf „Aktualisieren“ klickst.",
+    "Hangar fragt dazu npm, PyPI und GitHub nach der neuesten Version. Gesendet werden nur die Adresse des Pakets, die Version von Hangar und die Kennung der letzten Antwort der Quelle. Installiert wird nur, wenn du auf „Aktualisieren“ klickst.",
   "settings.programChecking": "Suche nach Updates …",
   "settings.programUpdatesNone": "Alles aktuell.",
   "settings.programUpdatesSome": "Updates verfügbar: {count}.",
@@ -1429,7 +1429,7 @@ const en: Record<MessageKey, string> = {
   "settings.programUpdates": "Program updates",
   "settings.checkProgramUpdates": "Check for program updates",
   "settings.checkProgramUpdatesHelp":
-    "Hangar asks npm, PyPI and GitHub for the latest version. Only the package address is sent. Nothing is installed until you click “Update”.",
+    "Hangar asks npm, PyPI and GitHub for the latest version. Only the package address, Hangar’s version and the tag of the source’s last answer are sent. Nothing is installed until you click “Update”.",
   "settings.programChecking": "Checking for updates …",
   "settings.programUpdatesNone": "Everything is up to date.",
   "settings.programUpdatesSome": "Updates available: {count}.",
@@ -2462,7 +2462,7 @@ const el: Record<MessageKey, string> = {
   "settings.programUpdates": "Ενημερώσεις προγραμμάτων",
   "settings.checkProgramUpdates": "Αναζήτηση ενημερώσεων προγραμμάτων",
   "settings.checkProgramUpdatesHelp":
-    "Το Hangar ρωτά το npm, το PyPI και το GitHub για την τελευταία έκδοση. Στέλνεται μόνο η διεύθυνση του πακέτου. Τίποτα δεν εγκαθίσταται μέχρι να πατήσεις «Ενημέρωση».",
+    "Το Hangar ρωτά το npm, το PyPI και το GitHub για την τελευταία έκδοση. Στέλνονται μόνο η διεύθυνση του πακέτου, η έκδοση του Hangar και το αναγνωριστικό της τελευταίας απάντησης της πηγής. Τίποτα δεν εγκαθίσταται μέχρι να πατήσεις «Ενημέρωση».",
   "settings.programChecking": "Αναζήτηση ενημερώσεων …",
   "settings.programUpdatesNone": "Όλα είναι ενημερωμένα.",
   "settings.programUpdatesSome": "Διαθέσιμες ενημερώσεις: {count}.",
@@ -3513,7 +3513,7 @@ const es: Record<MessageKey, string> = {
   "settings.programUpdates": "Actualizaciones de programas",
   "settings.checkProgramUpdates": "Buscar actualizaciones de los programas",
   "settings.checkProgramUpdatesHelp":
-    "Hangar consulta a npm, PyPI y GitHub la versión más reciente. Solo se envía la dirección del paquete. No se instala nada hasta que pulses «Actualizar».",
+    "Hangar consulta a npm, PyPI y GitHub la versión más reciente. Solo se envían la dirección del paquete, la versión de Hangar y la etiqueta de la última respuesta de la fuente. No se instala nada hasta que pulses «Actualizar».",
   "settings.programChecking": "Buscando actualizaciones …",
   "settings.programUpdatesNone": "Todo está al día.",
   "settings.programUpdatesSome": "Actualizaciones disponibles: {count}.",
@@ -4554,7 +4554,7 @@ const fr: Record<MessageKey, string> = {
   "settings.programUpdates": "Mises à jour des programmes",
   "settings.checkProgramUpdates": "Rechercher les mises à jour des programmes",
   "settings.checkProgramUpdatesHelp":
-    "Hangar demande pour cela la dernière version à npm, PyPI et GitHub. Seule l’adresse du paquet est envoyée. Rien n’est installé tant que tu ne cliques pas sur « Mettre à jour ».",
+    "Hangar demande pour cela la dernière version à npm, PyPI et GitHub. Seuls l’adresse du paquet, la version de Hangar et l’étiquette de la dernière réponse de la source sont envoyés. Rien n’est installé tant que tu ne cliques pas sur « Mettre à jour ».",
   "settings.programChecking": "Recherche de mises à jour …",
   "settings.programUpdatesNone": "Tout est à jour.",
   "settings.programUpdatesSome": "Mises à jour disponibles : {count}.",
@@ -5607,7 +5607,7 @@ const it: Record<MessageKey, string> = {
   "settings.programUpdates": "Aggiornamenti dei programmi",
   "settings.checkProgramUpdates": "Cerca aggiornamenti dei programmi",
   "settings.checkProgramUpdatesHelp":
-    "Hangar chiede a npm, PyPI e GitHub l’ultima versione. Viene inviato solo l’indirizzo del pacchetto. Non viene installato nulla finché non fai clic su “Aggiorna”.",
+    "Hangar chiede a npm, PyPI e GitHub l’ultima versione. Vengono inviati solo l’indirizzo del pacchetto, la versione di Hangar e l’etichetta dell’ultima risposta della fonte. Non viene installato nulla finché non fai clic su “Aggiorna”.",
   "settings.programChecking": "Ricerca aggiornamenti …",
   "settings.programUpdatesNone": "Tutto aggiornato.",
   "settings.programUpdatesSome": "Aggiornamenti disponibili: {count}.",
@@ -6649,7 +6649,7 @@ const ja: Record<MessageKey, string> = {
   "settings.programUpdates": "プログラムの更新",
   "settings.checkProgramUpdates": "プログラムの更新を確認する",
   "settings.checkProgramUpdatesHelp":
-    "Hangar は npm、PyPI、GitHub に最新バージョンを問い合わせます。送信されるのはパッケージのアドレスだけです。「更新」をクリックするまで何もインストールされません。",
+    "Hangar は npm、PyPI、GitHub に最新バージョンを問い合わせます。送信されるのはパッケージのアドレス、Hangar のバージョン、そのソースの前回の応答のタグだけです。「更新」をクリックするまで何もインストールされません。",
   "settings.programChecking": "更新を確認中 …",
   "settings.programUpdatesNone": "すべて最新です。",
   "settings.programUpdatesSome": "利用可能な更新: {count}。",
@@ -7691,7 +7691,7 @@ const pl: Record<MessageKey, string> = {
   "settings.programUpdates": "Aktualizacje programów",
   "settings.checkProgramUpdates": "Szukaj aktualizacji programów",
   "settings.checkProgramUpdatesHelp":
-    "Hangar pyta npm, PyPI i GitHub o najnowszą wersję. Wysyłany jest tylko adres pakietu. Nic nie jest instalowane, dopóki nie klikniesz „Aktualizuj”.",
+    "Hangar pyta npm, PyPI i GitHub o najnowszą wersję. Wysyłane są tylko adres pakietu, wersja Hangara i znacznik ostatniej odpowiedzi źródła. Nic nie jest instalowane, dopóki nie klikniesz „Aktualizuj”.",
   "settings.programChecking": "Szukanie aktualizacji …",
   "settings.programUpdatesNone": "Wszystko aktualne.",
   "settings.programUpdatesSome": "Dostępne aktualizacje: {count}.",
@@ -8727,7 +8727,7 @@ const pt: Record<MessageKey, string> = {
   "settings.programUpdates": "Atualizações de programas",
   "settings.checkProgramUpdates": "Procurar atualizações dos programas",
   "settings.checkProgramUpdatesHelp":
-    "O Hangar consulta npm, PyPI e GitHub para saber a versão mais recente. Só o endereço do pacote é enviado. Nada é instalado até você clicar em “Atualizar”.",
+    "O Hangar consulta npm, PyPI e GitHub para saber a versão mais recente. Só são enviados o endereço do pacote, a versão do Hangar e a etiqueta da última resposta da fonte. Nada é instalado até você clicar em “Atualizar”.",
   "settings.programChecking": "Procurando atualizações …",
   "settings.programUpdatesNone": "Tudo atualizado.",
   "settings.programUpdatesSome": "Atualizações disponíveis: {count}.",
@@ -9765,7 +9765,7 @@ const ru: Record<MessageKey, string> = {
   "settings.programUpdates": "Обновления программ",
   "settings.checkProgramUpdates": "Искать обновления программ",
   "settings.checkProgramUpdatesHelp":
-    "Для этого Hangar спрашивает у npm, PyPI и GitHub последнюю версию. Отправляется только адрес пакета. Ничего не устанавливается, пока ты не нажмёшь «Обновить».",
+    "Для этого Hangar спрашивает у npm, PyPI и GitHub последнюю версию. Отправляются только адрес пакета, версия Hangar и метка последнего ответа источника. Ничего не устанавливается, пока ты не нажмёшь «Обновить».",
   "settings.programChecking": "Поиск обновлений …",
   "settings.programUpdatesNone": "Всё актуально.",
   "settings.programUpdatesSome": "Доступно обновлений: {count}.",
@@ -10791,7 +10791,7 @@ const tr: Record<MessageKey, string> = {
   "settings.programUpdates": "Program güncellemeleri",
   "settings.checkProgramUpdates": "Programların güncellemelerini ara",
   "settings.checkProgramUpdatesHelp":
-    "Hangar bunun için npm, PyPI ve GitHub’a en yeni sürümü sorar. Yalnızca paketin adresi gönderilir. “Güncelle”ye tıklamadan hiçbir şey kurulmaz.",
+    "Hangar bunun için npm, PyPI ve GitHub’a en yeni sürümü sorar. Yalnızca paketin adresi, Hangar sürümü ve kaynağın son yanıtının etiketi gönderilir. “Güncelle”ye tıklamadan hiçbir şey kurulmaz.",
   "settings.programChecking": "Güncellemeler aranıyor …",
   "settings.programUpdatesNone": "Her şey güncel.",
   "settings.programUpdatesSome": "Mevcut güncellemeler: {count}.",
@@ -11804,7 +11804,7 @@ const zh: Record<MessageKey, string> = {
   "settings.programUpdates": "程序更新",
   "settings.checkProgramUpdates": "检查程序更新",
   "settings.checkProgramUpdatesHelp":
-    "Hangar 会向 npm、PyPI 和 GitHub 查询最新版本，只发送软件包地址。只有点击“更新”后才会安装。",
+    "Hangar 会向 npm、PyPI 和 GitHub 查询最新版本，只发送软件包地址、Hangar 版本和该来源上次响应的标记。只有点击“更新”后才会安装。",
   "settings.programChecking": "正在检查更新 …",
   "settings.programUpdatesNone": "全部已是最新。",
   "settings.programUpdatesSome": "可用更新：{count}。",
