@@ -1354,8 +1354,9 @@ h2 .beta-badge {
   object-fit: contain;
 }
 
-/* The glowing dot in front of a session's status line, in the color of its state's look (working,
-   pause, waiting, error). Rows without a look (an ended session) show a quiet grey dot. */
+/* The dot in front of a session's status line, in the color of its state's look (working, pause,
+   waiting, error). It blinks smoothly at the state's pulse speed, without a halo, so the row around
+   it stays as it is. Rows without a look (an ended session) show a still, quiet grey dot. */
 .state-dot {
   flex: none;
   width: 7px;
@@ -1367,9 +1368,24 @@ h2 .beta-badge {
 
 .look .state-dot {
   background: var(--row-strong);
-  box-shadow:
-    0 0 4px 0 color-mix(in srgb, var(--row-strong) 80%, transparent),
-    0 0 9px 1px color-mix(in srgb, var(--row-strong) 45%, transparent);
+  animation: state-dot-blink var(--row-seconds, 2s) ease-in-out infinite;
+}
+
+@keyframes state-dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .look .state-dot {
+    animation: none;
+  }
 }
 
 /* Expanded next to an expanded Sessions group: height from the splitter; alone, it fills. */
