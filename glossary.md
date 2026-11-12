@@ -135,6 +135,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Laufzeit (Session)                              | run time                          | since the process started                                                   |
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                  |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                           |
+| Private Session                                 | private session                   | starts in the folder, no agent gate, never shared; ADR 0008                 |
+| Team-Session                                    | team session                      | own worktree, agent gate, shared with the team; `SessionMode`               |
+| Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Starts in", `startMode.ts`                     |
+| Hook-Format (Agent-Gate)                        | hook format                       | how the gate hands hooks to one program, `HookFormat`                       |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                              |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel   |
 | Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                            |

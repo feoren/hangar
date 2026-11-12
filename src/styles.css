@@ -5803,7 +5803,7 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
-/* "Own worktree" below "Starts in" in the New session group */
+/* A team session's marker on its row (line 3), before its branch. */
 
 .session-branch.worktree svg {
   color: var(--worktree);
@@ -7095,59 +7095,70 @@ body.session-dragging .session-actions {
   align-self: center;
 }
 
-/* One quiet line below the target: Shift+click for a worktree, or why there is none. */
-.worktree-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* "Private | Team" below the target, the two halves sharing the width, with one quiet line on
+   what the chosen mode means. */
+.start-mode {
   margin: 0 12px 6px;
+}
+
+.start-mode .segmented {
+  display: flex;
+}
+
+.start-mode .segment {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.start-mode .segment:has(input:checked) svg {
+  color: var(--worktree);
+}
+
+.segment.disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.segment.disabled:hover {
+  color: var(--muted);
+}
+
+.start-mode-hint {
+  margin: 4px 2px 0;
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--muted);
 }
 
-.worktree-hint svg {
-  flex: none;
+.empty .start-mode {
+  width: min(320px, 100%);
+  margin: 4px auto 0;
 }
 
-.worktree-hint.off svg {
-  opacity: 0.6;
+.empty .start-mode-hint {
+  text-align: center;
 }
 
-.empty .worktree-hint {
-  justify-content: center;
-  margin-top: 2px;
+/* A program that cannot be a team session while Team is chosen: greyed out, still pointable so
+   its tooltip says why. */
+.profile-row.unsupported .profile,
+.empty-program.unsupported {
+  cursor: default;
+  opacity: 0.45;
 }
 
-/* "+ Worktree" over the end of a program row while it is hovered or focused, so the name does
-   not reflow. */
-.profile-row {
-  position: relative;
+.profile-row.unsupported .profile svg {
+  display: none;
 }
 
-.profile-worktree {
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  padding: 2px 7px;
-  background: var(--hover);
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  opacity: 0;
-}
-
-.profile-row:hover .profile-worktree,
-.profile-row:has(.profile:focus-visible) .profile-worktree,
-.profile-worktree:focus-visible {
-  opacity: 1;
-}
-
-.profile-worktree:hover {
-  color: var(--text);
-  border-color: var(--worktree);
+.empty-program.unsupported:hover {
+  background: var(--panel);
+  border-color: var(--border);
 }
 
 .profile-update-dot {
@@ -7340,18 +7351,7 @@ body.session-dragging .session-actions {
   white-space: normal;
 }
 
-/* Empty state: "+ Worktree" below a program card, and the chosen target. */
-.empty-programs li {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.empty-worktree {
-  font-size: 11.5px;
-}
-
+/* Empty state: the chosen target. */
 .empty-cwd-name {
   font-weight: 600;
   color: var(--text);
@@ -7374,10 +7374,6 @@ body.session-dragging .session-actions {
 @media (prefers-reduced-motion: no-preference) {
   .link-notice.start-hint {
     animation: start-hint-in 160ms ease-out;
-  }
-
-  .profile-worktree {
-    transition: opacity 120ms ease;
   }
 }
 

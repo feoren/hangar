@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub type SessionId = u64;
 
@@ -24,11 +24,23 @@ pub enum SessionKind {
     Update,
 }
 
+/// Whether a session works for its person alone or with the team (ADR 0008).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionMode {
+    /// Private session: no agent gate, never part of the team's presence or shared claims.
+    #[default]
+    Private,
+    /// Team session (the window starts it in a worktree of its own): the agent gate where the
+    /// program takes it, and the team sees it in a repository linked to a shared project.
+    Team,
+}
+
 /// Whether the agent gate (`gate_service.rs`) watches the session's current process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GateStatus {
-    /// Not for this program, the gate was off at the start, or an update session.
+    /// Not for this program, the gate was off at the start, a private or an update session.
     #[default]
     None,
     /// The process got the gate's hooks.
@@ -38,8 +50,8 @@ pub enum GateStatus {
     /// A cmd.exe launcher (npm's `claude.cmd`): the hooks' settings file could not be written to
     /// a path cmd.exe passes on unchanged.
     Launcher,
-    /// The start arguments (profile or resume) already pass `--settings`; Hangar adds no second
-    /// one ([`crate::manager::has_own_settings`]).
+    /// The start arguments (profile or resume) already carry the program's own hook
+    /// configuration; Hangar adds no second one ([`crate::agent_catalog::HookFormat`]).
     ProfileSettings,
 }
 
@@ -61,6 +73,8 @@ pub struct SessionInfo {
     /// show whether the conversation carries on or started fresh.
     pub resumed: bool,
     pub kind: SessionKind,
+    /// Private or team session; fixed for the session's life, a restart keeps it.
+    pub mode: SessionMode,
     /// Conversation id Hangar gave the CLI (`session_id_args`, `resume_id_args`), a lowercase
     /// UUID. The frontend stores it in the workspace to resume exactly this conversation. Changes
     /// on a restart and after a resume fallback without an id.
@@ -97,6 +111,7 @@ impl SessionInfo {
             created_at,
             resumed: false,
             kind: SessionKind::Agent,
+            mode: SessionMode::Private,
             cli_session_id: None,
             sub_agents: false,
             gate: GateStatus::None,

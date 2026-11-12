@@ -267,18 +267,6 @@ export function BranchIcon(props: IconProps) {
   );
 }
 
-/** A session's own worktree: a branch growing out of a folder. */
-export function WorktreeIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M2 5.5V12a1 1 0 0 0 1 1h4.5M2 5.5V4a1 1 0 0 1 1-1h2.6l1.4 1.5H9" />
-      <circle cx="12" cy="4.5" r="1.6" />
-      <circle cx="12" cy="11.5" r="1.6" />
-      <path d="M12 6.1v3.8" />
-    </Svg>
-  );
-}
-
 /** The program rang the bell: it probably asks something (status chip). */
 export function BellIcon(props: IconProps) {
   return (

@@ -492,3 +492,10 @@ notes-only window and shows Notes, Changes and Files. The main window pushes a v
 (`sendToTerminal`, `notesChanged`, `showMain`, `showSession`, `ready`) and may open file viewers.
 Size and place are remembered and checked against the monitors. Pages changed:
 [[0007-detachable-side-panel]] (new), [[notes]], [[file-viewer]], [[single-instance]].
+
+## [2026-11-12] decision | Private and team sessions
+The owner replaced the per-program worktree button with a switch "Private | Team". A team session
+has its own worktree, the agent gate and is shared with the team; a private one has none of it.
+Team capability comes from the catalog only (`hook_format` next to the capabilities), presence
+and claims stay agent-independent. Pages changed: [[0008-private-and-team-sessions]] (new),
+[[team-service-v1]], [[agent-workflow-features]].

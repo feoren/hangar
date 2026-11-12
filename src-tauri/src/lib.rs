@@ -279,15 +279,8 @@ pub fn run() -> tauri::Result<()> {
                         .into_iter()
                         .map(|profile| (profile.id, profile.name))
                         .collect();
-                    let labels = manager
-                        .list()
-                        .into_iter()
-                        .map(|info| team_share::SessionLabel {
-                            agent: names.get(&info.profile_id).cloned().unwrap_or_default(),
-                            id: info.id,
-                            title: info.title,
-                        })
-                        .collect();
+                    // Private sessions stay off the team (ADR 0008).
+                    let labels = team_share::team_labels(manager.list(), &names);
                     (worktrees, labels)
                 });
             let refresh = app.handle().clone();

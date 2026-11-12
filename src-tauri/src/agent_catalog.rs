@@ -84,13 +84,48 @@ pub struct Capabilities {
     /// Hooks can be given to one session without touching the user's settings files.
     #[serde(default)]
     pub per_session_config: bool,
+    /// How Hangar hands its hooks to one session of the program; `None` until a format for the
+    /// program is built.
+    #[serde(default)]
+    pub hook_format: Option<HookFormat>,
 }
 
 impl Capabilities {
-    /// The gate can be installed for one session and hold its edits. The only format built so
-    /// far is Claude Code's `--settings`; a second agent will need a format field next to these.
+    /// The gate can be installed for one session and hold its edits, so the program can run as a
+    /// team session. Purely from the catalog's data: no program is named in code.
     pub fn gate(self) -> bool {
-        self.pre_edit_block && self.per_session_config
+        self.gate_format().is_some()
+    }
+
+    /// The hook format the gate uses for the program, when the gate applies at all.
+    pub fn gate_format(self) -> Option<HookFormat> {
+        if self.pre_edit_block && self.per_session_config {
+            self.hook_format
+        } else {
+            None
+        }
+    }
+}
+
+/// A way to give Hangar's hooks to exactly one session of a program. Each agent CLI has its own
+/// hook configuration; a new one is another variant here plus its builder in `gate_service.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookFormat {
+    /// Claude Code's `--settings <json or file>` with HTTP hooks (`gate::claude_settings`).
+    ClaudeSettings,
+}
+
+impl HookFormat {
+    /// The start arguments already carry the program's own hook configuration. Hangar's would be
+    /// a second one, and how the program combines both is not measured, so such a start goes
+    /// without the gate instead of risking the user's settings or a silently missing hook.
+    pub fn conflicts_with(self, args: &[String]) -> bool {
+        match self {
+            HookFormat::ClaudeSettings => args
+                .iter()
+                .any(|arg| arg == "--settings" || arg.starts_with("--settings=")),
+        }
     }
 }
 
@@ -300,6 +335,7 @@ impl Agent {
             editable: self.source == Source::User,
             env: self.profile.env.keys().cloned().collect(),
             secret_env: self.profile.secret_env.clone(),
+            team_capable: self.capabilities.gate(),
         }
     }
 }
@@ -336,6 +372,9 @@ pub struct ProfileView {
     pub env: Vec<String>,
     /// Names of the variables whose values are kept in the OS keychain.
     pub secret_env: Vec<String>,
+    /// Can run as a team session: the agent gate can be installed for it
+    /// ([`Capabilities::gate`]).
+    pub team_capable: bool,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -1095,6 +1134,7 @@ commands=['x']
             pre_edit_block: true,
             context_inject: true,
             per_session_config: true,
+            hook_format: Some(HookFormat::ClaudeSettings),
         };
         let same = merge(vec![user("claude", "claude")], vec![with_gate.clone()]);
         assert!(same[0].capabilities.gate());
@@ -1188,5 +1228,60 @@ commands=['x']
         assert_eq!(json["editable"], false);
         assert_eq!(json["homepage"], "https://example.org/c");
         assert!(json["installHint"].is_string());
+        assert_eq!(json["teamCapable"], false);
+    }
+
+    #[test]
+    fn team_capable_comes_from_the_capabilities_alone() {
+        let mut agent = Agent::from_catalog(catalog("any-agent", &["any"]));
+        let view = |agent: &Agent| serde_json::to_value(agent.view(None, None)).unwrap();
+        assert_eq!(view(&agent)["teamCapable"], false);
+        // Blocking and per-session hooks without a format Hangar can write: not yet.
+        agent.capabilities = Capabilities {
+            pre_edit_block: true,
+            context_inject: false,
+            per_session_config: true,
+            hook_format: None,
+        };
+        assert_eq!(view(&agent)["teamCapable"], false);
+        // A format alone is not enough either.
+        agent.capabilities = Capabilities {
+            pre_edit_block: false,
+            context_inject: false,
+            per_session_config: true,
+            hook_format: Some(HookFormat::ClaudeSettings),
+        };
+        assert_eq!(view(&agent)["teamCapable"], false);
+        agent.capabilities.pre_edit_block = true;
+        assert_eq!(view(&agent)["teamCapable"], true);
+        assert_eq!(
+            agent.capabilities.gate_format(),
+            Some(HookFormat::ClaudeSettings)
+        );
+    }
+
+    #[test]
+    fn hook_format_parses_and_knows_its_own_arguments() {
+        let base = "[[agent]]
+id='x'
+name='X'
+commands=['x']
+";
+        let with_format = format!(
+            "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = 'claude_settings' }}
+"
+        );
+        let caps = parse(&with_format).unwrap()[0].capabilities;
+        assert_eq!(caps.gate_format(), Some(HookFormat::ClaudeSettings));
+        let unknown = format!(
+            "{base}capabilities = {{ hook_format = 'other_cli' }}
+"
+        );
+        assert!(parse(&unknown).is_err());
+        let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        let format = HookFormat::ClaudeSettings;
+        assert!(format.conflicts_with(&args(&["--settings", "user.json"])));
+        assert!(format.conflicts_with(&args(&["--settings=user.json"])));
+        assert!(!format.conflicts_with(&args(&["--model", "x"])));
     }
 }

@@ -301,6 +301,9 @@ request). Right click opens the menu. No window capability is needed for hiding;
 8. **Worktree**: option "Own worktree" in New session (only for git folders): `create_worktree`,
    then start in it. Sidebar marks such sessions. Closing removes the worktree
    (`remove_worktree`); if it stays, a notice says why.
+   Since 0.6.0 the own worktree is part of a team session and no option of its own: see
+   [[0008-private-and-team-sessions]]. The switch "Private | Team" below "Starts in" replaces the
+   checkbox and the "+ Worktree" button described below; the row's marker is the team icon.
    As built (`src/worktree.ts`): the option is a checkbox below "Starts in", enabled only while
    `git_branches` reports a branch for that folder (the folder is added to the status line's branch
    paths). It is not saved: it applies for the current run to every start in the "Starts in"

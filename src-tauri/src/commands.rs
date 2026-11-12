@@ -36,7 +36,7 @@ use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::secrets::{self, SecretError, SecretStatus};
-use crate::session::{SessionId, SessionInfo, SessionKind};
+use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
@@ -470,7 +470,10 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
     manager.list()
 }
 
+/// `mode`: private or team session (ADR 0008); without one, a private session, which never
+/// gets the agent gate and never reaches the team.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
 pub fn create_session(
     manager: Manager<'_>,
     profile_id: String,
@@ -479,14 +482,16 @@ pub fn create_session(
     on_event: Channel<SessionEvent>,
     resume: Option<bool>,
     cli_session_id: Option<String>,
+    mode: Option<SessionMode>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Optional, so existing calls without `resume` or `cliSessionId` stay valid.
+    // Optional, so existing calls without `resume`, `cliSessionId` or `mode` stay valid.
     manager.create_resuming(
         &profile_id,
         cwd,
         size,
         resume.unwrap_or(false),
         cli_session_id.as_deref(),
+        mode.unwrap_or_default(),
         channel_sink(on_event),
     )
 }

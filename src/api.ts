@@ -41,6 +41,11 @@ export interface Profile {
   env?: string[];
   /** Names of the variables whose values live in the OS keychain. */
   secretEnv?: string[];
+  /**
+   * Can run as a team session (startMode.ts): the catalog says the agent gate can be installed
+   * for it. Older backends send none.
+   */
+  teamCapable?: boolean;
 }
 
 /** What Settings saves with `saveProfile` (Rust: `ProfileInput` in profile_edit.rs). */
@@ -85,7 +90,15 @@ export interface SessionInfo {
   subAgents?: boolean;
   /** Whether the gate (gate.ts) watches the current process; older backends send none. */
   gate?: GateStatus;
+  /** Private or team session (ADR 0008); older backends send none. */
+  mode?: SessionMode;
 }
+
+/**
+ * Rust `SessionMode`: a private session has no agent gate and stays off the team; a team session
+ * runs in its own worktree with the gate and is visible to the team (startMode.ts).
+ */
+export type SessionMode = "private" | "team";
 
 /**
  * Rust `GateStatus`: "none" (not for this program, gate off, update session), "active", or why a
@@ -143,8 +156,17 @@ export const api = {
     onEvent: Channel<SessionEvent>,
     resume = false,
     cliSessionId: string | null = null,
+    mode: SessionMode = "private",
   ) =>
-    invoke<SessionInfo>("create_session", { profileId, cwd, size, onEvent, resume, cliSessionId }),
+    invoke<SessionInfo>("create_session", {
+      profileId,
+      cwd,
+      size,
+      onEvent,
+      resume,
+      cliSessionId,
+      mode,
+    }),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
    * its update plan; useful only when `ProgramUpdate.plan` is "run". `expectedPlan` is the

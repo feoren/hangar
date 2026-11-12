@@ -156,6 +156,20 @@
         "ru": "Три новых шрифта: Source Code Pro, IBM Plex Mono и Victor Mono, плюс больше системных. Новая страница настроек с живым предпросмотром.",
         "tr": "Üç yeni yazı tipi: Source Code Pro, IBM Plex Mono ve Victor Mono, ayrıca daha fazla sistem yazı tipi. Canlı önizlemeli yeni bir ayarlar sayfası.",
         "zh": "新增三种字体：Source Code Pro、IBM Plex Mono 和 Victor Mono，并支持更多系统字体。新的设置页面带实时预览。"
+      },
+      {
+        "de": "Unter „Startet in“ wählst du Privat oder Team. Eine Team-Session hat einen eigenen Worktree, fragt vor überschneidenden Änderungen und dein Team sieht sie.",
+        "en": "Below \"Starts in\" you pick Private or Team. A team session gets its own worktree, asks before overlapping edits and is visible to your team.",
+        "el": "Κάτω από το «Ξεκινά στο» διαλέγεις Ιδιωτική ή Ομάδα. Η ομαδική συνεδρία έχει δικό της worktree, ρωτά πριν από αλληλοεπικαλύψεις και τη βλέπει η ομάδα.",
+        "es": "Bajo «Empieza en» eliges Privada o Equipo. Una sesión de equipo tiene su propio worktree, pregunta antes de cambios que se solapan y la ve tu equipo.",
+        "fr": "Sous « Démarre dans », choisis Privée ou Équipe. Une session d'équipe a son worktree, demande avant les modifications croisées et ton équipe la voit.",
+        "it": "Sotto «Parte in» scegli Privata o Team. Una sessione di team ha il suo worktree, chiede prima di modifiche sovrapposte ed è visibile al tuo team.",
+        "ja": "「開始フォルダー」の下でプライベートかチームを選べます。チームセッションは専用の worktree を持ち、重なる変更の前に確認し、チームに表示されます。",
+        "pl": "Pod „Startuje w” wybierasz Prywatna lub Zespół. Sesja zespołowa ma własny worktree, pyta przed nakładającymi się zmianami i widzi ją twój zespół.",
+        "pt": "Abaixo de \"Começa em\" escolhes Privada ou Equipe. Uma sessão de equipe tem worktree próprio, pergunta antes de alterações sobrepostas e sua equipe a vê.",
+        "ru": "Под «Запуск в» выбирай «Личная» или «Команда». Командная сессия получает свой worktree, спрашивает перед пересекающимися изменениями и видна команде.",
+        "tr": "\"Başlangıç klasörü\" altında Özel veya Ekip seçersin. Ekip oturumu kendi worktree'sini alır, çakışan değişikliklerden önce sorar ve ekibine görünür.",
+        "zh": "在“启动位置”下方可选择私人或团队。团队会话拥有独立 worktree，重叠修改前会先询问，并且团队可见。"
       }
     ]
   },

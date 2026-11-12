@@ -23,10 +23,11 @@ import {
   PlusIcon,
   RestartIcon,
   StopIcon,
-  WorktreeIcon,
+  TeamIcon,
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
+import { startModeFor, teamPossible, type StartMode } from "./startMode";
 import {
   clampFooterHeight,
   FOOTER_HEIGHT,
@@ -119,8 +120,11 @@ interface Props {
   target: StartTarget;
   /** Project folders of the running sessions, for the folder menu. */
   runningProjects: readonly string[];
-  /** Whether the target can get an own worktree. */
+  /** Whether the target can get an own worktree, which a team session needs. */
   worktree: WorktreeChance;
+  /** The mode chosen with the switch below the target (startMode.ts), before any fallback. */
+  startMode: StartMode;
+  onStartMode: (mode: StartMode) => void;
   collapsed: boolean;
   width: number;
   footerHeight: number;
@@ -148,8 +152,8 @@ interface Props {
   onToggleCollapsed: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
-  /** Starts a program in the target; `ownWorktree` only when `worktree` is "yes". */
-  onStart: (profile: Profile, ownWorktree: boolean) => void;
+  /** Starts a program in the target, as the switch says (private or team session). */
+  onStart: (profile: Profile) => void;
   /** Profile IDs whose update session runs right now. */
   updatingPrograms: ReadonlySet<string>;
   /** Program whose update waits for "Update anyway" (it is running), otherwise `null`. */
@@ -341,6 +345,9 @@ export function Sidebar(props: Props) {
   /** Folder menu of the rail, opened from the program picker's first row. */
   const [railFolderMenu, setRailFolderMenu] = useState<{ x: number; y: number } | null>(null);
   const chosen = target.source === "chosen";
+  /** Team only where a worktree is possible; otherwise the next start is private. */
+  const teamOff = !teamPossible(props.worktree);
+  const mode: StartMode = teamOff ? "private" : props.startMode;
   const targetTitle = targetTooltip(target, t);
   const targetName = target.path === null ? t("sidebar.pickCwd") : folderName(target.path);
   const targetParent = target.path === null ? null : parentFolder(target.path);
@@ -423,38 +430,54 @@ export function Sidebar(props: Props) {
           setRailFolderMenu(programMenu);
         },
       },
-      ...(props.worktree === "no"
+      { type: "separator", key: "sep-mode" },
+      // The switch of the expanded sidebar as two entries; choosing one closes the menu.
+      {
+        type: "action",
+        key: "mode-private",
+        label: t("start.private"),
+        title: t("start.privateHint"),
+        current: mode === "private",
+        run: () => {
+          props.onStartMode("private");
+        },
+      },
+      {
+        type: "action",
+        key: "mode-team",
+        label: t("start.team"),
+        title: teamOff ? t("start.teamNoRepo") : t("start.teamHint"),
+        icon: <TeamIcon size={14} />,
+        current: mode === "team",
+        disabled: teamOff,
+        run: () => {
+          props.onStartMode("team");
+        },
+      },
+      ...(teamOff
         ? [
             {
               type: "note",
-              key: "no-worktree",
-              label: t("start.worktreeNoRepo"),
-              describes: "target",
+              key: "no-team",
+              label: t("start.teamNoRepo"),
+              describes: "mode-team",
             } as const,
           ]
         : []),
       { type: "separator", key: "sep-programs" },
       ...startable.map((profile): PopupItem => {
         const version = versions.get(profile.id);
+        const unsupported = startModeFor(mode, profile) === null;
         return {
           type: "action",
           key: profile.id,
           label: profile.name,
           ...(version === undefined ? {} : { detail: version }),
+          ...(unsupported ? { title: t("start.teamUnsupported", { name: profile.name }) } : {}),
           icon: <Badge look={badgeFor(profile.id)} />,
-          ...(props.worktree === "yes"
-            ? {
-                secondary: {
-                  label: t("start.withWorktree", { name: profile.name }),
-                  icon: <WorktreeIcon size={14} />,
-                  run: () => {
-                    props.onStart(profile, true);
-                  },
-                },
-              }
-            : {}),
+          disabled: unsupported,
           run: () => {
-            props.onStart(profile, false);
+            props.onStart(profile);
           },
         };
       }),
@@ -893,9 +916,7 @@ export function Sidebar(props: Props) {
             ref={cwdButton}
             type="button"
             className="cwd"
-            title={[targetTitle, props.worktree === "no" ? t("start.worktreeNoRepo") : ""]
-              .filter(Boolean)
-              .join("\n")}
+            title={targetTitle}
             aria-haspopup="menu"
             aria-expanded={folderMenu !== null}
             onClick={(event) => {
@@ -964,27 +985,34 @@ export function Sidebar(props: Props) {
             }}
           />
         )}
+        <StartModeSwitch
+          chosen={props.startMode}
+          chance={props.worktree}
+          onChange={props.onStartMode}
+        />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
           {startable.map((profile) => {
             const version = versions.get(profile.id);
             const programUpdate = props.updates.get(profile.id);
+            // Greyed out but still pointable, so its tooltip can say why.
+            const unsupported = startModeFor(mode, profile) === null;
             return (
-              <li key={profile.id} className="profile-row">
+              <li
+                key={profile.id}
+                className={unsupported ? "profile-row unsupported" : "profile-row"}
+              >
                 <button
                   type="button"
                   className="profile"
-                  title={[
-                    [profile.command, ...profile.args].join(" "),
-                    // The line below the folder is gone; Shift+click stays findable here.
-                    props.worktree === "yes"
-                      ? t("start.worktreeHint", { shift: t("key.shift") })
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join("\n")}
-                  onClick={(event) => {
-                    props.onStart(profile, event.shiftKey && props.worktree === "yes");
+                  aria-disabled={unsupported ? "true" : undefined}
+                  title={
+                    unsupported
+                      ? t("start.teamUnsupported", { name: profile.name })
+                      : [profile.command, ...profile.args].join(" ")
+                  }
+                  onClick={() => {
+                    if (!unsupported) props.onStart(profile);
                   }}
                 >
                   <Badge look={badgeFor(profile.id)} />
@@ -999,19 +1027,6 @@ export function Sidebar(props: Props) {
                   )}
                   <PlusIcon />
                 </button>
-                {props.worktree === "yes" && (
-                  <button
-                    type="button"
-                    className="profile-worktree"
-                    aria-label={t("start.withWorktree", { name: profile.name })}
-                    title={t("start.withWorktree", { name: profile.name })}
-                    onClick={() => {
-                      props.onStart(profile, true);
-                    }}
-                  >
-                    {t("start.worktreeButton")}
-                  </button>
-                )}
                 {programUpdate !== undefined && (
                   <ProgramUpdateOffer
                     className="in-sidebar"
@@ -1502,13 +1517,13 @@ function SessionItem({
               {session.worktree ? (
                 <span className="session-branch worktree">
                   <span aria-hidden="true">·</span>
-                  <WorktreeIcon size={11} />
+                  <TeamIcon size={11} />
                   <span className="sr-only">
                     {t("worktree.sessionHint", {
                       branch: revealInvisible(where.branch ?? session.worktree.branch),
                     })}
                   </span>
-                  {/* The icon already says "own worktree"; the "hangar/" prefix would only repeat it. */}
+                  {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
                   <span className="session-branch-name" aria-hidden="true">
                     <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
                   </span>
@@ -1605,21 +1620,66 @@ function railShowsChip(chip: ChipKind | null): chip is Exclude<ChipKind, "ended"
 }
 
 /**
- * One quiet line below the target about worktrees: how to start in an own worktree, or why that
- * is not possible here. Nothing while the answer is pending, so the line does not flicker.
+ * "Private | Team" below the target (startMode.ts), with one quiet line on what the mode means.
+ * Outside a git repository Team is greyed out and the line says why; the start then is private.
  */
-export function WorktreeHint({ chance }: { chance: WorktreeChance }) {
+export function StartModeSwitch({
+  chosen,
+  chance,
+  onChange,
+}: {
+  chosen: StartMode;
+  chance: WorktreeChance;
+  onChange: (mode: StartMode) => void;
+}) {
   const t = useT();
-  if (chance === "unknown") return null;
+  const name = useId();
+  const teamOff = !teamPossible(chance);
+  const mode = teamOff ? "private" : chosen;
+  const hint =
+    chosen === "team" && teamOff
+      ? t("start.teamNoRepo")
+      : t(mode === "team" ? "start.teamHint" : "start.privateHint");
+  const options: { value: StartMode; label: string; title: string; disabled: boolean }[] = [
+    {
+      value: "private",
+      label: t("start.private"),
+      title: t("start.privateHint"),
+      disabled: false,
+    },
+    {
+      value: "team",
+      label: t("start.team"),
+      title: teamOff ? t("start.teamNoRepo") : t("start.teamHint"),
+      disabled: teamOff,
+    },
+  ];
   return (
-    <p className={chance === "yes" ? "worktree-hint" : "worktree-hint off"}>
-      <WorktreeIcon size={12} />
-      <span>
-        {chance === "yes"
-          ? t("start.worktreeHint", { shift: t("key.shift") })
-          : t("start.worktreeNoRepo")}
-      </span>
-    </p>
+    <div className="start-mode">
+      <div className="segmented" role="radiogroup" aria-label={t("start.mode")}>
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className={option.disabled ? "segment disabled" : "segment"}
+            title={option.title}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={mode === option.value}
+              disabled={option.disabled}
+              onChange={() => {
+                onChange(option.value);
+              }}
+            />
+            {option.value === "team" && <TeamIcon size={12} />}
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      <p className={mode === "team" ? "start-mode-hint team" : "start-mode-hint"}>{hint}</p>
+    </div>
   );
 }
 

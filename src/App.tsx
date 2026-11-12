@@ -141,7 +141,15 @@ import {
   targetTooltip,
   worktreeChance,
 } from "./startTarget";
-import { WorktreeHint } from "./Sidebar";
+import { StartModeSwitch } from "./Sidebar";
+import {
+  effectiveMode,
+  loadStartMode,
+  saveStartMode,
+  sessionMode,
+  startModeFor,
+  type StartMode,
+} from "./startMode";
 import {
   backgroundSessions,
   initialSessions,
@@ -415,6 +423,12 @@ export function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   /** Folder chosen in the folder menu for the next start only (startTarget.ts). */
   const [chosenCwd, setChosenCwd] = useState<string | null>(null);
+  /** Private or team session for the next start, as the switch shows it (startMode.ts). */
+  const [startMode, setStartModeState] = useState<StartMode>(loadStartMode);
+  const setStartMode = useCallback((mode: StartMode) => {
+    setStartModeState(mode);
+    saveStartMode(mode);
+  }, []);
   const [home, setHome] = useState<string | null>(null);
   const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
@@ -1494,15 +1508,18 @@ export function App() {
   }, []);
 
   /**
-   * `folder`: start there instead of the start target (quick access). `ownWorktree`: first a
-   * git worktree with a branch of its own is created from that folder, and the session runs in it.
-   * A start in the target uses up a chosen folder: the next one follows the active session again.
+   * `folder`: start there instead of the start target (quick access). `mode` "team": first a git
+   * worktree with a branch of its own is created from that folder, and the session runs in it with
+   * the agent gate (ADR 0008). A start in the target uses up a chosen folder: the next one follows
+   * the active session again.
    */
   const start = useCallback(
-    async (profile: Profile, folder?: string, ownWorktree = false) => {
+    async (profile: Profile, folder?: string, mode: StartMode = "private") => {
       const base = folder ?? targetRef.current;
       let worktree: Worktree | undefined;
-      if (ownWorktree && base !== null) {
+      // A team session needs its worktree; without a folder there is none to make.
+      if (mode === "team" && base === null) return;
+      if (mode === "team" && base !== null) {
         setCreatingWorktree(true);
         try {
           const made = parseWorktree(await api.createWorktree(base, worktreeLabel(profile.name)));
@@ -1528,6 +1545,9 @@ export function App() {
           worktree?.path ?? base,
           INITIAL_SIZE,
           terminal.createChannel(),
+          false,
+          null,
+          sessionMode({ worktree }),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1748,6 +1768,8 @@ export function App() {
           terminal.createChannel(),
           true,
           saved.cliSessionId,
+          // Worktree sessions of older workspaces come back as team sessions.
+          sessionMode(saved),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1800,6 +1822,7 @@ export function App() {
             terminal.createChannel(),
             true,
             session.cliSessionId ?? null,
+            sessionMode(session),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -2848,9 +2871,14 @@ export function App() {
     branchPaths([...state.sessions, ...places.map((path) => ({ cwd: path }))]),
   );
   const worktree = worktreeChance(branches, targetPath);
-  /** Start in the target; `ownWorktree` only where git allows it. */
-  const startHere = (profile: Profile, ownWorktree = false) => {
-    void start(profile, undefined, ownWorktree && worktree === "yes");
+  /** The mode of the next start in the target: team only where a worktree is possible. */
+  const nextMode = effectiveMode(startMode, worktree);
+  /**
+   * Start in the target as the switch says. The sidebar greys out programs that cannot be team
+   * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
+   */
+  const startHere = (profile: Profile) => {
+    void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
@@ -3511,7 +3539,7 @@ export function App() {
         focusTerminal();
       },
       start: (profile, folder) => void start(profile, folder),
-      startInWorktree: (profile, folder) => void start(profile, folder, true),
+      startAsTeam: (profile, folder) => void start(profile, folder, "team"),
       toggleChanges,
       openNotes,
       insertSnippet,
@@ -3583,6 +3611,8 @@ export function App() {
           target={target}
           runningProjects={running}
           worktree={worktree}
+          startMode={startMode}
+          onStartMode={setStartMode}
           collapsed={layout.collapsed}
           width={layout.sidebarWidth}
           footerHeight={layout.footerHeight}
@@ -3905,14 +3935,22 @@ export function App() {
                     <ul className="empty-programs" aria-label={t("empty.programs")}>
                       {quick.map((profile) => {
                         const programVersion = programs.versions.get(profile.id);
+                        const unsupported = startModeFor(nextMode, profile) === null;
                         return (
                           <li key={profile.id}>
                             <button
                               type="button"
-                              className="empty-program"
-                              title={[profile.command, ...profile.args].join(" ")}
-                              onClick={(event) => {
-                                startHere(profile, event.shiftKey);
+                              className={
+                                unsupported ? "empty-program unsupported" : "empty-program"
+                              }
+                              aria-disabled={unsupported ? "true" : undefined}
+                              title={
+                                unsupported
+                                  ? t("start.teamUnsupported", { name: profile.name })
+                                  : [profile.command, ...profile.args].join(" ")
+                              }
+                              onClick={() => {
+                                if (!unsupported) startHere(profile);
                               }}
                             >
                               <Badge look={badgeFor(profile.id)} />
@@ -3921,19 +3959,6 @@ export function App() {
                                 <span className="empty-program-version">{programVersion}</span>
                               )}
                             </button>
-                            {worktree === "yes" && (
-                              <button
-                                type="button"
-                                className="link-button empty-worktree"
-                                aria-label={t("start.withWorktree", { name: profile.name })}
-                                title={t("start.withWorktree", { name: profile.name })}
-                                onClick={() => {
-                                  startHere(profile, true);
-                                }}
-                              >
-                                {t("start.worktreeButton")}
-                              </button>
-                            )}
                           </li>
                         );
                       })}
@@ -3985,7 +4010,7 @@ export function App() {
                       </>
                     )}
                   </p>
-                  <WorktreeHint chance={worktree} />
+                  <StartModeSwitch chosen={startMode} chance={worktree} onChange={setStartMode} />
                   <p className="keys">
                     {nextProgram && (
                       <>
