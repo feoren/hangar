@@ -120,14 +120,51 @@ impl Capabilities {
     /// settings would be replaced by the session's file (`admin_settings`,
     /// [`crate::hook_recipes::admin_settings_present`]).
     pub fn team_ready(self, version: Option<&str>, admin_settings: bool) -> bool {
-        self.gate()
-            && !admin_settings
-            && self.min_version.is_none_or(|min| {
-                version
-                    .and_then(MinVersion::parse)
-                    .is_some_and(|installed| installed >= min)
-            })
+        self.team_block(version, admin_settings).is_none()
     }
+
+    /// Why the program cannot be a team session on this machine, `None` when it can
+    /// ([`Capabilities::team_ready`]). Checked in the order the catalog and then the host decide:
+    /// no recipe, recipe not measured, administrator settings in the way, version unknown or
+    /// below the floor.
+    pub fn team_block(self, version: Option<&str>, admin_settings: bool) -> Option<TeamBlock> {
+        if !(self.pre_edit_block && self.per_session_config) || self.hook_format.is_none() {
+            return Some(TeamBlock::NoHooks);
+        }
+        if !self.measured {
+            return Some(TeamBlock::NotMeasured);
+        }
+        if admin_settings {
+            return Some(TeamBlock::AdminSettings);
+        }
+        let min = self.min_version?;
+        let Some(installed) = version.and_then(MinVersion::parse) else {
+            return Some(TeamBlock::UnknownVersion);
+        };
+        (installed < min).then(|| TeamBlock::BelowMinVersion {
+            min: min.to_string(),
+            installed: installed.to_string(),
+        })
+    }
+}
+
+/// Why a program cannot be a team session (`ProfileView::team_block`). `NoHooks` and
+/// `NotMeasured` come from the catalog and cannot be fixed on this machine; the others can:
+/// a version Hangar could not read, an older version, an administrator's settings file the
+/// session's would replace, or a working folder fixed in the profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TeamBlock {
+    NoHooks,
+    NotMeasured,
+    UnknownVersion,
+    #[serde(rename_all = "camelCase")]
+    BelowMinVersion {
+        min: String,
+        installed: String,
+    },
+    AdminSettings,
+    FixedFolder,
 }
 
 /// A version as dotted numbers (up to four parts, missing ones count as 0), for the comparison
@@ -155,6 +192,18 @@ impl MinVersion {
             count += 1;
         }
         (count > 0).then_some(Self(parts))
+    }
+}
+
+impl std::fmt::Display for MinVersion {
+    /// Three parts always, the fourth only when set: `1.19.5`, `1.2.3.4`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [major, minor, patch, build] = self.0;
+        write!(f, "{major}.{minor}.{patch}")?;
+        if build != 0 {
+            write!(f, ".{build}")?;
+        }
+        Ok(())
     }
 }
 
@@ -474,6 +523,7 @@ impl Agent {
             env: self.profile.env.keys().cloned().collect(),
             secret_env: self.profile.secret_env.clone(),
             team_capable: self.capabilities.gate(),
+            team_block: None,
         }
     }
 }
@@ -513,6 +563,9 @@ pub struct ProfileView {
     /// Can run as a team session: the agent gate can be installed for it
     /// ([`Capabilities::gate`]).
     pub team_capable: bool,
+    /// Why it cannot run as a team session on this machine (or, for `FixedFolder`, only in its
+    /// own folder); `None` when it can. Set by the manager, which knows version and settings.
+    pub team_block: Option<TeamBlock>,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -1303,6 +1356,70 @@ packages={ winget='x y' }
         // The catalog rejects a floor that is not a version.
         let bad = "[[agent]]\nid='x'\nname='X'\ncommands=['x']\ncapabilities = { min_version = 'soon' }\n";
         assert!(parse(bad).is_err());
+    }
+
+    #[test]
+    fn team_block_names_the_first_reason_the_program_cannot_be_a_team_session() {
+        let caps = Capabilities {
+            pre_edit_block: true,
+            per_session_config: true,
+            hook_format: Some(HookFormat::OpencodePlugin),
+            measured: true,
+            min_version: MinVersion::parse("1.19.5"),
+            ..Capabilities::default()
+        };
+        assert_eq!(caps.team_block(Some("1.19.5"), false), None);
+        assert_eq!(
+            caps.team_block(Some("1.18.0"), false),
+            Some(TeamBlock::BelowMinVersion {
+                min: "1.19.5".into(),
+                installed: "1.18.0".into()
+            })
+        );
+        assert_eq!(
+            caps.team_block(None, false),
+            Some(TeamBlock::UnknownVersion)
+        );
+        assert_eq!(
+            caps.team_block(Some("garbage"), false),
+            Some(TeamBlock::UnknownVersion)
+        );
+        // Administrator settings come before the version: updating would not help.
+        assert_eq!(
+            caps.team_block(Some("0.1.0"), true),
+            Some(TeamBlock::AdminSettings)
+        );
+        let unmeasured = Capabilities {
+            measured: false,
+            ..caps
+        };
+        assert_eq!(
+            unmeasured.team_block(Some("9.0.0"), true),
+            Some(TeamBlock::NotMeasured)
+        );
+        let no_recipe = Capabilities {
+            hook_format: None,
+            ..caps
+        };
+        assert_eq!(
+            no_recipe.team_block(Some("9.0.0"), false),
+            Some(TeamBlock::NoHooks)
+        );
+        assert_eq!(
+            Capabilities::default().team_block(None, false),
+            Some(TeamBlock::NoHooks)
+        );
+        // The window reads the reason by its `kind`.
+        let json = serde_json::to_value(caps.team_block(Some("1.0"), false)).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "belowMinVersion", "min": "1.19.5", "installed": "1.0.0"})
+        );
+        assert_eq!(
+            serde_json::to_value(TeamBlock::FixedFolder).unwrap(),
+            serde_json::json!({"kind": "fixedFolder"})
+        );
+        assert_eq!(MinVersion::parse("1.2.3.4").unwrap().to_string(), "1.2.3.4");
     }
 
     #[test]

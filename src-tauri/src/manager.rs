@@ -23,7 +23,7 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use serde::{Deserialize, Serialize, Serializer};
 use zeroize::Zeroizing;
 
-use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source};
+use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source, TeamBlock};
 use crate::batch;
 use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
@@ -443,16 +443,17 @@ pub trait VersionSource: Send + Sync {
     fn versions(&self, installed: &[(Agent, PathBuf)]) -> HashMap<String, Option<String>>;
 }
 
-/// Whether each of `agents` can be a team session on this machine
-/// ([`crate::agent_catalog::Capabilities::team_ready`]): the gate's catalog data, the installed
+/// Why each of `agents` cannot be a team session on this machine, `None` when it can
+/// ([`crate::agent_catalog::Capabilities::team_block`]): the gate's catalog data, the installed
 /// version against its floor, and no administrator's system settings in the way. Asks
-/// `versions` once, for the programs that need it.
-fn team_ready(
+/// `versions` once, for the programs that need it. A fixed working folder is not judged here:
+/// such a program can still be a team session that starts exactly there ([`team_allowed`]).
+fn team_blocks(
     agents: &[Agent],
     versions: Option<&dyn VersionSource>,
     path: Option<&std::ffi::OsStr>,
     pathext: Option<&std::ffi::OsStr>,
-) -> HashMap<String, bool> {
+) -> HashMap<String, Option<TeamBlock>> {
     let needing: Vec<(Agent, PathBuf)> = agents
         .iter()
         .filter(|agent| agent.capabilities.gate() && agent.capabilities.min_version.is_some())
@@ -472,10 +473,28 @@ fn team_ready(
             let version = known.get(agent.id()).and_then(Option::as_deref);
             (
                 agent.id().to_owned(),
-                capabilities.team_ready(version, admin),
+                capabilities.team_block(version, admin),
             )
         })
         .collect()
+}
+
+/// What the window shows for a program under "Team": the backend's reason it cannot be a team
+/// session, or `FixedFolder` for one that could but whose profile fixes a working folder that
+/// would replace the worktree.
+fn shown_team_block(agent: &Agent, block: Option<TeamBlock>) -> Option<TeamBlock> {
+    match block {
+        Some(block) => Some(block),
+        None if agent
+            .profile
+            .cwd
+            .as_ref()
+            .is_some_and(|cwd| !cwd.as_os_str().is_empty()) =>
+        {
+            Some(TeamBlock::FixedFolder)
+        }
+        None => None,
+    }
 }
 
 /// A team session needs the agent gate (a hook format for its program that works on this
@@ -603,13 +622,18 @@ impl SessionManager {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
         let agents = self.agents();
-        let ready = self.team_ready_for(&agents);
+        let blocks = self.team_blocks_for(&agents);
         agents
             .iter()
             .map(|agent| {
                 let mut view = agent.view(path.as_deref(), pathext.as_deref());
                 // Offered only where it works on this machine, not just in the catalog.
-                view.team_capable = ready.get(agent.id()).copied().unwrap_or(false);
+                let block = blocks
+                    .get(agent.id())
+                    .cloned()
+                    .unwrap_or(Some(TeamBlock::NoHooks));
+                view.team_capable = block.is_none();
+                view.team_block = shown_team_block(agent, block);
                 view
             })
             .collect()
@@ -630,17 +654,25 @@ impl SessionManager {
         *lock(&self.versions) = Some(source);
     }
 
-    /// [`team_ready`] for `agents` with this manager's version source.
-    fn team_ready_for(&self, agents: &[Agent]) -> HashMap<String, bool> {
+    /// [`team_blocks`] for `agents` with this manager's version source.
+    fn team_blocks_for(&self, agents: &[Agent]) -> HashMap<String, Option<TeamBlock>> {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
         let source = lock(&self.versions).clone();
-        team_ready(
+        team_blocks(
             agents,
             source.as_deref(),
             path.as_deref(),
             pathext.as_deref(),
         )
+    }
+
+    /// Whether each of `agents` can be a team session on this machine.
+    fn team_ready_for(&self, agents: &[Agent]) -> HashMap<String, bool> {
+        self.team_blocks_for(agents)
+            .into_iter()
+            .map(|(id, block)| (id, block.is_none()))
+            .collect()
     }
 
     /// Installed entries with their resolved program path, for version and icon queries.
@@ -1500,6 +1532,28 @@ mod tests {
         assert!(!has_own_settings(&args(&["--setting-sources", "user"])));
         assert!(!has_own_settings(&args(&["--settingsx", "-settings"])));
         assert!(!has_own_settings(&args(&[])));
+    }
+
+    #[test]
+    fn a_fixed_folder_is_shown_only_when_nothing_else_stands_in_the_way() {
+        let agent = |cwd: &str| {
+            let text = format!("id = 'x'\nname = 'X'\ncommand = 'x'\ncwd = '{cwd}'\n");
+            Agent::from_user(toml::from_str(&text).unwrap())
+        };
+        let fixed = agent("/work/fixed");
+        assert_eq!(shown_team_block(&fixed, None), Some(TeamBlock::FixedFolder));
+        assert_eq!(
+            shown_team_block(&fixed, Some(TeamBlock::UnknownVersion)),
+            Some(TeamBlock::UnknownVersion)
+        );
+        assert_eq!(shown_team_block(&agent(""), None), None);
+        let free =
+            Agent::from_user(toml::from_str("id = 'y'\nname = 'Y'\ncommand = 'y'\n").unwrap());
+        assert_eq!(shown_team_block(&free, None), None);
+        assert_eq!(
+            shown_team_block(&free, Some(TeamBlock::NoHooks)),
+            Some(TeamBlock::NoHooks)
+        );
     }
 
     #[test]

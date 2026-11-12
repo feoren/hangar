@@ -262,6 +262,7 @@ import {
   type TeammateOverlap,
 } from "./team";
 import { gateReady, useGate } from "./useGate";
+import { useRuleNotes } from "./useRuleNotes";
 import {
   decisionText,
   decisionToShow,
@@ -270,7 +271,7 @@ import {
   type GateAnswer,
   type PendingDecision,
 } from "./gate";
-import { GateCard } from "./GateCard";
+import { GateCard, GateRuleNote } from "./GateCard";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
@@ -968,6 +969,8 @@ export function App() {
     const text = decisionText(first, name, createTranslator(current.language));
     api.notifySession(first.sessionId, text.title, text.detail).catch(() => undefined);
   });
+  /** A remembered answer that replied for a session: a short note on its pane. */
+  const ruleNotes = useRuleNotes(gate.log);
   /** Pending decisions not answered here yet, oldest first. */
   const pendingGate = useMemo(
     () => gate.pending.filter((decision) => !answeredGate.has(decision.id)),
@@ -4130,6 +4133,9 @@ export function App() {
                     {shownDecision?.sessionId === session.id &&
                       shown.has(session.id) &&
                       gateCardFor(shownDecision, false)}
+                    {shownDecision?.sessionId !== session.id && (
+                      <GateRuleNote entry={ruleNotes.get(session.id)} />
+                    )}
                     {searchTerminal === terminal && search !== null && (
                       <SearchBar
                         key={search.sessionId}

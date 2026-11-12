@@ -3,7 +3,8 @@
 // gets the agent gate and is visible to the team in a shared project; a private one starts in the
 // folder itself, without the gate, and the team never sees it.
 
-import type { Profile, SessionMode, Worktree } from "./api";
+import type { Profile, SessionMode, TeamBlock, Worktree } from "./api";
+import type { Translate } from "./i18n";
 import type { WorktreeChance } from "./startTarget";
 
 export type StartMode = SessionMode;
@@ -100,4 +101,77 @@ export function sessionMode(
 /** The backend runs the session as a team session (its row shows the team marker). */
 export function isTeamSession(session: { mode?: SessionMode | undefined }): boolean {
   return session.mode === "team";
+}
+
+const BLOCK_KINDS: readonly TeamBlock["kind"][] = [
+  "noHooks",
+  "notMeasured",
+  "unknownVersion",
+  "belowMinVersion",
+  "adminSettings",
+  "fixedFolder",
+];
+
+/** The backend's reason, checked; anything malformed counts as none sent. */
+function backendBlock(value: unknown): TeamBlock | null {
+  if (typeof value !== "object" || value === null) return null;
+  const kind = BLOCK_KINDS.find((entry) => entry === Reflect.get(value, "kind"));
+  if (kind === undefined) return null;
+  if (kind !== "belowMinVersion") return { kind };
+  const min: unknown = Reflect.get(value, "min");
+  const installed: unknown = Reflect.get(value, "installed");
+  if (typeof min !== "string" || typeof installed !== "string") return { kind: "unknownVersion" };
+  return { kind, min, installed };
+}
+
+/** What `teamReason` needs from a profile; `teamBlock` is checked, as the backend sent it. */
+export type ReasonProfile = TeamProfile & { teamBlock?: unknown };
+
+/**
+ * Why a program cannot be a team session, with the backend's detail where it sent one (version,
+ * administrator settings); `null` when it can. Older backends send only `teamCapable`.
+ */
+export function teamReason(profile: ReasonProfile): TeamBlock | null {
+  const sent = backendBlock(profile.teamBlock);
+  if (sent !== null) return sent;
+  const local = teamBlock(profile);
+  return local === null ? null : { kind: local };
+}
+
+/** Reasons the person can do something about on this machine. */
+export type FixableTeamBlock = Exclude<TeamBlock, { kind: "noHooks" } | { kind: "notMeasured" }>;
+
+function fixable(block: TeamBlock | null): block is FixableTeamBlock {
+  return block !== null && block.kind !== "noHooks" && block.kind !== "notMeasured";
+}
+
+/**
+ * Installed programs that cannot be team sessions for a reason the person can fix (version
+ * unreadable or too old, administrator settings, a fixed folder), in list order. Programs without
+ * a recipe or measurement are left out: there is nothing to do about them.
+ */
+export function unavailableForTeam<P extends ReasonProfile & Pick<Profile, "installed">>(
+  profiles: readonly P[],
+): { profile: P; block: FixableTeamBlock }[] {
+  const found: { profile: P; block: FixableTeamBlock }[] = [];
+  for (const profile of profiles) {
+    if (!profile.installed) continue;
+    const block = teamReason(profile);
+    if (fixable(block)) found.push({ profile, block });
+  }
+  return found;
+}
+
+/** The short hint for one unavailable program: what stands in the way and what helps. */
+export function teamBlockHint(block: FixableTeamBlock, t: Translate): string {
+  switch (block.kind) {
+    case "unknownVersion":
+      return t("start.blockVersionUnknown");
+    case "belowMinVersion":
+      return t("start.blockVersionOld", { min: block.min, installed: block.installed });
+    case "adminSettings":
+      return t("start.blockAdmin");
+    case "fixedFolder":
+      return t("start.blockFixedFolder");
+  }
 }

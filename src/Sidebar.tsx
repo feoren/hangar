@@ -95,6 +95,7 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
+import { TeamUnavailable } from "./TeamUnavailable";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -1138,6 +1139,7 @@ export function Sidebar(props: Props) {
               );
             })}
         </ul>
+        {mode === "team" && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 
       {footer}

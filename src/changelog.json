@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Fragt Hangar vor einer Änderung nach, kannst du dir die Antwort für Datei oder Ordner im Projekt merken. Die Einstellungen zeigen Regeln und ihre Antworten.",
+        "en": "When Hangar asks before an edit, you can remember the answer for the file or folder in that project. Settings list the rules and what they answered.",
+        "el": "Όταν το Hangar ρωτά πριν από μια αλλαγή, θυμάσαι την απάντηση για αρχείο ή φάκελο στο έργο. Οι Ρυθμίσεις δείχνουν τους κανόνες και τι απάντησαν.",
+        "es": "Cuando Hangar pregunta antes de un cambio, puedes recordar la respuesta para el archivo o la carpeta del proyecto. Ajustes muestra reglas y respuestas.",
+        "fr": "Quand Hangar demande avant une modification, tu peux retenir la réponse pour le fichier ou le dossier du projet. Les Réglages listent règles et réponses.",
+        "it": "Quando Hangar chiede prima di una modifica, puoi ricordare la risposta per file o cartella nel progetto. Le Impostazioni mostrano regole e risposte.",
+        "ja": "変更の前に Hangar が確認するとき、その回答をプロジェクト内のファイルやフォルダーに記憶できます。設定でルールと自動回答を確認できます。",
+        "pl": "Gdy Hangar pyta przed zmianą, możesz zapamiętać odpowiedź dla pliku lub folderu w projekcie. Ustawienia pokazują reguły i ich odpowiedzi.",
+        "pt": "Quando o Hangar pergunta antes de uma alteração, você pode lembrar a resposta para o arquivo ou a pasta no projeto. Configurações mostram regras e respostas.",
+        "ru": "Когда Hangar спрашивает перед изменением, ответ можно запомнить для файла или папки в проекте. В Настройках видны правила и их ответы.",
+        "tr": "Hangar bir değişiklikten önce sorduğunda, yanıtı projedeki dosya veya klasör için hatırlayabilirsin. Ayarlar kuralları ve verdikleri yanıtları gösterir.",
+        "zh": "Hangar 在更改前询问时，你可以为项目中的文件或文件夹记住回答。设置中会列出这些规则及其自动回答。"
+      },
+      {
+        "de": "Unter Team steht, welche installierten Agenten gerade nicht als Team-Session laufen können und warum, etwa eine zu alte Version.",
+        "en": "Under Team, a quiet line says which installed agents cannot run as a team session right now and why, such as a version that is too old.",
+        "el": "Στην Ομάδα, μια διακριτική γραμμή λέει ποιοι εγκατεστημένοι πράκτορες δεν τρέχουν τώρα ως συνεδρία ομάδας και γιατί, π.χ. παλιά έκδοση.",
+        "es": "En Equipo, una línea discreta indica qué agentes instalados no pueden ejecutarse ahora como sesión de equipo y por qué, por ejemplo una versión antigua.",
+        "fr": "Sous Équipe, une ligne discrète indique quels agents installés ne peuvent pas être une session d’équipe et pourquoi, par ex. une version trop ancienne.",
+        "it": "Sotto Team, una riga discreta indica quali agenti installati non possono essere ora una sessione di team e perché, ad esempio una versione vecchia.",
+        "ja": "チームの下に、今チームセッションとして実行できないインストール済みエージェントとその理由 (古いバージョンなど) が控えめに表示されます。",
+        "pl": "W sekcji Zespół dyskretna linia mówi, którzy zainstalowani agenci nie mogą teraz działać jako sesja zespołu i dlaczego, np. zbyt stara wersja.",
+        "pt": "Em Equipe, uma linha discreta diz quais agentes instalados não podem rodar agora como sessão de equipe e por quê, por exemplo uma versão antiga.",
+        "ru": "В разделе «Команда» неприметная строка показывает, какие установленные агенты сейчас не могут быть командной сессией и почему, например старая версия.",
+        "tr": "Ekip altında sade bir satır, hangi kurulu ajanların şu an ekip oturumu olarak çalışamadığını ve nedenini, örneğin eski bir sürümü gösterir.",
+        "zh": "在“团队”下方，一行提示会说明哪些已安装的代理目前无法作为团队会话运行及原因，例如版本过旧。"
+      },
+      {
         "de": "Im Tab Dateien öffnet ein Doppelklick oder Enter eine Datei in einem eigenen Fenster zum Lesen, mit Zeilennummern, Einklappen und Suche.",
         "en": "In the Files tab, a double click or Enter opens a file in its own read-only window, with line numbers, folding and search.",
         "el": "Στην καρτέλα Αρχεία, διπλό κλικ ή Enter ανοίγει ένα αρχείο σε δικό του παράθυρο μόνο για ανάγνωση, με αριθμούς γραμμών, σύμπτυξη και αναζήτηση.",

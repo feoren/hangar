@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gate-rules"
+description = "Enables the gate_rules command without any pre-configured scope."
+commands.allow = ["gate_rules"]
+
+[[permission]]
+identifier = "deny-gate-rules"
+description = "Denies the gate_rules command without any pre-configured scope."
+commands.deny = ["gate_rules"]

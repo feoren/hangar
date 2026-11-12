@@ -12,7 +12,45 @@ import { revealInvisible } from "./invisible";
 /** `sameArea`: only a teammate's reserved folder covers the file. */
 export type GateLevel = "sameArea" | "sameFile" | "overlappingLines";
 
-export type GateAnswer = "allowOnce" | "allowFile" | "deny";
+/**
+ * `alwaysFile`, `alwaysFolder`, `neverFile`, `neverFolder` answer this edit and set a gate
+ * rule for the project, which the backend applies to later asks without a card.
+ */
+export type GateAnswer =
+  "allowOnce" | "allowFile" | "deny" | "alwaysFile" | "alwaysFolder" | "neverFile" | "neverFolder";
+
+export type RuleEffect = "allow" | "deny";
+export type RuleScope = "file" | "folder";
+
+/** One edit a gate rule answered without asking (Rust: `RuleAnswer` in gate_rules.rs). */
+export interface RuleAnswer {
+  /** Increasing per app run. */
+  id: number;
+  /** Unix ms. */
+  at: number;
+  sessionId: number;
+  /** The session's title when the rule answered. */
+  session: string;
+  projectName: string;
+  /** The edited file, relative to the worktree. */
+  path: string;
+  ruleId: number;
+  rulePath: string;
+  scope: RuleScope;
+  effect: RuleEffect;
+}
+
+/** A gate rule of one project (Rust: `GateRule` in gate_rules.rs). */
+export interface GateRule {
+  id: number;
+  projectName: string;
+  /** Relative to the worktree, `/` separators. */
+  path: string;
+  scope: RuleScope;
+  effect: RuleEffect;
+  /** Unix ms. */
+  createdAt: number;
+}
 
 /** One edit waiting for the person's answer (Rust: `PendingDecision`). */
 export interface PendingDecision {
@@ -42,9 +80,100 @@ export interface GateSnapshot {
   enabled: boolean;
   /** Oldest first (by id). */
   pending: PendingDecision[];
+  /** Edits gate rules answered, newest first; older backends send none. */
+  log: RuleAnswer[];
 }
 
-export const EMPTY_GATE: GateSnapshot = { enabled: false, pending: [] };
+export const EMPTY_GATE: GateSnapshot = { enabled: false, pending: [], log: [] };
+
+const EFFECTS: readonly RuleEffect[] = ["allow", "deny"];
+const SCOPES: readonly RuleScope[] = ["file", "folder"];
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+function parseRuleAnswer(value: unknown): RuleAnswer | null {
+  const id = field(value, "id");
+  const at = field(value, "at");
+  const sessionId = field(value, "sessionId");
+  const ruleId = field(value, "ruleId");
+  const session = field(value, "session");
+  const projectName = field(value, "projectName");
+  const path = text(field(value, "path"));
+  const rulePath = text(field(value, "rulePath"));
+  const scope = SCOPES.find((entry) => entry === field(value, "scope"));
+  const effect = EFFECTS.find((entry) => entry === field(value, "effect"));
+  if (!isCount(id) || !isCount(at) || !isCount(sessionId) || !isCount(ruleId)) return null;
+  if (typeof session !== "string" || typeof projectName !== "string") return null;
+  if (path === null || rulePath === null || scope === undefined || effect === undefined) {
+    return null;
+  }
+  return { id, at, sessionId, session, projectName, path, ruleId, rulePath, scope, effect };
+}
+
+function parseRule(value: unknown): GateRule | null {
+  const id = field(value, "id");
+  const createdAt = field(value, "createdAt");
+  const projectName = field(value, "projectName");
+  const path = text(field(value, "path"));
+  const scope = SCOPES.find((entry) => entry === field(value, "scope"));
+  const effect = EFFECTS.find((entry) => entry === field(value, "effect"));
+  if (!isCount(id) || !isCount(createdAt) || typeof projectName !== "string") return null;
+  if (path === null || scope === undefined || effect === undefined) return null;
+  return { id, projectName, path, scope, effect, createdAt };
+}
+
+/**
+ * The answer of `gate_rules`, sorted by project, then path. Malformed entries are left out, so
+ * one broken rule never hides the others from Settings, where they can be deleted.
+ */
+export function parseGateRules(value: unknown): GateRule[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(parseRule)
+    .filter((rule): rule is GateRule => rule !== null)
+    .sort(
+      (a, b) =>
+        a.projectName.localeCompare(b.projectName) || a.path.localeCompare(b.path) || a.id - b.id,
+    );
+}
+
+/** The folder a "for this folder" answer covers; `null` for a file at the top of the project. */
+export function ruleFolder(path: string): string | null {
+  const slash = path.lastIndexOf("/");
+  return slash > 0 ? path.slice(0, slash) : null;
+}
+
+/** How long the short note of a rule's answer stays on its session. */
+export const RULE_NOTE_MS = 6000;
+
+/**
+ * Log entries newer than `lastSeen` (an entry id) and younger than `RULE_NOTE_MS` at `now`,
+ * oldest first, for the short note. The age keeps a reloaded window from replaying old answers.
+ */
+export function freshRuleAnswers(
+  lastSeen: number,
+  log: readonly RuleAnswer[],
+  now: number,
+): RuleAnswer[] {
+  return log
+    .filter((entry) => entry.id > lastSeen && now - entry.at < RULE_NOTE_MS)
+    .sort((a, b) => a.id - b.id);
+}
+
+/** "src/auth/" for a folder rule, the path itself for a file rule. */
+export function rulePathLabel(path: string, scope: RuleScope): string {
+  return scope === "folder" ? `${revealInvisible(path)}/` : revealInvisible(path);
+}
+
+/** The short note a rule's answer leaves on the session: "Rule allowed src/x.ts (src/)". */
+export function ruleAnswerText(entry: RuleAnswer, t: Translate): string {
+  return t(entry.effect === "allow" ? "gate.ruleAllowed" : "gate.ruleDenied", {
+    path: revealInvisible(entry.path),
+    rule: rulePathLabel(entry.rulePath, entry.scope),
+  });
+}
 
 const LEVELS: readonly GateLevel[] = ["sameArea", "sameFile", "overlappingLines"];
 
@@ -103,12 +232,18 @@ export function parseGateSnapshot(value: unknown): GateSnapshot | null {
   if (typeof enabled !== "boolean" || pending === null) return null;
   const ids = new Set(pending.map((decision) => decision.id));
   if (ids.size !== pending.length) return null;
+  // The log only informs: a malformed entry is dropped, never the decisions with it.
+  const rawLog = field(value, "log");
+  const log = (Array.isArray(rawLog) ? rawLog : [])
+    .map(parseRuleAnswer)
+    .filter((entry): entry is RuleAnswer => entry !== null)
+    .sort((a, b) => b.id - a.id);
   // The backend sends them oldest first; sorting again costs nothing and keeps the queue honest.
-  return { enabled, pending: [...pending].sort((a, b) => a.id - b.id) };
+  return { enabled, pending: [...pending].sort((a, b) => a.id - b.id), log };
 }
 
 /** Sessions with at least one pending decision. */
-export function waitingSessions(snapshot: GateSnapshot): Set<number> {
+export function waitingSessions(snapshot: Pick<GateSnapshot, "enabled" | "pending">): Set<number> {
   return new Set(snapshot.pending.map((decision) => decision.sessionId));
 }
 
@@ -135,7 +270,7 @@ export function decisionToShow(
  */
 export function freshDecisions(
   seen: ReadonlySet<number>,
-  snapshot: GateSnapshot,
+  snapshot: Pick<GateSnapshot, "enabled" | "pending">,
 ): PendingDecision[] {
   return snapshot.pending.filter((decision) => !seen.has(decision.id));
 }

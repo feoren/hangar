@@ -163,6 +163,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Geteilter Ordner                                | shared folder                     | several sessions in one folder share its changes                                     |
 | Sperre vor dem Bearbeiten                       | gate                              | `gate.ts`; holds an agent's edit of a file another session is changing               |
 | Offene Entscheidung                             | pending decision                  | `PendingDecision`; allow once, allow for this file or deny                           |
+| Gemerkte Antwort (Gate-Regel)                   | gate rule                         | `gate_rules.rs`; always or never, for a file or folder of one project                |
+| Automatisch beantwortet (Gate-Protokoll)        | rule log                          | `RuleAnswer`; the last edits a gate rule answered, newest first                      |
+| Grund (nicht teamfähig)                         | team block                        | `TeamBlock`; why a program cannot be a team session on this machine                  |
 | Reservierung (Aufgabe)                          | reservation                       | `reservation.rs` (protocol crate); first wins, expires when idle                     |
 | Freigabe-Anfrage                                | release request                   | asks the holder of a reservation to hand the task over                               |
 | Halter (einer Reservierung)                     | holder                            | member and device holding a reservation                                              |

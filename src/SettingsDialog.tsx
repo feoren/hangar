@@ -4,6 +4,7 @@ import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
 
 import { Dialog } from "./Dialog";
+import { GateRulesSettings } from "./GateRulesSettings";
 import {
   isLanguage,
   LANGUAGE_NAMES,
@@ -506,6 +507,7 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
           <> {t("settings.gateNeedsClaims", { setting: t("settings.claims") })}</>
         )}
       </p>
+      <GateRulesSettings language={settings.language} />
     </section>
   );
 }

@@ -6,7 +6,13 @@ import {
   decisionToShow,
   EMPTY_GATE,
   freshDecisions,
+  freshRuleAnswers,
   gateHint,
+  parseGateRules,
+  ruleAnswerText,
+  ruleFolder,
+  RULE_NOTE_MS,
+  type RuleAnswer,
   gateSetup,
   parseGateSnapshot,
   waitingSessions,
@@ -42,11 +48,103 @@ function decision(overrides: Partial<PendingDecision> = {}): PendingDecision {
   return { ...rawDecision, reserved: [], level: "overlappingLines", ...overrides };
 }
 
+const rawAnswer = {
+  id: 4,
+  at: 1_762_700_000_000,
+  sessionId: 1,
+  session: "Claude Code",
+  projectName: "app",
+  path: "src/auth/login.ts",
+  ruleId: 2,
+  rulePath: "src/auth",
+  scope: "folder",
+  effect: "allow",
+};
+
+describe("remembered answers", () => {
+  it("reads the log and keeps the decisions when a log entry is malformed", () => {
+    const parsed = parseGateSnapshot({
+      enabled: true,
+      pending: [rawDecision],
+      log: [
+        { ...rawAnswer, id: 3 },
+        rawAnswer,
+        { ...rawAnswer, id: 5, effect: "maybe" },
+        { ...rawAnswer, id: 6, path: "" },
+        "garbage",
+      ],
+    });
+    expect(parsed?.pending).toHaveLength(1);
+    expect(parsed?.log.map((entry) => entry.id)).toEqual([4, 3]);
+    // Older backends send no log.
+    expect(parseGateSnapshot({ enabled: true, pending: [] })?.log).toEqual([]);
+  });
+
+  it("parses rules tolerantly and sorts them by project and path", () => {
+    const rule = {
+      id: 1,
+      projectName: "web",
+      path: "src",
+      scope: "folder",
+      effect: "deny",
+      createdAt: 1,
+    };
+    const rules = parseGateRules([
+      rule,
+      { ...rule, id: 2, projectName: "app", path: "z.ts", scope: "file", effect: "allow" },
+      { ...rule, id: 3, projectName: "app", path: "a.ts", scope: "file" },
+      { ...rule, id: 4, scope: "everything" },
+      { ...rule, id: -1 },
+      null,
+    ]);
+    expect(rules.map((entry) => entry.id)).toEqual([3, 2, 1]);
+    expect(parseGateRules("nope")).toEqual([]);
+  });
+
+  it("offers a folder only for a file below the top of the project", () => {
+    expect(ruleFolder("src/auth/login.ts")).toBe("src/auth");
+    expect(ruleFolder("README.md")).toBeNull();
+    expect(ruleFolder("/x")).toBeNull();
+  });
+
+  it("shows each automatic answer once and only while it is new", () => {
+    const answer = (id: number, at: number): RuleAnswer => ({
+      ...rawAnswer,
+      scope: "folder",
+      effect: "allow",
+      id,
+      at,
+    });
+    const now = 1_000_000;
+    const log = [answer(3, now - 100), answer(2, now - 200), answer(1, now - RULE_NOTE_MS - 1)];
+    expect(freshRuleAnswers(0, log, now).map((entry) => entry.id)).toEqual([2, 3]);
+    expect(freshRuleAnswers(2, log, now).map((entry) => entry.id)).toEqual([3]);
+    expect(freshRuleAnswers(3, log, now)).toEqual([]);
+  });
+
+  it("names the file and the rule in the note", () => {
+    const allowed: RuleAnswer = { ...rawAnswer, scope: "folder", effect: "allow" };
+    expect(ruleAnswerText(allowed, t)).toBe(
+      "Remembered answer: src/auth/login.ts allowed (src/auth/)",
+    );
+    const denied: RuleAnswer = {
+      ...allowed,
+      effect: "deny",
+      scope: "file",
+      rulePath: allowed.path,
+    };
+    expect(ruleAnswerText(denied, t)).toBe(
+      "Remembered answer: src/auth/login.ts refused (src/auth/login.ts)",
+    );
+  });
+});
+
 describe("parseGateSnapshot", () => {
   it("accepts the backend's snapshot", () => {
     expect(parseGateSnapshot({ enabled: true, pending: [rawDecision] })).toEqual({
       enabled: true,
       pending: [decision()],
+      log: [],
     });
     expect(parseGateSnapshot({ enabled: false, pending: [] })).toEqual(EMPTY_GATE);
   });

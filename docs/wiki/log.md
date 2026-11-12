@@ -582,3 +582,10 @@ The in-process plugins look tools up as own keys only, read patch text only from
 named fields, take paths as given, and drop `@` and expand `~` only for Pi.
 Pages changed: [[opencode-gate-live-measurement]], [[agent-gate-adapters]],
 [[agent-hooks-remaining-agents-research]], index.
+
+## [2026-11-12] query | Gate rules and team-capability reasons
+Filed the design of two gate additions: remembered answers ("always" or "never" for a file or
+folder of one project, applied in `gate_service.rs` before the window is asked, deny wins, stored
+tolerantly in `gate-rules.json`, a log of automatic answers) and `TeamBlock`, the reason a program
+cannot be a team session, shown as one collapsed line under Team for fixable reasons only.
+Pages changed: [[gate-rules]] (new), [[agent-gate-adapters]], index.
