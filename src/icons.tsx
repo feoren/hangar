@@ -470,3 +470,14 @@ export function FilesIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Three stacked panes: a workspace template, a set of sessions started together. */
+export function TemplateIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 2.2l5.6 2.8L8 7.8 2.4 5z" />
+      <path d="M2.4 8L8 10.8 13.6 8" />
+      <path d="M2.4 11L8 13.8 13.6 11" />
+    </Svg>
+  );
+}

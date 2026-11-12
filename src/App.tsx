@@ -45,7 +45,7 @@ import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
 import { notificationText, shouldNotify } from "./desktopNotify";
-import { branchPaths } from "./gitBranches";
+import { branchPaths, parseBranches } from "./gitBranches";
 import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
@@ -60,6 +60,7 @@ import {
   loadFolderPrefs,
   moveFavorite,
   recordRecent,
+  samePath,
   saveFolderPrefs,
   setFolderColor,
   toggleFavorite,
@@ -70,10 +71,11 @@ import {
   detectLanguage,
   I18nContext,
   setCurrentLanguage,
+  type MessageKey,
   type Translate,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
-import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon } from "./icons";
+import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon, TemplateIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
@@ -284,7 +286,35 @@ import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
 import { SessionSearchDialog } from "./SessionSearchDialog";
 import type { LineMatch } from "./sessionSearch";
 import { FilesPanel, type MentionDrag } from "./FilesPanel";
-import { takesMention } from "./fileTree";
+import { mentionText, takesMention } from "./fileTree";
+import { fileOf, forgetFile, rememberFile } from "./fileContext";
+import { parseGitDiff } from "./gitDiff";
+import {
+  capDiff,
+  expandVariables,
+  missingSummary,
+  usedVariables,
+  type SnippetVariable,
+  type VariableValues,
+} from "./snippetVariables";
+import {
+  deleteTemplate,
+  loadTemplates,
+  planTemplate,
+  renameTemplate,
+  saveTemplates,
+  storeTemplate,
+  templateFolders,
+  templateReport,
+  templateSession,
+  type TemplateSession,
+  type WorkspaceTemplate,
+} from "./templates";
+import {
+  RenameTemplateDialog,
+  SaveTemplateDialog,
+  type TemplateCandidate,
+} from "./TemplateDialogs";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
 import {
@@ -328,6 +358,18 @@ type OpenDialog =
 const BROADCAST_ENTER_DELAY_MS = 80;
 /** Snippets listed directly in the terminal context menu; more are in quick access. */
 const MENU_SNIPPETS = 5;
+
+/** Why a snippet variable has no value, for the notice that stops sending. */
+const MISSING_REASONS: Record<SnippetVariable, MessageKey> = {
+  file: "snippets.missingFile",
+  branch: "snippets.missingBranch",
+  selection: "snippets.missingSelection",
+  diff: "snippets.missingDiff",
+  folder: "snippets.missingFolder",
+};
+
+/** A text with its variables filled for one session, or what is missing there. */
+type Filled = { ok: true; text: string } | { ok: false; details: string };
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
 const WORKSPACE_SAVE_DELAY_MS = 400;
@@ -519,6 +561,14 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
+  /** Workspace templates (templates.ts), stored per machine like the folders. */
+  const [templates, setTemplates] = useState<WorkspaceTemplate[]>(loadTemplates);
+  /** A template is starting its sessions; another start waits until it is done. */
+  const templateStarting = useRef(false);
+  /** Save or rename dialog of the templates. */
+  const [templateDialog, setTemplateDialog] = useState<
+    { kind: "save" } | { kind: "rename"; id: string } | null
+  >(null);
   /** Search bar of a session; `token` changes on every Ctrl+Shift+F to refocus the field. */
   const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
   /** Pane under files dragged from the file manager. */
@@ -838,9 +888,20 @@ export function App() {
     saveFolderPrefs(folders);
   }, [folders]);
 
+  // Not on the first render: an unreadable stored list stays as it is until the user changes one.
+  const templatesLoaded = useRef(false);
   useEffect(() => {
-    modalRef.current = dialog !== null || closingId !== null || markerId !== null;
-  }, [dialog, closingId, markerId]);
+    if (!templatesLoaded.current) {
+      templatesLoaded.current = true;
+      return;
+    }
+    saveTemplates(templates);
+  }, [templates]);
+
+  useEffect(() => {
+    modalRef.current =
+      dialog !== null || closingId !== null || markerId !== null || templateDialog !== null;
+  }, [dialog, closingId, markerId, templateDialog]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -1630,14 +1691,23 @@ export function App() {
    * `folder`: start there instead of the start target (quick access). `mode` "team": first a git
    * worktree with a branch of its own is created from that folder, and the session runs in it with
    * the agent gate (ADR 0008). A start in the target uses up a chosen folder: the next one follows
-   * the active session again.
+   * the active session again. `title`: a name chosen beforehand (workspace templates). `onError`
+   * takes a failure's text instead of the error notice (a template reports once at the end).
+   * Resolves to whether the session runs.
    */
   const start = useCallback(
-    async (profile: Profile, folder?: string, mode: StartMode = "private") => {
+    async (
+      profile: Profile,
+      folder?: string,
+      mode: StartMode = "private",
+      title?: string,
+      onError?: (text: string) => void,
+    ): Promise<boolean> => {
+      const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
       let worktree: Worktree | undefined;
       // A team session needs its worktree; without a folder there is none to make.
-      if (mode === "team" && base === null) return;
+      if (mode === "team" && base === null) return false;
       if (mode === "team" && base !== null) {
         setCreatingWorktree(true);
         try {
@@ -1645,8 +1715,8 @@ export function App() {
           if (made === null) throw new Error(t("error.unknown"));
           worktree = made;
         } catch (e) {
-          setError(createErrorText(e, t));
-          return;
+          fail(createErrorText(e, t));
+          return false;
         } finally {
           setCreatingWorktree(false);
         }
@@ -1677,15 +1747,15 @@ export function App() {
           ...claimedTitles.current.values(),
         ];
         // In an own worktree the branch tells sessions apart: "Claude Code · 1a2b3c".
-        const title = numberedTitle(
-          worktree ? worktreeTitle(info.title, worktree.branch) : info.title,
+        const named = numberedTitle(
+          title ?? (worktree ? worktreeTitle(info.title, worktree.branch) : info.title),
           others,
         );
-        claimedTitles.current.set(info.id, title);
+        claimedTitles.current.set(info.id, named);
         if (folder === undefined) setChosenCwd(null);
         dispatch({
           type: "added",
-          session: await withTitle(info, title),
+          session: await withTitle(info, named),
           ...(worktree ? { worktree } : {}),
         });
         saveLastProgram(profile.id);
@@ -1698,11 +1768,13 @@ export function App() {
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
         }
+        return true;
       } catch (e) {
         terminal.dispose();
-        showError(e);
+        fail(errorText(e));
         // Nothing runs in the new worktree yet: take it away again (never forced).
         if (worktree) api.removeWorktree(worktree).catch(() => undefined);
+        return false;
       }
     },
     [
@@ -1711,7 +1783,6 @@ export function App() {
       theme,
       terminalLook,
       settings.scrollbackLines,
-      showError,
       wire,
       withTitle,
       t,
@@ -2018,6 +2089,7 @@ export function App() {
         terminal.dispose();
       }
       terminals.delete(id);
+      forgetFile(id);
       dispatch({ type: "removed", id });
       forgetAttention(id);
       setDevServers((current) => {
@@ -2807,6 +2879,7 @@ export function App() {
 
   /** Quick access chose a file of the active session: the read-only viewer shows it. */
   const openFile = (sessionId: number, path: string) => {
+    rememberFile(sessionId, path);
     api.openFileViewer(sessionId, path).catch((e: unknown) => {
       setError(t("files.openFailed", { error: errorText(e) }));
     });
@@ -3036,26 +3109,101 @@ export function App() {
       .catch(showError)
       .finally(focusActive);
   };
-  /** Snippet into the visible session, like pasting: bracketed paste, no Enter. */
+  /**
+   * The values of snippet variables for one session, read right now (snippetVariables.ts).
+   * Anything unavailable stays out; git errors count as unavailable.
+   */
+  const variableValues = async (
+    id: number,
+    names: readonly SnippetVariable[],
+  ): Promise<VariableValues> => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return {};
+    const cwd = session.cwd;
+    const values: VariableValues = {};
+    const reads = names.map(async (name) => {
+      switch (name) {
+        case "folder":
+          values.folder = cwd;
+          break;
+        case "selection":
+          values.selection = terminals.get(id)?.selectionText() ?? "";
+          break;
+        case "file": {
+          const path = fileOf(id);
+          if (path !== null) values.file = mentionText(path, false).trimEnd();
+          break;
+        }
+        case "branch": {
+          const branches = parseBranches(await api.gitBranches([cwd]).catch(() => null));
+          const found = [...branches].find(([path]) => samePath(path, cwd));
+          const branch = found?.[1] ?? null;
+          if (branch !== null) values.branch = branch;
+          break;
+        }
+        case "diff": {
+          const diff = parseGitDiff(await api.gitDiff(cwd).catch(() => null));
+          if (diff?.isRepo === true && diff.diff.trim() !== "") {
+            values.diff = capDiff(diff.diff, (count) => t("snippets.diffCut", { count }));
+          }
+          break;
+        }
+      }
+    });
+    await Promise.all(reads);
+    return values;
+  };
+
+  /** Fills a text's variables for one session; text without variables passes unchanged. */
+  const fillVariables = async (id: number, text: string): Promise<Filled> => {
+    const used = usedVariables(text);
+    // Unknown names stay as written (Jinja or Mustache examples in a prompt).
+    if (used.known.length === 0) return { ok: true, text };
+    const result = expandVariables(text, await variableValues(id, used.known));
+    if (result.ok) return { ok: true, text: result.text };
+    return {
+      ok: false,
+      details: missingSummary(result.missing, (name) => t(MISSING_REASONS[name])),
+    };
+  };
+
+  /**
+   * Snippet into the visible session, like pasting: bracketed paste, no Enter. Its variables are
+   * filled first; when one has no value, nothing is pasted and a notice names what is missing.
+   */
   const insertSnippet = (snippet: Snippet) => {
     const session = activeSession;
     const terminal = activeTerminal();
     if (!session || session.status === "exited" || !terminal) return;
-    pasteIntoSession(session.id, snippet.text);
+    const id = session.id;
+    void fillVariables(id, snippet.text).then((filled) => {
+      if (filled.ok) pasteIntoSession(id, filled.text);
+      else setError(t("snippets.notSent", { details: filled.details }));
+    });
   };
 
   /**
-   * Text to several sessions: each gets it as a bracketed paste, then Enter as a separate write.
-   * Afterwards the split view shows up to four of them.
+   * Text to several sessions: each gets it with its own variable values as a bracketed paste,
+   * then Enter as a separate write. Afterwards the split view shows up to four of them. When a
+   * session lacks a value nothing is sent at all, and the answer names the session and the gap.
    */
-  const sendToSeveral = (text: string, ids: number[]) => {
+  const sendToSeveral = async (text: string, ids: number[]): Promise<string | null> => {
+    const filled = await Promise.all(
+      ids.map(async (id) => ({ id, result: await fillVariables(id, text) })),
+    );
+    for (const { id, result } of filled) {
+      if (!result.ok) {
+        return t("snippets.notSentIn", { session: sessionName(id), details: result.details });
+      }
+    }
     setDialog(null);
-    const targets = ids.flatMap((id) => {
+    const pause = () => delay(BROADCAST_ENTER_DELAY_MS);
+    for (const { id, result } of filled) {
       const terminal = terminals.get(id);
-      return terminal ? [terminal] : [];
-    });
-    void sendToTargets(targets, text, () => delay(BROADCAST_ENTER_DELAY_MS));
+      if (terminal && result.ok) void sendToTargets([terminal], result.text, pause);
+    }
     splitView.showOnly(ids);
+    return null;
   };
 
   const setMarker = (id: number, marker: Marker) => {
@@ -3111,6 +3259,76 @@ export function App() {
   const startHere = (profile: Profile) => {
     void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
+  /**
+   * Starts every session of a workspace template, one after another so titles number in order.
+   * Team sessions stay team sessions only where the folder is still a git repository and the
+   * program can be one; programs that are gone are skipped. One message once all were tried:
+   * a short hint when everything runs, otherwise one error with the count, the last failure and
+   * the skipped programs. A second click while a template starts does nothing.
+   */
+  const startTemplate = async (id: string) => {
+    const template = templates.find((entry) => entry.id === id);
+    if (template === undefined || templateStarting.current) return;
+    templateStarting.current = true;
+    try {
+      const repos = template.sessions.some((entry) => entry.mode === "team")
+        ? parseBranches(await api.gitBranches(templateFolders(template)).catch(() => null))
+        : new Map<string, string | null>();
+      const inRepo = (folder: string) =>
+        [...repos].some(([path, branch]) => branch !== null && samePath(path, folder));
+      const plan = planTemplate(template, startable, inRepo);
+      let started = 0;
+      let lastError: string | null = null;
+      for (const entry of plan.starts) {
+        const ok = await start(entry.profile, entry.folder, entry.mode, entry.title, (text) => {
+          lastError = text;
+        });
+        if (ok) started += 1;
+      }
+      const report = templateReport(template.sessions.length, started, plan.skipped, lastError);
+      if (report.kind === "started") {
+        setStartHint(t("templates.started", { name: template.name }));
+        return;
+      }
+      setError(
+        [
+          t("templates.partial", {
+            name: template.name,
+            started: report.started,
+            total: report.total,
+          }),
+          report.lastError,
+          report.skipped.length > 0
+            ? t("templates.skipped", { names: report.skipped.join(", ") })
+            : null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(" "),
+      );
+    } finally {
+      templateStarting.current = false;
+    }
+  };
+  const saveTemplate = (name: string, sessions: TemplateSession[]) => {
+    setTemplates((current) => storeTemplate(current, name, sessions));
+    setTemplateDialog(null);
+    setStartHint(t("templates.saved", { name: name.trim() }));
+    focusTerminal();
+  };
+  const renamingTemplate =
+    templateDialog?.kind === "rename"
+      ? templates.find((entry) => entry.id === templateDialog.id)
+      : undefined;
+  const closeTemplateDialog = () => {
+    setTemplateDialog(null);
+    focusTerminal();
+  };
+  const openSaveTemplate =
+    state.sessions.length === 0
+      ? null
+      : () => {
+          setTemplateDialog({ kind: "save" });
+        };
   /** Programs that are running right now: on Windows their update can fail on locked files. */
   const runningPrograms = new Set(
     state.sessions
@@ -3374,6 +3592,14 @@ export function App() {
           disabled: broadcastable.length === 0,
           run: () => {
             setDialog("broadcast");
+          },
+        },
+        {
+          type: "action",
+          label: t("templates.save"),
+          disabled: openSaveTemplate === null,
+          run: () => {
+            openSaveTemplate?.();
           },
         },
         { type: "separator" },
@@ -3788,6 +4014,9 @@ export function App() {
       },
       start: (profile, folder) => void start(profile, folder),
       startAsTeam: (profile, folder) => void start(profile, folder, "team"),
+      templates,
+      templateIcon: <TemplateIcon size={14} />,
+      startTemplate: (id) => void startTemplate(id),
       toggleChanges,
       openNotes,
       insertSnippet,
@@ -3969,6 +4198,15 @@ export function App() {
           onFolderColor={(path, color) => {
             setFolders((current) => setFolderColor(current, path, color));
           }}
+          templates={templates}
+          onStartTemplate={(id) => void startTemplate(id)}
+          onRenameTemplate={(id) => {
+            setTemplateDialog({ kind: "rename", id });
+          }}
+          onDeleteTemplate={(id) => {
+            setTemplates((current) => deleteTemplate(current, id));
+          }}
+          onSaveTemplate={openSaveTemplate}
           grouping={grouping}
           onGrouping={(sessionGrouping) => {
             updateSettings({ sessionGrouping });
@@ -4736,8 +4974,36 @@ export function App() {
               (profileId) => profileById.get(profileId)?.command,
             )}
             badgeFor={badgeFor}
+            snippets={snippets}
             onSend={sendToSeveral}
             onClose={closeDialog}
+          />
+        )}
+        {templateDialog?.kind === "save" && (
+          <SaveTemplateDialog
+            candidates={state.sessions.flatMap((session): TemplateCandidate[] => {
+              const profile = profileById.get(session.profileId);
+              const names = profile ? [profile.name, profile.id] : [session.profileId];
+              const entry = templateSession(session, names);
+              return entry === null
+                ? []
+                : [{ id: session.id, program: profile?.name ?? session.profileId, entry }];
+            })}
+            templates={templates}
+            badgeFor={badgeFor}
+            onSave={saveTemplate}
+            onClose={closeTemplateDialog}
+          />
+        )}
+        {renamingTemplate !== undefined && (
+          <RenameTemplateDialog
+            template={renamingTemplate}
+            templates={templates}
+            onRename={(name) => {
+              setTemplates((current) => renameTemplate(current, renamingTemplate.id, name));
+              closeTemplateDialog();
+            }}
+            onClose={closeTemplateDialog}
           />
         )}
         <div className="sr-only" role="status">

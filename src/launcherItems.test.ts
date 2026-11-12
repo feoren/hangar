@@ -61,6 +61,9 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     activate: vi.fn(),
     start: vi.fn(),
     startAsTeam: vi.fn(),
+    templates: [],
+    templateIcon: null,
+    startTemplate: vi.fn(),
     toggleChanges: vi.fn(),
     openNotes: vi.fn(),
     insertSnippet: vi.fn(),
@@ -287,6 +290,28 @@ describe("buildLauncherItems", () => {
       expect.objectContaining({ id: "claude" }),
       "C:\\src\\hangar",
     );
+  });
+
+  it("offers each workspace template as a start that runs the whole set", () => {
+    const ctx = context({
+      templates: [
+        {
+          id: "template-1",
+          name: "Review",
+          sessions: [
+            { profileId: "claude", folder: "C:\\src\\hangar", mode: "team" },
+            { profileId: "pwsh", folder: "C:\\src\\hangar", mode: "private" },
+          ],
+        },
+      ],
+    });
+    const items = buildLauncherItems(ctx).filter((item) => item.key.startsWith("template:"));
+    expect(items).toHaveLength(1);
+    expect(items[0]?.section).toBe("start");
+    expect(items[0]?.primary).toBe(true);
+    expect(items[0]?.label).toContain("Review");
+    items[0]?.run();
+    expect(ctx.startTemplate).toHaveBeenCalledWith("template-1");
   });
 
   it("names the changes command after the panel state", () => {

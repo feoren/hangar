@@ -324,6 +324,34 @@
         "ru": "Часы тишины в Настройки > Оповещения: с и до, в том числе через полночь. В это время без мигания, звука и уведомлений.",
         "tr": "Ayarlar > Uyarılar altında sessiz saatler: başlangıç ve bitiş, gece yarısını geçse de. Bu sürede yanıp sönme, ses ve bildirim yok.",
         "zh": "在 设置 > 提醒 中设置免打扰时段：开始和结束时间，可跨越午夜。在此期间不闪烁、不发声、不通知。"
+      },
+      {
+        "de": "Workspace-Vorlagen: Speichere deine Sessions als Vorlage und starte das ganze Set mit einem Klick, aus der Schnellsuche oder neben dem Projektordner.",
+        "en": "Workspace templates: save your sessions as a template and start the whole set with one click, from quick access or next to the project folder.",
+        "el": "Πρότυπα χώρου εργασίας: αποθήκευσε τις συνεδρίες σου ως πρότυπο και ξεκίνα όλο το σύνολο με ένα κλικ, από τη γρήγορη πρόσβαση ή δίπλα στον φάκελο.",
+        "es": "Plantillas de espacio de trabajo: guarda tus sesiones como plantilla e inicia todo el conjunto con un clic, desde el acceso rápido o junto a la carpeta.",
+        "fr": "Modèles d’espace de travail : enregistre tes sessions comme modèle et relance tout l’ensemble en un clic, depuis l’accès rapide ou près du dossier.",
+        "it": "Modelli di workspace: salva le sessioni come modello e avvia tutto l’insieme con un clic, dall’accesso rapido o accanto alla cartella del progetto.",
+        "ja": "ワークスペーステンプレート: セッションをテンプレートとして保存し、クイックアクセスやプロジェクトフォルダーの横からワンクリックでまとめて起動できます。",
+        "pl": "Szablony obszaru roboczego: zapisz sesje jako szablon i uruchom cały zestaw jednym kliknięciem, z szybkiego dostępu lub obok folderu projektu.",
+        "pt": "Modelos de workspace: salva tuas sessões como modelo e inicia o conjunto todo com um clique, pelo acesso rápido ou ao lado da pasta do projeto.",
+        "ru": "Шаблоны рабочего пространства: сохрани сессии как шаблон и запускай весь набор одним щелчком из быстрого доступа или рядом с папкой проекта.",
+        "tr": "Çalışma alanı şablonları: oturumlarını şablon olarak kaydet ve tüm seti hızlı erişimden ya da proje klasörünün yanından tek tıkla başlat.",
+        "zh": "工作区模板：将会话保存为模板，可在快速访问或项目文件夹旁一键启动整套会话。"
+      },
+      {
+        "de": "Textbausteine kennen Variablen wie {{file}}, {{branch}}, {{selection}} und {{diff}}. Hangar füllt sie beim Senden, für jede Session mit ihren eigenen Werten.",
+        "en": "Snippets understand variables such as {{file}}, {{branch}}, {{selection}} and {{diff}}. Hangar fills them when sending, with each session’s own values.",
+        "el": "Τα αποσπάσματα δέχονται μεταβλητές όπως {{file}}, {{branch}}, {{selection}} και {{diff}}. Συμπληρώνονται κατά την αποστολή, με τις τιμές κάθε συνεδρίας.",
+        "es": "Los fragmentos admiten variables como {{file}}, {{branch}}, {{selection}} y {{diff}}. Se rellenan al enviar, con los valores de cada sesión.",
+        "fr": "Les extraits acceptent des variables comme {{file}}, {{branch}}, {{selection}} et {{diff}}, remplies à l’envoi avec les valeurs de chaque session.",
+        "it": "I frammenti accettano variabili come {{file}}, {{branch}}, {{selection}} e {{diff}}, compilate all’invio con i valori di ogni sessione.",
+        "ja": "スニペットで {{file}}、{{branch}}、{{selection}}、{{diff}} などの変数を使えます。送信時にセッションごとの値が入ります。",
+        "pl": "Fragmenty obsługują zmienne, np. {{file}}, {{branch}}, {{selection}} i {{diff}}. Hangar wypełnia je przy wysyłaniu wartościami każdej sesji.",
+        "pt": "Os trechos aceitam variáveis como {{file}}, {{branch}}, {{selection}} e {{diff}}, preenchidas ao enviar com os valores de cada sessão.",
+        "ru": "Фрагменты понимают переменные {{file}}, {{branch}}, {{selection}} и {{diff}}. Hangar заполняет их при отправке значениями каждой сессии.",
+        "tr": "Parçalar {{file}}, {{branch}}, {{selection}} ve {{diff}} gibi değişkenleri tanır. Hangar bunları gönderirken her oturumun kendi değerleriyle doldurur.",
+        "zh": "片段支持 {{file}}、{{branch}}、{{selection}} 和 {{diff}} 等变量，发送时按各会话自身的值填入。"
       }
     ]
   },

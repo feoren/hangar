@@ -6029,6 +6029,137 @@ body.resizing-horizontal * {
   text-align: right;
 }
 
+/* Send to several: the snippet picker sits beside the help line; a refusal shows below. */
+.broadcast-help-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.broadcast-help-row p {
+  flex: 1;
+  min-width: 0;
+}
+
+.broadcast-snippet {
+  flex: none;
+  max-width: 45%;
+}
+
+.broadcast-problem {
+  margin-top: 8px;
+  color: var(--error);
+}
+
+/* Snippet settings: the variables a snippet may use, as a short two-column list. */
+.snippet-variables dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 4px 0 12px;
+}
+
+.snippet-variables dd {
+  margin: 0;
+}
+
+.snippet-variables code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* Workspace templates: save and rename dialogs. */
+.dialog.template-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.dialog.template-dialog.small {
+  width: min(400px, calc(100vw - 32px));
+}
+
+.template-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.template-name .text-input {
+  width: 100%;
+}
+
+.template-sessions {
+  margin-top: 12px;
+}
+
+.template-list {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.template-session {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.template-session:hover {
+  background: var(--hover);
+}
+
+.template-session .badge,
+.template-session .badge-icon img {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+  border-radius: 5px;
+}
+
+.template-program,
+.template-folder {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.template-folder,
+.template-mode {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.template-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.template-title {
+  flex: none;
+  width: 150px;
+}
+
+/* The templates button beside the project folder card. */
+.cwd-templates {
+  flex: none;
+  align-self: center;
+}
+
 /* Marker dialog */
 .dialog.marker-dialog {
   width: min(400px, calc(100vw - 32px));
@@ -6118,8 +6249,22 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
+.snippet-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.snippet-unknown {
+  margin: 0;
+  font-size: 12px;
+}
+
 .snippet-text {
   flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 52px;
   font-family: var(--mono);

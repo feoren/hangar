@@ -51,6 +51,8 @@ import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText, SessionMarker } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
 import { shortBranch } from "./worktree";
+import type { WorkspaceTemplate } from "./templates";
+import { TemplatesMenu } from "./TemplatesMenu";
 import { revealInvisible } from "./invisible";
 import type { EdgeHint } from "./waitingHint";
 import { Revealed } from "./Revealed";
@@ -197,6 +199,13 @@ interface Props {
   onMoveFavorite: (path: string, target: string, after: boolean) => void;
   /** Gives a project folder a color; `null` takes it away. */
   onFolderColor: (path: string, color: FolderColor | null) => void;
+  /** Workspace templates; their button next to the folder card shows once one exists. */
+  templates: readonly WorkspaceTemplate[];
+  onStartTemplate: (id: string) => void;
+  onRenameTemplate: (id: string) => void;
+  onDeleteTemplate: (id: string) => void;
+  /** "Save sessions as template"; `null` while no session runs. */
+  onSaveTemplate: (() => void) | null;
   /** Sessions grouped by program or by project folder. */
   grouping: SessionGrouping;
   onGrouping: (grouping: SessionGrouping) => void;
@@ -1064,6 +1073,14 @@ export function Sidebar(props: Props) {
               <CloseIcon size={12} />
             </button>
           )}
+          <TemplatesMenu
+            templates={props.templates}
+            onStart={props.onStartTemplate}
+            onRename={props.onRenameTemplate}
+            onDelete={props.onDeleteTemplate}
+            onSave={props.onSaveTemplate}
+            onAction={props.onMenuClose}
+          />
         </div>
         {folderMenu !== null && (
           <FolderMenu

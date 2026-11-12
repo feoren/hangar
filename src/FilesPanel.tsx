@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { api, errorText, parseFolderListing, parsePathIndex, type PathIndex } from "./api";
 import { Avatar } from "./Avatar";
 import { isFileLevel, type ChangeKind, type ClaimsSnapshot } from "./claims";
+import { rememberFile } from "./fileContext";
 import {
   avatarStack,
   buildMarks,
@@ -170,6 +171,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   }, [openError]);
   const openFile = (path: string) => {
     setOpenError(null);
+    rememberFile(session.id, path);
     api.openFileViewer(session.id, path).catch((error: unknown) => {
       setOpenError(t("files.openFailed", { error: errorText(error) }));
     });
@@ -303,6 +305,13 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   const tabStop = itemRows.some((row) => row.path === state.focused)
     ? state.focused
     : (itemRows[0]?.path ?? null);
+
+  // The selected file is what a snippet's {{file}} means for this session (fileContext.ts).
+  const focusedFile =
+    itemRows.find((row) => row.path === state.focused && row.entry.kind === "file")?.path ?? null;
+  useEffect(() => {
+    if (focusedFile !== null) rememberFile(session.id, focusedFile);
+  }, [focusedFile, session.id]);
 
   useEffect(() => {
     if (!wantFocus.current || state.focused === null) return;

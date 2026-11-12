@@ -17,6 +17,7 @@ import type { SessionView } from "./sessions";
 import { SECTION_NAMES, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import { snippetLabel, type Snippet } from "./snippets";
 import { LAYOUT_IDS, LAYOUT_NAMES, type LayoutId } from "./snapLayouts";
+import type { WorkspaceTemplate } from "./templates";
 
 /** A working entry of the app menu, as a command of quick access. */
 export interface MenuCommand {
@@ -120,6 +121,10 @@ export interface LauncherContext {
   start: (profile: Profile, folder: string) => void;
   /** A team session (startMode.ts): its own worktree, the agent gate, visible to the team. */
   startAsTeam: (profile: Profile, folder: string) => void;
+  /** Workspace templates: each starts its whole set of sessions. */
+  templates: readonly WorkspaceTemplate[];
+  templateIcon: ReactNode;
+  startTemplate: (id: string) => void;
   toggleChanges: () => void;
   openNotes: (folder: NoteFolder) => void;
   insertSnippet: (snippet: Snippet) => void;
@@ -154,6 +159,21 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       icon: ctx.badge(session.profileId),
       run: () => {
         ctx.activate(session.id);
+      },
+    });
+  }
+  // Templates first among the starts: one entry starts a whole set of sessions.
+  for (const template of ctx.templates) {
+    items.push({
+      key: `template:${template.id}`,
+      section: "start",
+      label: t("templates.startNamed", { name: template.name }),
+      detail: t("templates.count", { count: template.sessions.length }),
+      keywords: `template workspace ${template.sessions.map((entry) => entry.folder).join(" ")}`,
+      primary: true,
+      icon: ctx.templateIcon,
+      run: () => {
+        ctx.startTemplate(template.id);
       },
     });
   }

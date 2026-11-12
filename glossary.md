@@ -135,6 +135,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hover-Vorschau (Session)                        | session peek                      | `peek.ts`, `SessionPeek.tsx`; last lines beside a sidebar row while the mouse rests  |
 | Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification  |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                        |
+| Variable (Textbaustein)                         | snippet variable                  | `snippetVariables.ts`; `{{file}}` and others, filled per session when sending        |
+| Workspace-Vorlage                               | workspace template                | `templates.ts`; named set of sessions started together, stored per machine           |
 | An mehrere senden                               | broadcast                         | `broadcast.ts`                                                                       |
 | Markierung (Session)                            | session marker                    | `marker.ts`; color and emoji                                                         |
 | Desktop-Benachrichtigung                        | desktop notification              | `desktopNotify.ts`; `notify_session`                                                 |
