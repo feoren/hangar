@@ -449,3 +449,8 @@ queries run in `version-probe` in the app data folder. Pages changed: [[0003-pro
 Security review: alias targets were only checked for an `X:\` prefix. They now need plain
 components (no `.`, `..` or device names, after Microsoft's naming rules), a fixed local drive,
 and for a Store install a `WindowsApps` folder. Pages changed: [[app-execution-alias]].
+
+## [2026-11-12] query | What an update check sends
+Security review: the stored entity tag goes back to the source as `If-None-Match`, so "nothing
+that identifies the user" no longer held. The contract now names the tag and why a server could
+recognize a client by it. Pages changed: [[program-updates]].

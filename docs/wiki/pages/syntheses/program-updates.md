@@ -228,7 +228,12 @@ Detection uses the resolved path and file existence only, no process ([[update-i
   `403` is an ordinary failure. The pause applies per source, also to `force`.
 - Requests: HTTPS only, to `registry.npmjs.org`, `pypi.org`, `api.github.com` (redirects included,
   at most 3), timeout 5 s, at most 4 at once, response at most 8 MiB, system proxy.
-- Only the address and `User-Agent: Hangar/<version>` are sent; no identifier, no cookies.
+- Sent are the address, `User-Agent: Hangar/<version>` and, after a first answer, that source's
+  own entity tag as `If-None-Match`; no cookies, no account, no ID of Hangar's own. The tag is
+  chosen by the server: one that handed each client a tag of its own could recognize a returning
+  client by it, as it can by the IP address anyway. The measured tags of GitHub and PyPI look like
+  content hashes ([[github-conditional-requests]]); whether they are the same for every client is
+  not verified.
 - Package and repository names are validated when the catalog and profiles are loaded
   (allowed characters only), so that nothing foreign ends up in the address.
 - The frontend never calls any of these addresses itself; capabilities and CSP stay unchanged.

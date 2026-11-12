@@ -3,7 +3,10 @@
 //! Per catalog entry or profile, `latest` says where the newest version is published: npm registry,
 //! PyPI or a GitHub release. Only the `/latest` endpoints are queried (never lists of all
 //! versions, never prereleases), only over HTTPS and only on the three fixed hosts. Besides the
-//! address, only the user agent `Hangar/<version>` is sent, nothing that identifies the user.
+//! address, Hangar sends the user agent `Hangar/<version>` and, once a source has answered, the
+//! entity tag that source chose for its answer (`If-None-Match`). No account, cookie or ID of
+//! Hangar's own goes out. The tag is the server's value, though: a server that gave each client
+//! a tag of its own could recognize that client again by it, as it can by the IP address anyway.
 //! Results stay in the disk cache for 25 min, a little less than the frontend's 30 min check
 //! interval, so every periodic check really asks; errors silently count as "unknown", for 15 min.
 //! A stored `ETag` goes out as `If-None-Match`, and a `304` keeps the known version. A rate limit
