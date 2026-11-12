@@ -3423,8 +3423,8 @@ body.resizing-horizontal * {
 .dialog.settings {
   display: flex;
   flex-direction: column;
-  width: min(780px, calc(100vw - 32px));
-  height: min(560px, calc(100vh - 32px));
+  width: min(936px, calc(100vw - 32px));
+  height: min(672px, calc(100vh - 32px));
   padding: 18px 20px 16px;
 }
 
