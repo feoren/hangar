@@ -499,3 +499,9 @@ has its own worktree, the agent gate and is shared with the team; a private one 
 Team capability comes from the catalog only (`hook_format` next to the capabilities), presence
 and claims stay agent-independent. Pages changed: [[0008-private-and-team-sessions]] (new),
 [[team-service-v1]], [[agent-workflow-features]].
+
+## [2026-11-12] decision | Private and team sessions, review fixes
+A worktree shared by a private and a team session is not shared with the team; Team is refused
+for programs without a hook format and profiles with a fixed folder; old worktree sessions of
+such programs restore private; sessions without a worktree lose the gate after the upgrade.
+Pages changed: [[0008-private-and-team-sessions]], [[team-service-v1]].

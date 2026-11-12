@@ -897,7 +897,9 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
 Decided in [[0008-private-and-team-sessions]]. Each session is private or a team session
 (`SessionMode`). Only team sessions get the gate of step B (`SessionManager::spawn` asks the
 `LaunchGate` only for them) and only they reach the team of part 2b (`team_share::team_labels`
-feeds `local_sessions`); local claims of step A cover both. A team session always runs in a
+feeds `local_sessions`, which skips a worktree where a private session works too, as its claims
+cannot be split per session); local claims of step A cover both. Team is refused for a program
+without a hook format and for a profile with a fixed working folder. A team session always runs in a
 worktree of its own. The catalog's `capabilities` gained `hook_format` (`"claude_settings"` for
 Claude Code, the only one built); the gate needs it next to `pre_edit_block` and
 `per_session_config`, and the window lists exactly those programs for team sessions

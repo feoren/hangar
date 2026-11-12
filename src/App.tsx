@@ -150,6 +150,7 @@ import {
   saveStartMode,
   sessionMode,
   startModeFor,
+  teamUnsupportedHint,
   type StartMode,
 } from "./startMode";
 import {
@@ -1553,7 +1554,7 @@ export function App() {
           terminal.createChannel(),
           false,
           null,
-          sessionMode({ worktree }),
+          worktree === undefined ? "private" : "team",
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1721,6 +1722,10 @@ export function App() {
           createdAt: Date.now(),
           // Kept, so the next save does not lose it and "Restart" resumes this conversation.
           cliSessionId: saved.cliSessionId,
+          mode: sessionMode(
+            saved,
+            profilesRef.current.find((p) => p.id === saved.profileId),
+          ),
         },
       });
       return id;
@@ -1774,8 +1779,9 @@ export function App() {
           terminal.createChannel(),
           true,
           saved.cliSessionId,
-          // Worktree sessions of older workspaces come back as team sessions.
-          sessionMode(saved),
+          // Worktree sessions of older workspaces come back as team sessions where the program
+          // can be one.
+          sessionMode(saved, profile),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1828,7 +1834,10 @@ export function App() {
             terminal.createChannel(),
             true,
             session.cliSessionId ?? null,
-            sessionMode(session),
+            sessionMode(
+              session,
+              profilesRef.current.find((p) => p.id === session.profileId),
+            ),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -3948,7 +3957,7 @@ export function App() {
                               aria-disabled={unsupported ? "true" : undefined}
                               title={
                                 unsupported
-                                  ? t("start.teamUnsupported", { name: profile.name })
+                                  ? teamUnsupportedHint(profile, t)
                                   : [profile.command, ...profile.args].join(" ")
                               }
                               onClick={() => {

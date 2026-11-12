@@ -196,6 +196,13 @@ pub enum ManagerError {
     BadCwd(PathBuf),
     #[error("The title must not be empty")]
     EmptyTitle,
+    #[error("{0} cannot be a team session yet: Hangar cannot pause its edits")]
+    NoTeamSessions(String),
+    #[error(
+        "{0} cannot be a team session: its profile sets a working folder of its own, which would \
+         replace the session's worktree"
+    )]
+    TeamFolderFixed(String),
     #[error(transparent)]
     CliSessionId(#[from] cli_session::InvalidId),
     #[error("Session {0} has no sub-agents Hangar can show")]
@@ -414,6 +421,21 @@ impl Shared {
         }
         true
     }
+}
+
+/// A team session needs the agent gate (a hook format for its program, ADR 0008) and must run in
+/// the folder it was given, its own worktree: a folder fixed in the profile would win over it
+/// ([`SessionManager::start`]), and the session would work in a shared folder unnoticed.
+fn team_allowed(agent: &Agent, cwd: Option<&Path>) -> Result<(), ManagerError> {
+    if !agent.capabilities.gate() {
+        return Err(ManagerError::NoTeamSessions(agent.profile.name.clone()));
+    }
+    if let Some(fixed) = &agent.profile.cwd {
+        if cwd != Some(fixed.as_path()) {
+            return Err(ManagerError::TeamFolderFixed(agent.profile.name.clone()));
+        }
+    }
+    Ok(())
 }
 
 /// What a new session is: kind and mode, both fixed for its life.
@@ -702,6 +724,9 @@ impl SessionManager {
     ) -> Result<SessionInfo, ManagerError> {
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        if mode == SessionMode::Team {
+            team_allowed(&agent, cwd.as_deref())?;
+        }
         let title = agent.profile.name.clone();
         let plan = Plan::first(&agent.profile, resume, stored.as_deref());
         let kind = Start {

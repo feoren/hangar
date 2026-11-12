@@ -7107,6 +7107,10 @@ body.session-dragging .session-actions {
   display: none;
 }
 
+.profile-row.unsupported:hover {
+  background: none;
+}
+
 .empty-program.unsupported:hover {
   background: var(--panel);
   border-color: var(--border);

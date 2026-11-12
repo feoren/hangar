@@ -706,7 +706,12 @@ fn resume_manager() -> SessionManager {
         shell_profile("r-sleep", &normal_ok, Some(long_wait)),
         shell_profile("r-none", &normal_ok, None),
     ];
-    SessionManager::new(profiles, Vec::new(), std::env::temp_dir())
+    // "r-fail" can be a team session, so the gate test of the fallback can start one.
+    SessionManager::new(
+        profiles,
+        vec![hooked_program("r-fail")],
+        std::env::temp_dir(),
+    )
 }
 
 fn start(
@@ -1442,7 +1447,11 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
     }
     let manager = SessionManager::new(
         vec![gated_unix, gate_probe("plain"), gate_probe("ungated")],
-        Vec::new(),
+        vec![
+            hooked_program("gated"),
+            hooked_program("plain"),
+            hooked_program("ungated"),
+        ],
         std::env::temp_dir(),
     );
     let gate = Arc::new(RecordingGate::default());
@@ -1488,6 +1497,84 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
     // Closing tells the gate as well.
     manager.close(plain.id).unwrap();
     assert!(gate.ended.lock().unwrap().contains(&plain.id));
+}
+
+#[test]
+fn a_team_session_needs_a_program_with_a_hook_format() {
+    // No catalog entry: the profile's program takes no hooks Hangar can write.
+    let manager = SessionManager::new(
+        vec![gate_probe("no-hooks")],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let team = manager.create_resuming(
+        "no-hooks",
+        None,
+        SIZE,
+        false,
+        None,
+        SessionMode::Team,
+        |_| {},
+    );
+    assert!(
+        matches!(team, Err(ManagerError::NoTeamSessions(_))),
+        "{team:?}"
+    );
+    // Nothing was started or registered for it.
+    assert!(manager.list().is_empty());
+    // As a private session it starts.
+    let (tx, rx) = channel();
+    let private = manager
+        .create("no-hooks", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(private.mode, SessionMode::Private);
+    collect_until_exit(&manager, private.id, &rx);
+}
+
+#[test]
+fn a_team_session_refuses_a_profile_with_a_folder_of_its_own() {
+    let fixed = std::env::temp_dir();
+    let worktree = std::env::current_dir().unwrap();
+    assert_ne!(fixed, worktree);
+    let mut probe = gate_probe("fixed");
+    probe.cwd = Some(fixed.clone());
+    let manager = SessionManager::new(
+        vec![probe],
+        vec![hooked_program("fixed")],
+        std::env::temp_dir(),
+    );
+    // The profile's folder would win over the team session's worktree.
+    for cwd in [Some(worktree), None] {
+        let team = manager.create_resuming(
+            "fixed",
+            cwd.clone(),
+            SIZE,
+            false,
+            None,
+            SessionMode::Team,
+            |_| {},
+        );
+        assert!(
+            matches!(team, Err(ManagerError::TeamFolderFixed(_))),
+            "{cwd:?}: {team:?}"
+        );
+    }
+    assert!(manager.list().is_empty());
+    // Started in exactly the profile's folder, nothing is bypassed.
+    let (tx, rx) = channel();
+    let same = manager
+        .create_resuming(
+            "fixed",
+            Some(fixed),
+            SIZE,
+            false,
+            None,
+            SessionMode::Team,
+            move |e| tx.send(e).unwrap_or(()),
+        )
+        .unwrap();
+    assert_eq!(same.mode, SessionMode::Team);
+    collect_until_exit(&manager, same.id, &rx);
 }
 
 #[test]

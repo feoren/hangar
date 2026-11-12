@@ -184,6 +184,20 @@
         "ru": "Под «Запуск в» выбирай «Личная» или «Команда». Командная сессия получает свой worktree, спрашивает перед пересекающимися изменениями и видна команде.",
         "tr": "\"Başlangıç klasörü\" altında Özel veya Ekip seçersin. Ekip oturumu kendi worktree'sini alır, çakışan değişikliklerden önce sorar ve ekibine görünür.",
         "zh": "在“启动位置”下方可选择私人或团队。团队会话拥有独立 worktree，重叠修改前会先询问，并且团队可见。"
+      },
+      {
+        "de": "Sessions ohne eigenen Worktree sind jetzt privat, Agenten halten dort nicht mehr vor überschneidenden Änderungen an. Dafür startest du eine Team-Session.",
+        "en": "Sessions without their own worktree are now private, and agents there no longer pause before overlapping edits. Start a team session for that.",
+        "el": "Οι συνεδρίες χωρίς δικό τους worktree είναι πλέον ιδιωτικές και οι agents δεν σταματούν πριν από αλληλοεπικαλύψεις. Γι' αυτό ξεκίνα ομαδική συνεδρία.",
+        "es": "Las sesiones sin worktree propio ahora son privadas y sus agentes ya no se detienen ante cambios que se solapan. Para eso, inicia una sesión de equipo.",
+        "fr": "Les sessions sans worktree dédié sont désormais privées et leurs agents ne s'arrêtent plus avant les modifications croisées. Lance une session d'équipe pour ça.",
+        "it": "Le sessioni senza worktree proprio ora sono private e i loro agenti non si fermano più prima di modifiche sovrapposte. Per questo avvia una sessione di team.",
+        "ja": "専用の worktree がないセッションはプライベートになり、重なる変更の前にエージェントが止まらなくなりました。止めたい場合はチームセッションで開始してください。",
+        "pl": "Sesje bez własnego worktree są teraz prywatne, a agenci nie zatrzymują się przed nakładającymi się zmianami. Do tego uruchom sesję zespołową.",
+        "pt": "Sessões sem worktree próprio agora são privadas, e os agentes nelas não param mais antes de alterações sobrepostas. Para isso, inicie uma sessão de equipe.",
+        "ru": "Сессии без своего worktree теперь личные, и агенты в них больше не останавливаются перед пересекающимися изменениями. Для этого запусти командную сессию.",
+        "tr": "Kendi worktree'si olmayan oturumlar artık özel; buradaki agent'lar çakışan değişikliklerden önce durmuyor. Bunun için bir ekip oturumu başlat.",
+        "zh": "没有独立 worktree 的会话现在为私人会话，其中的代理在重叠修改前不再暂停。如需暂停，请启动团队会话。"
       }
     ]
   },

@@ -27,7 +27,13 @@ import {
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
-import { startModeFor, teamPossible, type StartMode } from "./startMode";
+import {
+  isTeamSession,
+  startModeFor,
+  teamPossible,
+  teamUnsupportedHint,
+  type StartMode,
+} from "./startMode";
 import {
   clampFooterHeight,
   FOOTER_HEIGHT,
@@ -456,7 +462,7 @@ export function Sidebar(props: Props) {
           key: profile.id,
           label: profile.name,
           ...(version === undefined ? {} : { detail: version }),
-          ...(unsupported ? { title: t("start.teamUnsupported", { name: profile.name }) } : {}),
+          ...(unsupported ? { title: teamUnsupportedHint(profile, t) } : {}),
           icon: <Badge look={badgeFor(profile.id)} />,
           disabled: unsupported,
           run: () => {
@@ -943,7 +949,7 @@ export function Sidebar(props: Props) {
                   aria-disabled={unsupported ? "true" : undefined}
                   title={
                     unsupported
-                      ? t("start.teamUnsupported", { name: profile.name })
+                      ? teamUnsupportedHint(profile, t)
                       : [profile.command, ...profile.args].join(" ")
                   }
                   onClick={() => {
@@ -1380,7 +1386,7 @@ function SessionItem({
             overlap ?? "",
             gateOff ?? "",
             detail,
-            session.worktree
+            session.worktree && isTeamSession(session)
               ? t("worktree.sessionHint", { branch: revealInvisible(session.worktree.branch) })
               : "",
             session.cwd,
@@ -1450,7 +1456,7 @@ function SessionItem({
             </span>
             <span className="session-detail">
               {place !== null && <span className="session-path">{place}</span>}
-              {session.worktree ? (
+              {session.worktree && isTeamSession(session) ? (
                 <span className="session-branch worktree">
                   <span aria-hidden="true">·</span>
                   <TeamIcon size={11} />

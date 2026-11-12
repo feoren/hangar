@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createTranslator } from "./i18n";
 import {
   DEFAULT_START_MODE,
   effectiveMode,
   loadStartMode,
   parseStartMode,
   saveStartMode,
+  isTeamSession,
   sessionMode,
+  teamBlock,
+  teamUnsupportedHint,
   startModeFor,
   teamCapable,
   teamPossible,
@@ -70,23 +74,50 @@ describe("startMode", () => {
     expect(effectiveMode("private", "yes")).toBe("private");
   });
 
-  it("knows team capability only from the backend's flag", () => {
-    expect(teamCapable({ teamCapable: true })).toBe(true);
-    expect(teamCapable({ teamCapable: false })).toBe(false);
-    expect(teamCapable({})).toBe(false);
+  it("knows team capability from the backend's flag and the profile's folder", () => {
+    expect(teamCapable({ teamCapable: true, cwd: null })).toBe(true);
+    expect(teamCapable({ teamCapable: false, cwd: null })).toBe(false);
+    expect(teamCapable({ cwd: null })).toBe(false);
+    // A folder fixed in the profile would replace the team session's worktree.
+    expect(teamCapable({ teamCapable: true, cwd: "C:\\fixed" })).toBe(false);
+    expect(teamBlock({ teamCapable: true, cwd: null })).toBeNull();
+    expect(teamBlock({ teamCapable: false, cwd: "C:\\fixed" })).toBe("noHooks");
+    expect(teamBlock({ teamCapable: true, cwd: "C:\\fixed" })).toBe("fixedFolder");
+  });
+
+  it("says why a program cannot be a team session", () => {
+    const t = createTranslator("en");
+    expect(teamUnsupportedHint({ name: "Codex", teamCapable: false, cwd: null }, t)).toBe(
+      t("start.teamUnsupported", { name: "Codex" }),
+    );
+    expect(teamUnsupportedHint({ name: "Mine", teamCapable: true, cwd: "C:\\x" }, t)).toBe(
+      t("start.teamFixedFolder", { name: "Mine" }),
+    );
   });
 
   it("starts a program as chosen, or not at all as a team session it cannot be", () => {
-    expect(startModeFor("private", {})).toBe("private");
-    expect(startModeFor("private", { teamCapable: true })).toBe("private");
-    expect(startModeFor("team", { teamCapable: true })).toBe("team");
-    expect(startModeFor("team", { teamCapable: false })).toBeNull();
-    expect(startModeFor("team", {})).toBeNull();
+    const capable = { teamCapable: true, cwd: null };
+    expect(startModeFor("private", { cwd: null })).toBe("private");
+    expect(startModeFor("private", capable)).toBe("private");
+    expect(startModeFor("team", capable)).toBe("team");
+    expect(startModeFor("team", { teamCapable: false, cwd: null })).toBeNull();
+    expect(startModeFor("team", { cwd: null })).toBeNull();
+    expect(startModeFor("team", { teamCapable: true, cwd: "/fixed" })).toBeNull();
   });
 
-  it("counts every worktree session as a team session", () => {
-    expect(sessionMode({ worktree })).toBe("team");
-    expect(sessionMode({ worktree: null })).toBe("private");
-    expect(sessionMode({})).toBe("private");
+  it("restores a worktree session as a team session only for a capable program", () => {
+    const capable = { teamCapable: true, cwd: null };
+    expect(sessionMode({ worktree }, capable)).toBe("team");
+    // Older workspaces may hold worktree sessions of programs without a hook format.
+    expect(sessionMode({ worktree }, { teamCapable: false, cwd: null })).toBe("private");
+    expect(sessionMode({ worktree }, undefined)).toBe("private");
+    expect(sessionMode({ worktree: null }, capable)).toBe("private");
+    expect(sessionMode({}, capable)).toBe("private");
+  });
+
+  it("marks only sessions the backend runs as team sessions", () => {
+    expect(isTeamSession({ mode: "team" })).toBe(true);
+    expect(isTeamSession({ mode: "private" })).toBe(false);
+    expect(isTeamSession({})).toBe(false);
   });
 });

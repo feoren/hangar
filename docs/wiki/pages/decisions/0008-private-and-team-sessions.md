@@ -50,8 +50,14 @@ Option 2.
   `create_session(mode)` and kept by restart and resume fallback (`manager.rs`). The manager asks
   the gate only for team sessions. `team_share::team_labels` gives the team service labels for
   team sessions only, so `local_sessions` leaves private ones out of presence, `claim.set` and
-  the repository choices. The window remembers the switch (`startMode.ts`, `localStorage`,
-  default private).
+  the repository choices. The claims are the diff of a whole worktree, so a worktree in which a
+  private session works next to a team session is not shared at all: private wins. The window
+  remembers the switch (`startMode.ts`, `localStorage`, default private).
+- **Backend refusals:** `create_session` refuses `team` for a program without a hook format
+  (`ManagerError::NoTeamSessions`) and for a profile with a working folder of its own unless the
+  session starts exactly there (`ManagerError::TeamFolderFixed`), because that folder would
+  replace the team session's worktree. The window greys out both kinds of program while Team is
+  chosen and shows the backend's error otherwise.
 - **Folder outside git:** Team is disabled with a tooltip, the switch shows Private.
 - **Which programs:** data only. `ProfileView.teamCapable` is `Capabilities::gate()` from the
   catalog: `pre_edit_block`, `per_session_config` and a `hook_format` Hangar can write. Nothing
@@ -65,9 +71,11 @@ Option 2.
   session from those claims and carries the program only as a display label. Once Codex CLI has
   a hook format, a teammate's Codex team session shows up and its files pause a Claude Code
   session's edit, just like a Claude Code session's would, with no change to presence or claims.
-  Until then only a restored worktree session of it (see below) is a team session without a gate.
+  Until then no Codex session can be a team session.
 - **Older workspaces:** a session saved with a worktree is a team session after restore
-  (`sessionMode` in `startMode.ts`); a private session never has a worktree.
+  (`sessionMode` in `startMode.ts`) when its program can be one; otherwise it comes back private
+  in its worktree, never as a team session without the gate. A private session started in 0.6.0
+  never has a worktree.
 
 ## Consequences
 - No worktree without the gate any more: the per-program "+ Worktree" button, Shift+click and the
@@ -77,8 +85,10 @@ Option 2.
 - Private sessions are invisible to the team, also in repositories linked to a shared project.
   A repository is offered for linking only once a team session runs in it.
 - A shortcut or menu start of a program that cannot be a team session starts it private.
-- A restored worktree session of a program without a hook format is a team session without the
-  gate: visible to the team, not paused.
+- A restored worktree session of a program without a hook format or with a fixed folder comes
+  back private: not shared, not paused.
+- After the upgrade, every session without a worktree of its own is private and loses the agent
+  gate it had before; What's New says so, and starting it as a team session brings the gate back.
 
 ## Evidence
 - `src-tauri/src/session.rs` (`SessionMode`), `src-tauri/src/manager.rs` (`spawn`, gate only for

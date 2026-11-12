@@ -4,6 +4,7 @@
 // folder itself, without the gate, and the team never sees it.
 
 import type { Profile, SessionMode, Worktree } from "./api";
+import type { Translate } from "./i18n";
 import type { WorktreeChance } from "./startTarget";
 
 export type StartMode = SessionMode;
@@ -47,31 +48,58 @@ export function effectiveMode(chosen: StartMode, chance: WorktreeChance): StartM
   return chosen === "team" && teamPossible(chance) ? "team" : "private";
 }
 
+/** What a program needs from its profile to be a team session. */
+export type TeamProfile = Pick<Profile, "teamCapable" | "cwd">;
+
 /**
- * Whether a program can run as a team session: the backend says so from the catalog's
- * capabilities (`teamCapable`). Plain terminals and programs without a gate cannot yet.
+ * Why a program cannot be a team session, `null` when it can. `noHooks`: the backend says from
+ * the catalog's capabilities that Hangar cannot pause its edits (plain terminals, programs without
+ * a hook format). `fixedFolder`: the profile fixes a working folder, which would replace the
+ * session's worktree; the backend refuses such a start as well.
  */
-export function teamCapable(profile: Pick<Profile, "teamCapable">): boolean {
-  return profile.teamCapable === true;
+export function teamBlock(profile: TeamProfile): "noHooks" | "fixedFolder" | null {
+  if (profile.teamCapable !== true) return "noHooks";
+  if (profile.cwd !== null && profile.cwd !== "") return "fixedFolder";
+  return null;
+}
+
+export function teamCapable(profile: TeamProfile): boolean {
+  return teamBlock(profile) === null;
+}
+
+/** The tooltip of a program greyed out while Team is chosen. */
+export function teamUnsupportedHint(
+  profile: TeamProfile & Pick<Profile, "name">,
+  t: Translate,
+): string {
+  return teamBlock(profile) === "fixedFolder"
+    ? t("start.teamFixedFolder", { name: profile.name })
+    : t("start.teamUnsupported", { name: profile.name });
 }
 
 /**
  * How a start of `profile` goes under `mode`: as chosen, or `null` when the program cannot be a
  * team session (the list shows it disabled).
  */
-export function startModeFor(
-  mode: StartMode,
-  profile: Pick<Profile, "teamCapable">,
-): StartMode | null {
+export function startModeFor(mode: StartMode, profile: TeamProfile): StartMode | null {
   if (mode === "private") return "private";
   return teamCapable(profile) ? "team" : null;
 }
 
 /**
  * The mode of a session the window restores or starts again: a team session always has its own
- * worktree, a private one never does. So worktree sessions from older workspaces count as team
- * sessions.
+ * worktree, a private one never does. Worktree sessions from older workspaces count as team
+ * sessions, unless their program cannot be one (`profile` missing or not capable): those come back
+ * private, in their worktree, rather than shared without the gate.
  */
-export function sessionMode(session: { worktree?: Worktree | null | undefined }): StartMode {
-  return session.worktree ? "team" : "private";
+export function sessionMode(
+  session: { worktree?: Worktree | null | undefined },
+  profile: TeamProfile | undefined,
+): StartMode {
+  return session.worktree && profile !== undefined && teamCapable(profile) ? "team" : "private";
+}
+
+/** The backend runs the session as a team session (its row shows the team marker). */
+export function isTeamSession(session: { mode?: SessionMode | undefined }): boolean {
+  return session.mode === "team";
 }
