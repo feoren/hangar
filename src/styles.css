@@ -8130,6 +8130,24 @@ body.session-dragging .session-actions {
   height: 30px;
 }
 
+/* The right panel's tabs next to Settings: same size, the open tab marked like a pressed toggle. */
+.footer-side-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.footer-side-tab {
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+
+.footer-side-tab[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 /* State mark of the team: a dot connected, a ring not connected, a dot with a slow halo while
    something needs the person. The text (or the accessible name in the rail) always says it. */
 .team-mark {

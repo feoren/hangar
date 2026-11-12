@@ -3557,8 +3557,12 @@ export function App() {
           badgeFor={badgeFor}
           versions={programs.versions}
           updates={programUpdates.updates}
-          notesOpen={notesShown}
-          onToggleNotes={toggleNotes}
+          sideTab={notesShown ? "notes" : changesShown ? "changes" : filesShown ? "files" : null}
+          onToggleSideTab={(tab) => {
+            if (tab === "notes") toggleNotes();
+            else if (tab === "changes") toggleChanges();
+            else toggleFiles();
+          }}
           filesOpen={filesShown}
           onToggleFiles={toggleFiles}
           closedGroups={layout.closedGroups}

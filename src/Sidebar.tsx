@@ -27,7 +27,13 @@ import {
 } from "./icons";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
-import { clampFooterHeight, FOOTER_HEIGHT, SIDEBAR_WIDTH, type SidebarGroup } from "./layout";
+import {
+  clampFooterHeight,
+  FOOTER_HEIGHT,
+  SIDEBAR_WIDTH,
+  type SideTab,
+  type SidebarGroup,
+} from "./layout";
 import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
@@ -77,8 +83,9 @@ interface Props {
   versions: ProgramVersions;
   /** New versions per profile ID; empty without a check. */
   updates: ProgramUpdates;
-  notesOpen: boolean;
-  onToggleNotes: () => void;
+  /** The right panel's tab on screen in this window, `null` when closed or detached. */
+  sideTab: SideTab | null;
+  onToggleSideTab: (tab: SideTab) => void;
   /** The right panel shows the active session's folder as a file tree. */
   filesOpen: boolean;
   /** The folder button on the active row: shows or hides that file tree. */
@@ -375,8 +382,8 @@ export function Sidebar(props: Props) {
       teamOpen={props.teamOpen}
       onToggleTeam={props.onToggleTeam}
       onOpenAccount={props.onOpenAccount}
-      notesOpen={props.notesOpen}
-      onToggleNotes={props.onToggleNotes}
+      sideTab={props.sideTab}
+      onToggleSideTab={props.onToggleSideTab}
       onOpenSettings={props.onOpenSettings}
       themeSetting={props.themeSetting}
       onSetTheme={props.onSetTheme}

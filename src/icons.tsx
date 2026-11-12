@@ -409,6 +409,15 @@ export function TeamIcon(props: IconProps) {
   );
 }
 
+/** Plus over minus: the changes of the active session (right panel tab). */
+export function DiffIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
+    </Svg>
+  );
+}
+
 /** A file in the file tree: a page with a folded corner. */
 export function FileIcon(props: IconProps) {
   return (

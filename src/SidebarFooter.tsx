@@ -6,6 +6,8 @@ import { Avatar } from "./Avatar";
 import { useT, type Translate } from "./i18n";
 import {
   ChevronIcon,
+  DiffIcon,
+  FolderIcon,
   GearIcon,
   MonitorIcon,
   MoonIcon,
@@ -15,6 +17,7 @@ import {
   SunIcon,
   TeamIcon,
 } from "./icons";
+import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
@@ -31,9 +34,9 @@ import { account, useAccount } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
 /**
- * The sidebar's last row: who is signed in (opens a small menu with the notes, the color mode
- * and signing in or out), the team pill (who is online and whether something needs the person;
- * opens the Team window) and Settings. The rail shows the same as three icons.
+ * The sidebar's last row: who is signed in (opens a small menu with the color mode and
+ * signing in or out), the team pill (who is online and whether something needs the person;
+ * opens the Team window), the right panel's tabs and Settings. The rail shows the same as icons.
  */
 export function SidebarFooter(props: {
   collapsed: boolean;
@@ -41,8 +44,10 @@ export function SidebarFooter(props: {
   onToggleTeam: () => void;
   /** Settings on the Account section: where a refused sign out says why. */
   onOpenAccount: () => void;
-  notesOpen: boolean;
-  onToggleNotes: () => void;
+  /** The right panel's tab on screen in this window, `null` when it is closed or detached. */
+  sideTab: SideTab | null;
+  /** Opens the right panel on this tab (or brings the detached panel to it); shown again: closes. */
+  onToggleSideTab: (tab: SideTab) => void;
   onOpenSettings: () => void;
   themeSetting: ThemeSetting;
   onSetTheme: (theme: ThemeSetting) => void;
@@ -72,21 +77,19 @@ export function SidebarFooter(props: {
   const accountLabel = signedIn ? t("sidebar.account", { name }) : t("account.signIn");
   const accountTitle = signedIn ? accountLabel : t("sidebar.signInHint");
 
-  const items = accountMenuEntries(signedIn, props.themeSetting, props.notesOpen).map(
-    (entry): PopupItem =>
-      menuItem(entry, t, {
-        notes: props.onToggleNotes,
-        signIn: () => {
-          if (!props.teamOpen) props.onToggleTeam();
-        },
-        signOut: () => {
-          // A refused sign out shows its reason where signing out lives: Settings, Account.
-          void account.signOut().then((problem) => {
-            if (problem !== null) props.onOpenAccount();
-          });
-        },
-        theme: props.onSetTheme,
-      }),
+  const items = accountMenuEntries(signedIn, props.themeSetting).map((entry): PopupItem =>
+    menuItem(entry, t, {
+      signIn: () => {
+        if (!props.teamOpen) props.onToggleTeam();
+      },
+      signOut: () => {
+        // A refused sign out shows its reason where signing out lives: Settings, Account.
+        void account.signOut().then((problem) => {
+          if (problem !== null) props.onOpenAccount();
+        });
+      },
+      theme: props.onSetTheme,
+    }),
   );
 
   const onAccountClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -118,6 +121,30 @@ export function SidebarFooter(props: {
       }}
     />
   );
+
+  const sideTabs = SIDE_TABS.map(({ tab, Icon }) => {
+    const label = t(SIDE_TAB_LABELS[tab]);
+    return (
+      <button
+        key={tab}
+        type="button"
+        className="icon-button footer-side-tab"
+        aria-label={label}
+        aria-pressed={props.sideTab === tab}
+        title={
+          tab === "notes"
+            ? `${label}
+${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) })}`
+            : label
+        }
+        onClick={() => {
+          props.onToggleSideTab(tab);
+        }}
+      >
+        <Icon />
+      </button>
+    );
+  });
 
   const settings = (
     <button
@@ -160,6 +187,7 @@ export function SidebarFooter(props: {
         >
           <Avatar name="" text={meInitials(user)} size="small" />
         </button>
+        {sideTabs}
         {settings}
         {accountMenu}
       </div>
@@ -206,11 +234,22 @@ export function SidebarFooter(props: {
           <span className="team-pill-text">{pillText(pill, t)}</span>
         </button>
       )}
+      <span className="footer-side-tabs">{sideTabs}</span>
       {settings}
       {accountMenu}
     </div>
   );
 }
+
+/** The right panel's tabs in its own order, each with its icon. */
+const SIDE_TABS = [
+  { tab: "notes", Icon: NotesIcon },
+  { tab: "changes", Icon: DiffIcon },
+  { tab: "files", Icon: FolderIcon },
+] as const satisfies readonly {
+  tab: SideTab;
+  Icon: (props: { size?: number }) => React.ReactNode;
+}[];
 
 const THEME_LABEL = {
   system: "settings.themeSystem",
@@ -223,22 +262,12 @@ function menuItem(
   entry: AccountMenuEntry,
   t: Translate,
   run: {
-    notes: () => void;
     signIn: () => void;
     signOut: () => void;
     theme: (theme: ThemeSetting) => void;
   },
 ): PopupItem {
   switch (entry.kind) {
-    case "notes":
-      return {
-        type: "action",
-        key: "notes",
-        label: entry.open ? t("notes.hide") : t("notes.show"),
-        title: t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) }),
-        icon: <NotesIcon size={14} />,
-        run: run.notes,
-      };
     case "signIn":
       return {
         type: "action",
