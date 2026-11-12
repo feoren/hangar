@@ -4081,6 +4081,10 @@ export function App() {
                     activities={teamStore.activities}
                     nameOf={sessionName}
                     focusToken={filesFocusToken}
+                    onMention={(text) => {
+                      sendFromNotes(text, null);
+                      focusTerminal();
+                    }}
                   />
                 }
               />

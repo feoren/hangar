@@ -372,6 +372,9 @@ export function PanelWindow() {
               activities={activities}
               nameOf={nameOf}
               focusToken={filesFocusToken}
+              onMention={(text) => {
+                onSend(text, null);
+              }}
             />
           }
         />

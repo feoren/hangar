@@ -5,6 +5,7 @@
 
 import type { FolderEntry, FolderListing } from "./api";
 import type { ChangeKind, Claim } from "./claims";
+import { quotePath } from "./pathQuote";
 import type { PeerView } from "./team";
 
 // ---------------------------------------------------------------------------------------------
@@ -73,6 +74,15 @@ export function ancestors(path: string): string[] {
     found.push(parts.slice(0, index).join("/"));
   }
   return found;
+}
+
+/**
+ * What a right click on a tree row types into the terminal: `@` and the path from the project's
+ * folder, as agent CLIs mention files, a folder with a trailing `/`, and a space so the next word
+ * does not stick to it. A path with spaces is quoted the way agents read quoted paths.
+ */
+export function mentionText(path: string, folder: boolean): string {
+  return `@${quotePath(folder ? `${path}/` : path, "agent")} `;
 }
 
 export function childPath(parent: string, name: string): string {

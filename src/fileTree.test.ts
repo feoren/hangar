@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FolderEntry, FolderListing } from "./api";
 import type { Claim } from "./claims";
 import {
+  mentionText,
   ancestors,
   avatarStack,
   buildMarks,
@@ -463,5 +464,21 @@ describe("path of the changes", () => {
     expect(onChangePath("dir", null, null)).toBe(false);
     const changed = fileMark("src/app/deep/view.ts");
     expect(onChangePath("symlink", changed, null)).toBe(false);
+  });
+});
+
+describe("mentionText", () => {
+  it("puts an @ before the path from the project's folder, with a space after it", () => {
+    expect(mentionText("src/app.ts", false)).toBe("@src/app.ts ");
+    expect(mentionText("README.md", false)).toBe("@README.md ");
+  });
+
+  it("marks a folder with a trailing slash", () => {
+    expect(mentionText("src/components", true)).toBe("@src/components/ ");
+  });
+
+  it("quotes a path with spaces so the agent reads it as one", () => {
+    expect(mentionText("docs/my notes.md", false)).toBe('@"docs/my notes.md" ');
+    expect(mentionText('a "b" c', false)).toBe("@'a \"b\" c' ");
   });
 });

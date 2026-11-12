@@ -23,6 +23,7 @@ import {
   type TeamEditor,
   type TreeAction,
   type TreeState,
+  mentionText,
 } from "./fileTree";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
@@ -77,6 +78,8 @@ interface Props {
   nameOf: (id: number) => string;
   /** Goes up when the tree should take the focus (opened from the session row). */
   focusToken: number;
+  /** Right click on a row: this text (`@path `) goes into the active session's terminal. */
+  onMention: (text: string) => void;
 }
 
 /**
@@ -288,6 +291,10 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 onOpen={() => {
                   openFile(row.path);
                 }}
+                onMention={() => {
+                  dispatch({ type: "focus", path: row.path });
+                  props.onMention(mentionText(row.path, row.entry.kind === "dir"));
+                }}
               />
             ),
           )}
@@ -439,6 +446,8 @@ function TreeItem(props: {
   onClick: () => void;
   /** Double click on a file: show it in the viewer. */
   onOpen: () => void;
+  /** Right click: the row's path as an @ mention into the terminal. */
+  onMention: () => void;
 }) {
   const { row, focused, selected, fileMark, folderMark, nameOf, setRef, onClick, onOpen } = props;
   const t = useT();
@@ -454,6 +463,7 @@ function TreeItem(props: {
     .join(" ");
   const tooltip = [revealInvisible(row.path), ...notes];
   if (kind === "file") tooltip.push(t("files.openHint"));
+  tooltip.push(t("files.mentionHint"));
   return (
     <li
       ref={setRef}
@@ -468,6 +478,10 @@ function TreeItem(props: {
       title={tooltip.join("\n")}
       onClick={onClick}
       onDoubleClick={kind === "file" ? onOpen : undefined}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        props.onMention();
+      }}
     >
       <span
         className="tree-indent"
