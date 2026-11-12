@@ -477,3 +477,10 @@ Backend for showing committed changes in the Changes tab: `git_log` (a page of c
 newest first, each marked pushed when the upstream has it) and `git_commit_diff` (one commit's
 changes against its first parent or the empty tree, in the shape of `git_diff` plus the header).
 Pages changed: [[commit-history]] (new).
+
+## [2026-11-12] ingest | Terminal font coverage measurement
+Measured box drawing, block element, braille and symbol coverage of candidate monospace fonts:
+Fontsource subsets of Google-hosted fonts lack U+2500..U+259F, the upstream Source Code Pro, IBM
+Plex Mono and Victor Mono files cover them, so those three are bundled from upstream. Recorded the
+0.6.0 terminal look (14 schemes with contrast floors, renamed keys, more system fonts). Pages
+changed: [[terminal-font-coverage-measurement]] (new), [[agent-workflow-features]].

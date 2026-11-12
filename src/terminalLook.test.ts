@@ -1,24 +1,25 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { contrastRatio, TERMINAL_THEMES } from "./theme";
 import {
   BUNDLED_FONTS,
-  COLOR_SCHEMES,
+  SYSTEM_FONTS,
   createFontLoader,
   fontChoices,
   fontLoadQueries,
   fontStack,
   installedFonts,
-  isColorScheme,
   isCursorStyle,
   isFontInstalled,
   isBundledFont,
   isTerminalFont,
-  schemeColors,
-  schemePalette,
-  searchColors,
   type MeasureText,
 } from "./terminalLook";
+
+/** Paths only: the lazy glob never loads the files. */
+const FONT_FILES = import.meta.glob("./assets/fonts/*/*");
 
 /** Fake canvas: every installed font has its own width, everything else falls back. */
 function fakeMeasure(installed: readonly string[]): MeasureText {
@@ -82,6 +83,9 @@ describe("font choices", () => {
       "Fira Code",
       "Geist Mono",
       "Hack",
+      "Source Code Pro",
+      "IBM Plex Mono",
+      "Victor Mono",
       "Consolas",
     ]);
   });
@@ -154,8 +158,6 @@ describe("font loading", () => {
 
 describe("validation", () => {
   it("accepts only known values", () => {
-    expect(COLOR_SCHEMES.every(isColorScheme)).toBe(true);
-    expect(isColorScheme("dracula")).toBe(false);
     expect(isCursorStyle("bar")).toBe(true);
     expect(isCursorStyle("beam")).toBe(false);
     expect(isTerminalFont("default")).toBe(true);
@@ -165,96 +167,46 @@ describe("validation", () => {
   });
 });
 
-describe("color schemes", () => {
-  it("Hangar is the previous terminal theme", () => {
-    expect(schemeColors("hangar", "dark")).toBe(TERMINAL_THEMES.dark);
-    expect(schemeColors("hangar", "light")).toBe(TERMINAL_THEMES.light);
+describe("font lists", () => {
+  it("names every font once, bundled and system fonts apart", () => {
+    const all: string[] = [...BUNDLED_FONTS, ...SYSTEM_FONTS];
+    expect(new Set(all).size).toBe(all.length);
   });
 
-  it("returns the same object for the same choice (no needless repaint)", () => {
-    expect(schemeColors("catppuccin", "dark")).toBe(schemeColors("catppuccin", "dark"));
-  });
-
-  it("has readable text and a visible selection in every variant", () => {
-    for (const scheme of COLOR_SCHEMES) {
-      for (const theme of ["light", "dark"] as const) {
-        const colors = schemeColors(scheme, theme);
-        const at = `${scheme}/${theme}`;
-        expect(contrastRatio(colors.foreground, colors.background), at).toBeGreaterThanOrEqual(4.5);
-        expect(contrastRatio(colors.cursor, colors.background), at).toBeGreaterThanOrEqual(1.5);
-        expect(colors.selectionBackground, at).not.toBe(colors.background);
-      }
-    }
-  });
-
-  it("keeps selected text readable in the schemes Hangar defines itself", () => {
-    // Older schemes follow their published palettes (Solarized light selects at about 4:1).
-    for (const scheme of ["harbor", "dusk", "meridian"] as const) {
-      for (const theme of ["light", "dark"] as const) {
-        const colors = schemeColors(scheme, theme);
-        expect(
-          contrastRatio(colors.foreground, colors.selectionBackground),
-          `${scheme}/${theme}`,
-        ).toBeGreaterThanOrEqual(4.5);
-      }
-    }
-  });
-
-  it("keeps every released key, so saved choices stay valid", () => {
-    for (const scheme of ["hangar", "catppuccin", "solarized"]) {
-      expect(isColorScheme(scheme), scheme).toBe(true);
-    }
-  });
-
-  it("gives every scheme a distinct light and dark variant", () => {
-    for (const scheme of COLOR_SCHEMES) {
-      const dark = schemeColors(scheme, "dark");
-      const light = schemeColors(scheme, "light");
-      expect(dark.background, scheme).not.toBe(light.background);
-      expect(contrastRatio(dark.background, "#000000"), scheme).toBeLessThan(
-        contrastRatio(light.background, "#000000"),
-      );
-    }
-  });
-
-  it("keeps the cursor block readable and the cursor accent on the background", () => {
-    for (const scheme of COLOR_SCHEMES) {
-      for (const theme of ["light", "dark"] as const) {
-        const colors = schemeColors(scheme, theme);
-        expect(colors.cursorAccent, `${scheme}/${theme}`).toBe(colors.background);
-      }
-    }
-  });
-
-  it("has no light-mode bright white that vanishes on the page", () => {
-    for (const scheme of COLOR_SCHEMES) {
-      const colors = schemeColors(scheme, "light");
-      expect(contrastRatio(colors.brightWhite, colors.background), scheme).toBeGreaterThan(1.5);
-    }
-  });
-
-  it("previews six accents per scheme", () => {
-    const colors = schemeColors("meridian", "dark");
-    expect(schemePalette(colors)).toEqual([
-      colors.red,
-      colors.green,
-      colors.yellow,
-      colors.blue,
-      colors.magenta,
-      colors.cyan,
+  it("offers the common system fonts of every platform when installed", () => {
+    const installed = ["Ubuntu Mono", "Menlo", "SF Mono", "DejaVu Sans Mono", "Lucida Console"];
+    expect(installedFonts(fakeMeasure(installed))).toEqual([
+      "Lucida Console",
+      "SF Mono",
+      "Menlo",
+      "DejaVu Sans Mono",
+      "Ubuntu Mono",
     ]);
   });
 
-  it("keeps text readable on search hits", () => {
-    for (const scheme of COLOR_SCHEMES) {
-      for (const theme of ["light", "dark"] as const) {
-        const colors = schemeColors(scheme, theme);
-        const search = searchColors(scheme, theme);
-        const at = `${scheme}/${theme}`;
-        expect(search.match, at).toMatch(/^#[0-9a-f]{6}$/);
-        expect(search.active, at).toMatch(/^#[0-9a-f]{6}$/);
-        expect(contrastRatio(colors.foreground, search.active), at).toBeGreaterThanOrEqual(3);
-        expect(contrastRatio(colors.foreground, search.match), at).toBeGreaterThanOrEqual(3);
+  it("loads the new bundled fonts like the others", () => {
+    for (const font of ["Source Code Pro", "IBM Plex Mono", "Victor Mono"] as const) {
+      expect(isBundledFont(font), font).toBe(true);
+      expect(fontLoadQueries(font)).toEqual([`16px "${font}"`, `bold 16px "${font}"`]);
+    }
+  });
+
+  it("ships regular, bold, a license and an @font-face rule per weight for every bundled font", () => {
+    const css = readFileSync(new URL("./fonts.css", import.meta.url), "utf8");
+    const files = Object.keys(FONT_FILES);
+    for (const font of BUNDLED_FONTS) {
+      const slug = font.toLowerCase().replaceAll(" ", "-");
+      const folder = `./assets/fonts/${slug}/`;
+      const inFolder = files.filter((file) => file.startsWith(folder));
+      expect(inFolder, font).toContain(`${folder}${slug}-regular.woff2`);
+      expect(inFolder, font).toContain(`${folder}${slug}-bold.woff2`);
+      expect(
+        inFolder.some((file) => /(OFL\.txt|LICENSE\.md)$/.test(file)),
+        `${font} license`,
+      ).toBe(true);
+      for (const weight of ["400", "700"]) {
+        const rule = new RegExp(`font-family: "${font}";\\s*font-weight: ${weight};`);
+        expect(css, `${font} ${weight}`).toMatch(rule);
       }
     }
   });

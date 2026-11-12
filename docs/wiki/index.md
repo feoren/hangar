@@ -30,6 +30,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+- [[terminal-font-coverage-measurement]]: measurement: Fontsource subsets of Google-hosted mono fonts lack box drawing and block elements, the upstream Source Code Pro, IBM Plex Mono and Victor Mono files have them (sources: 0, updated: 2026-11-12)
 - [[single-instance-lock-measurement]]: measurement: tauri-plugin-single-instance 2.5.5 lock tests on Windows 11: second start forwarded while held, lock held during `RunEvent::Exit`, released by `cleanup_before_exit` (updated: 2026-11-11)
 - [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)
 - [[claude-http-hook-measurement]]: measurement: Claude Code 2.1.319 http hooks via `--settings`: request shape, deny reaches the model, timeout and connection failure fail open, SessionStart takes no http hooks, UserPromptSubmit context works (updated: 2026-11-09)
@@ -60,7 +61,7 @@ Catalog of all wiki pages. Updated on every ingest.
 ## Syntheses
 - [[notes-and-start-usability]]: task-based usability test of the notes panel and of starting a session, findings, accepted redesign direction, and the start target, one-click updates, notes and right panel as built (sources: 0, updated: 2026-11-09)
 - [[team-service-v1]]: research answers to the open questions of ADR 0005 (agent hooks, change observation, team crypto, server), the build plan in steps A to G and steps A (local claims), B (agent gate), C (protocol crate), E (team crypto), F part 1 (account sign-in and projects), F part 2a (team connection) and F part 2b (teammates' presence, shared claims, gate on a teammate's file, task reservations) as built (sources: 3, updated: 2026-11-09)
-- [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 0, updated: 2026-11-11)
+- [[agent-workflow-features]]: specification and contracts of the 0.3.0 feature batch (notifications, search, split view, launcher, git, worktrees, snippets, themes, profiles, secrets, tray) (sources: 1, updated: 2026-11-12)
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance, also for version queries (sources: 1, updated: 2026-11-12)
 - [[commit-history]]: contract of git_log and git_commit_diff: commits reachable from HEAD page by page with pushed state against the upstream, and one commit's changes in the shape of git_diff (sources: 0, updated: 2026-11-12)
 - [[file-viewer]]: contract of open_file_viewer and file_viewer_content: read-only viewer window bound to one file of a session's folder, path rules, content rules (2 MiB, binary, BOM), capability; frontend window, viewer themes and the change path in the tree (sources: 0, updated: 2026-11-12)

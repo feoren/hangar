@@ -3508,20 +3508,35 @@ body.resizing-horizontal * {
   display: flex;
 }
 
-/* Color scheme picker: every card drawn in its own scheme (current light or dark variant), the
-   chosen one framed in the accent and checked, so the choice never rests on color alone. */
+/* Color scheme picker: grouped tiles, every tile a short sample drawn in its own scheme (current
+   light or dark variant). The chosen one is framed in the accent and checked, so the choice never
+   rests on color alone. */
 .scheme-picker {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 6px;
+  gap: 12px;
   align-self: stretch;
+}
+
+.scheme-group {
+  display: grid;
+  gap: 6px;
+}
+
+.scheme-group-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scheme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
+  gap: 8px;
 }
 
 .scheme-option {
   position: relative;
   display: grid;
-  gap: 7px;
-  padding: 8px 10px 9px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
   box-shadow: 0 0 0 1px transparent;
@@ -3551,30 +3566,42 @@ body.resizing-horizontal * {
   pointer-events: none;
 }
 
-.scheme-option-name {
-  padding-right: 18px;
+.scheme-option-sample {
+  display: grid;
+  padding: 8px 10px 0;
   overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
 }
 
 .scheme-option-palette {
   display: flex;
   gap: 3px;
+  padding: 7px 10px 8px;
 }
 
 .scheme-option-palette span {
-  width: 12px;
-  height: 8px;
+  flex: 1;
+  max-width: 14px;
+  height: 6px;
   border-radius: 2px;
+}
+
+.scheme-option-name {
+  padding: 5px 30px 6px 10px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* In the scheme's own text color: the accent could vanish on some backgrounds. */
 .scheme-option-check {
   position: absolute;
-  top: 8px;
   right: 8px;
+  bottom: 6px;
   display: none;
 }
 
@@ -3686,23 +3713,38 @@ body.resizing-horizontal * {
   margin: 0 0 18px;
 }
 
-/* Terminal look: one prompt line in the chosen colors, font and cursor. */
+/* Terminal look: a small terminal in the chosen colors, font, size and cursor, with the 16 colors
+   beside it. It sticks to the top of the panel while the pickers below it scroll, so every choice
+   shows at once; the shadows in the panel color hide what scrolls past above it and the outline
+   of a chosen tile beside it. */
 .terminal-preview {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 6px 0 14px;
-  padding: 10px 12px;
-  font-size: 13px;
-  white-space: nowrap;
+  gap: 16px;
+  margin: 6px 0 16px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  box-shadow:
+    0 -8px 0 var(--panel-raised),
+    0 0 0 2px var(--panel-raised);
 }
 
-.terminal-preview-line {
+.terminal-preview-text {
+  display: grid;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: clip;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.preview-line {
+  display: block;
+  min-height: 1lh;
 }
 
 .terminal-preview-cursor {
@@ -3739,15 +3781,23 @@ body.resizing-horizontal * {
 }
 
 .terminal-preview-palette {
-  display: flex;
+  display: grid;
   flex: none;
-  gap: 3px;
+  grid-template-columns: repeat(8, 12px);
+  gap: 4px;
 }
 
 .terminal-preview-palette span {
-  width: 10px;
-  height: 10px;
+  height: 12px;
   border-radius: 3px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+/* Narrow dialog: the sample gets the full width, the palette would only squeeze it. */
+@media (max-width: 620px) {
+  .terminal-preview-palette {
+    display: none;
+  }
 }
 
 .attention-preview {

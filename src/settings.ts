@@ -9,7 +9,7 @@ import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./p
 import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
   DEFAULT_TERMINAL_LOOK,
-  isColorScheme,
+  parseColorScheme,
   isCursorStyle,
   isTerminalFont,
   type ColorScheme,
@@ -217,7 +217,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     claimsEnabled: flag("claimsEnabled"),
     gateEnabled: flag("gateEnabled"),
     programs: parseProgramPrefs(get("programs")),
-    terminalScheme: isColorScheme(scheme) ? scheme : defaults.terminalScheme,
+    terminalScheme: parseColorScheme(scheme) ?? defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
     cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
     cursorBlink: flag("cursorBlink"),
