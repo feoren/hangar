@@ -1575,11 +1575,22 @@ h2 .beta-badge {
   height: 16px;
 }
 
+/* How many sessions the group holds, in a small circle; two digits stretch it to a pill. */
 .agent-group-count {
+  display: inline-grid;
   flex: none;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   letter-spacing: 0;
-  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  border-radius: 999px;
 }
 
 .agent-group-waiting {
