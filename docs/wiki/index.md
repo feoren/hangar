@@ -31,6 +31,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+- [[agent-hooks-per-session-research]]: research (desk, nothing run live): hook mechanism, per-session install, trust and payload shape for Codex 0.167.2, Gemini CLI 0.68.0, Copilot CLI 1.0.109 and Qwen Code 0.27.2; Qwen and Gemini take a settings path env var, Copilot `--plugin-dir`, Codex `-c` plus a trust bypass (sources: 0, updated: 2026-11-12)
 - [[terminal-font-coverage-measurement]]: measurement: Fontsource subsets of Google-hosted mono fonts lack box drawing and block elements, the upstream Source Code Pro, IBM Plex Mono and Victor Mono files have them (sources: 0, updated: 2026-11-12)
 - [[single-instance-lock-measurement]]: measurement: tauri-plugin-single-instance 2.5.5 lock tests on Windows 11: second start forwarded while held, lock held during `RunEvent::Exit`, released by `cleanup_before_exit` (updated: 2026-11-11)
 - [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)

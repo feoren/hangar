@@ -492,3 +492,13 @@ notes-only window and shows Notes, Changes and Files. The main window pushes a v
 (`sendToTerminal`, `notesChanged`, `showMain`, `showSession`, `ready`) and may open file viewers.
 Size and place are remembered and checked against the monitors. Pages changed:
 [[0007-detachable-side-panel]] (new), [[notes]], [[file-viewer]], [[single-instance]].
+
+## [2026-11-12] ingest | Per-session edit gates for Codex, Gemini, Copilot and Qwen Code
+Desk research (no hook run against a live model; local `codex --version`, `--help`, `features list`
+only) on pre-edit blocking, context injection and per-session installation. Findings: Qwen Code and
+Gemini CLI take a settings file through an env var (`QWEN_CODE_SYSTEM_SETTINGS_PATH`,
+`GEMINI_CLI_SYSTEM_SETTINGS_PATH`) and concatenate hooks with the user hooks; Copilot CLI takes
+`--plugin-dir` and cannot use a loopback http hook for `preToolUse`; Codex takes `-c` hooks but needs
+`--dangerously-bypass-hook-trust`, passes the whole patch text, and reads project hooks of a linked
+worktree from the root checkout. Open measurements listed in the page. Pages changed:
+[[agent-hooks-per-session-research]] (new).
