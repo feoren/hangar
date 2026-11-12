@@ -1347,7 +1347,7 @@ function SessionItem({
             {/* The program leads its status ("Claude Code is working"); the state's shape sits in
                 the chip above, so the icon replaces the former status dot. */}
             <span className="session-meta">
-              <Badge look={look} small />
+              <span className="state-dot" aria-hidden="true" />
               {/* Only the sentence ellipsizes; the duration after it stays whole. */}
               <span className={waiting ? "session-status attention-text" : "session-status"}>
                 {line.sentence}

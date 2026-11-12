@@ -1354,28 +1354,22 @@ h2 .beta-badge {
   object-fit: contain;
 }
 
-/* The small mark in front of the program name in a session's status line. */
-.badge.small {
-  width: 14px;
-  height: 14px;
-  border-radius: 3.5px;
-  font-size: 8px;
-  line-height: 1;
+/* The glowing dot in front of a session's status line, in the color of its state's look (working,
+   pause, waiting, error). Rows without a look (an ended session) show a quiet grey dot. */
+.state-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 1px;
+  border-radius: 50%;
+  background: var(--muted);
 }
 
-.badge.small.wide {
-  font-size: 5.5px;
-}
-
-.badge-icon.small img {
-  width: 14px;
-  height: 14px;
-}
-
-/* An ended program steps back: its mark loses its color, as its title does. */
-.session.exited .session-meta .badge {
-  opacity: 0.6;
-  filter: grayscale(1);
+.look .state-dot {
+  background: var(--row-strong);
+  box-shadow:
+    0 0 4px 0 color-mix(in srgb, var(--row-strong) 80%, transparent),
+    0 0 9px 1px color-mix(in srgb, var(--row-strong) 45%, transparent);
 }
 
 /* Expanded next to an expanded Sessions group: height from the splitter; alone, it fills. */
