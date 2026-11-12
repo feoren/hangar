@@ -1133,8 +1133,6 @@ fn spawn(
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     command.cwd(cwd);
-    // A Hangar started inside a gated session must not hand that session's token on.
-    command.env_remove(crate::gate::TOKEN_ENV);
     // No program lookup in the working folder for update sessions and `.cmd`/`.bat` launchers.
     // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
     let no_cwd_lookup = launch.kind == SessionKind::Update || batch;
