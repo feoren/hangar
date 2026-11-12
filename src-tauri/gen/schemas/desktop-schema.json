@@ -465,6 +465,12 @@
           "markdownDescription": "Enables the open_file_viewer command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_local_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-local-url",
+          "markdownDescription": "Enables the open_local_url command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_panel_window command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-panel-window",
@@ -1045,6 +1051,12 @@
           "type": "string",
           "const": "deny-open-file-viewer",
           "markdownDescription": "Denies the open_file_viewer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_local_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-local-url",
+          "markdownDescription": "Denies the open_local_url command without any pre-configured scope."
         },
         {
           "description": "Denies the open_panel_window command without any pre-configured scope.",

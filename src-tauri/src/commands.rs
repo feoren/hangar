@@ -1403,6 +1403,19 @@ pub async fn list_session_folder(
     }
 }
 
+/// Opens a local dev server address a session printed in the default browser. Only loopback
+/// http(s) addresses with an explicit port pass (`desktop::local_dev_url`), so the frontend cannot
+/// open arbitrary pages or programs through it.
+#[tauri::command]
+pub async fn open_local_url(url: String) -> Result<(), String> {
+    let url = crate::desktop::local_dev_url(&url)
+        .ok_or_else(|| "not a local dev server address".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || crate::desktop::open_url(&url))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
 /// Opens the session's folder (the root of its file tree) in Explorer, Finder or the Linux file
 /// manager. Takes only the session's ID: the backend looks up the folder itself, so the frontend
 /// can never name a path to open.
