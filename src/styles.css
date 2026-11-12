@@ -12,11 +12,9 @@
   --worktree: #3f9a6e;
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
-  --active-tint-soft: color-mix(in srgb, var(--accent) 5%, transparent);
   /* Hover darkens a whole session row a little, whatever its state or tint. */
   --row-hover-shade: color-mix(in srgb, #000 16%, transparent);
   /* The middle tone of the drift, for the backdrop of the row actions. */
-  --active-tint-mid: color-mix(in srgb, var(--accent) 11%, transparent);
   --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
@@ -117,9 +115,7 @@
   --accent: #0969da;
   --worktree: #17673f;
   --active-tint-strong: color-mix(in srgb, var(--accent) 13%, transparent);
-  --active-tint-soft: color-mix(in srgb, var(--accent) 3%, transparent);
   --row-hover-shade: color-mix(in srgb, #000 6%, transparent);
-  --active-tint-mid: color-mix(in srgb, var(--accent) 8%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
   --on-warn: #ffffff;
@@ -504,11 +500,20 @@ h2 .beta-badge {
   isolation: isolate;
 }
 
-/* A clear blue fill marks the session on screen. It replaces the row's breathing in its state's
-   color, which matters less for a session you are looking at; the state's edge stays. */
+/* The session on screen: blue that is strongest at its left edge and fades to the right, which
+   reads as "selected" without a frame. It replaces the row's breathing in its state's color, which
+   matters less for a session you are looking at; the state's edge stays beside it. The plain
+   color is the fade's right end, so the row actions' strip (it inherits only the color) blends
+   in there. */
 .session.active,
 .session.active.look {
-  background-color: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  background-color: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 38%, var(--panel)) 0%,
+    color-mix(in srgb, var(--accent) 18%, var(--panel)) 45%,
+    color-mix(in srgb, var(--accent) 7%, var(--panel)) 100%
+  );
   animation: none;
 }
 
@@ -601,46 +606,6 @@ h2 .beta-badge {
 .session.active .session-meta,
 .session.active .session-detail {
   color: color-mix(in srgb, var(--muted) 75%, var(--text));
-}
-
-/* The active row: a soft bluish light drifts slowly across it (10 s each way). It sits below the
-   text, so readability stays; waiting rows keep their own breathing instead. The drop line of a
-   drag uses ::after too, so the tint gives way to it. */
-.session.active:not(.attention, .drop-after)::after {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  content: "";
-  pointer-events: none;
-  border-radius: inherit;
-  background-image: linear-gradient(
-    100deg,
-    var(--active-tint-soft) 0%,
-    var(--active-tint-strong) 30%,
-    var(--active-tint-soft) 55%,
-    var(--active-tint-strong) 80%,
-    var(--active-tint-soft) 100%
-  );
-  background-size: 300% 100%;
-  animation: active-drift 10s ease-in-out infinite alternate;
-}
-
-@keyframes active-drift {
-  from {
-    background-position: 0% 50%;
-  }
-
-  to {
-    background-position: 100% 50%;
-  }
-}
-
-/* Without motion: the same tint, standing still. */
-@media (prefers-reduced-motion: reduce) {
-  .session.active:not(.attention, .drop-after)::after {
-    animation: none;
-    background-position: 50% 50%;
-  }
 }
 
 .session-main {
@@ -1057,12 +1022,6 @@ h2 .beta-badge {
   pointer-events: none;
   background-color: inherit;
   mask-image: linear-gradient(to right, transparent, #000);
-}
-
-/* The active row's drifting light lies under the strip; the strip carries its middle tone. */
-.session.active:not(.attention) .session-actions,
-.session.active:not(.attention) .session-actions::before {
-  background-image: linear-gradient(var(--active-tint-mid), var(--active-tint-mid));
 }
 
 .session:hover .session-actions,
