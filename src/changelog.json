@@ -2,7 +2,22 @@
   {
     "version": "0.6.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Vierzehn Farbschemas fürs Terminal, etwa Dracula, Nord und Tokyo Night, hell wie dunkel gut lesbar. Dazu drei neue Schriften, darunter Source Code Pro.",
+        "en": "Fourteen terminal color schemes, such as Dracula, Nord and Tokyo Night, readable in light and dark. Plus three new fonts, Source Code Pro among them.",
+        "el": "Δεκατέσσερα σχήματα τερματικού, όπως Dracula, Nord και Tokyo Night, ευανάγνωστα σε φωτεινό και σκοτεινό. Και τρεις νέες γραμματοσειρές.",
+        "es": "Catorce esquemas de colores para la terminal, como Dracula, Nord y Tokyo Night, legibles en claro y oscuro. Además, tres fuentes nuevas.",
+        "fr": "Quatorze jeux de couleurs pour le terminal, dont Dracula, Nord et Tokyo Night, lisibles en clair et en sombre. Et trois nouvelles polices.",
+        "it": "Quattordici schemi colori per il terminale, come Dracula, Nord e Tokyo Night, leggibili in chiaro e scuro. In più tre nuovi caratteri.",
+        "ja": "ターミナルの配色が 14 種類に。Dracula、Nord、Tokyo Night などがあり、ライトでもダークでも読みやすく調整しています。新しいフォントも 3 つ追加しました。",
+        "pl": "Czternaście schematów kolorów terminala, m.in. Dracula, Nord i Tokyo Night, czytelnych w jasnym i ciemnym. Do tego trzy nowe czcionki.",
+        "pt": "Catorze esquemas de cores para o terminal, como Dracula, Nord e Tokyo Night, legíveis no claro e no escuro. E três fontes novas.",
+        "ru": "Четырнадцать цветовых схем терминала, например Dracula, Nord и Tokyo Night, читаемых в светлой и тёмной теме. И три новых шрифта.",
+        "tr": "Terminal için on dört renk şeması, örneğin Dracula, Nord ve Tokyo Night, açıkta da koyuda da okunaklı. Ayrıca üç yeni yazı tipi.",
+        "zh": "终端配色增加到十四种，包括 Dracula、Nord 和 Tokyo Night，浅色和深色下都清晰易读。另外新增三种字体。"
+      }
+    ]
   },
   {
     "version": "0.5.0",

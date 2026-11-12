@@ -105,7 +105,7 @@ describe("parseSettings", () => {
   it("replaces invalid terminal look values individually", () => {
     const parsed = parseSettings(
       JSON.stringify({
-        terminalScheme: "dracula",
+        terminalScheme: "midnight",
         terminalFont: "Comic Sans MS",
         cursorStyle: 2,
         cursorBlink: "no",
@@ -138,13 +138,22 @@ describe("parseSettings", () => {
   });
 
   it("keeps saved color schemes from older versions and reads the new ones", () => {
-    for (const scheme of ["hangar", "catppuccin", "solarized", "harbor", "dusk", "meridian"]) {
+    for (const scheme of ["hangar", "catppuccin", "solarized", "dusk", "dracula", "rosePine"]) {
       expect(parseSettings(JSON.stringify({ terminalScheme: scheme }), "de").terminalScheme).toBe(
         scheme,
       );
     }
     expect(parseSettings(JSON.stringify({ terminalScheme: "Harbor" }), "de").terminalScheme).toBe(
       "hangar",
+    );
+  });
+
+  it("moves the renamed schemes Harbor and Meridian to their origins", () => {
+    expect(parseSettings(JSON.stringify({ terminalScheme: "harbor" }), "de").terminalScheme).toBe(
+      "github",
+    );
+    expect(parseSettings(JSON.stringify({ terminalScheme: "meridian" }), "de").terminalScheme).toBe(
+      "oneDarkPro",
     );
   });
 
