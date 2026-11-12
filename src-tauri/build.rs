@@ -55,6 +55,8 @@ const COMMANDS: &[&str] = &[
     "git_branches",
     "git_diff",
     "list_session_folder",
+    "open_file_viewer",
+    "file_viewer_content",
     "create_worktree",
     "remove_worktree",
     "configure_claims",

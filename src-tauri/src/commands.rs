@@ -17,6 +17,7 @@ use crate::clipboard_image;
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing};
+use crate::file_viewer::{self, Claim, FileContent, FileViewerError, Target, Viewers};
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
@@ -1351,6 +1352,99 @@ pub async fn list_session_folder(
     match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
         Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
         Err(_) => Err(FileTreeError::TimedOut),
+    }
+}
+
+// Read-only file viewer windows (file_viewer.rs).
+
+/// Opens a viewer for one file of a session's tree, or brings the open one to the front. The
+/// main window names the session and the file's `/` separated path as `list_session_folder`
+/// takes it; the window gets a fresh label and is bound to that file in [`Viewers`]. Async:
+/// creating a window from a synchronous command deadlocks on Windows.
+#[tauri::command]
+pub async fn open_file_viewer(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    manager: Manager<'_>,
+    viewers: State<'_, Viewers>,
+    session_id: SessionId,
+    path: String,
+) -> Result<(), FileViewerError> {
+    file_viewer::check_opener(window.label())?;
+    let cwd = manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == session_id)
+        .map(|info| info.cwd)
+        .ok_or(FileViewerError::UnknownSession(session_id))?;
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        file_viewer::resolve_file(&cwd, &path).map(|(root, absolute)| Target {
+            session_id,
+            root,
+            path: absolute,
+            relative: path,
+        })
+    });
+    let target = match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))??,
+        Err(_) => return Err(FileViewerError::TimedOut),
+    };
+    let title = target.name();
+    let label = match viewers.claim(target) {
+        Claim::Existing(label) => {
+            // Missing only while the other call is still creating it.
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.unminimize();
+                window.show()?;
+                window.set_focus()?;
+            }
+            return Ok(());
+        }
+        Claim::New(label) => label,
+    };
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App(file_viewer::URL.into()),
+    )
+    .title(title)
+    .inner_size(file_viewer::WIDTH, file_viewer::HEIGHT)
+    .min_inner_size(file_viewer::MIN_WIDTH, file_viewer::MIN_HEIGHT)
+    .resizable(true)
+    .build();
+    match built {
+        Ok(window) => {
+            let viewers = viewers.inner().clone();
+            let closed = label.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Destroyed = event {
+                    viewers.remove(&closed);
+                }
+            });
+            Ok(())
+        }
+        Err(error) => {
+            viewers.remove(&label);
+            Err(error.into())
+        }
+    }
+}
+
+/// The content of the file the calling viewer window was opened for, read again on every call.
+/// The window names no path: its label alone selects the file.
+#[tauri::command]
+pub async fn file_viewer_content(
+    window: tauri::WebviewWindow,
+    viewers: State<'_, Viewers>,
+) -> Result<FileContent, FileViewerError> {
+    file_viewer::check_sender(window.label())?;
+    let target = viewers
+        .target(window.label())
+        .ok_or(FileViewerError::UnknownWindow)?;
+    let task = tauri::async_runtime::spawn_blocking(move || file_viewer::read_target(&target));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| FileViewerError::Task(error.to_string()))?,
+        Err(_) => Err(FileViewerError::TimedOut),
     }
 }
 

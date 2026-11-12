@@ -460,3 +460,9 @@ Simple Icons 16.37.0 data, disclaimer and license, the Primer Octicons license, 
 guideline pages, vendor site colors and an icon count of the agent executables on Windows. Every
 catalog agent now has a bundled tile: 10 marks from Simple Icons, 12 monograms drawn for Hangar;
 "Automatic" prefers it over the exe icon. Pages changed: [[agent-icons]] (new), [[catalog]].
+
+## [2026-11-12] query | File viewer window contract
+Backend for a read-only file viewer: `open_file_viewer` (main window only) opens a window
+`file-viewer-<n>` bound to one file of a session's folder with the file tree's path rules;
+`file_viewer_content` reads exactly that file for the calling window. Pages changed:
+[[file-viewer]] (new).

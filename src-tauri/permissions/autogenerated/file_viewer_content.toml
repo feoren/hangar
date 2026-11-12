@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-file-viewer-content"
+description = "Enables the file_viewer_content command without any pre-configured scope."
+commands.allow = ["file_viewer_content"]
+
+[[permission]]
+identifier = "deny-file-viewer-content"
+description = "Denies the file_viewer_content command without any pre-configured scope."
+commands.deny = ["file_viewer_content"]

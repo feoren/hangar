@@ -24,6 +24,8 @@ fn build_commands() -> Vec<String> {
 
 /// Commands granted to the notes window and to no other window.
 const NOTES_WINDOW_ONLY: &[&str] = &["notes_to_main", "set_notes_on_top"];
+/// Commands granted to the file viewer windows and to no other window.
+const FILE_VIEWER_ONLY: &[&str] = &["file_viewer_content"];
 
 #[test]
 fn commands_are_registered_allowed_and_wired() {
@@ -43,11 +45,14 @@ fn commands_are_registered_allowed_and_wired() {
     let lib = read("src/lib.rs");
     for command in &commands {
         let permission = format!("allow-{}", command.replace('_', "-"));
-        // Commands only the notes window calls are checked in notes_window_capability_is_narrow.
-        if NOTES_WINDOW_ONLY.contains(&command.as_str()) {
+        // Commands only the notes window or a file viewer calls are checked in
+        // notes_window_capability_is_narrow and file_viewer_capability_is_narrow.
+        if NOTES_WINDOW_ONLY.contains(&command.as_str())
+            || FILE_VIEWER_ONLY.contains(&command.as_str())
+        {
             assert!(
                 !permissions.contains(&permission.as_str()),
-                "{permission} belongs to the notes window only"
+                "{permission} belongs to another window only"
             );
         } else {
             assert!(
@@ -194,4 +199,41 @@ fn notes_window_capability_is_narrow() {
     ] {
         assert!(!main.contains(&forbidden), "{forbidden} in default.json");
     }
+}
+
+/// A file viewer window reads the one file the backend bound to it and nothing else: no
+/// sessions, no notes, no other files, no events of its own.
+#[test]
+fn file_viewer_capability_is_narrow() {
+    let commands = build_commands();
+    let viewer: serde_json::Value =
+        serde_json::from_str(&read("capabilities/file-viewer.json")).unwrap();
+    assert_eq!(viewer["windows"], serde_json::json!(["file-viewer-*"]));
+    let mut permissions: Vec<&str> = viewer["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.as_str())
+        .collect();
+    permissions.sort_unstable();
+    assert_eq!(
+        permissions,
+        [
+            "allow-file-viewer-content",
+            "clipboard-manager:allow-write-text",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+            "core:window:allow-close",
+            "core:window:allow-set-focus",
+            "core:window:allow-set-title",
+        ]
+    );
+    for command in FILE_VIEWER_ONLY {
+        assert!(commands.iter().any(|c| c == command), "{command} missing");
+    }
+    // Only the main window opens viewers; neither the notes window nor a viewer may.
+    let main = read("capabilities/default.json");
+    assert!(main.contains("\"allow-open-file-viewer\""));
+    let notes = read("capabilities/notes.json");
+    assert!(!notes.contains("file-viewer"));
 }

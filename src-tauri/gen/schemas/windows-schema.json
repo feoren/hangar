@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the export_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the file_viewer_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-file-viewer-content",
+          "markdownDescription": "Enables the file_viewer_content command without any pre-configured scope."
+        },
+        {
           "description": "Enables the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "allow-focus-sub-agent",
@@ -445,6 +451,12 @@
           "type": "string",
           "const": "allow-notify-session",
           "markdownDescription": "Enables the notify_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_file_viewer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-file-viewer",
+          "markdownDescription": "Enables the open_file_viewer command without any pre-configured scope."
         },
         {
           "description": "Enables the open_notes_window command without any pre-configured scope.",
@@ -903,6 +915,12 @@
           "markdownDescription": "Denies the export_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the file_viewer_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-file-viewer-content",
+          "markdownDescription": "Denies the file_viewer_content command without any pre-configured scope."
+        },
+        {
           "description": "Denies the focus_sub_agent command without any pre-configured scope.",
           "type": "string",
           "const": "deny-focus-sub-agent",
@@ -997,6 +1015,12 @@
           "type": "string",
           "const": "deny-notify-session",
           "markdownDescription": "Denies the notify_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_file_viewer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-file-viewer",
+          "markdownDescription": "Denies the open_file_viewer command without any pre-configured scope."
         },
         {
           "description": "Denies the open_notes_window command without any pre-configured scope.",

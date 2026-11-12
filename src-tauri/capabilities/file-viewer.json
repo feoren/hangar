@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "file-viewer",
+  "description": "Read-only file viewer windows: reading the one file the backend bound to the calling window (no path argument), listening to events, copying text, setting its title, focusing and closing it",
+  "windows": ["file-viewer-*"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-title",
+    "clipboard-manager:allow-write-text",
+    "allow-file-viewer-content"
+  ]
+}

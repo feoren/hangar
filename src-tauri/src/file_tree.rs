@@ -175,7 +175,7 @@ pub fn resolve(root: &Path, relative: &str) -> Result<(PathBuf, PathBuf), FileTr
 
 /// A resolved path below the root passes through a `.git` folder (also a submodule's), or holds
 /// anything but plain names.
-fn reaches_git_folder(inside: &Path) -> bool {
+pub(crate) fn reaches_git_folder(inside: &Path) -> bool {
     inside.components().any(|part| match part {
         Component::Normal(name) => name.eq_ignore_ascii_case(GIT_DIR_NAME),
         _ => true,
@@ -440,7 +440,7 @@ fn mark_ignored(git: &Git, folder: &Path, entries: &mut [FolderEntry]) {
 }
 
 /// `\\?\C:\x` from `canonicalize` as `C:\x`, `\\?\UNC\host\share` as `\\host\share`.
-fn display_path(path: &Path) -> String {
+pub(crate) fn display_path(path: &Path) -> String {
     let text = path.to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
         return format!(r"\\{rest}");
