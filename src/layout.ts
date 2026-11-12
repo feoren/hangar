@@ -15,14 +15,15 @@ export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
 export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
 
 import { parsePaneRatios, type PaneRatios } from "./paneRatios";
-import { AGENT_GROUP_PREFIX } from "./sessionGroups";
+import { AGENT_GROUP_PREFIX, PROJECT_GROUP_PREFIX } from "./sessionGroups";
 import { migrateLayoutId, type LayoutId } from "./snapLayouts";
 
 const STORAGE_KEY = "hangar.layout";
 
 /**
  * Collapsible groups of the sidebar with a fixed place. New ones are added here. The sessions sit
- * in one group per program above them, folded by key (`closedAgentGroups`). Layouts saved before
+ * in one group per program or per project folder above them, folded by key
+ * (`closedAgentGroups`); each grouping keeps its own folds. Layouts saved before
  * that also hold "sessions" and "worktrees"; reading drops them, so those programs start open.
  */
 export const SIDEBAR_GROUPS = ["newSession"] as const;
@@ -38,7 +39,7 @@ export interface Layout {
   collapsed: boolean;
   /** Collapsed groups; only their title row remains. */
   closedGroups: SidebarGroup[];
-  /** Folded program groups of the session list, by key (sessionGroups.ts agentGroupKey). */
+  /** Folded groups of the session list, by key (sessionGroups.ts sessionGroupKey). */
   closedAgentGroups: string[];
   fontSize: number;
   /** Right panel visible next to the terminal. */
@@ -120,8 +121,9 @@ const OLD_SESSIONS_PREFIX = "sessions:";
  * same group and the ordinary sessions decide.
  */
 function migrateAgentGroupKey(key: string): string | null {
-  if (key.startsWith(AGENT_GROUP_PREFIX))
-    return key.length > AGENT_GROUP_PREFIX.length ? key : null;
+  for (const prefix of [AGENT_GROUP_PREFIX, PROJECT_GROUP_PREFIX]) {
+    if (key.startsWith(prefix)) return key.length > prefix.length ? key : null;
+  }
   if (key.startsWith(OLD_SESSIONS_PREFIX) && key.length > OLD_SESSIONS_PREFIX.length) {
     return `${AGENT_GROUP_PREFIX}${key.slice(OLD_SESSIONS_PREFIX.length)}`;
   }

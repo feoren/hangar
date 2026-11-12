@@ -5,8 +5,14 @@ import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { FolderMenu } from "./FolderMenu";
-import { elideMiddle, parentFolder } from "./folderSections";
-import { folderName, type FolderPrefs } from "./folders";
+import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
+import {
+  folderColor,
+  folderColorCss,
+  folderName,
+  type FolderColor,
+  type FolderPrefs,
+} from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { useT } from "./i18n";
@@ -51,7 +57,13 @@ import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
 import { LayoutGlyph } from "./LayoutGlyph";
 import { placementText, type PanePlacement } from "./paneGlyph";
 import { Splitter } from "./Splitter";
-import { detailPlace, sessionLabels, statusSubject, type SessionLabel } from "./sessionLabel";
+import {
+  detailPlace,
+  projectRowName,
+  sessionLabels,
+  statusSubject,
+  type SessionLabel,
+} from "./sessionLabel";
 import { SidebarFooter } from "./SidebarFooter";
 import {
   detailLine,
@@ -65,7 +77,14 @@ import type { Theme } from "./theme";
 import { edgeClass, rowEdge, rowLook, runsAgent, sessionChip, type ChipKind } from "./sessionChip";
 import { RepoTeammates } from "./RepoTeammates";
 import { lookClass } from "./stateLook";
-import { agentGroupKey, agentGroups, groupStepIndex, shownSessions } from "./sessionGroups";
+import {
+  agentGroups,
+  groupStepIndex,
+  SESSION_GROUPINGS,
+  sessionGroupKey,
+  shownSessions,
+  type SessionGrouping,
+} from "./sessionGroups";
 import { StatusChip } from "./StatusChip";
 import { SubAgentTree } from "./SubAgentTree";
 import { SessionActionGuard } from "./timing";
@@ -172,6 +191,13 @@ interface Props {
   onToggleFavorite: (path: string) => void;
   /** Takes a saved folder out of the folder menu. */
   onForgetFolder: (path: string) => void;
+  /** Puts a favorite folder right before (or after) another one. */
+  onMoveFavorite: (path: string, target: string, after: boolean) => void;
+  /** Gives a project folder a color; `null` takes it away. */
+  onFolderColor: (path: string, color: FolderColor | null) => void;
+  /** Sessions grouped by program or by project folder. */
+  grouping: SessionGrouping;
+  onGrouping: (grouping: SessionGrouping) => void;
   onRestart: (id: number) => void;
   onKill: (id: number) => void;
   onClose: (id: number) => void;
@@ -250,7 +276,7 @@ export function Sidebar(props: Props) {
     const step = rowMoveStep(event);
     if (step === null) return;
     event.preventDefault();
-    const target = groupStepIndex(sessions, id, step);
+    const target = groupStepIndex(sessions, id, step, props.grouping);
     if (target === null) return;
     props.onMove(id, target);
     // React moves the row's element; moving a focused node in the DOM can drop its focus.
@@ -314,10 +340,15 @@ export function Sidebar(props: Props) {
   const waitingIn = (list: readonly SessionView[]) =>
     list.filter((s) => attention.get(s.id) === "attention").map((s) => s.id);
   const agentOpen = (key: string) => !props.closedAgentGroups.includes(key);
-  /** Rows on screen: folded program groups show none. */
-  const shown = agentGroups(sessions).flatMap((group) =>
-    shownSessions(group.sessions, agentOpen(group.key)),
-  );
+  const groups = agentGroups(sessions, props.grouping);
+  /** Rows on screen: folded groups show none. */
+  const shown = groups.flatMap((group) => shownSessions(group.sessions, agentOpen(group.key)));
+  /** Group header menu (right click or context menu key): how to group, at this point. */
+  const [groupingMenu, setGroupingMenu] = useState<{
+    x: number;
+    y: number;
+    from: HTMLElement;
+  } | null>(null);
   // Waiting sessions scrolled out of view: a calm hint at that edge of the list. Rows in a folded
   // program group are not there to scroll to; their group's header shows them instead.
   const sessionList = useRef<HTMLUListElement>(null);
@@ -353,7 +384,10 @@ export function Sidebar(props: Props) {
     onChoose: props.onPickCwd,
     onToggleFavorite: props.onToggleFavorite,
     onForget: props.onForgetFolder,
+    onMoveFavorite: props.onMoveFavorite,
+    onColor: props.onFolderColor,
   };
+  const targetColor = target.path === null ? null : folderColor(props.folders, target.path);
 
   /** Mouse (detail > 0): focus to the terminal. Keyboard (detail 0): focus stays on the button. */
   const onToggleClick = (event: React.MouseEvent) => {
@@ -543,10 +577,11 @@ export function Sidebar(props: Props) {
               state === "attention" ? "attention" : "",
               lookClass(rowLook(session, state, chip)),
             ];
-            const group = agentGroupKey(session);
+            const group = sessionGroupKey(session, props.grouping);
             const previous = sessions[index - 1];
-            // A thin line where the next program's sessions begin, as its group does expanded.
-            const divider = previous !== undefined && agentGroupKey(previous) !== group;
+            // A thin line where the next group's sessions begin, as its header does expanded.
+            const divider =
+              previous !== undefined && sessionGroupKey(previous, props.grouping) !== group;
             return (
               <Fragment key={session.id}>
                 {divider && <li className="rail-divider" aria-hidden="true" />}
@@ -708,29 +743,53 @@ export function Sidebar(props: Props) {
 
   const newSessionOpen = open("newSession");
   const subAgentTree = props.subAgentTree;
+  // Project groups are named by their folder, with parent folders where two would read the same.
+  const projectPaths = groups.flatMap((group) => (group.path === null ? [] : [group.path]));
+  const projectNames = new Map(
+    distinctNames(projectPaths).map((name, index) => [projectPaths[index] ?? "", name]),
+  );
+  const openGroupingMenu = (event: React.MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    const from = event.currentTarget;
+    if (event.button === 2 || event.clientX !== 0 || event.clientY !== 0) {
+      setGroupingMenu({ x: event.clientX, y: event.clientY, from });
+      return;
+    }
+    const rect = from.getBoundingClientRect();
+    setGroupingMenu({ x: rect.left + 24, y: rect.bottom, from });
+  };
   /**
-   * The sessions, one group per program whose rows hang off its header like a tree; the
-   * sub-agent tree hangs below the active row.
+   * The sessions, one group per program or project folder whose rows hang off its header like a
+   * tree; the sub-agent tree hangs below the active row.
    */
   const programGroups = () =>
-    agentGroups(sessions).map((agents) => {
+    groups.map((agents) => {
       const open = agentOpen(agents.key);
       const groupRows = shownSessions(agents.sessions, open);
       const shownIds = new Set(groupRows.map((s) => s.id));
       const hiddenWaiting = waitingIn(agents.sessions.filter((s) => !shownIds.has(s.id))).length;
-      const profile = profileById.get(agents.profileId);
+      const groupProfile = profileById.get(agents.profileId);
+      const project = agents.path;
+      const color = project === null ? null : folderColor(props.folders, project);
       return (
         <AgentGroupSection
           key={agents.key}
           groupKey={agents.key}
-          name={profile?.name ?? agents.sessions[0]?.title ?? agents.profileId}
-          look={badgeFor(agents.profileId)}
+          name={
+            project !== null
+              ? (projectNames.get(project) ?? folderName(project))
+              : (groupProfile?.name ?? agents.sessions[0]?.title ?? agents.profileId)
+          }
+          look={project === null ? badgeFor(agents.profileId) : null}
+          {...(project === null ? {} : { path: project })}
+          color={color === null ? null : folderColorCss(color)}
           count={agents.sessions.length}
           open={open}
           hasRows={groupRows.length > 0}
           hiddenWaiting={hiddenWaiting}
           holdsActive={!open && agents.sessions.some((s) => s.id === activeId)}
           onToggle={props.onToggleAgentGroup}
+          onMenu={openGroupingMenu}
         >
           {groupRows.map((session, index) => {
             const last = index === groupRows.length - 1;
@@ -747,7 +806,8 @@ export function Sidebar(props: Props) {
                   session={session}
                   groupKey={agents.key}
                   last={last}
-                  program={programLine(profile, versions)}
+                  program={programLine(profileById.get(session.profileId), versions)}
+                  badge={project === null ? null : badgeFor(session.profileId)}
                   active={session.id === activeId}
                   state={attention.get(session.id) ?? "idle"}
                   chip={chipOf(session)}
@@ -810,7 +870,8 @@ export function Sidebar(props: Props) {
       {/* Decorative: separates the app's own controls from the sessions below. */}
       <div className="sidebar-rule" aria-hidden="true" />
 
-      {/* One group per program, top to bottom; together they take the free height and scroll. */}
+      {/* One group per program or project folder, top to bottom; together they take the free
+          height and scroll. */}
       <div className="session-groups">
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul
@@ -824,6 +885,31 @@ export function Sidebar(props: Props) {
         </ul>
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </div>
+      {groupingMenu !== null && (
+        <PopupMenu
+          items={[
+            { type: "heading", key: "heading", label: t("sidebar.groupBy") },
+            ...SESSION_GROUPINGS.map((by): PopupItem => ({
+              type: "action",
+              key: by,
+              label: t(by === "program" ? "sidebar.groupByProgram" : "sidebar.groupByProject"),
+              current: props.grouping === by,
+              run: () => {
+                props.onGrouping(by);
+              },
+            })),
+          ]}
+          label={t("sidebar.groupBy")}
+          position={groupingMenu}
+          onClose={(reason) => {
+            const from = groupingMenu.from;
+            setGroupingMenu(null);
+            // The header may have moved or gone after regrouping; then the terminal takes it.
+            if (reason === "dismiss" && from.isConnected) from.focus();
+            else props.onMenuClose();
+          }}
+        />
+      )}
 
       <UpdateNotice state={update} onDismiss={props.onDismissUpdate} />
 
@@ -870,7 +956,18 @@ export function Sidebar(props: Props) {
               setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
             }}
           >
-            <span className="cwd-icon" aria-hidden="true">
+            <span
+              className={targetColor === null ? "cwd-icon" : "cwd-icon tinted"}
+              style={
+                targetColor === null
+                  ? undefined
+                  : {
+                      color: folderColorCss(targetColor),
+                      background: `color-mix(in srgb, ${folderColorCss(targetColor)} 16%, transparent)`,
+                    }
+              }
+              aria-hidden="true"
+            >
               <FolderIcon size={16} />
             </span>
             <span className="cwd-text">
@@ -1054,26 +1151,35 @@ function GroupSection({
 }
 
 /**
- * The sessions of one program, worktree or not: a header like the other groups' (chevron, small
- * capitals) with the program's badge and number of sessions, its rows hanging below like a tree.
- * Folded, the header names the waiting sessions it hides and whether the active session is among
- * them.
+ * The sessions of one program or one project folder, worktree or not: a header like the other
+ * groups' (chevron, small capitals) with the program's badge or the folder (in its color) and the
+ * number of sessions, its rows hanging below like a tree. Folded, the header names the waiting
+ * sessions it hides and whether the active session is among them. Right click or the context
+ * menu key on the header offers the other grouping.
  */
 function AgentGroupSection({
   groupKey,
   name,
   look,
+  path,
+  color,
   count,
   open,
   hasRows,
   hiddenWaiting,
   holdsActive,
   onToggle,
+  onMenu,
   children,
 }: {
   groupKey: string;
   name: string;
-  look: BadgeLook;
+  /** The program's badge; `null` for a project group, which shows a folder instead. */
+  look: BadgeLook | null;
+  /** A project group's folder, for the tooltip. */
+  path?: string;
+  /** The project folder's color as CSS, `null` without one. */
+  color: string | null;
   count: number;
   open: boolean;
   hasRows: boolean;
@@ -1082,6 +1188,7 @@ function AgentGroupSection({
   /** Folded with the active session inside: the header stands in for its row. */
   holdsActive: boolean;
   onToggle: (key: string) => void;
+  onMenu: (event: React.MouseEvent<HTMLElement>) => void;
   children: React.ReactNode;
 }) {
   const t = useT();
@@ -1103,6 +1210,7 @@ function AgentGroupSection({
           aria-controls={bodyId}
           title={[
             `${name} · ${countText}`,
+            path ?? "",
             holdsActive ? activeText : "",
             hiddenWaiting > 0 ? waitingText : "",
           ]
@@ -1111,9 +1219,24 @@ function AgentGroupSection({
           onClick={() => {
             onToggle(groupKey);
           }}
+          onContextMenu={onMenu}
         >
           <ChevronIcon size={12} />
-          <Badge look={look} />
+          {look === null ? (
+            <span
+              className={color === null ? "agent-group-folder" : "agent-group-folder tinted"}
+              style={
+                color === null
+                  ? undefined
+                  : { color, background: `color-mix(in srgb, ${color} 18%, transparent)` }
+              }
+              aria-hidden="true"
+            >
+              <FolderIcon size={12} />
+            </span>
+          ) : (
+            <Badge look={look} />
+          )}
           <span className="group-label">{name}</span>
           <span className="agent-group-count" aria-hidden="true">
             {count}
@@ -1279,7 +1402,7 @@ function programLine(profile: Profile | undefined, versions: ProgramVersions): s
 
 interface ItemProps extends Props {
   session: SessionView;
-  /** Agent group of the row (agentGroupKey), for dragging within it. */
+  /** Group of the row (sessionGroupKey), for dragging within it. */
   groupKey: string;
   /** Last row of its agent group: the tree's guide line ends at it. */
   last: boolean;
@@ -1288,6 +1411,11 @@ interface ItemProps extends Props {
   label: SessionLabel | null;
   /** Program and version for the tooltip, empty without a known version. */
   program: string;
+  /**
+   * The program's badge on a row in a project group, whose header names the folder instead of
+   * the program; `null` in a program group.
+   */
+  badge: BadgeLook | null;
   active: boolean;
   state: AttentionState;
   chip: ChipKind | null;
@@ -1307,6 +1435,7 @@ function SessionItem({
   lines,
   label,
   program,
+  badge,
   active,
   state,
   chip,
@@ -1337,8 +1466,10 @@ function SessionItem({
   const line = lines.status;
   const status = line.full;
   const where = lines.detail;
-  const name = label?.primary ?? session.title;
-  const place = detailPlace(label, where.folder);
+  // In a project group the header names the folder: the row leads with the program instead.
+  const inProject = badge !== null;
+  const name = inProject ? projectRowName(label, session.title) : (label?.primary ?? session.title);
+  const place = inProject ? null : detailPlace(label, where.folder);
   const detail = exitDetail(session, t);
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
@@ -1428,6 +1559,7 @@ function SessionItem({
         >
           <span className="session-text">
             <span className="session-title-row">
+              {badge !== null && <Badge look={badge} />}
               <SessionMarker marker={session.marker} />
               <span className="session-title">{name}</span>
               {overlap !== undefined && (

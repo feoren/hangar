@@ -101,6 +101,16 @@
      chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
   --agent-tree-x: 34px;
   --agent-elbow-y: 16px;
+  /* Project folder colors (folders.ts folderColorCss): the session marker's palette (marker.ts),
+     medium tones that stay visible on the dark and the light sidebar. */
+  --folder-red: #e5534b;
+  --folder-orange: #e0823d;
+  --folder-yellow: #c9a227;
+  --folder-green: #46a758;
+  --folder-teal: #2fa6a0;
+  --folder-blue: #4a8fe7;
+  --folder-purple: #986ee2;
+  --folder-pink: #d6609e;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -1560,6 +1570,37 @@ h2 .beta-badge {
   height: 16px;
 }
 
+/* A project group's header: the folder in a 16 px tile like the program badge, so the tree's
+   guide lines up the same; tinted with the folder's color when it has one. */
+.agent-group-folder {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  border-radius: 4px;
+}
+
+/* In a project group each row names its program with a small badge before the title. */
+.session-title-row .badge {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.session-title-row .badge.wide {
+  font-size: 5.5px;
+}
+
+.session-title-row .badge-icon img {
+  width: 14px;
+  height: 14px;
+}
+
 /* How many sessions the group holds, in a small circle; two digits stretch it to a pill. */
 .agent-group-count {
   display: inline-grid;
@@ -1853,6 +1894,70 @@ h2 .beta-badge {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* The user's last prompt above the terminal: one quiet line, a click scrolls back to it. */
+.last-prompt {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 8px 6px 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 6px;
+}
+
+button.last-prompt:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+button.last-prompt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.last-prompt-mark {
+  flex: none;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.last-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Split panes have their own header; the bar sits inside the frame there. */
+.pane.split .last-prompt {
+  margin: 4px 6px 2px;
+}
+
+/* The line the prompt was sent from, lit for a moment after the jump. */
+.prompt-flash {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: prompt-flash 1.6s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes prompt-flash {
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-flash {
+    animation: none;
+  }
 }
 
 /* Split view: every pane gets a frame and a slim header; the focused one an accent edge. */
@@ -7611,6 +7716,119 @@ body.session-dragging .session-actions {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A folder's icon in the menu takes the folder's color, if it has one. */
+.folder-menu-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+/* The color button: a dot in the folder's color; without one an empty ring, shown on the row's
+   hover and focus only, like the x. */
+.folder-color-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+.menu-secondary.folder-color.has-color .folder-color-dot {
+  box-shadow: none;
+}
+
+.menu-secondary.folder-color:not(.has-color) {
+  opacity: 0;
+}
+
+.menu-entry:hover .menu-secondary.folder-color,
+.menu-entry:focus-within .menu-secondary.folder-color {
+  opacity: 1;
+}
+
+/* Color swatches below a folder's row: "none" first, then the palette. */
+.menu-swatches {
+  padding: 2px 6px 6px 30px;
+}
+
+.menu-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.menu-swatch {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.menu-swatch:hover,
+.menu-swatch:focus-visible {
+  background: var(--hover);
+}
+
+.menu-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.menu-swatch[aria-checked="true"] {
+  border-color: var(--text);
+}
+
+.menu-swatch-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+/* "None": an empty ring with a slash, as in the session marker dialog. */
+.menu-swatch.none .menu-swatch-color {
+  background: linear-gradient(
+    135deg,
+    transparent calc(50% - 1px),
+    var(--muted) calc(50% - 1px),
+    var(--muted) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+
+/* Favorites can be dragged into another order: the carried row fades, a line shows where it
+   lands. */
+.menu-entry.reorderable .menu-item {
+  touch-action: none;
+}
+
+.menu-entry.dragging {
+  opacity: 0.45;
+}
+
+.menu-entry.drop-before::before,
+.menu-entry.drop-after::after {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  z-index: 2;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.menu-entry.drop-before::before {
+  top: -1px;
+}
+
+.menu-entry.drop-after::after {
+  bottom: -1px;
 }
 
 .menu-note {

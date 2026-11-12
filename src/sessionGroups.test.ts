@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import { dropLine } from "./sessionDrag";
 import {
   agentGroupKey,
+  agentGroupOrder,
   agentGroups,
   groupDropIndex,
   groupedOrder,
   groupIds,
   groupPosition,
   groupStepIndex,
+  isSessionGrouping,
+  sessionGroupKey,
   shownSessions,
 } from "./sessionGroups";
 import { moveItem } from "./sessions";
@@ -88,6 +91,79 @@ describe("program groups", () => {
     // Folding the group of the session on screen must visibly fold it, too.
     expect(shownSessions(sessions, false)).toEqual([]);
     expect(shownSessions([plain(4)], false)).toEqual([]);
+  });
+});
+
+describe("project groups", () => {
+  interface Placed {
+    id: number;
+    profileId: string;
+    cwd: string;
+    kind?: "agent" | "update";
+    worktree?: { repoRoot: string };
+  }
+  const at = (id: number, cwd: string, profileId = "claude"): Placed => ({ id, profileId, cwd });
+
+  it("key a session by its project folder, Windows paths without case", () => {
+    expect(sessionGroupKey(at(1, "C:\\Src\\Hangar\\"), "project")).toBe("project:c:\\src\\hangar");
+    expect(sessionGroupKey(at(1, "/home/ada/x"), "project")).toBe("project:/home/ada/x");
+    // By program, the folder plays no part.
+    expect(sessionGroupKey(at(1, "/home/ada/x", "codex"))).toBe("program:codex");
+  });
+
+  it("put a worktree session into its repository's group", () => {
+    const worktree: Placed = {
+      ...at(2, "C:\\wt\\hangar-x", "codex"),
+      worktree: { repoRoot: "C:\\src\\hangar" },
+    };
+    expect(sessionGroupKey(worktree, "project")).toBe("project:c:\\src\\hangar");
+  });
+
+  it("leave update sessions and sessions without a folder in their program's group", () => {
+    expect(sessionGroupKey({ ...at(3, "C:\\Users\\ada"), kind: "update" }, "project")).toBe(
+      "program:claude",
+    );
+    expect(sessionGroupKey(at(4, "  "), "project")).toBe("program:claude");
+    expect(sessionGroupKey({ profileId: "pwsh" }, "project")).toBe("program:pwsh");
+  });
+
+  it("gather the sessions of one folder, mixed programs, in order of first appearance", () => {
+    const items = [
+      at(1, "C:\\a", "claude"),
+      at(2, "C:\\b", "pwsh"),
+      at(3, "c:\\A\\", "codex"),
+      at(4, "C:\\b", "claude"),
+    ];
+    expect(groupedOrder(items, "project").map((s) => s.id)).toEqual([1, 3, 2, 4]);
+    const groups = agentGroups(groupedOrder(items, "project"), "project");
+    expect(groups.map((g) => [g.key, g.kind, g.path, g.sessions.map((s) => s.id)])).toEqual([
+      ["project:c:\\a", "project", "C:\\a", [1, 3]],
+      ["project:c:\\b", "project", "C:\\b", [2, 4]],
+    ]);
+    // Program groups carry no folder.
+    expect(agentGroups(items).map((g) => [g.kind, g.path])).toEqual([
+      ["program", null],
+      ["program", null],
+      ["program", null],
+    ]);
+  });
+
+  it("step and count within the project group", () => {
+    const items = [at(1, "/a", "x"), at(2, "/a", "y"), at(3, "/b", "x")];
+    expect(groupStepIndex(items, 1, 1, "project")).toBe(1);
+    expect(groupStepIndex(items, 2, 1, "project")).toBeNull();
+    // By program, 1 and 3 share a group although 2 sits between them in this list.
+    expect(groupIds(items, 1)).toEqual([1, 3]);
+    expect(groupIds(items, 1, "project")).toEqual([1, 2]);
+    expect(groupPosition(items, 2, "project")).toEqual({ position: 2, count: 2 });
+    expect(agentGroupOrder(items, "project")).toEqual(["project:/a", "project:/b"]);
+  });
+
+  it("read the setting's values", () => {
+    expect(isSessionGrouping("program")).toBe(true);
+    expect(isSessionGrouping("project")).toBe(true);
+    expect(isSessionGrouping("folder")).toBe(false);
+    expect(isSessionGrouping(null)).toBe(false);
   });
 });
 

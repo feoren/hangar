@@ -44,6 +44,42 @@ describe("sessionsReducer", () => {
     ).toEqual([1, 3, 2]);
   });
 
+  it("follows the project grouping once regrouped, and back", () => {
+    const at = (id: number, profileId: string, cwd: string) => ({
+      ...session(id),
+      profileId,
+      cwd,
+    });
+    let state: SessionsState = initialSessions;
+    for (const next of [
+      at(1, "claude", "C:\\a"),
+      at(2, "pwsh", "C:\\b"),
+      at(3, "codex", "C:\\a"),
+    ]) {
+      state = sessionsReducer(state, { type: "added", session: next });
+    }
+    expect(state.sessions.map((s) => s.id)).toEqual([1, 2, 3]);
+    const byProject = sessionsReducer(state, { type: "regrouped", by: "project" });
+    expect(byProject.grouping).toBe("project");
+    expect(byProject.sessions.map((s) => s.id)).toEqual([1, 3, 2]);
+    expect(sessionsReducer(byProject, { type: "regrouped", by: "project" })).toBe(byProject);
+    // New sessions join their folder's group; moves stay within it.
+    const added = sessionsReducer(byProject, {
+      type: "added",
+      session: at(4, "claude", "c:\\b\\"),
+    });
+    expect(added.sessions.map((s) => s.id)).toEqual([1, 3, 2, 4]);
+    expect(added.grouping).toBe("project");
+    // To the very top would pull its folder's group up: refused.
+    expect(sessionsReducer(added, { type: "moved", id: 4, index: 0 })).toBe(added);
+    const moved = sessionsReducer(added, { type: "moved", id: 4, index: 2 });
+    expect(moved.sessions.map((s) => s.id)).toEqual([1, 3, 4, 2]);
+    // The grouping survives removing the active session.
+    expect(sessionsReducer(moved, { type: "removed", id: 4 }).grouping).toBe("project");
+    const back = sessionsReducer(moved, { type: "regrouped", by: "program" });
+    expect(back.sessions.map((s) => s.id)).toEqual([1, 4, 3, 2]);
+  });
+
   it("replaces a session in the same place and keeps the selection", () => {
     const state = withSessions([1, -1, 2], -1);
     const next = sessionsReducer(state, { type: "replaced", oldId: -1, session: session(7) });

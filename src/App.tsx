@@ -58,8 +58,10 @@ import {
   folderName,
   forgetFolder,
   loadFolderPrefs,
+  moveFavorite,
   recordRecent,
   saveFolderPrefs,
+  setFolderColor,
   toggleFavorite,
   type FolderPrefs,
 } from "./folders";
@@ -79,7 +81,7 @@ import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
-import { agentGroupKey, groupedOrder, groupPosition } from "./sessionGroups";
+import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
@@ -453,6 +455,11 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
+  const grouping = settings.sessionGrouping;
+  // The session list follows the sidebar's grouping, so cycling and the rail match it.
+  useEffect(() => {
+    dispatch({ type: "regrouped", by: grouping });
+  }, [grouping]);
   const [version, setVersion] = useState<string | null>(null);
   const [profilePath, setProfilePath] = useState<string | null>(null);
   const [dialog, setDialog] = useState<OpenDialog>(null);
@@ -1242,11 +1249,11 @@ export function App() {
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
     subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
-  // The tree hangs below the active row; a folded program group hides that row, and the tree too.
+  // The tree hangs below the active row; a folded group hides that row, and the tree too.
   const subAgentTreeShown =
     !layout.collapsed &&
     activeSession !== undefined &&
-    !layout.closedAgentGroups.includes(agentGroupKey(activeSession));
+    !layout.closedAgentGroups.includes(sessionGroupKey(activeSession, grouping));
   const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
   const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
   const subAgentKey = useSubAgentWatch(
@@ -1394,7 +1401,11 @@ export function App() {
     const session = state.sessions.find((s) => s.id === id);
     dispatch({ type: "moved", id, index });
     // The place within the session's sidebar group, as the list shows it.
-    const place = groupPosition(groupedOrder(moveItem(state.sessions, id, index) ?? []), id);
+    const place = groupPosition(
+      groupedOrder(moveItem(state.sessions, id, index) ?? [], grouping),
+      id,
+      grouping,
+    );
     if (session && place) {
       setMoveAnnouncement(t("session.moved", { title: session.title, ...place }));
     }
@@ -3949,6 +3960,16 @@ export function App() {
           onForgetFolder={(path) => {
             setFolders((current) => forgetFolder(current, path));
           }}
+          onMoveFavorite={(path, target, after) => {
+            setFolders((current) => moveFavorite(current, path, target, after));
+          }}
+          onFolderColor={(path, color) => {
+            setFolders((current) => setFolderColor(current, path, color));
+          }}
+          grouping={grouping}
+          onGrouping={(sessionGrouping) => {
+            updateSettings({ sessionGrouping });
+          }}
           onRestart={(id) => {
             void restart(id);
           }}
@@ -3973,7 +3994,7 @@ export function App() {
                           sessionDragView.target.index,
                           (id) => {
                             const session = state.sessions.find((s) => s.id === id);
-                            return session ? agentGroupKey(session) : "";
+                            return session ? sessionGroupKey(session, grouping) : "";
                           },
                         )
                       : null,

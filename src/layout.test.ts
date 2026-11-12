@@ -224,6 +224,17 @@ describe("sidebar groups", () => {
     ]);
   });
 
+  it("keep folds of project groups next to those of program groups", () => {
+    const read = (closedAgentGroups: unknown) =>
+      parseLayout(JSON.stringify({ closedAgentGroups })).closedAgentGroups;
+    expect(read(["project:c:\\src\\hangar", "program:claude", "project:/home/ada/x"])).toEqual([
+      "project:c:\\src\\hangar",
+      "program:claude",
+      "project:/home/ada/x",
+    ]);
+    expect(read(["project:"])).toEqual([]);
+  });
+
   it("read folded program groups robustly and keep at most the newest ones", () => {
     const read = (closedAgentGroups: unknown) =>
       parseLayout(JSON.stringify({ closedAgentGroups })).closedAgentGroups;
