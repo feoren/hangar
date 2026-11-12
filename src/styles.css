@@ -502,10 +502,6 @@ h2 .beta-badge {
   background: var(--panel-raised);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
   isolation: isolate;
-  /* The row on screen must stand out from rows that breathe in their state's color: an accent ring
-     around it (an outline, so it adds to the state's edge instead of replacing it). */
-  outline: 1.5px solid var(--accent);
-  outline-offset: 1px;
 }
 
 /* A clear blue fill marks the session on screen. It replaces the row's breathing in its state's
