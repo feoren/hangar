@@ -112,34 +112,55 @@ macro_rules! string_id {
 string_id!(
     /// Chosen by the client per intent (a UUID); a retry carries the same one, so the server
     /// applies it once.
-    OpId, "op id", MAX_ID_LEN, id_char
+    OpId,
+    "op id",
+    MAX_ID_LEN,
+    id_char
 );
 string_id!(
     /// A team: the Hangar website's project id (projects are teams), opaque.
-    TeamId, "team id", MAX_OPAQUE_ID_LEN, opaque_char
+    TeamId,
+    "team id",
+    MAX_OPAQUE_ID_LEN,
+    opaque_char
 );
 string_id!(
     /// A person: the Hangar website's user id (the ticket's `sub`), opaque.
-    MemberId, "member id", MAX_OPAQUE_ID_LEN, opaque_char
+    MemberId,
+    "member id",
+    MAX_OPAQUE_ID_LEN,
+    opaque_char
 );
 string_id!(
     /// One installation of Hangar of a member, assigned when the device joins; opaque.
-    DeviceId, "device id", MAX_OPAQUE_ID_LEN, opaque_char
+    DeviceId,
+    "device id",
+    MAX_OPAQUE_ID_LEN,
+    opaque_char
 );
 string_id!(
     /// One Hangar session of a device, chosen by the client at random; never the local session
     /// number, which would tell the server how many sessions were started.
-    SessionKey, "session key", MAX_ID_LEN, id_char
+    SessionKey,
+    "session key",
+    MAX_ID_LEN,
+    id_char
 );
 string_id!(
     /// A stored encrypted blob, assigned by the server; opaque.
-    BlobId, "blob id", MAX_OPAQUE_ID_LEN, opaque_char
+    BlobId,
+    "blob id",
+    MAX_OPAQUE_ID_LEN,
+    opaque_char
 );
 string_id!(
     /// One incarnation of a team's event log, assigned by the server; opaque. A server restored
     /// from a backup starts a new one, so a client never trusts sequence numbers of another
     /// stream.
-    StreamId, "stream id", MAX_OPAQUE_ID_LEN, opaque_char
+    StreamId,
+    "stream id",
+    MAX_OPAQUE_ID_LEN,
+    opaque_char
 );
 string_id!(
     secret
