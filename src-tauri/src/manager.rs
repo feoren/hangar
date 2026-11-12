@@ -29,7 +29,7 @@ use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
 use crate::lock;
 use crate::output::{Batcher, Flow, Utf8Carry};
-use crate::proctree::ProcTree;
+use crate::proctree::{self, ProcTree, TreeUsage};
 use crate::profile::Profile;
 use crate::secrets::{self, KeyringStore, SecretStore};
 use crate::session::{
@@ -270,7 +270,8 @@ struct Runtime {
     master: SharedMaster,
     input: Sender<Vec<u8>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
-    tree: Option<ProcTree>,
+    /// Shared so the resources can be read outside the session lock (`tree_usages`).
+    tree: Option<Arc<ProcTree>>,
     flow: Arc<Flow>,
     /// The agent gate for this process, copied into the session's info when it attaches.
     gate: GateStatus,
@@ -1167,6 +1168,22 @@ impl SessionManager {
             .collect()
     }
 
+    /// What the process tree of each running session uses right now (`resources.rs`). The trees
+    /// are cloned under the session lock and asked after it is released: a few system calls per
+    /// session on Windows, one pass over `/proc` on Linux.
+    pub fn tree_usages(&self) -> Vec<(SessionId, TreeUsage)> {
+        let (ids, trees): (Vec<SessionId>, Vec<Arc<ProcTree>>) = lock(&self.shared.sessions)
+            .iter()
+            .filter_map(|(id, entry)| {
+                Some((*id, Arc::clone(entry.runtime.as_ref()?.tree.as_ref()?)))
+            })
+            .unzip();
+        ids.into_iter()
+            .zip(proctree::usages(&trees))
+            .filter_map(|(id, usage)| Some((id, usage?)))
+            .collect()
+    }
+
     /// Ends the process (if it is running) and removes the session.
     pub fn close(&self, id: SessionId) -> Result<(), ManagerError> {
         let entry = {
@@ -1326,7 +1343,7 @@ fn spawn(
     // Without the tree, closing the session would leave the program's children running: such a
     // session does not start at all.
     let tree = match child.process_id().map(ProcTree::attach) {
-        Some(Ok(tree)) => Some(tree),
+        Some(Ok(tree)) => Some(Arc::new(tree)),
         // A program that ended before it could join the job has no tree left to watch; the
         // wait thread reports its exit like any other.
         Some(Err(_)) if matches!(child.try_wait(), Ok(Some(_))) => None,

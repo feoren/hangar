@@ -599,3 +599,19 @@ run without repository hooks, deadlines scale with the path count (commit 600 se
 the index lock, commit messages refuse control characters, "stage changed and commit" stages
 tracked files only, git's environment drops a calling agent session's markers, and diff line
 comments have a keyboard path. Pages changed: [[commit-history]].
+## [2026-11-12] query | Session resources and push to the phone
+Filed the contracts of two 0.6.0 features: `session_resources` (CPU share of the machine and
+resident memory per session process tree, read from the Job Object on Windows and `/proc` on
+Linux, outlier above 90 % CPU for 30 s or 4 GiB, polled while the window is visible) and the push
+commands (`push_settings`, `push_save`, `push_test`, `push_session`; ntfy or Pushover, secrets in
+the keychain service `hangar-push`, https only, no redirects, 30 s debounce per session). Linux
+sampling and the services' formats are marked unverified.
+Pages changed: [[session-resources-and-phone-push]] (new), index.
+
+## [2026-11-12] query | Session resources and push: review rework
+Outliers now count core equivalents (0.9 cores for 30 s), answers are cached for 1 s and the
+trees are read outside the session lock; processes no longer in the job are skipped. Pushes are
+built in the backend from program and running number (session names only by opt-in), the ntfy
+token is bound to its origin, open topics need 16 characters, and there are global (10 a minute)
+and test (5 s) limits. `Cache: no` checked against the ntfy publishing docs.
+Pages changed: [[session-resources-and-phone-push]].

@@ -43,6 +43,7 @@ describe("parseSettings", () => {
       chime: false,
       chimeVolume: 70,
       quietHours: { enabled: true, from: 1380, to: 360 },
+      showResources: false,
       keepInTray: true,
       showVersions: false,
       showIcons: false,
@@ -77,6 +78,7 @@ describe("parseSettings", () => {
       quietSeconds: "5",
       taskbarFlash: "yes",
       notifyDesktop: "no",
+      showResources: "off",
       keepInTray: 1,
       showVersions: "no",
       showIcons: null,
@@ -218,6 +220,12 @@ describe("parseSettings", () => {
     expect(old.keepInTray).toBe(false);
     expect(defaultSettings("de").notifyDesktop).toBe(true);
     expect(defaultSettings("de").keepInTray).toBe(false);
+  });
+
+  it("shows the sessions' resources by default, also for older settings", () => {
+    expect(defaultSettings("de").showResources).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").showResources).toBe(true);
+    expect(parseSettings(JSON.stringify({ showResources: false }), "de").showResources).toBe(false);
   });
 
   it("remembers sessions and checks for program updates by default", () => {

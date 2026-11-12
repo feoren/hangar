@@ -3,6 +3,7 @@ import { playChime } from "./chimeAudio";
 import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnimation";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
+import { PhonePushSettings } from "./PhonePushSettings";
 import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
 import { edgeClass } from "./sessionChip";
@@ -92,7 +93,8 @@ const LOOKS_WITHOUT_ATTENTION: readonly LookState[] = ["idle", "failed"];
 
 /**
  * Settings section "Attention": one card per session state (color, live preview, pulse), then the
- * ways Hangar tells you about a waiting session.
+ * ways Hangar tells you about a waiting session, the push to the phone and the sessions'
+ * resources.
  */
 export function AttentionSettings({ settings, theme, onChange }: Props) {
   const t = useT();
@@ -201,6 +203,22 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
           value={settings.quietHours}
           onChange={(quietHours) => {
             onChange({ quietHours });
+          }}
+        />
+      </fieldset>
+
+      {/* The pushes follow the waiting states, which only exist with attention on. */}
+      <PhonePushSettings disabled={!enabled} />
+
+      <fieldset className="settings-group">
+        <legend className="settings-subhead">{t("settings.resources")}</legend>
+        <CheckField
+          id="show-resources"
+          checked={settings.showResources}
+          label={t("settings.showResources")}
+          help={t("settings.showResourcesHelp")}
+          onChange={(showResources) => {
+            onChange({ showResources });
           }}
         />
       </fieldset>

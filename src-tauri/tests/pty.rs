@@ -269,6 +269,36 @@ fn input_reaches_the_process() {
     manager.close(info.id).unwrap();
 }
 
+/// The resources of a session cover its process tree: memory of the running program, and CPU
+/// time that never shrinks between two readings.
+#[test]
+fn tree_usage_of_a_running_session() {
+    let manager = manager();
+    let (tx, rx) = channel();
+    let info = manager
+        .create("cat", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let line = if cfg!(windows) {
+        "echo hangar-usage-ok\r"
+    } else {
+        "hangar-usage-ok\n"
+    };
+    manager.write(info.id, line).unwrap();
+    wait_for_output(&manager, info.id, &rx, "hangar-usage-ok");
+    let first = manager.tree_usages();
+    if cfg!(any(windows, target_os = "linux")) {
+        let (id, usage) = first.first().copied().expect("one reading");
+        assert_eq!(id, info.id);
+        assert!(usage.memory > 100 * 1024, "memory {}", usage.memory);
+        let (_, later) = manager.tree_usages()[0];
+        assert!(later.cpu >= usage.cpu);
+    } else {
+        assert!(first.is_empty(), "no readings on this platform");
+    }
+    manager.close(info.id).unwrap();
+    assert!(manager.tree_usages().is_empty());
+}
+
 #[test]
 fn kill_and_restart() {
     let manager = manager();

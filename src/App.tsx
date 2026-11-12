@@ -131,7 +131,9 @@ import {
 import { SidePanel } from "./SidePanel";
 import { dropText, shellKind } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
-import { noticesAt } from "./quietHours";
+import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
+import { isQuietTime, noticesAt } from "./quietHours";
+import { setResourcesEnabled } from "./useSessionResources";
 import { sessionLabels } from "./sessionLabel";
 import {
   changedFileCount,
@@ -722,6 +724,26 @@ export function App() {
   const settingsRef = useRef(settings);
   /** One soft sound for sessions that start waiting out of sight (chime.ts). */
   const [chimes] = useState(() => new ChimeScheduler(systemClock, playChime));
+  /** A push to the phone once a session has stayed waiting, done or failed (phonePush.ts). */
+  const [pushes] = useState(() => new PushScheduler());
+  useEffect(() => {
+    pushes.setSender((id, event) => {
+      const current = settingsRef.current;
+      // Quiet hours hold pushes back like every other notice; nothing is sent later.
+      if (!current.attentionEnabled || isQuietTime(current.quietHours, new Date())) return;
+      if (!stateRef.current.sessions.some((s) => s.id === id)) return;
+      // Without parameters the "{name}" stays in the sentence: the backend names the session.
+      const template = createTranslator(current.language)(PUSH_TEXTS[event]);
+      api.pushSession(id, event, template).catch(() => undefined);
+    });
+    return () => {
+      pushes.setSender(null);
+    };
+  }, [pushes]);
+  // The rows' CPU and memory: the store asks the backend only while this is on.
+  useEffect(() => {
+    setResourcesEnabled(settings.showResources);
+  }, [settings.showResources]);
   const profilesRef = useRef(profiles);
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({
@@ -1639,6 +1661,14 @@ export function App() {
         previous = next;
         previousReason = reason;
         if (chime !== null) chimes.request(chime, settingsRef.current.chimeVolume);
+        // Every call, not only on entering: waiting turns into done or failed when the program
+        // exits while it waits. Update sessions are no agent's work.
+        pushes.change(
+          id,
+          session === undefined || isPlaceholder(id) || session.kind === "update"
+            ? null
+            : pushEventFor(next, terminal.exitCode),
+        );
         setReasons((current) => {
           if ((current.get(id) ?? null) === reason) return current;
           const map = new Map(current);
@@ -1672,7 +1702,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher, chimes, offerDone],
+    [flasher, chimes, pushes, offerDone],
   );
 
   /**
@@ -1684,20 +1714,24 @@ export function App() {
     if (terminal.exitCode !== undefined) dispatch({ type: "exited", id, code: terminal.exitCode });
   }, []);
 
-  const forgetAttention = useCallback((id: number) => {
-    setAttention((current) => {
-      if (!current.has(id)) return current;
-      const map = new Map(current);
-      map.delete(id);
-      return map;
-    });
-    setReasons((current) => {
-      if (!current.has(id)) return current;
-      const map = new Map(current);
-      map.delete(id);
-      return map;
-    });
-  }, []);
+  const forgetAttention = useCallback(
+    (id: number) => {
+      pushes.forget(id);
+      setAttention((current) => {
+        if (!current.has(id)) return current;
+        const map = new Map(current);
+        map.delete(id);
+        return map;
+      });
+      setReasons((current) => {
+        if (!current.has(id)) return current;
+        const map = new Map(current);
+        map.delete(id);
+        return map;
+      });
+    },
+    [pushes],
+  );
 
   /** Desired title (restored or numbered); if the rename fails, the program name stays. */
   const withTitle = useCallback(async (info: SessionInfo, title: string) => {

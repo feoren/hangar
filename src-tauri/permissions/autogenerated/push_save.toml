@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-push-save"
+description = "Enables the push_save command without any pre-configured scope."
+commands.allow = ["push_save"]
+
+[[permission]]
+identifier = "deny-push-save"
+description = "Denies the push_save command without any pre-configured scope."
+commands.deny = ["push_save"]

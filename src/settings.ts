@@ -55,6 +55,11 @@ export interface Settings {
   /** Daily window without taskbar flash, chime and desktop notifications (quietHours.ts). */
   quietHours: QuietHours;
   /**
+   * CPU and memory of each session in its row's tooltip, and a mark on outliers (resources.ts).
+   * Off: the window does not ask the backend at all.
+   */
+  showResources: boolean;
+  /**
    * Closing the window only hides it; an icon in the notification area brings it back or quits
    * (tray.ts). Off: closing quits, as before.
    */
@@ -106,6 +111,7 @@ type Flag =
   | "taskbarFlash"
   | "notifyDesktop"
   | "chime"
+  | "showResources"
   | "keepInTray"
   | "showVersions"
   | "showIcons"
@@ -130,6 +136,7 @@ export function defaultSettings(language: Language): Settings {
     chime: true,
     chimeVolume: CHIME_VOLUME.default,
     quietHours: DEFAULT_QUIET_HOURS,
+    showResources: true,
     keepInTray: false,
     showVersions: true,
     showIcons: true,
@@ -213,6 +220,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampChimeVolume(volume)
         : defaults.chimeVolume,
     quietHours: parseQuietHours(get("quietHours")),
+    showResources: flag("showResources"),
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),

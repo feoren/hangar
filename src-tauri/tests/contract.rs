@@ -105,6 +105,13 @@ fn commands_are_registered_allowed_and_wired() {
         "team_reject",
         // The activity calendar runs git in folders the window names: main window only.
         "git_activity",
+        // Session resources and push to the phone: the push settings hold keychain secrets
+        // and send to the network, so only the main window reaches them.
+        "session_resources",
+        "push_settings",
+        "push_save",
+        "push_test",
+        "push_session",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));

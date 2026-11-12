@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-push-session"
+description = "Enables the push_session command without any pre-configured scope."
+commands.allow = ["push_session"]
+
+[[permission]]
+identifier = "deny-push-session"
+description = "Denies the push_session command without any pre-configured scope."
+commands.deny = ["push_session"]
