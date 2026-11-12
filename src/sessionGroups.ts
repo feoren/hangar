@@ -1,36 +1,23 @@
-// The sidebar shows sessions in two groups: ordinary sessions first, then the ones that work in
-// their own git worktree. Inside each group, the sessions of one program (profile) sit together in
-// an agent group, in the order the programs first appear. The session list keeps that order itself
-// (a stable partition), so cycling, jumping and the collapsed rail follow what the sidebar shows;
-// moving stays within an agent group.
+// The sidebar gathers sessions per program (profile): one group for each program, in the order
+// the programs first appear. Sessions in their own git worktree sit in their program's group like
+// any other; their row names the worktree. The session list keeps that order itself (a stable
+// partition), so cycling, jumping and the collapsed rail follow what the sidebar shows; moving
+// stays within a group.
 
-/** Sidebar groups that hold sessions, top to bottom. */
-export const SESSION_GROUPS = ["sessions", "worktrees"] as const;
-export type SessionGroup = (typeof SESSION_GROUPS)[number];
-
-export function sessionGroup(session: { worktree?: unknown }): SessionGroup {
-  return session.worktree === undefined ? "sessions" : "worktrees";
-}
-
-export function isSessionGroup(value: unknown): value is SessionGroup {
-  return SESSION_GROUPS.some((group) => group === value);
-}
-
-/** What decides a session's place in the sidebar: its group and its program. */
+/** What decides a session's place in the sidebar: its program. */
 export interface Groupable {
-  worktree?: unknown;
   profileId: string;
 }
 
-/**
- * Key of a session's agent group: its sidebar group plus its profile, so Claude Code in the
- * Sessions group and Claude Code in the Worktrees group fold separately.
- */
+/** Prefix of a group key; it sets keys apart from the older "sessions:" and "worktrees:" ones. */
+export const AGENT_GROUP_PREFIX = "program:";
+
+/** Key of a session's group, the same for every session of one program. */
 export function agentGroupKey(item: Groupable): string {
-  return `${sessionGroup(item)}:${item.profileId}`;
+  return `${AGENT_GROUP_PREFIX}${item.profileId}`;
 }
 
-/** The sessions of one program within one sidebar group, in list order. */
+/** The sessions of one program, in list order. */
 export interface AgentGroup<T> {
   key: string;
   profileId: string;
@@ -63,16 +50,12 @@ export function agentGroupOrder(items: readonly Groupable[]): string[] {
 }
 
 /**
- * Ordinary sessions first, then worktree sessions; within each, the sessions of one program
- * together, programs in order of first appearance, sessions in list order. Returns the same
- * array when it is already grouped, so the reducer keeps its state untouched.
+ * The sessions of one program together, programs in order of first appearance, sessions in list
+ * order. Returns the same array when it is already grouped, so the reducer keeps its state
+ * untouched.
  */
 export function groupedOrder<T extends Groupable>(items: T[]): T[] {
-  const grouped = SESSION_GROUPS.flatMap((group) =>
-    agentGroups(items.filter((item) => sessionGroup(item) === group)).flatMap(
-      (agents) => agents.sessions,
-    ),
-  );
+  const grouped = agentGroups(items).flatMap((group) => group.sessions);
   return grouped.every((item, index) => item === items[index]) ? items : grouped;
 }
 
@@ -120,14 +103,14 @@ export interface GroupRow {
 /**
  * New place of a dragged session: among the other rows of its own group, the ones whose middle
  * lies above the pointer decide; the result is the index in the whole list (`moveItem`). Rows of
- * the other group never count, so a session cannot land in the wrong group. `rows` are in list
+ * other groups never count, so a session cannot land in the wrong group. `rows` are in list
  * order.
  */
 export function groupDropIndex(
   rows: readonly GroupRow[],
   draggedId: number,
   y: number,
-  // The whole list's ids: a folded agent group shows fewer rows than the list holds, so the
+  // The whole list's ids: a folded group shows fewer rows than the list holds, so the
   // index is counted here, not among the rows on screen.
   order: readonly number[] = rows.map((row) => row.id),
 ): number {

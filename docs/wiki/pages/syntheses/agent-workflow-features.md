@@ -624,8 +624,8 @@ menu paste uses the clipboard plugin.
     stable ids.
     As built, sidebar tree (`src/SubAgentTree.tsx`, `subAgentTree` and `watchedSession` in
     `src/subAgents.ts`): one watch at most, for the open view's session, else the active
-    session while the expanded sidebar shows the Sessions group. Without the view it runs with
-    `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
+    session while the expanded sidebar shows its row (its program group is open). Without the
+    view it runs with `excerpts: false`; opening the view restarts it with the setting, keeping the agents (the
     key is session plus conversation id only) and dropping excerpts at once when they are no
     longer wanted. The tree lists up to five sub-agents (the shown one, running and newer
     first, in start order, else four plus "N more"); a row shows that sub-agent's log and is
