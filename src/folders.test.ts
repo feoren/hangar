@@ -1,12 +1,7 @@
-/// <reference types="node" />
-import { readFileSync } from "node:fs";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMPTY_FOLDERS,
-  folderColor,
-  folderColorCss,
   folderKey,
   forgetFolder,
   folderName,
@@ -19,10 +14,8 @@ import {
   recordRecent,
   samePath,
   saveFolderPrefs,
-  setFolderColor,
   toggleFavorite,
 } from "./folders";
-import { MARKER_COLORS } from "./marker";
 
 describe("folderKey", () => {
   it("ignores case and trailing separators for Windows paths", () => {
@@ -89,23 +82,12 @@ describe("forgetFolder", () => {
     const prefs = {
       favorites: ["C:/Work/a", "C:/b"],
       recent: ["c:/work/a/", "D:/c"],
-      colors: {},
     };
     expect(forgetFolder(prefs, String.raw`C:\work\A`)).toEqual({
       favorites: ["C:/b"],
       recent: ["D:/c"],
-      colors: {},
     });
     expect(forgetFolder(prefs, "E:/none")).toEqual(prefs);
-  });
-
-  it("drops the folder's color, others keep theirs", () => {
-    let prefs = toggleFavorite(EMPTY_FOLDERS, "C:\\Work");
-    prefs = setFolderColor(prefs, "C:\\Work", "green");
-    prefs = setFolderColor(prefs, "/other", "blue");
-    const forgotten = forgetFolder(prefs, "c:/work/");
-    expect(folderColor(forgotten, "C:\\Work")).toBeNull();
-    expect(folderColor(forgotten, "/other")).toBe("blue");
   });
 });
 
@@ -136,39 +118,6 @@ describe("moveFavorite", () => {
   });
 });
 
-describe("folder colors", () => {
-  it("sets, changes and clears a color, regardless of spelling", () => {
-    const colored = setFolderColor(EMPTY_FOLDERS, "C:\\Work", "red");
-    expect(folderColor(colored, "c:/work/")).toBe("red");
-    const changed = setFolderColor(colored, "c:\\work", "teal");
-    expect(changed.colors).toEqual({ "c:\\work": "teal" });
-    expect(folderColor(setFolderColor(changed, "C:\\Work", null), "C:\\Work")).toBeNull();
-  });
-
-  it("returns the same prefs when nothing changes", () => {
-    const colored = setFolderColor(EMPTY_FOLDERS, "/a", "red");
-    expect(setFolderColor(colored, "/a", "red")).toBe(colored);
-    expect(setFolderColor(EMPTY_FOLDERS, "/a", null)).toBe(EMPTY_FOLDERS);
-    expect(setFolderColor(EMPTY_FOLDERS, " ", "red")).toBe(EMPTY_FOLDERS);
-  });
-
-  it("draws a color through its design token", () => {
-    expect(folderColorCss("teal")).toBe("var(--folder-teal)");
-  });
-
-  it("has a design token per palette color with the marker's value", () => {
-    const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-    for (const { id, color } of MARKER_COLORS) {
-      expect(styles).toContain(`--folder-${id}: ${color};`);
-    }
-  });
-
-  it("does not read inherited object keys as colors", () => {
-    expect(folderColor(EMPTY_FOLDERS, "constructor")).toBeNull();
-    expect(folderColor(EMPTY_FOLDERS, "__proto__")).toBeNull();
-  });
-});
-
 describe("parseFolderPrefs", () => {
   it("drops invalid entries, duplicates and excess", () => {
     const parsed = parseFolderPrefs({
@@ -179,29 +128,12 @@ describe("parseFolderPrefs", () => {
     expect(parsed.recent).toHaveLength(RECENT_LIMIT);
   });
 
-  it("reads data from before folder colors with no colors", () => {
-    expect(parseFolderPrefs({ favorites: ["/a"], recent: ["/b"] })).toEqual({
-      favorites: ["/a"],
-      recent: ["/b"],
-      colors: {},
-    });
-  });
-
-  it("keeps known colors on valid folders and drops the rest", () => {
-    const parsed = parseFolderPrefs({
-      favorites: [],
-      recent: [],
-      colors: {
-        "C:\\Work\\": "green",
-        "/a": "chartreuse",
-        "/b": 3,
-        "": "red",
-        "bad\u0007path": "red",
-      },
-    });
-    expect(parsed.colors).toEqual({ "c:\\work": "green" });
-    for (const colors of [null, "red", ["red"], 5]) {
-      expect(parseFolderPrefs({ colors }).colors).toEqual({});
+  it("ignores the folder colors earlier versions stored", () => {
+    for (const colors of [{ "C:\\Work": "green" }, null, "red", ["red"], 5]) {
+      expect(parseFolderPrefs({ favorites: ["/a"], recent: ["/b"], colors })).toEqual({
+        favorites: ["/a"],
+        recent: ["/b"],
+      });
     }
   });
 
@@ -225,13 +157,26 @@ describe("storage", () => {
         store.set(key, value);
       },
     });
-    const prefs = setFolderColor(
-      toggleFavorite(recordRecent(EMPTY_FOLDERS, "/r"), "/f"),
-      "/f",
-      "pink",
-    );
+    const prefs = toggleFavorite(recordRecent(EMPTY_FOLDERS, "/r"), "/f");
     saveFolderPrefs(prefs);
     expect(loadFolderPrefs()).toEqual(prefs);
+  });
+
+  it("does not write stored folder colors back", () => {
+    const store = new Map<string, string>([
+      [
+        "hangar.folders",
+        JSON.stringify({ favorites: ["/f"], recent: [], colors: { "/f": "red" } }),
+      ],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    });
+    saveFolderPrefs(loadFolderPrefs());
+    expect(store.get("hangar.folders")).toBe('{"favorites":["/f"],"recent":[]}');
   });
 
   it("falls back to empty lists when storage fails or holds garbage", () => {

@@ -116,18 +116,18 @@
         "zh": "侧边栏可以按项目而不是按程序对会话分组。在设置中或右键单击分组即可切换。"
       },
       {
-        "de": "Im Ordnermenü ziehst du Favoriten in deine Reihenfolge, auch mit Alt+Pfeiltaste. Jeder Projektordner bekommt auf Wunsch eine Farbe, auch in der Seitenleiste.",
-        "en": "In the folder menu, drag favorites into your own order, or use Alt+Arrow. Each project folder can get a color that also shows in the sidebar.",
-        "el": "Στο μενού φακέλων σύρε τα αγαπημένα στη σειρά που θέλεις ή πάτα Alt+Βέλος. Κάθε φάκελος έργου παίρνει χρώμα, που φαίνεται και στην πλαϊνή στήλη.",
-        "es": "En el menú de carpetas arrastras las favoritas a tu orden, también con Alt+Flecha. Cada carpeta de proyecto puede tener un color, visible en la barra lateral.",
-        "fr": "Dans le menu des dossiers, glisse les favoris dans ton ordre ou avec Alt+Flèche. Chaque dossier de projet peut avoir une couleur, aussi dans la barre latérale.",
-        "it": "Nel menu delle cartelle trascini i preferiti nel tuo ordine, anche con Alt+Freccia. Ogni cartella di progetto può avere un colore, anche nella barra laterale.",
-        "ja": "フォルダーメニューでお気に入りをドラッグまたは Alt+矢印キーで並べ替えられます。各プロジェクトフォルダーに付けた色はサイドバーにも表示されます。",
-        "pl": "W menu folderów przeciągasz ulubione w swojej kolejności, także przez Alt+Strzałka. Każdy folder projektu może mieć kolor, widoczny też na pasku bocznym.",
-        "pt": "No menu de pastas, arraste as favoritas para a sua ordem ou use Alt+Seta. Cada pasta de projeto pode ter uma cor, que aparece também na barra lateral.",
-        "ru": "В меню папок избранное можно перетаскивать в нужном порядке или двигать через Alt+Стрелка. Папке проекта можно задать цвет, он виден и на боковой панели.",
-        "tr": "Klasör menüsünde favorileri sürükleyerek veya Alt+Ok ile sıralarsın. Her proje klasörüne bir renk verebilirsin; renk kenar çubuğunda da görünür.",
-        "zh": "在文件夹菜单中，可拖动收藏或按 Alt+方向键调整顺序。每个项目文件夹都可以设置颜色，侧边栏中也会显示。"
+        "de": "Im Ordnermenü ziehst du Favoriten in deine Reihenfolge, auch mit Alt+Pfeiltaste.",
+        "en": "In the folder menu, drag favorites into your own order, or use Alt+Arrow.",
+        "el": "Στο μενού φακέλων σύρε τα αγαπημένα στη σειρά που θέλεις ή πάτα Alt+Βέλος.",
+        "es": "En el menú de carpetas arrastras las favoritas a tu orden, también con Alt+Flecha.",
+        "fr": "Dans le menu des dossiers, glisse les favoris dans ton ordre ou avec Alt+Flèche.",
+        "it": "Nel menu delle cartelle trascini i preferiti nel tuo ordine, anche con Alt+Freccia.",
+        "ja": "フォルダーメニューでお気に入りをドラッグまたは Alt+矢印キーで並べ替えられます。",
+        "pl": "W menu folderów przeciągasz ulubione w swojej kolejności, także przez Alt+Strzałka.",
+        "pt": "No menu de pastas, arraste as favoritas para a sua ordem ou use Alt+Seta.",
+        "ru": "В меню папок избранное можно перетаскивать в нужном порядке или двигать через Alt+Стрелка.",
+        "tr": "Klasör menüsünde favorileri sürükleyerek veya Alt+Ok ile sıralarsın.",
+        "zh": "在文件夹菜单中，可拖动收藏或按 Alt+方向键调整顺序。"
       },
       {
         "de": "In den Änderungen klappt nur noch die letzte Datei von selbst auf. So bleibt die Liste eine Übersicht.",

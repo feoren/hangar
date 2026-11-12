@@ -7,20 +7,17 @@ import {
   menuCommand,
   reorderDrop,
   secondaryCommand,
-  swatchCommand,
   type NavEntry,
 } from "./menuNav";
 import { beyondThreshold } from "./sessionDrag";
 import { rowMoveStep } from "./shortcuts";
 
-/** A button at the end of a row, e.g. the favorite star, a folder's color or "+ Worktree". */
+/** A button at the end of a row, e.g. the favorite star or "+ Worktree". */
 export interface PopupSecondary {
   label: string;
   icon: React.ReactNode;
   /** Toggle state (favorite star): announced as a checkbox item. */
   checked?: boolean;
-  /** Marks a button whose look carries its own color (a folder's color dot). */
-  className?: string;
   /** The menu stays open (toggles); otherwise it closes like for the row. */
   keepOpen?: boolean;
   run: () => void;
@@ -34,13 +31,6 @@ export interface PopupSecondary {
 export interface PopupReorder {
   onStep: (step: 1 | -1) => void;
   onDrop: (targetKey: string, after: boolean) => void;
-}
-
-/** One choice in a row of swatches; `color` is a CSS color, `null` for "none". */
-export interface PopupSwatch {
-  key: string;
-  label: string;
-  color: string | null;
 }
 
 export type PopupItem =
@@ -78,22 +68,7 @@ export type PopupItem =
    * A short sentence in the menu, e.g. why an option is missing; not focusable. `describes`
    * names the key of the entry it explains: screen readers read it along with that entry.
    */
-  | { type: "note"; key: string; label: string; describes?: string }
-  /**
-   * A row of color swatches below the entry `owner` (a folder's color). It takes the focus when
-   * it appears; Left and Right choose, Enter picks, Escape closes it and the focus returns to its
-   * entry.
-   */
-  | {
-      type: "swatches";
-      key: string;
-      label: string;
-      owner: string;
-      options: readonly PopupSwatch[];
-      selected: string;
-      onPick: (key: string) => void;
-      onDismiss: () => void;
-    };
+  | { type: "note"; key: string; label: string; describes?: string };
 
 interface Props {
   items: readonly PopupItem[];
@@ -147,17 +122,14 @@ export function PopupMenu({
   anchor,
   onClose,
 }: Props) {
-  const entries: NavEntry[] = items.map((item) => {
-    if (item.type === "swatches") return { label: item.label, enabled: true, submenu: false };
-    return item.type !== "action"
+  const entries: NavEntry[] = items.map((item) =>
+    item.type !== "action"
       ? null
-      : { label: item.label, enabled: item.disabled !== true, submenu: false };
-  });
+      : { label: item.label, enabled: item.disabled !== true, submenu: false },
+  );
   const [current, setCurrent] = useState(() => firstIndex(entries));
   /** Focused button at the end of the current row; -1: the row itself. */
   const [secondaryAt, setSecondaryAt] = useState(-1);
-  /** Focused swatch while a swatch row has the focus. */
-  const [swatchAt, setSwatchAt] = useState(0);
   const [placed, setPlaced] = useState(position);
   /** Row being dragged and where it would land, for the drop line. */
   const [dragView, setDragView] = useState<{
@@ -168,12 +140,9 @@ export function PopupMenu({
   const buttons = useRef(new Map<number, HTMLButtonElement>());
   /** Buttons at a row's end, by `${index}:${position}`. */
   const secondaries = useRef(new Map<string, HTMLButtonElement>());
-  const swatchButtons = useRef(new Map<number, HTMLButtonElement>());
   const closeRef = useRef(onClose);
   /** Key of the focused entry, so the focus follows it when rows move or appear. */
   const focusKey = useRef<string | null>(items[current]?.key ?? null);
-  /** The open swatch row and its entry, to notice it appearing and closing. */
-  const openSwatches = useRef<{ key: string; owner: string } | null>(null);
   const rowDrag = useRef<RowDrag | null>(null);
   /** After a drag, the click that ends it must not choose the row. */
   const swallowClick = useRef(false);
@@ -236,46 +205,25 @@ export function PopupMenu({
     };
   }, [anchor]);
 
-  /** Puts the focus on an entry: the row, one of its buttons (`at`) or a swatch (`swatch`). */
-  const focusAt = (index: number, at: number, swatch = 0) => {
+  /** Puts the focus on an entry: the row or one of its buttons (`at`). */
+  const focusAt = (index: number, at: number) => {
     setCurrent(index);
     setSecondaryAt(at);
-    setSwatchAt(swatch);
     focusKey.current = items[index]?.key ?? null;
-    const item = items[index];
     const element =
-      item?.type === "swatches"
-        ? swatchButtons.current.get(swatch)
-        : at >= 0
-          ? secondaries.current.get(`${String(index)}:${String(at)}`)
-          : buttons.current.get(index);
+      at >= 0
+        ? secondaries.current.get(`${String(index)}:${String(at)}`)
+        : buttons.current.get(index);
     element?.focus();
   };
 
-  // Rows that move, appear or go: the focus stays with its entry, a new swatch row takes it,
-  // and a closed swatch row hands it back to its entry.
+  // Rows that move, appear or go: the focus stays with its entry.
   useLayoutEffect(() => {
-    const swatchIndex = items.findIndex((item) => item.type === "swatches");
-    const swatches = items[swatchIndex];
-    const before = openSwatches.current;
-    openSwatches.current =
-      swatches?.type === "swatches" ? { key: swatches.key, owner: swatches.owner } : null;
-    if (swatches?.type === "swatches" && before?.key !== swatches.key) {
-      const selected = swatches.options.findIndex((option) => option.key === swatches.selected);
-      focusAt(swatchIndex, -1, Math.max(0, selected));
-      return;
-    }
-    let index = items.findIndex((item) => item.key === focusKey.current);
-    let at = secondaryAt;
-    if (index < 0 && before !== null && focusKey.current === before.key) {
-      // Picked or closed: back on the entry the swatches belong to.
-      index = items.findIndex((item) => item.key === before.owner);
-      at = -1;
-    }
+    const index = items.findIndex((item) => item.key === focusKey.current);
     if (index < 0) return;
     const active = document.activeElement;
     const lost = active === null || active === document.body || active === panel.current;
-    if (index !== current || lost) focusAt(index, at, swatchAt);
+    if (index !== current || lost) focusAt(index, secondaryAt);
     // Only when the items change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
@@ -384,16 +332,6 @@ export function PopupMenu({
       return;
     }
     const item = items[current];
-    if (item?.type === "swatches") {
-      const command = swatchCommand(event, swatchAt, item.options.length);
-      if (command !== null) {
-        event.preventDefault();
-        if (command.kind === "focus") focusAt(current, -1, command.index);
-        else if (command.kind === "pick") item.onPick(item.options[swatchAt]?.key ?? "");
-        else item.onDismiss();
-        return;
-      }
-    }
     if (item?.type === "action" && item.reorder !== undefined && secondaryAt < 0) {
       const step = rowMoveStep(event);
       if (step !== null) {
@@ -478,42 +416,6 @@ export function PopupMenu({
             </li>
           );
         }
-        if (item.type === "swatches") {
-          return (
-            <li key={item.key} role="none" className="menu-swatches">
-              <div role="group" aria-label={item.label} className="menu-swatch-row">
-                {item.options.map((option, at) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={option.key === item.selected}
-                    aria-label={option.label}
-                    title={option.label}
-                    ref={(element) => {
-                      if (element) swatchButtons.current.set(at, element);
-                      else swatchButtons.current.delete(at);
-                    }}
-                    tabIndex={index === current && at === swatchAt ? 0 : -1}
-                    className={option.color === null ? "menu-swatch none" : "menu-swatch"}
-                    onPointerEnter={() => {
-                      focusAt(index, -1, at);
-                    }}
-                    onClick={() => {
-                      item.onPick(option.key);
-                    }}
-                  >
-                    <span
-                      className="menu-swatch-color"
-                      style={option.color === null ? undefined : { background: option.color }}
-                      aria-hidden="true"
-                    />
-                  </button>
-                ))}
-              </div>
-            </li>
-          );
-        }
         const buttonsAtEnd = secondariesOf(item);
         const remove = item.remove;
         return (
@@ -587,13 +489,11 @@ export function PopupMenu({
                   else secondaries.current.delete(id);
                 }}
                 tabIndex={index === current && secondaryAt === at ? 0 : -1}
-                className={[
-                  "menu-secondary icon-button",
-                  button.checked === true ? "on" : "",
-                  button.className ?? "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
+                className={
+                  button.checked === true
+                    ? "menu-secondary icon-button on"
+                    : "menu-secondary icon-button"
+                }
                 disabled={item.disabled}
                 onPointerEnter={() => {
                   if (item.disabled === true) return;

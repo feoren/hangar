@@ -10,7 +10,6 @@ import {
   reorderDrop,
   secondaryCommand,
   stepIndex,
-  swatchCommand,
   submenuAfterFocus,
   typeaheadIndex,
   type NavEntry,
@@ -151,21 +150,6 @@ describe("secondaryCommand", () => {
   it("leaves rows without a second button alone", () => {
     expect(secondaryCommand({ key: "ArrowRight" }, 0, -1)).toBeNull();
     expect(secondaryCommand({ key: "ArrowDown" }, 1, 0)).toBeNull();
-  });
-});
-
-describe("swatchCommand", () => {
-  it("moves along the swatches without wrapping", () => {
-    expect(swatchCommand({ key: "ArrowRight" }, 0, 9)).toEqual({ kind: "focus", index: 1 });
-    expect(swatchCommand({ key: "ArrowRight" }, 8, 9)).toEqual({ kind: "focus", index: 8 });
-    expect(swatchCommand({ key: "ArrowLeft" }, 0, 9)).toEqual({ kind: "focus", index: 0 });
-  });
-
-  it("picks, dismisses and leaves the rest to the menu", () => {
-    expect(swatchCommand({ key: "Enter" }, 3, 9)).toEqual({ kind: "pick" });
-    expect(swatchCommand({ key: " " }, 3, 9)).toEqual({ kind: "pick" });
-    expect(swatchCommand({ key: "Escape" }, 3, 9)).toEqual({ kind: "dismiss" });
-    expect(swatchCommand({ key: "ArrowDown" }, 3, 9)).toBeNull();
   });
 });
 

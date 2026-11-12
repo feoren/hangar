@@ -1,7 +1,5 @@
-// Favorite and recently used working folders for the "Starts in" menu, plus a color per project
-// folder. Stored per machine in localStorage; invalid content yields empty lists.
-
-import { MARKER_COLORS, type MarkerColorId } from "./marker";
+// Favorite and recently used working folders for the "Starts in" menu. Stored per machine in
+// localStorage; invalid content yields empty lists.
 
 const STORAGE_KEY = "hangar.folders";
 
@@ -10,31 +8,15 @@ export const RECENT_LIMIT = 8;
 /** Protects storage and the menu against a broken or hand-edited value. */
 const FAVORITES_LIMIT = 50;
 const MAX_PATH_LENGTH = 4096;
-/** Folder colors kept; a hand-edited value cannot grow the storage without bound. */
-const COLORS_LIMIT = 100;
-
-/** A project folder's color: one of the session marker palette's tones (marker.ts). */
-export type FolderColor = MarkerColorId;
-
-export function isFolderColor(value: unknown): value is FolderColor {
-  return MARKER_COLORS.some((entry) => entry.id === value);
-}
-
-/** The design token that draws a folder color (`--folder-<id>` in styles.css). */
-export function folderColorCss(color: FolderColor): string {
-  return `var(--folder-${color})`;
-}
 
 export interface FolderPrefs {
   /** In the order the person arranged them; new ones go last. */
   favorites: readonly string[];
   /** Most recent first, at most RECENT_LIMIT. */
   recent: readonly string[];
-  /** Color per project folder, by `folderKey`; folders without one are missing. */
-  colors: Readonly<Record<string, FolderColor>>;
 }
 
-export const EMPTY_FOLDERS: FolderPrefs = { favorites: [], recent: [], colors: {} };
+export const EMPTY_FOLDERS: FolderPrefs = { favorites: [], recent: [] };
 
 /**
  * Windows paths (drive letter or UNC) compare without case, all of them without trailing
@@ -76,13 +58,9 @@ export function toggleFavorite(prefs: FolderPrefs, path: string): FolderPrefs {
   return { ...prefs, favorites: [...prefs.favorites, path].slice(-FAVORITES_LIMIT) };
 }
 
-/** Takes a folder out of the menu: off the favorites and the recent list, and its color goes. */
+/** Takes a folder out of the menu: off the favorites and the recent list. */
 export function forgetFolder(prefs: FolderPrefs, path: string): FolderPrefs {
-  return {
-    favorites: without(prefs.favorites, path),
-    recent: without(prefs.recent, path),
-    colors: withoutColor(prefs.colors, folderKey(path)),
-  };
+  return { favorites: without(prefs.favorites, path), recent: without(prefs.recent, path) };
 }
 
 /**
@@ -106,33 +84,6 @@ export function moveFavorite(
   return favorites.every((entry, index) => entry === prefs.favorites[index])
     ? prefs
     : { ...prefs, favorites };
-}
-
-/** The folder's color, `null` without one. */
-export function folderColor(prefs: FolderPrefs, path: string): FolderColor | null {
-  const key = folderKey(path);
-  return Object.hasOwn(prefs.colors, key) ? (prefs.colors[key] ?? null) : null;
-}
-
-/** Gives a folder a color; `null` takes it away. The newest choice is kept last. */
-export function setFolderColor(
-  prefs: FolderPrefs,
-  path: string,
-  color: FolderColor | null,
-): FolderPrefs {
-  if (!validPath(path) || folderColor(prefs, path) === color) return prefs;
-  const key = folderKey(path);
-  const rest = Object.entries(withoutColor(prefs.colors, key));
-  if (color === null) return { ...prefs, colors: Object.fromEntries(rest) };
-  const entries: [string, FolderColor][] = [...rest, [key, color]];
-  return { ...prefs, colors: Object.fromEntries(entries.slice(-COLORS_LIMIT)) };
-}
-
-function withoutColor(
-  colors: Readonly<Record<string, FolderColor>>,
-  key: string,
-): Record<string, FolderColor> {
-  return Object.fromEntries(Object.entries(colors).filter(([other]) => other !== key));
 }
 
 /** Recent folders that are not favorites anyway, so no folder appears twice in the menu. */
@@ -161,24 +112,12 @@ function pathList(value: unknown, limit: number): string[] {
   return result;
 }
 
-/** Stored colors: known tones on valid folders only, keyed again; anything else is dropped. */
-function colorMap(value: unknown): Record<string, FolderColor> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  const entries: [string, FolderColor][] = [];
-  for (const [path, color] of Object.entries(value)) {
-    if (!validPath(path) || !isFolderColor(color)) continue;
-    entries.push([folderKey(path), color]);
-  }
-  return Object.fromEntries(entries.slice(-COLORS_LIMIT));
-}
-
 export function parseFolderPrefs(value: unknown): FolderPrefs {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return EMPTY_FOLDERS;
   return {
     favorites: pathList(Reflect.get(value, "favorites"), FAVORITES_LIMIT),
     recent: pathList(Reflect.get(value, "recent"), RECENT_LIMIT),
-    // Versions before folder colors stored none.
-    colors: colorMap(Reflect.get(value, "colors")),
+    // Other fields, such as the folder colors of earlier versions, are ignored and not saved.
   };
 }
 

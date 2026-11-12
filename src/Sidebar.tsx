@@ -6,13 +6,7 @@ import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { FolderMenu } from "./FolderMenu";
 import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
-import {
-  folderColor,
-  folderColorCss,
-  folderName,
-  type FolderColor,
-  type FolderPrefs,
-} from "./folders";
+import { folderName, type FolderPrefs } from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { peekNotes } from "./peek";
@@ -202,8 +196,6 @@ interface Props {
   onForgetFolder: (path: string) => void;
   /** Puts a favorite folder right before (or after) another one. */
   onMoveFavorite: (path: string, target: string, after: boolean) => void;
-  /** Gives a project folder a color; `null` takes it away. */
-  onFolderColor: (path: string, color: FolderColor | null) => void;
   /** Workspace templates; their button next to the folder card shows once one exists. */
   templates: readonly WorkspaceTemplate[];
   onStartTemplate: (id: string) => void;
@@ -422,9 +414,7 @@ export function Sidebar(props: Props) {
     onToggleFavorite: props.onToggleFavorite,
     onForget: props.onForgetFolder,
     onMoveFavorite: props.onMoveFavorite,
-    onColor: props.onFolderColor,
   };
-  const targetColor = target.path === null ? null : folderColor(props.folders, target.path);
 
   /** Mouse (detail > 0): focus to the terminal. Keyboard (detail 0): focus stays on the button. */
   const onToggleClick = (event: React.MouseEvent) => {
@@ -840,7 +830,6 @@ export function Sidebar(props: Props) {
       const hiddenWaiting = waitingIn(agents.sessions.filter((s) => !shownIds.has(s.id))).length;
       const groupProfile = profileById.get(agents.profileId);
       const project = agents.path;
-      const color = project === null ? null : folderColor(props.folders, project);
       return (
         <AgentGroupSection
           key={agents.key}
@@ -852,7 +841,6 @@ export function Sidebar(props: Props) {
           }
           look={project === null ? badgeFor(agents.profileId) : null}
           {...(project === null ? {} : { path: project })}
-          color={color === null ? null : folderColorCss(color)}
           count={agents.sessions.length}
           open={open}
           hasRows={groupRows.length > 0}
@@ -1029,18 +1017,7 @@ export function Sidebar(props: Props) {
               setFolderMenu({ x: rect.left, y: rect.bottom + 4, flipAbove: rect.top - 4 });
             }}
           >
-            <span
-              className={targetColor === null ? "cwd-icon" : "cwd-icon tinted"}
-              style={
-                targetColor === null
-                  ? undefined
-                  : {
-                      color: folderColorCss(targetColor),
-                      background: `color-mix(in srgb, ${folderColorCss(targetColor)} 16%, transparent)`,
-                    }
-              }
-              aria-hidden="true"
-            >
+            <span className="cwd-icon" aria-hidden="true">
               <FolderIcon size={16} />
             </span>
             <span className="cwd-text">
@@ -1234,7 +1211,7 @@ function GroupSection({
 
 /**
  * The sessions of one program or one project folder, worktree or not: a header like the other
- * groups' (chevron, small capitals) with the program's badge or the folder (in its color) and the
+ * groups' (chevron, small capitals) with the program's badge or a folder tile and the
  * number of sessions, its rows hanging below like a tree. Folded, the header names the waiting
  * sessions it hides and whether the active session is among them. Right click or the context
  * menu key on the header offers the other grouping.
@@ -1244,7 +1221,6 @@ function AgentGroupSection({
   name,
   look,
   path,
-  color,
   count,
   open,
   hasRows,
@@ -1260,8 +1236,6 @@ function AgentGroupSection({
   look: BadgeLook | null;
   /** A project group's folder, for the tooltip. */
   path?: string;
-  /** The project folder's color as CSS, `null` without one. */
-  color: string | null;
   count: number;
   open: boolean;
   hasRows: boolean;
@@ -1305,15 +1279,7 @@ function AgentGroupSection({
         >
           <ChevronIcon size={12} />
           {look === null ? (
-            <span
-              className={color === null ? "agent-group-folder" : "agent-group-folder tinted"}
-              style={
-                color === null
-                  ? undefined
-                  : { color, background: `color-mix(in srgb, ${color} 18%, transparent)` }
-              }
-              aria-hidden="true"
-            >
+            <span className="agent-group-folder" aria-hidden="true">
               <FolderIcon size={12} />
             </span>
           ) : (
