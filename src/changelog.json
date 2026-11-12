@@ -18,6 +18,20 @@
         "zh": "在“文件”标签中双击或按 Enter，文件会在独立的只读窗口中打开，支持行号、折叠和搜索。"
       },
       {
+        "de": "Der ganze rechte Bereich mit Notizen, Änderungen und Dateien lässt sich in ein eigenes Fenster lösen, etwa auf einen zweiten Monitor. Ein Klick holt ihn zurück.",
+        "en": "The whole right panel with Notes, Changes and Files can open in its own window, for example on a second monitor. One click puts it back.",
+        "el": "Ολόκληρο το δεξί πλαίσιο με Σημειώσεις, Αλλαγές και Αρχεία ανοίγει σε δικό του παράθυρο, π.χ. σε δεύτερη οθόνη. Ένα κλικ το επαναφέρει.",
+        "es": "Todo el panel derecho con Notas, Cambios y Archivos puede abrirse en su propia ventana, por ejemplo en un segundo monitor. Un clic lo devuelve.",
+        "fr": "Tout le panneau de droite avec Notes, Modifications et Fichiers peut s'ouvrir dans sa propre fenêtre, par exemple sur un second écran. Un clic le remet.",
+        "it": "L'intero pannello destro con Note, Modifiche e File può aprirsi in una finestra propria, ad esempio su un secondo monitor. Un clic lo riporta indietro.",
+        "ja": "メモ、変更、ファイルを含む右パネル全体を別ウィンドウで開けるようになりました。2台目のモニターにも置けます。ワンクリックで元に戻せます。",
+        "pl": "Cały prawy panel z notatkami, zmianami i plikami można otworzyć w osobnym oknie, np. na drugim monitorze. Jedno kliknięcie przywraca go na miejsce.",
+        "pt": "Todo o painel direito com Notas, Alterações e Arquivos pode abrir numa janela própria, por exemplo num segundo monitor. Um clique devolve-o.",
+        "ru": "Всю правую панель с заметками, изменениями и файлами можно открыть в отдельном окне, например на втором мониторе. Один щелчок возвращает её назад.",
+        "tr": "Notlar, Değişiklikler ve Dosyalar ile tüm sağ panel kendi penceresinde açılabilir, örneğin ikinci bir monitörde. Tek tıkla geri gelir.",
+        "zh": "包含笔记、更改和文件的整个右侧面板现在可以在独立窗口中打开，例如放到第二台显示器上。点一下即可放回。"
+      },
+      {
         "de": "Sieben Themes für dieses Fenster, etwa One Dark Pro, GitHub und Catppuccin, jeweils hell und dunkel. Du wählst sie unter Einstellungen > Darstellung.",
         "en": "Seven themes for that window, such as One Dark Pro, GitHub and Catppuccin, each light and dark. Pick one in Settings > Appearance.",
         "el": "Επτά θέματα για αυτό το παράθυρο, όπως One Dark Pro, GitHub και Catppuccin, φωτεινά και σκοτεινά. Τα διαλέγεις στις Ρυθμίσεις > Εμφάνιση.",
