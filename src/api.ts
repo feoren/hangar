@@ -7,7 +7,7 @@ import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
-import type { NotesMessage } from "./notesBridge";
+import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -270,12 +270,16 @@ export const api = {
   /** Check with `parseUnlock`. */
   sharedNotesUnlock: (folder: NoteFolder, code: string, label: string, untitled: string) =>
     invoke<unknown>("shared_notes_unlock", { folder, code, label, untitled }),
-  /** Main window only: opens the notes window or brings it to the front. */
-  openNotesWindow: (alwaysOnTop: boolean) => invoke<null>("open_notes_window", { alwaysOnTop }),
-  /** Notes window only: keeps itself above other windows or not. */
-  setNotesOnTop: (onTop: boolean) => invoke<null>("set_notes_on_top", { onTop }),
-  /** Notes window only: the one way to ask something of the main window (notesBridge.ts). */
-  notesToMain: (message: NotesMessage) => invoke<null>("notes_to_main", { message }),
+  /**
+   * Main window only: opens the detached side panel or brings it to the front. `bounds` is where
+   * it was last; the backend ignores a place that is no longer on a monitor.
+   */
+  openPanelWindow: (alwaysOnTop: boolean, bounds: PanelBounds | null) =>
+    invoke<null>("open_panel_window", { alwaysOnTop, bounds }),
+  /** Panel window only: keeps itself above other windows or not. */
+  setPanelOnTop: (onTop: boolean) => invoke<null>("set_panel_on_top", { onTop }),
+  /** Panel window only: the one way to ask something of the main window (panelBridge.ts). */
+  panelToMain: (message: PanelMessage) => invoke<null>("panel_to_main", { message }),
 
   /**
    * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
@@ -327,9 +331,9 @@ export const api = {
   listSessionFolder: (id: number, relative: string) =>
     invoke<unknown>("list_session_folder", { id, relative }),
   /**
-   * Main window only: opens a read-only viewer window for one file of a session's folder, or
-   * brings the one already showing it to the front. `path` is relative to the session's folder as
-   * `listSessionFolder` takes it. Rejects with a text for a refused path or an unknown session.
+   * Main window and side panel only: opens a read-only viewer window for one file of a session's
+   * folder, or brings the one already showing it to the front. `path` is relative to the
+   * session's folder as `listSessionFolder` takes it. Rejects with a text for a refused path or an unknown session.
    */
   openFileViewer: (sessionId: number, path: string) =>
     invoke<null>("open_file_viewer", { sessionId, path }),

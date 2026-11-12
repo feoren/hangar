@@ -5082,34 +5082,18 @@ body.resizing-horizontal * {
   flex: 1;
 }
 
-.notes-detached {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 40px 16px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.notes-detached p {
-  margin: 0;
-}
-
-/* The detached notes window */
-.notes-window {
+/* The detached right panel: the frame fills its own window (PanelWindow.tsx). */
+.panel-window {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--panel);
 }
 
-.notes-window-title {
+.side-panel.window {
   flex: 1;
-  margin: 0;
-  padding: 6px 2px 8px;
-  font-size: 13px;
-  font-weight: 600;
+  width: 100%;
+  max-width: none;
 }
 
 .icon-button.toggle.on {

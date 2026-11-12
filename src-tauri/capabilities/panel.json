@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "notes",
-  "description": "Detached notes window: the note commands (private and shared project notes, including turning shared notes on and unlocking them), listening to events, messages to the main window through the backend only, copying text, keeping itself on top (its own command only), focusing and closing it (close, then destroy once pending input is saved)",
-  "windows": ["notes"],
+  "identifier": "panel",
+  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, listing a session's folder and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top (its own command only), focusing and closing it (close, then destroy once pending input is saved). Nothing that starts, writes or ends sessions",
+  "windows": ["panel"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
@@ -32,7 +32,12 @@
     "allow-shared-notes-unlock",
     "allow-shared-notes-copy-code",
     "allow-shared-notes-cancel",
-    "allow-notes-to-main",
-    "allow-set-notes-on-top"
+    "allow-git-diff",
+    "allow-git-log",
+    "allow-git-commit-diff",
+    "allow-list-session-folder",
+    "allow-open-file-viewer",
+    "allow-panel-to-main",
+    "allow-set-panel-on-top"
   ]
 }

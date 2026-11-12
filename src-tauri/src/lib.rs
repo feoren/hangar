@@ -28,9 +28,9 @@ pub mod icon;
 pub mod install_source;
 pub mod manager;
 pub mod notes;
-pub mod notes_window;
 pub mod notify;
 pub mod output;
+pub mod panel_window;
 pub mod paste_image;
 pub mod persist;
 pub mod proctree;
@@ -111,7 +111,7 @@ pub fn run() -> tauri::Result<()> {
                 )),
                 std::sync::Arc::new(|url: &reqwest::Url| desktop::open_url(url)),
                 std::sync::Arc::new(move |view: &account::AccountView| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, account::EVENT, view);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, view);
                 }),
                 account_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -127,7 +127,7 @@ pub fn run() -> tauri::Result<()> {
                     .clone(),
                 std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
                 std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, team::EVENT, snapshot);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, snapshot);
                 }),
                 team_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -187,7 +187,7 @@ pub fn run() -> tauri::Result<()> {
                 move || sessions.state::<SessionManager>().context_targets(),
                 move |snapshot| {
                     let _ =
-                        events.emit_to(notes_window::MAIN_LABEL, context_usage::EVENT, snapshot);
+                        events.emit_to(panel_window::MAIN_LABEL, context_usage::EVENT, snapshot);
                 },
             );
             if let Err(error) = started {
@@ -219,7 +219,7 @@ pub fn run() -> tauri::Result<()> {
                 move || claims_service::watched_sessions(&sessions.state::<SessionManager>()),
                 move |snapshot| {
                     let _ =
-                        events.emit_to(notes_window::MAIN_LABEL, claims_service::EVENT, snapshot);
+                        events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, snapshot);
                 },
             );
             if let Err(error) = started {
@@ -247,7 +247,7 @@ pub fn run() -> tauri::Result<()> {
                         .collect()
                 },
                 move |snapshot| {
-                    let _ = events.emit_to(notes_window::MAIN_LABEL, gate_service::EVENT, snapshot);
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, snapshot);
                 },
             );
             app.state::<SessionManager>()
@@ -342,9 +342,9 @@ pub fn run() -> tauri::Result<()> {
             commands::shared_notes_unlock,
             commands::shared_notes_copy_code,
             commands::shared_notes_cancel,
-            commands::open_notes_window,
-            commands::set_notes_on_top,
-            commands::notes_to_main,
+            commands::open_panel_window,
+            commands::set_panel_on_top,
+            commands::panel_to_main,
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,

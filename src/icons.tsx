@@ -328,6 +328,16 @@ export function DetachIcon(props: IconProps) {
   );
 }
 
+/** Arrow into a box: the detached panel goes back into the main window. */
+export function DockIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M13.5 2.5L8 8M8 4.5V8h3.5" />
+      <path d="M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
+    </Svg>
+  );
+}
+
 /** Pin: keep the window on top. */
 export function PinIcon(props: IconProps) {
   return (

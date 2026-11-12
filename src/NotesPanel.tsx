@@ -45,7 +45,7 @@ import {
   type SearchHit,
   type TrashItem,
 } from "./notes";
-import { sendableText } from "./notesBridge";
+import { sendableText } from "./panelBridge";
 import {
   DEFAULT_SCOPE,
   effectiveScope,

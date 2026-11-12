@@ -7,7 +7,7 @@ version: 2.5.5
 license: Apache-2.0 OR MIT
 repo: https://github.com/tauri-apps/plugins-workspace
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 # tauri-plugin-single-instance
@@ -65,8 +65,8 @@ arguments and working folder are ignored.
   second Hangar running a team; it shows `otherInstance`. With this plugin that only happens with
   a debug build next to a release build (same identifier, same config folder) or with the same
   person signed in to two Windows sessions, so the fallback stays.
-- **Notes window:** not involved; only the main window is brought to the front. If the person is
-  looking at the notes window, the main window comes up in front of it.
+- **Side panel window:** not involved; only the main window is brought to the front. If the
+  person is looking at the detached side panel, the main window comes up in front of it.
 
 ## Unverified
 

@@ -28,8 +28,8 @@ use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, Term
 use crate::notes::{
     FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
 };
-use crate::notes_window::{self, NotesMessage, NotesWindowError};
 use crate::notify::{self, Notifier};
+use crate::panel_window::{self, PanelMessage, PanelWindowError};
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
@@ -133,7 +133,7 @@ fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
                 copies,
             );
             // Only the main window listens for this.
-            let _ = app.emit_to(notes_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
+            let _ = app.emit_to(panel_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
         });
     if let Err(error) = spawned {
         eprintln!("hangar: update result not checked: {error}");
@@ -1164,73 +1164,94 @@ pub async fn shared_notes_unlock(
     shared_blocking(shared, move |p| p.unlock(&folder, &code, &label, &untitled)).await
 }
 
-// Detached notes window (notes_window.rs).
+// Detached side panel window (panel_window.rs, ADR 0007).
 
-/// Opens the notes window with its fixed label, URL and size, or brings it to the front if it
-/// is already open. Async: creating a window from a synchronous command deadlocks on Windows.
+/// Opens the panel window with its fixed label and URL, at the remembered size and place when
+/// that is still on a monitor, or brings it to the front if it is already open. Async: creating
+/// a window from a synchronous command deadlocks on Windows.
 #[tauri::command]
-pub async fn open_notes_window(
+pub async fn open_panel_window(
     app: tauri::AppHandle,
     always_on_top: bool,
-) -> Result<(), NotesWindowError> {
-    let focus = |window: tauri::WebviewWindow| -> Result<(), NotesWindowError> {
+    bounds: Option<panel_window::Bounds>,
+) -> Result<(), PanelWindowError> {
+    let focus = |window: tauri::WebviewWindow| -> Result<(), PanelWindowError> {
         let _ = window.unminimize();
         window.show()?;
         window.set_focus()?;
         Ok(())
     };
-    if let Some(window) = app.get_webview_window(notes_window::LABEL) {
+    if let Some(window) = app.get_webview_window(panel_window::LABEL) {
         return focus(window);
     }
-    let built = tauri::WebviewWindowBuilder::new(
+    let monitors: Vec<panel_window::Area> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|monitor| {
+            let scale = monitor.scale_factor().max(0.1);
+            let position = monitor.position();
+            let size = monitor.size();
+            panel_window::Area {
+                x: f64::from(position.x) / scale,
+                y: f64::from(position.y) / scale,
+                width: f64::from(size.width) / scale,
+                height: f64::from(size.height) / scale,
+            }
+        })
+        .collect();
+    let placement = panel_window::placement(bounds, &monitors);
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
-        notes_window::LABEL,
-        tauri::WebviewUrl::App(notes_window::URL.into()),
+        panel_window::LABEL,
+        tauri::WebviewUrl::App(panel_window::URL.into()),
     )
     .title("Hangar")
-    .inner_size(notes_window::WIDTH, notes_window::HEIGHT)
-    .min_inner_size(notes_window::MIN_WIDTH, notes_window::MIN_HEIGHT)
-    .always_on_top(always_on_top)
-    .build();
-    match built {
+    .inner_size(placement.width, placement.height)
+    .min_inner_size(panel_window::MIN_WIDTH, panel_window::MIN_HEIGHT)
+    .always_on_top(always_on_top);
+    if let Some((x, y)) = placement.position {
+        builder = builder.position(x, y);
+    }
+    match builder.build() {
         Ok(_) => Ok(()),
         // Two quick clicks: the other call created it meanwhile.
-        Err(error) => match app.get_webview_window(notes_window::LABEL) {
+        Err(error) => match app.get_webview_window(panel_window::LABEL) {
             Some(window) => focus(window),
             None => Err(error.into()),
         },
     }
 }
 
-/// Keeps the notes window above other windows or not. Only the notes window calls it, for
+/// Keeps the panel window above other windows or not. Only the panel window calls it, for
 /// itself: it holds this command instead of the general `set_always_on_top` permission.
 #[tauri::command]
-pub fn set_notes_on_top(
+pub fn set_panel_on_top(
     window: tauri::WebviewWindow,
     on_top: bool,
-) -> Result<(), NotesWindowError> {
-    notes_window::check_sender(window.label())?;
+) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
     window.set_always_on_top(on_top)?;
     Ok(())
 }
 
-/// The only way from the notes window to the main window: a validated [`NotesMessage`],
-/// delivered as event `notes-message` to `main` alone. The notes window may not emit events
+/// The only way from the panel window to the main window: a validated [`PanelMessage`],
+/// delivered as event `panel-message` to `main` alone. The panel window may not emit events
 /// itself, so it cannot fake events such as `tray-quit`.
 #[tauri::command]
-pub fn notes_to_main(
+pub fn panel_to_main(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    message: NotesMessage,
-) -> Result<(), NotesWindowError> {
-    notes_window::check_sender(window.label())?;
+    message: PanelMessage,
+) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
     message.validate()?;
-    if message == (NotesMessage::ShowMain {}) {
+    if message.shows_main() {
         tray::show_main_window(&app);
     }
     app.emit_to(
-        notes_window::MAIN_LABEL,
-        notes_window::MESSAGE_EVENT,
+        panel_window::MAIN_LABEL,
+        panel_window::MESSAGE_EVENT,
         &message,
     )?;
     Ok(())
@@ -1276,7 +1297,7 @@ fn notification_app_id(app: &tauri::AppHandle) -> String {
 fn activate_session(app: &tauri::AppHandle, id: SessionId) {
     tray::show_main_window(app);
     let _ = app.emit_to(
-        notes_window::MAIN_LABEL,
+        panel_window::MAIN_LABEL,
         "notification-activated",
         NotificationActivated { session_id: id },
     );

@@ -1,7 +1,7 @@
 //! Read-only file viewer windows (contract: docs/wiki/pages/syntheses/file-viewer.md).
 //!
 //! Only the backend creates them, with a label `file-viewer-<n>`, a fixed app URL and a fixed
-//! size, like the notes window. Each window is bound to the one file it was opened for: the
+//! size, like the side panel window. Each window is bound to the one file it was opened for: the
 //! frontend of a viewer names no path at all, the backend looks up the calling window's label in
 //! [`Viewers`] and reads that file. A viewer therefore cannot read anything else, even with a
 //! compromised page.
@@ -53,8 +53,8 @@ pub enum FileViewerError {
     NotFound,
     #[error("Not a file")]
     NotAFile,
-    #[error("Only the main window may open a file viewer")]
-    NotMainWindow,
+    #[error("Only the main window or the side panel may open a file viewer")]
+    NotOpener,
     #[error("Only a file viewer window may read its file")]
     WrongWindow,
     #[error("Unknown file viewer window")]
@@ -114,12 +114,12 @@ pub struct FileContent {
     pub binary: bool,
 }
 
-/// Only the main window opens viewers.
+/// Only the main window and the detached side panel open viewers: both show the Files tab.
 pub fn check_opener(label: &str) -> Result<(), FileViewerError> {
-    if label == crate::notes_window::MAIN_LABEL {
+    if label == crate::panel_window::MAIN_LABEL || label == crate::panel_window::LABEL {
         Ok(())
     } else {
-        Err(FileViewerError::NotMainWindow)
+        Err(FileViewerError::NotOpener)
     }
 }
 
@@ -605,7 +605,7 @@ mod tests {
         assert!(check_sender("file-viewer-42").is_ok());
         for bad in [
             "main",
-            "notes",
+            "panel",
             "file-viewer-",
             "file-viewer-x",
             "file-viewer-1a",
@@ -617,10 +617,13 @@ mod tests {
             );
         }
         assert!(check_opener("main").is_ok());
-        assert!(matches!(
-            check_opener("file-viewer-1"),
-            Err(FileViewerError::NotMainWindow)
-        ));
+        assert!(check_opener("panel").is_ok());
+        for bad in ["file-viewer-1", "notes", "Panel", ""] {
+            assert!(
+                matches!(check_opener(bad), Err(FileViewerError::NotOpener)),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

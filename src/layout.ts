@@ -2,6 +2,8 @@
 // font size, right panel (notes and changes), split view and the sizes of its panes.
 // Remembered per machine in localStorage; without storage, the defaults apply.
 
+import type { MessageKey } from "./i18n";
+
 export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
 /** Same value as --sidebar-rail in styles.css. */
 export const SIDEBAR_RAIL_WIDTH = 52;
@@ -57,6 +59,13 @@ export const DEFAULT_LAYOUT: Layout = {
 };
 
 export type SideTab = "notes" | "changes" | "files";
+
+/** Names of the right panel's tabs, in the frame and as the detached window's title. */
+export const SIDE_TAB_LABELS = {
+  notes: "notes.title",
+  changes: "changes.title",
+  files: "files.title",
+} as const satisfies Record<SideTab, MessageKey>;
 
 export function isGroupOpen(layout: Layout, group: SidebarGroup): boolean {
   return !layout.closedGroups.includes(group);

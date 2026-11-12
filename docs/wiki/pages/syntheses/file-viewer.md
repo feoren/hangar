@@ -12,7 +12,7 @@ updated: 2026-11-12
 A read-only window that shows one file of a session's folder, opened from the "Files" tab of the
 right panel. Code: `src-tauri/src/file_viewer.rs` (rules and tests), commands in
 `src-tauri/src/commands.rs`, capability `src-tauri/capabilities/file-viewer.json`. Modelled on the
-detached notes window ([[notes]]): only the backend creates windows, with a fixed URL and size.
+detached side panel window ([[notes]]): only the backend creates windows, with a fixed URL.
 
 ## Commands
 
@@ -66,7 +66,7 @@ stay as they are. UTF-16 files contain NUL bytes and therefore show as binary.
 
 Plain English text: `Unknown session <id>`, `Invalid file path: <reason>`, `The file lies outside
 the session's folder`, `Links are not followed in the file viewer`, `The file no longer exists`,
-`Not a file`, `Only the main window may open a file viewer`, `Only a file viewer window may read
+`Not a file`, `Only the main window or the side panel may open a file viewer`, `Only a file viewer window may read
 its file`, `Unknown file viewer window`, `The file cannot be read: <io error>`, `The file did not
 answer in time` (15 s, as the file tree).
 
@@ -89,7 +89,7 @@ answer in time` (15 s, as the file tree).
   the originals' contrast (Solarized and Catppuccin Latte are below 4.5:1 for some tokens); the
   text, line number and active line number contrasts are pinned by `viewerThemes.test.ts`.
 - Settings changes reach an open viewer through the `storage` event of the shared localStorage,
-  as in the detached notes window ([[notes]]).
+  as in the detached side panel window ([[notes]]).
 - Tree colors: rows on the path to a file this worktree changed (`onChangePath` in
   `fileTree.ts`) show their name in the "working" color; the change letter and the folder dot say
   the same without color.
