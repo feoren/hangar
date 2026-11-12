@@ -12,7 +12,7 @@ updated: 2026-11-12
 # ADR 0008: Private and team sessions
 
 ## Context
-Until 0.6.0 every program row under "New session" had a "+ Worktree" button (and Shift+click),
+Before 0.6.0 every program row under "New session" had a "+ Worktree" button (and Shift+click),
 and three things were tied to other settings than the session itself:
 
 - the own worktree was an option per start, independent of the team;
@@ -62,9 +62,10 @@ Option 2.
 - **Mixed teams:** what a teammate sees does not depend on the agent. Presence and shared claims
   come from git: `claims_service::watched_sessions` takes every running agent session regardless
   of its program, the rescan reads git's changes, `team_share::local_sessions` builds the shared
-  session from those claims and carries the program only as a display label. A teammate's Codex
-  team session therefore shows up, and its files pause a Claude Code session's edit, just like a
-  Claude Code session's would; only the gate on the Codex side waits for its hook format.
+  session from those claims and carries the program only as a display label. Once Codex CLI has
+  a hook format, a teammate's Codex team session shows up and its files pause a Claude Code
+  session's edit, just like a Claude Code session's would, with no change to presence or claims.
+  Until then only a restored worktree session of it (see below) is a team session without a gate.
 - **Older workspaces:** a session saved with a worktree is a team session after restore
   (`sessionMode` in `startMode.ts`); a private session never has a worktree.
 
