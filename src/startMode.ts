@@ -5,6 +5,7 @@
 
 import type { Profile, SessionMode, Worktree } from "./api";
 import type { Translate } from "./i18n";
+import { shellKind } from "./pathQuote";
 import type { WorktreeChance } from "./startTarget";
 
 export type StartMode = SessionMode;
@@ -65,6 +66,21 @@ export function teamBlock(profile: TeamProfile): "noHooks" | "fixedFolder" | nul
 
 export function teamCapable(profile: TeamProfile): boolean {
   return teamBlock(profile) === null;
+}
+
+/**
+ * Whether the program list shows `profile` under `mode`. Team lists only agents: a plain terminal
+ * (PowerShell, Command Prompt, a WSL distribution) can never be a team session, so it leaves the
+ * list instead of standing there greyed out. Agents that cannot be one yet stay greyed, so their
+ * tooltip can say why.
+ */
+export function listedFor(
+  mode: StartMode,
+  profile: TeamProfile & Pick<Profile, "command">,
+): boolean {
+  return (
+    mode === "private" || profile.teamCapable === true || shellKind(profile.command) === "agent"
+  );
 }
 
 /** The tooltip of a program greyed out while Team is chosen. */

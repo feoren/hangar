@@ -29,6 +29,7 @@ import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import {
   isTeamSession,
+  listedFor,
   startModeFor,
   teamPossible,
   teamUnsupportedHint,
@@ -454,22 +455,24 @@ export function Sidebar(props: Props) {
           ]
         : []),
       { type: "separator", key: "sep-programs" },
-      ...startable.map((profile): PopupItem => {
-        const version = versions.get(profile.id);
-        const unsupported = startModeFor(mode, profile) === null;
-        return {
-          type: "action",
-          key: profile.id,
-          label: profile.name,
-          ...(version === undefined ? {} : { detail: version }),
-          ...(unsupported ? { title: teamUnsupportedHint(profile, t) } : {}),
-          icon: <Badge look={badgeFor(profile.id)} />,
-          disabled: unsupported,
-          run: () => {
-            props.onStart(profile);
-          },
-        };
-      }),
+      ...startable
+        .filter((profile) => listedFor(mode, profile))
+        .map((profile): PopupItem => {
+          const version = versions.get(profile.id);
+          const unsupported = startModeFor(mode, profile) === null;
+          return {
+            type: "action",
+            key: profile.id,
+            label: profile.name,
+            ...(version === undefined ? {} : { detail: version }),
+            ...(unsupported ? { title: teamUnsupportedHint(profile, t) } : {}),
+            icon: <Badge look={badgeFor(profile.id)} />,
+            disabled: unsupported,
+            run: () => {
+              props.onStart(profile);
+            },
+          };
+        }),
     ];
     const updatable = startable.filter((profile) => runnableUpdate(props.updates, profile.id));
     if (updatable.length > 0) {
@@ -933,60 +936,62 @@ export function Sidebar(props: Props) {
         />
         {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
         <ul className="profile-list">
-          {startable.map((profile) => {
-            const version = versions.get(profile.id);
-            const programUpdate = props.updates.get(profile.id);
-            // Greyed out but still pointable, so its tooltip can say why.
-            const unsupported = startModeFor(mode, profile) === null;
-            return (
-              <li
-                key={profile.id}
-                className={unsupported ? "profile-row unsupported" : "profile-row"}
-              >
-                <button
-                  type="button"
-                  className="profile"
-                  aria-disabled={unsupported ? "true" : undefined}
-                  title={
-                    unsupported
-                      ? teamUnsupportedHint(profile, t)
-                      : [profile.command, ...profile.args].join(" ")
-                  }
-                  onClick={() => {
-                    if (!unsupported) props.onStart(profile);
-                  }}
+          {startable
+            .filter((profile) => listedFor(mode, profile))
+            .map((profile) => {
+              const version = versions.get(profile.id);
+              const programUpdate = props.updates.get(profile.id);
+              // Greyed out but still pointable, so its tooltip can say why.
+              const unsupported = startModeFor(mode, profile) === null;
+              return (
+                <li
+                  key={profile.id}
+                  className={unsupported ? "profile-row unsupported" : "profile-row"}
                 >
-                  <Badge look={badgeFor(profile.id)} />
-                  <span className="profile-name">{profile.name}</span>
-                  {version && !offerShowsInstalled(programUpdate) && (
-                    <span className="profile-version">
-                      <span aria-hidden="true">·</span> {version}
-                    </span>
-                  )}
-                  {programUpdate?.updateAvailable === true && (
-                    <span className="dot update profile-update-dot" aria-hidden="true" />
-                  )}
-                  <PlusIcon />
-                </button>
-                {programUpdate !== undefined && (
-                  <ProgramUpdateOffer
-                    className="in-sidebar"
-                    name={profile.name}
-                    update={programUpdate}
-                    updating={props.updatingPrograms.has(profile.id)}
-                    confirming={props.confirmUpdate === profile.id}
-                    onRequest={() => {
-                      props.onRequestUpdate(profile.id);
+                  <button
+                    type="button"
+                    className="profile"
+                    aria-disabled={unsupported ? "true" : undefined}
+                    title={
+                      unsupported
+                        ? teamUnsupportedHint(profile, t)
+                        : [profile.command, ...profile.args].join(" ")
+                    }
+                    onClick={() => {
+                      if (!unsupported) props.onStart(profile);
                     }}
-                    onConfirm={() => {
-                      props.onConfirmUpdate(profile.id);
-                    }}
-                    onCancel={props.onCancelUpdate}
-                  />
-                )}
-              </li>
-            );
-          })}
+                  >
+                    <Badge look={badgeFor(profile.id)} />
+                    <span className="profile-name">{profile.name}</span>
+                    {version && !offerShowsInstalled(programUpdate) && (
+                      <span className="profile-version">
+                        <span aria-hidden="true">·</span> {version}
+                      </span>
+                    )}
+                    {programUpdate?.updateAvailable === true && (
+                      <span className="dot update profile-update-dot" aria-hidden="true" />
+                    )}
+                    <PlusIcon />
+                  </button>
+                  {programUpdate !== undefined && (
+                    <ProgramUpdateOffer
+                      className="in-sidebar"
+                      name={profile.name}
+                      update={programUpdate}
+                      updating={props.updatingPrograms.has(profile.id)}
+                      confirming={props.confirmUpdate === profile.id}
+                      onRequest={() => {
+                        props.onRequestUpdate(profile.id);
+                      }}
+                      onConfirm={() => {
+                        props.onConfirmUpdate(profile.id);
+                      }}
+                      onCancel={props.onCancelUpdate}
+                    />
+                  )}
+                </li>
+              );
+            })}
         </ul>
       </GroupSection>
 

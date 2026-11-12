@@ -8,6 +8,7 @@ import {
   parseStartMode,
   saveStartMode,
   isTeamSession,
+  listedFor,
   sessionMode,
   teamBlock,
   teamUnsupportedHint,
@@ -119,5 +120,24 @@ describe("startMode", () => {
     expect(isTeamSession({ mode: "team" })).toBe(true);
     expect(isTeamSession({ mode: "private" })).toBe(false);
     expect(isTeamSession({})).toBe(false);
+  });
+
+  it("lists only agents under Team and every program under Private", () => {
+    const program = (command: string, teamCapable = false) => ({ command, teamCapable, cwd: null });
+    const terminals = [
+      program("pwsh"),
+      program(String.raw`C:\Windows\System32\cmd.exe`),
+      program("wsl"),
+      program("bash"),
+    ];
+    for (const terminal of terminals) {
+      expect(listedFor("team", terminal), terminal.command).toBe(false);
+      expect(listedFor("private", terminal), terminal.command).toBe(true);
+    }
+    // Agents stay, greyed out when they cannot be a team session yet.
+    expect(listedFor("team", program("claude", true))).toBe(true);
+    expect(listedFor("team", program("codex"))).toBe(true);
+    // A terminal profile the catalog marks capable is listed after all.
+    expect(listedFor("team", program("wsl", true))).toBe(true);
   });
 });

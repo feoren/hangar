@@ -149,6 +149,7 @@ import {
   loadStartMode,
   saveStartMode,
   sessionMode,
+  listedFor,
   startModeFor,
   teamUnsupportedHint,
   type StartMode,
@@ -3944,35 +3945,37 @@ export function App() {
                   <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
                   {quick.length > 0 && (
                     <ul className="empty-programs" aria-label={t("empty.programs")}>
-                      {quick.map((profile) => {
-                        const programVersion = programs.versions.get(profile.id);
-                        const unsupported = startModeFor(nextMode, profile) === null;
-                        return (
-                          <li key={profile.id}>
-                            <button
-                              type="button"
-                              className={
-                                unsupported ? "empty-program unsupported" : "empty-program"
-                              }
-                              aria-disabled={unsupported ? "true" : undefined}
-                              title={
-                                unsupported
-                                  ? teamUnsupportedHint(profile, t)
-                                  : [profile.command, ...profile.args].join(" ")
-                              }
-                              onClick={() => {
-                                if (!unsupported) startHere(profile);
-                              }}
-                            >
-                              <Badge look={badgeFor(profile.id)} />
-                              <span className="empty-program-name">{profile.name}</span>
-                              {programVersion && (
-                                <span className="empty-program-version">{programVersion}</span>
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
+                      {quick
+                        .filter((profile) => listedFor(nextMode, profile))
+                        .map((profile) => {
+                          const programVersion = programs.versions.get(profile.id);
+                          const unsupported = startModeFor(nextMode, profile) === null;
+                          return (
+                            <li key={profile.id}>
+                              <button
+                                type="button"
+                                className={
+                                  unsupported ? "empty-program unsupported" : "empty-program"
+                                }
+                                aria-disabled={unsupported ? "true" : undefined}
+                                title={
+                                  unsupported
+                                    ? teamUnsupportedHint(profile, t)
+                                    : [profile.command, ...profile.args].join(" ")
+                                }
+                                onClick={() => {
+                                  if (!unsupported) startHere(profile);
+                                }}
+                              >
+                                <Badge look={badgeFor(profile.id)} />
+                                <span className="empty-program-name">{profile.name}</span>
+                                {programVersion && (
+                                  <span className="empty-program-version">{programVersion}</span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
                     </ul>
                   )}
                   <p className={target.source === "chosen" ? "empty-cwd chosen" : "empty-cwd"}>
