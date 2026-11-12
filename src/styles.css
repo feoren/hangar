@@ -7927,13 +7927,14 @@ body.session-dragging .session-actions {
   color: var(--warn);
 }
 
-/* Taking a saved folder out of the menu: a quiet x, shown on the row's hover and focus. */
+/* Taking a saved folder out of the menu: a quiet x, always there so it can be found, clearer on
+   the row's hover and focus and red under the pointer. */
 .menu-remove {
   flex: none;
   width: 22px;
   height: 22px;
   color: var(--muted);
-  opacity: 0;
+  opacity: 0.55;
 }
 
 .menu-entry.removable:hover .menu-remove,
