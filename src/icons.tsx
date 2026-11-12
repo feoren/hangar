@@ -407,15 +407,6 @@ export function TeamIcon(props: IconProps) {
   );
 }
 
-/** Plus over minus: the changes of the active session (right panel tab). */
-export function DiffIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
-    </Svg>
-  );
-}
-
 /** A file in the file tree: a page with a folded corner. */
 export function FileIcon(props: IconProps) {
   return (
@@ -432,6 +423,39 @@ export function LinkIcon(props: IconProps) {
     <Svg {...props}>
       <path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.7.7" />
       <path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.7-.7" />
+    </Svg>
+  );
+}
+
+/** The right panel's Notes tab: a page with a pencil on it. */
+export function NotePencilIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 2.5H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7.5" />
+      <path d="M12.1 2.2l1.7 1.7-5.3 5.3-2.3.6.6-2.3z" />
+    </Svg>
+  );
+}
+
+/** The right panel's Changes tab: source control, a branch leaving the main line. */
+export function SourceControlIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="4.5" cy="3.5" r="1.6" />
+      <circle cx="4.5" cy="12.5" r="1.6" />
+      <circle cx="11.5" cy="5.5" r="1.6" />
+      <path d="M4.5 5.1v5.8M11.5 7.1c0 2.6-2.6 3.1-5.6 4.2" />
+    </Svg>
+  );
+}
+
+/** The right panel's Files tab: two pages, the explorer of the project's files. */
+export function FilesIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6.5 1.8h4l2.7 2.7v6.2a1 1 0 0 1-1 1H6.5a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" />
+      <path d="M10.3 1.8v2.9h2.9" />
+      <path d="M3.3 4.8v8.4a1 1 0 0 0 1 1h5.9" />
     </Svg>
   );
 }

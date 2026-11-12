@@ -516,6 +516,12 @@ Gemini CLI take a settings file through an env var (`QWEN_CODE_SYSTEM_SETTINGS_P
 worktree from the root checkout. Open measurements listed in the page. Pages changed:
 [[agent-hooks-per-session-research]] (new).
 
+## [2026-11-12] ingest | Per-session edit gates for the remaining agent CLIs
+Desk research (no agent installed or run) on the 17 catalog agents not covered before, against vendor
+docs, GitHub sources and registry metadata. Pi, Oh My Pi, OpenCode and Droid are feasible; Cline, Amp,
+Crush and Vibe only after a measurement; Aider, Goose, Kimi, Antigravity, Cursor, Kiro, ForgeCode, Kode
+and Codebuff are not possible today. Pages changed: [[agent-hooks-remaining-agents-research]] (new),
+index.
 ## [2026-11-12] ingest | Agent gate adapters for Qwen Code, Gemini CLI, Copilot CLI and Codex CLI
 Built the four per-session hook recipes of the research page and turned the catalog flags on.
 Measured on Windows 11 (no model call): a GUI-subsystem program works as a hook command through

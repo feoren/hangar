@@ -28,6 +28,7 @@ import type { ShellKind } from "./pathQuote";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
+import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
 import { guardSecondaryClick } from "./terminalMouse";
 import { setupUnicode } from "./terminalUnicode";
@@ -286,11 +287,64 @@ export class SessionTerminal {
         guardSecondaryClick(this.term.element, () => {
           this.term.focus();
         });
+        this.watchClicks(this.term.element);
       }
     } else if (this.term.element && this.term.element.parentElement !== host) {
       host.appendChild(this.term.element);
     }
     this.fit();
+  }
+
+  /**
+   * A plain click on the cursor's line of an agent's prompt moves the cursor there
+   * (terminalClick.ts). A drag, a double click or a modifier keeps xterm's own handling.
+   */
+  private watchClicks(element: HTMLElement): void {
+    let press: { x: number; y: number } | null = null;
+    element.addEventListener("mousedown", (event) => {
+      press =
+        event.button === 0 && event.detail === 1 ? { x: event.clientX, y: event.clientY } : null;
+    });
+    element.addEventListener("mouseup", (event) => {
+      const start = press;
+      press = null;
+      if (start === null || event.button !== 0) return;
+      if (Math.abs(event.clientX - start.x) > 3 || Math.abs(event.clientY - start.y) > 3) return;
+      const modifier = event.altKey || event.shiftKey || event.ctrlKey || event.metaKey;
+      const { clientX, clientY } = event;
+      // xterm settles its selection in its own mouseup handling; read it afterwards.
+      setTimeout(() => {
+        this.moveCursorToClick(clientX, clientY, modifier);
+      }, 0);
+    });
+  }
+
+  private moveCursorToClick(clientX: number, clientY: number, modifier: boolean): void {
+    const term = this.term;
+    const context = {
+      shell: this.shellKind(),
+      mouseTracking: term.modes.mouseTrackingMode,
+      selected: term.hasSelection(),
+      modifier,
+    };
+    if (!clickMovesCursor(context)) return;
+    const screen = term.element?.querySelector(".xterm-screen");
+    if (!screen || term.cols === 0 || term.rows === 0) return;
+    const rect = screen.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const col = Math.floor(((clientX - rect.left) / rect.width) * term.cols);
+    const row = Math.floor(((clientY - rect.top) / rect.height) * term.rows);
+    if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return;
+    const buffer = term.buffer.active;
+    // Only the cursor's own line: other lines would need Up and Down, which page the history.
+    if (buffer.viewportY + row !== buffer.baseY + buffer.cursorY) return;
+    const line = buffer.getLine(buffer.baseY + buffer.cursorY);
+    if (!line) return;
+    const cells: ClickCell[] = [];
+    for (let x = 0; x < line.length; x += 1)
+      cells.push({ width: line.getCell(x)?.getWidth() ?? 1 });
+    const keys = arrowsToColumn(cells, buffer.cursorX, col, term.modes.applicationCursorKeysMode);
+    if (keys !== "") this.send(keys);
   }
 
   fit(): void {

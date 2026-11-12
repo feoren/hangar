@@ -4,8 +4,6 @@
 // folder itself, without the gate, and the team never sees it.
 
 import type { Profile, SessionMode, Worktree } from "./api";
-import type { Translate } from "./i18n";
-import { shellKind } from "./pathQuote";
 import type { WorktreeChance } from "./startTarget";
 
 export type StartMode = SessionMode;
@@ -69,33 +67,17 @@ export function teamCapable(profile: TeamProfile): boolean {
 }
 
 /**
- * Whether the program list shows `profile` under `mode`. Team lists only agents: a plain terminal
- * (PowerShell, Command Prompt, a WSL distribution) can never be a team session, so it leaves the
- * list instead of standing there greyed out. Agents that cannot be one yet stay greyed, so their
- * tooltip can say why.
+ * Whether the program list shows `profile` under `mode`. Team offers only what really runs as a
+ * team session: plain terminals and agents without a gate (wiki: team-capable agents) leave the
+ * list instead of standing there greyed out. Private lists every program.
  */
-export function listedFor(
-  mode: StartMode,
-  profile: TeamProfile & Pick<Profile, "command">,
-): boolean {
-  return (
-    mode === "private" || profile.teamCapable === true || shellKind(profile.command) === "agent"
-  );
-}
-
-/** The tooltip of a program greyed out while Team is chosen. */
-export function teamUnsupportedHint(
-  profile: TeamProfile & Pick<Profile, "name">,
-  t: Translate,
-): string {
-  return teamBlock(profile) === "fixedFolder"
-    ? t("start.teamFixedFolder", { name: profile.name })
-    : t("start.teamUnsupported", { name: profile.name });
+export function listedFor(mode: StartMode, profile: TeamProfile): boolean {
+  return mode === "private" || teamCapable(profile);
 }
 
 /**
  * How a start of `profile` goes under `mode`: as chosen, or `null` when the program cannot be a
- * team session (the list shows it disabled).
+ * team session (the Team list leaves it out).
  */
 export function startModeFor(mode: StartMode, profile: TeamProfile): StartMode | null {
   if (mode === "private") return "private";

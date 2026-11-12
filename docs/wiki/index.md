@@ -32,9 +32,14 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[team-protocol]]: team protocol (step C): envelope and message table, keyed hashes of tasks and paths, overlap levels without content, reservation timing, rotation grace, event log and resync, threat model, limits (sources: 0, updated: 2026-11-09)
 
 ## Sources
+<<<<<<< HEAD
 - [[codex-gate-live-measurement]]: measurement: Codex 0.167.2 live with Hangar's hook recipe: the `-c` hook fires on `apply_patch`, `HANGAR_GATE` arrives, relative patch paths, only a JSON deny with exit 0 blocks (exit 2 plus JSON fails open) (sources: 0, updated: 2026-11-12)
 - [[gate-hook-helper-measurement]]: measurement: a GUI-subsystem program as a hook command on Windows 11 (cmd.exe and PowerShell wait and pipe, PowerShell loses the exit code); Codex 0.167.2 registers a `-c hooks.PreToolUse` value as an untrusted session hook, cmd.exe eats `^` through `codex.cmd` (sources: 0, updated: 2026-11-12)
 - [[agent-hooks-per-session-research]]: research (desk, nothing run live): hook mechanism, per-session install, trust and payload shape for Codex 0.167.2, Gemini CLI 0.68.0, Copilot CLI 1.0.109 and Qwen Code 0.27.2; Qwen and Gemini take a settings path env var, Copilot `--plugin-dir`, Codex `-c` plus a trust bypass; now built, see the adapters page (sources: 0, updated: 2026-11-12)
+=======
+- [[agent-hooks-per-session-research]]: research (desk, nothing run live): hook mechanism, per-session install, trust and payload shape for Codex 0.167.2, Gemini CLI 0.68.0, Copilot CLI 1.0.109 and Qwen Code 0.27.2; Qwen and Gemini take a settings path env var, Copilot `--plugin-dir`, Codex `-c` plus a trust bypass (sources: 0, updated: 2026-11-12)
+- [[agent-hooks-remaining-agents-research]]: research (desk, nothing run live): which of the other 17 catalog agents can take a per-session edit gate; Pi, Oh My Pi, OpenCode and Droid feasible, Cline, Amp, Crush and Vibe only after a measurement, Aider, Goose, Kimi, Antigravity, Cursor, Kiro, Forge, Kode and Codebuff not possible (sources: 0, updated: 2026-11-12)
+>>>>>>> main
 - [[terminal-font-coverage-measurement]]: measurement: Fontsource subsets of Google-hosted mono fonts lack box drawing and block elements, the upstream Source Code Pro, IBM Plex Mono and Victor Mono files have them (sources: 0, updated: 2026-11-12)
 - [[single-instance-lock-measurement]]: measurement: tauri-plugin-single-instance 2.5.5 lock tests on Windows 11: second start forwarded while held, lock held during `RunEvent::Exit`, released by `cleanup_before_exit` (updated: 2026-11-11)
 - [[note-gitattributes-measurement]]: measurement: git 2.56 on Windows with `* -text -diff -merge`: note bytes stay unconverted under every `core.autocrlf`, conflicts leave `UU`/`UD`/`AA` with readable stages and no markers, rebase swaps stages 2 and 3 (updated: 2026-11-10)

@@ -205,7 +205,6 @@ const de = {
   "update.failed": "Update fehlgeschlagen: {error}",
   "update.inSidebar": "Update {version} verfügbar. Installieren kannst du es in der Sidebar.",
 
-  "empty.title": "Keine Session offen",
   "empty.body": "Wähl links ein Programm, um zu starten.",
   "empty.sidebarHint": "klappt die Sidebar ein und aus",
   "empty.settingsHint": "öffnet die Einstellungen",
@@ -758,9 +757,7 @@ const de = {
   "start.teamHint":
     "Eigener Worktree, Rückfrage vor überschneidenden Änderungen, für dein Team sichtbar.",
   "start.teamNoRepo": "Team-Sessions brauchen ein Git-Repository, dieser Ordner liegt in keinem.",
-  "start.teamUnsupported": "{name} kann noch keine Team-Session sein.",
-  "start.teamFixedFolder":
-    "{name} hat im Profil einen festen Ordner und kann daher keine Team-Session mit eigenem Worktree sein.",
+  "start.noTeamAgents": "Keiner deiner installierten Agenten kann als Team-Session laufen.",
   "start.started": "{name} startet in {folder}",
   "folders.running": "Laufende Projekte",
   "folders.favorites": "Favoriten",
@@ -768,6 +765,7 @@ const de = {
   "folders.chooseOther": "Anderen Ordner wählen …",
   "folders.addFavoriteNamed": "{folder} zu Favoriten hinzufügen",
   "folders.removeFavoriteNamed": "{folder} aus Favoriten entfernen",
+  "folders.forgetNamed": "{folder} aus der Liste entfernen",
   "update.runFromTo": "{name} von {installed} auf {latest} aktualisieren",
   "update.running": "Update läuft",
   "update.showRunning": "Laufendes Update von {name} zeigen",
@@ -1339,7 +1337,6 @@ const en: Record<MessageKey, string> = {
   "update.failed": "Update failed: {error}",
   "update.inSidebar": "Update {version} available. You can install it from the sidebar.",
 
-  "empty.title": "No session open",
   "empty.body": "Pick a program on the left to get started.",
   "empty.sidebarHint": "collapses or expands the sidebar",
   "empty.settingsHint": "opens the settings",
@@ -1878,9 +1875,7 @@ const en: Record<MessageKey, string> = {
   "start.privateHint": "Right in the folder, just for you.",
   "start.teamHint": "Own worktree, asks before overlapping edits, visible to your team.",
   "start.teamNoRepo": "Team sessions need a git repository, and this folder is not in one.",
-  "start.teamUnsupported": "{name} cannot be a team session yet.",
-  "start.teamFixedFolder":
-    "{name} has a fixed folder in its profile, so it cannot be a team session with its own worktree.",
+  "start.noTeamAgents": "None of your installed agents can run as a team session.",
   "start.started": "{name} starts in {folder}",
   "folders.running": "Running projects",
   "folders.favorites": "Favorites",
@@ -1888,6 +1883,7 @@ const en: Record<MessageKey, string> = {
   "folders.chooseOther": "Choose another folder …",
   "folders.addFavoriteNamed": "Add {folder} to favorites",
   "folders.removeFavoriteNamed": "Remove {folder} from favorites",
+  "folders.forgetNamed": "Remove {folder} from the list",
   "update.runFromTo": "Update {name} from {installed} to {latest}",
   "update.running": "Updating",
   "update.showRunning": "Show the running update of {name}",
@@ -2448,7 +2444,6 @@ const el: Record<MessageKey, string> = {
   "update.inSidebar":
     "Διαθέσιμη ενημέρωση {version}. Μπορείς να την εγκαταστήσεις από την πλευρική στήλη.",
 
-  "empty.title": "Καμία ανοιχτή συνεδρία",
   "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά για να ξεκινήσεις.",
   "empty.sidebarHint": "συμπτύσσει ή αναπτύσσει την πλευρική στήλη",
   "empty.settingsHint": "άνοιγμα ρυθμίσεων",
@@ -3009,9 +3004,8 @@ const el: Record<MessageKey, string> = {
     "Δικό της worktree, ερώτηση πριν από αλληλοεπικαλυπτόμενες αλλαγές, ορατή στην ομάδα σου.",
   "start.teamNoRepo":
     "Οι ομαδικές συνεδρίες χρειάζονται αποθετήριο git, και αυτός ο φάκελος δεν είναι σε κάποιο.",
-  "start.teamUnsupported": "Το {name} δεν μπορεί ακόμη να είναι ομαδική συνεδρία.",
-  "start.teamFixedFolder":
-    "Το {name} έχει σταθερό φάκελο στο προφίλ του, οπότε δεν μπορεί να είναι ομαδική συνεδρία με δικό της worktree.",
+  "start.noTeamAgents":
+    "Κανένας από τους εγκατεστημένους πράκτορές σου δεν μπορεί να τρέξει ως συνεδρία ομάδας.",
   "start.started": "Το {name} ξεκινά στο {folder}",
   "folders.running": "Ενεργά έργα",
   "folders.favorites": "Αγαπημένα",
@@ -3019,6 +3013,7 @@ const el: Record<MessageKey, string> = {
   "folders.chooseOther": "Επιλογή άλλου φακέλου …",
   "folders.addFavoriteNamed": "Προσθήκη του {folder} στα αγαπημένα",
   "folders.removeFavoriteNamed": "Αφαίρεση του {folder} από τα αγαπημένα",
+  "folders.forgetNamed": "Αφαίρεση του {folder} από τη λίστα",
   "update.runFromTo": "Ενημέρωση του {name} από {installed} σε {latest}",
   "update.running": "Ενημερώνεται",
   "update.showRunning": "Εμφάνιση της ενημέρωσης του {name} σε εξέλιξη",
@@ -3590,7 +3585,6 @@ const es: Record<MessageKey, string> = {
   "update.inSidebar":
     "Actualización {version} disponible. Puedes instalarla desde la barra lateral.",
 
-  "empty.title": "No hay ninguna sesión abierta",
   "empty.body": "Elige un programa a la izquierda para empezar.",
   "empty.sidebarHint": "contrae o expande la barra lateral",
   "empty.settingsHint": "abre la configuración",
@@ -4142,9 +4136,7 @@ const es: Record<MessageKey, string> = {
     "Worktree propio, pregunta antes de cambios que se solapan, visible para tu equipo.",
   "start.teamNoRepo":
     "Las sesiones de equipo necesitan un repositorio git, y esta carpeta no está en ninguno.",
-  "start.teamUnsupported": "{name} aún no puede ser una sesión de equipo.",
-  "start.teamFixedFolder":
-    "{name} tiene una carpeta fija en su perfil, así que no puede ser una sesión de equipo con worktree propio.",
+  "start.noTeamAgents": "Ninguno de tus agentes instalados puede ejecutarse como sesión de equipo.",
   "start.started": "{name} empieza en {folder}",
   "folders.running": "Proyectos en marcha",
   "folders.favorites": "Favoritas",
@@ -4152,6 +4144,7 @@ const es: Record<MessageKey, string> = {
   "folders.chooseOther": "Elegir otra carpeta …",
   "folders.addFavoriteNamed": "Añadir {folder} a favoritas",
   "folders.removeFavoriteNamed": "Quitar {folder} de favoritas",
+  "folders.forgetNamed": "Quitar {folder} de la lista",
   "update.runFromTo": "Actualizar {name} de {installed} a {latest}",
   "update.running": "Actualizando",
   "update.showRunning": "Mostrar la actualización en curso de {name}",
@@ -4717,7 +4710,6 @@ const fr: Record<MessageKey, string> = {
   "update.inSidebar":
     "Mise à jour {version} disponible. Tu peux l'installer depuis la barre latérale.",
 
-  "empty.title": "Aucune session ouverte",
   "empty.body": "Choisis un programme à gauche pour commencer.",
   "empty.sidebarHint": "réduit ou développe la barre latérale",
   "empty.settingsHint": "ouvre les paramètres",
@@ -5277,9 +5269,7 @@ const fr: Record<MessageKey, string> = {
     "Worktree dédié, demande avant les modifications qui se chevauchent, visible par ton équipe.",
   "start.teamNoRepo":
     "Les sessions d'équipe ont besoin d'un dépôt git, et ce dossier n'en fait pas partie.",
-  "start.teamUnsupported": "{name} ne peut pas encore être une session d'équipe.",
-  "start.teamFixedFolder":
-    "{name} a un dossier fixe dans son profil, il ne peut donc pas être une session d'équipe avec son propre worktree.",
+  "start.noTeamAgents": "Aucun de tes agents installés ne peut tourner en session d'équipe.",
   "start.started": "{name} démarre dans {folder}",
   "folders.running": "Projets en cours",
   "folders.favorites": "Favoris",
@@ -5287,6 +5277,7 @@ const fr: Record<MessageKey, string> = {
   "folders.chooseOther": "Choisir un autre dossier …",
   "folders.addFavoriteNamed": "Ajouter {folder} aux favoris",
   "folders.removeFavoriteNamed": "Retirer {folder} des favoris",
+  "folders.forgetNamed": "Retirer {folder} de la liste",
   "update.runFromTo": "Mettre à jour {name} de {installed} vers {latest}",
   "update.running": "Mise à jour en cours",
   "update.showRunning": "Afficher la mise à jour en cours de {name}",
@@ -5856,7 +5847,6 @@ const it: Record<MessageKey, string> = {
   "update.failed": "Aggiornamento non riuscito: {error}",
   "update.inSidebar": "Aggiornamento {version} disponibile. Puoi installarlo dalla barra laterale.",
 
-  "empty.title": "Nessuna sessione aperta",
   "empty.body": "Scegli un programma a sinistra per iniziare.",
   "empty.sidebarHint": "comprime o espande la barra laterale",
   "empty.settingsHint": "apre le impostazioni",
@@ -6410,9 +6400,8 @@ const it: Record<MessageKey, string> = {
     "Worktree dedicato, chiede prima di modifiche sovrapposte, visibile al tuo team.",
   "start.teamNoRepo":
     "Le sessioni di team richiedono un repository git, e questa cartella non è in nessuno.",
-  "start.teamUnsupported": "{name} non può ancora essere una sessione di team.",
-  "start.teamFixedFolder":
-    "{name} ha una cartella fissa nel profilo, quindi non può essere una sessione di team con un worktree proprio.",
+  "start.noTeamAgents":
+    "Nessuno dei tuoi agenti installati può essere eseguito come sessione di team.",
   "start.started": "{name} parte in {folder}",
   "folders.running": "Progetti in corso",
   "folders.favorites": "Preferiti",
@@ -6420,6 +6409,7 @@ const it: Record<MessageKey, string> = {
   "folders.chooseOther": "Scegli un'altra cartella …",
   "folders.addFavoriteNamed": "Aggiungi {folder} ai preferiti",
   "folders.removeFavoriteNamed": "Rimuovi {folder} dai preferiti",
+  "folders.forgetNamed": "Rimuovi {folder} dall'elenco",
   "update.runFromTo": "Aggiorna {name} da {installed} a {latest}",
   "update.running": "Aggiornamento in corso",
   "update.showRunning": "Mostra l'aggiornamento in corso di {name}",
@@ -6988,7 +6978,6 @@ const ja: Record<MessageKey, string> = {
   "update.failed": "アップデートに失敗しました: {error}",
   "update.inSidebar": "アップデート {version} があります。サイドバーからインストールできます。",
 
-  "empty.title": "開いているセッションはありません",
   "empty.body": "左側でプログラムを選ぶと開始できます。",
   "empty.sidebarHint": "サイドバーの折りたたみと展開",
   "empty.settingsHint": "設定を開く",
@@ -7540,9 +7529,8 @@ const ja: Record<MessageKey, string> = {
   "start.teamHint": "専用の worktree、重なる変更の前に確認、チームに表示。",
   "start.teamNoRepo":
     "チームセッションには git リポジトリが必要ですが、このフォルダーはリポジトリ内にありません。",
-  "start.teamUnsupported": "{name} はまだチームセッションにできません。",
-  "start.teamFixedFolder":
-    "{name} はプロファイルでフォルダーが固定されているため、専用の worktree を持つチームセッションにできません。",
+  "start.noTeamAgents":
+    "インストール済みのエージェントでチームセッションとして実行できるものはありません。",
   "start.started": "{name} を {folder} で開始します",
   "folders.running": "実行中のプロジェクト",
   "folders.favorites": "お気に入り",
@@ -7550,6 +7538,7 @@ const ja: Record<MessageKey, string> = {
   "folders.chooseOther": "別のフォルダーを選択 …",
   "folders.addFavoriteNamed": "{folder} をお気に入りに追加",
   "folders.removeFavoriteNamed": "{folder} をお気に入りから削除",
+  "folders.forgetNamed": "{folder} を一覧から削除",
   "update.runFromTo": "{name} を {installed} から {latest} に更新",
   "update.running": "更新中",
   "update.showRunning": "実行中の {name} の更新を表示",
@@ -8115,7 +8104,6 @@ const pl: Record<MessageKey, string> = {
   "update.failed": "Aktualizacja nie powiodła się: {error}",
   "update.inSidebar": "Dostępna aktualizacja {version}. Zainstalujesz ją z paska bocznego.",
 
-  "empty.title": "Brak otwartej sesji",
   "empty.body": "Wybierz program po lewej, aby zacząć.",
   "empty.sidebarHint": "zwija lub rozwija pasek boczny",
   "empty.settingsHint": "otwiera ustawienia",
@@ -8661,9 +8649,7 @@ const pl: Record<MessageKey, string> = {
   "start.teamHint":
     "Własny worktree, pytanie przed nakładającymi się zmianami, widoczna dla zespołu.",
   "start.teamNoRepo": "Sesje zespołowe wymagają repozytorium git, a ten folder w żadnym nie leży.",
-  "start.teamUnsupported": "{name} nie może jeszcze być sesją zespołową.",
-  "start.teamFixedFolder":
-    "{name} ma w profilu stały folder, więc nie może być sesją zespołową z własnym worktree.",
+  "start.noTeamAgents": "Żaden z zainstalowanych agentów nie może działać jako sesja zespołu.",
   "start.started": "{name} startuje w {folder}",
   "folders.running": "Uruchomione projekty",
   "folders.favorites": "Ulubione",
@@ -8671,6 +8657,7 @@ const pl: Record<MessageKey, string> = {
   "folders.chooseOther": "Wybierz inny folder …",
   "folders.addFavoriteNamed": "Dodaj {folder} do ulubionych",
   "folders.removeFavoriteNamed": "Usuń {folder} z ulubionych",
+  "folders.forgetNamed": "Usuń {folder} z listy",
   "update.runFromTo": "Aktualizuj {name} z {installed} do {latest}",
   "update.running": "Aktualizacja trwa",
   "update.showRunning": "Pokaż trwającą aktualizację {name}",
@@ -9235,7 +9222,6 @@ const pt: Record<MessageKey, string> = {
   "update.failed": "Falha na atualização: {error}",
   "update.inSidebar": "Atualização {version} disponível. Você pode instalá-la pela barra lateral.",
 
-  "empty.title": "Nenhuma sessão aberta",
   "empty.body": "Escolha um programa à esquerda para começar.",
   "empty.sidebarHint": "recolhe ou expande a barra lateral",
   "empty.settingsHint": "abre as configurações",
@@ -9788,9 +9774,7 @@ const pt: Record<MessageKey, string> = {
     "Worktree próprio, pergunta antes de alterações sobrepostas, visível para sua equipe.",
   "start.teamNoRepo":
     "Sessões de equipe precisam de um repositório git, e esta pasta não está em nenhum.",
-  "start.teamUnsupported": "{name} ainda não pode ser uma sessão de equipe.",
-  "start.teamFixedFolder":
-    "{name} tem uma pasta fixa no perfil, então não pode ser uma sessão de equipe com worktree próprio.",
+  "start.noTeamAgents": "Nenhum dos seus agentes instalados pode rodar como sessão de equipe.",
   "start.started": "{name} começa em {folder}",
   "folders.running": "Projetos em execução",
   "folders.favorites": "Favoritos",
@@ -9798,6 +9782,7 @@ const pt: Record<MessageKey, string> = {
   "folders.chooseOther": "Escolher outra pasta …",
   "folders.addFavoriteNamed": "Adicionar {folder} aos favoritos",
   "folders.removeFavoriteNamed": "Remover {folder} dos favoritos",
+  "folders.forgetNamed": "Remover {folder} da lista",
   "update.runFromTo": "Atualizar {name} de {installed} para {latest}",
   "update.running": "Atualizando",
   "update.showRunning": "Mostrar a atualização em andamento de {name}",
@@ -10361,7 +10346,6 @@ const ru: Record<MessageKey, string> = {
   "update.failed": "Не удалось обновить: {error}",
   "update.inSidebar": "Доступно обновление {version}. Установить его можно на боковой панели.",
 
-  "empty.title": "Нет открытых сеансов",
   "empty.body": "Выбери программу слева, чтобы начать.",
   "empty.sidebarHint": "сворачивает или разворачивает боковую панель",
   "empty.settingsHint": "открывает настройки",
@@ -10904,9 +10888,7 @@ const ru: Record<MessageKey, string> = {
   "start.privateHint": "Прямо в папке, только для тебя.",
   "start.teamHint": "Свой worktree, вопрос перед пересекающимися изменениями, видна команде.",
   "start.teamNoRepo": "Командным сессиям нужен git-репозиторий, а эта папка не в нём.",
-  "start.teamUnsupported": "{name} пока не может быть командной сессией.",
-  "start.teamFixedFolder":
-    "У {name} в профиле задана постоянная папка, поэтому это не может быть командная сессия со своим worktree.",
+  "start.noTeamAgents": "Ни один из установленных агентов не может работать как командная сессия.",
   "start.started": "{name} запускается в {folder}",
   "folders.running": "Запущенные проекты",
   "folders.favorites": "Избранное",
@@ -10914,6 +10896,7 @@ const ru: Record<MessageKey, string> = {
   "folders.chooseOther": "Выбрать другую папку …",
   "folders.addFavoriteNamed": "Добавить {folder} в избранное",
   "folders.removeFavoriteNamed": "Убрать {folder} из избранного",
+  "folders.forgetNamed": "Убрать {folder} из списка",
   "update.runFromTo": "Обновить {name} с {installed} до {latest}",
   "update.running": "Обновляется",
   "update.showRunning": "Показать идущее обновление {name}",
@@ -11473,7 +11456,6 @@ const tr: Record<MessageKey, string> = {
   "update.failed": "Güncelleme başarısız: {error}",
   "update.inSidebar": "Güncelleme var: {version}. Kenar çubuğundan yükleyebilirsin.",
 
-  "empty.title": "Açık oturum yok",
   "empty.body": "Başlamak için soldan bir program seç.",
   "empty.sidebarHint": "kenar çubuğunu daraltır veya genişletir",
   "empty.settingsHint": "ayarları açar",
@@ -12017,9 +11999,7 @@ const tr: Record<MessageKey, string> = {
   "start.privateHint": "Doğrudan klasörde, yalnızca senin için.",
   "start.teamHint": "Ayrı worktree, çakışan değişikliklerden önce sorar, ekibine görünür.",
   "start.teamNoRepo": "Ekip oturumları bir git deposu gerektirir, bu klasör hiçbirinde değil.",
-  "start.teamUnsupported": "{name} henüz ekip oturumu olamaz.",
-  "start.teamFixedFolder":
-    "{name} profilinde sabit bir klasör var, bu yüzden kendi worktree'si olan bir ekip oturumu olamaz.",
+  "start.noTeamAgents": "Kurulu ajanlarının hiçbiri ekip oturumu olarak çalışamaz.",
   "start.started": "{name}, {folder} içinde başlıyor",
   "folders.running": "Çalışan projeler",
   "folders.favorites": "Favoriler",
@@ -12027,6 +12007,7 @@ const tr: Record<MessageKey, string> = {
   "folders.chooseOther": "Başka klasör seç …",
   "folders.addFavoriteNamed": "{folder} klasörünü favorilere ekle",
   "folders.removeFavoriteNamed": "{folder} klasörünü favorilerden çıkar",
+  "folders.forgetNamed": "{folder} klasörünü listeden kaldır",
   "update.runFromTo": "{name} uygulamasını {installed} sürümünden {latest} sürümüne güncelle",
   "update.running": "Güncelleniyor",
   "update.showRunning": "{name} için süren güncellemeyi göster",
@@ -12577,7 +12558,6 @@ const zh: Record<MessageKey, string> = {
   "update.failed": "更新失败：{error}",
   "update.inSidebar": "有可用更新 {version}。可在侧边栏中安装。",
 
-  "empty.title": "没有打开的会话",
   "empty.body": "在左侧选择一个程序即可开始。",
   "empty.sidebarHint": "折叠或展开侧边栏",
   "empty.settingsHint": "打开设置",
@@ -13099,9 +13079,7 @@ const zh: Record<MessageKey, string> = {
   "start.privateHint": "直接在文件夹中，仅你自己。",
   "start.teamHint": "独立 worktree，重叠修改前先询问，团队可见。",
   "start.teamNoRepo": "团队会话需要 git 仓库，而此文件夹不在任何仓库中。",
-  "start.teamUnsupported": "{name} 暂时还不能作为团队会话。",
-  "start.teamFixedFolder":
-    "{name} 的配置中固定了文件夹，因此不能作为拥有独立 worktree 的团队会话。",
+  "start.noTeamAgents": "你安装的代理都不能作为团队会话运行。",
   "start.started": "{name} 正在 {folder} 中启动",
   "folders.running": "运行中的项目",
   "folders.favorites": "收藏",
@@ -13109,6 +13087,7 @@ const zh: Record<MessageKey, string> = {
   "folders.chooseOther": "选择其他文件夹 …",
   "folders.addFavoriteNamed": "将 {folder} 加入收藏",
   "folders.removeFavoriteNamed": "将 {folder} 移出收藏",
+  "folders.forgetNamed": "将 {folder} 从列表中移除",
   "update.runFromTo": "将 {name} 从 {installed} 更新到 {latest}",
   "update.running": "正在更新",
   "update.showRunning": "显示 {name} 正在进行的更新",

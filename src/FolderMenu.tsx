@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { folderKey } from "./folders";
+
 import { folderMenuSections, type FolderSectionKind } from "./folderSections";
 import { isFavorite, type FolderPrefs } from "./folders";
 import { useT, type MessageKey } from "./i18n";
@@ -20,6 +22,8 @@ interface Props {
   /** Opens the system's folder dialog. */
   onChoose: () => void;
   onToggleFavorite: (path: string) => void;
+  /** Takes a favorite or recent folder out of the menu (folders.ts `forgetFolder`). */
+  onForget: (path: string) => void;
   onClose: (reason: "action" | "dismiss") => void;
 }
 
@@ -31,15 +35,20 @@ const SECTION_TITLES: Record<FolderSectionKind, MessageKey> = {
 
 /**
  * Folder menu: running projects, favorites and recent folders, each row with a star to keep or
- * drop it as a favorite, then the folder dialog. Used by the sidebar, the rail and the empty state.
+ * drop it as a favorite and, for saved folders, an x to take it out of the menu; then the folder
+ * dialog. Used by the sidebar, the rail and the empty state.
  */
 export function FolderMenu(props: Props) {
   const t = useT();
   // The rows stay where they are while the menu is open; a star only changes its own state.
   const [frozen] = useState(() => ({ running: props.running, prefs: props.folders }));
+  /** Folders taken out while the menu is open: their rows go, the others stay in place. */
+  const [forgotten, setForgotten] = useState<ReadonlySet<string>>(new Set());
+  const kept = (paths: readonly string[]) =>
+    paths.filter((path) => !forgotten.has(folderKey(path)));
   const sections = folderMenuSections({
     running: frozen.running,
-    prefs: frozen.prefs,
+    prefs: { favorites: kept(frozen.prefs.favorites), recent: kept(frozen.prefs.recent) },
     target: props.target,
   });
 
@@ -73,6 +82,18 @@ export function FolderMenu(props: Props) {
             props.onToggleFavorite(entry.path);
           },
         },
+        // Running projects come from the sessions, so only saved folders can be taken out.
+        ...(section.kind === "running"
+          ? {}
+          : {
+              remove: {
+                label: t("folders.forgetNamed", { folder: entry.label }),
+                run: () => {
+                  setForgotten((current) => new Set(current).add(folderKey(entry.path)));
+                  props.onForget(entry.path);
+                },
+              },
+            }),
         run: () => {
           props.onSelect(entry.path);
         },

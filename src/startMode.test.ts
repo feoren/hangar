@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createTranslator } from "./i18n";
 import {
   DEFAULT_START_MODE,
   effectiveMode,
@@ -11,7 +10,6 @@ import {
   listedFor,
   sessionMode,
   teamBlock,
-  teamUnsupportedHint,
   startModeFor,
   teamCapable,
   teamPossible,
@@ -86,16 +84,6 @@ describe("startMode", () => {
     expect(teamBlock({ teamCapable: true, cwd: "C:\\fixed" })).toBe("fixedFolder");
   });
 
-  it("says why a program cannot be a team session", () => {
-    const t = createTranslator("en");
-    expect(teamUnsupportedHint({ name: "Codex", teamCapable: false, cwd: null }, t)).toBe(
-      t("start.teamUnsupported", { name: "Codex" }),
-    );
-    expect(teamUnsupportedHint({ name: "Mine", teamCapable: true, cwd: "C:\\x" }, t)).toBe(
-      t("start.teamFixedFolder", { name: "Mine" }),
-    );
-  });
-
   it("starts a program as chosen, or not at all as a team session it cannot be", () => {
     const capable = { teamCapable: true, cwd: null };
     expect(startModeFor("private", { cwd: null })).toBe("private");
@@ -122,22 +110,13 @@ describe("startMode", () => {
     expect(isTeamSession({})).toBe(false);
   });
 
-  it("lists only agents under Team and every program under Private", () => {
-    const program = (command: string, teamCapable = false) => ({ command, teamCapable, cwd: null });
-    const terminals = [
-      program("pwsh"),
-      program(String.raw`C:\Windows\System32\cmd.exe`),
-      program("wsl"),
-      program("bash"),
-    ];
-    for (const terminal of terminals) {
-      expect(listedFor("team", terminal), terminal.command).toBe(false);
-      expect(listedFor("private", terminal), terminal.command).toBe(true);
-    }
-    // Agents stay, greyed out when they cannot be a team session yet.
-    expect(listedFor("team", program("claude", true))).toBe(true);
-    expect(listedFor("team", program("codex"))).toBe(true);
-    // A terminal profile the catalog marks capable is listed after all.
-    expect(listedFor("team", program("wsl", true))).toBe(true);
+  it("lists only team-capable agents under Team and every program under Private", () => {
+    const program = (teamCapable: boolean, cwd: string | null = null) => ({ teamCapable, cwd });
+    // Terminals and agents without a gate are not offered for a team session at all.
+    expect(listedFor("team", program(false))).toBe(false);
+    expect(listedFor("private", program(false))).toBe(true);
+    expect(listedFor("team", program(true))).toBe(true);
+    // A capable agent whose profile fixes a folder cannot be one either.
+    expect(listedFor("team", program(true, "C:/fixed"))).toBe(false);
   });
 });
