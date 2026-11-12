@@ -431,3 +431,9 @@ libuv's AppExecLink reader and a measurement with the Store PowerShell 7.7.0: th
 empty reparse-point file that starts fine but cannot be opened; the third string of its reparse
 data names the package executable. Hangar now reads icons and file stamps from that executable.
 Pages changed: [[app-execution-alias]] (new).
+
+## [2026-11-12] query | Update plan for Store apps
+A program found as an execution alias, or below `Program Files\WindowsApps`, is now a Store
+install: no winget command and no administrator rights, reason `store-managed` ("The Microsoft
+Store keeps this program up to date."). Checked before the Program Files rule that used to call
+the package folder a machine-wide setup. Pages changed: [[program-updates]].

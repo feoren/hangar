@@ -135,6 +135,18 @@ describe("reasonText", () => {
       expect(reasonText(reason, t)).not.toBe(reasonText(null, t));
     }
   });
+
+  it("says that the Store updates a Store app, with nothing to run or copy", () => {
+    const updates = parseProgramUpdates({
+      pwsh: { ...codex, plan: "none", reason: "store-managed", command: null, updateHint: null },
+    });
+    const pwsh = updates.get("pwsh");
+    expect(pwsh).toMatchObject({ plan: "none", reason: "store-managed", updateAvailable: true });
+    expect(runnableUpdate(updates, "pwsh")).toBe(false);
+    expect(reasonText("store-managed", t)).toBe(
+      "The Microsoft Store keeps this program up to date.",
+    );
+  });
 });
 
 describe("updateNotes", () => {

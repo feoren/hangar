@@ -17,6 +17,7 @@ export const UPDATE_REASONS = [
   "package-mismatch",
   "unsupported",
   "tool-missing",
+  "store-managed",
 ] as const;
 /** Why there is no `run` plan. */
 export type UpdateReason = (typeof UPDATE_REASONS)[number];
@@ -222,6 +223,8 @@ export function reasonText(reason: UpdateReason | null, t: Translate): string {
       return t("updateReason.unsupported");
     case "tool-missing":
       return t("updateReason.toolMissing");
+    case "store-managed":
+      return t("updateReason.storeManaged");
     case null:
       return t("updateReason.unknown");
   }

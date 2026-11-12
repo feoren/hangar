@@ -128,6 +128,20 @@
         "ru": "Hangar теперь ищет новые версии твоих агентов каждые 30 минут и при возвращении в окно. «Обновить» появляется сразу.",
         "tr": "Hangar artık ajanlarının yeni sürümlerini her 30 dakikada bir ve pencereye döndüğünde arıyor. “Güncelle” hemen görünür.",
         "zh": "Hangar 现在每 30 分钟以及你回到窗口时检查代理的新版本，“更新”按钮会立即出现。"
+      },
+      {
+        "de": "Programme aus dem Microsoft Store wie PowerShell zeigen ihr Symbol. Hangar bietet für sie kein eigenes Update an, das erledigt der Store.",
+        "en": "Programs from the Microsoft Store, such as PowerShell, show their icon. Hangar offers no update of its own for them; the Store takes care of that.",
+        "el": "Τα προγράμματα από το Microsoft Store, όπως το PowerShell, δείχνουν το εικονίδιό τους. Τις ενημερώσεις τους τις κάνει το Store, όχι το Hangar.",
+        "es": "Los programas de Microsoft Store, como PowerShell, muestran su icono. Hangar no ofrece actualización propia para ellos; de eso se encarga la Store.",
+        "fr": "Les programmes du Microsoft Store, comme PowerShell, affichent leur icône. Hangar ne propose pas de mise à jour pour eux, le Store s’en charge.",
+        "it": "I programmi del Microsoft Store, come PowerShell, mostrano la loro icona. Hangar non offre aggiornamenti propri per loro: ci pensa lo Store.",
+        "ja": "PowerShell など Microsoft Store のプログラムにアイコンが表示されます。これらの更新は Store が行うため、Hangar は更新を提案しません。",
+        "pl": "Programy ze sklepu Microsoft Store, takie jak PowerShell, pokazują swoją ikonę. Hangar nie proponuje dla nich aktualizacji, robi to Store.",
+        "pt": "Os programas da Microsoft Store, como o PowerShell, mostram o seu ícone. O Hangar não oferece atualização própria para eles; a Store trata disso.",
+        "ru": "Программы из Microsoft Store, например PowerShell, показывают свой значок. Hangar не предлагает для них обновление, этим занимается Store.",
+        "tr": "PowerShell gibi Microsoft Store programları simgelerini gösterir. Hangar onlar için kendi güncellemesini sunmaz, bunu Store yapar.",
+        "zh": "来自 Microsoft Store 的程序（如 PowerShell）会显示其图标。Hangar 不为它们提供更新，由 Store 负责。"
       }
     ]
   },

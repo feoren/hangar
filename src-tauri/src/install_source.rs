@@ -18,6 +18,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::exec_alias::ExecAlias;
 use crate::profile::Profile;
 use crate::updates::{has_shell_syntax, npm_name_ok, plain_name_ok, split_command, PlatformHint};
 
@@ -192,6 +193,8 @@ pub trait Probe {
     fn canonical(&self, path: &Path) -> Option<PathBuf>;
     fn var(&self, name: &str) -> Option<OsString>;
     fn uninstall_entries(&self) -> Vec<UninstallEntry>;
+    /// The Store app behind an execution alias, `None` for an ordinary file.
+    fn exec_alias(&self, path: &Path) -> Option<ExecAlias>;
 }
 
 /// The real machine.
@@ -221,6 +224,9 @@ impl Probe for SystemProbe {
     }
     fn uninstall_entries(&self) -> Vec<UninstallEntry> {
         registry::uninstall_entries()
+    }
+    fn exec_alias(&self, path: &Path) -> Option<ExecAlias> {
+        crate::exec_alias::read(path)
     }
 }
 
@@ -608,6 +614,9 @@ pub enum Installer {
     Cargo,
     /// The vendor's own installer, which also brings the self-updater.
     Native,
+    /// A packaged app (Microsoft Store, MSIX): started through its execution alias, updated by
+    /// the Store, never by Hangar.
+    Store,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -697,6 +706,9 @@ pub fn detect(program: &Path, packages: &Packages, probe: &dyn Probe) -> Detecti
         return Detection::Foreign;
     }
     let loc = Locations::new(probe);
+    if let Some(store) = match_store(program, probe, &loc) {
+        return Detection::Known(store);
+    }
     let real = probe
         .canonical(program)
         .map(|p| PathBuf::from(key_path(&p)))
@@ -1102,6 +1114,35 @@ fn match_native(paths: &[&Path], loc: &Locations, probe: &dyn Probe) -> Option<I
     native.then(|| install(Installer::Native, Scope::User, dir.to_path_buf(), None))
 }
 
+/// A Store app: an execution alias, or the package executable itself below
+/// `<Program Files>\WindowsApps` (sources: docs/wiki/pages/sources/app-execution-alias.md). Checked
+/// before everything else, because the package folder lies below Program Files and would
+/// otherwise count as a machine-wide setup program updated by winget.
+fn match_store(program: &Path, probe: &dyn Probe, loc: &Locations) -> Option<Install> {
+    if let Some(alias) = probe.exec_alias(program) {
+        let root = alias.target.parent()?.to_path_buf();
+        return Some(install(
+            Installer::Store,
+            Scope::User,
+            root,
+            Some(alias.package),
+        ));
+    }
+    if !cfg!(windows) {
+        return None;
+    }
+    loc.program_files.iter().find_map(|program_files| {
+        let rest = below(program, &program_files.join("WindowsApps"))?;
+        let (folder, _) = rest.split_once('/')?;
+        Some(install(
+            Installer::Store,
+            Scope::User,
+            program_files.join("WindowsApps").join(folder),
+            None,
+        ))
+    })
+}
+
 /// A setup program registered under the uninstall keys. MSI packages (PowerShell 7) often leave
 /// `InstallLocation` empty; a program below Program Files then counts as such an install too,
 /// because only setup programs write there. Whether winget knows it is winget's to decide.
@@ -1322,6 +1363,8 @@ pub enum Reason {
     Unsupported,
     /// npm, winget, uv, ... was not found in a known folder or an absolute PATH entry.
     ToolMissing,
+    /// A Store app; the Microsoft Store keeps it up to date.
+    StoreManaged,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1486,6 +1529,11 @@ pub fn plan(input: &PlanInput<'_>, probe: &dyn Probe) -> UpdatePlan {
         };
         if detection == Detection::Foreign {
             break 'decide (copy_install(), Some(Reason::ForeignLauncher));
+        }
+        // Nothing to run or copy: the Store updates the package on its own, and neither a
+        // self-updater nor the install command can write into it.
+        if matches!(&detection, Detection::Known(i) if i.installer == Installer::Store) {
+            break 'decide (Action::None, Some(Reason::StoreManaged));
         }
         let self_update = profile
             .self_update
@@ -1657,6 +1705,8 @@ fn template(
         Installer::Bun | Installer::Choco | Installer::Cargo | Installer::Native => {
             Err((Reason::Unsupported, None))
         }
+        // `plan` never gets here; the Store keeps the app current.
+        Installer::Store => Err((Reason::StoreManaged, None)),
     }
 }
 
@@ -1668,10 +1718,12 @@ mod tests {
     use super::*;
     use crate::test_support::TempDir;
 
-    /// Real files in a synthetic tree, a fixed environment and fake uninstall entries.
+    /// Real files in a synthetic tree, a fixed environment, fake uninstall entries and fake
+    /// execution aliases (a real one needs a Store package).
     struct TreeProbe {
         vars: HashMap<String, OsString>,
         uninstall: Vec<UninstallEntry>,
+        aliases: HashMap<PathBuf, ExecAlias>,
     }
 
     impl TreeProbe {
@@ -1692,6 +1744,7 @@ mod tests {
             Self {
                 vars,
                 uninstall: Vec::new(),
+                aliases: HashMap::new(),
             }
         }
 
@@ -1723,6 +1776,9 @@ mod tests {
         }
         fn uninstall_entries(&self) -> Vec<UninstallEntry> {
             self.uninstall.clone()
+        }
+        fn exec_alias(&self, path: &Path) -> Option<ExecAlias> {
+            self.aliases.get(path).cloned()
         }
     }
 
@@ -2004,6 +2060,71 @@ mod tests {
         // No winget id in the catalog.
         let plan = plan_for(&profile_with(None, None), &program, &probe);
         assert_eq!(plan.reason, Some(Reason::NoPackage));
+    }
+
+    /// PowerShell from the Microsoft Store: found as its execution alias, the package below
+    /// `Program Files\WindowsApps`. The Store updates it; winget and administrator rights are
+    /// wrong for it, even though the package lies below Program Files.
+    #[cfg(windows)]
+    #[test]
+    fn store_apps_are_updated_by_the_store() {
+        let t = TempDir::new("source-store");
+        let windows_apps = t.path().join("home/AppData/Local/Microsoft/WindowsApps");
+        touch(&windows_apps.join(exe("winget")));
+        let alias = touch(&windows_apps.join(exe("pwsh")));
+        let package = t
+            .path()
+            .join("Program Files/WindowsApps/Microsoft.PowerShell_7.7.0.0_x64__8wekyb3d8bbwe");
+        let target = touch(&package.join(exe("pwsh")));
+        let mut probe = TreeProbe::new(t.path());
+        probe.aliases.insert(
+            alias.clone(),
+            ExecAlias {
+                package: "Microsoft.PowerShell_8wekyb3d8bbwe".into(),
+                app_id: "Microsoft.PowerShell_8wekyb3d8bbwe!App".into(),
+                target: target.clone(),
+            },
+        );
+        let pk = packages(r#"packages = { winget = "Microsoft.PowerShell" }"#);
+        let aware = SelfUpdate {
+            args: vec!["update".into()],
+            aware: true,
+            only: None,
+        };
+        for program in [&alias, &target] {
+            let found = known(detect(program, &pk, &probe));
+            assert_eq!(
+                (found.installer, found.scope),
+                (Installer::Store, Scope::User)
+            );
+            for self_update in [None, Some(aware.clone())] {
+                let profile = profile_with(Some(pk.clone()), self_update);
+                let plan = plan_for(&profile, program, &probe);
+                assert_eq!(plan.installer, Some(Installer::Store), "{program:?}");
+                assert_eq!(plan.kind(), PlanKind::None, "{plan:?}");
+                assert_eq!(plan.reason, Some(Reason::StoreManaged));
+                assert!(!plan.needs_admin);
+            }
+        }
+        assert_eq!(
+            known(detect(&alias, &pk, &probe)).package.as_deref(),
+            Some("Microsoft.PowerShell_8wekyb3d8bbwe")
+        );
+        // An explicit update_hint still wins.
+        let mut hinted = profile_with(Some(pk.clone()), None);
+        hinted.update_hint = Some(PlatformHint {
+            windows: Some("x upgrade".into()),
+            unix: Some("x upgrade".into()),
+        });
+        assert_eq!(plan_for(&hinted, &alias, &probe).kind(), PlanKind::Run);
+        // A program next to the alias folder that is no alias stays unknown.
+        let plain = touch(&windows_apps.join(exe("plain")));
+        assert_eq!(detect(&plain, &pk, &probe), Detection::Unknown);
+        assert_eq!(
+            serde_json::to_value(Reason::StoreManaged).unwrap(),
+            "store-managed"
+        );
+        assert_eq!(serde_json::to_value(Installer::Store).unwrap(), "store");
     }
 
     #[test]

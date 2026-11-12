@@ -2,7 +2,7 @@
 title: Showing and running program updates (contract)
 type: synthesis
 tags: [updates, contract, network]
-sources: ["[[update-sources]]", "[[update-installers]]", "[[github-conditional-requests]]"]
+sources: ["[[update-sources]]", "[[update-installers]]", "[[github-conditional-requests]]", "[[app-execution-alias]]"]
 created: 2026-11-07
 updated: 2026-11-12
 ---
@@ -34,7 +34,8 @@ type UpdateInfo = {
   canRun: boolean;                // = plan === "run", kept for older frontends
 };
 type Reason = "invalid-hint" | "not-installed" | "foreign-launcher" | "ambiguous"
-  | "unknown-installer" | "no-package" | "package-mismatch" | "unsupported" | "tool-missing";
+  | "unknown-installer" | "no-package" | "package-mismatch" | "unsupported" | "tool-missing"
+  | "store-managed";
 type Installer = "npm" | "pnpm" | "bun" | "winget" | "registered" | "scoop" | "choco" | "uv"
   | "pipx" | "brew" | "brew-cask" | "cargo" | "native";
 ```
@@ -120,6 +121,7 @@ Detection uses the resolved path and file existence only, no process ([[update-i
 | brew, brew-cask | macOS and Linux only: `Cellar/<formula>` or `Caskroom/<cask>` in the real path below `HOMEBREW_PREFIX`, `/opt/homebrew`, `/usr/local` or `/home/linuxbrew/.linuxbrew` | `<prefix>/bin/brew upgrade [--cask] <name>` |
 | bun, choco, cargo | `~/.bun/bin`; `chocolatey\bin` or `\lib`; `~/.cargo/bin` plus `.crates2.json` | none (`unsupported`) |
 | native | Claude Code: `~/.local/bin` plus `~/.local/share/claude`; Codex: `Programs\OpenAI\Codex` | the self-updater |
+| store | an execution alias (AppExecLink reparse point, [[app-execution-alias]]) or a path below `<Program Files>\WindowsApps\<package>`; checked before every other rule, because the package lies below Program Files | none (`store-managed`): the Microsoft Store updates it; no winget command, no administrator rights, no self-updater, no copy text; an explicit `update_hint` still wins |
 
 - More than one match (uv receipt and pipx venv for the same shim) is `ambiguous`; nothing runs.
 - A bin folder alone never decides. A launcher of another program (`copilot-shim` of VS Code,

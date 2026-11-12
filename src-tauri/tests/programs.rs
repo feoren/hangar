@@ -285,6 +285,39 @@ fn execution_aliases_lead_to_their_package_executable() {
     }
 }
 
+/// The real Store PowerShell gets no winget or administrator offer: the Store updates it.
+#[cfg(windows)]
+#[test]
+fn store_powershell_is_left_to_the_store() {
+    use hangar_lib::install_source::{self, Installer, PlanInput, PlanKind, Reason, SystemProbe};
+
+    let path = std::env::var_os("PATH");
+    let pathext = std::env::var_os("PATHEXT");
+    let Some(pwsh) = resolve_program("pwsh", path.as_deref(), pathext.as_deref()) else {
+        return;
+    };
+    if hangar_lib::exec_alias::read(&pwsh).is_none() {
+        return;
+    }
+    let mut pwsh_profile = profile("pwsh", "pwsh", None);
+    let (latest, packages) = hangar_lib::updates::builtin_for_command("pwsh").unwrap();
+    pwsh_profile.latest = Some(latest);
+    pwsh_profile.packages = Some(packages);
+    let plan = install_source::plan(
+        &PlanInput {
+            profile: &pwsh_profile,
+            install_hint: Some("winget install Microsoft.PowerShell"),
+            program: Some(&pwsh),
+            candidates: &["pwsh".to_owned()],
+        },
+        &SystemProbe,
+    );
+    assert_eq!(plan.installer, Some(Installer::Store), "{plan:?}");
+    assert_eq!(plan.kind(), PlanKind::None);
+    assert_eq!(plan.reason, Some(Reason::StoreManaged));
+    assert!(!plan.needs_admin);
+}
+
 /// A Store PowerShell starts through its alias, also for the version query.
 #[cfg(windows)]
 #[test]
