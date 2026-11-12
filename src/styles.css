@@ -1896,6 +1896,70 @@ h2 .beta-badge {
   min-height: 0;
 }
 
+/* The user's last prompt above the terminal: one quiet line, a click scrolls back to it. */
+.last-prompt {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 8px 6px 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 6px;
+}
+
+button.last-prompt:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+button.last-prompt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.last-prompt-mark {
+  flex: none;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.last-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Split panes have their own header; the bar sits inside the frame there. */
+.pane.split .last-prompt {
+  margin: 4px 6px 2px;
+}
+
+/* The line the prompt was sent from, lit for a moment after the jump. */
+.prompt-flash {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: prompt-flash 1.6s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes prompt-flash {
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-flash {
+    animation: none;
+  }
+}
+
 /* Split view: every pane gets a frame and a slim header; the focused one an accent edge. */
 .pane.split {
   background: var(--terminal-bg);
