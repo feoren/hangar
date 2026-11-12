@@ -6,6 +6,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[overview]]: state of knowledge, open risks and questions
 
 ## Decisions
+- [[0007-detachable-side-panel]]: accepted: the whole right panel (Notes, Changes, Files) detaches into one backend-created `panel` window; the main window stays the source of truth and pushes a validated context, the panel answers through `panel_to_main`; replaces the notes-only window (sources: 0, updated: 2026-11-12)
 - [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions; phase 1 (solo mode) as built (sources: 1, updated: 2026-11-10)
 - [[0005-team-collaboration]]: proposed: several people and their agents on one project; requirements from the owner interview, end-to-end encrypted Hangar service, reservations, live file claims, merge queue (sources: 0, updated: 2026-11-08)
 - [[0004-notes-per-working-folder]]: notes belong to the working folder, stored as .md in the app data folder, keyed by the normalized path; folder names `general` and `.trash` since 2026-11-08; shared notes in [[0006-encrypted-project-notes]] (sources: 0, updated: 2026-11-10)
@@ -15,7 +16,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Components
 - [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage; the self-hosted relay's differing account API (sources: 1, updated: 2026-11-09)
-- [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-11)
+- [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-12)
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 
 ## Platforms
@@ -65,7 +66,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[cmd-launcher]]: .cmd/.bat targets: NoDefaultCurrentDirectoryInExePath, reject special characters instead of escaping them, trade-offs and inheritance, also for version queries (sources: 1, updated: 2026-11-12)
 - [[commit-history]]: contract of git_log and git_commit_diff: commits reachable from HEAD page by page with pushed state against the upstream, and one commit's changes in the shape of git_diff (sources: 0, updated: 2026-11-12)
 - [[file-viewer]]: contract of open_file_viewer and file_viewer_content: read-only viewer window bound to one file of a session's folder, path rules, content rules (2 MiB, binary, BOM), capability; frontend window, viewer themes and the change path in the tree (sources: 0, updated: 2026-11-12)
-- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal, detached window), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-10)
+- [[notes]]: contract of the note commands (folders, search, trash with restore, export, reveal), the detached side panel window (commands, messages, context, capability), shared project notes (status, setup, unlock, move, conflicts) and the notes UI as built (sources: 1, updated: 2026-11-12)
 - [[program-updates]]: contract of check_program_updates, create_update_session and program-update-result, update plan per detected installer, execution rules, cache, 30 min schedule, conditional requests, rate limit pauses, Store apps (sources: 4, updated: 2026-11-12)
 - [[session-restore]]: contract: workspace.json, scrollback per session, create_session with resume, resumeFallback event (sources: 1, updated: 2026-11-07)
 - [[release-rollout]]: build, sign and publish a release as a GitHub release, create the upcoming version with `--next`; refresh the README screenshots (`pnpm readme:shots`, one image per scene); keys, code signing (vendors, variables, verification) (sources: 2, updated: 2026-11-11)

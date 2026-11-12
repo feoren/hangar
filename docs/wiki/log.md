@@ -484,3 +484,11 @@ Fontsource subsets of Google-hosted fonts lack U+2500..U+259F, the upstream Sour
 Plex Mono and Victor Mono files cover them, so those three are bundled from upstream. Recorded the
 0.6.0 terminal look (14 schemes with contrast floors, renamed keys, more system fonts). Pages
 changed: [[terminal-font-coverage-measurement]] (new), [[agent-workflow-features]].
+
+## [2026-11-12] query | Detachable side panel
+Decided and built the detachable right panel: one backend-created `panel` window replaces the
+notes-only window and shows Notes, Changes and Files. The main window pushes a validated context
+(`panel-context`) and commands with `emitTo`; the panel answers through `panel_to_main`
+(`sendToTerminal`, `notesChanged`, `showMain`, `showSession`, `ready`) and may open file viewers.
+Size and place are remembered and checked against the monitors. Pages changed:
+[[0007-detachable-side-panel]] (new), [[notes]], [[file-viewer]], [[single-instance]].
