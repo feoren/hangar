@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-session-paths"
+description = "Enables the list_session_paths command without any pre-configured scope."
+commands.allow = ["list_session_paths"]
+
+[[permission]]
+identifier = "deny-list-session-paths"
+description = "Denies the list_session_paths command without any pre-configured scope."
+commands.deny = ["list_session_paths"]

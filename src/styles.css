@@ -6342,6 +6342,97 @@ body.resizing-horizontal * {
   }
 }
 
+/* Filter above the tree: one quiet field, as the notes' search. */
+.files-filter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin: 6px 8px 2px;
+  padding: 0 3px 0 8px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.files-filter:focus-within {
+  border-color: var(--accent);
+}
+
+.files-filter-icon {
+  display: grid;
+  flex: none;
+}
+
+.files-filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.files-filter-input::placeholder {
+  color: var(--muted);
+}
+
+.files-filter-clear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+
+.files-filter-clear:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.files-filter-clear:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+.files-filter-note {
+  padding: 6px 14px 2px;
+  font-size: 12px;
+}
+
+/* Filtered tree: folders shown only for the way to a match stay in the background. */
+.tree-item.context .tree-name,
+.tree-item.context .tree-icon {
+  opacity: 0.6;
+}
+
+/* The mention under the pointer while a row is dragged onto a terminal. */
+.tree-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 2px 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  background: var(--panel-raised);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px var(--shadow);
+}
+
 /* File tree. End. */
 
 /* File viewer window (FileViewerWindow.tsx): the whole window in the chosen viewer theme
@@ -6489,6 +6580,96 @@ body.resizing-horizontal * {
     animation: none;
     opacity: 0.5;
   }
+}
+
+/* A switch of the header that is on (preview, diff). */
+.viewer-button[aria-pressed="true"] {
+  color: var(--viewer-accent);
+  background: color-mix(in srgb, var(--viewer-accent) 14%, transparent);
+}
+
+/* Markdown preview: the notes' reading typography in the viewer's colors. */
+.viewer-markdown {
+  padding: 14px 28px 48px;
+  color: var(--viewer-fg);
+  background: var(--viewer-bg);
+}
+
+.viewer-markdown h1,
+.viewer-markdown h2,
+.viewer-markdown h3,
+.viewer-markdown h4 {
+  color: var(--viewer-fg);
+}
+
+.viewer-markdown .md-link {
+  color: var(--viewer-accent);
+}
+
+.viewer-markdown .md-open {
+  cursor: pointer;
+  text-decoration-style: solid;
+}
+
+.viewer-markdown .md-open:focus-visible {
+  outline: 2px solid var(--viewer-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.viewer-markdown blockquote,
+.viewer-markdown .md-image {
+  color: var(--viewer-muted);
+}
+
+.viewer-markdown blockquote,
+.viewer-markdown th,
+.viewer-markdown td,
+.viewer-markdown hr {
+  border-color: var(--viewer-border);
+}
+
+/* An image centered on a checkerboard, so transparent parts stay visible; never scaled up. */
+.viewer-image {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background-color: var(--viewer-bg);
+  background-image:
+    linear-gradient(45deg, var(--viewer-active-line) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--viewer-active-line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--viewer-active-line) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--viewer-active-line) 75%);
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+}
+
+.viewer-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Diff against the last commit: the changes panel's lines in the viewer's font. */
+.viewer-diff {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px 40px 4px;
+  overflow: auto;
+}
+
+.viewer-diff .diff {
+  font-family: var(--viewer-font);
+  font-size: 12.5px;
+  background: var(--viewer-bg);
+  border-color: var(--viewer-border);
 }
 
 /* File viewer window. End. */

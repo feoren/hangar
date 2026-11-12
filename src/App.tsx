@@ -262,7 +262,8 @@ import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import type { ChangesView } from "./gitHistory";
-import { FilesPanel } from "./FilesPanel";
+import { FilesPanel, type MentionDrag } from "./FilesPanel";
+import { takesMention } from "./fileTree";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
 import { revealInvisible } from "./invisible";
 import {
@@ -2325,6 +2326,31 @@ export function App() {
     };
   }, []);
 
+  /** The running session whose pane lies at this point (CSS pixels); none while a dialog is open. */
+  const liveSessionAt = (x: number, y: number) => {
+    const id = modalRef.current ? null : paneAt(x, y);
+    const session = id === null ? undefined : stateRef.current.sessions.find((s) => s.id === id);
+    return session && session.status !== "exited" ? session : undefined;
+  };
+
+  /**
+   * A row of the file tree dragged onto a pane: its @ mention goes into that session, if it works
+   * in the tree's folder (the active session's), as the mention is relative to it.
+   */
+  const dragMention = (drag: MentionDrag) => {
+    const tree = stateRef.current.sessions.find((s) => s.id === activeIdRef.current);
+    const hit = drag.phase === "cancel" ? undefined : liveSessionAt(drag.x, drag.y);
+    const target = hit && tree && takesMention(tree.cwd, hit.cwd) ? hit : undefined;
+    if (drag.phase === "move") {
+      setDropTarget(target?.id ?? null);
+      return;
+    }
+    setDropTarget(null);
+    if (drag.phase !== "drop" || target === undefined) return;
+    sendFromNotes(drag.text, target.id);
+    focusTerminal();
+  };
+
   // Files dragged from the file manager onto a pane: their quoted paths go into that session.
   const dragRef = useRef<(event: DragDropEvent) => void>(() => undefined);
   useEffect(() => {
@@ -2335,11 +2361,7 @@ export function App() {
       }
       // Tauri reports physical pixels relative to the webview; the DOM works in CSS pixels.
       const ratio = window.devicePixelRatio || 1;
-      const id = modalRef.current
-        ? null
-        : paneAt(event.position.x / ratio, event.position.y / ratio);
-      const session = id === null ? undefined : stateRef.current.sessions.find((s) => s.id === id);
-      const target = session && session.status !== "exited" ? session : undefined;
+      const target = liveSessionAt(event.position.x / ratio, event.position.y / ratio);
       if (event.type !== "drop") {
         setDropTarget(target?.id ?? null);
         return;
@@ -4030,6 +4052,7 @@ export function App() {
                       sendFromNotes(text, null);
                       focusTerminal();
                     }}
+                    onDragMention={dragMention}
                   />
                 }
               />
