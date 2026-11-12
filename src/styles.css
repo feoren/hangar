@@ -2608,94 +2608,6 @@ h2 .beta-badge {
   font-size: 12px;
 }
 
-/* Up to three buttons side by side; in narrow windows they get narrower instead of wrapping. */
-.empty-programs {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  max-width: 480px;
-  margin: 18px 0 4px;
-  padding: 0;
-  list-style: none;
-}
-
-.empty-programs li {
-  flex: 0 1 150px;
-  min-width: 0;
-}
-
-.empty-program {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 14px 8px 12px;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease;
-}
-
-.empty-program:hover {
-  background: var(--hover);
-  border-color: var(--muted);
-}
-
-.empty-program .badge,
-.empty-program .badge-icon img {
-  width: 34px;
-  height: 34px;
-  font-size: 13px;
-}
-
-.empty-program-name {
-  max-width: 100%;
-  overflow: hidden;
-  font-weight: 600;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.empty-program-version {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.empty .empty-cwd {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.empty-cwd svg {
-  flex: none;
-}
-
-.empty-change {
-  padding: 2px 4px;
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .empty-program {
-    transition: none;
-  }
-}
-
 kbd {
   padding: 1px 6px;
   font-family: inherit;
@@ -7117,15 +7029,9 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
-.empty .start-mode {
-  width: min(320px, 100%);
-  margin: 4px auto 0;
-}
-
 /* A program that cannot be a team session while Team is chosen: greyed out, still pointable so
    its tooltip says why. */
-.profile-row.unsupported .profile,
-.empty-program.unsupported {
+.profile-row.unsupported .profile {
   cursor: default;
   opacity: 0.45;
 }
@@ -7136,11 +7042,6 @@ body.session-dragging .session-actions {
 
 .profile-row.unsupported:hover {
   background: none;
-}
-
-.empty-program.unsupported:hover {
-  background: var(--panel);
-  border-color: var(--border);
 }
 
 .profile-update-dot {
@@ -7331,16 +7232,6 @@ body.session-dragging .session-actions {
   line-height: 1.4;
   color: var(--muted);
   white-space: normal;
-}
-
-/* Empty state: the chosen target. */
-.empty-cwd-name {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.empty .empty-cwd.chosen .empty-cwd-path {
-  color: var(--accent);
 }
 
 /* Short confirmation after Ctrl+Shift+T and update results. */

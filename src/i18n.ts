@@ -202,7 +202,7 @@ const de = {
   "update.inSidebar": "Update {version} verfügbar. Installieren kannst du es in der Sidebar.",
 
   "empty.title": "Keine Session offen",
-  "empty.body": "Wähl links oder hier ein Programm, um zu starten.",
+  "empty.body": "Wähl links ein Programm, um zu starten.",
   "empty.sidebarHint": "klappt die Sidebar ein und aus",
   "empty.settingsHint": "öffnet die Einstellungen",
 
@@ -442,11 +442,7 @@ const de = {
   "paste.imageFailed": "Das Bild aus der Zwischenablage ließ sich nicht einfügen.",
   "settings.scrollbackSecrets":
     "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
-  "sidebar.startsIn": "Startet in",
   "sidebar.projectFolder": "Projektordner",
-  "empty.change": "Ändern",
-  "empty.changeLabel": "Startordner ändern",
-  "empty.programs": "Programme",
   "empty.newSessionHint": "startet eine neue Session mit {name}",
   "empty.notesHint": "startet eine schnelle Notiz",
   "notes.deleted": "„{title}“ gelöscht.",
@@ -745,7 +741,6 @@ const de = {
   "profile.unsavedClose": "Eingegebene geheime Werte sind noch nicht gespeichert.",
   "profile.closeAnyway": "Trotzdem schließen",
   "profile.keepEditing": "Weiter bearbeiten",
-  "start.nextIn": "Nächster Start in",
   "start.reset": "Auswahl zurücksetzen",
   "start.sourceSession": "Ordner der aktiven Session",
   "start.sourceLast": "Zuletzt genutzter Ordner",
@@ -1338,7 +1333,7 @@ const en: Record<MessageKey, string> = {
   "update.inSidebar": "Update {version} available. You can install it from the sidebar.",
 
   "empty.title": "No session open",
-  "empty.body": "Pick a program on the left or here to get started.",
+  "empty.body": "Pick a program on the left to get started.",
   "empty.sidebarHint": "collapses or expands the sidebar",
   "empty.settingsHint": "opens the settings",
 
@@ -1570,11 +1565,7 @@ const en: Record<MessageKey, string> = {
   "paste.imageFailed": "The image on the clipboard could not be pasted.",
   "settings.scrollbackSecrets":
     "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
-  "sidebar.startsIn": "Starts in",
   "sidebar.projectFolder": "Project folder",
-  "empty.change": "Change",
-  "empty.changeLabel": "Change start folder",
-  "empty.programs": "Programs",
   "empty.newSessionHint": "starts a new session with {name}",
   "empty.notesHint": "starts a quick note",
   "notes.deleted": "“{title}” deleted.",
@@ -1868,7 +1859,6 @@ const en: Record<MessageKey, string> = {
   "profile.unsavedClose": "Secret values you typed are not saved yet.",
   "profile.closeAnyway": "Close anyway",
   "profile.keepEditing": "Keep editing",
-  "start.nextIn": "Next start in",
   "start.reset": "Reset choice",
   "start.sourceSession": "Folder of the active session",
   "start.sourceLast": "Last used folder",
@@ -2449,7 +2439,7 @@ const el: Record<MessageKey, string> = {
     "Διαθέσιμη ενημέρωση {version}. Μπορείς να την εγκαταστήσεις από την πλευρική στήλη.",
 
   "empty.title": "Καμία ανοιχτή συνεδρία",
-  "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά ή εδώ για να ξεκινήσεις.",
+  "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά για να ξεκινήσεις.",
   "empty.sidebarHint": "συμπτύσσει ή αναπτύσσει την πλευρική στήλη",
   "empty.settingsHint": "άνοιγμα ρυθμίσεων",
 
@@ -2692,11 +2682,7 @@ const el: Record<MessageKey, string> = {
   "paste.imageFailed": "Η εικόνα από το πρόχειρο δεν μπόρεσε να επικολληθεί.",
   "settings.scrollbackSecrets":
     "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
-  "sidebar.startsIn": "Ξεκινά στο",
   "sidebar.projectFolder": "Φάκελος έργου",
-  "empty.change": "Αλλαγή",
-  "empty.changeLabel": "Αλλαγή φακέλου εκκίνησης",
-  "empty.programs": "Προγράμματα",
   "empty.newSessionHint": "νέα συνεδρία με {name}",
   "empty.notesHint": "ξεκινά μια γρήγορη σημείωση",
   "notes.deleted": "Το «{title}» διαγράφηκε.",
@@ -2999,7 +2985,6 @@ const el: Record<MessageKey, string> = {
   "profile.unsavedClose": "Οι μυστικές τιμές που έγραψες δεν αποθηκεύτηκαν ακόμα.",
   "profile.closeAnyway": "Κλείσιμο ούτως ή άλλως",
   "profile.keepEditing": "Συνέχεια επεξεργασίας",
-  "start.nextIn": "Επόμενη εκκίνηση στο",
   "start.reset": "Επαναφορά επιλογής",
   "start.sourceSession": "Φάκελος της ενεργής συνεδρίας",
   "start.sourceLast": "Φάκελος που χρησιμοποιήθηκε τελευταίος",
@@ -3593,7 +3578,7 @@ const es: Record<MessageKey, string> = {
     "Actualización {version} disponible. Puedes instalarla desde la barra lateral.",
 
   "empty.title": "No hay ninguna sesión abierta",
-  "empty.body": "Elige un programa a la izquierda o aquí para empezar.",
+  "empty.body": "Elige un programa a la izquierda para empezar.",
   "empty.sidebarHint": "contrae o expande la barra lateral",
   "empty.settingsHint": "abre la configuración",
 
@@ -3831,11 +3816,7 @@ const es: Record<MessageKey, string> = {
   "paste.imageFailed": "No se pudo pegar la imagen del portapapeles.",
   "settings.scrollbackSecrets":
     "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
-  "sidebar.startsIn": "Empieza en",
   "sidebar.projectFolder": "Carpeta del proyecto",
-  "empty.change": "Cambiar",
-  "empty.changeLabel": "Cambiar la carpeta de inicio",
-  "empty.programs": "Programas",
   "empty.newSessionHint": "nueva sesión con {name}",
   "empty.notesHint": "inicia una nota rápida",
   "notes.deleted": "«{title}» eliminada.",
@@ -4134,7 +4115,6 @@ const es: Record<MessageKey, string> = {
   "profile.unsavedClose": "Los valores secretos que escribiste aún no están guardados.",
   "profile.closeAnyway": "Cerrar de todos modos",
   "profile.keepEditing": "Seguir editando",
-  "start.nextIn": "Próximo inicio en",
   "start.reset": "Restablecer elección",
   "start.sourceSession": "Carpeta de la sesión activa",
   "start.sourceLast": "Última carpeta usada",
@@ -4722,7 +4702,7 @@ const fr: Record<MessageKey, string> = {
     "Mise à jour {version} disponible. Tu peux l'installer depuis la barre latérale.",
 
   "empty.title": "Aucune session ouverte",
-  "empty.body": "Choisis un programme à gauche ou ici pour commencer.",
+  "empty.body": "Choisis un programme à gauche pour commencer.",
   "empty.sidebarHint": "réduit ou développe la barre latérale",
   "empty.settingsHint": "ouvre les paramètres",
 
@@ -4961,11 +4941,7 @@ const fr: Record<MessageKey, string> = {
   "paste.imageFailed": "Impossible de coller l'image du presse-papiers.",
   "settings.scrollbackSecrets":
     "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
-  "sidebar.startsIn": "Démarre dans",
   "sidebar.projectFolder": "Dossier du projet",
-  "empty.change": "Modifier",
-  "empty.changeLabel": "Modifier le dossier de démarrage",
-  "empty.programs": "Programmes",
   "empty.newSessionHint": "nouvelle session avec {name}",
   "empty.notesHint": "démarre une note rapide",
   "notes.deleted": "« {title} » supprimée.",
@@ -5271,7 +5247,6 @@ const fr: Record<MessageKey, string> = {
   "profile.unsavedClose": "Les valeurs secrètes saisies ne sont pas encore enregistrées.",
   "profile.closeAnyway": "Fermer quand même",
   "profile.keepEditing": "Continuer",
-  "start.nextIn": "Prochain démarrage dans",
   "start.reset": "Réinitialiser le choix",
   "start.sourceSession": "Dossier de la session active",
   "start.sourceLast": "Dernier dossier utilisé",
@@ -5863,7 +5838,7 @@ const it: Record<MessageKey, string> = {
   "update.inSidebar": "Aggiornamento {version} disponibile. Puoi installarlo dalla barra laterale.",
 
   "empty.title": "Nessuna sessione aperta",
-  "empty.body": "Scegli un programma a sinistra o qui per iniziare.",
+  "empty.body": "Scegli un programma a sinistra per iniziare.",
   "empty.sidebarHint": "comprime o espande la barra laterale",
   "empty.settingsHint": "apre le impostazioni",
 
@@ -6102,11 +6077,7 @@ const it: Record<MessageKey, string> = {
   "paste.imageFailed": "Impossibile incollare l'immagine dagli appunti.",
   "settings.scrollbackSecrets":
     "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
-  "sidebar.startsIn": "Parte in",
   "sidebar.projectFolder": "Cartella del progetto",
-  "empty.change": "Cambia",
-  "empty.changeLabel": "Cambia la cartella di avvio",
-  "empty.programs": "Programmi",
   "empty.newSessionHint": "nuova sessione con {name}",
   "empty.notesHint": "avvia una nota veloce",
   "notes.deleted": "«{title}» eliminata.",
@@ -6406,7 +6377,6 @@ const it: Record<MessageKey, string> = {
   "profile.unsavedClose": "I valori segreti inseriti non sono ancora salvati.",
   "profile.closeAnyway": "Chiudi comunque",
   "profile.keepEditing": "Continua a modificare",
-  "start.nextIn": "Prossimo avvio in",
   "start.reset": "Ripristina scelta",
   "start.sourceSession": "Cartella della sessione attiva",
   "start.sourceLast": "Ultima cartella usata",
@@ -6997,7 +6967,7 @@ const ja: Record<MessageKey, string> = {
   "update.inSidebar": "アップデート {version} があります。サイドバーからインストールできます。",
 
   "empty.title": "開いているセッションはありません",
-  "empty.body": "左側またはここでプログラムを選ぶと開始できます。",
+  "empty.body": "左側でプログラムを選ぶと開始できます。",
   "empty.sidebarHint": "サイドバーの折りたたみと展開",
   "empty.settingsHint": "設定を開く",
 
@@ -7232,11 +7202,7 @@ const ja: Record<MessageKey, string> = {
   "paste.imageFailed": "クリップボードの画像を貼り付けられませんでした。",
   "settings.scrollbackSecrets":
     "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
-  "sidebar.startsIn": "開始フォルダー",
   "sidebar.projectFolder": "プロジェクトフォルダー",
-  "empty.change": "変更",
-  "empty.changeLabel": "開始フォルダーを変更",
-  "empty.programs": "プログラム",
   "empty.newSessionHint": "{name} で新しいセッション",
   "empty.notesHint": "でクイックメモを開始",
   "notes.deleted": "「{title}」を削除しました。",
@@ -7539,7 +7505,6 @@ const ja: Record<MessageKey, string> = {
   "profile.unsavedClose": "入力したシークレット値はまだ保存されていません。",
   "profile.closeAnyway": "閉じる",
   "profile.keepEditing": "編集を続ける",
-  "start.nextIn": "次回の開始フォルダー",
   "start.reset": "選択を元に戻す",
   "start.sourceSession": "アクティブなセッションのフォルダー",
   "start.sourceLast": "最後に使ったフォルダー",
@@ -8126,7 +8091,7 @@ const pl: Record<MessageKey, string> = {
   "update.inSidebar": "Dostępna aktualizacja {version}. Zainstalujesz ją z paska bocznego.",
 
   "empty.title": "Brak otwartej sesji",
-  "empty.body": "Wybierz program po lewej lub tutaj, aby zacząć.",
+  "empty.body": "Wybierz program po lewej, aby zacząć.",
   "empty.sidebarHint": "zwija lub rozwija pasek boczny",
   "empty.settingsHint": "otwiera ustawienia",
 
@@ -8361,11 +8326,7 @@ const pl: Record<MessageKey, string> = {
   "paste.imageFailed": "Nie udało się wkleić obrazu ze schowka.",
   "settings.scrollbackSecrets":
     "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
-  "sidebar.startsIn": "Startuje w",
   "sidebar.projectFolder": "Folder projektu",
-  "empty.change": "Zmień",
-  "empty.changeLabel": "Zmień folder startowy",
-  "empty.programs": "Programy",
   "empty.newSessionHint": "nowa sesja z {name}",
   "empty.notesHint": "zaczyna szybką notatkę",
   "notes.deleted": "Usunięto „{title}”.",
@@ -8662,7 +8623,6 @@ const pl: Record<MessageKey, string> = {
   "profile.unsavedClose": "Wpisane tajne wartości nie są jeszcze zapisane.",
   "profile.closeAnyway": "Zamknij mimo to",
   "profile.keepEditing": "Edytuj dalej",
-  "start.nextIn": "Następny start w",
   "start.reset": "Cofnij wybór",
   "start.sourceSession": "Folder aktywnej sesji",
   "start.sourceLast": "Ostatnio używany folder",
@@ -9248,7 +9208,7 @@ const pt: Record<MessageKey, string> = {
   "update.inSidebar": "Atualização {version} disponível. Você pode instalá-la pela barra lateral.",
 
   "empty.title": "Nenhuma sessão aberta",
-  "empty.body": "Escolha um programa à esquerda ou aqui para começar.",
+  "empty.body": "Escolha um programa à esquerda para começar.",
   "empty.sidebarHint": "recolhe ou expande a barra lateral",
   "empty.settingsHint": "abre as configurações",
 
@@ -9484,11 +9444,7 @@ const pt: Record<MessageKey, string> = {
   "paste.imageFailed": "Não foi possível colar a imagem da área de transferência.",
   "settings.scrollbackSecrets":
     "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
-  "sidebar.startsIn": "Começa em",
   "sidebar.projectFolder": "Pasta do projeto",
-  "empty.change": "Alterar",
-  "empty.changeLabel": "Alterar a pasta inicial",
-  "empty.programs": "Programas",
   "empty.newSessionHint": "nova sessão com {name}",
   "empty.notesHint": "inicia uma nota rápida",
   "notes.deleted": "“{title}” excluída.",
@@ -9790,7 +9746,6 @@ const pt: Record<MessageKey, string> = {
   "profile.unsavedClose": "Os valores secretos digitados ainda não foram salvos.",
   "profile.closeAnyway": "Fechar mesmo assim",
   "profile.keepEditing": "Continuar editando",
-  "start.nextIn": "Próximo início em",
   "start.reset": "Desfazer escolha",
   "start.sourceSession": "Pasta da sessão ativa",
   "start.sourceLast": "Última pasta usada",
@@ -10376,7 +10331,7 @@ const ru: Record<MessageKey, string> = {
   "update.inSidebar": "Доступно обновление {version}. Установить его можно на боковой панели.",
 
   "empty.title": "Нет открытых сеансов",
-  "empty.body": "Выбери программу слева или здесь, чтобы начать.",
+  "empty.body": "Выбери программу слева, чтобы начать.",
   "empty.sidebarHint": "сворачивает или разворачивает боковую панель",
   "empty.settingsHint": "открывает настройки",
 
@@ -10609,11 +10564,7 @@ const ru: Record<MessageKey, string> = {
   "paste.imageFailed": "Не удалось вставить изображение из буфера обмена.",
   "settings.scrollbackSecrets":
     "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
-  "sidebar.startsIn": "Запуск в",
   "sidebar.projectFolder": "Папка проекта",
-  "empty.change": "Изменить",
-  "empty.changeLabel": "Изменить папку запуска",
-  "empty.programs": "Программы",
   "empty.newSessionHint": "новый сеанс: {name}",
   "empty.notesHint": "начинает быструю заметку",
   "notes.deleted": "«{title}» удалена.",
@@ -10910,7 +10861,6 @@ const ru: Record<MessageKey, string> = {
   "profile.unsavedClose": "Введённые секретные значения ещё не сохранены.",
   "profile.closeAnyway": "Всё равно закрыть",
   "profile.keepEditing": "Продолжить",
-  "start.nextIn": "Следующий запуск в",
   "start.reset": "Сбросить выбор",
   "start.sourceSession": "Папка активного сеанса",
   "start.sourceLast": "Последняя использованная папка",
@@ -11490,7 +11440,7 @@ const tr: Record<MessageKey, string> = {
   "update.inSidebar": "Güncelleme var: {version}. Kenar çubuğundan yükleyebilirsin.",
 
   "empty.title": "Açık oturum yok",
-  "empty.body": "Başlamak için soldan veya buradan bir program seç.",
+  "empty.body": "Başlamak için soldan bir program seç.",
   "empty.sidebarHint": "kenar çubuğunu daraltır veya genişletir",
   "empty.settingsHint": "ayarları açar",
 
@@ -11721,11 +11671,7 @@ const tr: Record<MessageKey, string> = {
   "paste.imageFailed": "Panodaki görüntü yapıştırılamadı.",
   "settings.scrollbackSecrets":
     "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
-  "sidebar.startsIn": "Başlangıç klasörü",
   "sidebar.projectFolder": "Proje klasörü",
-  "empty.change": "Değiştir",
-  "empty.changeLabel": "Başlangıç klasörünü değiştir",
-  "empty.programs": "Programlar",
   "empty.newSessionHint": "{name} ile yeni oturum",
   "empty.notesHint": "hızlı not başlatır",
   "notes.deleted": "“{title}” silindi.",
@@ -12025,7 +11971,6 @@ const tr: Record<MessageKey, string> = {
   "profile.unsavedClose": "Yazdığın gizli değerler henüz kaydedilmedi.",
   "profile.closeAnyway": "Yine de kapat",
   "profile.keepEditing": "Düzenlemeye devam et",
-  "start.nextIn": "Sonraki başlangıç",
   "start.reset": "Seçimi sıfırla",
   "start.sourceSession": "Etkin oturumun klasörü",
   "start.sourceLast": "Son kullanılan klasör",
@@ -12597,7 +12542,7 @@ const zh: Record<MessageKey, string> = {
   "update.inSidebar": "有可用更新 {version}。可在侧边栏中安装。",
 
   "empty.title": "没有打开的会话",
-  "empty.body": "在左侧或此处选择一个程序即可开始。",
+  "empty.body": "在左侧选择一个程序即可开始。",
   "empty.sidebarHint": "折叠或展开侧边栏",
   "empty.settingsHint": "打开设置",
 
@@ -12820,11 +12765,7 @@ const zh: Record<MessageKey, string> = {
   "paste.imageFailed": "无法粘贴剪贴板中的图片。",
   "settings.scrollbackSecrets":
     "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
-  "sidebar.startsIn": "启动位置",
   "sidebar.projectFolder": "项目文件夹",
-  "empty.change": "更改",
-  "empty.changeLabel": "更改启动位置",
-  "empty.programs": "程序",
   "empty.newSessionHint": "用 {name} 新建会话",
   "empty.notesHint": "开始一条快速笔记",
   "notes.deleted": "已删除“{title}”。",
@@ -13110,7 +13051,6 @@ const zh: Record<MessageKey, string> = {
   "profile.unsavedClose": "你输入的机密值尚未保存。",
   "profile.closeAnyway": "仍然关闭",
   "profile.keepEditing": "继续编辑",
-  "start.nextIn": "下次启动位置",
   "start.reset": "重置选择",
   "start.sourceSession": "当前会话的文件夹",
   "start.sourceLast": "上次使用的文件夹",

@@ -51,7 +51,6 @@ import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast"
 import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
-import { FolderMenu } from "./FolderMenu";
 import {
   folderName,
   loadFolderPrefs,
@@ -68,7 +67,7 @@ import {
   type Translate,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
-import { CloseIcon, FolderIcon, NotesIcon } from "./icons";
+import { CloseIcon, NotesIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems } from "./launcherItems";
 import type { Marker } from "./marker";
@@ -79,7 +78,7 @@ import { dropLine } from "./sessionDrag";
 import { agentGroupKey, groupedOrder, groupPosition } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
-import { loadLastProgram, pickProgram, quickPrograms, saveLastProgram } from "./launch";
+import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
 import {
   clampFontSize,
   clampNotesWidth,
@@ -136,22 +135,13 @@ import {
   type UpdateOutcome,
 } from "./programUpdates";
 import type { UpdateActions } from "./ProgramUpdateOffer";
-import {
-  resolveStartTarget,
-  runningProjects,
-  startPlaces,
-  targetTooltip,
-  worktreeChance,
-} from "./startTarget";
-import { StartModeSwitch } from "./Sidebar";
+import { resolveStartTarget, runningProjects, startPlaces, worktreeChance } from "./startTarget";
 import {
   effectiveMode,
   loadStartMode,
   saveStartMode,
   sessionMode,
-  listedFor,
   startModeFor,
-  teamUnsupportedHint,
   type StartMode,
 } from "./startMode";
 import {
@@ -489,13 +479,6 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
-  /** "Starts in" menu of the empty state, open at this position. */
-  const [emptyFolderMenu, setEmptyFolderMenu] = useState<{
-    x: number;
-    y: number;
-    flipAbove: number;
-  } | null>(null);
-  const emptyChangeButton = useRef<HTMLButtonElement>(null);
   /** Search bar of a session; `token` changes on every Ctrl+Shift+F to refocus the field. */
   const [search, setSearch] = useState<{ sessionId: number; token: number } | null>(null);
   /** Pane under files dragged from the file manager. */
@@ -3411,7 +3394,6 @@ export function App() {
   const runningOrphans = orphans.filter((session) => session.status !== "exited").length;
   const closingSession =
     closingId === null ? undefined : state.sessions.find((s) => s.id === closingId);
-  const quick = quickPrograms(startable);
   const searchTerminal = search === null ? undefined : terminals.get(search.sessionId);
   const terminalItems: PopupItem[] = [
     {
@@ -3943,88 +3925,6 @@ export function App() {
                 <div className="empty">
                   <h1>{t("empty.title")}</h1>
                   <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
-                  {quick.length > 0 && (
-                    <ul className="empty-programs" aria-label={t("empty.programs")}>
-                      {quick
-                        .filter((profile) => listedFor(nextMode, profile))
-                        .map((profile) => {
-                          const programVersion = programs.versions.get(profile.id);
-                          const unsupported = startModeFor(nextMode, profile) === null;
-                          return (
-                            <li key={profile.id}>
-                              <button
-                                type="button"
-                                className={
-                                  unsupported ? "empty-program unsupported" : "empty-program"
-                                }
-                                aria-disabled={unsupported ? "true" : undefined}
-                                title={
-                                  unsupported
-                                    ? teamUnsupportedHint(profile, t)
-                                    : [profile.command, ...profile.args].join(" ")
-                                }
-                                onClick={() => {
-                                  if (!unsupported) startHere(profile);
-                                }}
-                              >
-                                <Badge look={badgeFor(profile.id)} />
-                                <span className="empty-program-name">{profile.name}</span>
-                                {programVersion && (
-                                  <span className="empty-program-version">{programVersion}</span>
-                                )}
-                              </button>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  )}
-                  <p className={target.source === "chosen" ? "empty-cwd chosen" : "empty-cwd"}>
-                    <FolderIcon />
-                    <span className="empty-cwd-path" title={targetTooltip(target, t)}>
-                      {target.source === "chosen" ? t("start.nextIn") : t("sidebar.startsIn")}{" "}
-                      <strong className="empty-cwd-name">
-                        {targetPath === null ? "…" : folderName(targetPath)}
-                      </strong>
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      ref={emptyChangeButton}
-                      type="button"
-                      className="link-button empty-change"
-                      aria-label={t("empty.changeLabel")}
-                      aria-haspopup="menu"
-                      aria-expanded={emptyFolderMenu !== null}
-                      onClick={(event) => {
-                        if (emptyFolderMenu !== null) {
-                          setEmptyFolderMenu(null);
-                          return;
-                        }
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setEmptyFolderMenu({
-                          x: rect.left,
-                          y: rect.bottom + 4,
-                          flipAbove: rect.top - 4,
-                        });
-                      }}
-                    >
-                      {t("empty.change")}
-                    </button>
-                    {target.source === "chosen" && (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <button
-                          type="button"
-                          className="link-button empty-change"
-                          onClick={() => {
-                            setChosenCwd(null);
-                          }}
-                        >
-                          {t("start.reset")}
-                        </button>
-                      </>
-                    )}
-                  </p>
-                  <StartModeSwitch chosen={startMode} chance={worktree} onChange={setStartMode} />
                   <p className="keys">
                     {nextProgram && (
                       <>
@@ -4361,28 +4261,6 @@ export function App() {
             )}
           </div>
         </main>
-        {emptyFolderMenu !== null && (
-          <FolderMenu
-            target={targetPath}
-            running={running}
-            folders={folders}
-            position={emptyFolderMenu}
-            flipAbove={emptyFolderMenu.flipAbove}
-            anchor={emptyChangeButton}
-            onSelect={selectCwd}
-            onChoose={() => void pickCwd()}
-            onToggleFavorite={(path) => {
-              setFolders((current) => toggleFavorite(current, path));
-            }}
-            onClose={(reason) => {
-              setEmptyFolderMenu(null);
-              // No terminal to return to: the keyboard stays at the button.
-              if (reason === "dismiss" || state.sessions.length === 0) {
-                emptyChangeButton.current?.focus();
-              }
-            }}
-          />
-        )}
         {terminalMenu !== null && (
           <PopupMenu
             items={terminalItems}
