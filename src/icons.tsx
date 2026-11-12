@@ -476,6 +476,10 @@ export function HeatIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M3.5 13V10M8 13V6.5M12.5 13V3" />
+    </Svg>
+  );
+}
+
 /** Three stacked panes: a workspace template, a set of sessions started together. */
 export function TemplateIcon(props: IconProps) {
   return (
@@ -499,6 +503,10 @@ export function PauseIcon(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M5.5 3.5v9M10.5 3.5v9" />
+    </Svg>
+  );
+}
+
 /** The home view: a house. */
 export function HomeIcon(props: IconProps) {
   return (
