@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code and its sub-agents next to Codex CLI in its own worktree; the sidebar shows Aider waiting for an answer and two teammates online" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -42,11 +42,15 @@ your own accounts, on your own machine. The desktop app is open source under the
 ### Sessions and agents
 
 - **Every agent in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more command-line
-  tools are detected automatically and start with one click. PowerShell, Command Prompt, WSL and any
-  other command work the same way.
+  tools are detected automatically and start with one click, each with its own icon in one
+  consistent style. PowerShell, Command Prompt, WSL and any other command work the same way.
 - **Sessions that keep running.** Every session runs in the background while you work in another
   one, and comes back with its history after Hangar restarts.
-- **Side by side.** Show two or four sessions at once and arrange them by dragging.
+- **Sessions you recognize.** Each row leads with its project folder and names the program below
+  it, so three agents in three projects never look alike.
+- **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
+  them by dragging the lines between them. A small pattern in each row shows where the session
+  sits.
 - **Quick access.** A command palette finds sessions, programs and actions by name; every action has
   a keyboard shortcut that never collides with the shells and agents themselves.
 - **Profiles as files.** Programs, arguments, working folders and environment variables are plain
@@ -56,13 +60,18 @@ your own accounts, on your own machine. The desktop app is open source under the
 ### Staying in control
 
 - **Never miss a question.** The sidebar shows at a glance which agent is working, which one is done
-  and which one waits for you, with an optional sound, a desktop notification and a badge on the
-  taskbar icon.
+  and which one asks you something: every row has a rounded left edge in the color of its state and
+  a small chip on its title line. An optional sound, a desktop notification and a badge on the
+  taskbar icon add to it.
+- **Context at a glance.** Claude Code sessions show how full their context window is right in
+  their row, for example `12 % · 123k / 1M`, with the exact token counts in the tooltip.
 - **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
   strength and pulse duration, previewed live in the settings.
-- **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it. One
-  click shows a sub-agent's task, text, tool calls and results beside the terminal as they happen;
-  finished ones can be cleared away. Recognizable keys and passwords are masked.
+- **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
+  with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
+  terminal the way Claude Code itself does: its task, its text, every tool call with a short
+  summary of the result, and the tool uses and tokens so far. Finished ones can be cleared away, and
+  recognizable keys and passwords are masked.
 - **Changes at a glance.** A side panel lists the files a session changed, with the changed lines.
 
 ### Parallel work without collisions
@@ -72,6 +81,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   and when such a session ends, Hangar removes its worktree again unless it still holds changes.
 - **Overlap warnings.** Hangar notices when two sessions change the same file or even the same
   lines, and can ask you before an agent edits a file another session is working on.
+- **The project as a tree.** The Files tab shows the active session's folder like an editor's
+  explorer: changed files carry their Git letter, folders a dot when something inside is marked,
+  and files a teammate's agent is editing carry that person's avatar.
 
 ### Notes
 
@@ -86,6 +98,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **The Team window.** See which teammates are online, which agents they run and which files they
   change, and reserve tasks so nobody works on the same thing twice. Devices join only after
   confirmation, and everything shared is end-to-end encrypted.
+- **Teammates beside your work.** A worktree row shows the avatars of the teammates working in the
+  same repository, and the file tree shows which files their agents are changing.
 
 ### Terminal and comfort
 
@@ -99,8 +113,11 @@ your own accounts, on your own machine. The desktop app is open source under the
   every one shown in its own colors and typeface. The app follows the system theme or your choice.
 - **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
   Polish, Russian, Turkish, Greek, Japanese and Chinese.
-- **Always up to date.** Hangar updates itself with signed updates and offers updates for your agents
-  as well. Starting it a second time brings the running window to the front.
+- **Always up to date.** Hangar updates itself with signed updates. It looks for new versions of
+  your agents every 30 minutes and whenever you return to the window, and offers the update right
+  away; programs from the Microsoft Store are left to the Store.
+- **One window.** Starting Hangar a second time brings the running window to the front instead of
+  opening another one.
 
 ## Screenshots
 
@@ -109,19 +126,26 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-subagent-light.png">
-        <img alt="A Claude Code session with the activity log of its sub-agent 'Write retry tests' beside the terminal: the task, file reads, a failing test run and the fix" src="docs/images/hangar-subagent-dark.png">
+        <img alt="A Claude Code session with its sub-agent 'tester' shown beside the terminal as in Claude Code: the task, its text, tool calls with summed-up results, a failing test run and the fix, and a footer with tool uses, tokens and run time" src="docs/images/hangar-subagent-dark.png">
       </picture>
-      <br><sub>Follow a sub-agent's task, tool calls and results beside its session.</sub>
+      <br><sub>Follow a sub-agent beside its session, the way Claude Code shows it.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-light.png">
-        <img alt="The Team window over the terminals, listing two teammates with their sessions and states, and the reserved tasks of the project" src="docs/images/hangar-team-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-files-light.png">
+        <img alt="The Files tab beside a terminal: the project folder as a tree with Git letters on changed files, dots on folders and teammates' avatars on the files their agents edit" src="docs/images/hangar-files-dark.png">
       </picture>
-      <br><sub>See who on your team works on what, and reserve tasks.</sub>
+      <br><sub>See the project as a tree, with your changes and your teammates' files.</sub>
     </td>
   </tr>
   <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-light.png">
+        <img alt="The Team window over the terminals, listing two teammates with their sessions and states and the reserved tasks of the project; the worktree row in the sidebar shows both teammates' avatars" src="docs/images/hangar-team-dark.png">
+      </picture>
+      <br><sub>See who on your team works on what, and reserve tasks.</sub>
+    </td>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-notes-light.png">
@@ -129,6 +153,8 @@ your own accounts, on your own machine. The desktop app is open source under the
       </picture>
       <br><sub>Keep notes private or share them encrypted with the repository.</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-settings-light.png">
@@ -136,6 +162,7 @@ your own accounts, on your own machine. The desktop app is open source under the
       </picture>
       <br><sub>Pick a color scheme and font, previewed live.</sub>
     </td>
+    <td width="50%" valign="top"></td>
   </tr>
 </table>
 
@@ -236,6 +263,7 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 
 ## License
 
-The desktop app is licensed under the [MIT License](LICENSE). The agent icons name their sources,
-licenses and trademark notes in [`src/assets/agent-icons/NOTICE.md`](src/assets/agent-icons/NOTICE.md);
-the bundled fonts carry their licenses next to them in `src/assets/fonts/`.
+The desktop app is licensed under the [MIT License](LICENSE). The bundled agent icons name their
+sources, licenses and trademark notes in
+[`src/assets/agent-icons/NOTICE.md`](src/assets/agent-icons/NOTICE.md); the bundled fonts carry
+their licenses next to them in `src/assets/fonts/`.
