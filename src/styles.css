@@ -9432,25 +9432,10 @@ body.session-dragging .session-actions {
   visibility: hidden;
 }
 
-/* Putting the sessions aside: in a split pane's header next to its dot; in single view a quiet
-   button at the terminal's top right, left of the scrollbar, clearer on hover. */
-.put-aside {
-  flex: none;
-  width: 22px;
-  height: 22px;
-}
-
-.put-aside.floating {
-  position: absolute;
-  top: 4px;
-  right: 16px;
-  z-index: 5;
-  opacity: 0.35;
-}
-
-.pane:hover .put-aside.floating,
-.put-aside.floating:focus-visible {
-  opacity: 0.9;
+/* The home button in the sidebar header: pressed while the home view shows. */
+.sidebar-home[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .empty.home {

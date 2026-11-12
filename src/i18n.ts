@@ -206,8 +206,8 @@ const de = {
   "update.failed": "Update fehlgeschlagen: {error}",
   "update.inSidebar": "Update {version} verfügbar. Installieren kannst du es in der Sidebar.",
 
-  "empty.body": "Wähl links ein Programm, um zu starten.",
   "home.hideSessions": "Sessions ausblenden",
+  "home.show": "Startansicht zeigen",
   "home.showSessions": "Sessions zeigen",
   "home.running": "Im Hintergrund laufen weiter: {count}",
   "activity.totalOne": "1 Commit im letzten Jahr",
@@ -1422,8 +1422,8 @@ const en: Record<MessageKey, string> = {
   "update.failed": "Update failed: {error}",
   "update.inSidebar": "Update {version} available. You can install it from the sidebar.",
 
-  "empty.body": "Pick a program on the left to get started.",
   "home.hideSessions": "Hide sessions",
+  "home.show": "Show home view",
   "home.showSessions": "Show sessions",
   "home.running": "Still running in the background: {count}",
   "activity.totalOne": "1 commit in the last year",
@@ -2613,8 +2613,8 @@ const el: Record<MessageKey, string> = {
   "update.inSidebar":
     "Διαθέσιμη ενημέρωση {version}. Μπορείς να την εγκαταστήσεις από την πλευρική στήλη.",
 
-  "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά για να ξεκινήσεις.",
   "home.hideSessions": "Απόκρυψη συνεδριών",
+  "home.show": "Εμφάνιση αρχικής προβολής",
   "home.showSessions": "Εμφάνιση συνεδριών",
   "home.running": "Συνεδρίες σε εξέλιξη στο παρασκήνιο: {count}.",
   "activity.totalOne": "1 commit τον τελευταίο χρόνο",
@@ -3842,8 +3842,8 @@ const es: Record<MessageKey, string> = {
   "update.inSidebar":
     "Actualización {version} disponible. Puedes instalarla desde la barra lateral.",
 
-  "empty.body": "Elige un programa a la izquierda para empezar.",
   "home.hideSessions": "Ocultar sesiones",
+  "home.show": "Mostrar la vista de inicio",
   "home.showSessions": "Mostrar sesiones",
   "home.running": "Sesiones en segundo plano: {count}.",
   "activity.totalOne": "1 commit en el último año",
@@ -5053,8 +5053,8 @@ const fr: Record<MessageKey, string> = {
   "update.inSidebar":
     "Mise à jour {version} disponible. Tu peux l'installer depuis la barre latérale.",
 
-  "empty.body": "Choisis un programme à gauche pour commencer.",
   "home.hideSessions": "Masquer les sessions",
+  "home.show": "Afficher l'accueil",
   "home.showSessions": "Afficher les sessions",
   "home.running": "Sessions en arrière-plan : {count}.",
   "activity.totalOne": "1 commit au cours de la dernière année",
@@ -6278,8 +6278,8 @@ const it: Record<MessageKey, string> = {
   "update.failed": "Aggiornamento non riuscito: {error}",
   "update.inSidebar": "Aggiornamento {version} disponibile. Puoi installarlo dalla barra laterale.",
 
-  "empty.body": "Scegli un programma a sinistra per iniziare.",
   "home.hideSessions": "Nascondi sessioni",
+  "home.show": "Mostra la vista iniziale",
   "home.showSessions": "Mostra sessioni",
   "home.running": "Sessioni in background: {count}.",
   "activity.totalOne": "1 commit nell'ultimo anno",
@@ -7494,8 +7494,8 @@ const ja: Record<MessageKey, string> = {
   "update.failed": "アップデートに失敗しました: {error}",
   "update.inSidebar": "アップデート {version} があります。サイドバーからインストールできます。",
 
-  "empty.body": "左側でプログラムを選ぶと開始できます。",
   "home.hideSessions": "セッションを隠す",
+  "home.show": "ホーム表示",
   "home.showSessions": "セッションを表示",
   "home.running": "バックグラウンドで実行中のセッション: {count}",
   "activity.totalOne": "過去 1 年間のコミット: 1 件",
@@ -8705,8 +8705,8 @@ const pl: Record<MessageKey, string> = {
   "update.failed": "Aktualizacja nie powiodła się: {error}",
   "update.inSidebar": "Dostępna aktualizacja {version}. Zainstalujesz ją z paska bocznego.",
 
-  "empty.body": "Wybierz program po lewej, aby zacząć.",
   "home.hideSessions": "Ukryj sesje",
+  "home.show": "Pokaż widok startowy",
   "home.showSessions": "Pokaż sesje",
   "home.running": "Sesje działające w tle: {count}.",
   "activity.totalOne": "1 commit w ostatnim roku",
@@ -9907,8 +9907,8 @@ const pt: Record<MessageKey, string> = {
   "update.failed": "Falha na atualização: {error}",
   "update.inSidebar": "Atualização {version} disponível. Você pode instalá-la pela barra lateral.",
 
-  "empty.body": "Escolha um programa à esquerda para começar.",
   "home.hideSessions": "Ocultar sessões",
+  "home.show": "Mostrar a tela inicial",
   "home.showSessions": "Mostrar sessões",
   "home.running": "Sessões em segundo plano: {count}.",
   "activity.totalOne": "1 commit no último ano",
@@ -11116,8 +11116,8 @@ const ru: Record<MessageKey, string> = {
   "update.failed": "Не удалось обновить: {error}",
   "update.inSidebar": "Доступно обновление {version}. Установить его можно на боковой панели.",
 
-  "empty.body": "Выбери программу слева, чтобы начать.",
   "home.hideSessions": "Скрыть сеансы",
+  "home.show": "Показать стартовый экран",
   "home.showSessions": "Показать сеансы",
   "home.running": "Сеансов в фоне: {count}.",
   "activity.totalOne": "1 коммит за последний год",
@@ -12311,8 +12311,8 @@ const tr: Record<MessageKey, string> = {
   "update.failed": "Güncelleme başarısız: {error}",
   "update.inSidebar": "Güncelleme var: {version}. Kenar çubuğundan yükleyebilirsin.",
 
-  "empty.body": "Başlamak için soldan bir program seç.",
   "home.hideSessions": "Oturumları gizle",
+  "home.show": "Başlangıç görünümünü göster",
   "home.showSessions": "Oturumları göster",
   "home.running": "Arka planda çalışan oturum: {count}.",
   "activity.totalOne": "Son bir yılda 1 commit",
@@ -13497,8 +13497,8 @@ const zh: Record<MessageKey, string> = {
   "update.failed": "更新失败：{error}",
   "update.inSidebar": "有可用更新 {version}。可在侧边栏中安装。",
 
-  "empty.body": "在左侧选择一个程序即可开始。",
   "home.hideSessions": "隐藏会话",
+  "home.show": "显示主页视图",
   "home.showSessions": "显示会话",
   "home.running": "后台运行的会话：{count}",
   "activity.totalOne": "过去一年 1 次提交",

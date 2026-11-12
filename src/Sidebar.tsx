@@ -27,6 +27,7 @@ import {
   FolderIcon,
   GlobeIcon,
   HangarLogo,
+  HomeIcon,
   OverlapIcon,
   PlusIcon,
   RestartIcon,
@@ -172,6 +173,10 @@ interface Props {
   onWidth: (width: number) => void;
   onFooterHeight: (height: number) => void;
   onToggleCollapsed: () => void;
+  /** The home view (calendar) is on screen while sessions keep running in the background. */
+  homeShown: boolean;
+  /** Shows the home view, or the sessions again (Ctrl+Shift+H). */
+  onHome: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
   /** Starts a program in the target, as the switch says (private or team session). */
@@ -603,6 +608,7 @@ export function Sidebar(props: Props) {
           <span className="rail-logo" title={`Hangar ${appVersion}`.trim()}>
             <HangarLogo size={20} />
           </span>
+          {sessions.length > 0 && <HomeButton shown={props.homeShown} onHome={props.onHome} />}
           {/* Number of waiting sessions, also when the list scrolls; a ring, not color alone. */}
           {waitingCount > 0 && (
             <span className="rail-waiting" title={waitingText}>
@@ -925,6 +931,7 @@ export function Sidebar(props: Props) {
             <VersionText version={props.version} className="brand-version" />
           )}
         </span>
+        {sessions.length > 0 && <HomeButton shown={props.homeShown} onHome={props.onHome} />}
         <UpdatePillButton
           state={update}
           running={sessions.filter((s) => s.status !== "exited").length}
@@ -1414,6 +1421,24 @@ function UpdateNotice({ state, onDismiss }: { state: UpdateState; onDismiss: () 
     default:
       return null;
   }
+}
+
+/** Home view and back; pressed while the sessions are aside. */
+function HomeButton({ shown, onHome }: { shown: boolean; onHome: () => void }) {
+  const t = useT();
+  const label = shown ? t("home.showSessions") : t("home.show");
+  return (
+    <button
+      type="button"
+      className="icon-button sidebar-home"
+      aria-pressed={shown}
+      aria-label={label}
+      title={`${label} (${formatShortcut(SHORTCUT_LABELS.home, t)})`}
+      onClick={onHome}
+    >
+      <HomeIcon size={15} />
+    </button>
+  );
 }
 
 /**

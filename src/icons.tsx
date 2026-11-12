@@ -482,13 +482,12 @@ export function TemplateIcon(props: IconProps) {
   );
 }
 
-/** Put the open sessions aside: an eye struck through, "hide". */
-export function HideIcon(props: IconProps) {
+/** The home view: a house. */
+export function HomeIcon(props: IconProps) {
   return (
     <Svg {...props}>
-      <path d="M1.8 8s2.3-4.3 6.2-4.3S14.2 8 14.2 8s-2.3 4.3-6.2 4.3S1.8 8 1.8 8z" />
-      <circle cx="8" cy="8" r="1.9" />
-      <path d="M2.5 13.5l11-11" />
+      <path d="M2.5 7.5 8 3l5.5 4.5" />
+      <path d="M4 6.5v6.5h3v-3.5h2V13h3V6.5" />
     </Svg>
   );
 }

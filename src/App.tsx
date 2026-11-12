@@ -1239,6 +1239,13 @@ export function App() {
     });
   }, []);
 
+  /** The home view and back: the sessions step aside and keep running (sidebar's home button). */
+  const toggleHome = () => {
+    if (state.sessions.length === 0) return;
+    setPutAside((current) => !current);
+    focusTerminal();
+  };
+
   /** Shows the warning for the session `name` and resolves with the user's answer. */
   const confirmPaste = useCallback(
     (name: string) =>
@@ -3459,6 +3466,9 @@ export function App() {
       case "overview":
         if (state.sessions.length > 0) setDialog("overview");
         break;
+      case "home":
+        toggleHome();
+        break;
     }
   };
 
@@ -3764,10 +3774,8 @@ export function App() {
           type: "action",
           label: putAside ? t("home.showSessions") : t("home.hideSessions"),
           disabled: state.sessions.length === 0,
-          run: () => {
-            setPutAside((current) => !current);
-            focusTerminal();
-          },
+          shortcut: keys("home"),
+          run: toggleHome,
         },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
@@ -4182,6 +4190,8 @@ export function App() {
             setLayout((current) => ({ ...current, footerHeight }));
           }}
           onToggleCollapsed={toggleSidebar}
+          homeShown={homeShown && state.sessions.length > 0}
+          onHome={toggleHome}
           onMenuClose={focusActive}
           onActivate={(id) => {
             setPutAside(false);
@@ -4385,9 +4395,6 @@ export function App() {
                       dispatch({ type: "activated", id });
                     }}
                     onMaximize={splitView.maximize}
-                    onPutAside={() => {
-                      setPutAside(true);
-                    }}
                     onHeaderMenu={(id, x, y) => {
                       setSessionMenu({ id, x, y });
                     }}
@@ -4529,7 +4536,7 @@ export function App() {
                       </button>
                     </p>
                   ) : (
-                    <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
+                    allHidden && <p>{t("sidebar.allHidden")}</p>
                   )}
                   <ActivityCalendar
                     folders={activityFolders(
