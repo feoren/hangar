@@ -3,7 +3,7 @@
 
 import type { SessionInfo, Worktree } from "./api";
 import { hasMarker, type Marker } from "./marker";
-import { agentGroupOrder, groupedOrder } from "./sessionGroups";
+import { agentGroupOrder, groupedOrder, type SessionGrouping } from "./sessionGroups";
 
 /** A session as the UI shows it: backend data plus flags of our own. */
 export interface SessionView extends SessionInfo {
@@ -20,6 +20,8 @@ export interface SessionView extends SessionInfo {
 export interface SessionsState {
   sessions: SessionView[];
   activeId: number | null;
+  /** How the sidebar groups the list (sessionGroups.ts); missing: by program. */
+  grouping?: SessionGrouping;
 }
 
 export type SessionsAction =
@@ -46,7 +48,9 @@ export type SessionsAction =
   | { type: "marked"; id: number; marker: Marker }
   | { type: "cycled"; step: 1 | -1 }
   /** Dragged or moved by keyboard in the sidebar: the session now sits at `index`. */
-  | { type: "moved"; id: number; index: number };
+  | { type: "moved"; id: number; index: number }
+  /** The sidebar groups by program or by project now; the list follows that grouping. */
+  | { type: "regrouped"; by: SessionGrouping };
 
 export const initialSessions: SessionsState = { sessions: [], activeId: null };
 
@@ -55,7 +59,11 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     case "added": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
       const view = withWorktree({ ...action.session }, action.worktree);
-      return { sessions: groupedOrder([...state.sessions, view]), activeId: action.session.id };
+      return {
+        ...state,
+        sessions: groupedOrder([...state.sessions, view], state.grouping),
+        activeId: action.session.id,
+      };
     }
     case "restored": {
       if (state.sessions.some((s) => s.id === action.session.id)) return state;
@@ -68,7 +76,11 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       // independent of the order the sessions arrive in, also for slots saved ungrouped.
       const slot = (s: SessionView) => s.restoreOrder ?? Number.POSITIVE_INFINITY;
       const bySlot = [...state.sessions, view].sort((a, b) => slot(a) - slot(b));
-      return { sessions: groupedOrder(bySlot), activeId: state.activeId ?? view.id };
+      return {
+        ...state,
+        sessions: groupedOrder(bySlot, state.grouping),
+        activeId: state.activeId ?? view.id,
+      };
     }
     case "stopRequested":
       return mark(state, action.id, true);
@@ -77,8 +89,10 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
     case "updated":
       return {
         ...state,
-        sessions: state.sessions.map((s) =>
-          s.id === action.session.id ? keep(s, action.session) : s,
+        // A new working folder can move the session to another project group.
+        sessions: groupedOrder(
+          state.sessions.map((s) => (s.id === action.session.id ? keep(s, action.session) : s)),
+          state.grouping,
         ),
       };
     case "replaced": {
@@ -136,7 +150,7 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       if (state.activeId !== action.id) return { ...state, sessions };
       // The neighbouring session takes over: the next one, otherwise the previous one.
       const neighbour = sessions[index] ?? sessions[index - 1];
-      return { sessions, activeId: neighbour?.id ?? null };
+      return { ...state, sessions, activeId: neighbour?.id ?? null };
     }
     case "marked": {
       const session = state.sessions.find((s) => s.id === action.id);
@@ -164,14 +178,20 @@ export function sessionsReducer(state: SessionsState, action: SessionsAction): S
       // Across the group border the session stays in its own group (sessionGroups.ts), and the
       // agent groups keep their order: a lone session moved to the top must not pull its whole
       // group up with it.
-      const grouped = groupedOrder(sessions);
-      const before = agentGroupOrder(state.sessions);
-      if (agentGroupOrder(grouped).some((key, index) => key !== before[index])) {
+      const grouped = groupedOrder(sessions, state.grouping);
+      const before = agentGroupOrder(state.sessions, state.grouping);
+      if (agentGroupOrder(grouped, state.grouping).some((key, index) => key !== before[index])) {
         return state;
       }
       return grouped.every((s, index) => s === state.sessions[index])
         ? state
         : { ...state, sessions: grouped };
+    }
+    case "regrouped": {
+      // A stable partition: within each new group the sessions keep the order they had.
+      const sessions = groupedOrder(state.sessions, action.by);
+      if ((state.grouping ?? "program") === action.by && sessions === state.sessions) return state;
+      return { ...state, sessions, grouping: action.by };
     }
   }
 }

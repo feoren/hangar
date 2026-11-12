@@ -160,25 +160,89 @@ export function fitInViewport(
   };
 }
 
-/** What a key does to the second button of a menu row (the star of a folder, "+ Worktree"). */
-export type SecondaryCommand = "enter" | "leave" | "run" | null;
+/**
+ * What a key does to the buttons at the end of a menu row (a folder's star and color,
+ * "+ Worktree"): focus the button at `at` (-1: the row itself) or run it.
+ */
+export type SecondaryCommand = { kind: "focus"; at: number } | { kind: "run"; at: number } | null;
 
 /**
- * Right arrow moves from the row to its second button, Left back; Enter or Space there runs it,
- * Shift+Enter runs it straight from the row. Everything else is the row's normal navigation.
+ * `count` buttons follow the row, `at` is the focused one (-1: the row). Right arrow moves on to
+ * the next button, Left back towards the row; Enter or Space runs the focused button, Shift+Enter
+ * runs the first one straight from the row. Everything else is the row's normal navigation.
  */
 export function secondaryCommand(
   input: KeyInput & { shiftKey?: boolean },
-  hasSecondary: boolean,
-  onSecondary: boolean,
+  count: number,
+  at: number,
 ): SecondaryCommand {
-  if (!hasSecondary) return null;
-  if (onSecondary) {
-    if (input.key === "ArrowLeft") return "leave";
-    if (input.key === "Enter" || input.key === " ") return "run";
+  if (count <= 0) return null;
+  if (at >= 0) {
+    if (input.key === "ArrowLeft") return { kind: "focus", at: at - 1 };
+    if (input.key === "ArrowRight") return { kind: "focus", at: Math.min(at + 1, count - 1) };
+    if (input.key === "Enter" || input.key === " ") return { kind: "run", at };
     return null;
   }
-  if (input.key === "ArrowRight") return "enter";
-  if (input.key === "Enter" && input.shiftKey === true) return "run";
+  if (input.key === "ArrowRight") return { kind: "focus", at: 0 };
+  if (input.key === "Enter" && input.shiftKey === true) return { kind: "run", at: 0 };
   return null;
+}
+
+/** What a key does in a row of color swatches inside a menu. */
+export type SwatchCommand =
+  | { kind: "focus"; index: number }
+  | { kind: "pick" }
+  /** Escape: the swatches close, the menu stays. */
+  | { kind: "dismiss" }
+  | null;
+
+/**
+ * Left and Right move between the `count` swatches (no wrap, like a toolbar), Enter or Space
+ * picks the focused one, Escape closes the row. Up and Down stay with the menu.
+ */
+export function swatchCommand(input: KeyInput, index: number, count: number): SwatchCommand {
+  switch (input.key) {
+    case "ArrowLeft":
+      return { kind: "focus", index: Math.max(0, index - 1) };
+    case "ArrowRight":
+      return { kind: "focus", index: Math.min(count - 1, index + 1) };
+    case "Enter":
+    case " ":
+      return { kind: "pick" };
+    case "Escape":
+      return { kind: "dismiss" };
+    default:
+      return null;
+  }
+}
+
+/** A row that can be dragged to another place: its key and vertical middle on screen. */
+export interface ReorderRow {
+  key: string;
+  mid: number;
+}
+
+/**
+ * Where a row dragged to `y` lands among the other draggable rows (`rows` in screen order):
+ * before the first row whose middle lies below the pointer, otherwise after the last one.
+ * `null` when it would land where it is.
+ */
+export function reorderDrop(
+  rows: readonly ReorderRow[],
+  draggedKey: string,
+  y: number,
+): { key: string; after: boolean } | null {
+  const from = rows.findIndex((row) => row.key === draggedKey);
+  if (from < 0) return null;
+  const below = rows.findIndex((row) => row.key !== draggedKey && row.mid > y);
+  if (below >= 0) {
+    // Right before the row that follows it: no move.
+    if (below === from + 1) return null;
+    const target = rows[below];
+    return target === undefined ? null : { key: target.key, after: false };
+  }
+  const others = rows.filter((row) => row.key !== draggedKey);
+  const last = others[others.length - 1];
+  if (last === undefined || from === rows.length - 1) return null;
+  return { key: last.key, after: true };
 }

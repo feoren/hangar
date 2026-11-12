@@ -74,6 +74,34 @@
         "zh": "侧边栏按程序对会话分组，例如 Claude Code 或 PowerShell。每个组显示图标和数量，并可折叠。"
       },
       {
+        "de": "Die Seitenleiste gruppiert Sessions auf Wunsch nach Projekt statt nach Programm. Umschalten geht in den Einstellungen oder per Rechtsklick auf eine Gruppe.",
+        "en": "The sidebar can group sessions by project instead of by program. Switch in the settings or by right-clicking a group.",
+        "el": "Η πλαϊνή στήλη μπορεί να ομαδοποιεί τις συνεδρίες ανά έργο αντί για πρόγραμμα. Αλλάζεις στις ρυθμίσεις ή με δεξί κλικ σε μια ομάδα.",
+        "es": "La barra lateral puede agrupar las sesiones por proyecto en lugar de por programa. Cámbialo en la configuración o con clic derecho en un grupo.",
+        "fr": "La barre latérale peut regrouper les sessions par projet plutôt que par programme. Change-le dans les paramètres ou d'un clic droit sur un groupe.",
+        "it": "La barra laterale può raggruppare le sessioni per progetto invece che per programma. Cambialo nelle impostazioni o con un clic destro su un gruppo.",
+        "ja": "サイドバーでセッションをプログラム別ではなくプロジェクト別にまとめられます。設定、またはグループの右クリックで切り替えます。",
+        "pl": "Pasek boczny może grupować sesje według projektu zamiast programu. Przełączasz to w ustawieniach lub prawym kliknięciem na grupie.",
+        "pt": "A barra lateral pode agrupar as sessões por projeto em vez de por programa. Troque nas configurações ou com clique direito em um grupo.",
+        "ru": "Боковая панель может группировать сессии по проекту, а не по программе. Переключение в настройках или правым щелчком по группе.",
+        "tr": "Kenar çubuğu oturumları program yerine projeye göre gruplayabilir. Ayarlardan veya bir gruba sağ tıklayarak değiştirirsin.",
+        "zh": "侧边栏可以按项目而不是按程序对会话分组。在设置中或右键单击分组即可切换。"
+      },
+      {
+        "de": "Im Ordnermenü ziehst du Favoriten in deine Reihenfolge, auch mit Alt+Pfeiltaste. Jeder Projektordner bekommt auf Wunsch eine Farbe, auch in der Seitenleiste.",
+        "en": "In the folder menu, drag favorites into your own order, or use Alt+Arrow. Each project folder can get a color that also shows in the sidebar.",
+        "el": "Στο μενού φακέλων σύρε τα αγαπημένα στη σειρά που θέλεις ή πάτα Alt+Βέλος. Κάθε φάκελος έργου παίρνει χρώμα, που φαίνεται και στην πλαϊνή στήλη.",
+        "es": "En el menú de carpetas arrastras las favoritas a tu orden, también con Alt+Flecha. Cada carpeta de proyecto puede tener un color, visible en la barra lateral.",
+        "fr": "Dans le menu des dossiers, glisse les favoris dans ton ordre ou avec Alt+Flèche. Chaque dossier de projet peut avoir une couleur, aussi dans la barre latérale.",
+        "it": "Nel menu delle cartelle trascini i preferiti nel tuo ordine, anche con Alt+Freccia. Ogni cartella di progetto può avere un colore, anche nella barra laterale.",
+        "ja": "フォルダーメニューでお気に入りをドラッグまたは Alt+矢印キーで並べ替えられます。各プロジェクトフォルダーに付けた色はサイドバーにも表示されます。",
+        "pl": "W menu folderów przeciągasz ulubione w swojej kolejności, także przez Alt+Strzałka. Każdy folder projektu może mieć kolor, widoczny też na pasku bocznym.",
+        "pt": "No menu de pastas, arraste as favoritas para a sua ordem ou use Alt+Seta. Cada pasta de projeto pode ter uma cor, que aparece também na barra lateral.",
+        "ru": "В меню папок избранное можно перетаскивать в нужном порядке или двигать через Alt+Стрелка. Папке проекта можно задать цвет, он виден и на боковой панели.",
+        "tr": "Klasör menüsünde favorileri sürükleyerek veya Alt+Ok ile sıralarsın. Her proje klasörüne bir renk verebilirsin; renk kenar çubuğunda da görünür.",
+        "zh": "在文件夹菜单中，可拖动收藏或按 Alt+方向键调整顺序。每个项目文件夹都可以设置颜色，侧边栏中也会显示。"
+      },
+      {
         "de": "In den Änderungen klappt nur noch die letzte Datei von selbst auf. So bleibt die Liste eine Übersicht.",
         "en": "In Changes, only the last file opens by itself now, so the list stays an overview.",
         "el": "Στις Αλλαγές ανοίγει πλέον μόνο το τελευταίο αρχείο από μόνο του, έτσι η λίστα μένει συνοπτική.",

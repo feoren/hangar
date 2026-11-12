@@ -43,6 +43,7 @@ import {
   type PreviewLine,
 } from "./terminalPreview";
 import { SCHEME_GROUPS, schemesInGroup, type SchemeGroup } from "./terminalSchemes";
+import { SESSION_GROUPINGS, type SessionGrouping } from "./sessionGroups";
 import { THEME_SETTINGS, type AnsiColor, type Theme, type ThemeSetting } from "./theme";
 import {
   PREVIEW_LINES,
@@ -153,6 +154,11 @@ const THEME_NAMES: Record<ThemeSetting, MessageKey> = {
   system: "settings.themeSystem",
   light: "settings.themeLight",
   dark: "settings.themeDark",
+};
+
+const GROUPING_NAMES: Record<SessionGrouping, MessageKey> = {
+  program: "sidebar.groupByProgram",
+  project: "sidebar.groupByProject",
 };
 
 /** Same breakpoint as in styles.css: below it, the sections sit in a row above the content. */
@@ -540,6 +546,33 @@ function AppearanceSection(props: Props) {
         </div>
         <p id="settings-theme-help" className="muted">
           {t("settings.themeHelp")}
+        </p>
+      </div>
+      <div className="field">
+        <span id="settings-grouping">{t("sidebar.groupBy")}</span>
+        <div
+          className="segmented"
+          role="radiogroup"
+          aria-labelledby="settings-grouping"
+          aria-describedby="settings-grouping-help"
+        >
+          {SESSION_GROUPINGS.map((grouping) => (
+            <label key={grouping} className="segment">
+              <input
+                type="radio"
+                name="session-grouping"
+                value={grouping}
+                checked={settings.sessionGrouping === grouping}
+                onChange={() => {
+                  onChange({ sessionGrouping: grouping });
+                }}
+              />
+              <span>{t(GROUPING_NAMES[grouping])}</span>
+            </label>
+          ))}
+        </div>
+        <p id="settings-grouping-help" className="muted">
+          {t("sidebar.groupByHelp")}
         </p>
       </div>
       <TerminalLookFields {...props} />

@@ -7,8 +7,10 @@ import {
   lastIndex,
   menuCommand,
   pointerMoved,
+  reorderDrop,
   secondaryCommand,
   stepIndex,
+  swatchCommand,
   submenuAfterFocus,
   typeaheadIndex,
   type NavEntry,
@@ -125,20 +127,70 @@ describe("fitInViewport", () => {
 
 describe("secondaryCommand", () => {
   it("moves between a row and its second button", () => {
-    expect(secondaryCommand({ key: "ArrowRight" }, true, false)).toBe("enter");
-    expect(secondaryCommand({ key: "ArrowLeft" }, true, true)).toBe("leave");
-    expect(secondaryCommand({ key: "Enter" }, true, true)).toBe("run");
-    expect(secondaryCommand({ key: " " }, true, true)).toBe("run");
+    expect(secondaryCommand({ key: "ArrowRight" }, 1, -1)).toEqual({ kind: "focus", at: 0 });
+    expect(secondaryCommand({ key: "ArrowLeft" }, 1, 0)).toEqual({ kind: "focus", at: -1 });
+    expect(secondaryCommand({ key: "Enter" }, 1, 0)).toEqual({ kind: "run", at: 0 });
+    expect(secondaryCommand({ key: " " }, 1, 0)).toEqual({ kind: "run", at: 0 });
   });
 
-  it("runs it from the row with Shift+Enter only", () => {
-    expect(secondaryCommand({ key: "Enter", shiftKey: true }, true, false)).toBe("run");
-    expect(secondaryCommand({ key: "Enter" }, true, false)).toBeNull();
+  it("walks along several buttons and stops at the last", () => {
+    expect(secondaryCommand({ key: "ArrowRight" }, 2, 0)).toEqual({ kind: "focus", at: 1 });
+    expect(secondaryCommand({ key: "ArrowRight" }, 2, 1)).toEqual({ kind: "focus", at: 1 });
+    expect(secondaryCommand({ key: "ArrowLeft" }, 2, 1)).toEqual({ kind: "focus", at: 0 });
+    expect(secondaryCommand({ key: "Enter" }, 2, 1)).toEqual({ kind: "run", at: 1 });
+  });
+
+  it("runs the first one from the row with Shift+Enter only", () => {
+    expect(secondaryCommand({ key: "Enter", shiftKey: true }, 2, -1)).toEqual({
+      kind: "run",
+      at: 0,
+    });
+    expect(secondaryCommand({ key: "Enter" }, 1, -1)).toBeNull();
   });
 
   it("leaves rows without a second button alone", () => {
-    expect(secondaryCommand({ key: "ArrowRight" }, false, false)).toBeNull();
-    expect(secondaryCommand({ key: "ArrowDown" }, true, true)).toBeNull();
+    expect(secondaryCommand({ key: "ArrowRight" }, 0, -1)).toBeNull();
+    expect(secondaryCommand({ key: "ArrowDown" }, 1, 0)).toBeNull();
+  });
+});
+
+describe("swatchCommand", () => {
+  it("moves along the swatches without wrapping", () => {
+    expect(swatchCommand({ key: "ArrowRight" }, 0, 9)).toEqual({ kind: "focus", index: 1 });
+    expect(swatchCommand({ key: "ArrowRight" }, 8, 9)).toEqual({ kind: "focus", index: 8 });
+    expect(swatchCommand({ key: "ArrowLeft" }, 0, 9)).toEqual({ kind: "focus", index: 0 });
+  });
+
+  it("picks, dismisses and leaves the rest to the menu", () => {
+    expect(swatchCommand({ key: "Enter" }, 3, 9)).toEqual({ kind: "pick" });
+    expect(swatchCommand({ key: " " }, 3, 9)).toEqual({ kind: "pick" });
+    expect(swatchCommand({ key: "Escape" }, 3, 9)).toEqual({ kind: "dismiss" });
+    expect(swatchCommand({ key: "ArrowDown" }, 3, 9)).toBeNull();
+  });
+});
+
+describe("reorderDrop", () => {
+  // Rows 20 px apart: a, b, c, d.
+  const rows = [
+    { key: "a", mid: 10 },
+    { key: "b", mid: 30 },
+    { key: "c", mid: 50 },
+    { key: "d", mid: 70 },
+  ];
+
+  it("lands before the first row below the pointer, or after the last", () => {
+    expect(reorderDrop(rows, "a", 55)).toEqual({ key: "d", after: false });
+    expect(reorderDrop(rows, "d", 0)).toEqual({ key: "a", after: false });
+    expect(reorderDrop(rows, "a", 200)).toEqual({ key: "d", after: true });
+    expect(reorderDrop(rows, "c", 25)).toEqual({ key: "b", after: false });
+  });
+
+  it("is null where the row already is or for an unknown row", () => {
+    expect(reorderDrop(rows, "b", 25)).toBeNull();
+    expect(reorderDrop(rows, "b", 45)).toBeNull();
+    expect(reorderDrop(rows, "d", 200)).toBeNull();
+    expect(reorderDrop(rows, "x", 25)).toBeNull();
+    expect(reorderDrop([{ key: "a", mid: 10 }], "a", 50)).toBeNull();
   });
 });
 

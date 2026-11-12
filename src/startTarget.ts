@@ -32,7 +32,10 @@ export interface ProjectSession {
  * The project a session works on: a worktree session's repository (its own folder is a temporary
  * checkout), nothing for update sessions (they run in the home folder on purpose).
  */
-export function projectFolder(session: ProjectSession): string | null {
+export function projectFolder(
+  // The status plays no part; the sidebar's grouping asks without one.
+  session: Omit<ProjectSession, "status"> & { status?: string },
+): string | null {
   if (session.kind === "update") return null;
   const path = session.worktree?.repoRoot ?? session.cwd;
   return path.trim() === "" ? null : path;

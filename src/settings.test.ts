@@ -58,6 +58,7 @@ describe("parseSettings", () => {
       cursorStyle: "bar",
       cursorBlink: false,
       viewerTheme: "github",
+      sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
@@ -86,6 +87,7 @@ describe("parseSettings", () => {
       claimsEnabled: "no",
       gateEnabled: 0,
       dotAnimation: "spin",
+      sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
   });
