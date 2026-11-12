@@ -84,7 +84,8 @@
   --row-border: 1px;
   /* Tree guides (sub-agent tree, agent groups): a hairline in the border color; each row hangs
      off the vertical line with a short elbow, the row's content starting one step to the right. */
-  --tree-guide: var(--border);
+  /* Dotted lines need more color than a solid hairline to stay visible. */
+  --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
   --tree-step: 14px;
   --tree-elbow: 10px;
   /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
@@ -505,6 +506,14 @@ h2 .beta-badge {
      around it (an outline, so it adds to the state's edge instead of replacing it). */
   outline: 1.5px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* A clear blue fill marks the session on screen. It replaces the row's breathing in its state's
+   color, which matters less for a session you are looking at; the state's edge stays. */
+.session.active,
+.session.active.look {
+  background-color: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  animation: none;
 }
 
 /* Its title in full text color and weight; the others step back a little. */
@@ -1618,7 +1627,7 @@ h2 .beta-badge {
   height: 7px;
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) solid var(--tree-guide);
+  border-left: var(--hairline) dotted var(--tree-guide);
 }
 
 .agent-rows > li {
@@ -1654,7 +1663,7 @@ h2 .beta-badge {
   left: calc(-1 * var(--tree-step));
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) solid var(--tree-guide);
+  border-left: var(--hairline) dotted var(--tree-guide);
 }
 
 /* The sub-agent tree hangs below the row's state dot now that the row has no badge. */
@@ -2270,7 +2279,8 @@ h2 .beta-badge {
   left: 0;
   content: "";
   border-color: var(--tree-guide);
-  border-style: solid;
+  /* Dotted, so the tree reads as structure and stays quieter than the rows' own edges. */
+  border-style: dotted;
   pointer-events: none;
 }
 
