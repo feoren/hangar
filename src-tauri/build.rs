@@ -54,6 +54,8 @@ const COMMANDS: &[&str] = &[
     "notify_session",
     "git_branches",
     "git_diff",
+    "git_log",
+    "git_commit_diff",
     "list_session_folder",
     "open_file_viewer",
     "file_viewer_content",

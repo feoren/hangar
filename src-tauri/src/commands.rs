@@ -21,6 +21,7 @@ use crate::file_viewer::{self, Claim, FileContent, FileViewerError, Target, View
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_service::GateService;
 use crate::git::{self, Git, GitDiff, GitError};
+use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
@@ -1322,6 +1323,27 @@ pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
     tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
         .await
         .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.
+#[tauri::command]
+pub async fn git_log(cwd: PathBuf, skip: u32, limit: u32) -> Result<GitLog, GitError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_history::log(&Git::locate()?, &cwd, skip, limit)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// The changes of one commit against its first parent, in the shape of `git_diff`'s answer plus
+/// the commit's header. `sha` must be 7 to 64 hex characters.
+#[tauri::command]
+pub async fn git_commit_diff(cwd: PathBuf, sha: String) -> Result<GitCommitDiff, GitError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_history::commit_diff(&Git::locate()?, &cwd, &sha)
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
 }
 
 /// One folder of a session's file tree (file_tree.rs). The window names only the session and a

@@ -22,6 +22,7 @@ pub mod filecache;
 pub mod gate;
 pub mod gate_service;
 pub mod git;
+pub mod git_history;
 pub mod hook_http;
 pub mod icon;
 pub mod install_source;
@@ -349,6 +350,8 @@ pub fn run() -> tauri::Result<()> {
             commands::notify_session,
             commands::git_branches,
             commands::git_diff,
+            commands::git_log,
+            commands::git_commit_diff,
             commands::list_session_folder,
             commands::open_file_viewer,
             commands::file_viewer_content,

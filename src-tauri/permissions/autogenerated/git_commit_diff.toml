@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-commit-diff"
+description = "Enables the git_commit_diff command without any pre-configured scope."
+commands.allow = ["git_commit_diff"]
+
+[[permission]]
+identifier = "deny-git-commit-diff"
+description = "Denies the git_commit_diff command without any pre-configured scope."
+commands.deny = ["git_commit_diff"]

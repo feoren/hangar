@@ -72,6 +72,12 @@ pub enum GitError {
     RemoteGitDir,
     #[error("The repository moves its work tree to another folder (core.worktree); Hangar does not follow it there")]
     ForeignWorkTree,
+    #[error("The folder is not inside a git repository")]
+    NotARepository,
+    #[error("Invalid commit id: expected 7 to 64 hexadecimal characters")]
+    InvalidCommit,
+    #[error("The commit was not found in this repository")]
+    UnknownCommit,
 }
 
 impl Serialize for GitError {
@@ -836,7 +842,7 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
 }
 
 /// A cut diff ends at the last whole line, so no half UTF-8 character or half line remains.
-fn cut_text(mut text: Vec<u8>, truncated: bool) -> String {
+pub(crate) fn cut_text(mut text: Vec<u8>, truncated: bool) -> String {
     if truncated {
         let end = text.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
         text.truncate(end);

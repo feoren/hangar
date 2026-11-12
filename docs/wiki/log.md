@@ -471,3 +471,9 @@ Backend for a read-only file viewer: `open_file_viewer` (main window only) opens
 Frontend of the file viewer: opening from the Files tab, the lazily loaded read-only CodeMirror
 view, seven viewer themes with dark and light palettes, settings sync through the `storage` event
 and the "working" color along the path to changed files. Pages changed: [[file-viewer]].
+
+## [2026-11-12] query | Commit history contract
+Backend for showing committed changes in the Changes tab: `git_log` (a page of commits from HEAD,
+newest first, each marked pushed when the upstream has it) and `git_commit_diff` (one commit's
+changes against its first parent or the empty tree, in the shape of `git_diff` plus the header).
+Pages changed: [[commit-history]] (new).
