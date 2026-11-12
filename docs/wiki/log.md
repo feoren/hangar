@@ -460,3 +460,8 @@ Simple Icons 16.37.0 data, disclaimer and license, the Primer Octicons license, 
 guideline pages, vendor site colors and an icon count of the agent executables on Windows. Every
 catalog agent now has a bundled tile: 10 marks from Simple Icons, 12 monograms drawn for Hangar;
 "Automatic" prefers it over the exe icon. Pages changed: [[agent-icons]] (new), [[catalog]].
+
+## [2026-11-12] query | Activity calendar git contract
+Documented the `git_activity` command (own commits of the last year for the activity calendar in
+the empty window): argv, limits, deduplication and what is skipped. Pages changed:
+[[agent-workflow-features]].
