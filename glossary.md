@@ -24,6 +24,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Aktivitätsprotokoll                             | activity log                      | console-like log of the focused sub-agent, `LogBatch`, never stored         |
 | Fokus (Sub-Agent)                               | focus                             | the one sub-agent whose activity log is streamed, `focus_sub_agent`         |
 | Entfernen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay               |
+| Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextMeter.tsx`       |
 | Notiz                                           | note                              |                                                                             |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                                      |
 | Papierkorb                                      | trash                             |                                                                             |
@@ -31,7 +32,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | wartet (auf dich)                               | waiting (for you)                 |                                                                             |
 | Aussehen je Status                              | state look                        | color, pulse strength and duration per state, `stateLook.ts`                |
 | Pause (Session läuft, ruhig)                    | pause                             | UI name of the `idle` state of a running session                            |
-| Status-Chip                                     | status chip                       | state shape at the right end of a session row                               |
+| Status-Chip                                     | status chip                       | state pill at the end of a session row's title line                         |
 | fragt (Glocke, BEL)                             | asks (bell)                       | waiting reason after BEL, `AttentionReason`                                 |
 | Hinweiston                                      | chime                             | synthesized two-tone sound, `chime.ts`                                      |
 | Taskleiste blinken                              | taskbar flash                     |                                                                             |
@@ -55,6 +56,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Starter (`.cmd`-Starter, npm-Shim)              | launcher script, npm shim         |                                                                             |
 | Programmversion                                 | program version                   |                                                                             |
 | Versionsquelle                                  | version source                    | `latest`                                                                    |
+| Abfrageordner (Versionsabfrage)                 | probe folder                      | Hangar's own working folder for `--version` calls, `version::probe_folder`  |
+| Ausführungsalias (Store-App)                    | execution alias                   | empty reparse-point file in `WindowsApps`, `exec_alias.rs`                  |
 | Update-Hinweis, Update-Befehl                   | update command                    | field `update_hint` keeps its name                                          |
 | Programm-Update                                 | program update                    |                                                                             |
 | Update-Plan                                     | update plan                       | `run`, `copy` or `none`, with `planId`                                      |
