@@ -1,9 +1,11 @@
-// How full a session's context window is, at the end of its row's second line: a tiny bar and
-// the share ("▮▯▯ 12 %"), the numbers in the tooltip. Nothing shows until the agent answered once
-// or for programs Hangar cannot read. Re-renders only when this session's numbers change.
+// How full a session's context window is, filling the rest of its row's detail line up to the
+// right edge: a bar that takes the free width, the share and the tokens used of the window
+// ("━━━━── 12 % · 137k / 1M"), the exact numbers in the tooltip. Nothing shows until the agent
+// answered once or for programs Hangar cannot read. Re-renders only when this session's numbers
+// change.
 
 import { useT } from "./i18n";
-import { contextHint, contextShare, formatShare, HIGH_SHARE } from "./contextUsage";
+import { compactTokens, contextHint, contextShare, formatShare, HIGH_SHARE } from "./contextUsage";
 import { useSessionContext } from "./useContextUsage";
 
 interface Props {
@@ -28,6 +30,9 @@ export function ContextMeter({ sessionId, language }: Props) {
         />
       </span>
       <span aria-hidden="true">{formatShare(share, language)}</span>
+      <span className="session-context-tokens" aria-hidden="true">
+        · {compactTokens(context.used)} / {compactTokens(context.window)}
+      </span>
       <span className="sr-only">{hint}</span>
     </span>
   );

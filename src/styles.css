@@ -662,19 +662,25 @@ h2 .beta-badge {
 }
 
 /* --- Context meter of a session row (ContextMeter.tsx) ---
-   A hair-thin bar and the share, as quiet as the rest of the line; the path gives way first.
-   From 80 % the bar and number take the warning color. */
+   It takes the rest of the detail line up to the row's right edge: the bar grows into the free
+   width, the share and the tokens used of the window follow at the end. As quiet as the rest of
+   the line; the path and branch give way first, the bar shrinks to its minimum before the numbers
+   are cut. From 80 % the bar and numbers take the warning color. */
 .session-context {
   display: inline-flex;
-  flex: none;
+  flex: 1 0 auto;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .session-context-bar {
   position: relative;
-  width: 36px;
+  flex: 1 1 24px;
+  min-width: 24px;
   height: 3px;
   overflow: hidden;
   background: color-mix(in srgb, var(--muted) 30%, transparent);
