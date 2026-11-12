@@ -207,8 +207,9 @@ const de = {
   "update.inSidebar": "Update {version} verfügbar. Installieren kannst du es in der Sidebar.",
 
   "empty.body": "Wähl links ein Programm, um zu starten.",
-  "empty.sidebarHint": "klappt die Sidebar ein und aus",
-  "empty.settingsHint": "öffnet die Einstellungen",
+  "home.hideSessions": "Sessions ausblenden",
+  "home.showSessions": "Sessions zeigen",
+  "home.running": "Im Hintergrund laufen weiter: {count}",
   "activity.totalOne": "1 Commit im letzten Jahr",
   "activity.totalMany": "{count} Commits im letzten Jahr",
   "activity.dayNone": "Keine Commits am {date}",
@@ -456,8 +457,6 @@ const de = {
   "settings.scrollbackSecrets":
     "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
   "sidebar.projectFolder": "Projektordner",
-  "empty.newSessionHint": "startet eine neue Session mit {name}",
-  "empty.notesHint": "startet eine schnelle Notiz",
   "notes.deleted": "„{title}“ gelöscht.",
   "notes.undo": "Rückgängig",
   "menu.newSessionWith": "Neue Session mit {name}",
@@ -590,7 +589,6 @@ const de = {
   "searchAll.hint": "↑ ↓ wählen · Enter zur Stelle · Esc schließen",
   "overview.title": "Übersicht",
   "overview.hint": "Pfeiltasten wählen · Enter öffnen · Esc schließen",
-  "empty.launcherHint": "öffnet den Schnellzugriff",
   "settings.snippets": "Textbausteine",
   "snippets.help":
     "Kurze Texte für deine Agenten. Sie landen in der aktiven Session, ohne Enter. Du findest sie im Schnellzugriff ({keys}) und im Kontextmenü des Terminals.",
@@ -1425,8 +1423,9 @@ const en: Record<MessageKey, string> = {
   "update.inSidebar": "Update {version} available. You can install it from the sidebar.",
 
   "empty.body": "Pick a program on the left to get started.",
-  "empty.sidebarHint": "collapses or expands the sidebar",
-  "empty.settingsHint": "opens the settings",
+  "home.hideSessions": "Hide sessions",
+  "home.showSessions": "Show sessions",
+  "home.running": "Still running in the background: {count}",
   "activity.totalOne": "1 commit in the last year",
   "activity.totalMany": "{count} commits in the last year",
   "activity.dayNone": "No commits on {date}",
@@ -1666,8 +1665,6 @@ const en: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
   "sidebar.projectFolder": "Project folder",
-  "empty.newSessionHint": "starts a new session with {name}",
-  "empty.notesHint": "starts a quick note",
   "notes.deleted": "“{title}” deleted.",
   "notes.undo": "Undo",
   "menu.newSessionWith": "New session with {name}",
@@ -1799,7 +1796,6 @@ const en: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ select · Enter go there · Esc close",
   "overview.title": "Overview",
   "overview.hint": "Arrow keys select · Enter open · Esc close",
-  "empty.launcherHint": "opens quick access",
   "settings.snippets": "Snippets",
   "snippets.help":
     "Short texts for your agents. They go into the active session, without Enter. Find them in quick access ({keys}) and in the terminal's context menu.",
@@ -2618,8 +2614,9 @@ const el: Record<MessageKey, string> = {
     "Διαθέσιμη ενημέρωση {version}. Μπορείς να την εγκαταστήσεις από την πλευρική στήλη.",
 
   "empty.body": "Επίλεξε ένα πρόγραμμα αριστερά για να ξεκινήσεις.",
-  "empty.sidebarHint": "συμπτύσσει ή αναπτύσσει την πλευρική στήλη",
-  "empty.settingsHint": "άνοιγμα ρυθμίσεων",
+  "home.hideSessions": "Απόκρυψη συνεδριών",
+  "home.showSessions": "Εμφάνιση συνεδριών",
+  "home.running": "Συνεδρίες σε εξέλιξη στο παρασκήνιο: {count}.",
   "activity.totalOne": "1 commit τον τελευταίο χρόνο",
   "activity.totalMany": "{count} commit τον τελευταίο χρόνο",
   "activity.dayNone": "Κανένα commit στις {date}",
@@ -2871,8 +2868,6 @@ const el: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
   "sidebar.projectFolder": "Φάκελος έργου",
-  "empty.newSessionHint": "νέα συνεδρία με {name}",
-  "empty.notesHint": "ξεκινά μια γρήγορη σημείωση",
   "notes.deleted": "Το «{title}» διαγράφηκε.",
   "notes.undo": "Αναίρεση",
   "menu.newSessionWith": "Νέα συνεδρία με {name}",
@@ -3010,7 +3005,6 @@ const el: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ επιλογή · Enter μετάβαση · Esc κλείσιμο",
   "overview.title": "Επισκόπηση",
   "overview.hint": "Βέλη επιλογή · Enter άνοιγμα · Esc κλείσιμο",
-  "empty.launcherHint": "ανοίγει τη γρήγορη πρόσβαση",
   "settings.snippets": "Αποσπάσματα",
   "snippets.help":
     "Σύντομα κείμενα για τους πράκτορές σου. Μπαίνουν στην ενεργή συνεδρία χωρίς Enter. Θα τα βρεις στη γρήγορη πρόσβαση ({keys}) και στο μενού περιβάλλοντος του τερματικού.",
@@ -3849,8 +3843,9 @@ const es: Record<MessageKey, string> = {
     "Actualización {version} disponible. Puedes instalarla desde la barra lateral.",
 
   "empty.body": "Elige un programa a la izquierda para empezar.",
-  "empty.sidebarHint": "contrae o expande la barra lateral",
-  "empty.settingsHint": "abre la configuración",
+  "home.hideSessions": "Ocultar sesiones",
+  "home.showSessions": "Mostrar sesiones",
+  "home.running": "Sesiones en segundo plano: {count}.",
   "activity.totalOne": "1 commit en el último año",
   "activity.totalMany": "{count} commits en el último año",
   "activity.dayNone": "Sin commits el {date}",
@@ -4097,8 +4092,6 @@ const es: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
   "sidebar.projectFolder": "Carpeta del proyecto",
-  "empty.newSessionHint": "nueva sesión con {name}",
-  "empty.notesHint": "inicia una nota rápida",
   "notes.deleted": "«{title}» eliminada.",
   "notes.undo": "Deshacer",
   "menu.newSessionWith": "Nueva sesión con {name}",
@@ -4235,7 +4228,6 @@ const es: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ elegir · Enter ir allí · Esc cerrar",
   "overview.title": "Vista general",
   "overview.hint": "Flechas elegir · Enter abrir · Esc cerrar",
-  "empty.launcherHint": "abre el acceso rápido",
   "settings.snippets": "Fragmentos",
   "snippets.help":
     "Textos cortos para tus agentes. Se insertan en la sesión activa, sin Enter. Los encuentras en el acceso rápido ({keys}) y en el menú contextual de la terminal.",
@@ -5062,8 +5054,9 @@ const fr: Record<MessageKey, string> = {
     "Mise à jour {version} disponible. Tu peux l'installer depuis la barre latérale.",
 
   "empty.body": "Choisis un programme à gauche pour commencer.",
-  "empty.sidebarHint": "réduit ou développe la barre latérale",
-  "empty.settingsHint": "ouvre les paramètres",
+  "home.hideSessions": "Masquer les sessions",
+  "home.showSessions": "Afficher les sessions",
+  "home.running": "Sessions en arrière-plan : {count}.",
   "activity.totalOne": "1 commit au cours de la dernière année",
   "activity.totalMany": "{count} commits au cours de la dernière année",
   "activity.dayNone": "Aucun commit le {date}",
@@ -5311,8 +5304,6 @@ const fr: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
   "sidebar.projectFolder": "Dossier du projet",
-  "empty.newSessionHint": "nouvelle session avec {name}",
-  "empty.notesHint": "démarre une note rapide",
   "notes.deleted": "« {title} » supprimée.",
   "notes.undo": "Annuler",
   "menu.newSessionWith": "Nouvelle session avec {name}",
@@ -5450,7 +5441,6 @@ const fr: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ choisir · Entrée y aller · Échap fermer",
   "overview.title": "Vue d'ensemble",
   "overview.hint": "Flèches choisir · Entrée ouvrir · Échap fermer",
-  "empty.launcherHint": "ouvre l'accès rapide",
   "settings.snippets": "Extraits",
   "snippets.help":
     "Des textes courts pour tes agents. Ils sont insérés dans la session active, sans Entrée. Tu les trouves dans l'accès rapide ({keys}) et le menu contextuel du terminal.",
@@ -6289,8 +6279,9 @@ const it: Record<MessageKey, string> = {
   "update.inSidebar": "Aggiornamento {version} disponibile. Puoi installarlo dalla barra laterale.",
 
   "empty.body": "Scegli un programma a sinistra per iniziare.",
-  "empty.sidebarHint": "comprime o espande la barra laterale",
-  "empty.settingsHint": "apre le impostazioni",
+  "home.hideSessions": "Nascondi sessioni",
+  "home.showSessions": "Mostra sessioni",
+  "home.running": "Sessioni in background: {count}.",
   "activity.totalOne": "1 commit nell'ultimo anno",
   "activity.totalMany": "{count} commit nell'ultimo anno",
   "activity.dayNone": "Nessun commit il {date}",
@@ -6538,8 +6529,6 @@ const it: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
   "sidebar.projectFolder": "Cartella del progetto",
-  "empty.newSessionHint": "nuova sessione con {name}",
-  "empty.notesHint": "avvia una nota veloce",
   "notes.deleted": "«{title}» eliminata.",
   "notes.undo": "Annulla",
   "menu.newSessionWith": "Nuova sessione con {name}",
@@ -6675,7 +6664,6 @@ const it: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ scegli · Invio vai lì · Esc chiudi",
   "overview.title": "Panoramica",
   "overview.hint": "Frecce scegli · Invio apri · Esc chiudi",
-  "empty.launcherHint": "apre l'accesso rapido",
   "settings.snippets": "Frammenti",
   "snippets.help":
     "Testi brevi per i tuoi agenti. Vengono inseriti nella sessione attiva, senza Invio. Li trovi nell'accesso rapido ({keys}) e nel menu contestuale del terminale.",
@@ -7507,8 +7495,9 @@ const ja: Record<MessageKey, string> = {
   "update.inSidebar": "アップデート {version} があります。サイドバーからインストールできます。",
 
   "empty.body": "左側でプログラムを選ぶと開始できます。",
-  "empty.sidebarHint": "サイドバーの折りたたみと展開",
-  "empty.settingsHint": "設定を開く",
+  "home.hideSessions": "セッションを隠す",
+  "home.showSessions": "セッションを表示",
+  "home.running": "バックグラウンドで実行中のセッション: {count}",
   "activity.totalOne": "過去 1 年間のコミット: 1 件",
   "activity.totalMany": "過去 1 年間のコミット: {count} 件",
   "activity.dayNone": "{date}: コミットなし",
@@ -7751,8 +7740,6 @@ const ja: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
   "sidebar.projectFolder": "プロジェクトフォルダー",
-  "empty.newSessionHint": "{name} で新しいセッション",
-  "empty.notesHint": "でクイックメモを開始",
   "notes.deleted": "「{title}」を削除しました。",
   "notes.undo": "元に戻す",
   "menu.newSessionWith": "{name} で新しいセッション",
@@ -7889,7 +7876,6 @@ const ja: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ 選択 · Enter 移動 · Esc 閉じる",
   "overview.title": "一覧",
   "overview.hint": "矢印キー 選択 · Enter 開く · Esc 閉じる",
-  "empty.launcherHint": "クイック アクセスを開きます",
   "settings.snippets": "スニペット",
   "snippets.help":
     "エージェント向けの短いテキストです。Enter なしでアクティブなセッションに挿入されます。クイック アクセス ({keys}) とターミナルのコンテキスト メニューから使えます。",
@@ -8720,8 +8706,9 @@ const pl: Record<MessageKey, string> = {
   "update.inSidebar": "Dostępna aktualizacja {version}. Zainstalujesz ją z paska bocznego.",
 
   "empty.body": "Wybierz program po lewej, aby zacząć.",
-  "empty.sidebarHint": "zwija lub rozwija pasek boczny",
-  "empty.settingsHint": "otwiera ustawienia",
+  "home.hideSessions": "Ukryj sesje",
+  "home.showSessions": "Pokaż sesje",
+  "home.running": "Sesje działające w tle: {count}.",
   "activity.totalOne": "1 commit w ostatnim roku",
   "activity.totalMany": "Commity w ostatnim roku: {count}",
   "activity.dayNone": "Brak commitów w dniu {date}",
@@ -8964,8 +8951,6 @@ const pl: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
   "sidebar.projectFolder": "Folder projektu",
-  "empty.newSessionHint": "nowa sesja z {name}",
-  "empty.notesHint": "zaczyna szybką notatkę",
   "notes.deleted": "Usunięto „{title}”.",
   "notes.undo": "Cofnij",
   "menu.newSessionWith": "Nowa sesja z {name}",
@@ -9099,7 +9084,6 @@ const pl: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ wybierz · Enter przejdź · Esc zamknij",
   "overview.title": "Przegląd",
   "overview.hint": "Strzałki wybierz · Enter otwórz · Esc zamknij",
-  "empty.launcherHint": "otwiera szybki dostęp",
   "settings.snippets": "Fragmenty",
   "snippets.help":
     "Krótkie teksty dla twoich agentów. Trafiają do aktywnej sesji, bez Enter. Znajdziesz je w szybkim dostępie ({keys}) i w menu kontekstowym terminala.",
@@ -9924,8 +9908,9 @@ const pt: Record<MessageKey, string> = {
   "update.inSidebar": "Atualização {version} disponível. Você pode instalá-la pela barra lateral.",
 
   "empty.body": "Escolha um programa à esquerda para começar.",
-  "empty.sidebarHint": "recolhe ou expande a barra lateral",
-  "empty.settingsHint": "abre as configurações",
+  "home.hideSessions": "Ocultar sessões",
+  "home.showSessions": "Mostrar sessões",
+  "home.running": "Sessões em segundo plano: {count}.",
   "activity.totalOne": "1 commit no último ano",
   "activity.totalMany": "{count} commits no último ano",
   "activity.dayNone": "Nenhum commit em {date}",
@@ -10170,8 +10155,6 @@ const pt: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
   "sidebar.projectFolder": "Pasta do projeto",
-  "empty.newSessionHint": "nova sessão com {name}",
-  "empty.notesHint": "inicia uma nota rápida",
   "notes.deleted": "“{title}” excluída.",
   "notes.undo": "Desfazer",
   "menu.newSessionWith": "Nova sessão com {name}",
@@ -10308,7 +10291,6 @@ const pt: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ escolher · Enter ir até lá · Esc fechar",
   "overview.title": "Visão geral",
   "overview.hint": "Setas escolher · Enter abrir · Esc fechar",
-  "empty.launcherHint": "abre o acesso rápido",
   "settings.snippets": "Trechos",
   "snippets.help":
     "Textos curtos para seus agentes. Eles vão para a sessão ativa, sem Enter. Você os encontra no acesso rápido ({keys}) e no menu de contexto do terminal.",
@@ -11135,8 +11117,9 @@ const ru: Record<MessageKey, string> = {
   "update.inSidebar": "Доступно обновление {version}. Установить его можно на боковой панели.",
 
   "empty.body": "Выбери программу слева, чтобы начать.",
-  "empty.sidebarHint": "сворачивает или разворачивает боковую панель",
-  "empty.settingsHint": "открывает настройки",
+  "home.hideSessions": "Скрыть сеансы",
+  "home.showSessions": "Показать сеансы",
+  "home.running": "Сеансов в фоне: {count}.",
   "activity.totalOne": "1 коммит за последний год",
   "activity.totalMany": "Коммитов за последний год: {count}",
   "activity.dayNone": "{date}: нет коммитов",
@@ -11377,8 +11360,6 @@ const ru: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
   "sidebar.projectFolder": "Папка проекта",
-  "empty.newSessionHint": "новый сеанс: {name}",
-  "empty.notesHint": "начинает быструю заметку",
   "notes.deleted": "«{title}» удалена.",
   "notes.undo": "Отменить",
   "menu.newSessionWith": "Новый сеанс: {name}",
@@ -11515,7 +11496,6 @@ const ru: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ выбрать · Enter перейти · Esc закрыть",
   "overview.title": "Обзор",
   "overview.hint": "Стрелки выбрать · Enter открыть · Esc закрыть",
-  "empty.launcherHint": "открывает быстрый доступ",
   "settings.snippets": "Фрагменты",
   "snippets.help":
     "Короткие тексты для твоих агентов. Они вставляются в активный сеанс без Enter. Они есть в быстром доступе ({keys}) и в контекстном меню терминала.",
@@ -12332,8 +12312,9 @@ const tr: Record<MessageKey, string> = {
   "update.inSidebar": "Güncelleme var: {version}. Kenar çubuğundan yükleyebilirsin.",
 
   "empty.body": "Başlamak için soldan bir program seç.",
-  "empty.sidebarHint": "kenar çubuğunu daraltır veya genişletir",
-  "empty.settingsHint": "ayarları açar",
+  "home.hideSessions": "Oturumları gizle",
+  "home.showSessions": "Oturumları göster",
+  "home.running": "Arka planda çalışan oturum: {count}.",
   "activity.totalOne": "Son bir yılda 1 commit",
   "activity.totalMany": "Son bir yılda {count} commit",
   "activity.dayNone": "{date} tarihinde commit yok",
@@ -12572,8 +12553,6 @@ const tr: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
   "sidebar.projectFolder": "Proje klasörü",
-  "empty.newSessionHint": "{name} ile yeni oturum",
-  "empty.notesHint": "hızlı not başlatır",
   "notes.deleted": "“{title}” silindi.",
   "notes.undo": "Geri al",
   "menu.newSessionWith": "{name} ile yeni oturum",
@@ -12711,7 +12690,6 @@ const tr: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ seç · Enter oraya git · Esc kapat",
   "overview.title": "Genel bakış",
   "overview.hint": "Ok tuşları seç · Enter aç · Esc kapat",
-  "empty.launcherHint": "hızlı erişimi açar",
   "settings.snippets": "Parçalar",
   "snippets.help":
     "Ajanların için kısa metinler. Enter olmadan etkin oturuma eklenir. Hızlı erişimde ({keys}) ve terminalin bağlam menüsünde bulunur.",
@@ -13520,8 +13498,9 @@ const zh: Record<MessageKey, string> = {
   "update.inSidebar": "有可用更新 {version}。可在侧边栏中安装。",
 
   "empty.body": "在左侧选择一个程序即可开始。",
-  "empty.sidebarHint": "折叠或展开侧边栏",
-  "empty.settingsHint": "打开设置",
+  "home.hideSessions": "隐藏会话",
+  "home.showSessions": "显示会话",
+  "home.running": "后台运行的会话：{count}",
   "activity.totalOne": "过去一年 1 次提交",
   "activity.totalMany": "过去一年 {count} 次提交",
   "activity.dayNone": "{date}：无提交",
@@ -13752,8 +13731,6 @@ const zh: Record<MessageKey, string> = {
   "settings.scrollbackSecrets":
     "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
   "sidebar.projectFolder": "项目文件夹",
-  "empty.newSessionHint": "用 {name} 新建会话",
-  "empty.notesHint": "开始一条快速笔记",
   "notes.deleted": "已删除“{title}”。",
   "notes.undo": "撤销",
   "menu.newSessionWith": "用 {name} 新建会话",
@@ -13883,7 +13860,6 @@ const zh: Record<MessageKey, string> = {
   "searchAll.hint": "↑ ↓ 选择 · Enter 跳转 · Esc 关闭",
   "overview.title": "概览",
   "overview.hint": "方向键 选择 · Enter 打开 · Esc 关闭",
-  "empty.launcherHint": "打开快速访问",
   "settings.snippets": "片段",
   "snippets.help":
     "给智能体用的简短文本。插入到活动会话中，不会按 Enter。可在快速访问 ({keys}) 和终端的右键菜单中找到。",

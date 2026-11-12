@@ -481,3 +481,14 @@ export function TemplateIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Put the open sessions aside: an eye struck through, "hide". */
+export function HideIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M1.8 8s2.3-4.3 6.2-4.3S14.2 8 14.2 8s-2.3 4.3-6.2 4.3S1.8 8 1.8 8z" />
+      <circle cx="8" cy="8" r="1.9" />
+      <path d="M2.5 13.5l11-11" />
+    </Svg>
+  );
+}

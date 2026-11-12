@@ -3,6 +3,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { useT } from "./i18n";
+import { HideIcon } from "./icons";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
 import { paneResizing, sidebarMotion } from "./sidebarMotion";
@@ -39,6 +40,8 @@ interface Props {
   onFocusPane: (id: number) => void;
   /** Double click on the header: show only this session. */
   onMaximize: (id: number) => void;
+  /** Puts the open sessions aside; the body shows the home view, the sessions keep running. */
+  onPutAside: () => void;
   /** Right click on the header: the session menu. */
   onHeaderMenu: (id: number, x: number, y: number) => void;
   /** Overlays inside the terminal area, e.g. the search bar. */
@@ -149,6 +152,7 @@ export function TerminalPane(props: Props) {
           <Badge look={split.look} />
           <SessionMarker marker={split.session.marker} />
           <span className="pane-title">{split.session.title}</span>
+          <PutAsideButton onPutAside={props.onPutAside} />
           <span
             className={`dot ${split.state === "attention" ? "attention" : split.session.status}`}
             aria-hidden="true"
@@ -159,6 +163,7 @@ export function TerminalPane(props: Props) {
       {visible && <LastPromptBar terminal={terminal} />}
       <div className="pane-body">
         <div ref={host} className="pane-host" />
+        {split === null && visible && <PutAsideButton onPutAside={props.onPutAside} floating />}
         {dropping && (
           <div className="drop-hint" aria-hidden="true">
             <span className="drop-hint-label">{t("drop.hint")}</span>
@@ -210,6 +215,31 @@ ${t("prompt.jump")}`}
         ›
       </span>
       <span className="last-prompt-text">{prompt.text}</span>
+    </button>
+  );
+}
+
+/** Puts the open sessions aside; keeps the keyboard in the terminal until clicked. */
+function PutAsideButton({ onPutAside, floating }: { onPutAside: () => void; floating?: boolean }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className={floating === true ? "icon-button put-aside floating" : "icon-button put-aside"}
+      aria-label={t("home.hideSessions")}
+      title={t("home.hideSessions")}
+      onMouseDown={(event) => {
+        event.preventDefault();
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPutAside();
+      }}
+    >
+      <HideIcon size={13} />
     </button>
   );
 }

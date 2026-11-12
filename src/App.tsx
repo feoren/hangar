@@ -72,7 +72,6 @@ import {
   I18nContext,
   setCurrentLanguage,
   type MessageKey,
-  type Translate,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
 import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon, TemplateIcon } from "./icons";
@@ -198,7 +197,6 @@ import {
   matchShortcut,
   nextFocusZone,
   SHORTCUT_LABELS,
-  shortcutKeys,
   type AppAction,
   type Shortcut,
 } from "./shortcuts";
@@ -591,6 +589,12 @@ export function App() {
   const [dismissedSubAgents, setDismissedSubAgents] = useState<Dismissed>(() => new Map());
   /** Layout picker (View, quick access) for the active session; `preview` is its chosen zone. */
   const [snapPicker, setSnapPicker] = useState<{ preview: SnapTarget | null } | null>(null);
+  /**
+   * The open sessions are put aside: the body shows the home view (calendar) while every session
+   * keeps running. Picking a session in the sidebar brings them back.
+   */
+  const [putAside, setPutAside] = useState(false);
+  const homeShown = state.sessions.length === 0 || putAside;
   /** Screen reader message after a session moved in the sidebar. */
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
@@ -1252,6 +1256,7 @@ export function App() {
   /** Jump from a claims warning or notice to the other session. */
   const showSession = (id: number) => {
     if (!state.sessions.some((s) => s.id === id)) return;
+    setPutAside(false);
     dispatch({ type: "activated", id });
     focusTerminal();
   };
@@ -3755,6 +3760,15 @@ export function App() {
           label: theme === "dark" ? t("sidebar.toLight") : t("sidebar.toDark"),
           run: toggleTheme,
         },
+        {
+          type: "action",
+          label: putAside ? t("home.showSessions") : t("home.hideSessions"),
+          disabled: state.sessions.length === 0,
+          run: () => {
+            setPutAside((current) => !current);
+            focusTerminal();
+          },
+        },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
@@ -4170,6 +4184,7 @@ export function App() {
           onToggleCollapsed={toggleSidebar}
           onMenuClose={focusActive}
           onActivate={(id) => {
+            setPutAside(false);
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
@@ -4329,7 +4344,16 @@ export function App() {
                 : "workspace"
             }
           >
-            <div className={state.sessions.length > 0 ? "panes filled" : "panes"} data-panes="">
+            <div
+              className={[
+                "panes",
+                state.sessions.length > 0 ? "filled" : "",
+                homeShown && state.sessions.length > 0 ? "put-aside" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              data-panes=""
+            >
               {state.sessions.map((session) => {
                 const terminal = terminals.get(session.id);
                 if (!terminal) return null;
@@ -4361,6 +4385,9 @@ export function App() {
                       dispatch({ type: "activated", id });
                     }}
                     onMaximize={splitView.maximize}
+                    onPutAside={() => {
+                      setPutAside(true);
+                    }}
                     onHeaderMenu={(id, x, y) => {
                       setSessionMenu({ id, x, y });
                     }}
@@ -4485,9 +4512,25 @@ export function App() {
                   />
                 </>
               )}
-              {state.sessions.length === 0 && (
-                <div className="empty">
-                  <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
+              {homeShown && (
+                <div className={state.sessions.length > 0 ? "empty home" : "empty"}>
+                  {state.sessions.length > 0 ? (
+                    <p className="home-back">
+                      <span>{t("home.running", { count: String(state.sessions.length) })}</span>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => {
+                          setPutAside(false);
+                          focusTerminal();
+                        }}
+                      >
+                        {t("home.showSessions")}
+                      </button>
+                    </p>
+                  ) : (
+                    <p>{allHidden ? t("sidebar.allHidden") : t("empty.body")}</p>
+                  )}
                   <ActivityCalendar
                     folders={activityFolders(
                       folders.favorites,
@@ -4496,22 +4539,6 @@ export function App() {
                     )}
                     language={settings.language}
                   />
-                  <p className="keys">
-                    {nextProgram && (
-                      <>
-                        <Keys shortcut={SHORTCUT_LABELS.newSession} t={t} />{" "}
-                        {t("empty.newSessionHint", { name: nextProgram.name })}
-                        <br />
-                      </>
-                    )}
-                    <Keys shortcut={SHORTCUT_LABELS.launcher} t={t} /> {t("empty.launcherHint")}
-                    <br />
-                    <Keys shortcut={SHORTCUT_LABELS.quickNote} t={t} /> {t("empty.notesHint")}
-                    <br />
-                    <Keys shortcut={SHORTCUT_LABELS.toggleSidebar} t={t} /> {t("empty.sidebarHint")}
-                    <br />
-                    <Keys shortcut={SHORTCUT_LABELS.openSettings} t={t} /> {t("empty.settingsHint")}
-                  </p>
                 </div>
               )}
             </div>
@@ -5125,18 +5152,5 @@ export function App() {
         )}
       </div>
     </I18nContext.Provider>
-  );
-}
-
-function Keys({ shortcut, t }: { shortcut: Shortcut; t: Translate }) {
-  return (
-    <span className="key-combo">
-      {shortcutKeys(shortcut, t).map((key, index) => (
-        <span key={key}>
-          {index > 0 && " + "}
-          <kbd>{key}</kbd>
-        </span>
-      ))}
-    </span>
   );
 }
