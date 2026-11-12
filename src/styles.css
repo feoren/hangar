@@ -1647,7 +1647,11 @@ h2 .beta-badge {
   height: 7px;
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) dotted var(--tree-guide);
+  /* Only the left side: the lit path sets a solid style on all sides, and an unset width would
+     then draw the default 3 px on the others. */
+  border-style: dotted;
+  border-color: var(--tree-guide);
+  border-width: 0 0 0 var(--hairline);
 }
 
 .agent-rows > li {
