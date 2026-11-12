@@ -84,7 +84,8 @@
   --row-border: 1px;
   /* Tree guides (sub-agent tree, agent groups): a hairline in the border color; each row hangs
      off the vertical line with a short elbow, the row's content starting one step to the right. */
-  --tree-guide: var(--border);
+  /* Dotted lines need more color than a solid hairline to stay visible. */
+  --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
   --tree-step: 14px;
   --tree-elbow: 10px;
   /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
@@ -501,6 +502,58 @@ h2 .beta-badge {
   background: var(--panel-raised);
   /* Own stacking context: the drifting tint below lies over the row's background, under its text. */
   isolation: isolate;
+  /* The row on screen must stand out from rows that breathe in their state's color: an accent ring
+     around it (an outline, so it adds to the state's edge instead of replacing it). */
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* A clear blue fill marks the session on screen. It replaces the row's breathing in its state's
+   color, which matters less for a session you are looking at; the state's edge stays. */
+.session.active,
+.session.active.look {
+  background-color: color-mix(in srgb, var(--accent) 20%, var(--panel));
+  animation: none;
+}
+
+/* Its title in full text color and weight; the others step back a little. */
+.session .session-title {
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+}
+
+.session.active .session-title {
+  font-weight: 650;
+  color: var(--text);
+}
+
+/* The whole way of the tree line from the group header to the row on screen takes the accent:
+   the stub below the header, the line past every row above it, and its own line down to its
+   elbow. The eye follows it from the header to the session the terminal shows. */
+.agent-rows:has(> .session.active)::before,
+.agent-rows > .session:has(~ .session.active) > .tree-guide::before,
+.session.active > .tree-guide::before,
+.session.active > .tree-guide::after {
+  /* Solid on the way to the active row: a dotted hairline in the accent is too faint to follow. */
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.session.active > .tree-guide::before {
+  bottom: auto;
+  height: var(--agent-elbow-y);
+}
+
+/* Below its elbow the line runs on to the next row in its usual color, drawn as dots like the
+   dotted border it replaces. */
+.session.active:not(.tree-last) > .tree-guide {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--tree-guide) 0 1px,
+    transparent 1px 2px
+  );
+  background-repeat: no-repeat;
+  background-position: 0 var(--agent-elbow-y);
+  background-size: var(--hairline) calc(100% - var(--agent-elbow-y));
 }
 
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
@@ -1598,7 +1651,7 @@ h2 .beta-badge {
   height: 7px;
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) solid var(--tree-guide);
+  border-left: var(--hairline) dotted var(--tree-guide);
 }
 
 .agent-rows > li {
@@ -1634,7 +1687,7 @@ h2 .beta-badge {
   left: calc(-1 * var(--tree-step));
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) solid var(--tree-guide);
+  border-left: var(--hairline) dotted var(--tree-guide);
 }
 
 /* The sub-agent tree hangs below the row's state dot now that the row has no badge. */
@@ -2250,7 +2303,8 @@ h2 .beta-badge {
   left: 0;
   content: "";
   border-color: var(--tree-guide);
-  border-style: solid;
+  /* Dotted, so the tree reads as structure and stays quieter than the rows' own edges. */
+  border-style: dotted;
   pointer-events: none;
 }
 
