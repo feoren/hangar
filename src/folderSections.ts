@@ -113,7 +113,7 @@ export interface FolderSection {
  */
 export function folderMenuSections(input: {
   running: readonly string[];
-  prefs: FolderPrefs;
+  prefs: Pick<FolderPrefs, "favorites" | "recent">;
   target: string | null;
 }): FolderSection[] {
   const seen = new Set<string>();

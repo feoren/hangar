@@ -1,5 +1,7 @@
 // Sections of the Settings dialog and keyboard control of the tab list (WAI-ARIA Tabs).
 
+import type { MessageKey } from "./i18n";
+
 export const SETTINGS_SECTIONS = [
   "general",
   "appearance",
@@ -11,6 +13,17 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** Name of each section, for the tab list and quick access. */
+export const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
+  general: "settings.general",
+  appearance: "settings.appearance",
+  attention: "settings.attention",
+  programs: "settings.programs",
+  snippets: "settings.snippets",
+  account: "settings.account",
+  updates: "settings.updates",
+};
 
 /**
  * Target tab for a key, or `null` if the key does not concern the list. Up/Down for the

@@ -1,99 +1,163 @@
-// The sidebar gathers sessions per program (profile): one group for each program, in the order
-// the programs first appear. Sessions in their own git worktree sit in their program's group like
-// any other; their row names the worktree. The session list keeps that order itself (a stable
-// partition), so cycling, jumping and the collapsed rail follow what the sidebar shows; moving
-// stays within a group.
+// The sidebar gathers sessions in groups, in the order the groups first appear. By default one
+// group per program (profile); the person can switch to one group per project folder instead
+// (`SessionGrouping`). Sessions in their own git worktree sit in their program's group, and in
+// their repository's project group, like any other; their row names the worktree. The session
+// list keeps that order itself (a stable partition), so cycling, jumping and the collapsed rail
+// follow what the sidebar shows; moving stays within a group.
 
-/** What decides a session's place in the sidebar: its program. */
-export interface Groupable {
-  profileId: string;
+import { folderKey } from "./folders";
+import { projectFolder } from "./startTarget";
+
+/** How the sidebar groups the sessions: one group per program or per project folder. */
+export type SessionGrouping = "program" | "project";
+
+export const SESSION_GROUPINGS: readonly SessionGrouping[] = ["program", "project"];
+
+export function isSessionGrouping(value: unknown): value is SessionGrouping {
+  return value === "program" || value === "project";
 }
 
-/** Prefix of a group key; it sets keys apart from the older "sessions:" and "worktrees:" ones. */
-export const AGENT_GROUP_PREFIX = "program:";
+/** What decides a session's place in the sidebar: its program, or its project folder. */
+export interface Groupable {
+  profileId: string;
+  cwd?: string;
+  kind?: "agent" | "update" | undefined;
+  worktree?: { repoRoot: string } | undefined;
+}
 
-/** Key of a session's group, the same for every session of one program. */
+/** Prefix of a program group's key; it sets keys apart from the older "sessions:" ones. */
+export const AGENT_GROUP_PREFIX = "program:";
+/** Prefix of a project group's key; the rest is the folder's `folderKey`. */
+export const PROJECT_GROUP_PREFIX = "project:";
+
+/** Key of a session's program group, the same for every session of one program. */
 export function agentGroupKey(item: Groupable): string {
   return `${AGENT_GROUP_PREFIX}${item.profileId}`;
 }
 
-/** The sessions of one program, in list order. */
+/**
+ * The project folder a session belongs to in project grouping, `null` for none: update sessions
+ * run in the home folder on purpose and keep their program's group.
+ */
+export function groupProject(item: Groupable): string | null {
+  if (item.cwd === undefined) return null;
+  return projectFolder({ cwd: item.cwd, kind: item.kind, worktree: item.worktree });
+}
+
+/** Key of a session's group under `by`. */
+export function sessionGroupKey(item: Groupable, by: SessionGrouping = "program"): string {
+  if (by === "program") return agentGroupKey(item);
+  const project = groupProject(item);
+  return project === null ? agentGroupKey(item) : `${PROJECT_GROUP_PREFIX}${folderKey(project)}`;
+}
+
+/** The sessions of one group, in list order. */
 export interface AgentGroup<T> {
   key: string;
+  /** A program's sessions, or a project folder's. */
+  kind: "program" | "project";
+  /** Program of the group's first session (the program itself for a program group). */
   profileId: string;
+  /** The project folder as its first session names it; `null` for a program group. */
+  path: string | null;
   sessions: T[];
 }
 
-/** Agent groups of one list, in the order their programs first appear. */
-export function agentGroups<T extends Groupable>(items: readonly T[]): AgentGroup<T>[] {
+/** The groups of one list, in the order they first appear. */
+export function agentGroups<T extends Groupable>(
+  items: readonly T[],
+  by: SessionGrouping = "program",
+): AgentGroup<T>[] {
   const groups = new Map<string, AgentGroup<T>>();
   for (const item of items) {
-    const key = agentGroupKey(item);
+    const key = sessionGroupKey(item, by);
     const group = groups.get(key);
-    if (group === undefined) groups.set(key, { key, profileId: item.profileId, sessions: [item] });
-    else group.sessions.push(item);
+    if (group !== undefined) {
+      group.sessions.push(item);
+      continue;
+    }
+    const project = key.startsWith(PROJECT_GROUP_PREFIX) ? groupProject(item) : null;
+    groups.set(key, {
+      key,
+      kind: project === null ? "program" : "project",
+      profileId: item.profileId,
+      path: project,
+      sessions: [item],
+    });
   }
   return [...groups.values()];
 }
 
 /**
- * Rows an agent group shows: all of them when open, none when folded. The active session folds
- * away, too; its group's header marks that it holds it, so the fold always does what it says.
+ * Rows a group shows: all of them when open, none when folded. The active session folds away,
+ * too; its group's header marks that it holds it, so the fold always does what it says.
  */
 export function shownSessions<T>(sessions: readonly T[], open: boolean): T[] {
   return open ? [...sessions] : [];
 }
 
-/** Agent group keys of a list in order of appearance, one each. */
-export function agentGroupOrder(items: readonly Groupable[]): string[] {
-  return [...new Set(items.map(agentGroupKey))];
+/** Group keys of a list in order of appearance, one each. */
+export function agentGroupOrder(
+  items: readonly Groupable[],
+  by: SessionGrouping = "program",
+): string[] {
+  return [...new Set(items.map((item) => sessionGroupKey(item, by)))];
 }
 
 /**
- * The sessions of one program together, programs in order of first appearance, sessions in list
+ * The sessions of one group together, groups in order of first appearance, sessions in list
  * order. Returns the same array when it is already grouped, so the reducer keeps its state
  * untouched.
  */
-export function groupedOrder<T extends Groupable>(items: T[]): T[] {
-  const grouped = agentGroups(items).flatMap((group) => group.sessions);
+export function groupedOrder<T extends Groupable>(
+  items: T[],
+  by: SessionGrouping = "program",
+): T[] {
+  const grouped = agentGroups(items, by).flatMap((group) => group.sessions);
   return grouped.every((item, index) => item === items[index]) ? items : grouped;
 }
 
-/** Ids of the agent group a session belongs to, in list order; empty for an unknown id. */
-export function groupIds(items: readonly ({ id: number } & Groupable)[], id: number): number[] {
+/** Ids of the group a session belongs to, in list order; empty for an unknown id. */
+export function groupIds(
+  items: readonly ({ id: number } & Groupable)[],
+  id: number,
+  by: SessionGrouping = "program",
+): number[] {
   const self = items.find((item) => item.id === id);
   if (self === undefined) return [];
-  const key = agentGroupKey(self);
-  return items.filter((item) => agentGroupKey(item) === key).map((item) => item.id);
+  const key = sessionGroupKey(self, by);
+  return items.filter((item) => sessionGroupKey(item, by) === key).map((item) => item.id);
 }
 
 /**
  * Alt+Up / Alt+Down: the index (as `moveItem` expects it) that swaps the session with its
- * neighbour in the same agent group; `null` at the group's edge or for an unknown id.
+ * neighbour in the same group; `null` at the group's edge or for an unknown id.
  */
 export function groupStepIndex(
   items: readonly ({ id: number } & Groupable)[],
   id: number,
   step: 1 | -1,
+  by: SessionGrouping = "program",
 ): number | null {
-  const ids = groupIds(items, id);
+  const ids = groupIds(items, id, by);
   const neighbour = ids[ids.indexOf(id) + step];
   if (ids.length === 0 || neighbour === undefined) return null;
   const index = items.findIndex((item) => item.id === neighbour);
   return index < 0 ? null : index;
 }
 
-/** Place of a session within its agent group, counted from 1, for the "moved" announcement. */
+/** Place of a session within its group, counted from 1, for the "moved" announcement. */
 export function groupPosition(
   items: readonly ({ id: number } & Groupable)[],
   id: number,
+  by: SessionGrouping = "program",
 ): { position: number; count: number } | null {
-  const ids = groupIds(items, id);
+  const ids = groupIds(items, id, by);
   const index = ids.indexOf(id);
   return index < 0 ? null : { position: index + 1, count: ids.length };
 }
 
-/** A row of a session list while dragging: its id, vertical middle and agent group key. */
+/** A row of a session list while dragging: its id, vertical middle and group key. */
 export interface GroupRow {
   id: number;
   mid: number;

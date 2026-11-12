@@ -25,7 +25,9 @@ export type AppAction =
   | "nextWaiting"
   | "newSession"
   | "find"
-  | "launcher";
+  | "launcher"
+  | "searchAll"
+  | "overview";
 
 type KeyInfo = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">;
 
@@ -47,6 +49,12 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   // Quick access to sessions, programs, folders and snippets, as the command palette in VS Code
   // and Windows Terminal. Ctrl+P alone is history back in Readline and PSReadLine.
   if (event.shiftKey && event.code === "KeyP") return "launcher";
+  // Search the output of every session (S for sessions). Ctrl+S alone is forward history search
+  // in Readline and PSReadLine.
+  if (event.shiftKey && event.code === "KeyS") return "searchAll";
+  // Overview of all sessions as tiles. Ctrl+Tab already switches to the next session, and Ctrl+M
+  // alone is Enter in every terminal.
+  if (event.shiftKey && event.code === "KeyM") return "overview";
   // By character instead of key position: on a German keyboard "+" sits elsewhere than on US.
   if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") return "fontBigger";
   if (!event.shiftKey && (event.key === "-" || event.code === "NumpadSubtract")) {
@@ -121,7 +129,9 @@ export function ignoresRepeat(action: AppAction): boolean {
     action === "toggleChanges" ||
     action === "openSettings" ||
     action === "find" ||
-    action === "launcher"
+    action === "launcher" ||
+    action === "searchAll" ||
+    action === "overview"
   );
 }
 
@@ -147,6 +157,8 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   nextWaiting: { mods: ["ctrl", "shift"], key: "A" },
   newSession: { mods: ["ctrl", "shift"], key: "T" },
   find: { mods: ["ctrl", "shift"], key: "F" },
+  searchAll: { mods: ["ctrl", "shift"], key: "S" },
+  overview: { mods: ["ctrl", "shift"], key: "M" },
   launcher: { mods: ["ctrl", "shift"], key: "P" },
 };
 

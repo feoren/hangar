@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   firstSelectable,
   flatEntries,
+  LAUNCHER_LIMIT,
+  MATCH_LIMIT,
   moveSelection,
   rankEntries,
+  SECTION_LIMIT,
   type LauncherEntry,
 } from "./launcher";
 
@@ -67,14 +70,44 @@ describe("rankEntries", () => {
     ]);
   });
 
-  it("shows at most the limit", () => {
+  it("shows at most the idle limit without a query", () => {
     const many: LauncherEntry[] = Array.from({ length: 20 }, (_, index) => ({
       key: String(index),
-      section: "start",
-      label: `Program ${String(index)}`,
+      section: "sessions",
+      label: `Session ${String(index)}`,
+      primary: true,
     }));
-    expect(flatEntries(rankEntries(many, "program"))).toHaveLength(8);
-    expect(flatEntries(rankEntries(many, "program", 3))).toHaveLength(3);
+    expect(flatEntries(rankEntries(many, ""))).toHaveLength(LAUNCHER_LIMIT);
+    expect(flatEntries(rankEntries(many, "", { idle: 3 }))).toHaveLength(3);
+  });
+
+  it("caps each section while searching, so one section cannot push out the others", () => {
+    const files: LauncherEntry[] = Array.from({ length: 2000 }, (_, index) => ({
+      key: `f${String(index)}`,
+      section: "files",
+      label: `hangar${String(index)}.ts`,
+    }));
+    const sections = rankEntries([...files, ...entries], "hangar");
+    const fileSection = sections.find((section) => section.section === "files");
+    expect(fileSection?.items).toHaveLength(SECTION_LIMIT);
+    expect(sections.some((section) => section.section === "start")).toBe(true);
+    expect(sections.some((section) => section.section === "notes")).toBe(true);
+    const total = flatEntries(sections).length;
+    expect(total).toBeLessThanOrEqual(MATCH_LIMIT);
+  });
+
+  it("caps the whole list while searching", () => {
+    const sectionsOf: LauncherEntry["section"][] = ["start", "files", "commits", "commands"];
+    const many: LauncherEntry[] = sectionsOf.flatMap((section) =>
+      Array.from({ length: 10 }, (_, index) => ({
+        key: `${section}${String(index)}`,
+        section,
+        label: `Program ${String(index)}`,
+      })),
+    );
+    expect(flatEntries(rankEntries(many, "program", { perSection: 4, total: 10 }))).toHaveLength(
+      10,
+    );
   });
 
   it("returns nothing when no entry matches", () => {

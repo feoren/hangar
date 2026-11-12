@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Profile } from "./api";
 import { createTranslator } from "./i18n";
-import { buildLauncherItems, type LauncherContext } from "./launcherItems";
+import type { MenuGroup } from "./AppMenu";
+import {
+  buildLauncherItems,
+  commitItems,
+  fileItems,
+  menuCommands,
+  type LauncherContext,
+} from "./launcherItems";
 import type { SessionView } from "./sessions";
 
 function profile(id: string, teamCapable = false): Profile {
@@ -61,9 +68,131 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     openSnapPicker: null,
     openBroadcast: vi.fn(),
     subAgents: null,
+    openSettings: vi.fn(),
+    menu: [],
+    skipLabels: [],
     ...patch,
   };
 }
+
+describe("quick access beyond sessions", () => {
+  it("offers every settings section", () => {
+    const openSettings = vi.fn();
+    const items = buildLauncherItems(context({ openSettings }));
+    const settings = items.filter((item) => item.section === "settings");
+    expect(settings.map((item) => item.key)).toEqual([
+      "settings:general",
+      "settings:appearance",
+      "settings:attention",
+      "settings:programs",
+      "settings:snippets",
+      "settings:account",
+      "settings:updates",
+    ]);
+    settings[1]?.run();
+    expect(openSettings).toHaveBeenCalledWith("appearance");
+  });
+
+  it("turns working menu entries into commands, once each", () => {
+    const run = vi.fn();
+    const t = createTranslator("en");
+    const menu: MenuGroup[] = [
+      {
+        label: "File",
+        items: [
+          { type: "action", label: t("menu.launcher"), run },
+          { type: "action", label: "Pick folder", run },
+          { type: "separator" },
+          { type: "action", label: "Restart", disabled: true, run },
+          {
+            type: "submenu",
+            label: "New session",
+            items: [{ type: "action", label: "Codex", run }],
+          },
+        ],
+      },
+      {
+        label: "View",
+        items: [
+          { type: "action", label: "Overview of all sessions", shortcut: "Ctrl+Shift+M", run },
+          // Already a command of its own and a layout offered as "View: …".
+          { type: "action", label: t("changes.show"), run },
+          { type: "action", label: "One session", run },
+        ],
+      },
+    ];
+    const items = buildLauncherItems(context({ menu, skipLabels: [t("menu.launcher")] }));
+    const fromMenu = items.filter((item) => item.key.startsWith("menu:"));
+    expect(fromMenu.map((item) => [item.label, item.detail])).toEqual([
+      ["Pick folder", "File"],
+      ["Codex", "File › New session"],
+      ["Overview of all sessions", "Ctrl+Shift+M"],
+    ]);
+    expect(fromMenu.every((item) => item.section === "commands")).toBe(true);
+  });
+
+  it("lists files, not folders, by name with their folder", () => {
+    const open = vi.fn();
+    const items = fileItems(
+      [
+        { path: "src", kind: "dir" },
+        { path: "src/App.tsx", kind: "file" },
+        { path: "README.md", kind: "file" },
+      ],
+      open,
+      null,
+    );
+    expect(items.map((item) => [item.label, item.detail])).toEqual([
+      ["App.tsx", "src"],
+      ["README.md", undefined],
+    ]);
+    expect(items.every((item) => item.primary !== true)).toBe(true);
+    items[0]?.run();
+    expect(open).toHaveBeenCalledWith("src/App.tsx");
+  });
+
+  it("finds commits by subject and id", () => {
+    const open = vi.fn();
+    const sha = "a".repeat(40);
+    const items = commitItems(
+      [
+        {
+          sha,
+          shortSha: "aaaaaaa",
+          subject: "",
+          author: "Ada",
+          authoredAt: 0,
+          pushed: true,
+        },
+      ],
+      open,
+      createTranslator("en"),
+      null,
+    );
+    expect(items[0]?.label).toBe("(no subject)");
+    expect(items[0]?.keywords).toContain(sha);
+    items[0]?.run();
+    expect(open).toHaveBeenCalledWith(sha);
+  });
+
+  it("leaves out everything of a disabled submenu", () => {
+    const run = vi.fn();
+    const commands = menuCommands([
+      {
+        label: "File",
+        items: [
+          {
+            type: "submenu",
+            label: "Export",
+            disabled: true,
+            items: [{ type: "action", label: "Text", run }],
+          },
+        ],
+      },
+    ]);
+    expect(commands).toEqual([]);
+  });
+});
 
 describe("buildLauncherItems", () => {
   it("makes programs in the current folder primary only while no session runs", () => {

@@ -4,10 +4,24 @@ import {
   detailPlace,
   isProgramTitle,
   projectFolder,
+  projectRowName,
   sessionLabels,
   statusSubject,
   type LabelInput,
 } from "./sessionLabel";
+
+describe("projectRowName", () => {
+  it("leads with the program where the folder led, keeps an own name and a worktree title", () => {
+    const byFolder = { primary: "hangar", secondary: "Claude Code", byFolder: true };
+    const ownName = { primary: "Review", secondary: "hangar", byFolder: false };
+    expect(projectRowName(byFolder, "Claude Code")).toBe("Claude Code");
+    expect(projectRowName({ ...byFolder, secondary: "Claude Code (2)" }, "x")).toBe(
+      "Claude Code (2)",
+    );
+    expect(projectRowName(ownName, "Review")).toBe("Review");
+    expect(projectRowName(null, "hangar/fix-login")).toBe("hangar/fix-login");
+  });
+});
 
 describe("projectFolder", () => {
   it("takes the last folder of Windows, POSIX and WSL paths", () => {

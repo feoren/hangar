@@ -115,3 +115,12 @@ export function sessionLabels(
   }
   return labels;
 }
+
+/**
+ * Title of a row inside a project group: its header already names the folder, so the row leads
+ * with the program (or the session's own name) instead of repeating the folder.
+ */
+export function projectRowName(label: SessionLabel | null, title: string): string {
+  if (label === null) return title;
+  return label.byFolder ? label.secondary : label.primary;
+}

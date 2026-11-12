@@ -24,6 +24,7 @@ import {
   parseActivatedSession,
   parseExportResult,
   TRAY_QUIT,
+  parsePathIndex,
   type NoteFolder,
   type Profile,
   type SessionInfo,
@@ -57,8 +58,10 @@ import {
   folderName,
   forgetFolder,
   loadFolderPrefs,
+  moveFavorite,
   recordRecent,
   saveFolderPrefs,
+  setFolderColor,
   toggleFavorite,
   type FolderPrefs,
 } from "./folders";
@@ -70,15 +73,15 @@ import {
   type Translate,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
-import { CloseIcon, NotesIcon } from "./icons";
+import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
-import { buildLauncherItems } from "./launcherItems";
+import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
-import { agentGroupKey, groupedOrder, groupPosition } from "./sessionGroups";
+import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
@@ -272,7 +275,12 @@ import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
 import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
-import type { ChangesView } from "./gitHistory";
+import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
+import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
+import { tailLines } from "./overview";
+import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
+import { SessionSearchDialog } from "./SessionSearchDialog";
+import type { LineMatch } from "./sessionSearch";
 import { FilesPanel, type MentionDrag } from "./FilesPanel";
 import { takesMention } from "./fileTree";
 import { ClaimNoticeView, TeammateNoticeView } from "./ClaimsView";
@@ -311,7 +319,8 @@ const INITIAL_SIZE = { cols: 120, rows: 30 };
 const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
-type OpenDialog = "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | null;
+type OpenDialog =
+  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -446,6 +455,11 @@ export function App() {
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
+  const grouping = settings.sessionGrouping;
+  // The session list follows the sidebar's grouping, so cycling and the rail match it.
+  useEffect(() => {
+    dispatch({ type: "regrouped", by: grouping });
+  }, [grouping]);
   const [version, setVersion] = useState<string | null>(null);
   const [profilePath, setProfilePath] = useState<string | null>(null);
   const [dialog, setDialog] = useState<OpenDialog>(null);
@@ -574,6 +588,10 @@ export function App() {
   const [changesFocusToken, setChangesFocusToken] = useState(0);
   /** Uncommitted changes or commits; kept for this window while the tab is closed. */
   const [changesView, setChangesView] = useState<ChangesView>("open");
+  /** A commit chosen in quick access, for the history to open. */
+  const [commitFocus, setCommitFocus] = useState<CommitFocus | null>(null);
+  /** Start term of the search across sessions: the selection when it opened. */
+  const [searchAllSeed, setSearchAllSeed] = useState("");
   const [filesFocusToken, setFilesFocusToken] = useState(0);
   /** Short confirmation after Ctrl+Shift+T: which program starts where. */
   const [startHint, setStartHint] = useState<string | null>(null);
@@ -1231,11 +1249,11 @@ export function App() {
     subAgentsOf === null ? undefined : state.sessions.find((s) => s.id === subAgentsOf);
   const subAgentsAvailable =
     subAgentSession?.subAgents === true && !isPlaceholder(subAgentsOf ?? 0);
-  // The tree hangs below the active row; a folded program group hides that row, and the tree too.
+  // The tree hangs below the active row; a folded group hides that row, and the tree too.
   const subAgentTreeShown =
     !layout.collapsed &&
     activeSession !== undefined &&
-    !layout.closedAgentGroups.includes(agentGroupKey(activeSession));
+    !layout.closedAgentGroups.includes(sessionGroupKey(activeSession, grouping));
   const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
   const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
   const subAgentKey = useSubAgentWatch(
@@ -1383,7 +1401,11 @@ export function App() {
     const session = state.sessions.find((s) => s.id === id);
     dispatch({ type: "moved", id, index });
     // The place within the session's sidebar group, as the list shows it.
-    const place = groupPosition(groupedOrder(moveItem(state.sessions, id, index) ?? []), id);
+    const place = groupPosition(
+      groupedOrder(moveItem(state.sessions, id, index) ?? [], grouping),
+      id,
+      grouping,
+    );
     if (session && place) {
       setMoveAnnouncement(t("session.moved", { title: session.title, ...place }));
     }
@@ -2768,6 +2790,45 @@ export function App() {
     setFilesFocusToken((token) => token + 1);
   };
 
+  /** Quick access chose a commit: the history of the changes panel opens on it. */
+  const openCommit = (sha: string) => {
+    if (panelWindow.detached) {
+      // The panel window keeps its own view; it shows the changes, the commit stays a click away.
+      toPanelWindow({ kind: "show", tab: "changes" });
+      return;
+    }
+    setChangesView("commits");
+    setCommitFocus((current) => ({ sha, token: (current?.token ?? 0) + 1 }));
+    openSide("changes");
+  };
+
+  /** Quick access chose a file of the active session: the read-only viewer shows it. */
+  const openFile = (sessionId: number, path: string) => {
+    api.openFileViewer(sessionId, path).catch((e: unknown) => {
+      setError(t("files.openFailed", { error: errorText(e) }));
+    });
+  };
+
+  /** Search across sessions, seeded with the visible terminal's selection. */
+  const openSearchAll = () => {
+    const id = state.activeId;
+    setSearchAllSeed(id === null ? "" : (terminals.get(id)?.searchSeed() ?? ""));
+    setDialog("searchAll");
+  };
+
+  /** A hit of the search across sessions: show its session and select the spot. */
+  const revealMatch = (match: LineMatch) => {
+    setDialog(null);
+    dispatch({ type: "activated", id: match.sessionId });
+    // After the session is shown, so the terminal has its size and can scroll.
+    requestAnimationFrame(() => {
+      const terminal = terminals.get(match.sessionId);
+      if (!terminal) return;
+      if (!terminal.revealMatch(match)) setStartHint(t("searchAll.gone"));
+      terminal.focus();
+    });
+  };
+
   /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
     if (panelWindow.detached) {
@@ -3166,6 +3227,12 @@ export function App() {
       case "launcher":
         setDialog("launcher");
         break;
+      case "searchAll":
+        if (state.sessions.length > 0) openSearchAll();
+        break;
+      case "overview":
+        if (state.sessions.length > 0) setDialog("overview");
+        break;
     }
   };
 
@@ -3415,6 +3482,13 @@ export function App() {
         },
         {
           type: "action",
+          label: t("menu.searchAll"),
+          shortcut: keys("searchAll"),
+          disabled: state.sessions.length === 0,
+          run: openSearchAll,
+        },
+        {
+          type: "action",
           label: t("menu.clear"),
           disabled: noActive,
           run: () => activeTerminal()?.clear(),
@@ -3470,6 +3544,15 @@ export function App() {
           },
         },
         { type: "separator" },
+        {
+          type: "action",
+          label: t("menu.overview"),
+          shortcut: keys("overview"),
+          disabled: state.sessions.length === 0,
+          run: () => {
+            perform("overview");
+          },
+        },
         {
           type: "action",
           label: t("menu.nextSession"),
@@ -3720,6 +3803,59 @@ export function App() {
               },
             }
           : null,
+      openSettings,
+      menu,
+      skipLabels: [t("menu.launcher")],
+    });
+
+  /**
+   * Entries of quick access that need the backend: the files of the active session's folder (the
+   * same bounded index as the file tree's filter) and its recent commits.
+   */
+  const launcherLoaders = () => {
+    const session = activeSession;
+    if (session === undefined) return [];
+    const fileIcon = <FileIcon size={14} />;
+    const commitIcon = <SourceControlIcon size={14} />;
+    return [
+      async () => {
+        const index = parsePathIndex(await api.listSessionPaths(session.id));
+        return index === null
+          ? []
+          : fileItems(
+              index.entries,
+              (path) => {
+                openFile(session.id, path);
+              },
+              fileIcon,
+            );
+      },
+      async () => {
+        const log = parseGitLog(await api.gitLog(session.cwd, 0, COMMIT_PAGE));
+        return log === null || !log.isRepo
+          ? []
+          : commitItems(log.commits, openCommit, t, commitIcon);
+      },
+    ];
+  };
+
+  /** Tiles of the overview: the state as edge color and in words, like the sidebar rows. */
+  const overviewTiles = (): OverviewTile[] =>
+    state.sessions.map((session) => {
+      const tileState = attention.get(session.id) ?? "idle";
+      const chip = sessionChip(
+        session,
+        tileState,
+        reasons.get(session.id) ?? null,
+        runsAgent(profileById.get(session.profileId)?.command, session.kind),
+      );
+      return {
+        id: session.id,
+        title: [session.marker?.emoji, session.title].filter(Boolean).join(" "),
+        badge: <Badge look={badgeFor(session.profileId)} />,
+        edge: edgeClass(rowEdge(session, tileState, chip)),
+        status: statusText(session, t, tileState, reasons.get(session.id) ?? null),
+      };
     });
 
   /** Pane header contents in split view: badge, attention state and status text. */
@@ -3824,6 +3960,16 @@ export function App() {
           onForgetFolder={(path) => {
             setFolders((current) => forgetFolder(current, path));
           }}
+          onMoveFavorite={(path, target, after) => {
+            setFolders((current) => moveFavorite(current, path, target, after));
+          }}
+          onFolderColor={(path, color) => {
+            setFolders((current) => setFolderColor(current, path, color));
+          }}
+          grouping={grouping}
+          onGrouping={(sessionGrouping) => {
+            updateSettings({ sessionGrouping });
+          }}
           onRestart={(id) => {
             void restart(id);
           }}
@@ -3848,7 +3994,7 @@ export function App() {
                           sessionDragView.target.index,
                           (id) => {
                             const session = state.sessions.find((s) => s.id === id);
-                            return session ? agentGroupKey(session) : "";
+                            return session ? sessionGroupKey(session, grouping) : "";
                           },
                         )
                       : null,
@@ -4191,6 +4337,7 @@ export function App() {
                     focusToken={changesFocusToken}
                     view={changesView}
                     onView={setChangesView}
+                    focusCommit={commitFocus}
                     language={settings.language}
                   />
                 }
@@ -4526,11 +4673,50 @@ export function App() {
         {dialog === "launcher" && (
           <LauncherDialog
             buildItems={launcherItems}
+            loaders={launcherLoaders()}
             onClose={closeDialog}
             onRun={(item) => {
               closeDialog();
               item.run();
             }}
+          />
+        )}
+        {dialog === "searchAll" && (
+          <SessionSearchDialog
+            sessions={state.sessions}
+            targets={() => {
+              // The visible session first: its hits are the likeliest to be meant.
+              const order = [...state.sessions].sort(
+                (a, b) => Number(b.id === state.activeId) - Number(a.id === state.activeId),
+              );
+              return order.flatMap((session) => {
+                const terminal = terminals.get(session.id);
+                return terminal ? [{ sessionId: session.id, source: terminal.rowSource() }] : [];
+              });
+            }}
+            seed={searchAllSeed}
+            badge={(sessionId) => {
+              const session = state.sessions.find((s) => s.id === sessionId);
+              return session ? <Badge look={badgeFor(session.profileId)} /> : null;
+            }}
+            onClose={closeDialog}
+            onReveal={revealMatch}
+          />
+        )}
+        {dialog === "overview" && (
+          <OverviewDialog
+            tiles={overviewTiles()}
+            activeId={state.activeId}
+            readLines={(id) => {
+              const terminal = terminals.get(id);
+              return terminal ? tailLines(terminal.rowSource()) : [];
+            }}
+            onActivate={(id) => {
+              setDialog(null);
+              dispatch({ type: "activated", id });
+              focusTerminal();
+            }}
+            onClose={closeDialog}
           />
         )}
         {dialog === "broadcast" && (

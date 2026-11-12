@@ -61,6 +61,15 @@ describe("terminal keys", () => {
     expect(terminalKeyAction(key("KeyF", { ctrl: true, shift: true }), false)).toEqual({
       kind: "app",
     });
+    // Search across sessions and the overview.
+    expect(terminalKeyAction(key("KeyS", { ctrl: true, shift: true }), false)).toEqual({
+      kind: "app",
+    });
+    expect(terminalKeyAction(key("KeyM", { ctrl: true, shift: true }), false)).toEqual({
+      kind: "app",
+    });
+    expect(terminalKeyAction(key("KeyS", { ctrl: true }), false)).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(key("KeyM", { ctrl: true }), false)).toEqual({ kind: "terminal" });
   });
 
   it("keeps F6 away from the process only while it moves the focus to the notes", () => {
