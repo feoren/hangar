@@ -367,7 +367,11 @@ fn turn_on_write_lock_and_unlock() {
     );
     let accounts: Vec<String> = lock(&other_keychain.0).keys().cloned().collect();
     assert_eq!(accounts.len(), 1);
-    assert!(accounts[0].starts_with("notes/"), "{accounts:?}");
+    // A fixed message: keychain account names are never printed, not even in a failing test.
+    assert!(
+        accounts[0].starts_with("notes/"),
+        "the keychain entry lies outside the notes namespace"
+    );
     // The keychain now unlocks a fresh start of that computer.
     let again = ProjectNotes::new(&other_dir.join("app"), other_keychain);
     assert!(matches!(
