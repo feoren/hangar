@@ -1,8 +1,9 @@
-import { useId, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
 
 import { useT } from "./i18n";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import { TeamCard, TeamCardEmpty } from "./TeamCard";
 import {
   attemptText,
   canAskRelease,
@@ -38,21 +39,44 @@ export function TeamTasksView(props: {
   busy: ReadonlySet<string>;
 }) {
   const t = useT();
-  const titleId = useId();
   const [open, setOpen] = useState(false);
   const [problem, setProblem] = useState<TeamProblem | null>(null);
+  const reserveButton = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
   const { tasks, attempts } = props.activity;
+
+  // The form held the keyboard; once it closes, the focus returns to the button that opened it.
+  useEffect(() => {
+    if (wasOpen.current && !open) reserveButton.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
   const run = (action: Promise<TeamProblem | null>) => {
     setProblem(null);
     action.then(setProblem).catch(() => undefined);
   };
 
   return (
-    <section className="team-tasks" aria-labelledby={titleId}>
-      <h4 id={titleId} className="team-activity-title">
-        {t("team.tasks.title")}
-      </h4>
-      {open ? (
+    <TeamCard
+      className="team-tasks"
+      title={t("team.tasks.title")}
+      count={tasks.length}
+      action={
+        open ? undefined : (
+          <button
+            ref={reserveButton}
+            type="button"
+            className="secondary-button team-task-reserve"
+            onClick={() => {
+              setProblem(null);
+              setOpen(true);
+            }}
+          >
+            {t("team.tasks.reserve")}
+          </button>
+        )
+      }
+    >
+      {open && (
         <ReserveForm
           projectId={props.projectId}
           sessions={linkableSessions(props.sessions, props.activity)}
@@ -61,17 +85,6 @@ export function TeamTasksView(props: {
             setOpen(false);
           }}
         />
-      ) : (
-        <button
-          type="button"
-          className="secondary-button team-task-reserve"
-          onClick={() => {
-            setProblem(null);
-            setOpen(true);
-          }}
-        >
-          {t("team.tasks.reserve")}
-        </button>
       )}
       {attempts.length > 0 && (
         <ul className="team-task-list">
@@ -91,7 +104,9 @@ export function TeamTasksView(props: {
         </ul>
       )}
       {tasks.length === 0 ? (
-        <p className="team-help">{t("team.tasks.none")}</p>
+        open ? null : (
+          <TeamCardEmpty>{t("team.tasks.none")}</TeamCardEmpty>
+        )
       ) : (
         <ul className="team-task-list">
           {tasks.map((task) => (
@@ -114,7 +129,7 @@ export function TeamTasksView(props: {
           {teamErrorText(problem, t)}
         </p>
       )}
-    </section>
+    </TeamCard>
   );
 }
 
@@ -168,7 +183,10 @@ function ReserveForm(props: {
           setTitle(event.currentTarget.value);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") props.onDone();
+          if (event.key !== "Escape") return;
+          // Escape closes the form only, not the Team window around it.
+          event.stopPropagation();
+          props.onDone();
         }}
       />
       {props.sessions.length > 0 && (

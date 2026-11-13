@@ -358,7 +358,8 @@ function NowTab(props: {
   const t = useT();
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const { status } = props;
-  if (status.state === "connected") return <div className="team-now">{props.content}</div>;
+  if (status.state === "connected")
+    return <div className="team-columns team-now">{props.content}</div>;
   if (status.state === "waitingForConfirmation") {
     return <WaitingHelp safetyNumber={status.safetyNumber} />;
   }

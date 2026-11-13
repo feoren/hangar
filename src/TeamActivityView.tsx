@@ -1,9 +1,10 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { Avatar } from "./Avatar";
 import { useT } from "./i18n";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import { TeamCard, TeamCardEmpty } from "./TeamCard";
 import {
   divergentText,
   folderLabel,
@@ -38,19 +39,15 @@ export function TeamRepos(props: {
   busy: ReadonlySet<string>;
 }) {
   const t = useT();
-  const reposId = useId();
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const choices = repoChoices(props.activity.linked, props.repos);
   const relink = needsRelink(props.activity.linked, props.repos);
   const legacy = legacyLinks(props.activity.linked);
 
   return (
-    <section className="team-repos" aria-labelledby={reposId}>
-      <h4 id={reposId} className="team-activity-title">
-        {t("team.activity.repos")}
-      </h4>
+    <TeamCard className="team-repos" title={t("team.activity.repos")} count={choices.length}>
       {choices.length === 0 ? (
-        <p className="team-help">{t("team.activity.noRepos")}</p>
+        <TeamCardEmpty>{t("team.activity.noRepos")}</TeamCardEmpty>
       ) : (
         <ul className="team-repo-list">
           {choices.map(({ repo, linked }) => {
@@ -113,13 +110,13 @@ export function TeamRepos(props: {
           ))}
         </ul>
       )}
-      <p className="team-help">{t("team.activity.reposHelp")}</p>
+      <p className="team-help team-card-foot">{t("team.activity.reposHelp")}</p>
       {problem !== null && (
         <p className="team-help error-text" role="alert">
           {teamErrorText(problem, t)}
         </p>
       )}
-    </section>
+    </TeamCard>
   );
 }
 
@@ -130,12 +127,12 @@ export function TeamRepos(props: {
  */
 export function TeamPeople({ activity }: { activity: TeamActivity }) {
   const t = useT();
-  const peopleId = useId();
   return (
-    <section className="team-people" aria-labelledby={peopleId}>
-      <h4 id={peopleId} className="team-activity-title">
-        {t("team.activity.people")}
-      </h4>
+    <TeamCard
+      className="team-people"
+      title={t("team.activity.people")}
+      count={activity.peers.length}
+    >
       {activity.divergent.map((device) => (
         <p
           key={`${device.member}\u0000${device.device}`}
@@ -147,7 +144,7 @@ export function TeamPeople({ activity }: { activity: TeamActivity }) {
         </p>
       ))}
       {activity.peers.length === 0 ? (
-        <p className="team-help">{t("team.activity.nobody")}</p>
+        <TeamCardEmpty>{t("team.activity.nobody")}</TeamCardEmpty>
       ) : (
         <ul className="team-peer-list">
           {activity.peers.map((peer) => (
@@ -155,7 +152,7 @@ export function TeamPeople({ activity }: { activity: TeamActivity }) {
           ))}
         </ul>
       )}
-    </section>
+    </TeamCard>
   );
 }
 

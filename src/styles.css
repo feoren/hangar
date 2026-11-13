@@ -12,6 +12,9 @@
   --worktree: #3f9a6e;
   /* Active session row: the bluish tint that drifts slowly behind it, and its left bar width. */
   --active-tint-strong: color-mix(in srgb, var(--accent) 17%, transparent);
+  /* Header bar of a framed column (Team window) and the count beside its title. */
+  --card-head: color-mix(in srgb, var(--hover) 55%, var(--panel));
+  --count-chip-bg: color-mix(in srgb, var(--muted) 22%, transparent);
   /* Hover darkens a whole session row a little, whatever its state or tint. */
   --row-hover-shade: color-mix(in srgb, #000 16%, transparent);
   /* The middle tone of the drift, for the backdrop of the row actions. */
@@ -9031,29 +9034,6 @@ body.session-dragging .session-actions {
   list-style: none;
 }
 
-.team-project {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.team-project + .team-project {
-  margin-top: 2px;
-}
-
-.team-project:hover {
-  background: var(--hover);
-}
-
-.team-project-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
 .team-project-name {
   min-width: 0;
   overflow: hidden;
@@ -9171,32 +9151,7 @@ body.session-dragging .session-actions {
   color: var(--muted);
 }
 
-/* Team view of a connected project: shared repositories and the teammates' sessions. */
-
-.team-activity {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
-.team-activity-title {
-  margin: 0 0 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-}
-
 /* Reservations ("I'm working on ..."): one entry to reserve, then one line per task. */
-
-.team-tasks {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 .team-task-reserve {
   align-self: flex-start;
@@ -9933,22 +9888,135 @@ body.session-dragging .session-actions {
   cursor: default;
 }
 
-/* "Now": the people beside the reservations, one column when the window is narrow. */
-.team-now {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 24px;
-  align-items: start;
+/* "Now" and "People": framed columns side by side that reach the bottom of the window; each list
+   scrolls inside its own frame. Narrow windows stack the frames. */
+.team-columns {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.team-columns > .team-card {
+  flex: 1 1 0;
+}
+
+.team-now > .team-people {
+  flex-grow: 3;
+}
+
+.team-now > .team-tasks {
+  flex-grow: 2;
 }
 
 @media (max-width: 680px) {
-  .team-now {
-    grid-template-columns: minmax(0, 1fr);
+  .team-columns {
+    flex-direction: column;
+    gap: 12px;
   }
+
+  .team-columns > .team-card {
+    min-height: 180px;
+  }
+}
+
+.team-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* The header bar sits outside the scrolling body, so it stays in place while the list scrolls. */
+.team-card-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px 6px 12px;
+  background: var(--card-head);
+  border-bottom: 1px solid var(--border);
+}
+
+.team-card-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dialog .team-card-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.team-card-count {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+  color: var(--text);
+  background: var(--count-chip-bg);
+}
+
+.team-card-head .team-role {
+  margin-left: 0;
+}
+
+.team-card-head .team-task-reserve {
+  padding: 3px 10px;
+}
+
+.team-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+}
+
+/* An empty list: one friendly line in the middle of the frame. */
+.dialog .team-card-empty {
+  margin: auto 0;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+/* Hints under a list rest at the bottom of the frame. */
+.team-window .team-card-foot {
+  margin-top: auto;
+}
+
+.team-window .team-card-empty + .team-card-foot {
+  margin-top: 0;
 }
 
 .team-window .team-peer {
   padding: 8px 0;
+}
+
+.team-window .team-peer:first-child {
+  padding-top: 0;
 }
 
 .team-window .team-peer + .team-peer {
@@ -9964,30 +10032,19 @@ body.session-dragging .session-actions {
   padding-left: 30px;
 }
 
-.team-window .team-project {
-  padding: 0;
-  gap: 6px;
+.team-details .team-project-meta {
+  margin-top: -4px;
 }
 
-.team-window .team-project:hover {
-  background: none;
+.team-details .team-share,
+.team-details .team-invite {
+  margin-top: 0;
 }
 
-.team-window .team-project-name {
-  font-size: 14px;
-}
-
-.team-window .team-activity-title {
-  margin-bottom: 6px;
-}
-
-.team-window .team-repos {
+.team-repos .team-repo-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
 }
 
 .team-waiting {

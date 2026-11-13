@@ -9,6 +9,7 @@ import {
 } from "./account";
 import { useT } from "./i18n";
 import { TeamRepos } from "./TeamActivityView";
+import { TeamCard } from "./TeamCard";
 import {
   ARM_DELAY_MS,
   armDelayLeft,
@@ -59,30 +60,51 @@ export function ProjectDetails(props: {
   const meta = projectMeta(project, t);
 
   return (
-    <div className="team-project">
-      <div className="team-project-head">
-        <span className="team-project-name" title={project.name}>
-          {project.name}
-        </span>
-        {role !== null && <span className="team-role">{role}</span>}
-      </div>
-      {meta.length > 0 && (
-        <div className="team-project-meta" title={t("team.seatsHelp")}>
-          {meta.join(" · ")}
-        </div>
-      )}
-      <ShareSwitch
-        status={status}
-        busy={props.busy.has(project.id)}
-        problem={shareProblem}
-        onToggle={(on) => {
-          setShareProblem(null);
-          team
-            .setSharing(project.id, on)
-            .then(setShareProblem)
-            .catch(() => undefined);
-        }}
-      />
+    <div className="team-columns team-details">
+      <TeamCard
+        className="team-project-card"
+        title={<span title={project.name}>{project.name}</span>}
+        action={role === null ? undefined : <span className="team-role">{role}</span>}
+      >
+        {meta.length > 0 && (
+          <div className="team-project-meta" title={t("team.seatsHelp")}>
+            {meta.join(" · ")}
+          </div>
+        )}
+        <ShareSwitch
+          status={status}
+          busy={props.busy.has(project.id)}
+          problem={shareProblem}
+          onToggle={(on) => {
+            setShareProblem(null);
+            team
+              .setSharing(project.id, on)
+              .then(setShareProblem)
+              .catch(() => undefined);
+          }}
+        />
+        {project.canInvite && (
+          <button
+            type="button"
+            className="secondary-button team-invite"
+            title={t("team.inviteHelp")}
+            onClick={() => {
+              setInviteProblem(null);
+              account
+                .open({ kind: "invite", projectId: project.id })
+                .then(setInviteProblem)
+                .catch(() => undefined);
+            }}
+          >
+            {t("team.invite")}
+          </button>
+        )}
+        {inviteProblem !== null && (
+          <p className="team-help error-text" role="alert">
+            {accountErrorText(inviteProblem, t)}
+          </p>
+        )}
+      </TeamCard>
       {status.state === "connected" && (
         <TeamRepos
           projectId={project.id}
@@ -90,27 +112,6 @@ export function ProjectDetails(props: {
           repos={props.repos}
           busy={props.busy}
         />
-      )}
-      {project.canInvite && (
-        <button
-          type="button"
-          className="secondary-button team-invite"
-          title={t("team.inviteHelp")}
-          onClick={() => {
-            setInviteProblem(null);
-            account
-              .open({ kind: "invite", projectId: project.id })
-              .then(setInviteProblem)
-              .catch(() => undefined);
-          }}
-        >
-          {t("team.invite")}
-        </button>
-      )}
-      {inviteProblem !== null && (
-        <p className="team-help error-text" role="alert">
-          {accountErrorText(inviteProblem, t)}
-        </p>
       )}
     </div>
   );
