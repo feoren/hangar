@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
+use hangar_lib::instructions::StartPrompt;
 use hangar_lib::manager::{
-    GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, TermSize,
-    VersionSource,
+    GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, StartRequest,
+    TermSize, VersionSource,
 };
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
@@ -1782,4 +1783,94 @@ fn with_args(mut probe: Profile, extra: &[&str]) -> Profile {
     }
     probe.args.extend(extra.iter().map(|arg| (*arg).to_owned()));
     probe
+}
+
+// --- First prompt of a fresh worktree session (instructions.rs) ---
+
+/// Prints every argument after its own, like an agent CLI that takes a positional prompt.
+fn prompt_probe(id: &str) -> CatalogAgent {
+    let (command, args, resume): (&str, &[&str], &[&str]) = if cfg!(windows) {
+        (
+            "cmd",
+            &["/d", "/c", "echo", "ARGS="],
+            &["/d", "/c", "echo", "RESUMED"],
+        )
+    } else {
+        (
+            "sh",
+            &["-c", "echo ARGS=\"$*\"", "none"],
+            &["-c", "echo RESUMED", "none"],
+        )
+    };
+    let toml = format!(
+        "[[agent]]
+id = {id:?}
+name = {id:?}
+commands = [{command:?}]
+args = {args:?}
+resume_args = {resume:?}
+prompt_args = [\"{{prompt}}\"]
+"
+    );
+    agent_catalog::parse(&toml).unwrap().remove(0)
+}
+
+fn start_requested(
+    manager: &SessionManager,
+    profile_id: &str,
+    resume: bool,
+    request: StartRequest,
+) -> (SessionInfo, Receiver<SessionEvent>) {
+    let (tx, rx) = channel();
+    let info = manager
+        .create_requested(
+            profile_id,
+            None,
+            SIZE,
+            resume,
+            None,
+            SessionMode::Private,
+            request,
+            move |e| tx.send(e).unwrap_or(()),
+        )
+        .unwrap();
+    (info, rx)
+}
+
+#[test]
+fn only_a_fresh_worktree_start_gets_the_first_prompt() {
+    let manager = SessionManager::new(
+        Vec::new(),
+        vec![prompt_probe("prompted")],
+        std::env::temp_dir(),
+    );
+    let worktree = StartRequest {
+        instructions: false,
+        prompt: Some(StartPrompt::Worktree),
+    };
+    let marker = "Run git fetch";
+
+    let (info, rx) = start_requested(&manager, "prompted", false, worktree);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains(marker), "{output:?}");
+
+    // A restart continues in the same worktree: it is not asked again.
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("ARGS="), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
+
+    // A session outside a fresh worktree, and a resumed one, never get it.
+    let (info, rx) = start_requested(&manager, "prompted", false, StartRequest::default());
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("ARGS="), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
+    let (info, rx) = start_requested(&manager, "prompted", true, worktree);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("RESUMED"), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
 }

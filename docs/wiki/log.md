@@ -663,3 +663,18 @@ Measured the session row's third line and the system bar in Edge at 305 to 505 p
 gives way in a fixed order (token count, bar, names to icons, whole parts wrap away) and the
 system bar shows RAM and GPU amounts from 305 px.
 Pages changed: [[session-resources-and-phone-push]]; raw: 2026-11-13-session-row-layout-measurement.md.
+
+## [2026-11-13] ingest | HANGAR.md and the upstream check of worktree sessions
+Filed the own measurement of the instruction and first prompt options of Claude Code 2.1.323,
+Codex CLI 0.169.0 and Aider 0.86.2 (help texts, Codex binary strings; Gemini CLI not installed)
+and the contract of HANGAR.md (catalog fields `instruction_args`, `prompt_args`, `[start_prompts]`,
+length limit, cmd.exe launchers) and of the first prompt of a fresh worktree session.
+Pages changed: [[agent-instruction-flags-measurement]] (new), [[agent-instructions]] (new), index.
+
+## [2026-11-13] ingest | HANGAR.md: launchers, command line length, secrets
+Filed the npm shim chain of Codex 0.169.0 (`codex.cmd` runs `node codex.js`, which resolves and
+spawns the platform package's `codex.exe` with its own environment) and Claude Code 2.1.323
+accepting `--append-system-prompt=<value>`. The text is never handed to a cmd.exe launcher and
+Settings names such programs; the length check covers the fully quoted command line with the gate
+options; the template and the Settings help warn against secrets.
+Pages changed: [[agent-instruction-flags-measurement]], [[agent-instructions]].

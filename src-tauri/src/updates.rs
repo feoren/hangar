@@ -1232,6 +1232,8 @@ mod tests {
             packages: None,
             self_update: None,
             capabilities: Default::default(),
+            instruction_args: None,
+            prompt_args: None,
         });
         agent
             .profile

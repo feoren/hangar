@@ -30,7 +30,10 @@ use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
-use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
+use crate::instructions::{self, StartPrompt};
+use crate::manager::{
+    EventSink, ManagerError, SessionEvent, SessionManager, StartRequest, TermSize,
+};
 use crate::notes::{
     FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
 };
@@ -493,7 +496,9 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 }
 
 /// `mode`: private or team session (ADR 0008); without one, a private session, which never
-/// gets the agent gate and never reaches the team.
+/// gets the agent gate and never reaches the team. `instructions`: hand the agent `HANGAR.md`
+/// (Settings); `start_prompt`: a first prompt by name, whose text comes from the catalog, never
+/// from the window. Both apply only where the program takes them ([`crate::instructions`]).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
 pub fn create_session(
@@ -505,17 +510,39 @@ pub fn create_session(
     resume: Option<bool>,
     cli_session_id: Option<String>,
     mode: Option<SessionMode>,
+    instructions: Option<bool>,
+    start_prompt: Option<StartPrompt>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Optional, so existing calls without `resume`, `cliSessionId` or `mode` stay valid.
-    manager.create_resuming(
+    // Optional, so existing calls without the later arguments stay valid.
+    manager.create_requested(
         &profile_id,
         cwd,
         size,
         resume.unwrap_or(false),
         cli_session_id.as_deref(),
         mode.unwrap_or_default(),
+        StartRequest {
+            instructions: instructions.unwrap_or(false),
+            prompt: start_prompt,
+        },
         channel_sink(on_event),
     )
+}
+
+/// Opens exactly this machine's `HANGAR.md` in the default editor; if it is missing, it is
+/// created from the commented template ([`crate::instructions::DEFAULT_TEXT`]). Takes no path:
+/// the window cannot open any other file with it.
+#[tauri::command]
+pub async fn open_hangar_md(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let load = app.state::<ProfileLoad>();
+        let path = instructions::ensure_file(&load.dir)
+            .map_err(|error| format!("{} cannot be created: {error}", load.dir.display()))?;
+        desktop::open(&path, desktop::Target::TextFile)
+            .map_err(|error| format!("{} cannot be opened: {error}", path.display()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Starts a program update as a session of its own. The frontend only names the profile; the

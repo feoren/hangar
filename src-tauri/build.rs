@@ -18,6 +18,7 @@ const COMMANDS: &[&str] = &[
     "profile_path",
     "reload_profiles",
     "open_profile_file",
+    "open_hangar_md",
     "save_workspace",
     "load_workspace",
     "save_scrollback",

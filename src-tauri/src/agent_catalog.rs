@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::install_source::{is_foreign_launcher, Packages, SelfUpdate};
+use crate::instructions::StartPrompts;
 use crate::profile::Profile;
 use crate::resolve::resolve_all;
 use crate::resolve::resolve_program;
@@ -67,6 +68,26 @@ pub struct CatalogAgent {
     /// What the agent gate can do with the program (see [`Capabilities`]).
     #[serde(default)]
     pub capabilities: Capabilities,
+    /// How the program takes `HANGAR.md` (see [`Prompting::instruction_args`]).
+    #[serde(default)]
+    pub instruction_args: Option<Vec<String>>,
+    /// How the program takes a first prompt (see [`Prompting::prompt_args`]).
+    #[serde(default)]
+    pub prompt_args: Option<Vec<String>>,
+}
+
+/// How Hangar hands a program its global instructions and a first prompt
+/// ([`crate::instructions`]). Belongs to the program like [`Capabilities`]: a user profile inherits
+/// it only when it starts the catalog's program.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Prompting {
+    /// Arguments placed before the start arguments that hand over `HANGAR.md`: `{text}` its
+    /// content, `{toml_text}` the content as a TOML string, `{file}` its path. `None`: the program
+    /// gets no instructions from Hangar.
+    pub instruction_args: Option<Vec<String>>,
+    /// Arguments appended to a fresh interactive start that make `{prompt}` its first user
+    /// message. `None`: the program gets no first prompt.
+    pub prompt_args: Option<Vec<String>>,
 }
 
 /// What Hangar's agent gate (team service step B, `gate.rs`) can do with a program. All false
@@ -321,6 +342,9 @@ fn config_key(value: &str) -> Option<&str> {
 struct CatalogFile {
     #[serde(default, rename = "agent")]
     agents: Vec<CatalogAgent>,
+    /// Only the built-in catalog needs them; [`builtin_start_prompts`] reads them.
+    #[serde(default)]
+    start_prompts: Option<StartPrompts>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -384,6 +408,12 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         ) {
             return Err(invalid(problem));
         }
+        if let Err(problem) = crate::instructions::check_args(
+            agent.instruction_args.as_deref(),
+            agent.prompt_args.as_deref(),
+        ) {
+            return Err(invalid(problem));
+        }
     }
     Ok(file.agents)
 }
@@ -391,6 +421,34 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
 /// The embedded catalog. A test makes sure it is valid.
 pub fn builtin() -> Result<Vec<CatalogAgent>, CatalogError> {
     parse(BUILTIN)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StartPromptsError {
+    #[error("Invalid agent catalog: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("The agent catalog has no [start_prompts]")]
+    Missing,
+    #[error("A start prompt must not be empty or hold a character cmd.exe interprets")]
+    Invalid,
+}
+
+/// The texts of the first prompts ([`crate::instructions::StartPrompt`]) from `[start_prompts]`.
+/// They must not be empty and must pass a cmd.exe launcher unchanged ([`crate::batch`]): no line
+/// breaks, quotes or `% ! & | < > ^`, so npm's `claude.cmd` gets them as well.
+pub fn parse_start_prompts(source: &str) -> Result<StartPrompts, StartPromptsError> {
+    let file: CatalogFile = toml::from_str(source)?;
+    let prompts = file.start_prompts.ok_or(StartPromptsError::Missing)?;
+    let text = &prompts.worktree;
+    if text.trim().is_empty() || !crate::batch::argument_ok(text) {
+        return Err(StartPromptsError::Invalid);
+    }
+    Ok(prompts)
+}
+
+/// [`parse_start_prompts`] of the embedded catalog. A test makes sure it is valid.
+pub fn builtin_start_prompts() -> Result<StartPrompts, StartPromptsError> {
+    parse_start_prompts(BUILTIN)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -415,6 +473,8 @@ pub struct Agent {
     pub cwd_flag: Option<&'static str>,
     /// From the catalog; a user profile inherits them only when it starts the same program.
     pub capabilities: Capabilities,
+    /// From the catalog, inherited like `capabilities`.
+    pub prompting: Prompting,
 }
 
 impl Agent {
@@ -435,6 +495,7 @@ impl Agent {
             install_hint: None,
             cwd_flag: None,
             capabilities: Capabilities::default(),
+            prompting: Prompting::default(),
         }
     }
 
@@ -472,6 +533,10 @@ impl Agent {
             install_hint,
             cwd_flag: None,
             capabilities: agent.capabilities,
+            prompting: Prompting {
+                instruction_args: agent.instruction_args,
+                prompt_args: agent.prompt_args,
+            },
         }
     }
 
@@ -524,6 +589,10 @@ impl Agent {
             secret_env: self.profile.secret_env.clone(),
             team_capable: self.capabilities.gate(),
             team_block: None,
+            instructions: crate::instructions::reach(
+                self.prompting.instruction_args.as_deref(),
+                resolved.as_ref().map(|r| r.program.as_path()),
+            ),
         }
     }
 }
@@ -566,6 +635,8 @@ pub struct ProfileView {
     /// Why it cannot run as a team session on this machine (or, for `FixedFolder`, only in its
     /// own folder); `None` when it can. Set by the manager, which knows version and settings.
     pub team_block: Option<TeamBlock>,
+    /// Whether `HANGAR.md` reaches the program as it is found on this machine.
+    pub instructions: crate::instructions::InstructionsReach,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -613,6 +684,7 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
                     // The hooks belong to the program, like its session options.
                     agent.capabilities = from_catalog.capabilities;
+                    agent.prompting.clone_from(&from_catalog.prompting);
                 }
                 // Same program, same packages and self-updater.
                 if same_program {
@@ -735,6 +807,8 @@ mod tests {
             packages: None,
             self_update: None,
             capabilities: Capabilities::default(),
+            instruction_args: None,
+            prompt_args: None,
         }
     }
 
@@ -1083,6 +1157,91 @@ packages={ winget='x y' }
     impl Drop for TempDir {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Only agents whose mechanism was checked against the installed program's `--help`
+    /// (docs/wiki/pages/syntheses/agent-instructions.md); every other entry takes nothing.
+    #[test]
+    fn instructions_and_prompts_in_builtin_catalog() {
+        let catalog = builtin().unwrap();
+        let by_id = |id: &str| catalog.iter().find(|agent| agent.id == id).unwrap();
+        let instructions: Vec<&str> = catalog
+            .iter()
+            .filter(|agent| agent.instruction_args.is_some())
+            .map(|agent| agent.id.as_str())
+            .collect();
+        assert_eq!(instructions, ["claude", "codex", "aider"]);
+        let prompts: Vec<&str> = catalog
+            .iter()
+            .filter(|agent| agent.prompt_args.is_some())
+            .map(|agent| agent.id.as_str())
+            .collect();
+        assert_eq!(prompts, ["claude", "codex"]);
+        assert_eq!(
+            by_id("claude").instruction_args,
+            Some(strings(&["--append-system-prompt={text}"]))
+        );
+        assert_eq!(
+            by_id("codex").instruction_args,
+            Some(strings(&["-c", "developer_instructions={toml_text}"]))
+        );
+        assert_eq!(
+            by_id("aider").instruction_args,
+            Some(strings(&["--read", "{file}"]))
+        );
+        // Gemini CLI can only replace its system prompt (GEMINI_SYSTEM_MD), never append to it.
+        assert_eq!(by_id("gemini").instruction_args, None);
+    }
+
+    #[test]
+    fn start_prompts_are_valid_and_pass_a_cmd_launcher() {
+        let prompts = builtin_start_prompts().unwrap();
+        assert!(prompts.worktree.contains("git fetch"));
+        assert!(crate::batch::argument_ok(&prompts.worktree));
+        let base = "[[agent]]\nid = 'a'\nname = 'A'\ncommands = ['a']\n";
+        assert!(matches!(
+            parse_start_prompts(base),
+            Err(StartPromptsError::Missing)
+        ));
+        for bad in ["''", "'say \"hi\"'", "'50% done'", "\"two\\nlines\""] {
+            let source = format!("{base}[start_prompts]\nworktree = {bad}\n");
+            assert!(
+                matches!(
+                    parse_start_prompts(&source),
+                    Err(StartPromptsError::Invalid)
+                ),
+                "{bad}"
+            );
+        }
+        // The agent list itself does not care about the prompts.
+        assert_eq!(
+            parse(&format!("{base}[start_prompts]\nworktree = 'Go.'\n"))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn prompting_placeholders_are_checked() {
+        let base = "[[agent]]\nid = 'a'\nname = 'A'\ncommands = ['a']\n";
+        assert!(parse(&format!(
+            "{base}instruction_args = ['--read', '{{file}}']\n"
+        ))
+        .is_ok());
+        for bad in [
+            "instruction_args = ['--read']\n",
+            "instruction_args = ['{text}', '{file}']\n",
+            "prompt_args = ['--message']\n",
+        ] {
+            assert!(
+                matches!(
+                    parse(&format!("{base}{bad}")),
+                    Err(CatalogError::Invalid { .. })
+                ),
+                "{bad}"
+            );
         }
     }
 

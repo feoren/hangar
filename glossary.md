@@ -225,3 +225,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Zeitraum (Aktivitätskarte)                      | time window                       | last hour, today, 7 days; `HeatWindow`                                              |
 | Abspielen (Aktivitätskarte)                     | replay                            | the time window in `PLAY_STEPS` steps, play and pause                               |
 | Halter (einer Datei)                            | file holder                       | a teammate session or a worktree of this device changing a file                     |
+| Globale Anweisungen (HANGAR.md)                 | global instructions               | `HANGAR.md` in the config folder; `instructions.rs`, `instruction_args`             |
+| Erster Prompt (beim Start)                      | first prompt                      | user message a fresh start begins with; `StartPrompt`, `prompt_args`                |
+| Upstream-Prüfung (Worktree)                     | upstream check                    | first prompt of a fresh worktree session; `[start_prompts] worktree`                |

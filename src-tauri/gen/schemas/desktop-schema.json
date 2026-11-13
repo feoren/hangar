@@ -537,6 +537,12 @@
           "markdownDescription": "Enables the open_file_viewer command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_hangar_md command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-hangar-md",
+          "markdownDescription": "Enables the open_hangar_md command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_local_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-local-url",
@@ -1231,6 +1237,12 @@
           "type": "string",
           "const": "deny-open-file-viewer",
           "markdownDescription": "Denies the open_file_viewer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_hangar_md command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-hangar-md",
+          "markdownDescription": "Denies the open_hangar_md command without any pre-configured scope."
         },
         {
           "description": "Denies the open_local_url command without any pre-configured scope.",

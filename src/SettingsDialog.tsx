@@ -24,6 +24,7 @@ import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
+import { instructionsUnavailable } from "./startOptions";
 import {
   nextTabIndex,
   SECTION_NAMES,
@@ -84,6 +85,8 @@ interface Props {
   onClearScrollbacks: () => Promise<void>;
   /** Opens profiles.toml in the default editor (creates it if needed); rejects with an error. */
   onOpenProfileFile: () => Promise<void>;
+  /** Opens HANGAR.md in the default editor (creates it if needed); rejects with an error. */
+  onOpenHangarMd: () => Promise<void>;
   /** Rereads profiles.toml; rejects with the backend's error (profileFile.ts). */
   onReloadProfiles: () => Promise<void>;
   /** A profile was saved or deleted in the editor: apply the backend's new list. */
@@ -953,8 +956,94 @@ function ProgramsSection(props: Props) {
         onChange={props.onChange}
         onProfiles={props.onProfiles}
       />
+      <AgentInstructionsField
+        settings={props.settings}
+        profiles={props.profiles}
+        onChange={props.onChange}
+        onOpen={props.onOpenHangarMd}
+      />
       <ProfileFileField onOpen={props.onOpenProfileFile} onReload={props.onReloadProfiles} />
     </>
+  );
+}
+
+/** HANGAR.md for every agent, and the upstream check of a fresh worktree session. */
+function AgentInstructionsField({
+  settings,
+  profiles,
+  onChange,
+  onOpen,
+}: Pick<Props, "settings" | "profiles" | "onChange"> & { onOpen: () => Promise<void> }) {
+  const t = useT();
+  const unavailable = instructionsUnavailable(profiles);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const open = () => {
+    setBusy(true);
+    setProblem(null);
+    onOpen()
+      .catch((error: unknown) => {
+        setProblem(errorText(error));
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  return (
+    <section className="settings-section" aria-labelledby="programs-instructions">
+      <h4 id="programs-instructions" className="settings-subtitle">
+        {t("settings.agentInstructions")}
+      </h4>
+      <p id="hangar-md-help" className="muted settings-intro">
+        {t("settings.agentInstructionsHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.hangarMd}
+          aria-describedby="hangar-md-help"
+          onChange={(event) => {
+            onChange({ hangarMd: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.hangarMd")}</span>
+      </label>
+      {unavailable.length > 0 && (
+        <p className="muted settings-help">
+          {t("settings.hangarMdUnavailable", { names: unavailable.join(", ") })}
+        </p>
+      )}
+      <div className="settings-row">
+        <button
+          type="button"
+          className="secondary-button"
+          aria-describedby="hangar-md-help"
+          disabled={busy}
+          onClick={open}
+        >
+          {t("settings.openHangarMd")}
+        </button>
+        <span className="muted error-text" role="status">
+          {problem ?? ""}
+        </span>
+      </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.worktreeUpstreamCheck}
+          aria-describedby="worktree-upstream-help"
+          onChange={(event) => {
+            onChange({ worktreeUpstreamCheck: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.worktreeUpstreamCheck")}</span>
+      </label>
+      <p id="worktree-upstream-help" className="muted settings-help">
+        {t("settings.worktreeUpstreamCheckHelp")}
+      </p>
+    </section>
   );
 }
 

@@ -60,7 +60,24 @@
 #                    be replaced (Gemini CLI, Qwen Code; for OpenCode an OPENCODE_CONFIG_CONTENT
 #                    of the user's own in Hangar's environment).
 #                    A user profile with the same id and program inherits them.
-#   latest           Optional. Where the newest version is published, exactly one source:
+#   instruction_args Optional. Arguments that hand the program Hangar's global instructions
+#                    (HANGAR.md in the config folder, when Settings turns it on), placed before
+#                    the start arguments. Exactly one placeholder: {text} the file's content
+#                    without HTML comments, {toml_text} that content as a TOML string (for
+#                    `-c key=value` overrides that parse the value as TOML), {file} the file's
+#                    path. Prefer {file} where the program takes one (the text is visible on the
+#                    command line), and an `--option={text}` form so a text starting with `-`
+#                    is never read as an option. Left out with a logged warning: the text for a
+#                    cmd.exe launcher (npm's codex.cmd; Settings names such programs), and
+#                    anything that would push the quoted command line past 32 766 characters.
+#                    Only an append mechanism that
+#                    keeps the program's own prompt, never one that replaces it (Gemini CLI's
+#                    GEMINI_SYSTEM_MD). Evidence: docs/wiki/pages/syntheses/agent-instructions.md.
+#   prompt_args      Optional. Arguments appended to a fresh start that make {prompt} the first
+#                    user message of an interactive session (never one that runs the prompt and
+#                    exits, as Aider's --message). Used for the [start_prompts] below.
+#                    A user profile with the same id and program inherits both.
+#   latest          Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
 #                    is queried. compare = "equal" reports an update on any difference instead of
@@ -106,6 +123,11 @@ resume_id_args = ["--resume", "{id}"]
 sub_agents = "claude"
 # Measured with Claude Code 2.1.319: docs/wiki/pages/sources/claude-http-hook-measurement.md.
 capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "claude_settings", measured = true }
+# `claude --help` 2.1.323: `--append-system-prompt <prompt>` and `claude [options] [prompt]`. The
+# `=` form is accepted, also with a value starting with `-` (measured with `-p` and no input: the
+# input error, not "unknown option"). No file form is listed as an option.
+instruction_args = ["--append-system-prompt={text}"]
+prompt_args = ["{prompt}"]
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
@@ -128,6 +150,10 @@ resume_args = ["resume", "--last"]
 # write): docs/wiki/pages/sources/codex-gate-live-measurement.md. 0.167.2 is the floor: the first
 # release with the bypass flag is not known.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "codex_config_flags", measured = true, min_version = "0.167.2" }
+# `codex --help` 0.169.0: `-c key=value` (value parsed as TOML) and `codex [OPTIONS] [PROMPT]`;
+# `developer_instructions` is a top-level key of its config (found in the 0.169.0 binary).
+instruction_args = ["-c", "developer_instructions={toml_text}"]
+prompt_args = ["{prompt}"]
 icon = "Cx"
 homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
@@ -263,6 +289,9 @@ commands = ["aider"]
 resume_args = ["--restore-chat-history"]
 # No hooks: team-service-v1.md, section 1. The step A warning applies.
 capabilities = { pre_edit_block = false, context_inject = false, per_session_config = false }
+# `aider --help` 0.86.2: `--read FILE` adds a read-only file. No first prompt: `--message` sends
+# one message and exits.
+instruction_args = ["--read", "{file}"]
 icon = "A"
 homepage = "https://github.com/Aider-AI/aider"
 install_windows = "python -m pip install aider-install && aider-install"
@@ -406,4 +435,11 @@ icon = "Am"
 homepage = "https://ampcode.com/manual"
 latest = { npm = "@sourcegraph/amp", compare = "equal" }
 packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
+
+# First prompts Hangar gives an agent with prompt_args on a fresh start (instructions.rs).
+# worktree: the session starts in a worktree Hangar has just created from the folder's branch
+# (Settings can turn it off). Plain text on one line without " % ! & | < > ^, so a cmd.exe
+# launcher passes it on unchanged; a test checks that.
+[start_prompts]
+worktree = "This session runs in a new git worktree. Run git fetch, then check whether the upstream or base branch has commits this worktree does not have yet. If so, list them briefly and ask me whether to pull or merge them before doing anything else. If not, say in one line that it is up to date."
 

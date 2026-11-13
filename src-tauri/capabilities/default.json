@@ -32,6 +32,7 @@
     "allow-profile-path",
     "allow-reload-profiles",
     "allow-open-profile-file",
+    "allow-open-hangar-md",
     "allow-save-workspace",
     "allow-load-workspace",
     "allow-save-scrollback",

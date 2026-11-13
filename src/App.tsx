@@ -162,6 +162,7 @@ import {
   type UpdateOutcome,
 } from "./programUpdates";
 import type { UpdateActions } from "./ProgramUpdateOffer";
+import { startOptions } from "./startOptions";
 import { resolveStartTarget, runningProjects, startPlaces, worktreeChance } from "./startTarget";
 import {
   effectiveMode,
@@ -861,6 +862,10 @@ export function App() {
   const openProfileFile = useCallback(async () => {
     await api.openProfileFile();
     profileEditPending.current = true;
+  }, []);
+
+  const openHangarMd = useCallback(async () => {
+    await api.openHangarMd();
   }, []);
 
   useEffect(() => {
@@ -1827,6 +1832,7 @@ export function App() {
           false,
           null,
           worktree === undefined ? "private" : "team",
+          startOptions(settingsRef.current, worktree !== undefined),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -2055,6 +2061,7 @@ export function App() {
           // Worktree sessions of older workspaces come back as team sessions where the program
           // can be one.
           sessionMode(saved, profile),
+          startOptions(settingsRef.current, false),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -2111,6 +2118,7 @@ export function App() {
               session,
               profilesRef.current.find((p) => p.id === session.profileId),
             ),
+            startOptions(settingsRef.current, false),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -5283,6 +5291,7 @@ export function App() {
             onChange={updateSettings}
             onClearScrollbacks={clearScrollbacks}
             onOpenProfileFile={openProfileFile}
+            onOpenHangarMd={openHangarMd}
             onReloadProfiles={reloadProfilesFromSettings}
             onProfiles={applyProfiles}
             onFontSize={(fontSize) => {

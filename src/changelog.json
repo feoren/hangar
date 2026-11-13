@@ -16,6 +16,34 @@
         "ru": "Каждая сессия теперь показывает CPU, ОЗУ и, если использует GPU, загрузку и память GPU. Системная панель также показывает ОЗУ и память GPU в ГБ.",
         "tr": "Her oturum artık CPU, RAM ve GPU kullanıyorsa GPU yükünü ve belleğini gösteriyor. Sistem çubuğu RAM ve GPU belleğini GB olarak da gösteriyor.",
         "zh": "每个会话现在显示 CPU、内存，以及在使用 GPU 时的 GPU 负载和显存。系统栏还会以 GB 显示内存和显存用量。"
+      },
+      {
+        "de": "HANGAR.md: eine Anweisungsdatei für alle Agenten, wie AGENTS.md, ohne dein Repository anzufassen. Zu finden unter Einstellungen, Programme.",
+        "en": "HANGAR.md: one instruction file for all your agents, like AGENTS.md, without touching your repository. Find it in Settings, Programs.",
+        "el": "HANGAR.md: ένα αρχείο οδηγιών για όλους τους πράκτορες, όπως το AGENTS.md, χωρίς αλλαγές στο αποθετήριο. Θα το βρεις στις Ρυθμίσεις, Προγράμματα.",
+        "es": "HANGAR.md: un archivo de instrucciones para todos tus agentes, como AGENTS.md, sin tocar tu repositorio. Lo encuentras en Ajustes, Programas.",
+        "fr": "HANGAR.md : un fichier d’instructions pour tous tes agents, comme AGENTS.md, sans toucher à ton dépôt. À retrouver dans Réglages, Programmes.",
+        "it": "HANGAR.md: un file di istruzioni per tutti i tuoi agenti, come AGENTS.md, senza toccare il repository. Lo trovi in Impostazioni, Programmi.",
+        "ja": "HANGAR.md: AGENTS.md のように全エージェント共通の指示ファイルです。リポジトリには手を加えません。設定のプログラムにあります。",
+        "pl": "HANGAR.md: jeden plik instrukcji dla wszystkich agentów, jak AGENTS.md, bez zmian w repozytorium. Znajdziesz go w Ustawieniach, Programy.",
+        "pt": "HANGAR.md: um arquivo de instruções para todos os seus agentes, como AGENTS.md, sem mexer no repositório. Fica em Configurações, Programas.",
+        "ru": "HANGAR.md: один файл инструкций для всех агентов, как AGENTS.md, без изменений в репозитории. Находится в Настройках, раздел Программы.",
+        "tr": "HANGAR.md: AGENTS.md gibi tüm ajanların için tek talimat dosyası, deposuna dokunmadan. Ayarlar, Programlar bölümünde bulabilirsin.",
+        "zh": "HANGAR.md：适用于所有智能体的指令文件，类似 AGENTS.md，不改动仓库。位于“设置”的“程序”中。"
+      },
+      {
+        "de": "Startet ein Agent in einem neuen Worktree, prüft er zuerst, ob der Basis-Branch neue Commits hat, und fragt, ob er sie holen soll.",
+        "en": "An agent started in a new worktree first checks whether the base branch has new commits and asks whether to pull them.",
+        "el": "Ένας πράκτορας σε νέο worktree ελέγχει πρώτα αν ο βασικός κλάδος έχει νέα commits και ρωτά αν θα τα φέρει.",
+        "es": "Un agente que arranca en un worktree nuevo comprueba primero si la rama base tiene commits nuevos y pregunta si debe traerlos.",
+        "fr": "Un agent lancé dans un nouveau worktree vérifie d’abord si la branche de base a de nouveaux commits et demande s’il doit les récupérer.",
+        "it": "Un agente avviato in un nuovo worktree controlla prima se il branch di base ha nuovi commit e chiede se scaricarli.",
+        "ja": "新しい worktree で起動したエージェントは、まずベースブランチに新しいコミットがあるか確認し、取り込むかどうかを尋ねます。",
+        "pl": "Agent uruchomiony w nowym worktree najpierw sprawdza, czy gałąź bazowa ma nowe commity, i pyta, czy je pobrać.",
+        "pt": "Um agente iniciado em um worktree novo verifica primeiro se o branch base tem commits novos e pergunta se deve trazê-los.",
+        "ru": "Агент, запущенный в новом worktree, сначала проверяет, есть ли в базовой ветке новые коммиты, и спрашивает, подтянуть ли их.",
+        "tr": "Yeni bir worktree'de başlayan ajan önce temel dalda yeni commit olup olmadığını kontrol eder ve bunları çekmeyi sorar.",
+        "zh": "在新 worktree 中启动的智能体会先检查基础分支是否有新提交，并询问是否拉取。"
       }
     ]
   },

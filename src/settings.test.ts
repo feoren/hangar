@@ -54,6 +54,8 @@ describe("parseSettings", () => {
       subAgentExcerpts: false,
       claimsEnabled: false,
       gateEnabled: false,
+      hangarMd: false,
+      worktreeUpstreamCheck: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
       terminalScheme: "solarized",
       terminalFont: "JetBrains Mono",

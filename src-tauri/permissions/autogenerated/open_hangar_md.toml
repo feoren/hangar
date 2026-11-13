@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-hangar-md"
+description = "Enables the open_hangar_md command without any pre-configured scope."
+commands.allow = ["open_hangar_md"]
+
+[[permission]]
+identifier = "deny-open-hangar-md"
+description = "Denies the open_hangar_md command without any pre-configured scope."
+commands.deny = ["open_hangar_md"]

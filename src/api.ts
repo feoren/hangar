@@ -52,7 +52,14 @@ export interface Profile {
    * its own folder). Older backends send none.
    */
   teamBlock?: TeamBlock | null;
+  /**
+   * Rust `InstructionsReach`: whether HANGAR.md reaches the program as found on this machine
+   * (`launcher`: an npm cmd.exe launcher that cannot carry the text). Older backends send none.
+   */
+  instructions?: InstructionsReach;
 }
+
+export type InstructionsReach = "none" | "yes" | "launcher";
 
 /**
  * Rust `TeamBlock` (agent_catalog.rs). `noHooks` and `notMeasured` come from the catalog; the
@@ -163,6 +170,21 @@ export interface TermSize {
   rows: number;
 }
 
+/** Rust `StartPrompt`: a first prompt by name; its text lives in the backend's agent catalog. */
+export type StartPrompt = "worktree";
+
+/**
+ * Rust `StartRequest`: what a new agent session gets besides its program's arguments, where the
+ * program takes it (startOptions.ts).
+ */
+export interface StartOptions {
+  /** Hand the agent HANGAR.md. */
+  instructions: boolean;
+  startPrompt: StartPrompt | null;
+}
+
+export const NO_START_OPTIONS: StartOptions = { instructions: false, startPrompt: null };
+
 export { Channel };
 
 export const api = {
@@ -177,6 +199,7 @@ export const api = {
     resume = false,
     cliSessionId: string | null = null,
     mode: SessionMode = "private",
+    options: StartOptions = NO_START_OPTIONS,
   ) =>
     invoke<SessionInfo>("create_session", {
       profileId,
@@ -186,7 +209,11 @@ export const api = {
       resume,
       cliSessionId,
       mode,
+      instructions: options.instructions,
+      startPrompt: options.startPrompt,
     }),
+  /** Opens HANGAR.md in the default editor; the backend creates it from a template if missing. */
+  openHangarMd: () => invoke<null>("open_hangar_md"),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
    * its update plan; useful only when `ProgramUpdate.plan` is "run". `expectedPlan` is the

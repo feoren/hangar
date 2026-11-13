@@ -33,6 +33,7 @@ pub mod hook_http;
 pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
+pub mod instructions;
 pub mod manager;
 pub mod notes;
 pub mod notify;
@@ -110,7 +111,10 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: {error}");
                 Vec::new()
             });
-            app.manage(SessionManager::new(profiles, catalog, home));
+            app.manage(
+                SessionManager::new(profiles, catalog, home)
+                    .with_instructions_file(config_dir.join(instructions::FILE_NAME)),
+            );
             // Hangar account: the chosen server comes from the config folder; the sign-in itself
             // is read from the keychain on the window's first status call.
             let events = app.handle().clone();
@@ -334,6 +338,7 @@ pub fn run() -> tauri::Result<()> {
             commands::profile_path,
             commands::reload_profiles,
             commands::open_profile_file,
+            commands::open_hangar_md,
             commands::save_workspace,
             commands::load_workspace,
             commands::save_scrollback,

@@ -27,6 +27,7 @@ use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source, 
 use crate::batch;
 use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
+use crate::instructions::{self, StartPrompt, StartPrompts};
 use crate::lock;
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::{self, ProcTree, TreeUsage};
@@ -297,6 +298,8 @@ struct Entry {
     runtime: Option<Runtime>,
     /// Last known size; a fallback after a failed resume starts with it.
     size: TermSize,
+    /// `HANGAR.md` when the session was started with it; restarts and fallbacks read it again.
+    instructions: Option<PathBuf>,
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
@@ -398,11 +401,11 @@ impl Shared {
                 entry.info.cwd.clone(),
                 entry.size,
                 entry.generation,
-                (plan, entry.info.mode),
+                (plan, entry.info.mode, entry.instructions.clone()),
                 entry.info.sub_agents,
             )
         };
-        let (plan, mode) = plan;
+        let (plan, mode, instructions) = plan;
         sink.emit(SessionEvent::ResumeFallback {
             code,
             cli_session_id: plan.cli_session_id.clone(),
@@ -413,7 +416,7 @@ impl Shared {
             id,
             next,
             &agent,
-            &Launch::normal(&plan.args, SessionKind::Agent, mode),
+            &Launch::normal(&plan.args, SessionKind::Agent, mode, instructions),
             &cwd,
             size,
             Arc::clone(sink),
@@ -529,15 +532,134 @@ struct Launch<'a> {
     kind: SessionKind,
     /// Only team sessions get the agent gate.
     mode: SessionMode,
+    extras: StartExtras,
 }
 
 impl<'a> Launch<'a> {
-    fn normal(args: &'a [String], kind: SessionKind, mode: SessionMode) -> Self {
+    /// A restart or a fallback: `HANGAR.md` again, but no first prompt.
+    fn normal(
+        args: &'a [String],
+        kind: SessionKind,
+        mode: SessionMode,
+        instructions: Option<PathBuf>,
+    ) -> Self {
         Self {
             args,
             resume: false,
             kind,
             mode,
+            extras: StartExtras {
+                instructions,
+                prompt: None,
+            },
+        }
+    }
+}
+
+/// What the window asks a new agent session to get besides its program's arguments
+/// ([`crate::instructions`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartRequest {
+    /// `HANGAR.md` for the agent, where its program takes instructions.
+    pub instructions: bool,
+    /// A first prompt, where its program takes one; ignored when the session resumes.
+    pub prompt: Option<StartPrompt>,
+}
+
+/// [`StartRequest`] resolved by the manager: the file's path and the prompt's text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartExtras {
+    /// `HANGAR.md`, read at every process start so an edit applies to the next one.
+    pub instructions: Option<PathBuf>,
+    /// The first user message; only the first process of a fresh session gets it.
+    pub prompt: Option<String>,
+}
+
+/// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
+/// arguments (`codex -c ... resume --last`), the first prompt after them. What the program does not
+/// take is left out; what cannot pass a cmd.exe launcher is left out with a logged warning, so the
+/// session still starts. The length of the whole line is checked later ([`ArgParts::fitting`]).
+pub fn extra_args(
+    agent: &Agent,
+    program: &Path,
+    extras: &StartExtras,
+) -> (Vec<String>, Vec<String>) {
+    let leave_out = |what: &str, skipped: instructions::Skipped| {
+        eprintln!("hangar: {}: {what} left out: {skipped}", agent.profile.name);
+        Vec::new()
+    };
+    let before = match (&agent.prompting.instruction_args, &extras.instructions) {
+        (Some(spec), Some(path)) => instructions::read(path).map_or_else(Vec::new, |text| {
+            let args = instructions::instruction_args(spec, &text);
+            instructions::check_launcher(program, spec, args)
+                .unwrap_or_else(|skipped| leave_out(instructions::FILE_NAME, skipped))
+        }),
+        _ => Vec::new(),
+    };
+    let after = match (&agent.prompting.prompt_args, &extras.prompt) {
+        (Some(spec), Some(prompt)) => {
+            let args = instructions::prompt_args(spec, prompt);
+            instructions::check_launcher(program, spec, args)
+                .unwrap_or_else(|skipped| leave_out("the first prompt", skipped))
+        }
+        _ => Vec::new(),
+    };
+    (before, after)
+}
+
+/// The arguments of one process start before Hangar's extras are placed.
+struct ArgParts<'a> {
+    /// `args`, `resume_args` and so on, with the conversation id.
+    start: Vec<String>,
+    gate: Option<&'a GateLaunch>,
+    /// Option and folder of programs that take the working folder as an argument.
+    cwd_flag: Option<(&'static str, String)>,
+}
+
+impl ArgParts<'_> {
+    /// The whole argument list: gate options first, then the instructions (before a subcommand
+    /// such as `codex resume --last`), the start arguments, the gate's arguments, the first prompt
+    /// (last of all options: a positional prompt must not be taken for an option's value) and the
+    /// working folder option.
+    fn compose(&self, before: &[String], after: &[String]) -> Vec<String> {
+        let (prepend, appended) = self.gate.map_or((&[][..], &[][..]), |gate| {
+            (&gate.prepend[..], &gate.args[..])
+        });
+        let mut args: Vec<String> = prepend
+            .iter()
+            .chain(before)
+            .chain(&self.start)
+            .chain(appended)
+            .chain(after)
+            .cloned()
+            .collect();
+        if let Some((flag, folder)) = &self.cwd_flag {
+            args.push((*flag).to_owned());
+            args.push(folder.clone());
+        }
+        args
+    }
+
+    /// [`Self::compose`] whose fully quoted command line fits ([`instructions::check_length`]):
+    /// the instructions go first, then the first prompt, each with a logged warning. Without
+    /// either the line is what it always was.
+    fn fitting(&self, program: &str, extra: (Vec<String>, Vec<String>), name: &str) -> Vec<String> {
+        let (mut before, mut after) = extra;
+        loop {
+            let args = self.compose(&before, &after);
+            let what = match instructions::check_length(program, &args) {
+                Ok(()) => return args,
+                Err(_) if before.is_empty() && after.is_empty() => return args,
+                Err(skipped) if !before.is_empty() => {
+                    before.clear();
+                    (instructions::FILE_NAME, skipped)
+                }
+                Err(skipped) => {
+                    after.clear();
+                    ("the first prompt", skipped)
+                }
+            };
+            eprintln!("hangar: {name}: {} left out: {}", what.0, what.1);
         }
     }
 }
@@ -579,6 +701,12 @@ pub struct SessionManager {
     /// Versions for the gate's minimum versions ([`Self::set_version_source`]). Never taken
     /// together with another lock: cloned, then asked.
     versions: Mutex<Option<Arc<dyn VersionSource>>>,
+    /// `HANGAR.md` in the config folder ([`Self::with_instructions_file`]); `None`: no session
+    /// gets instructions.
+    instructions_file: Option<PathBuf>,
+    /// Texts of the first prompts, from the embedded catalog; `None` if it had none (a test
+    /// makes sure it has).
+    start_prompts: Option<StartPrompts>,
 }
 
 impl SessionManager {
@@ -598,7 +726,18 @@ impl SessionManager {
             next_id: AtomicU64::new(1),
             shared: Arc::new(Shared::new(Arc::new(KeyringStore::default()))),
             versions: Mutex::new(None),
+            instructions_file: None,
+            start_prompts: crate::agent_catalog::builtin_start_prompts()
+                .inspect_err(|error| eprintln!("hangar: {error}"))
+                .ok(),
         }
+    }
+
+    /// Where `HANGAR.md` lives; sessions started with [`StartRequest::instructions`] read it.
+    #[must_use]
+    pub fn with_instructions_file(mut self, path: PathBuf) -> Self {
+        self.instructions_file = Some(path);
+        self
     }
 
     /// Another place for secret values, for tests. Only before the first session starts.
@@ -850,6 +989,43 @@ impl SessionManager {
         mode: SessionMode,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
+        self.create_requested(
+            profile_id,
+            cwd,
+            size,
+            resume,
+            cli_session_id,
+            mode,
+            StartRequest::default(),
+            sink,
+        )
+    }
+
+    /// [`Self::create_resuming`] with what the window asks for besides the program's arguments:
+    /// `HANGAR.md` and a first prompt ([`StartRequest`], [`extra_args`]).
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
+    pub fn create_requested(
+        &self,
+        profile_id: &str,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        resume: bool,
+        cli_session_id: Option<&str>,
+        mode: SessionMode,
+        request: StartRequest,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let extras = StartExtras {
+            instructions: self
+                .instructions_file
+                .clone()
+                .filter(|_| request.instructions),
+            prompt: request.prompt.and_then(|prompt| {
+                self.start_prompts
+                    .as_ref()
+                    .map(|texts| texts.text(prompt).to_owned())
+            }),
+        };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
         if mode == SessionMode::Team {
@@ -866,7 +1042,7 @@ impl SessionManager {
             kind: SessionKind::Agent,
             mode,
         };
-        self.start(agent, cwd, size, plan, kind, title, sink)
+        self.start(agent, cwd, size, plan, kind, extras, title, sink)
     }
 
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
@@ -937,7 +1113,9 @@ impl SessionManager {
             kind: SessionKind::Update,
             mode: SessionMode::Private,
         };
-        self.start(updater, None, size, plan, kind, title, sink)
+        // An installer, not the agent: no instructions, no prompt.
+        let extras = StartExtras::default();
+        self.start(updater, None, size, plan, kind, extras, title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -961,6 +1139,7 @@ impl SessionManager {
         size: TermSize,
         plan: Plan,
         start: Start,
+        mut extras: StartExtras,
         title: String,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
@@ -1011,16 +1190,22 @@ impl SessionManager {
                     generation: 0,
                     runtime: None,
                     size,
+                    instructions: extras.instructions.clone(),
                     kill_requested: false,
                 },
             );
             plan
         };
+        // A first prompt belongs to a fresh conversation, never to a resumed one.
+        if plan.resume {
+            extras.prompt = None;
+        }
         let launch = Launch {
             args: &plan.args,
             resume: plan.resume,
             kind,
             mode,
+            extras,
         };
 
         match spawn(
@@ -1080,16 +1265,17 @@ impl SessionManager {
                 entry.info.cwd.clone(),
                 entry.generation,
                 kind,
-                entry.info.mode,
+                (entry.info.mode, entry.instructions.clone()),
                 plan,
             )
         };
+        let (mode, instructions) = mode;
         match spawn(
             &self.shared,
             id,
             generation,
             &agent,
-            &Launch::normal(&plan.args, kind, mode),
+            &Launch::normal(&plan.args, kind, mode, instructions),
             &cwd,
             size,
             Arc::new(sink),
@@ -1309,7 +1495,7 @@ fn spawn(
         .ok_or_else(|| ManagerError::CommandNotFound(agent.command_label()))?
         .program;
     let profile = &agent.profile;
-    let mut args = launch.args.to_vec();
+    let args = launch.args.to_vec();
     // Only team sessions get the gate; update sessions never: they run an installer, not the
     // agent.
     let own_hooks = agent
@@ -1330,14 +1516,20 @@ fn spawn(
         GatePlan::Launch(launch) => Some(launch),
         GatePlan::Skip | GatePlan::Unavailable(_) => None,
     };
-    if let Some(gate) = &gate {
-        args.splice(0..0, gate.prepend.iter().cloned());
-        args.extend(gate.args.iter().cloned());
-    }
-    if let Some(flag) = agent.cwd_flag {
-        args.push(flag.to_owned());
-        args.push(cwd.to_string_lossy().into_owned());
-    }
+    // Update sessions run an installer, never the agent: neither instructions nor a prompt.
+    let extra = if launch.kind == SessionKind::Agent {
+        extra_args(agent, &program, &launch.extras)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let parts = ArgParts {
+        start: args,
+        gate: gate.as_ref(),
+        cwd_flag: agent
+            .cwd_flag
+            .map(|flag| (flag, cwd.to_string_lossy().into_owned())),
+    };
+    let args = parts.fitting(&program.to_string_lossy(), extra, &agent.profile.name);
     let batch = batch::is_batch(&program);
     if batch {
         batch::check(&program, &args).map_err(|reason| ManagerError::UnsafeBatch {
@@ -1532,6 +1724,130 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
 mod tests {
     use super::*;
     use crate::agent_catalog::HookFormat;
+
+    fn prompted_agent(extra: &str) -> Agent {
+        let source = format!("[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\n{extra}");
+        Agent::from_catalog(crate::agent_catalog::parse(&source).unwrap().remove(0))
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn extras_reach_only_programs_that_take_them() {
+        let tmp = crate::test_support::TempDir::new("manager-extras");
+        let file = tmp.path().join(instructions::FILE_NAME);
+        std::fs::write(&file, "<!-- hidden -->\nUse tabs.\n").unwrap();
+        let program = Path::new("/bin/p");
+        let extras = StartExtras {
+            instructions: Some(file.clone()),
+            prompt: Some("Check upstream.".into()),
+        };
+        let both = prompted_agent(
+            "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
+        );
+        assert_eq!(
+            extra_args(&both, program, &extras),
+            (
+                strings(&["--append-system-prompt", "Use tabs."]),
+                strings(&["Check upstream."])
+            )
+        );
+        let by_file = prompted_agent("instruction_args = ['--read', '{file}']\n");
+        assert_eq!(
+            extra_args(&by_file, program, &extras),
+            (
+                vec!["--read".to_owned(), file.to_string_lossy().into_owned()],
+                Vec::new()
+            )
+        );
+        // A program without either field gets nothing, whatever the window asked for.
+        let plain = prompted_agent("");
+        assert_eq!(
+            extra_args(&plain, program, &extras),
+            (Vec::new(), Vec::new())
+        );
+        // Off, or an empty file: no arguments at all.
+        assert_eq!(
+            extra_args(&both, program, &StartExtras::default()),
+            (Vec::new(), Vec::new())
+        );
+        std::fs::write(&file, "<!-- only the template -->\n").unwrap();
+        assert_eq!(extra_args(&both, program, &extras).0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_too_long_command_line_loses_the_instructions_first() {
+        let gate = GateLaunch {
+            prepend: strings(&["--hook-trust"]),
+            args: strings(&["--settings", "gate.json"]),
+            env: Vec::new(),
+        };
+        let parts = ArgParts {
+            start: strings(&["resume", "--last"]),
+            gate: Some(&gate),
+            cwd_flag: Some(("--cd", "/work".to_owned())),
+        };
+        let before = strings(&["--append-system-prompt=Use tabs."]);
+        let after = strings(&["Check upstream."]);
+        // Everything in its place.
+        assert_eq!(
+            parts.fitting("p", (before.clone(), after.clone()), "P"),
+            strings(&[
+                "--hook-trust",
+                "--append-system-prompt=Use tabs.",
+                "resume",
+                "--last",
+                "--settings",
+                "gate.json",
+                "Check upstream.",
+                "--cd",
+                "/work",
+            ])
+        );
+        // The gate's arguments count: instructions that fit alone but not with them go.
+        let base = instructions::command_line_units("p", &parts.compose(&[], &after));
+        let room = instructions::COMMAND_LINE_MAX - base - 1;
+        let exactly = vec!["x".repeat(room)];
+        assert_eq!(
+            parts.fitting("p", (exactly.clone(), after.clone()), "P"),
+            parts.compose(&exactly, &after)
+        );
+        let one_more = vec!["x".repeat(room + 1)];
+        assert_eq!(
+            parts.fitting("p", (one_more, after.clone()), "P"),
+            parts.compose(&[], &after)
+        );
+        // Quoting counts: the same length of quotes does not fit.
+        let quoted = vec!["\"".repeat(room)];
+        assert_eq!(
+            parts.fitting("p", (quoted, after.clone()), "P"),
+            parts.compose(&[], &after)
+        );
+        // A prompt that alone is too long goes as well; the start itself stays.
+        let huge = vec!["y".repeat(instructions::COMMAND_LINE_MAX)];
+        assert_eq!(
+            parts.fitting("p", (before, huge), "P"),
+            parts.compose(&[], &[])
+        );
+    }
+
+    #[test]
+    fn a_profile_inherits_prompting_only_for_the_catalogs_program() {
+        let catalog = crate::agent_catalog::parse(
+            "[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\nprompt_args = ['{prompt}']\n",
+        )
+        .unwrap();
+        let profile = |command: &str| {
+            let text = format!("id = 'p'\nname = 'Mine'\ncommand = '{command}'\n");
+            toml::from_str::<Profile>(&text).unwrap()
+        };
+        let same = merge_all(vec![profile("p")], catalog.clone(), Vec::new());
+        assert_eq!(same[0].prompting.prompt_args, Some(strings(&["{prompt}"])));
+        let wrapper = merge_all(vec![profile("my-wrapper")], catalog, Vec::new());
+        assert_eq!(wrapper[0].prompting.prompt_args, None);
+    }
 
     #[test]
     fn own_settings_are_found_in_both_spellings_only() {

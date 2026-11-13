@@ -90,6 +90,17 @@ export interface Settings {
    * session is changing (gate.ts). Only effective together with `claimsEnabled`.
    */
   gateEnabled: boolean;
+  /**
+   * Every agent start hands the agent HANGAR.md from Hangar's config folder as an extra
+   * instruction, where its program takes one (backend `instructions.rs`). On by default: the
+   * file starts as a comment only, which sends nothing until the user writes into it.
+   */
+  hangarMd: boolean;
+  /**
+   * An agent started in a fresh worktree first checks whether the base branch has new commits
+   * upstream and asks before pulling them, where its program takes a first prompt.
+   */
+  worktreeUpstreamCheck: boolean;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
   /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
@@ -121,6 +132,8 @@ type Flag =
   | "subAgentExcerpts"
   | "claimsEnabled"
   | "gateEnabled"
+  | "hangarMd"
+  | "worktreeUpstreamCheck"
   | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
@@ -147,6 +160,8 @@ export function defaultSettings(language: Language): Settings {
     subAgentExcerpts: true,
     claimsEnabled: true,
     gateEnabled: true,
+    hangarMd: true,
+    worktreeUpstreamCheck: true,
     programs: DEFAULT_PROGRAM_PREFS,
     terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
@@ -234,6 +249,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     subAgentExcerpts: flag("subAgentExcerpts"),
     claimsEnabled: flag("claimsEnabled"),
     gateEnabled: flag("gateEnabled"),
+    hangarMd: flag("hangarMd"),
+    worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: parseColorScheme(scheme) ?? defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
