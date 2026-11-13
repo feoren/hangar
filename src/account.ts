@@ -321,6 +321,32 @@ export function displayName(user: Me): string {
   return name === "" ? user.email : name;
 }
 
+/** What the account button in the sidebar footer shows: visible text, accessible name, tooltip. */
+export interface AccountButtonText {
+  text: string;
+  label: string;
+  title: string;
+}
+
+/**
+ * Signed out: "Sign in" with a hint. Signed in: the person's name, or, while their details have
+ * not arrived yet, a neutral "Signed in", never "Account: Account".
+ */
+export function accountButtonText(view: AccountView | null, t: Translate): AccountButtonText {
+  if (view?.state.kind !== "signedIn") {
+    const signIn = t("account.signIn");
+    return { text: signIn, label: signIn, title: t("sidebar.signInHint") };
+  }
+  const user = view.state.user;
+  if (user === null) {
+    const signedIn = t("sidebar.signedIn");
+    return { text: signedIn, label: signedIn, title: signedIn };
+  }
+  const name = displayName(user);
+  const label = t("sidebar.account", { name });
+  return { text: name, label, title: label };
+}
+
 /** Host (and port) of the server address, for short mentions. */
 export function serverHost(baseUrl: string): string {
   try {

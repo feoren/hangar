@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accountButtonText,
   accountErrorText,
   displayName,
   failText,
@@ -207,6 +208,22 @@ describe("texts", () => {
     expect(displayName({ ...USER, name: null })).toBe("ada@example.test");
     expect(serverHost("https://team.example.test:8443/api/v1")).toBe("team.example.test:8443");
     expect(serverHost("nonsense")).toBe("nonsense");
+  });
+
+  it("labels the account button without repeating a word", () => {
+    const signedIn = (user: unknown) => parseAccountView(view({ kind: "signedIn", user }));
+    expect(accountButtonText(signedIn(USER), t)).toEqual({
+      text: "Ada",
+      label: "Account: Ada",
+      title: "Account: Ada",
+    });
+    const pending = accountButtonText(signedIn(null), t);
+    expect(pending).toEqual({ text: "Signed in", label: "Signed in", title: "Signed in" });
+    expect(pending.title).not.toContain("Account");
+    const signedOut = accountButtonText(parseAccountView(view({ kind: "idle", notice: null })), t);
+    expect(signedOut.text).toBe("Sign in");
+    expect(signedOut.title).toBe("Sign in to work with your team");
+    expect(accountButtonText(null, t).text).toBe("Sign in");
   });
 
   it("builds the project line from what is known", () => {

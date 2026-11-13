@@ -50,8 +50,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Sessions you recognize.** The sidebar groups sessions by program or by project folder, and an
   agent session takes its name from your first prompt, so several sessions in one project stay
   apart. Hovering a row shows that session's last lines without switching to it.
-- **Your last prompt in view.** Above an agent's terminal, Hangar shows the last prompt you sent; a
-  click scrolls back to it. A click in the prompt line moves the cursor there.
+- **A terminal that feels like an editor.** A click in the prompt line moves the cursor there, and
+  Shift+Enter starts a new line in an agent's prompt instead of sending it.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
 - **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every

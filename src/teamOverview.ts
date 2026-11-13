@@ -102,15 +102,15 @@ export function teamPill(
   return { kind, tone: PILL_TONES[kind], online, requests };
 }
 
-/** The pill's short visible text. */
-export function pillText(pill: TeamPill, t: Translate): string {
+/** The pill's state in words. */
+function stateText(pill: TeamPill, t: Translate): string {
   switch (pill.kind) {
     case "requests":
       return t("teamPill.requests", { count: pill.requests });
     case "waiting":
-      return t("teamPill.waiting");
+      return t("team.status.waiting");
     case "problem":
-      return t("teamPill.problem");
+      return t("team.status.attention");
     case "connected":
       return pill.online.length > 0
         ? t("teamPill.online", { count: pill.online.length })
@@ -122,23 +122,17 @@ export function pillText(pill: TeamPill, t: Translate): string {
   }
 }
 
-/** Mini avatars on the pill: at most this many. */
-export const PILL_AVATARS = 3;
-
-/** The pill's accessible name: what it opens and the state, with the names of who is online. */
+/**
+ * The pill's accessible name and tooltip: what it opens and the state in full, with the names of
+ * who is online. The pill itself shows only its mark and how many people are online.
+ */
 export function pillLabel(
   pill: TeamPill,
   t: Translate,
   nameOf: (person: OnlinePerson) => string,
 ): string {
   const names = pill.online.map(nameOf).join(", ");
-  // The visible text is cut short for the narrow pill; the name says it in full.
-  const text =
-    pill.kind === "waiting"
-      ? t("team.status.waiting")
-      : pill.kind === "problem"
-        ? t("team.status.attention")
-        : pillText(pill, t);
+  const text = stateText(pill, t);
   const state = names === "" ? text : `${text}: ${names}`;
   return t("teamPill.label", { state });
 }

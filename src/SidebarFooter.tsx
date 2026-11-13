@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { displayName, isSignedIn } from "./account";
+import { accountButtonText, isSignedIn } from "./account";
 import { Avatar } from "./Avatar";
 import { useT } from "./i18n";
 import {
@@ -15,23 +15,16 @@ import {
 import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
-import {
-  meInitials,
-  pillLabel,
-  pillText,
-  PILL_AVATARS,
-  teamPill,
-  type OnlinePerson,
-} from "./teamOverview";
+import { meInitials, pillLabel, teamPill, type OnlinePerson } from "./teamOverview";
 import type { Theme } from "./theme";
 import { useAccount } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
 /**
  * The sidebar's last row: who is signed in (a plain button: signed out it opens the Team window to
- * sign in, signed in Settings, Account), the team pill (who is online and whether something needs
- * the person; opens the Team window), the right panel's tabs, the light and dark switch and
- * Settings. The rail shows the same as icons.
+ * sign in, signed in Settings, Account; in a narrow sidebar only the avatar), the team pill (its
+ * state mark and how many people are online, the rest in its tooltip; opens the Team window), the
+ * right panel's tabs, the light and dark switch and Settings. The rail shows the same as icons.
  */
 export function SidebarFooter(props: {
   collapsed: boolean;
@@ -59,14 +52,12 @@ export function SidebarFooter(props: {
 
   const signedIn = isSignedIn(view);
   const user = view?.state.kind === "signedIn" ? view.state.user : null;
-  const name = user === null ? t("settings.account") : displayName(user);
   const requests = teamStore.pending.length + releaseRequests(teamStore.activities).length;
   const pill = teamPill(teamStore.statuses, teamStore.activities, requests);
   const nameOf = (person: OnlinePerson) => personName(person, t);
   const teamLabel = pillLabel(pill, t, nameOf);
   const settingsTitle = `${t("settings.title")} (${formatShortcut(SHORTCUT_LABELS.openSettings, t)})`;
-  const accountLabel = signedIn ? t("sidebar.account", { name }) : t("account.signIn");
-  const accountTitle = signedIn ? accountLabel : t("sidebar.signInHint");
+  const account = accountButtonText(view, t);
 
   const onAccountClick = () => {
     if (signedIn) props.onOpenAccount();
@@ -142,8 +133,8 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
         <button
           type="button"
           className="rail-account"
-          aria-label={accountLabel}
-          title={accountTitle}
+          aria-label={account.label}
+          title={account.title}
           onClick={onAccountClick}
         >
           <Avatar name="" text={meInitials(user)} size="small" />
@@ -155,18 +146,17 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
     );
   }
 
-  const shown = pill.online.slice(0, PILL_AVATARS);
   return (
     <div className="sidebar-footer">
       <button
         type="button"
         className="footer-account"
-        aria-label={accountLabel}
-        title={accountTitle}
+        aria-label={account.label}
+        title={account.title}
         onClick={onAccountClick}
       >
         <Avatar name="" text={meInitials(user)} />
-        <span className="footer-name">{signedIn ? name : t("account.signIn")}</span>
+        <span className="footer-name">{account.text}</span>
       </button>
       {signedIn && (
         <button
@@ -179,14 +169,9 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
           onClick={props.onToggleTeam}
         >
           <span className="team-mark" aria-hidden="true" />
-          {shown.length > 0 && (
-            <span className="team-pill-avatars" aria-hidden="true">
-              {shown.map((person) => (
-                <Avatar key={person.member} name={person.name} size="mini" />
-              ))}
-            </span>
-          )}
-          <span className="team-pill-text">{pillText(pill, t)}</span>
+          <span className="team-pill-count" aria-hidden="true">
+            {pill.online.length}
+          </span>
         </button>
       )}
       <span className="footer-side-tabs">{sideTabs}</span>

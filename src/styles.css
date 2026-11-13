@@ -75,7 +75,7 @@
   --heat-3: color-mix(in srgb, var(--accent) 24%, transparent);
   --heat-4: color-mix(in srgb, var(--accent) 34%, transparent);
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
-  --sidebar-width: 272px;
+  --sidebar-width: 320px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
   --sidebar-rail: 52px;
   /* Folding the sidebar: quick, settles softly, no overshoot. */
@@ -2009,70 +2009,6 @@ h2 .beta-badge {
   position: relative;
   flex: 1;
   min-height: 0;
-}
-
-/* The user's last prompt above the terminal: one quiet line, a click scrolls back to it. */
-.last-prompt {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  margin: 0 8px 6px 0;
-  padding: 4px 10px;
-  font-size: 12px;
-  text-align: left;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-  border-radius: 6px;
-}
-
-button.last-prompt:hover {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-}
-
-button.last-prompt:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.last-prompt-mark {
-  flex: none;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.last-prompt-text {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* Split panes have their own header; the bar sits inside the frame there. */
-.pane.split .last-prompt {
-  margin: 4px 6px 2px;
-}
-
-/* The line the prompt was sent from, lit for a moment after the jump. */
-.prompt-flash {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-  animation: prompt-flash 1.6s ease-out forwards;
-  pointer-events: none;
-}
-
-@keyframes prompt-flash {
-  to {
-    background: transparent;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .prompt-flash {
-    animation: none;
-  }
 }
 
 /* Split view: every pane gets a frame and a slim header; the focused one an accent edge. */
@@ -9439,6 +9375,7 @@ body.session-dragging .session-actions {
   gap: 4px;
   padding: 6px 6px 6px 8px;
   border-top: var(--hairline) solid var(--border);
+  container-type: inline-size;
 }
 
 .footer-account {
@@ -9463,6 +9400,14 @@ body.session-dragging .session-actions {
   font-size: 12.5px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Below this the name would shrink to a few letters: only the avatar stays, the name moves to the
+   tooltip and the accessible name. */
+@container (max-width: 359px) {
+  .footer-name {
+    display: none;
+  }
 }
 
 .footer-settings {
@@ -9490,7 +9435,7 @@ body.session-dragging .session-actions {
 }
 
 /* State mark of the team: a dot connected, a ring not connected, a dot with a slow halo while
-   something needs the person. The text (or the accessible name in the rail) always says it. */
+   something needs the person. The tooltip and the accessible name always say it in words. */
 .team-mark {
   position: relative;
   flex: none;
@@ -9541,13 +9486,12 @@ body.session-dragging .session-actions {
   }
 }
 
+/* The team pill: its state mark and how many people are online; the tooltip says the rest. */
 .team-pill {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: none;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 62%;
   height: 26px;
   padding: 0 9px 0 8px;
   font-size: 12px;
@@ -9578,20 +9522,10 @@ body.session-dragging .session-actions {
   outline-offset: 1px;
 }
 
-.team-pill-avatars {
-  display: inline-flex;
-  flex: none;
-}
-
-.team-pill-avatars .avatar + .avatar {
-  margin-left: -5px;
-}
-
-.team-pill-text {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.team-pill-count {
+  min-width: 1ch;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 /* The same in the rail: team, account and Settings as three icons. */

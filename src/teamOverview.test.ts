@@ -10,7 +10,6 @@ import {
   meInitials,
   onlinePeople,
   pillLabel,
-  pillText,
   shownProject,
   shownTab,
   teamPill,
@@ -99,19 +98,20 @@ describe("onlinePeople", () => {
 
 describe("teamPill", () => {
   const none = new Map<string, TeamActivity>();
+  const byName = (person: { name: string }) => person.name;
 
   it("is off without shared projects", () => {
     const pill = teamPill(new Map([["p1", { state: "off" }]]), none, 0);
     expect(pill.kind).toBe("off");
     expect(pill.tone).toBe("quiet");
-    expect(pillText(pill, t)).toBe("Not connected");
+    expect(pillLabel(pill, t, byName)).toBe("Team: Not connected");
   });
 
   it("puts open requests first", () => {
     const pill = teamPill(new Map([["p1", CONNECTED]]), none, 2);
     expect(pill.kind).toBe("requests");
     expect(pill.tone).toBe("attention");
-    expect(pillText(pill, t)).toContain("2");
+    expect(pillLabel(pill, t, byName)).toBe("Team: Requests: 2");
   });
 
   it("asks for attention while this device waits for its confirmation", () => {
@@ -125,6 +125,7 @@ describe("teamPill", () => {
     );
     expect(pill.kind).toBe("waiting");
     expect(pill.tone).toBe("attention");
+    expect(pillLabel(pill, t, byName)).toBe("Team: Waiting for confirmation");
   });
 
   it("asks for attention when a connection has a problem", () => {
@@ -146,13 +147,13 @@ describe("teamPill", () => {
     const pill = teamPill(statuses, new Map([["p1", activity([peer("anna"), peer("ben")])]]), 0);
     expect(pill.kind).toBe("connected");
     expect(pill.tone).toBe("ok");
-    expect(pillText(pill, t)).toBe("2 online");
-    expect(pillLabel(pill, t, (person) => person.name)).toContain("anna, ben");
+    expect(pill.online).toHaveLength(2);
+    expect(pillLabel(pill, t, byName)).toBe("Team: 2 online: anna, ben");
   });
 
   it("says connected when nobody else is online", () => {
     const pill = teamPill(new Map([["p1", CONNECTED]]), none, 0);
-    expect(pillText(pill, t)).toBe("Connected");
+    expect(pillLabel(pill, t, byName)).toBe("Team: Connected");
   });
 
   it("shows connecting without asking for attention", () => {

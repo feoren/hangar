@@ -17,7 +17,7 @@ import {
 const de = DICTIONARIES.de;
 const deKeys = Object.keys(de).sort();
 
-/** Texts with little room as a button, status or sidebar entry (sidebar from 200 px). */
+/** Texts with little room as a button, status or sidebar entry (sidebar from 305 px). */
 const SHORT_KEYS = [
   "sidebar.sessions",
   "sidebar.newSession",
@@ -38,8 +38,7 @@ const SHORT_KEYS = [
   "common.ok",
   "common.cancel",
   "common.close",
-  "teamPill.waiting",
-  "teamPill.problem",
+  "sidebar.signedIn",
   "teamPill.off",
   "teamWindow.tab.now",
   "teamWindow.tab.people",

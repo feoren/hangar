@@ -24,9 +24,12 @@ import {
 
 describe("limits", () => {
   it("sidebar width stays within the allowed range", () => {
-    expect(clampSidebarWidth(50)).toBe(SIDEBAR_WIDTH.min);
-    expect(clampSidebarWidth(5000)).toBe(SIDEBAR_WIDTH.max);
-    expect(clampSidebarWidth(300.6)).toBe(301);
+    expect(SIDEBAR_WIDTH.min).toBe(305);
+    expect(SIDEBAR_WIDTH.max).toBe(505);
+    expect(clampSidebarWidth(50)).toBe(305);
+    expect(clampSidebarWidth(304)).toBe(305);
+    expect(clampSidebarWidth(5000)).toBe(505);
+    expect(clampSidebarWidth(320.6)).toBe(321);
     expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_WIDTH.min);
   });
 
@@ -44,8 +47,10 @@ describe("limits", () => {
   });
 
   it("notes panel leaves room for the terminal", () => {
-    expect(clampNotesWidth(100)).toBe(NOTES_WIDTH.min);
-    expect(clampNotesWidth(5000)).toBe(NOTES_WIDTH.max);
+    expect(NOTES_WIDTH.min).toBe(305);
+    expect(NOTES_WIDTH.max).toBe(505);
+    expect(clampNotesWidth(100)).toBe(305);
+    expect(clampNotesWidth(5000)).toBe(505);
     expect(clampNotesWidth(600, 800)).toBe(480);
     // Very narrow window: the minimum wins.
     expect(clampNotesWidth(600, 300)).toBe(NOTES_WIDTH.min);
@@ -67,7 +72,7 @@ describe("placeNotes", () => {
     expect(placeNotes(380, 628, OVERLAY_BELOW - 1)).toEqual({ mode: "overlay", width: 380 });
     const tight = TERMINAL_MIN_WIDTH + NOTES_WIDTH.min - 1;
     expect(placeNotes(380, tight, 1200)).toEqual({ mode: "overlay", width: 380 });
-    expect(placeNotes(380, 200, 300)).toEqual({ mode: "overlay", width: 300 - OVERLAY_GAP });
+    expect(placeNotes(380, 200, 400)).toEqual({ mode: "overlay", width: 400 - OVERLAY_GAP });
     expect(placeNotes(100, 500, 720)).toEqual({ mode: "overlay", width: NOTES_WIDTH.min });
   });
 
@@ -104,6 +109,15 @@ describe("parseLayout", () => {
     });
   });
 
+  it("clamps remembered widths from before the 305 to 505 px range", () => {
+    const narrow = parseLayout(JSON.stringify({ sidebarWidth: 220, notesWidth: 240 }));
+    expect(narrow.sidebarWidth).toBe(305);
+    expect(narrow.notesWidth).toBe(305);
+    const wide = parseLayout(JSON.stringify({ sidebarWidth: 560, notesWidth: 900 }));
+    expect(wide.sidebarWidth).toBe(505);
+    expect(wide.notesWidth).toBe(505);
+  });
+
   it("replaces wrong types individually", () => {
     const layout = parseLayout(
       JSON.stringify({ sidebarWidth: "wide", collapsed: "yes", sideOpen: 1, notesWidth: "x" }),
@@ -115,10 +129,10 @@ describe("parseLayout", () => {
   });
 
   it("remembers the right panel and reads the older notes flag", () => {
-    const layout = parseLayout(JSON.stringify({ notesOpen: true, notesWidth: 520 }));
+    const layout = parseLayout(JSON.stringify({ notesOpen: true, notesWidth: 420 }));
     expect(layout.sideOpen).toBe(true);
     expect(layout.sideTab).toBe("notes");
-    expect(layout.notesWidth).toBe(520);
+    expect(layout.notesWidth).toBe(420);
     const changes = parseLayout(JSON.stringify({ sideOpen: true, sideTab: "changes" }));
     expect(changes.sideTab).toBe("changes");
     expect(parseLayout(JSON.stringify({ sideTab: "files" })).sideTab).toBe("files");
@@ -188,9 +202,9 @@ describe("sidebar groups", () => {
   it("load a layout from the time of the Sessions and Worktrees groups", () => {
     // Both made way for one group per program: their folds are dropped, the programs start open.
     const old = parseLayout(
-      JSON.stringify({ sidebarWidth: 300, closedGroups: ["sessions", "worktrees", "newSession"] }),
+      JSON.stringify({ sidebarWidth: 330, closedGroups: ["sessions", "worktrees", "newSession"] }),
     );
-    expect(old.sidebarWidth).toBe(300);
+    expect(old.sidebarWidth).toBe(330);
     expect(old.closedGroups).toEqual(["newSession"]);
     expect(old.closedAgentGroups).toEqual([]);
   });

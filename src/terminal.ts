@@ -4,7 +4,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal, type IMarker } from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
 
 import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
 import {
@@ -26,7 +26,6 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
-import { promptWorthShowing } from "./lastPrompt";
 import { PromptLineTracker } from "./promptTitle";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
@@ -148,12 +147,6 @@ export class SessionTerminal {
    */
   onPromptLine: ((line: string) => void) | null = null;
   private readonly promptLines = new PromptLineTracker();
-  /** Own tracker for the last prompt bar: it runs for the whole session, not just the first line. */
-  private readonly lastPromptLines = new PromptLineTracker();
-  /** The user's last prompt and a marker on the line it was sent from (lastPrompt.ts). */
-  private lastPromptEntry: { text: string; marker: IMarker | undefined } | null = null;
-  private lastPromptSnapshot: { text: string; reachable: boolean } | null = null;
-  private readonly lastPromptListeners = new Set<() => void>();
   /**
    * The newest local dev server address in the current process's output changed (devServer.ts);
    * `null` when the process ended or started again. Called on changes only, never per chunk.
@@ -231,7 +224,6 @@ export class SessionTerminal {
     this.term.onData((data) => {
       this.send(data);
       this.trackPrompt(data);
-      this.trackLastPrompt(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
@@ -609,7 +601,6 @@ export class SessionTerminal {
     this.typedSinceTaken = true;
     this.send("\r");
     this.trackPrompt("\r");
-    this.trackLastPrompt("\r");
   }
 
   /**
@@ -626,63 +617,6 @@ export class SessionTerminal {
   private trackPrompt(data: string): void {
     if (this.onPromptLine === null) return;
     for (const line of this.promptLines.feed(data)) this.emitPromptLine(line);
-  }
-
-  /** Agent sessions only: a shell's command line is no prompt to come back to. */
-  private trackLastPrompt(data: string): void {
-    const lines = this.lastPromptLines.feed(data);
-    if (lines.length === 0 || this.shellKind() !== "agent") return;
-    let changed = false;
-    for (const line of lines) {
-      const text = promptWorthShowing(line);
-      if (text === null) continue;
-      this.lastPromptEntry?.marker?.dispose();
-      // The cursor still stands on the prompt's line: the program has not answered yet.
-      this.lastPromptEntry = { text, marker: this.term.registerMarker(0) };
-      changed = true;
-    }
-    if (changed) for (const listener of this.lastPromptListeners) listener();
-  }
-
-  /** The bar above the terminal reads this; `null` until the user sent a prompt. Stable object. */
-  lastPrompt(): { text: string; reachable: boolean } | null {
-    const entry = this.lastPromptEntry;
-    if (entry === null) return null;
-    const reachable = entry.marker !== undefined && !entry.marker.isDisposed;
-    const snapshot = this.lastPromptSnapshot;
-    if (snapshot?.text !== entry.text || snapshot.reachable !== reachable) {
-      this.lastPromptSnapshot = { text: entry.text, reachable };
-    }
-    return this.lastPromptSnapshot;
-  }
-
-  subscribeLastPrompt(listener: () => void): () => void {
-    this.lastPromptListeners.add(listener);
-    return () => {
-      this.lastPromptListeners.delete(listener);
-    };
-  }
-
-  /**
-   * Scrolls back to the line the last prompt was sent from, with a short highlight, and gives the
-   * keyboard back to the terminal. `false` when the line has left the scrollback.
-   */
-  revealLastPrompt(): boolean {
-    const marker = this.lastPromptEntry?.marker;
-    if (marker === undefined || marker.isDisposed) return false;
-    // One line of context above it.
-    this.term.scrollToLine(Math.max(0, marker.line - 1));
-    const decoration = this.term.registerDecoration({ marker, width: this.term.cols });
-    if (decoration) {
-      decoration.onRender((element) => {
-        element.classList.add("prompt-flash");
-      });
-      setTimeout(() => {
-        decoration.dispose();
-      }, 1600);
-    }
-    this.term.focus();
-    return true;
   }
 
   /** Read anew per line: the listener may stop itself after the first one. */
@@ -795,8 +729,6 @@ export class SessionTerminal {
     this.onLink = null;
     this.onImagePasteFailed = null;
     this.onPromptLine = null;
-    this.lastPromptEntry?.marker?.dispose();
-    this.lastPromptListeners.clear();
     this.onDevServer = null;
     this.attentionListener = null;
     this.searchListener = null;
@@ -858,7 +790,12 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    const action = terminalKeyAction(event, this.term.hasSelection(), focusCycleActive);
+    const action = terminalKeyAction(
+      event,
+      this.term.hasSelection(),
+      focusCycleActive,
+      this.shellKind() === "agent",
+    );
     switch (action.kind) {
       case "app":
         // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
@@ -871,6 +808,15 @@ export class SessionTerminal {
       case "paste":
         // No preventDefault: the native paste event reaches handlePaste. Reading the clipboard
         // from script here failed silently in WebView2, so Ctrl+V pasted nothing.
+        return false;
+      case "newline":
+        // Also keeps the browser from putting a line break into xterm's hidden textarea.
+        event.preventDefault();
+        if (action.send !== null) {
+          this.typedSinceTaken = true;
+          this.attention.typed();
+          this.send(action.send);
+        }
         return false;
       case "terminal":
         return true;
