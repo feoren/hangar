@@ -4,6 +4,7 @@ pub mod account;
 pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
+pub mod avatar;
 pub mod batch;
 pub mod child_env;
 pub mod claims;
@@ -123,6 +124,7 @@ pub fn run() -> tauri::Result<()> {
                 }),
                 account_service::Options {
                     config_dir: Some(config_dir.clone()),
+                    avatar_dir: Some(app.path().app_local_data_dir()?.join(avatar::CACHE_DIR)),
                     ..account_service::Options::default()
                 },
             ));
@@ -414,6 +416,7 @@ pub fn run() -> tauri::Result<()> {
             commands::account_cancel_sign_in,
             commands::account_sign_out,
             commands::account_projects,
+            commands::account_avatar,
             commands::account_set_base_url,
             commands::account_open,
             commands::team_status,

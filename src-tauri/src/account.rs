@@ -159,6 +159,16 @@ impl BaseUrl {
             && url.password().is_none();
         fine.then_some(url)
     }
+
+    /// `text` as a URL when it lies on this server's origin ([`Self::same_origin`]) and below
+    /// the API's own path (`/api/v1/...`): the only addresses that get the access token, so it
+    /// never reaches another application on the same host. Dot segments are resolved by the
+    /// parser first (also percent-encoded ones), so `/api/v1/../x` does not pass.
+    pub fn same_api(&self, text: &str) -> Option<Url> {
+        let url = self.same_origin(text)?;
+        let prefix = format!("{}/", self.url.path().trim_end_matches('/'));
+        url.path().starts_with(&prefix).then_some(url)
+    }
 }
 
 impl Default for BaseUrl {
@@ -488,6 +498,18 @@ pub struct Me {
     pub seats_account_total: Option<u32>,
     #[serde(default)]
     pub seats_account_used: Option<u32>,
+    /// Where the profile picture is downloaded (by the backend, after the origin check); never
+    /// sent to the window. A value of the wrong type counts as missing, so it cannot cost the
+    /// window the person's name.
+    #[serde(default, skip_serializing, deserialize_with = "lenient_text")]
+    pub avatar_url: Option<String>,
+    /// The picture's SHA-256 (64 hex digits); changes with the picture. Anything else is ignored.
+    #[serde(default, skip_serializing, deserialize_with = "lenient_etag")]
+    pub avatar_etag: Option<String>,
+    /// Changes whenever the picture the backend holds changes; `None` without one (initials).
+    /// The picture itself comes through `account_avatar`, so the views stay small.
+    #[serde(default, skip_deserializing)]
+    pub avatar_version: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -633,6 +655,21 @@ fn optional_cleaned<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<String>, D::Error> {
     Option::<String>::deserialize(deserializer).map(|text| text.map(|text| clean_text(&text)))
+}
+
+/// A string, or `None` for anything else (an optional extra the person's details must survive).
+fn lenient_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(text) if !text.is_empty() => Ok(Some(text)),
+        _ => Ok(None),
+    }
+}
+
+fn lenient_etag<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    lenient_text(deserializer).map(|etag| {
+        etag.filter(|etag| crate::avatar::is_etag(etag))
+            .map(|etag| etag.to_ascii_lowercase())
+    })
 }
 
 fn optional_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
@@ -816,6 +853,9 @@ pub struct AccountView {
     pub state: AccountState,
     /// Other servers whose sign-in stays stored on this device (base addresses).
     pub other_sign_ins: Vec<String>,
+    /// Rises with every published change. Events and command answers travel on different
+    /// channels, so the window keeps a view only when it is not older than the one it shows.
+    pub revision: u64,
 }
 
 impl AccountView {
@@ -830,6 +870,7 @@ impl AccountView {
                 .filter(|other| *other != base)
                 .map(|other| other.as_str().to_owned())
                 .collect(),
+            revision: 0,
         }
     }
 }
@@ -1006,6 +1047,45 @@ mod tests {
         );
         let root = BaseUrl::parse("https://example.test").unwrap();
         assert_eq!(root.endpoint("/me").as_str(), "https://example.test/me");
+    }
+
+    #[test]
+    fn only_addresses_below_the_api_get_the_token() {
+        let base = base();
+        let api = base.as_str();
+        assert!(base.same_api(&format!("{api}/me/avatar?v=0123")).is_some());
+        let origin = base.devices_page().origin().ascii_serialization();
+        for refused in [
+            format!("{origin}/other-app/avatar"),
+            format!("{origin}/api/v10/me/avatar"),
+            format!("{api}/../../other/avatar"),
+            format!("{api}/%2e%2e/%2e%2e/other"),
+            format!("{origin}/api/v1"),
+            "https://elsewhere.test/api/v1/me/avatar".to_owned(),
+        ] {
+            assert!(base.same_api(&refused).is_none(), "{refused}");
+        }
+        let root = BaseUrl::parse("https://example.test").unwrap();
+        assert!(root.same_api("https://example.test/me/avatar").is_some());
+    }
+
+    #[test]
+    fn origins_compare_after_normalization() {
+        let base = BaseUrl::parse("https://example.test/api/v1").unwrap();
+        // The default port is the same origin; another port or a trailing dot is not.
+        assert!(base
+            .same_origin("https://example.test:443/api/v1/me")
+            .is_some());
+        assert!(base.same_origin("https://EXAMPLE.test/api/v1/me").is_some());
+        assert!(base
+            .same_origin("https://example.test:8443/api/v1/me")
+            .is_none());
+        assert!(base
+            .same_origin("https://example.test./api/v1/me")
+            .is_none());
+        assert!(base
+            .same_api("https://example.test.:443/api/v1/me")
+            .is_none());
     }
 
     #[test]
@@ -1261,6 +1341,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(me.name.as_deref(), Some("Ada"));
+    }
+
+    #[test]
+    fn me_reads_the_avatar_fields_but_never_sends_them_to_the_window() {
+        let etag = "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08";
+        let body = format!(
+            r#"{{"id":"7","email":"a@example.test","name":"Ada","locale":null,
+                "seats_account_total":3,"seats_account_used":1,
+                "avatar_url":"https://example.test/api/v1/me/avatar?v=0123456789abcdef",
+                "avatar_etag":"{etag}"}}"#
+        );
+        let me: Me = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            me.avatar_url.as_deref(),
+            Some("https://example.test/api/v1/me/avatar?v=0123456789abcdef")
+        );
+        assert_eq!(me.avatar_etag, Some(etag.to_ascii_lowercase()));
+        assert_eq!(me.avatar_version, None);
+        let json = serde_json::to_value(&me).unwrap();
+        assert_eq!(json["avatarVersion"], serde_json::Value::Null);
+        assert!(json.get("avatar").is_none());
+        assert!(json.get("avatarUrl").is_none() && json.get("avatarEtag").is_none());
+        assert!(!json.to_string().contains("me/avatar"));
+        // Without the fields, with null, or with a wrong type: no picture, the rest stays.
+        for extra in [
+            "",
+            r#","avatar_url":null,"avatar_etag":null"#,
+            r#","avatar_url":42,"avatar_etag":"short""#,
+        ] {
+            let me: Me =
+                serde_json::from_str(&format!(r#"{{"id":"7","email":"a@example.test"{extra}}}"#))
+                    .unwrap();
+            assert_eq!((me.avatar_url, me.avatar_etag), (None, None), "{extra}");
+        }
     }
 
     #[test]

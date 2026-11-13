@@ -488,6 +488,8 @@ export const api = {
   accountSignOut: () => invoke<unknown>("account_sign_out"),
   /** The account's projects, fresh from the server. */
   accountProjects: () => invoke<unknown>("account_projects"),
+  /** The signed-in person's picture as a `data:` URL, `null` without one. */
+  accountAvatar: () => invoke<unknown>("account_avatar"),
   /** `null`: the official service. Rejects when the address is not https (or loopback http). */
   accountSetBaseUrl: (baseUrl: string | null) =>
     invoke<unknown>("account_set_base_url", { baseUrl }),

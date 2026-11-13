@@ -36,6 +36,11 @@ export interface Me {
   name: string | null;
   seatsAccountTotal: number | null;
   seatsAccountUsed: number | null;
+  /**
+   * Changes whenever the backend holds another profile picture; `null` without one (initials).
+   * The picture itself comes from `account_avatar` (see `nextAvatarFetch`).
+   */
+  avatarVersion: number | null;
 }
 
 /** The sign-in state machine (Rust: `AccountState`). */
@@ -62,6 +67,8 @@ export interface AccountView {
   state: AccountState;
   /** Other servers whose sign-in stays stored on this device (base addresses). */
   otherSignIns: string[];
+  /** Rises with every published change; an older view never replaces a newer one. */
+  revision: number;
 }
 
 export type Role = "owner" | "admin" | "member" | "other";
@@ -146,6 +153,13 @@ function optionalCount(value: unknown): number | null | undefined {
   return isCount(value) ? value : undefined;
 }
 
+const AVATAR_PREFIX = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/** The picture only as a `data:` URL of an allowed type; anything else shows initials. */
+export function avatarSource(value: unknown): string | null {
+  return typeof value === "string" && AVATAR_PREFIX.test(value) ? value : null;
+}
+
 function parseMe(value: unknown): Me | null {
   const id = text(field(value, "id"));
   const email = text(field(value, "email"));
@@ -154,7 +168,9 @@ function parseMe(value: unknown): Me | null {
   const used = optionalCount(field(value, "seatsAccountUsed"));
   if (id === null || email === null || name === undefined) return null;
   if (total === undefined || used === undefined) return null;
-  return { id, email, name, seatsAccountTotal: total, seatsAccountUsed: used };
+  const version = field(value, "avatarVersion");
+  const avatarVersion = isCount(version) ? version : null;
+  return { id, email, name, seatsAccountTotal: total, seatsAccountUsed: used, avatarVersion };
 }
 
 function parseState(value: unknown): AccountState | null {
@@ -186,10 +202,9 @@ function parseState(value: unknown): AccountState | null {
       };
     }
     case "signedIn": {
-      const user = field(value, "user");
-      if (user === null || user === undefined) return { kind: "signedIn", user: null };
-      const me = parseMe(user);
-      return me === null ? null : { kind: "signedIn", user: me };
+      // A malformed person must not cost the window the whole view (it would keep showing an
+      // older one, perhaps signed out): signed in without details, like before `/me` answered.
+      return { kind: "signedIn", user: parseMe(field(value, "user")) };
     }
     case "failed": {
       const reason = field(value, "reason");
@@ -210,11 +225,43 @@ export function parseAccountView(value: unknown): AccountView | null {
   const devicesUrl = text(field(value, "devicesUrl"));
   const state = parseState(field(value, "state"));
   const otherSignIns = list(field(value, "otherSignIns"), text);
+  const revision = field(value, "revision") ?? 0;
   if (baseUrl === null || devicesUrl === null || typeof official !== "boolean" || state === null) {
     return null;
   }
-  if (otherSignIns === null) return null;
-  return { baseUrl, official, devicesUrl, state, otherSignIns };
+  if (otherSignIns === null || !isCount(revision)) return null;
+  return { baseUrl, official, devicesUrl, state, otherSignIns, revision };
+}
+
+/**
+ * Whether `next` may replace the view on screen. Events and command answers reach the window on
+ * different channels, so an answer computed before an event can arrive after it; its lower
+ * revision gives it away. An equal revision is the same publication or a fresher answer.
+ */
+export function isCurrentView(previous: AccountView | null, next: AccountView): boolean {
+  return previous === null || next.revision >= previous.revision;
+}
+
+/** Pauses before the window asks again for a sign-in that still lacks the person's details. */
+export const USER_RECHECK_MS: readonly number[] = [20_000, 60_000, 180_000];
+
+/** The picture marker of the signed-in person, `null` without a picture or sign-in. */
+export function avatarMarker(view: AccountView | null): number | null {
+  return view?.state.kind === "signedIn" ? (view.state.user?.avatarVersion ?? null) : null;
+}
+
+/**
+ * Which picture version to ask the backend for: the view's marker when it differs from the one
+ * already requested, else `null` (nothing to do; also when there is no picture).
+ */
+export function nextAvatarFetch(requested: number | null, view: AccountView | null): number | null {
+  const wanted = avatarMarker(view);
+  return wanted !== null && wanted !== requested ? wanted : null;
+}
+
+/** Signed in, but the backend has not delivered who (yet). */
+export function lacksUser(view: AccountView | null): boolean {
+  return view?.state.kind === "signedIn" && view.state.user === null;
 }
 
 function parseProject(value: unknown): Project | null {

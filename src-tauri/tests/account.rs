@@ -13,7 +13,7 @@ use hangar_lib::account::{
     load_config, AccountError, AccountPage, AccountState, AccountView, BaseUrl, FailKind,
     IdleNotice, KEYCHAIN_SERVICE,
 };
-use hangar_lib::account_api::AccountApi;
+use hangar_lib::account_api::{AccountApi, ApiError};
 use hangar_lib::account_service::{AccountService, Options};
 use hangar_lib::secrets::{SecretError, SecretStore};
 use zeroize::Zeroizing;
@@ -71,6 +71,34 @@ struct MockState {
     revocations: Vec<serde_json::Value>,
     /// The OAuth error `/oauth/revoke` answers with instead of 200.
     revoke_failure: Option<&'static str>,
+    /// `GET /me` requests, and how many of the next ones answer 503.
+    me_requests: u32,
+    me_failures: u32,
+    /// The profile picture `/me` names: content type, bytes and etag.
+    avatar: Option<(&'static str, Vec<u8>, String)>,
+    /// Origin of `avatar_url`; the server's own unless set.
+    avatar_origin: Option<String>,
+    /// `If-None-Match` of every picture request.
+    avatar_requests: Vec<Option<String>>,
+    /// Path of `avatar_url`; `/api/v1/me/avatar` unless set.
+    avatar_path: Option<String>,
+    /// How the picture endpoint answers.
+    avatar_mode: AvatarMode,
+    /// Requests that reached an address the client must never call (a redirect target, a path
+    /// outside the API).
+    forbidden_hits: u32,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum AvatarMode {
+    #[default]
+    Normal,
+    /// 401 even for a valid access token.
+    Unauthorized,
+    /// 302 to another address on the same server.
+    Redirect,
+    /// A chunked body without `Content-Length`, larger than the limit.
+    Endless,
 }
 
 struct Rotation {
@@ -125,6 +153,7 @@ struct Request {
     method: String,
     path: String,
     bearer: Option<String>,
+    if_none_match: Option<String>,
     body: serde_json::Value,
 }
 
@@ -176,10 +205,12 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
         .get("authorization")
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::to_owned);
+    let if_none_match = headers.get("if-none-match").cloned();
     Some(Request {
         method,
         path,
         bearer,
+        if_none_match,
         body,
     })
 }
@@ -443,14 +474,28 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
             }
         }
         ("GET", "/api/v1/me") => {
-            let state = guard(shared);
-            if authorized(&state, &request) {
+            let mut state = guard(shared);
+            state.me_requests += 1;
+            if state.me_failures > 0 && authorized(&state, &request) {
+                state.me_failures -= 1;
+                drop(state);
+                problem(&mut stream, 503, "busy", "Try again");
+            } else if authorized(&state, &request) {
                 drop(state);
                 // `seats_account_used` counts members only, the owner included.
-                let value = serde_json::json!({
+                let mut value = serde_json::json!({
                     "id": "7", "email": "ada@example.test", "name": "Ada", "locale": "de",
                     "seats_account_total": 3, "seats_account_used": 2,
+                    "avatar_url": null, "avatar_etag": null,
                 });
+                let state = guard(shared);
+                if let Some((_, _, etag)) = &state.avatar {
+                    let pages = state.avatar_origin.as_deref().unwrap_or(origin);
+                    let path = state.avatar_path.as_deref().unwrap_or("/api/v1/me/avatar");
+                    value["avatar_url"] = format!("{pages}{path}?v={}", &etag[..16]).into();
+                    value["avatar_etag"] = etag.clone().into();
+                }
+                drop(state);
                 json(&mut stream, 200, &value);
             } else {
                 drop(state);
@@ -495,6 +540,76 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
                 drop(state);
                 problem(&mut stream, 404, "not_found", "No such project");
             }
+        }
+        ("GET", path) if path.starts_with("/api/v1/me/avatar") => {
+            let mut state = guard(shared);
+            state.avatar_requests.push(request.if_none_match.clone());
+            let mode = state.avatar_mode;
+            if !authorized(&state, &request) || mode == AvatarMode::Unauthorized {
+                drop(state);
+                problem(&mut stream, 401, "unauthorized", "Sign in again");
+                return;
+            }
+            if mode == AvatarMode::Redirect {
+                drop(state);
+                let text = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: {origin}/elsewhere/avatar\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = stream.write_all(text.as_bytes());
+                return;
+            }
+            if mode == AvatarMode::Endless {
+                drop(state);
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\n\
+                            Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+                if stream.write_all(head.as_bytes()).is_err() {
+                    return;
+                }
+                let mut chunk = WEBP.to_vec();
+                chunk.resize(64 * 1024, 0);
+                // 4 MiB at most; the client stops reading after 1 MiB.
+                for _ in 0..64 {
+                    let frame = format!("{:x}\r\n", chunk.len());
+                    let sent = stream
+                        .write_all(frame.as_bytes())
+                        .and_then(|()| stream.write_all(&chunk))
+                        .and_then(|()| stream.write_all(b"\r\n"));
+                    if sent.is_err() {
+                        return;
+                    }
+                }
+                let _ = stream.write_all(b"0\r\n\r\n");
+                return;
+            }
+            let Some((content_type, bytes, etag)) = state.avatar.clone() else {
+                drop(state);
+                problem(&mut stream, 404, "not_found", "No picture");
+                return;
+            };
+            drop(state);
+            let quoted = format!("\"{etag}\"");
+            if request.if_none_match.as_deref() == Some(quoted.as_str()) {
+                let text = format!(
+                    "HTTP/1.1 304 Not Modified\r\nETag: {quoted}\r\nConnection: close\r\n\r\n"
+                );
+                let _ = stream.write_all(text.as_bytes());
+                return;
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
+                 ETag: {quoted}\r\nCache-Control: private, max-age=86400\r\n\
+                 Connection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&bytes);
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+        }
+        ("GET", path) if path.starts_with("/elsewhere") || path.starts_with("/other-app") => {
+            guard(shared).forbidden_hits += 1;
+            respond(&mut stream, 200, "image/webp", "RIFF");
         }
         ("GET" | "POST", "/api/v1/devices") => {
             problem(&mut stream, 501, "not_implemented", "Later")
@@ -604,6 +719,16 @@ impl Harness {
         config_dir: Option<std::path::PathBuf>,
         keychain_service: &str,
     ) -> Self {
+        Self::built(mock, store, config_dir, keychain_service, None)
+    }
+
+    fn built(
+        mock: Mock,
+        store: Arc<MemoryStore>,
+        config_dir: Option<std::path::PathBuf>,
+        keychain_service: &str,
+        avatar_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         let opened = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(Vec::new()));
         let record = Arc::clone(&opened);
@@ -624,6 +749,7 @@ impl Harness {
                 keychain_service: keychain_service.to_owned(),
                 device_name: "Test machine".to_owned(),
                 platform: "test".to_owned(),
+                avatar_dir,
             },
         );
         Self {
@@ -1030,6 +1156,7 @@ fn a_server_change_that_cannot_be_saved_ends_the_waiting_flow() {
             keychain_service: KEYCHAIN_SERVICE.to_owned(),
             device_name: "Test machine".to_owned(),
             platform: "test".to_owned(),
+            avatar_dir: None,
         },
     );
     run(async {
@@ -1367,4 +1494,317 @@ fn a_second_refusal_ends_the_session_under_the_process_lock() {
     assert_eq!(store.unlocked_writes(), Vec::<&str>::new());
     assert!(load_config(&dir).signed_in_for(KEYCHAIN_SERVICE).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failed_me_is_retried_until_the_user_arrives() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    harness.mock.state().me_failures = 2;
+    run(async {
+        assert!(matches!(
+            harness.service.status().await.state,
+            AccountState::SignedIn { user: None }
+        ));
+        harness.until("user loaded", signed_in_with_user).await;
+    });
+    assert_eq!(harness.mock.state().me_requests, 3);
+    // The window got the person, not only the backend.
+    let last = guard(&harness.events).last().cloned().unwrap();
+    assert!(last.contains("ada@example.test"), "{last}");
+}
+
+#[test]
+fn status_loads_the_user_when_another_caller_read_the_sign_in() {
+    // A team connection asks for a relay ticket before the window's first status: the sign-in is
+    // read from the keychain on that path, and the status must still learn who is signed in.
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    run(async {
+        harness.service.relay_ticket("317").await.unwrap();
+        assert!(matches!(
+            harness.service.status().await.state,
+            AccountState::SignedIn { .. }
+        ));
+        harness.until("user loaded", signed_in_with_user).await;
+    });
+}
+
+const AVATAR_ETAG: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+const WEBP: &[u8] = b"RIFF\x10\0\0\0WEBPVP8 picture";
+
+impl Harness {
+    /// Waits until the picture the backend holds satisfies `done`.
+    async fn until_avatar(
+        &self,
+        what: &str,
+        done: impl Fn(Option<&str>) -> bool,
+    ) -> Option<String> {
+        let start = Instant::now();
+        loop {
+            let avatar = self.service.avatar();
+            if done(avatar.as_deref()) {
+                return avatar;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "{what}");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// Waits until the mock saw `count` picture requests, then a little longer.
+    async fn until_avatar_requests(&self, count: usize) {
+        let start = Instant::now();
+        while self.mock.state().avatar_requests.len() < count {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "picture requests"
+            );
+            tokio::time::sleep(UNIT).await;
+        }
+        tokio::time::sleep(UNIT * 5).await;
+    }
+}
+
+fn avatar_marker(state: &AccountState) -> Option<u64> {
+    match state {
+        AccountState::SignedIn { user: Some(me) } => me.avatar_version,
+        _ => None,
+    }
+}
+
+/// A started service with a picture cache in `dir`, signed in from the keychain.
+fn with_avatar(mock: Mock, dir: &std::path::Path) -> Harness {
+    let store = Arc::new(MemoryStore::default());
+    let harness = Harness::built(
+        mock,
+        store,
+        None,
+        KEYCHAIN_SERVICE,
+        Some(dir.join("account-avatar")),
+    );
+    harness.stored_sign_in();
+    harness
+}
+
+#[test]
+fn the_profile_picture_is_downloaded_cached_and_reused() {
+    let dir = temp_dir("account-avatar");
+    let mock = Mock::start();
+    mock.state().avatar = Some(("image/webp", WEBP.to_vec(), AVATAR_ETAG.to_owned()));
+    let first = with_avatar(mock.clone(), &dir);
+    let data = run(async {
+        first.service.status().await;
+        first.until_avatar("picture", |a| a.is_some()).await
+    })
+    .unwrap();
+    assert!(data.starts_with("data:image/webp;base64,"), "{data}");
+    assert_eq!(mock.state().avatar_requests, [None]);
+    // The view carries only a marker; neither the picture, the remote address nor a token
+    // reaches the window's events.
+    run(first.until("marker", |s| avatar_marker(s).is_some()));
+    for event in guard(&first.events).iter() {
+        assert!(
+            !event.contains("/me/avatar") && !event.contains("base64"),
+            "{event}"
+        );
+    }
+    first.assert_events_clean();
+
+    // The next start: the etag is unchanged, the cached picture is shown without a request.
+    let second = with_avatar(mock.clone(), &dir);
+    run(async {
+        second.service.status().await;
+        second.until("user", signed_in_with_user).await;
+    });
+    assert_eq!(second.service.avatar(), Some(data.clone()));
+    assert!(avatar_marker(&second.service.view().state).is_some());
+    assert_eq!(mock.state().avatar_requests.len(), 1);
+
+    // A new picture: downloaded with the cached etag as If-None-Match, then shown.
+    let changed = "a".repeat(64);
+    mock.state().avatar = Some(("image/png", b"\x89PNG\r\n\x1a\nnew".to_vec(), changed));
+    let third = with_avatar(mock.clone(), &dir);
+    run(async {
+        third.service.status().await;
+        third
+            .until_avatar("new picture", |a| {
+                a.is_some_and(|d| d.starts_with("data:image/png;"))
+            })
+            .await;
+    });
+    assert_eq!(
+        mock.state().avatar_requests.last().cloned().flatten(),
+        Some(format!("\"{AVATAR_ETAG}\""))
+    );
+
+    // Sign-out removes the cached copy.
+    run(async {
+        third.service.sign_out().await.unwrap();
+    });
+    assert!(!dir.join("account-avatar").join("avatar.img").exists());
+    assert_eq!(third.service.avatar(), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_profile_picture_elsewhere_or_of_the_wrong_kind_is_refused() {
+    let dir = temp_dir("account-avatar-refused");
+    let mock = Mock::start();
+    mock.state().avatar = Some(("image/webp", WEBP.to_vec(), AVATAR_ETAG.to_owned()));
+    mock.state().avatar_origin = Some("https://elsewhere.example.test".to_owned());
+    let foreign = with_avatar(mock.clone(), &dir);
+    run(async {
+        foreign.service.status().await;
+        foreign.until("user", signed_in_with_user).await;
+        tokio::time::sleep(UNIT * 5).await;
+    });
+    assert_eq!(foreign.service.avatar(), None);
+    assert!(mock.state().avatar_requests.is_empty());
+
+    // On the server's own origin, but outside its API path: the token stays home.
+    mock.state().avatar_origin = None;
+    mock.state().avatar_path = Some("/other-app/avatar".to_owned());
+    let outside = with_avatar(mock.clone(), &dir);
+    run(async {
+        outside.service.status().await;
+        outside.until("user", signed_in_with_user).await;
+        tokio::time::sleep(UNIT * 5).await;
+    });
+    assert_eq!(outside.service.avatar(), None);
+    assert_eq!(mock.state().forbidden_hits, 0);
+    mock.state().avatar_path = None;
+
+    // On the server's own address, but an SVG and a picture over 1 MiB are refused.
+    mock.state().avatar_origin = None;
+    for (content_type, bytes) in [
+        ("image/svg+xml", b"<svg/>".to_vec()),
+        ("image/webp", {
+            let mut large = WEBP.to_vec();
+            large.resize(1024 * 1024 + 1, 0);
+            large
+        }),
+    ] {
+        mock.state().avatar = Some((content_type, bytes, AVATAR_ETAG.to_owned()));
+        let before = mock.state().avatar_requests.len();
+        let harness = with_avatar(mock.clone(), &dir);
+        run(async {
+            harness.service.status().await;
+            harness.until("user", signed_in_with_user).await;
+            let start = Instant::now();
+            while mock.state().avatar_requests.len() == before {
+                assert!(start.elapsed() < Duration::from_secs(10));
+                tokio::time::sleep(UNIT).await;
+            }
+            tokio::time::sleep(UNIT * 5).await;
+        });
+        assert_eq!(harness.service.avatar(), None, "{content_type}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn published_views_carry_a_rising_revision() {
+    let harness = Harness::new();
+    harness.stored_sign_in();
+    run(async {
+        harness.service.status().await;
+        harness.until("user", signed_in_with_user).await;
+    });
+    let revisions: Vec<u64> = guard(&harness.events)
+        .iter()
+        .map(|event| {
+            serde_json::from_str::<serde_json::Value>(event).unwrap()["revision"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect();
+    assert!(revisions.len() >= 2, "{revisions:?}");
+    assert!(
+        revisions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{revisions:?}"
+    );
+    // A command answer carries the revision of the newest published view.
+    assert_eq!(harness.service.view().revision, *revisions.last().unwrap());
+}
+
+#[test]
+fn avatar_401_twice_keeps_the_sign_in() {
+    let dir = temp_dir("account-avatar-refused-token");
+    let mock = Mock::start();
+    mock.state().avatar = Some(("image/webp", WEBP.to_vec(), AVATAR_ETAG.to_owned()));
+    mock.state().avatar_mode = AvatarMode::Unauthorized;
+    let harness = with_avatar(mock.clone(), &dir);
+    run(async {
+        harness.service.status().await;
+        harness.until("user", signed_in_with_user).await;
+        // One try, one ordinary refresh, one more try; then only the picture is dropped.
+        harness.until_avatar_requests(2).await;
+        assert_eq!(harness.service.avatar(), None);
+        assert!(signed_in_with_user(&harness.service.view().state));
+        harness.service.projects().await.unwrap();
+    });
+    let state = mock.state();
+    assert_eq!(state.avatar_requests.len(), 2);
+    assert_eq!(
+        state.refreshes, 2,
+        "the start's refresh and one after the first 401"
+    );
+    assert!(!state.revoked);
+    drop(state);
+    assert!(
+        harness.store.value(&harness.account()).is_some(),
+        "still signed in"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_picture_client_follows_no_redirect_and_stops_at_the_limit() {
+    let mock = Mock::start();
+    let api = AccountApi::new(mock.base()).unwrap();
+    let token = {
+        let mut state = mock.state();
+        state.issued = 60;
+        state.avatar = Some(("image/webp", WEBP.to_vec(), AVATAR_ETAG.to_owned()));
+        let value = issue(&mut state);
+        value["access_token"].as_str().unwrap().to_owned()
+    };
+    let url = format!("{}/me/avatar?v=0123456789abcdef", mock.base().as_str());
+    run(async {
+        mock.state().avatar_mode = AvatarMode::Redirect;
+        let redirected = api.avatar(&url, &token, None).await.unwrap_err();
+        assert!(
+            matches!(redirected, ApiError::Status { status: 302, .. }),
+            "{redirected:?}"
+        );
+        assert_eq!(
+            mock.state().forbidden_hits,
+            0,
+            "the redirect was not followed"
+        );
+
+        // No Content-Length, chunks beyond 1 MiB: reading stops at the limit.
+        mock.state().avatar_mode = AvatarMode::Endless;
+        let endless = api.avatar(&url, &token, None).await.unwrap_err();
+        assert_eq!(endless, ApiError::TooLarge);
+
+        // A 401 is a plain status error here, never the sign-in's `Unauthorized`.
+        mock.state().avatar_mode = AvatarMode::Unauthorized;
+        let refused = api.avatar(&url, &token, None).await.unwrap_err();
+        assert!(
+            matches!(refused, ApiError::Status { status: 401, .. }),
+            "{refused:?}"
+        );
+        assert_eq!(refused.summary(), "HTTP 401 (unauthorized)");
+
+        // Outside the API path the token is never sent.
+        let before = mock.state().avatar_requests.len();
+        let outside = format!("{}/other-app/avatar", mock.origin);
+        assert_eq!(
+            api.avatar(&outside, &token, None).await.unwrap_err(),
+            ApiError::Malformed
+        );
+        assert_eq!(mock.state().avatar_requests.len(), before);
+        assert_eq!(mock.state().forbidden_hits, 0);
+    });
 }

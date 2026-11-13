@@ -19,7 +19,12 @@
 //!   [`IdleNotice::SessionEnded`]. Signing out revokes the device on the server first (RFC 7009,
 //!   best effort).
 //! - Every state change goes to the window through `emit` ([`AccountView`]); no token is part of
-//!   it, and no log line names one.
+//!   it, and no log line names one. Each published view carries a rising `revision`, so the window
+//!   can drop a command answer that was computed before an event it already shows.
+//! - The person's details (`/me`) load in the background whenever the state is `signedIn` without
+//!   them: after a sign-in, on every status and every project list. A failed load is retried with
+//!   a doubling pause ([`USER_ATTEMPTS`] in all); the next status or project list starts again.
+//!   The profile picture comes with them ([`crate::avatar`]).
 
 use std::fs::File;
 use std::future::Future;
@@ -35,7 +40,8 @@ use crate::account::{
     self, AccountError, AccountPage, AccountState, AccountView, BaseUrl, DevicePoll, FailKind,
     FailReason, IdleNotice, OAuthCode, PollStep, Project, TokenSet,
 };
-use crate::account_api::{AccountApi, ApiError};
+use crate::account_api::{AccountApi, ApiError, AvatarAnswer};
+use crate::avatar::{AvatarCache, Cached};
 use crate::lock;
 use crate::secrets::{SecretError, SecretStore};
 
@@ -55,6 +61,9 @@ pub struct Options {
     pub keychain_service: String,
     pub device_name: String,
     pub platform: String,
+    /// Where the profile picture is cached (the app's local data folder plus
+    /// [`crate::avatar::CACHE_DIR`]); `None` keeps no copy.
+    pub avatar_dir: Option<PathBuf>,
 }
 
 impl Default for Options {
@@ -65,9 +74,14 @@ impl Default for Options {
             keychain_service: account::KEYCHAIN_SERVICE.to_owned(),
             device_name: account::device_name(),
             platform: account::platform().to_owned(),
+            avatar_dir: None,
         }
     }
 }
+
+/// Attempts of one background load of `/me`; the pauses between them double from one unit
+/// (1 s, 2 s, 4 s, 8 s).
+pub const USER_ATTEMPTS: u32 = 5;
 
 #[derive(Clone)]
 pub struct AccountService {
@@ -85,6 +99,9 @@ struct Inner {
     core: Mutex<Core>,
     /// Held across every refresh and every change of the stored tokens.
     refresh_gate: tokio::sync::Mutex<()>,
+    /// Held across every write and removal of the cached picture, so a download that finishes
+    /// during a sign-out cannot write the picture back after the sign-out removed it.
+    avatar_gate: tokio::sync::Mutex<()>,
     /// Wakes a waiting poll when its flow was cancelled.
     cancel: Notify,
 }
@@ -106,6 +123,18 @@ struct Core {
     /// The last rotated token could not be written: the keychain holds a spent one, so a refresh
     /// uses the token in memory instead of the stored one.
     keychain_behind: bool,
+    /// Rises with every published view ([`AccountView::revision`]).
+    revision: u64,
+    /// Rises whenever the signed-in person may have changed (sign-in, sign-out, server change), so
+    /// details loaded for an earlier one are dropped.
+    epoch: u64,
+    /// The epoch a background load of `/me` runs for, if one does.
+    user_loader: Option<u64>,
+    /// The signed-in person's picture as a `data:` URL, served by `account_avatar`; the views
+    /// carry only [`account::Me::avatar_version`].
+    avatar: Option<String>,
+    /// Rises with every change of `avatar`.
+    avatar_version: u64,
 }
 
 enum Slot {
@@ -169,7 +198,14 @@ impl Core {
     }
 
     fn view(&self) -> AccountView {
-        AccountView::new(&self.base, self.state.clone(), &self.signed_in)
+        let mut view = AccountView::new(&self.base, self.state.clone(), &self.signed_in);
+        view.revision = self.revision;
+        view
+    }
+
+    /// Signed in, but without the person's details yet.
+    fn needs_user(&self) -> bool {
+        matches!(self.state, AccountState::SignedIn { user: None })
     }
 
     /// Why there is no token: a caller that waited while another refresh was refused learns that
@@ -183,7 +219,32 @@ impl Core {
         }
     }
 
+    /// Another person may be signed in from now on: their details and picture start over.
+    fn next_epoch(&mut self) {
+        self.epoch += 1;
+        self.set_avatar(None);
+    }
+
+    /// Replaces the picture; `true` when it changed. The view's marker follows it.
+    fn set_avatar(&mut self, picture: Option<String>) -> bool {
+        if self.avatar == picture {
+            return false;
+        }
+        self.avatar = picture;
+        self.avatar_version += 1;
+        let marker = self.avatar_marker();
+        if let AccountState::SignedIn { user: Some(me) } = &mut self.state {
+            me.avatar_version = marker;
+        }
+        true
+    }
+
+    fn avatar_marker(&self) -> Option<u64> {
+        self.avatar.is_some().then_some(self.avatar_version)
+    }
+
     fn clear(&mut self, notice: IdleNotice) {
+        self.next_epoch();
         self.tokens = Slot::Empty;
         self.state = AccountState::Idle {
             notice: Some(notice),
@@ -286,8 +347,14 @@ impl AccountService {
                     projects: Vec::new(),
                     signed_in,
                     keychain_behind: false,
+                    revision: 0,
+                    epoch: 0,
+                    user_loader: None,
+                    avatar: None,
+                    avatar_version: 0,
                 }),
                 refresh_gate: tokio::sync::Mutex::new(()),
+                avatar_gate: tokio::sync::Mutex::new(()),
                 cancel: Notify::new(),
             }),
         }
@@ -347,7 +414,11 @@ impl AccountService {
     }
 
     fn publish(&self) {
-        let view = self.view();
+        let view = {
+            let mut core = lock(&self.inner.core);
+            core.revision += 1;
+            core.view()
+        };
         (self.inner.emit)(&view);
         let listeners = lock(&self.inner.listeners).clone();
         for listener in listeners {
@@ -361,13 +432,62 @@ impl AccountService {
         self.view()
     }
 
-    /// Reads the keychain if not done yet; a stored sign-in then learns the person's name in
-    /// the background.
+    /// Reads the keychain if not done yet; a sign-in without the person's details then learns
+    /// them in the background, however the sign-in was read (another caller may have read it
+    /// first, on the token path, which publishes nothing).
     async fn ensure_loaded(&self) {
         if self.load_tokens().await {
             self.publish();
-            let service = self.clone();
-            tauri::async_runtime::spawn(async move { service.fetch_me().await });
+        }
+        self.ensure_user();
+    }
+
+    /// Starts the background load of `/me` when signed in without details and none runs for the
+    /// current sign-in.
+    fn ensure_user(&self) {
+        let epoch = {
+            let mut core = lock(&self.inner.core);
+            if !core.needs_user() || core.user_loader == Some(core.epoch) {
+                return;
+            }
+            core.user_loader = Some(core.epoch);
+            core.epoch
+        };
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move { service.load_user(epoch).await });
+    }
+
+    /// Up to [`USER_ATTEMPTS`] loads of `/me`, with a doubling pause; stops when the details
+    /// arrived, the sign-in ended or another person signed in.
+    async fn load_user(&self, epoch: u64) {
+        let mut pause = self.inner.options.unit;
+        for attempt in 1..=USER_ATTEMPTS {
+            match self.fetch_me(epoch).await {
+                Ok(()) => break,
+                Err(AccountError::NotSignedIn | AccountError::SessionEnded) => break,
+                Err(error) => {
+                    eprintln!(
+                        "hangar: account details not loaded (attempt {attempt} of \
+                         {USER_ATTEMPTS}): {error}"
+                    );
+                }
+            }
+            if attempt == USER_ATTEMPTS {
+                break;
+            }
+            tokio::time::sleep(pause).await;
+            pause = pause.saturating_mul(2);
+            let wanted = {
+                let core = lock(&self.inner.core);
+                core.epoch == epoch && core.needs_user()
+            };
+            if !wanted {
+                break;
+            }
+        }
+        let mut core = lock(&self.inner.core);
+        if core.user_loader == Some(epoch) {
+            core.user_loader = None;
         }
     }
 
@@ -395,6 +515,7 @@ impl AccountService {
                         refresh,
                         generation,
                     });
+                    core.next_epoch();
                     if matches!(core.state, AccountState::Idle { .. }) {
                         core.state = AccountState::SignedIn { user: None };
                     }
@@ -614,6 +735,7 @@ impl AccountService {
                     generation,
                 });
                 core.state = AccountState::SignedIn { user: None };
+                core.next_epoch();
                 core.verification = None;
                 core.keychain_behind = false;
                 true
@@ -632,7 +754,7 @@ impl AccountService {
         drop(process);
         drop(gate);
         self.publish();
-        self.fetch_me().await;
+        self.ensure_user();
     }
 
     /// Ends a waiting or failed flow; the state returns to `Idle`.
@@ -712,6 +834,7 @@ impl AccountService {
             IdleNotice::SignedOutLocally
         };
         lock(&self.inner.core).clear(notice);
+        self.clear_avatar().await;
         let deleted = self.keychain_delete(account).await;
         if deleted.is_ok() {
             self.remember(&base, false, &process);
@@ -736,6 +859,7 @@ impl AccountService {
             core.clear(IdleNotice::SessionEnded);
             (core.base.as_str().to_owned(), core.base.clone())
         };
+        self.clear_avatar().await;
         match self.keychain_delete(account).await {
             Ok(()) => self.remember(&base, false, held),
             Err(error) => {
@@ -871,24 +995,182 @@ impl AccountService {
         }
     }
 
-    /// Fills in the signed-in person; failures leave `user` empty (the next status tries again).
-    async fn fetch_me(&self) {
-        let me = self
-            .authorized(|api, token| async move { api.me(&token).await })
-            .await;
-        match me {
-            Ok(me) => {
-                {
-                    let mut core = lock(&self.inner.core);
-                    if !matches!(core.state, AccountState::SignedIn { .. }) {
-                        return;
-                    }
-                    core.state = AccountState::SignedIn { user: Some(me) };
-                }
-                self.publish();
+    /// Loads the signed-in person of `epoch` and publishes them, with the cached picture when it
+    /// is current; a changed picture is downloaded afterwards and published again.
+    async fn fetch_me(&self, epoch: u64) -> Result<(), AccountError> {
+        let mut me = self
+            .authorized(|api, token| async move {
+                // The status and the problem's code, for the log; never a token or server text.
+                api.me(&token)
+                    .await
+                    .inspect_err(|error| eprintln!("hangar: GET /me failed: {}", error.summary()))
+            })
+            .await?;
+        let base = lock(&self.inner.core).base.clone();
+        let (cached, download) = self.cached_avatar(&base, &me).await;
+        {
+            let mut core = lock(&self.inner.core);
+            if core.epoch != epoch || !matches!(core.state, AccountState::SignedIn { .. }) {
+                return Ok(());
             }
-            Err(error) => eprintln!("hangar: account details not loaded: {error}"),
+            core.set_avatar(cached.as_ref().map(Cached::data_url));
+            me.avatar_version = core.avatar_marker();
+            core.state = AccountState::SignedIn {
+                user: Some(me.clone()),
+            };
         }
+        self.publish();
+        if download {
+            self.download_avatar(epoch, &base, &me, cached).await;
+        }
+        Ok(())
+    }
+
+    /// The cached picture of `me` (also when it is outdated) and whether a download is due.
+    async fn cached_avatar(&self, base: &BaseUrl, me: &account::Me) -> (Option<Cached>, bool) {
+        let Some(url) = me.avatar_url.as_deref() else {
+            self.clear_avatar().await;
+            return (None, false);
+        };
+        if base.same_api(url).is_none() {
+            eprintln!("hangar: profile picture refused: not below the server's API address");
+            return (None, false);
+        }
+        let (key, user) = (base.as_str().to_owned(), me.id.clone());
+        let cached = self
+            .with_avatar_cache(move |cache| cache.load(&key, &user))
+            .await
+            .flatten();
+        let current = matches!(
+            (&cached, &me.avatar_etag),
+            (Some(Cached { etag: Some(have), .. }), Some(want)) if have == want
+        );
+        (cached, !current)
+    }
+
+    /// Downloads the picture (`If-None-Match` with the cached etag), keeps it and publishes it.
+    /// A failure keeps what the window shows; the next load of `/me` tries again.
+    async fn download_avatar(
+        &self,
+        epoch: u64,
+        base: &BaseUrl,
+        me: &account::Me,
+        cached: Option<Cached>,
+    ) {
+        let Some(url) = me.avatar_url.clone() else {
+            return;
+        };
+        let known = cached.as_ref().and_then(|picture| picture.etag.clone());
+        let answer = self.avatar_answer(&url, known.as_deref()).await;
+        let (key, user) = (base.as_str().to_owned(), me.id.clone());
+        let picture = match answer {
+            Ok(AvatarAnswer::NotModified) => {
+                let Some(mut picture) = cached else { return };
+                // Current after all: noted under the new etag, so the next start skips the request.
+                if me.avatar_etag.is_some() && picture.etag != me.avatar_etag {
+                    picture.etag.clone_from(&me.avatar_etag);
+                    self.store_avatar(epoch, key, user, picture).await;
+                }
+                return;
+            }
+            Ok(AvatarAnswer::Missing) => {
+                self.clear_avatar().await;
+                None
+            }
+            Ok(AvatarAnswer::Image { mime, bytes, etag }) => {
+                let picture = Cached {
+                    etag: etag.or_else(|| me.avatar_etag.clone()),
+                    mime,
+                    bytes,
+                };
+                let data = picture.data_url();
+                self.store_avatar(epoch, key, user, picture).await;
+                Some(data)
+            }
+            Err(AvatarFailure::Refused) => {
+                // Refused even with a fresh token: only the picture goes, the sign-in stays.
+                eprintln!("hangar: profile picture refused by the server (HTTP 401)");
+                None
+            }
+            Err(AvatarFailure::Other(error)) => {
+                eprintln!("hangar: profile picture not loaded: {error}");
+                return;
+            }
+        };
+        let changed = {
+            let mut core = lock(&self.inner.core);
+            let current = core.epoch == epoch
+                && matches!(&core.state, AccountState::SignedIn { user: Some(now) } if now.id == me.id);
+            current && core.set_avatar(picture)
+        };
+        if changed {
+            self.publish();
+        }
+    }
+
+    /// The picture request with the current access token. Not through [`Self::authorized`]: a
+    /// second 401 there ends the sign-in, and a picture endpoint must never do that. A 401 is
+    /// answered with one ordinary refresh and one more try; a second 401 only drops the picture.
+    async fn avatar_answer(
+        &self,
+        url: &str,
+        known: Option<&str>,
+    ) -> Result<AvatarAnswer, AvatarFailure> {
+        let refused = |answer: &Result<AvatarAnswer, ApiError>| {
+            matches!(answer, Err(ApiError::Status { status: 401, .. }))
+        };
+        let (token, generation, api) = self
+            .access_token()
+            .await
+            .map_err(|error| AvatarFailure::Other(error.to_string()))?;
+        let answer = api.avatar(url, &token, known).await;
+        if !refused(&answer) {
+            return answer.map_err(|error| AvatarFailure::Other(error.summary()));
+        }
+        let (token, _, api) = self
+            .refreshed_after(generation)
+            .await
+            .map_err(|error| AvatarFailure::Other(error.to_string()))?;
+        let answer = api.avatar(url, &token, known).await;
+        if refused(&answer) {
+            return Err(AvatarFailure::Refused);
+        }
+        answer.map_err(|error| AvatarFailure::Other(error.summary()))
+    }
+
+    /// The signed-in person's picture as a `data:` URL, or `None` (initials).
+    pub fn avatar(&self) -> Option<String> {
+        lock(&self.inner.core).avatar.clone()
+    }
+
+    /// Keeps the picture of the sign-in of `epoch`; nothing once that sign-in ended.
+    async fn store_avatar(&self, epoch: u64, base: String, user: String, picture: Cached) {
+        let _gate = self.inner.avatar_gate.lock().await;
+        if lock(&self.inner.core).epoch != epoch {
+            return;
+        }
+        let stored = self
+            .with_avatar_cache(move |cache| cache.store(&base, &user, &picture))
+            .await;
+        if let Some(Err(error)) = stored {
+            eprintln!("hangar: profile picture not cached: {error}");
+        }
+    }
+
+    async fn clear_avatar(&self) {
+        let _gate = self.inner.avatar_gate.lock().await;
+        self.with_avatar_cache(AvatarCache::clear).await;
+    }
+
+    /// Runs `work` on the picture cache off the async threads; `None` without a cache folder.
+    async fn with_avatar_cache<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&AvatarCache) -> T + Send + 'static,
+    ) -> Option<T> {
+        let cache = AvatarCache::new(self.inner.options.avatar_dir.clone()?);
+        tauri::async_runtime::spawn_blocking(move || work(&cache))
+            .await
+            .ok()
     }
 
     /// The account's projects (teams), fresh from the server.
@@ -897,14 +1179,8 @@ impl AccountService {
             .authorized(|api, token| async move { api.projects(&token).await })
             .await?;
         lock(&self.inner.core).projects.clone_from(&projects);
-        // A sign-in loaded at start learns its name here too.
-        let needs_user = matches!(
-            lock(&self.inner.core).state,
-            AccountState::SignedIn { user: None }
-        );
-        if needs_user {
-            self.fetch_me().await;
-        }
+        // A sign-in read on the token path learns its name here too.
+        self.ensure_user();
         Ok(projects)
     }
 
@@ -973,6 +1249,7 @@ impl AccountService {
                 core.signed_in = signed_in;
             }
             core.base = base;
+            core.next_epoch();
             core.api = None;
             core.tokens = Slot::Unloaded;
             core.state = AccountState::Idle { notice: None };
@@ -1043,6 +1320,14 @@ impl AccountService {
             .await
             .map_err(|error| SecretError::Task(error.to_string()))?
     }
+}
+
+/// Why a picture request gave no answer to act on.
+enum AvatarFailure {
+    /// 401 twice, with a refresh in between.
+    Refused,
+    /// Anything else; logged as status and problem code.
+    Other(String),
 }
 
 /// The window's reason for an error of the first device request.

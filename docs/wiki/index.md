@@ -16,7 +16,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[0001-foundation]]: foundation: Tauri 2, portable-pty, xterm.js, output flow, process tree (sources: 1, updated: 2026-11-07)
 
 ## Components
-- [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage; the self-hosted relay's differing account API (sources: 1, updated: 2026-11-09)
+- [[hangar-account-api]]: Hangar account API v1 and the app's client: device flow, rotating refresh tokens with single-flight refresh, problem documents, origin checks for opened pages, keychain storage, background loading of the person's details, the profile picture contract and cache; the self-hosted relay's differing account API (sources: 1, updated: 2026-11-13)
 - [[single-instance]]: tauri-plugin-single-instance 2.5.5: one Hangar per user session in release builds, debug builds exempt; lock per platform (mutex, D-Bus name, socket), release in `cleanup_before_exit`, updater restart and Windows update path (sources: 1, updated: 2026-11-12)
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 

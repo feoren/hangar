@@ -218,6 +218,7 @@ describe("meInitials", () => {
     email: "anna.berg@example.com",
     seatsAccountTotal: null,
     seatsAccountUsed: null,
+    avatarVersion: null,
   };
 
   it("prefers the name and falls back to the e-mail address", () => {

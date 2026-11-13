@@ -103,6 +103,7 @@ const COMMANDS: &[&str] = &[
     "account_cancel_sign_in",
     "account_sign_out",
     "account_projects",
+    "account_avatar",
     "account_set_base_url",
     "account_open",
     "team_status",

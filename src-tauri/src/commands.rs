@@ -1968,6 +1968,13 @@ pub async fn account_sign_out(
     account.sign_out().await
 }
 
+/// The signed-in person's profile picture as a `data:` URL, `null` without one. Separate from
+/// the view, which carries only `user.avatarVersion`, so every status and event stays small.
+#[tauri::command]
+pub fn account_avatar(account: State<'_, AccountService>) -> Option<String> {
+    account.avatar()
+}
+
 #[tauri::command]
 pub async fn account_projects(
     account: State<'_, AccountService>,

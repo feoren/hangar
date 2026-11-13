@@ -643,3 +643,10 @@ Private | Shared with counts above the list, shown only where the project can ha
 New notes and quick notes go to the chosen side, captured terminal output always to the private
 notes; the choice is remembered in `localStorage`.
 Pages changed: [[notes]], [[0006-encrypted-project-notes]].
+
+## [2026-11-13] query | Account details and profile picture
+The window could stay without the signed-in person's name for a whole run: `/me` was loaded once
+and `account_status` retried it only when it read the keychain itself. Documented the background
+load with retries, the view revision, and the profile picture contract (`avatar_url`,
+`avatar_etag`, `GET /me/avatar`) with the backend's download rules and cache.
+Pages changed: [[hangar-account-api]].

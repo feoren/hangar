@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the account_avatar command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-avatar",
+          "markdownDescription": "Enables the account_avatar command without any pre-configured scope."
+        },
+        {
           "description": "Enables the account_cancel_sign_in command without any pre-configured scope.",
           "type": "string",
           "const": "allow-account-cancel-sign-in",
@@ -865,6 +871,12 @@
           "type": "string",
           "const": "allow-write-session",
           "markdownDescription": "Enables the write_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_avatar command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-avatar",
+          "markdownDescription": "Denies the account_avatar command without any pre-configured scope."
         },
         {
           "description": "Denies the account_cancel_sign_in command without any pre-configured scope.",

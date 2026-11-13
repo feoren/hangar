@@ -9415,6 +9415,18 @@ body.session-dragging .session-actions {
   border-radius: 4px;
 }
 
+/* A profile picture fills the same circle the initials sit in. */
+.avatar.picture {
+  overflow: hidden;
+}
+
+.avatar.picture img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* Sidebar footer: account, team pill and Settings in one row. Pinned to the bottom: with every
    group closed nothing above fills the height, and the free space opens above the footer. */
 

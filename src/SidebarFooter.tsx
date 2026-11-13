@@ -17,7 +17,7 @@ import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
 import { meInitials, pillLabel, teamPill, type OnlinePerson } from "./teamOverview";
 import type { Theme } from "./theme";
-import { useAccount } from "./useAccount";
+import { useAccount, useAccountAvatar } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
 /**
@@ -43,6 +43,7 @@ export function SidebarFooter(props: {
 }) {
   const t = useT();
   const { view, projects } = useAccount();
+  const avatar = useAccountAvatar();
   const teamStore = useTeam();
 
   // The pill needs the projects' states even before the Team window was ever opened.
@@ -137,7 +138,7 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
           title={account.title}
           onClick={onAccountClick}
         >
-          <Avatar name="" text={meInitials(user)} size="small" />
+          <Avatar name="" text={meInitials(user)} src={avatar} size="small" />
         </button>
         {sideTabs}
         {themeSwitch}
@@ -155,7 +156,7 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
         title={account.title}
         onClick={onAccountClick}
       >
-        <Avatar name="" text={meInitials(user)} />
+        <Avatar name="" text={meInitials(user)} src={avatar} />
         <span className="footer-name">{account.text}</span>
       </button>
       {signedIn && (

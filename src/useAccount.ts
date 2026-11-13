@@ -5,10 +5,16 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useSyncExternalStore } from "react";
 
 import {
+  avatarSource,
+  avatarMarker,
+  isCurrentView,
+  nextAvatarFetch,
+  lacksUser,
   parseAccountError,
   parseAccountView,
   parseProjects,
   projectsAction,
+  USER_RECHECK_MS,
   type AccountPage,
   type AccountProblem,
   type AccountView,
@@ -25,6 +31,8 @@ export interface AccountSnapshot {
   projects: Project[] | null;
   projectsError: AccountProblem | null;
   loadingProjects: boolean;
+  /** The signed-in person's picture as a checked `data:` URL; `null` shows initials. */
+  avatar: string | null;
 }
 
 let snapshot: AccountSnapshot = {
@@ -33,6 +41,7 @@ let snapshot: AccountSnapshot = {
   projects: null,
   projectsError: null,
   loadingProjects: false,
+  avatar: null,
 };
 const listeners = new Set<() => void>();
 let started = false;
@@ -56,31 +65,93 @@ function current(): AccountSnapshot {
 function accept(value: unknown): AccountView | null {
   const view = parseAccountView(value);
   if (view === null) return null;
+  // Older than what is on screen: an answer overtaken by an event. Still a valid answer.
+  if (!isCurrentView(snapshot.view, view)) return snapshot.view;
   const action = projectsAction(snapshot.view, view);
   update({ view, unavailable: false });
   if (action === "load") void loadProjects();
   if (action === "clear") update({ projects: null, projectsError: null });
+  scheduleUserRecheck();
+  syncAvatar();
   return view;
+}
+
+/** The picture version asked for last; `null` when none is wanted or the request failed. */
+let avatarRequested: number | null = null;
+
+/** Fetches the picture when the view's marker changed, and drops it when there is none. */
+function syncAvatar(): void {
+  const version = nextAvatarFetch(avatarRequested, snapshot.view);
+  if (version === null) {
+    if (avatarMarker(snapshot.view) === null) {
+      avatarRequested = null;
+      if (snapshot.avatar !== null) update({ avatar: null });
+    }
+    return;
+  }
+  avatarRequested = version;
+  api
+    .accountAvatar()
+    .then((value) => {
+      // A newer version may have been asked for meanwhile; only the current answer counts.
+      if (avatarRequested === version) update({ avatar: avatarSource(value) });
+    })
+    .catch(() => {
+      if (avatarRequested === version) avatarRequested = null;
+    });
+}
+
+let recheck: ReturnType<typeof setTimeout> | null = null;
+let rechecks = 0;
+
+/**
+ * While signed in without the person's details, asks the backend again a few times (each status
+ * starts another load of `/me` there); stops once they arrived or the sign-in ended.
+ */
+function scheduleUserRecheck(): void {
+  if (!lacksUser(snapshot.view)) {
+    if (recheck !== null) clearTimeout(recheck);
+    recheck = null;
+    rechecks = 0;
+    return;
+  }
+  const pause = USER_RECHECK_MS[rechecks];
+  if (recheck !== null || pause === undefined) return;
+  rechecks += 1;
+  recheck = setTimeout(() => {
+    recheck = null;
+    api
+      .accountStatus()
+      .then(accept)
+      .catch(() => undefined);
+  }, pause);
+}
+
+async function listenForChanges(): Promise<void> {
+  try {
+    await listen(ACCOUNT_CHANGED, (event) => {
+      accept(event.payload);
+    });
+  } catch {
+    // Outside Tauri (browser preview) there are no backend events.
+  }
 }
 
 function start(): void {
   if (started) return;
   started = true;
-  try {
-    listen(ACCOUNT_CHANGED, (event) => {
-      accept(event.payload);
-    }).catch(() => undefined);
-  } catch {
-    // Outside Tauri (browser preview) there are no backend events.
-  }
-  api
-    .accountStatus()
-    .then((value) => {
-      if (accept(value) === null) update({ unavailable: true });
-    })
-    .catch(() => {
-      update({ unavailable: true });
-    });
+  // Listening first: a change published between the status answer and the listener would
+  // otherwise be lost, and the window would keep the older state.
+  void listenForChanges().then(() =>
+    api
+      .accountStatus()
+      .then((value) => {
+        if (accept(value) === null) update({ unavailable: true });
+      })
+      .catch(() => {
+        update({ unavailable: true });
+      }),
+  );
 }
 
 /** Runs an account command; resolves with the problem when it was rejected, else `null`. */
@@ -123,6 +194,11 @@ export const account = {
     }
   },
 };
+
+/** The signed-in person's picture for an `Avatar`; `null` shows initials. */
+export function useAccountAvatar(): string | null {
+  return useAccount().avatar;
+}
 
 export function useAccount(): AccountSnapshot {
   useEffect(start, []);

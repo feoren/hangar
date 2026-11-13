@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   accountButtonText,
   accountErrorText,
+  avatarMarker,
+  avatarSource,
   displayName,
   failText,
   focusAfterChange,
+  isCurrentView,
   isSignedIn,
+  lacksUser,
   minutesLeft,
+  nextAvatarFetch,
   otherSignInsText,
   parseAccountError,
   parseAccountView,
@@ -17,6 +22,7 @@ import {
   roleText,
   seatsText,
   serverHost,
+  USER_RECHECK_MS,
   type AccountView,
   type Project,
 } from "./account";
@@ -31,6 +37,7 @@ const BASE = {
   official: false,
   devicesUrl: "https://hangar.example.test/account/devices",
   otherSignIns: NO_OTHERS,
+  revision: 1,
 };
 
 function view(state: unknown, base: Partial<typeof BASE> = {}): unknown {
@@ -44,6 +51,7 @@ const USER = {
   locale: "de",
   seatsAccountTotal: 3,
   seatsAccountUsed: 2,
+  avatarVersion: null,
 };
 
 const PROJECT: Project = {
@@ -100,6 +108,7 @@ describe("parseAccountView", () => {
         name: "Ada",
         seatsAccountTotal: 3,
         seatsAccountUsed: 2,
+        avatarVersion: null,
       },
     });
     const failed = parseAccountView(
@@ -113,7 +122,6 @@ describe("parseAccountView", () => {
     expect(parseAccountView(view({ kind: "unknown" }))).toBeNull();
     expect(parseAccountView(view({ kind: "idle", notice: "other" }))).toBeNull();
     expect(parseAccountView(view({ kind: "failed", reason: { kind: "nope" } }))).toBeNull();
-    expect(parseAccountView(view({ kind: "signedIn", user: { id: "7" } }))).toBeNull();
     expect(
       parseAccountView(view({ kind: "waitingForUser", userCode: "X", expiresAt: -1 })),
     ).toBeNull();
@@ -127,6 +135,93 @@ describe("parseAccountView", () => {
         state: { kind: "idle" },
       }),
     ).toBeNull();
+  });
+});
+
+describe("the signed-in person", () => {
+  const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+  it("carries only a picture marker in the view", () => {
+    const parsed = parseAccountView(
+      view({ kind: "signedIn", user: { ...USER, avatarVersion: 3 } }),
+    );
+    expect(parsed?.state).toMatchObject({ kind: "signedIn", user: { avatarVersion: 3 } });
+    expect(parsed !== null && avatarMarker(parsed)).toBe(3);
+    for (const avatarVersion of [undefined, null, -1, 1.5, "3"]) {
+      const odd = parseAccountView(view({ kind: "signedIn", user: { ...USER, avatarVersion } }));
+      expect(odd?.state).toMatchObject({ user: { name: "Ada", avatarVersion: null } });
+    }
+  });
+
+  it("asks for a picture once per version", () => {
+    const at = (avatarVersion: number | null): AccountView => ({
+      ...BASE,
+      state: { kind: "signedIn", user: { ...USER, avatarVersion } },
+    });
+    expect(nextAvatarFetch(null, at(1))).toBe(1);
+    expect(nextAvatarFetch(1, at(1))).toBeNull();
+    expect(nextAvatarFetch(1, at(2))).toBe(2);
+    expect(nextAvatarFetch(1, at(null))).toBeNull();
+    expect(nextAvatarFetch(null, null)).toBeNull();
+    expect(nextAvatarFetch(null, { ...BASE, state: { kind: "idle", notice: null } })).toBeNull();
+  });
+
+  it("accepts only data URLs of the allowed image types from the backend", () => {
+    for (const avatar of [
+      PNG,
+      "data:image/webp;base64,UklGRg==",
+      "data:image/jpeg;base64,/9j/4A==",
+    ]) {
+      expect(avatarSource(avatar)).toBe(avatar);
+    }
+    for (const avatar of [
+      undefined,
+      null,
+      42,
+      "https://hangar.example.test/api/v1/me/avatar?v=0123456789abcdef",
+      "data:image/svg+xml;base64,PHN2Zy8+",
+      "data:text/html;base64,PGI+",
+      'data:image/png;base64,AA" onerror="x',
+    ]) {
+      expect(avatarSource(avatar)).toBeNull();
+    }
+  });
+
+  it("keeps the view signed in when the person is malformed", () => {
+    for (const user of [{ id: "7" }, { ...USER, email: 3 }, { ...USER, seatsAccountUsed: -1 }]) {
+      expect(parseAccountView(view({ kind: "signedIn", user }))?.state).toEqual({
+        kind: "signedIn",
+        user: null,
+      });
+    }
+  });
+});
+
+describe("view order", () => {
+  const at = (revision: number): AccountView => ({
+    ...BASE,
+    revision,
+    state: { kind: "signedIn", user: null },
+  });
+
+  it("never lets an older answer replace a newer event", () => {
+    expect(isCurrentView(null, at(0))).toBe(true);
+    expect(isCurrentView(at(3), at(4))).toBe(true);
+    expect(isCurrentView(at(3), at(3))).toBe(true);
+    expect(isCurrentView(at(4), at(3))).toBe(false);
+  });
+
+  it("reads the revision and refuses a broken one", () => {
+    expect(parseAccountView(view({ kind: "idle", notice: null }))?.revision).toBe(1);
+    expect(parseAccountView({ ...BASE, revision: -1, state: { kind: "idle" } })).toBeNull();
+    expect(parseAccountView({ ...BASE, revision: "2", state: { kind: "idle" } })).toBeNull();
+  });
+
+  it("asks again only while the person is missing", () => {
+    expect(lacksUser(at(1))).toBe(true);
+    expect(lacksUser({ ...BASE, state: { kind: "idle", notice: null } })).toBe(false);
+    expect(lacksUser(null)).toBe(false);
+    expect(USER_RECHECK_MS.length).toBeGreaterThan(0);
   });
 });
 
