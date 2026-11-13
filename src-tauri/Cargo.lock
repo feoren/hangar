@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "hangar"
-version = "0.7.0+370"
+version = "0.8.0"
 dependencies = [
  "arboard",
  "clipboard-win",
