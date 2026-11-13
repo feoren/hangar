@@ -1,7 +1,7 @@
 [
   {
     "version": "0.7.0",
-    "date": null,
+    "date": "2026-11-13",
     "items": [
       {
         "de": "Shift+Enter fügt im laufenden Agenten eine neue Zeile ein, statt abzuschicken. Die Leiste mit dem letzten Prompt oben ist weg.",

@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, folder, branch and CPU, memory and GPU use, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -186,7 +186,7 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-notes-light.png">
-        <img alt="The notes panel beside a terminal, with encrypted notes shared in the repository above notes kept only on this computer" src="docs/images/hangar-notes-dark.png">
+        <img alt="The notes panel beside a terminal on its Shared side, listing the notes kept encrypted in the repository, with a switch to the private notes" src="docs/images/hangar-notes-dark.png">
       </picture>
       <br><sub>Keep notes private or share them encrypted with the repository.</sub>
     </td>
