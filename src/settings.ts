@@ -20,7 +20,7 @@ import { DEFAULT_QUIET_HOURS, parseQuietHours, type QuietHours } from "./quietHo
 import { isSessionGrouping, type SessionGrouping } from "./sessionGroups";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
-import { DEFAULT_VIEWER_THEME, isViewerTheme, type ViewerTheme } from "./viewerThemes";
+import { DEFAULT_VIEWER_THEME, parseViewerTheme, type ViewerTheme } from "./viewerThemes";
 
 const STORAGE_KEY = "hangar.settings";
 
@@ -256,7 +256,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
     cursorStyle: isCursorStyle(cursorStyle) ? cursorStyle : defaults.cursorStyle,
     cursorBlink: flag("cursorBlink"),
-    viewerTheme: isViewerTheme(viewerTheme) ? viewerTheme : defaults.viewerTheme,
+    viewerTheme: parseViewerTheme(viewerTheme) ?? defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
     snippets: parseSnippets(get("snippets"), chosenLanguage),
   };

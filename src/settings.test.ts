@@ -57,11 +57,11 @@ describe("parseSettings", () => {
       hangarMd: false,
       worktreeUpstreamCheck: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
-      terminalScheme: "solarized",
+      terminalScheme: "sundial",
       terminalFont: "JetBrains Mono",
       cursorStyle: "bar",
       cursorBlink: false,
-      viewerTheme: "github",
+      viewerTheme: "harbor",
       sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
     };
@@ -124,28 +124,43 @@ describe("parseSettings", () => {
     expect(parsed.cursorStyle).toBe("block");
     expect(parsed.cursorBlink).toBe(true);
     const valid = parseSettings(
-      JSON.stringify({ terminalScheme: "catppuccin", cursorStyle: "underline" }),
+      JSON.stringify({ terminalScheme: "velvet", cursorStyle: "underline" }),
       "de",
     );
-    expect(valid.terminalScheme).toBe("catppuccin");
+    expect(valid.terminalScheme).toBe("velvet");
     expect(valid.cursorStyle).toBe("underline");
   });
 
-  it("reads the file viewer theme and falls back to One Dark Pro", () => {
-    expect(defaultSettings("de").viewerTheme).toBe("oneDarkPro");
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("oneDarkPro");
-    for (const theme of ["github", "vscode", "darcula", "solarized", "catppuccin", "monokai"]) {
+  it("reads the file viewer theme and falls back to Meridian", () => {
+    expect(defaultSettings("de").viewerTheme).toBe("meridian");
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("meridian");
+    for (const theme of ["harbor", "studio", "anvil", "sundial", "velvet", "ember"]) {
       expect(parseSettings(JSON.stringify({ viewerTheme: theme }), "de").viewerTheme).toBe(theme);
     }
     for (const wrong of ["GitHub", "atom", 3, null]) {
       expect(parseSettings(JSON.stringify({ viewerTheme: wrong }), "de").viewerTheme).toBe(
-        "oneDarkPro",
+        "meridian",
       );
     }
   });
 
-  it("keeps saved color schemes from older versions and reads the new ones", () => {
-    for (const scheme of ["hangar", "catppuccin", "solarized", "dusk", "dracula", "rosePine"]) {
+  it("carries a viewer theme saved by 0.6.0 over to its new name", () => {
+    const renamed = {
+      oneDarkPro: "meridian",
+      github: "harbor",
+      vscode: "studio",
+      darcula: "anvil",
+      solarized: "sundial",
+      catppuccin: "velvet",
+      monokai: "ember",
+    };
+    for (const [old, now] of Object.entries(renamed)) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: old }), "de").viewerTheme, old).toBe(now);
+    }
+  });
+
+  it("keeps saved color schemes and reads the new ones", () => {
+    for (const scheme of ["hangar", "dusk", "harbor", "meridian", "nocturne", "heather"]) {
       expect(parseSettings(JSON.stringify({ terminalScheme: scheme }), "de").terminalScheme).toBe(
         scheme,
       );
@@ -155,13 +170,29 @@ describe("parseSettings", () => {
     );
   });
 
-  it("moves the renamed schemes Harbor and Meridian to their origins", () => {
-    expect(parseSettings(JSON.stringify({ terminalScheme: "harbor" }), "de").terminalScheme).toBe(
-      "github",
-    );
-    expect(parseSettings(JSON.stringify({ terminalScheme: "meridian" }), "de").terminalScheme).toBe(
-      "oneDarkPro",
-    );
+  it("carries a color scheme saved by an older version over to its new name", () => {
+    const renamed = {
+      oneDarkPro: "meridian",
+      github: "harbor",
+      vscode: "studio",
+      darcula: "anvil",
+      solarized: "sundial",
+      catppuccin: "velvet",
+      monokai: "ember",
+      dracula: "nocturne",
+      nord: "fjord",
+      gruvbox: "ochre",
+      tokyoNight: "neon",
+      rosePine: "heather",
+      // Keys from before 0.6.0, current again.
+      harbor: "harbor",
+      meridian: "meridian",
+    };
+    for (const [old, now] of Object.entries(renamed)) {
+      expect(parseSettings(JSON.stringify({ terminalScheme: old }), "de").terminalScheme, old).toBe(
+        now,
+      );
+    }
   });
 
   it("follows the system by default and replaces invalid themes", () => {

@@ -689,3 +689,11 @@ Pages changed: [[xterm-linkifier]] (new), [[windows-path-normalization-measureme
 ## [2026-11-13] query | Files tab inserts paths per session program
 Right click and drag from the Files tab now type the path the way the target session's program reads it: an @ mention for agents, quoted native paths for PowerShell and cmd, POSIX paths for Git Bash (`/c/...`) and WSL (`/mnt/c/...`); relative inside the session's folder, absolute outside, so any pane takes a drop. Paths with control characters insert nothing.
 Pages changed: [[file-viewer]].
+## [2026-11-13] ingest | Own names for the color schemes
+Filed ADR 0009: the terminal color schemes and file viewer themes no longer carry third-party
+product names (Harbor, Meridian, Studio, Anvil, Sundial, Velvet, Ember, Nocturne, Fjord, Ochre,
+Neon, Heather); every 0.6.0 key migrates. Read the license files of all palette origins (MIT,
+Apache-2.0 for Darcula and Tokyo Night, MIT/X11 for gruvbox) and the Monokai Pro license, which
+forbids redistribution; Ember is now drawn from the classic 2006 Monokai values. Origins and
+licenses in THIRD_PARTY_NOTICES.md. A trademark registry search for the new names is still open.
+Pages changed: [[0009-own-color-scheme-names]] (new), [[file-viewer]], [[agent-workflow-features]], index.

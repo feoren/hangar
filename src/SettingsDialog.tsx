@@ -101,18 +101,18 @@ interface Props {
 const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {
   hangar: "scheme.hangar",
   dusk: "scheme.dusk",
-  oneDarkPro: "scheme.oneDarkPro",
-  github: "scheme.github",
-  vscode: "scheme.vscode",
-  darcula: "scheme.darcula",
-  solarized: "scheme.solarized",
-  catppuccin: "scheme.catppuccin",
-  monokai: "scheme.monokai",
-  dracula: "scheme.dracula",
-  nord: "scheme.nord",
-  gruvbox: "scheme.gruvbox",
-  tokyoNight: "scheme.tokyoNight",
-  rosePine: "scheme.rosePine",
+  meridian: "scheme.meridian",
+  harbor: "scheme.harbor",
+  studio: "scheme.studio",
+  anvil: "scheme.anvil",
+  sundial: "scheme.sundial",
+  velvet: "scheme.velvet",
+  ember: "scheme.ember",
+  nocturne: "scheme.nocturne",
+  fjord: "scheme.fjord",
+  ochre: "scheme.ochre",
+  neon: "scheme.neon",
+  heather: "scheme.heather",
 };
 
 const SCHEME_GROUP_NAMES: Record<SchemeGroup, MessageKey> = {
@@ -123,13 +123,13 @@ const SCHEME_GROUP_NAMES: Record<SchemeGroup, MessageKey> = {
 
 /** Proper names, the same in every language. */
 const VIEWER_THEME_NAMES: Record<ViewerTheme, MessageKey> = {
-  oneDarkPro: "viewerTheme.oneDarkPro",
-  github: "viewerTheme.github",
-  vscode: "viewerTheme.vscode",
-  darcula: "viewerTheme.darcula",
-  solarized: "viewerTheme.solarized",
-  catppuccin: "viewerTheme.catppuccin",
-  monokai: "viewerTheme.monokai",
+  meridian: "viewerTheme.meridian",
+  harbor: "viewerTheme.harbor",
+  studio: "viewerTheme.studio",
+  anvil: "viewerTheme.anvil",
+  sundial: "viewerTheme.sundial",
+  velvet: "viewerTheme.velvet",
+  ember: "viewerTheme.ember",
 };
 
 const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {

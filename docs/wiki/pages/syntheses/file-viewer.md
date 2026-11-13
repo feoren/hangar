@@ -157,11 +157,12 @@ opened: <io error>`, and the git errors of the changes panel.
 - Editor: `viewerEditor.ts` (read-only CodeMirror 6 with line numbers, folding, search) is a
   dynamic import, and `@codemirror/language-data` loads each language's parser on demand, so the
   main bundle carries neither.
-- Look: `viewerThemes.ts` holds seven families (`oneDarkPro`, `github`, `vscode`, `darcula`,
-  `solarized`, `catppuccin`, `monokai`), each with a dark and a light palette that follows the
+- Look: `viewerThemes.ts` holds seven families (`meridian`, `harbor`, `studio`, `anvil`,
+  `sundial`, `velvet`, `ember`; own names since 0.7.0, 0.6.0 keys migrate, see
+  [[0009-own-color-scheme-names]]), each with a dark and a light palette that follows the
   app theme; the choice is `viewerTheme` in the settings (Settings, Appearance). The palettes are
   applied as `--viewer-*` CSS variables, so a switch never rebuilds the editor. Token colors keep
-  the originals' contrast (Solarized and Catppuccin Latte are below 4.5:1 for some tokens); the
+  the originals' contrast (Sundial and Velvet light, after Solarized and Catppuccin Latte, are below 4.5:1 for some tokens); the
   text, line number and active line number contrasts are pinned by `viewerThemes.test.ts`.
 - Settings changes reach an open viewer through the `storage` event of the shared localStorage,
   as in the detached side panel window ([[notes]]).

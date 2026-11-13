@@ -6,6 +6,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[overview]]: state of knowledge, open risks and questions
 
 ## Decisions
+- [[0009-own-color-scheme-names]]: accepted: color schemes and file viewer themes carry own names (Harbor, Meridian, Studio, Anvil, Sundial, Velvet, Ember, Nocturne, Fjord, Ochre, Neon, Heather), 0.6.0 keys migrate, Ember redrawn from classic Monokai instead of Monokai Pro, origins and licenses in THIRD_PARTY_NOTICES.md; registry search open (sources: 0, updated: 2026-11-13)
 - [[0008-private-and-team-sessions]]: accepted: one switch "Private | Team" per start; a team session has its own worktree, the agent gate and is shared with the team, a private one has neither; team capability comes from the catalog's capabilities and `hook_format` only, presence and claims are agent-independent (sources: 1, updated: 2026-11-12)
 - [[0007-detachable-side-panel]]: accepted: the whole right panel (Notes, Changes, Files) detaches into one backend-created `panel` window; the main window stays the source of truth and pushes a validated context, the panel answers through `panel_to_main`; replaces the notes-only window (sources: 0, updated: 2026-11-12)
 - [[0006-encrypted-project-notes]]: accepted: shared project notes in `.hangar/notes/`, one encrypted file per note, keys from the team crypto (signed `notes-keys` record) or a solo recovery code, Git conflicts kept as both versions; phase 1 (solo mode) as built (sources: 1, updated: 2026-11-13)

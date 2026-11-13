@@ -291,4 +291,6 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 The desktop app is licensed under the [MIT License](LICENSE). The bundled agent icons name their
 sources, licenses and trademark notes in
 [`src/assets/agent-icons/NOTICE.md`](src/assets/agent-icons/NOTICE.md); the bundled fonts carry
-their licenses next to them in `src/assets/fonts/`.
+their licenses next to them in `src/assets/fonts/`. The color schemes carry Hangar's own names;
+the palettes they are adapted from, with sources, licenses and trademark notes, are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

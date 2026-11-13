@@ -1,28 +1,51 @@
 // Color themes of the file viewer window (FileViewerWindow.tsx). Every family has a dark and a light
-// variant and follows the app theme, as the terminal schemes do. The values are written after the
-// publicly documented palettes of the editors the families are named after. The viewer and the
+// variant and follows the app theme, as the terminal schemes do. The values are adapted from
+// publicly documented, openly licensed editor palettes (origins and licenses in
+// THIRD_PARTY_NOTICES.md); the families carry Hangar's own names, the same as the terminal schemes
+// with those colors, so no entry suggests an affiliation with the projects. The viewer and the
 // settings preview read them as CSS variables (`viewerCssVariables`) and inline colors; the
 // CodeMirror theme in viewerEditor.ts only refers to those variables, so switching never rebuilds
 // the editor.
 
 import type { Theme } from "./theme";
 
-/** Order of the picker. Saved values are these keys, so a key never changes once released. */
+/** Order of the picker. Saved values are these keys; a renamed key goes through RENAMED_THEMES. */
 export const VIEWER_THEMES = [
-  "oneDarkPro",
-  "github",
-  "vscode",
-  "darcula",
-  "solarized",
-  "catppuccin",
-  "monokai",
+  "meridian",
+  "harbor",
+  "studio",
+  "anvil",
+  "sundial",
+  "velvet",
+  "ember",
 ] as const;
 export type ViewerTheme = (typeof VIEWER_THEMES)[number];
 
-export const DEFAULT_VIEWER_THEME: ViewerTheme = "oneDarkPro";
+export const DEFAULT_VIEWER_THEME: ViewerTheme = "meridian";
+
+/**
+ * Keys released in 0.6.0, named after the palettes' origins, and the family each one became in
+ * 0.7.0, so a stored choice carries over. Only Ember's colors changed (its palette was redrawn).
+ */
+const RENAMED_THEMES: Readonly<Record<string, ViewerTheme>> = {
+  oneDarkPro: "meridian",
+  github: "harbor",
+  vscode: "studio",
+  darcula: "anvil",
+  solarized: "sundial",
+  catppuccin: "velvet",
+  monokai: "ember",
+};
 
 export function isViewerTheme(value: unknown): value is ViewerTheme {
   return VIEWER_THEMES.some((theme) => theme === value);
+}
+
+/** A stored viewer theme, renamed keys included; `null` for anything unknown. */
+export function parseViewerTheme(value: unknown): ViewerTheme | null {
+  if (isViewerTheme(value)) return value;
+  if (typeof value !== "string" || !Object.hasOwn(RENAMED_THEMES, value)) return null;
+  return RENAMED_THEMES[value] ?? null;
 }
 
 /** Kinds of highlighted text; viewerEditor.ts maps them to @lezer/highlight tags. */
@@ -81,7 +104,8 @@ function palette(
   };
 }
 
-const ONE_DARK_PRO = palette(
+// Meridian: after the One Dark Pro editor theme and Atom's One Light (both MIT).
+const MERIDIAN_DARK = palette(
   {
     background: "#282c34",
     foreground: "#abb2bf",
@@ -114,7 +138,7 @@ const ONE_DARK_PRO = palette(
   },
 );
 
-const ONE_LIGHT = palette(
+const MERIDIAN_LIGHT = palette(
   {
     background: "#fafafa",
     foreground: "#383a42",
@@ -147,7 +171,8 @@ const ONE_LIGHT = palette(
   },
 );
 
-const GITHUB_DARK = palette(
+// Harbor: after Primer's github-vscode-theme (MIT).
+const HARBOR_DARK = palette(
   {
     background: "#0d1117",
     foreground: "#e6edf3",
@@ -180,7 +205,7 @@ const GITHUB_DARK = palette(
   },
 );
 
-const GITHUB_LIGHT = palette(
+const HARBOR_LIGHT = palette(
   {
     background: "#ffffff",
     foreground: "#1f2328",
@@ -213,7 +238,8 @@ const GITHUB_LIGHT = palette(
   },
 );
 
-const DARK_PLUS = palette(
+// Studio: after the Dark+ and Light+ themes of the vscode repository (MIT).
+const STUDIO_DARK = palette(
   {
     background: "#1e1e1e",
     foreground: "#d4d4d4",
@@ -248,7 +274,7 @@ const DARK_PLUS = palette(
   },
 );
 
-const LIGHT_PLUS = palette(
+const STUDIO_LIGHT = palette(
   {
     background: "#ffffff",
     foreground: "#000000",
@@ -283,7 +309,8 @@ const LIGHT_PLUS = palette(
   },
 );
 
-const DARCULA = palette(
+// Anvil: after the Darcula and light editor schemes of intellij-community (Apache-2.0).
+const ANVIL_DARK = palette(
   {
     background: "#2b2b2b",
     foreground: "#a9b7c6",
@@ -317,7 +344,7 @@ const DARCULA = palette(
   },
 );
 
-const DARCULA_LIGHT = palette(
+const ANVIL_LIGHT = palette(
   {
     background: "#ffffff",
     foreground: "#080808",
@@ -351,8 +378,8 @@ const DARCULA_LIGHT = palette(
   },
 );
 
-/** Solarized accents, the same in both variants; only the base tones swap. */
-const SOLARIZED_ACCENTS = {
+/** Sundial, after Solarized (MIT): accents the same in both variants; only the base tones swap. */
+const SUNDIAL_ACCENTS = {
   comment: "#586e75",
   keyword: "#859900",
   string: "#2aa198",
@@ -370,7 +397,7 @@ const SOLARIZED_ACCENTS = {
   invalid: "#dc322f",
 };
 
-const SOLARIZED_DARK = palette(
+const SUNDIAL_DARK = palette(
   {
     background: "#002b36",
     foreground: "#839496",
@@ -383,10 +410,10 @@ const SOLARIZED_DARK = palette(
     match: "#b5890040",
     accent: "#268bd2",
   },
-  { ...SOLARIZED_ACCENTS, variable: "#839496", operator: "#839496" },
+  { ...SUNDIAL_ACCENTS, variable: "#839496", operator: "#839496" },
 );
 
-const SOLARIZED_LIGHT = palette(
+const SUNDIAL_LIGHT = palette(
   {
     background: "#fdf6e3",
     // base01 instead of base00: base00 on base3 stays just below 4.5 : 1.
@@ -400,10 +427,11 @@ const SOLARIZED_LIGHT = palette(
     match: "#b5890033",
     accent: "#268bd2",
   },
-  { ...SOLARIZED_ACCENTS, comment: "#93a1a1", variable: "#586e75", operator: "#586e75" },
+  { ...SUNDIAL_ACCENTS, comment: "#93a1a1", variable: "#586e75", operator: "#586e75" },
 );
 
-const MOCHA = palette(
+// Velvet: after the Mocha and Latte flavors of Catppuccin (MIT).
+const VELVET_DARK = palette(
   {
     background: "#1e1e2e",
     foreground: "#cdd6f4",
@@ -437,7 +465,7 @@ const MOCHA = palette(
   },
 );
 
-const LATTE = palette(
+const VELVET_LIGHT = palette(
   {
     background: "#eff1f5",
     foreground: "#4c4f69",
@@ -471,80 +499,85 @@ const LATTE = palette(
   },
 );
 
-const MONOKAI_DARK = palette(
+// Ember: after the publicly documented colors of the classic 2006 Monokai TextMate theme, with the
+// classic token roles (pink keywords, yellow strings, purple numbers, green functions, cyan types,
+// orange for regular expressions).
+const EMBER_DARK = palette(
   {
-    background: "#2d2a2e",
-    foreground: "#fcfcfa",
-    gutterBackground: "#2d2a2e",
-    gutterForeground: "#5b595c",
-    gutterActive: "#c1c0c0",
-    activeLine: "#3a373b",
-    selection: "#5b595c99",
-    cursor: "#fcfcfa",
-    match: "#ffd86640",
-    accent: "#ffd866",
+    background: "#272822",
+    foreground: "#f8f8f2",
+    gutterBackground: "#272822",
+    gutterForeground: "#75715e",
+    gutterActive: "#cfcfc2",
+    activeLine: "#3e3d32",
+    selection: "#49483e",
+    cursor: "#f8f8f2",
+    match: "#e6db7440",
+    accent: "#66d9ef",
   },
   {
-    comment: "#727072",
-    keyword: "#ff6188",
-    string: "#ffd866",
-    number: "#ab9df2",
-    constant: "#ab9df2",
-    function: "#a9dc76",
-    variable: "#fcfcfa",
-    property: "#fcfcfa",
-    type: "#78dce8",
-    operator: "#ff6188",
-    tag: "#ff6188",
-    attribute: "#78dce8",
-    regexp: "#fc9867",
-    heading: "#ffd866",
-    link: "#78dce8",
-    invalid: "#ff6188",
+    comment: "#75715e",
+    keyword: "#f92672",
+    string: "#e6db74",
+    number: "#ae81ff",
+    constant: "#ae81ff",
+    function: "#a6e22e",
+    variable: "#f8f8f2",
+    property: "#f8f8f2",
+    type: "#66d9ef",
+    operator: "#f92672",
+    tag: "#f92672",
+    attribute: "#a6e22e",
+    regexp: "#fd971f",
+    heading: "#a6e22e",
+    link: "#66d9ef",
+    invalid: "#f92672",
   },
 );
 
-const MONOKAI_LIGHT = palette(
+// Ember's own light variant: the same roles in deepened hues on a warm paper white, matching the
+// light terminal scheme.
+const EMBER_LIGHT = palette(
   {
-    background: "#faf4f2",
-    foreground: "#29242a",
-    gutterBackground: "#faf4f2",
-    gutterForeground: "#a59fa0",
-    gutterActive: "#29242a",
-    activeLine: "#ede7e5",
-    selection: "#d3cdcc",
-    cursor: "#29242a",
-    match: "#cc7a0a33",
-    accent: "#1c8ca8",
+    background: "#f9f8f1",
+    foreground: "#272822",
+    gutterBackground: "#f9f8f1",
+    gutterForeground: "#a8a590",
+    gutterActive: "#272822",
+    activeLine: "#efede0",
+    selection: "#e2e0cf",
+    cursor: "#272822",
+    match: "#8a6f0033",
+    accent: "#1e7a96",
   },
   {
-    comment: "#918c8e",
-    keyword: "#e14775",
-    string: "#cc7a0a",
-    number: "#7058be",
-    constant: "#7058be",
-    function: "#269d69",
-    variable: "#29242a",
-    property: "#29242a",
-    type: "#1c8ca8",
-    operator: "#e14775",
-    tag: "#e14775",
-    attribute: "#1c8ca8",
-    regexp: "#e16032",
-    heading: "#cc7a0a",
-    link: "#1c8ca8",
-    invalid: "#e14775",
+    comment: "#75715e",
+    keyword: "#c4105a",
+    string: "#8a6f00",
+    number: "#7346cc",
+    constant: "#7346cc",
+    function: "#5c7f00",
+    variable: "#272822",
+    property: "#272822",
+    type: "#1e7a96",
+    operator: "#c4105a",
+    tag: "#c4105a",
+    attribute: "#5c7f00",
+    regexp: "#c4600a",
+    heading: "#5c7f00",
+    link: "#1e7a96",
+    invalid: "#c4105a",
   },
 );
 
 const PALETTES: Record<ViewerTheme, Record<Theme, ViewerPalette>> = {
-  oneDarkPro: { dark: ONE_DARK_PRO, light: ONE_LIGHT },
-  github: { dark: GITHUB_DARK, light: GITHUB_LIGHT },
-  vscode: { dark: DARK_PLUS, light: LIGHT_PLUS },
-  darcula: { dark: DARCULA, light: DARCULA_LIGHT },
-  solarized: { dark: SOLARIZED_DARK, light: SOLARIZED_LIGHT },
-  catppuccin: { dark: MOCHA, light: LATTE },
-  monokai: { dark: MONOKAI_DARK, light: MONOKAI_LIGHT },
+  meridian: { dark: MERIDIAN_DARK, light: MERIDIAN_LIGHT },
+  harbor: { dark: HARBOR_DARK, light: HARBOR_LIGHT },
+  studio: { dark: STUDIO_DARK, light: STUDIO_LIGHT },
+  anvil: { dark: ANVIL_DARK, light: ANVIL_LIGHT },
+  sundial: { dark: SUNDIAL_DARK, light: SUNDIAL_LIGHT },
+  velvet: { dark: VELVET_DARK, light: VELVET_LIGHT },
+  ember: { dark: EMBER_DARK, light: EMBER_LIGHT },
 };
 
 export function viewerPalette(theme: ViewerTheme, mode: Theme): ViewerPalette {

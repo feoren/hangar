@@ -362,9 +362,10 @@ request). Right click opens the menu. No window capability is needed for hiding;
     Solarized, Catppuccin, Monokai; Dracula, Nord, Gruvbox, Tokyo Night, Rosé Pine), each with a
     dark and a light variant. Tests hold every variant to foreground 4.5 : 1, every normal and
     bright accent and the dim gray (bright black) to 3 : 1, and blue on dark backgrounds to 4 : 1;
-    published values are darkened or lightened just enough where they fall short. The released
-    keys `harbor` and `meridian` are read as `github` and `oneDarkPro` (same palettes). Bundled
-    fonts: JetBrains Mono, Fira Code, Geist Mono, Hack, Source Code Pro, IBM Plex Mono, Victor
+    published values are darkened or lightened just enough where they fall short. In 0.6.0 the
+    older keys `harbor` and `meridian` were read as `github` and `oneDarkPro`. Since 0.7.0 the
+    schemes carry own names, `harbor` and `meridian` are current keys again and every 0.6.0 key
+    migrates ([[0009-own-color-scheme-names]]). Bundled fonts: JetBrains Mono, Fira Code, Geist Mono, Hack, Source Code Pro, IBM Plex Mono, Victor
     Mono, all with box drawing ([[terminal-font-coverage-measurement]]); system fonts when
     installed: Cascadia Mono and Code, Consolas, Lucida Console, SF Mono, Menlo, Monaco, DejaVu
     Sans Mono, Ubuntu Mono, Noto Sans Mono, Liberation Mono. Settings show a sticky preview with

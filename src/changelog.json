@@ -58,6 +58,20 @@
         "ru": "Адреса, файлы и папки в терминале стали ссылками: их открывает один щелчок. Удерживай Shift, чтобы открыть по отдельности любую папку на пути.",
         "tr": "Terminaldeki adresler, dosyalar ve klasörler bağlantıdır: tek tıkla açılır. Yoldaki her klasörü ayrı açmak için Shift tuşunu basılı tut.",
         "zh": "终端中的网址、文件和文件夹现在都是链接，单击即可打开。按住 Shift 可以单独打开路径中的每个文件夹。"
+      },
+      {
+        "de": "Die Farbschemas tragen jetzt eigene Namen von Hangar, etwa Harbor, Nocturne und Fjord. Dein gewähltes Schema bleibt erhalten, Ember hat eine neue Palette.",
+        "en": "The color schemes now have Hangar's own names, such as Harbor, Nocturne and Fjord. Your chosen scheme carries over, and Ember got a fresh palette.",
+        "el": "Τα χρωματικά σχήματα έχουν πλέον δικά τους ονόματα του Hangar, όπως Harbor, Nocturne και Fjord. Η επιλογή σου διατηρείται και το Ember πήρε νέα παλέτα.",
+        "es": "Los esquemas de colores tienen ahora nombres propios de Hangar, como Harbor, Nocturne y Fjord. Tu elección se mantiene y Ember estrena paleta.",
+        "fr": "Les jeux de couleurs portent désormais des noms propres à Hangar, comme Harbor, Nocturne et Fjord. Ton choix est conservé et Ember a une nouvelle palette.",
+        "it": "Gli schemi colori hanno ora nomi propri di Hangar, come Harbor, Nocturne e Fjord. La tua scelta resta e Ember ha una nuova tavolozza.",
+        "ja": "配色に Harbor、Nocturne、Fjord など Hangar 独自の名前が付きました。選んでいた配色はそのまま引き継がれ、Ember は新しいパレットになりました。",
+        "pl": "Schematy kolorów mają teraz własne nazwy Hangar, np. Harbor, Nocturne i Fjord. Twój wybór zostaje zachowany, a Ember ma nową paletę.",
+        "pt": "Os esquemas de cores agora têm nomes próprios do Hangar, como Harbor, Nocturne e Fjord. Sua escolha é mantida e o Ember ganhou uma nova paleta.",
+        "ru": "Цветовые схемы теперь носят собственные имена Hangar, например Harbor, Nocturne и Fjord. Твой выбор сохраняется, а у Ember новая палитра.",
+        "tr": "Renk şemaları artık Hangar'ın kendi adlarını taşıyor, örneğin Harbor, Nocturne ve Fjord. Seçimin korunur ve Ember yeni bir palet aldı.",
+        "zh": "配色方案现在使用 Hangar 自己的名称，例如 Harbor、Nocturne 和 Fjord。你之前的选择会保留，Ember 也换上了新的调色板。"
       }
     ]
   },
@@ -178,18 +192,18 @@
         "zh": "包含笔记、更改和文件的整个右侧面板现在可以在独立窗口中打开，例如放到第二台显示器上。点一下即可放回。"
       },
       {
-        "de": "Sieben Themes für dieses Fenster, etwa One Dark Pro, GitHub und Catppuccin, jeweils hell und dunkel. Du wählst sie unter Einstellungen > Darstellung.",
-        "en": "Seven themes for that window, such as One Dark Pro, GitHub and Catppuccin, each light and dark. Pick one in Settings > Appearance.",
-        "el": "Επτά θέματα για αυτό το παράθυρο, όπως One Dark Pro, GitHub και Catppuccin, φωτεινά και σκοτεινά. Τα διαλέγεις στις Ρυθμίσεις > Εμφάνιση.",
-        "es": "Siete temas para esa ventana, como One Dark Pro, GitHub y Catppuccin, en claro y oscuro. Elígelos en Configuración > Apariencia.",
-        "fr": "Sept thèmes pour cette fenêtre, dont One Dark Pro, GitHub et Catppuccin, en clair et en sombre. À choisir dans Paramètres > Apparence.",
-        "it": "Sette temi per questa finestra, come One Dark Pro, GitHub e Catppuccin, in chiaro e scuro. Li scegli in Impostazioni > Aspetto.",
-        "ja": "このウィンドウには One Dark Pro、GitHub、Catppuccin など 7 つのテーマがあり、それぞれライトとダークを用意しています。設定 > 外観 で選べます。",
-        "pl": "Siedem motywów dla tego okna, m.in. One Dark Pro, GitHub i Catppuccin, w wersji jasnej i ciemnej. Wybierzesz je w Ustawienia > Wygląd.",
-        "pt": "Sete temas para essa janela, como One Dark Pro, GitHub e Catppuccin, em claro e escuro. Escolhe em Configurações > Aparência.",
-        "ru": "Семь тем для этого окна, например One Dark Pro, GitHub и Catppuccin, светлые и тёмные. Выбери в Настройки > Оформление.",
-        "tr": "Bu pencere için One Dark Pro, GitHub ve Catppuccin gibi yedi tema, her biri açık ve koyu. Ayarlar > Görünüm bölümünden seçersin.",
-        "zh": "该窗口有七种主题，例如 One Dark Pro、GitHub 和 Catppuccin，均有浅色和深色。在 设置 > 外观 中选择。"
+        "de": "Sieben Themes für dieses Fenster, jeweils hell und dunkel. Du wählst sie unter Einstellungen > Darstellung.",
+        "en": "Seven themes for that window, each light and dark. Pick one in Settings > Appearance.",
+        "el": "Επτά θέματα για αυτό το παράθυρο, φωτεινά και σκοτεινά. Τα διαλέγεις στις Ρυθμίσεις > Εμφάνιση.",
+        "es": "Siete temas para esa ventana, en claro y oscuro. Elígelos en Configuración > Apariencia.",
+        "fr": "Sept thèmes pour cette fenêtre, en clair et en sombre. À choisir dans Paramètres > Apparence.",
+        "it": "Sette temi per questa finestra, in chiaro e scuro. Li scegli in Impostazioni > Aspetto.",
+        "ja": "このウィンドウには 7 つのテーマがあり、それぞれライトとダークを用意しています。設定 > 外観 で選べます。",
+        "pl": "Siedem motywów dla tego okna, w wersji jasnej i ciemnej. Wybierzesz je w Ustawienia > Wygląd.",
+        "pt": "Sete temas para essa janela, em claro e escuro. Escolhe em Configurações > Aparência.",
+        "ru": "Семь тем для этого окна, светлые и тёмные. Выбери в Настройки > Оформление.",
+        "tr": "Bu pencere için yedi tema, her biri açık ve koyu. Ayarlar > Görünüm bölümünden seçersin.",
+        "zh": "该窗口有七种主题，均有浅色和深色。在 设置 > 外观 中选择。"
       },
       {
         "de": "Im Tab Änderungen wechselst du zwischen offenen Änderungen und Commits. Ungepushte stehen oben, ein Klick zeigt die Dateien eines Commits.",
@@ -318,18 +332,18 @@
         "zh": "有新版 Hangar 时，侧边栏右上角会出现一个小小的“更新”按钮。"
       },
       {
-        "de": "Vierzehn Farbschemas fürs Terminal, etwa Dracula und Nord, hell wie dunkel gut lesbar. Harbor und Meridian heißen jetzt GitHub und One Dark Pro.",
-        "en": "Fourteen terminal color schemes, such as Dracula and Nord, readable in light and dark. Harbor and Meridian are now called GitHub and One Dark Pro.",
-        "el": "Δεκατέσσερα σχήματα τερματικού, όπως Dracula και Nord, ευανάγνωστα σε φωτεινό και σκοτεινό. Τα Harbor και Meridian λέγονται τώρα GitHub και One Dark Pro.",
-        "es": "Catorce esquemas de colores para la terminal, como Dracula y Nord, legibles en claro y oscuro. Harbor y Meridian ahora se llaman GitHub y One Dark Pro.",
-        "fr": "Quatorze jeux de couleurs pour le terminal, dont Dracula et Nord, lisibles en clair et en sombre. Harbor et Meridian deviennent GitHub et One Dark Pro.",
-        "it": "Quattordici schemi colori per il terminale, come Dracula e Nord, leggibili in chiaro e scuro. Harbor e Meridian ora si chiamano GitHub e One Dark Pro.",
-        "ja": "ターミナルの配色が 14 種類に。Dracula、Nord などがあり、ライトでもダークでも読みやすく調整しています。Harbor と Meridian は GitHub と One Dark Pro に名前が変わりました。",
-        "pl": "Czternaście schematów kolorów terminala, m.in. Dracula i Nord, czytelnych w jasnym i ciemnym. Harbor i Meridian nazywają się teraz GitHub i One Dark Pro.",
-        "pt": "Catorze esquemas de cores para o terminal, como Dracula e Nord, legíveis no claro e no escuro. Harbor e Meridian chamam-se agora GitHub e One Dark Pro.",
-        "ru": "Четырнадцать цветовых схем терминала, например Dracula и Nord, читаемых в светлой и тёмной теме. Harbor и Meridian теперь называются GitHub и One Dark Pro.",
-        "tr": "Terminal için on dört renk şeması, örneğin Dracula ve Nord, açıkta da koyuda da okunaklı. Harbor ve Meridian artık GitHub ve One Dark Pro adını taşıyor.",
-        "zh": "终端配色增加到十四种，包括 Dracula 和 Nord，浅色和深色下都清晰易读。Harbor 和 Meridian 现更名为 GitHub 和 One Dark Pro。"
+        "de": "Vierzehn Farbschemas fürs Terminal, hell wie dunkel gut lesbar.",
+        "en": "Fourteen terminal color schemes, readable in light and dark.",
+        "el": "Δεκατέσσερα σχήματα τερματικού, ευανάγνωστα σε φωτεινό και σκοτεινό.",
+        "es": "Catorce esquemas de colores para la terminal, legibles en claro y oscuro.",
+        "fr": "Quatorze jeux de couleurs pour le terminal, lisibles en clair et en sombre.",
+        "it": "Quattordici schemi colori per il terminale, leggibili in chiaro e scuro.",
+        "ja": "ターミナルの配色が 14 種類に。ライトでもダークでも読みやすく調整しています。",
+        "pl": "Czternaście schematów kolorów terminala, czytelnych w jasnym i ciemnym.",
+        "pt": "Catorze esquemas de cores para o terminal, legíveis no claro e no escuro.",
+        "ru": "Четырнадцать цветовых схем терминала, читаемых в светлой и тёмной теме.",
+        "tr": "Terminal için on dört renk şeması, açıkta da koyuda da okunaklı.",
+        "zh": "终端配色增加到十四种，浅色和深色下都清晰易读。"
       },
       {
         "de": "Drei neue Schriften: Source Code Pro, IBM Plex Mono und Victor Mono, dazu mehr Systemschriften. Eine neue Einstellungsseite zeigt alles in einer Live-Vorschau.",
@@ -1112,18 +1126,18 @@
         "zh": "把文件从资源管理器拖到终端上，即可按程序所需的格式插入路径。"
       },
       {
-        "de": "Neue Farbschemas für das Terminal (Catppuccin, Solarized), dazu Schriftart und Cursor in den Einstellungen.",
-        "en": "New terminal color schemes (Catppuccin, Solarized), plus font and cursor choices in the settings.",
-        "el": "Νέα χρωματικά σχήματα τερματικού (Catppuccin, Solarized), καθώς και επιλογή γραμματοσειράς και δρομέα στις ρυθμίσεις.",
-        "es": "Nuevos esquemas de colores para la terminal (Catppuccin, Solarized), además de fuente y cursor en la configuración.",
-        "fr": "Nouveaux jeux de couleurs pour le terminal (Catppuccin, Solarized), ainsi que police et curseur dans les paramètres.",
-        "it": "Nuovi schemi colori per il terminale (Catppuccin, Solarized), più carattere e cursore nelle impostazioni.",
-        "ja": "ターミナルに新しい配色 (Catppuccin、Solarized) を追加し、設定でフォントとカーソルも選べるようにしました。",
-        "pl": "Nowe schematy kolorów terminala (Catppuccin, Solarized) oraz wybór czcionki i kursora w ustawieniach.",
-        "pt": "Novos esquemas de cores para o terminal (Catppuccin, Solarized), além de fonte e cursor nas configurações.",
-        "ru": "Новые цветовые схемы терминала (Catppuccin, Solarized), а также выбор шрифта и курсора в настройках.",
-        "tr": "Terminal için yeni renk şemaları (Catppuccin, Solarized), ayrıca ayarlarda yazı tipi ve imleç seçimi.",
-        "zh": "终端新增配色方案（Catppuccin、Solarized），还可在设置中选择字体和光标。"
+        "de": "Neue Farbschemas für das Terminal, dazu Schriftart und Cursor in den Einstellungen.",
+        "en": "New terminal color schemes, plus font and cursor choices in the settings.",
+        "el": "Νέα χρωματικά σχήματα τερματικού, καθώς και επιλογή γραμματοσειράς και δρομέα στις ρυθμίσεις.",
+        "es": "Nuevos esquemas de colores para la terminal, además de fuente y cursor en la configuración.",
+        "fr": "Nouveaux jeux de couleurs pour le terminal, ainsi que police et curseur dans les paramètres.",
+        "it": "Nuovi schemi colori per il terminale, più carattere e cursore nelle impostazioni.",
+        "ja": "ターミナルに新しい配色を追加し、設定でフォントとカーソルも選べるようにしました。",
+        "pl": "Nowe schematy kolorów terminala oraz wybór czcionki i kursora w ustawieniach.",
+        "pt": "Novos esquemas de cores para o terminal, além de fonte e cursor nas configurações.",
+        "ru": "Новые цветовые схемы терминала, а также выбор шрифта и курсора в настройках.",
+        "tr": "Terminal için yeni renk şemaları, ayrıca ayarlarda yazı tipi ve imleç seçimi.",
+        "zh": "终端新增配色方案，还可在设置中选择字体和光标。"
       },
       {
         "de": "Speichere den Verlauf einer Session als Text oder HTML: Datei, Session exportieren.",

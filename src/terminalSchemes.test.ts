@@ -10,8 +10,10 @@ import {
   schemePalette,
   schemesInGroup,
   searchColors,
+  type ColorScheme,
   type TerminalColors,
 } from "./terminalSchemes";
+import { VIEWER_THEMES } from "./viewerThemes";
 
 const THEMES: readonly Theme[] = ["dark", "light"];
 
@@ -51,32 +53,55 @@ describe("scheme keys", () => {
   });
 
   it("offers a terminal scheme for every file viewer family", () => {
-    for (const family of [
-      "oneDarkPro",
-      "github",
-      "vscode",
-      "darcula",
-      "solarized",
-      "catppuccin",
-      "monokai",
-    ]) {
+    for (const family of VIEWER_THEMES) {
       expect(isColorScheme(family), family).toBe(true);
     }
   });
 
-  it("keeps every released key working", () => {
-    for (const key of ["hangar", "dusk", "catppuccin", "solarized"]) {
-      expect(parseColorScheme(key), key).toBe(key);
+  it("reads every current key as itself", () => {
+    for (const key of COLOR_SCHEMES) expect(parseColorScheme(key), key).toBe(key);
+  });
+
+  it("moves every key released in 0.6.0 to its renamed scheme", () => {
+    const renamed: Record<string, ColorScheme> = {
+      oneDarkPro: "meridian",
+      github: "harbor",
+      vscode: "studio",
+      darcula: "anvil",
+      solarized: "sundial",
+      catppuccin: "velvet",
+      monokai: "ember",
+      dracula: "nocturne",
+      nord: "fjord",
+      gruvbox: "ochre",
+      tokyoNight: "neon",
+      rosePine: "heather",
+    };
+    for (const [old, now] of Object.entries(renamed)) {
+      expect(parseColorScheme(old), old).toBe(now);
+      expect(isColorScheme(old), old).toBe(false);
     }
-    expect(parseColorScheme("harbor")).toBe("github");
-    expect(parseColorScheme("meridian")).toBe("oneDarkPro");
+  });
+
+  it("keeps the keys from before 0.6.0 on the palettes they always had", () => {
+    expect(parseColorScheme("harbor")).toBe("harbor");
+    expect(parseColorScheme("meridian")).toBe("meridian");
   });
 
   it("rejects unknown values", () => {
-    for (const value of ["Harbor", "midnight", "toString", "__proto__", "", 3, null, undefined]) {
+    for (const value of [
+      "Harbor",
+      "GitHub",
+      "midnight",
+      "toString",
+      "__proto__",
+      "",
+      3,
+      null,
+      undefined,
+    ]) {
       expect(parseColorScheme(value), String(value)).toBeNull();
     }
-    expect(isColorScheme("harbor")).toBe(false);
   });
 });
 
@@ -86,15 +111,31 @@ describe("color schemes", () => {
     expect(schemeColors("hangar", "light")).toBe(TERMINAL_THEMES.light);
   });
 
-  it("keeps the palette Harbor and Meridian had", () => {
-    expect(schemeColors("github", "dark").background).toBe("#0d1117");
-    expect(schemeColors("github", "light").yellow).toBe("#4d2d00");
-    expect(schemeColors("oneDarkPro", "dark").red).toBe("#e05561");
-    expect(schemeColors("oneDarkPro", "light").background).toBe("#fafafa");
+  it("keeps the colors of the renamed schemes", () => {
+    expect(schemeColors("harbor", "dark").background).toBe("#0d1117");
+    expect(schemeColors("harbor", "light").yellow).toBe("#4d2d00");
+    expect(schemeColors("meridian", "dark").red).toBe("#e05561");
+    expect(schemeColors("meridian", "light").background).toBe("#fafafa");
+    expect(schemeColors("fjord", "dark").background).toBe("#2e3440");
+    expect(schemeColors("nocturne", "dark").background).toBe("#282a36");
+  });
+
+  it("draws Ember from the classic 2006 palette", () => {
+    const ember = schemeColors("ember", "dark");
+    expect(ember.background).toBe("#272822");
+    expect(ember.foreground).toBe("#f8f8f2");
+    expect(schemePalette(ember)).toEqual([
+      "#f92672",
+      "#a6e22e",
+      "#e6db74",
+      "#66d9ef",
+      "#ae81ff",
+      "#a1efe4",
+    ]);
   });
 
   it("returns the same object for the same choice (no needless repaint)", () => {
-    expect(schemeColors("dracula", "dark")).toBe(schemeColors("dracula", "dark"));
+    expect(schemeColors("nocturne", "dark")).toBe(schemeColors("nocturne", "dark"));
   });
 
   it("uses #rrggbb everywhere", () => {
@@ -171,7 +212,7 @@ describe("contrast", () => {
 
 describe("preview and search", () => {
   it("previews six accents per scheme", () => {
-    const colors = schemeColors("nord", "dark");
+    const colors = schemeColors("fjord", "dark");
     expect(schemePalette(colors)).toEqual(ACCENTS.map((accent) => colors[accent]));
   });
 
