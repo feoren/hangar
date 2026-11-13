@@ -106,6 +106,7 @@ describe("parseLayout", () => {
       notesWidth: NOTES_WIDTH.default,
       snapLayout: "single",
       paneRatios: {},
+      subAgentRatios: null,
     });
   });
 
@@ -157,6 +158,16 @@ describe("parseLayout", () => {
     expect(layout.paneRatios).toEqual({ pair: [0.7], mainStack: [0.5, 0.3] });
     expect(parseLayout(JSON.stringify({ paneRatios: "wide" })).paneRatios).toEqual({});
     expect(parseLayout(JSON.stringify({})).paneRatios).toEqual({});
+  });
+
+  it("remembers the sub-agent view's width apart from the split view", () => {
+    const layout = parseLayout(
+      JSON.stringify({ paneRatios: { pair: [0.4] }, subAgentRatios: [0.62] }),
+    );
+    expect(layout.subAgentRatios).toEqual([0.62]);
+    expect(layout.paneRatios).toEqual({ pair: [0.4] });
+    expect(parseLayout(JSON.stringify({ subAgentRatios: [1.2] })).subAgentRatios).toBeNull();
+    expect(parseLayout(JSON.stringify({})).subAgentRatios).toBeNull();
   });
 
   it("migrates the split mode stored before 0.3", () => {

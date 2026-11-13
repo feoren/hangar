@@ -110,6 +110,7 @@ const de = {
   "subAgents.loading": "Suche Sub-Agents …",
   "subAgents.notLocated":
     "Der Agent hat noch kein Protokoll geschrieben. Sub-Agents erscheinen nach deiner ersten Eingabe.",
+  "subAgents.splitter": "Breite von Terminal und Sub-Agents",
   "subAgents.none": "Noch keine Sub-Agents. Sie erscheinen hier, sobald der Agent einen startet.",
   "subAgents.unavailable":
     "Für diese Session sind gerade keine Sub-Agents verfügbar. Nach einem Neustart wieder.",
@@ -1453,6 +1454,7 @@ const en: Record<MessageKey, string> = {
   "subAgents.loading": "Looking for sub-agents …",
   "subAgents.notLocated":
     "The agent has not written its transcript yet. Sub-agents show up after your first prompt.",
+  "subAgents.splitter": "Width of terminal and sub-agents",
   "subAgents.none": "No sub-agents yet. They show up here as soon as the agent starts one.",
   "subAgents.unavailable":
     "Sub-agents are not available for this session right now. They will be after a restart.",
@@ -2761,6 +2763,7 @@ const el: Record<MessageKey, string> = {
   "subAgents.loading": "Αναζήτηση υπο-πρακτόρων …",
   "subAgents.notLocated":
     "Ο πράκτορας δεν έχει γράψει ακόμη το αρχείο συνομιλίας. Οι υπο-πράκτορες εμφανίζονται μετά την πρώτη σου εντολή.",
+  "subAgents.splitter": "Πλάτος τερματικού και υπο-πρακτόρων",
   "subAgents.none":
     "Δεν υπάρχουν ακόμη υπο-πράκτορες. Εμφανίζονται εδώ μόλις ο πράκτορας ξεκινήσει έναν.",
   "subAgents.unavailable":
@@ -4115,6 +4118,7 @@ const es: Record<MessageKey, string> = {
   "subAgents.loading": "Buscando subagentes …",
   "subAgents.notLocated":
     "El agente aún no ha escrito su registro. Los subagentes aparecen después de tu primera instrucción.",
+  "subAgents.splitter": "Ancho de la terminal y los subagentes",
   "subAgents.none": "Aún no hay subagentes. Aparecen aquí en cuanto el agente inicia uno.",
   "subAgents.unavailable":
     "Los subagentes no están disponibles ahora para esta sesión. Lo estarán tras reiniciarla.",
@@ -5447,6 +5451,7 @@ const fr: Record<MessageKey, string> = {
   "subAgents.loading": "Recherche des sous-agents …",
   "subAgents.notLocated":
     "L'agent n'a pas encore écrit son journal. Les sous-agents apparaissent après ta première demande.",
+  "subAgents.splitter": "Largeur du terminal et des sous-agents",
   "subAgents.none": "Pas encore de sous-agents. Ils apparaissent ici dès que l'agent en lance un.",
   "subAgents.unavailable":
     "Les sous-agents ne sont pas disponibles pour cette session pour le moment. Ils le seront après un redémarrage.",
@@ -6799,6 +6804,7 @@ const it: Record<MessageKey, string> = {
   "subAgents.loading": "Ricerca dei sotto-agenti …",
   "subAgents.notLocated":
     "L'agente non ha ancora scritto il suo registro. I sotto-agenti compaiono dopo la tua prima richiesta.",
+  "subAgents.splitter": "Larghezza del terminale e dei sotto-agenti",
   "subAgents.none": "Ancora nessun sotto-agente. Compaiono qui appena l'agente ne avvia uno.",
   "subAgents.unavailable":
     "I sotto-agenti non sono disponibili ora per questa sessione. Lo saranno dopo un riavvio.",
@@ -8136,6 +8142,7 @@ const ja: Record<MessageKey, string> = {
   "subAgents.loading": "サブエージェントを検索中 …",
   "subAgents.notLocated":
     "エージェントはまだ記録を書き込んでいません。サブエージェントは最初の指示の後に表示されます。",
+  "subAgents.splitter": "ターミナルとサブエージェントの幅",
   "subAgents.none":
     "サブエージェントはまだありません。エージェントが起動するとここに表示されます。",
   "subAgents.unavailable":
@@ -9471,6 +9478,7 @@ const pl: Record<MessageKey, string> = {
   "subAgents.loading": "Szukam podagentów …",
   "subAgents.notLocated":
     "Agent nie zapisał jeszcze swojego dziennika. Podagenci pojawią się po twoim pierwszym poleceniu.",
+  "subAgents.splitter": "Szerokość terminala i podagentów",
   "subAgents.none": "Jeszcze brak podagentów. Pojawią się tutaj, gdy agent jakiegoś uruchomi.",
   "subAgents.unavailable":
     "Podagenci nie są teraz dostępni dla tej sesji. Będą po ponownym uruchomieniu.",
@@ -10793,6 +10801,7 @@ const pt: Record<MessageKey, string> = {
   "subAgents.loading": "Procurando subagentes …",
   "subAgents.notLocated":
     "O agente ainda não gravou o registro. Os subagentes aparecem depois do seu primeiro pedido.",
+  "subAgents.splitter": "Largura do terminal e dos subagentes",
   "subAgents.none": "Ainda não há subagentes. Eles aparecem aqui assim que o agente iniciar um.",
   "subAgents.unavailable":
     "Os subagentes não estão disponíveis agora para esta sessão. Estarão após reiniciá-la.",
@@ -12124,6 +12133,7 @@ const ru: Record<MessageKey, string> = {
   "subAgents.loading": "Ищу субагентов …",
   "subAgents.notLocated":
     "Агент ещё не записал журнал. Субагенты появятся после твоего первого запроса.",
+  "subAgents.splitter": "Ширина терминала и субагентов",
   "subAgents.none": "Субагентов пока нет. Они появятся здесь, как только агент запустит одного.",
   "subAgents.unavailable":
     "Субагенты сейчас недоступны для этого сеанса. Они станут доступны после перезапуска.",
@@ -13440,6 +13450,7 @@ const tr: Record<MessageKey, string> = {
   "subAgents.treeHint": "Bu alt ajanın ne yaptığını görmek için tıkla.",
   "subAgents.loading": "Alt ajanlar aranıyor …",
   "subAgents.notLocated": "Ajan henüz kaydını yazmadı. Alt ajanlar ilk isteğinden sonra görünür.",
+  "subAgents.splitter": "Terminal ve alt ajanların genişliği",
   "subAgents.none": "Henüz alt ajan yok. Ajan bir tane başlatır başlatmaz burada görünür.",
   "subAgents.unavailable":
     "Bu oturum için alt ajanlar şu anda kullanılamıyor. Yeniden başlattıktan sonra kullanılabilir.",
@@ -14753,6 +14764,7 @@ const zh: Record<MessageKey, string> = {
   "subAgents.treeHint": "点击查看此子代理正在做什么。",
   "subAgents.loading": "正在查找子代理 …",
   "subAgents.notLocated": "代理尚未写入记录。子代理会在你发出第一条指令后出现。",
+  "subAgents.splitter": "终端和子代理的宽度",
   "subAgents.none": "暂无子代理。代理启动子代理后会显示在这里。",
   "subAgents.unavailable": "此会话目前无法使用子代理，重新启动后即可使用。",
   "subAgents.error": "无法显示子代理：{error}",

@@ -31,6 +31,8 @@ import {
   type LogLine,
   type SubAgent,
 } from "./subAgents";
+import { SUB_AGENT_LAYOUT } from "./paneRatios";
+import type { Ratios } from "./snapLayouts";
 import { paneStyle } from "./TerminalPane";
 import { useClock } from "./useClock";
 import { useSubAgentLog, useSubAgentView } from "./useSubAgents";
@@ -57,6 +59,8 @@ interface Props {
   hidden: ReadonlySet<string>;
   onPick: (agentId: string | null) => void;
   onClose: () => void;
+  /** Splitter position between the session's terminal and this pane (paneRatios.ts). */
+  ratios: Ratios;
 }
 
 export function SubAgentPane({
@@ -69,10 +73,11 @@ export function SubAgentPane({
   hidden,
   onPick,
   onClose,
+  ratios,
 }: Props) {
   const t = useT();
   const { view } = useSubAgentView(watchKey);
-  const style = paneStyle("pair", 1);
+  const style = paneStyle(SUB_AGENT_LAYOUT, 1, ratios);
   /** A switch inside the pane by keyboard: the new body takes the focus once it is shown. */
   const [focusOnShow, setFocusOnShow] = useState(false);
   const focused = useCallback(() => {

@@ -90,7 +90,7 @@ import { SaveSnippetDialog } from "./SaveSnippetDialog";
 import { dropLine } from "./sessionDrag";
 import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
-import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
+import { LAYOUT_IDS, LAYOUT_NAMES, type Ratios, type SnapTarget } from "./snapLayouts";
 import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
 import {
   clampFontSize,
@@ -220,7 +220,7 @@ import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
-import { ratiosFor } from "./paneRatios";
+import { ratiosFor, sameRatios, SUB_AGENT_LAYOUT, subAgentRatios } from "./paneRatios";
 import type { PanePlacement } from "./paneGlyph";
 import {
   isDue,
@@ -1413,7 +1413,23 @@ export function App() {
    * beside it, so the main agent stays in sight (and can be answered) while a sub-agent's
    * activity shows, and switching sub-agents never resizes the terminal.
    */
-  const subAgentPlan = subAgentSession === undefined ? null : { layout: "pair" as const };
+  const subAgentPlan =
+    subAgentSession === undefined
+      ? null
+      : { layout: SUB_AGENT_LAYOUT, ratios: subAgentRatios(layout.subAgentRatios) };
+  /** The splitter beside the sub-agent view; its position is remembered apart from the split view. */
+  const setSubAgentSplit = (next: Ratios) => {
+    setLayout((current) =>
+      sameRatios(subAgentRatios(current.subAgentRatios), next)
+        ? current
+        : { ...current, subAgentRatios: next },
+    );
+  };
+  const resetSubAgentSplit = () => {
+    setLayout((current) =>
+      current.subAgentRatios === null ? current : { ...current, subAgentRatios: null },
+    );
+  };
   // Sessions shown in a pane right now; the chime stays silent for them while the window has focus.
   const shown = new Set<number>(state.activeId === null ? [] : [state.activeId]);
   if (subAgentPlan === null) {
@@ -4455,7 +4471,7 @@ export function App() {
                       ? {
                           layout: subAgentPlan.layout,
                           slot: 0,
-                          ratios: DEFAULT_RATIOS[subAgentPlan.layout],
+                          ratios: subAgentPlan.ratios,
                           session,
                           ...paneLook(session)(),
                         }
@@ -4505,6 +4521,16 @@ export function App() {
                   hidden={subAgentHidden}
                   onPick={setSubAgentPick}
                   onClose={closeSubAgents}
+                  ratios={subAgentPlan.ratios}
+                />
+              )}
+              {subAgentPlan !== null && subAgentSession !== undefined && (
+                <PaneSplitters
+                  layout={subAgentPlan.layout}
+                  ratios={subAgentPlan.ratios}
+                  onChange={setSubAgentSplit}
+                  onReset={resetSubAgentSplit}
+                  label={t("subAgents.splitter")}
                 />
               )}
               {shownDecision !== null &&

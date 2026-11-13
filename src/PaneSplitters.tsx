@@ -17,6 +17,8 @@ interface Props {
   ratios: Ratios;
   onChange: (ratios: Ratios) => void;
   onReset: () => void;
+  /** Name of the splitters for screen readers; default: the split view's names. */
+  label?: string;
 }
 
 /** Same gaps as the panes (TerminalPane.tsx): to the area's edge and between two panes. */
@@ -50,7 +52,7 @@ function areaOf(element: HTMLElement): AreaSize {
  * redraw once instead of on every frame. Arrow keys step, Home and End go to the limits, a double
  * click gives the layout its preset sizes back.
  */
-export function PaneSplitters({ layout, ratios, onChange, onReset }: Props) {
+export function PaneSplitters({ layout, ratios, onChange, onReset, label: name }: Props) {
   const t = useT();
   const drag = useRef<{
     index: number;
@@ -92,9 +94,8 @@ export function PaneSplitters({ layout, ratios, onChange, onReset }: Props) {
     <>
       {splitters(layout, ratios).map((splitter) => {
         const { orientation, index } = splitter;
-        const label = t(
-          orientation === "vertical" ? "split.splitterColumns" : "split.splitterRows",
-        );
+        const label =
+          name ?? t(orientation === "vertical" ? "split.splitterColumns" : "split.splitterRows");
         const bounds = ratioBounds(layout, ratios, index);
         const position = (event: React.PointerEvent) =>
           orientation === "vertical" ? event.clientX : event.clientY;
