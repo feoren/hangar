@@ -8,6 +8,8 @@ import {
   SNIPPET_LIMIT,
   SNIPPET_MAX_LENGTH,
   snippetLabel,
+  snippetTextFromSelection,
+  snippetWithText,
   usableSnippets,
 } from "./snippets";
 
@@ -103,5 +105,62 @@ describe("helpers", () => {
     expect(moveSnippet(list, "a", -1).map((s) => s.id)).toEqual(["a", "b", "c"]);
     expect(moveSnippet(list, "c", 1).map((s) => s.id)).toEqual(["a", "b", "c"]);
     expect(moveSnippet(list, "zz", 1).map((s) => s.id)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("snippetTextFromSelection", () => {
+  it("normalizes line ends and drops blanks padding the rows", () => {
+    expect(snippetTextFromSelection("first   \r\nsecond\t\rthird ")).toBe("first\nsecond\nthird");
+  });
+
+  it("drops empty rows around the selection but keeps inner ones", () => {
+    expect(snippetTextFromSelection("\n   \nfirst\n\nsecond\n  \n")).toBe("first\n\nsecond");
+  });
+
+  it("removes the shared indentation, keeps the relative one", () => {
+    expect(snippetTextFromSelection("    if (ok) {\n      run();\n\n    }")).toBe(
+      "if (ok) {\n  run();\n\n}",
+    );
+  });
+
+  it("keeps a single line as it is, apart from the blanks around it", () => {
+    expect(snippetTextFromSelection("  git status  ")).toBe("git status");
+  });
+
+  it("gives nothing for a blank selection", () => {
+    expect(snippetTextFromSelection(" \r\n \n")).toBe("");
+  });
+
+  it("cuts to the stored length without splitting a character", () => {
+    expect(snippetTextFromSelection("y".repeat(SNIPPET_MAX_LENGTH + 10))).toHaveLength(
+      SNIPPET_MAX_LENGTH,
+    );
+    const emoji = `${"y".repeat(SNIPPET_MAX_LENGTH - 1)}\u{1F680}`;
+    expect(snippetTextFromSelection(emoji)).toBe("y".repeat(SNIPPET_MAX_LENGTH - 1));
+  });
+
+  it("gives the name from the first non-empty line, shortened", () => {
+    const text = snippetTextFromSelection(`\n\n   ${"Explain ".repeat(20)}  \n   next line`);
+    const label = snippetLabel({ text });
+    expect(label.startsWith("Explain Explain")).toBe(true);
+    expect(Array.from(label)).toHaveLength(60);
+    expect(label.endsWith("…")).toBe(true);
+  });
+});
+
+describe("snippetWithText", () => {
+  const list = [
+    { id: "a", text: "Review the changes" },
+    { id: "b", text: "Write tests\nfor this" },
+  ];
+
+  it("finds a snippet with the same text after cleanup", () => {
+    expect(snippetWithText(list, "  Review the changes  \r\n")?.id).toBe("a");
+    expect(snippetWithText(list, "Write tests   \r\nfor this")?.id).toBe("b");
+  });
+
+  it("finds nothing for new or blank text", () => {
+    expect(snippetWithText(list, "Review the change")).toBeUndefined();
+    expect(snippetWithText(list, "  \n")).toBeUndefined();
   });
 });

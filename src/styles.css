@@ -6348,6 +6348,20 @@ body.resizing-horizontal * {
   resize: vertical;
 }
 
+/* "Save as snippet": room for a few lines of the selection, never taller than the window allows. */
+.snippet-save-text {
+  min-height: 112px;
+  max-height: 50vh;
+}
+
+.snippet-save-name {
+  margin: 6px 0 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .snippet-actions {
   display: flex;
   gap: 2px;

@@ -91,3 +91,43 @@ export function moveSnippet(snippets: readonly Snippet[], id: string, step: 1 | 
   if (moved) next.splice(target, 0, moved);
   return next;
 }
+
+/** Indentation counted for removal: spaces and tabs at the start of a line. */
+const LEADING_BLANKS = /^[ \t]*/;
+
+/**
+ * Selected text as snippet text ("Save as snippet"). xterm already joins soft-wrapped rows; what
+ * remains are terminal artifacts: CRLF, blanks padding each row, empty rows around the selection
+ * and the indentation of the output it came from (agents indent their answers). Inner blank lines
+ * and relative indentation stay. Cut to the stored length.
+ */
+export function snippetTextFromSelection(selection: string): string {
+  const lines = selection
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/u, ""));
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start] === "") start += 1;
+  while (end > start && lines[end - 1] === "") end -= 1;
+  const kept = lines.slice(start, end);
+  const indents = kept
+    .filter((line) => line !== "")
+    .map((line) => LEADING_BLANKS.exec(line)?.[0].length ?? 0);
+  const indent = indents.length > 0 ? Math.min(...indents) : 0;
+  const text = kept.map((line) => line.slice(indent)).join("\n");
+  if (text.length <= SNIPPET_MAX_LENGTH) return text;
+  const cut = text.slice(0, SNIPPET_MAX_LENGTH);
+  // Never end on half a surrogate pair.
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * The stored snippet with the same text, if any. Both sides are compared after the same cleanup,
+ * so blanks at line ends or around the text do not make a duplicate look new.
+ */
+export function snippetWithText(snippets: readonly Snippet[], text: string): Snippet | undefined {
+  const wanted = snippetTextFromSelection(text);
+  if (wanted === "") return undefined;
+  return snippets.find((snippet) => snippetTextFromSelection(snippet.text) === wanted);
+}

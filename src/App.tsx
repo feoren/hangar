@@ -79,7 +79,14 @@ import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
-import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
+import {
+  newSnippetId,
+  usableSnippets,
+  snippetLabel,
+  snippetTextFromSelection,
+  type Snippet,
+} from "./snippets";
+import { SaveSnippetDialog } from "./SaveSnippetDialog";
 import { dropLine } from "./sessionDrag";
 import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
@@ -540,6 +547,8 @@ export function App() {
   const [closingId, setClosingId] = useState<number | null>(null);
   /** Context menu of the terminal, open at this position in the window. */
   const [terminalMenu, setTerminalMenu] = useState<{ x: number; y: number } | null>(null);
+  /** "Save as snippet": the cleaned selection the dialog starts with; `null` while closed. */
+  const [snippetDraft, setSnippetDraft] = useState<string | null>(null);
   /** Most recently started program (Ctrl+Shift+T, empty state). */
   const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
   /** Clicked terminal link, for as long as its hint is shown. */
@@ -932,8 +941,12 @@ export function App() {
 
   useEffect(() => {
     modalRef.current =
-      dialog !== null || closingId !== null || markerId !== null || templateDialog !== null;
-  }, [dialog, closingId, markerId, templateDialog]);
+      dialog !== null ||
+      closingId !== null ||
+      markerId !== null ||
+      templateDialog !== null ||
+      snippetDraft !== null;
+  }, [dialog, closingId, markerId, templateDialog, snippetDraft]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -3025,6 +3038,12 @@ export function App() {
     askNotes((token) => ({ token, kind: "capture", text, source }));
   };
 
+  /** "Save as snippet": the selection, cleaned of terminal artifacts, into a dialog to confirm. */
+  const saveSelectionAsSnippet = () => {
+    const text = snippetTextFromSelection(activeTerminal()?.selectionText() ?? "");
+    if (text !== "") setSnippetDraft(text);
+  };
+
   /**
    * F6 and Shift+F6 while the notes are open: terminal, list, editor. Returns whether it moved
    * the focus (otherwise F6 stays with the program in the terminal).
@@ -3980,6 +3999,13 @@ export function App() {
       label: t("notes.addSelection"),
       disabled: activeTerminal()?.hasSelection() !== true,
       run: captureSelection,
+    },
+    {
+      type: "action",
+      key: "toSnippet",
+      label: t("snippets.saveSelectionMenu"),
+      disabled: activeTerminal()?.hasSelection() !== true,
+      run: saveSelectionAsSnippet,
     },
     { type: "separator", key: "sep" },
     {
@@ -5002,6 +5028,27 @@ export function App() {
             position={sessionMenu}
             onClose={() => {
               setSessionMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {snippetDraft !== null && (
+          <SaveSnippetDialog
+            text={snippetDraft}
+            snippets={settings.snippets}
+            onSave={(text) => {
+              updateSettings({
+                snippets: [...settings.snippets, { id: newSnippetId(settings.snippets), text }],
+              });
+              setSnippetDraft(null);
+              focusActive();
+            }}
+            onShowSnippets={() => {
+              setSnippetDraft(null);
+              openSettings("snippets");
+            }}
+            onClose={() => {
+              setSnippetDraft(null);
               focusActive();
             }}
           />
