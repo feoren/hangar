@@ -3602,12 +3602,18 @@ body.resizing-horizontal * {
 
 /* Settings */
 
-/* Fixed size so the dialog does not jump when switching sections. */
+/* Fixed size so the dialog does not jump when switching sections. The Team window shares it, so
+   the two large windows open at the same size. */
+:root {
+  --large-dialog-width: min(936px, calc(100vw - 32px));
+  --large-dialog-height: min(672px, calc(100vh - 32px));
+}
+
 .dialog.settings {
   display: flex;
   flex-direction: column;
-  width: min(936px, calc(100vw - 32px));
-  height: min(672px, calc(100vh - 32px));
+  width: var(--large-dialog-width);
+  height: var(--large-dialog-height);
   padding: 18px 20px 16px;
 }
 
@@ -9770,8 +9776,8 @@ body.session-dragging .session-actions {
   z-index: 120;
   display: flex;
   flex-direction: column;
-  width: min(760px, calc(100vw - 32px));
-  height: min(520px, calc(100vh - 32px));
+  width: var(--large-dialog-width);
+  height: var(--large-dialog-height);
   margin: auto;
   padding: 14px 0 0;
 }
