@@ -98,6 +98,10 @@ fn commands_are_registered_allowed_and_wired() {
         "account_open",
         // Opening a dev server address in the browser is the main window's.
         "open_local_url",
+        // Paths and addresses clicked in the terminal name any local path: main window only.
+        "stat_paths",
+        "open_path",
+        "open_web_url",
         // The team connection: sharing a project and confirming devices is the main window's.
         "team_status",
         "team_enable",

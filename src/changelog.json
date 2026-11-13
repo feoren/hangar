@@ -44,6 +44,20 @@
         "ru": "Агент, запущенный в новом worktree, сначала проверяет, есть ли в базовой ветке новые коммиты, и спрашивает, подтянуть ли их.",
         "tr": "Yeni bir worktree'de başlayan ajan önce temel dalda yeni commit olup olmadığını kontrol eder ve bunları çekmeyi sorar.",
         "zh": "在新 worktree 中启动的智能体会先检查基础分支是否有新提交，并询问是否拉取。"
+      },
+      {
+        "de": "Adressen, Dateien und Ordner im Terminal sind Links: ein Klick öffnet sie. Mit gedrückter Umschalttaste öffnest du jeden Ordner auf dem Weg einzeln.",
+        "en": "Addresses, files and folders in the terminal are links: one click opens them. Hold Shift to open each folder along the path on its own.",
+        "el": "Διευθύνσεις, αρχεία και φάκελοι στο τερματικό είναι σύνδεσμοι: ένα κλικ τα ανοίγει. Κράτα πατημένο το Shift για να ανοίξεις χωριστά κάθε φάκελο της διαδρομής.",
+        "es": "Las direcciones, archivos y carpetas del terminal son enlaces: un clic los abre. Mantén Mayús pulsada para abrir por separado cada carpeta de la ruta.",
+        "fr": "Les adresses, fichiers et dossiers du terminal sont des liens : un clic les ouvre. Maintiens Maj enfoncée pour ouvrir séparément chaque dossier du chemin.",
+        "it": "Indirizzi, file e cartelle nel terminale sono link: un clic li apre. Tieni premuto Maiusc per aprire singolarmente ogni cartella del percorso.",
+        "ja": "ターミナル内のアドレス、ファイル、フォルダーがリンクになり、クリックひとつで開けます。Shift を押したままにすると、パスの途中のフォルダーを個別に開けます。",
+        "pl": "Adresy, pliki i foldery w terminalu są linkami: jedno kliknięcie je otwiera. Przytrzymaj Shift, aby otworzyć osobno każdy folder na ścieżce.",
+        "pt": "Endereços, arquivos e pastas no terminal são links: um clique os abre. Segure Shift para abrir cada pasta do caminho separadamente.",
+        "ru": "Адреса, файлы и папки в терминале стали ссылками: их открывает один щелчок. Удерживай Shift, чтобы открыть по отдельности любую папку на пути.",
+        "tr": "Terminaldeki adresler, dosyalar ve klasörler bağlantıdır: tek tıkla açılır. Yoldaki her klasörü ayrı açmak için Shift tuşunu basılı tut.",
+        "zh": "终端中的网址、文件和文件夹现在都是链接，单击即可打开。按住 Shift 可以单独打开路径中的每个文件夹。"
       }
     ]
   },

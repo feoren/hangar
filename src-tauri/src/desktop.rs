@@ -1,9 +1,11 @@
 //! Opens folders and files with the program the operating system assigns to them.
 //!
-//! Callers only pass paths the backend determined itself (notes folder, profiles.toml).
-//! The frontend never names a path, so this never becomes a command for opening arbitrary files.
-//! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages
-//! and a local dev server a session printed ([`local_dev_url`]).
+//! Callers pass paths the backend determined itself (notes folder, profiles.toml), with one
+//! exception: a path a session printed and the user clicked in the terminal, which path_links.rs
+//! checks first (local real paths only, only harmless file types open, the rest is revealed).
+//! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages,
+//! a local dev server a session printed ([`local_dev_url`]) and an address clicked in the
+//! terminal (`path_links::web_url`).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -75,7 +77,8 @@ pub fn reveal_command(file: &Path) -> (PathBuf, Vec<std::ffi::OsString>) {
     }
 }
 
-/// Shows `file` selected in Explorer or Finder; callers pass only paths from Hangar's own storage.
+/// Shows `file` selected in Explorer or Finder: paths from Hangar's own storage, and files or
+/// bundles clicked in the terminal that are not plainly harmless to open (path_links.rs).
 pub fn reveal(file: &Path) -> io::Result<()> {
     let (program, args) = reveal_command(file);
     let mut command = Command::new(program);
@@ -147,6 +150,43 @@ pub fn open_url(url: &reqwest::Url) -> io::Result<()> {
     }
 }
 
+/// Opens a file in its default program. On Windows through `ShellExecuteW` like [`open_url`]:
+/// explorer.exe parses its own command line and misreads paths with commas. Callers pass only
+/// real paths of harmless file types here (path_links.rs, `opens_directly`).
+pub fn open_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        shell_open(text)
+    }
+    #[cfg(not(windows))]
+    {
+        let (program, args) = command_for(path, Target::Folder);
+        let mut command = Command::new(program);
+        command.args(args);
+        spawn_detached(command)
+    }
+}
+
+/// Opens a folder in the file manager. On Windows through `ShellExecuteW` ("open" on a folder
+/// opens Explorer there), so the path never goes through explorer.exe's own command line parsing,
+/// which splits at commas.
+pub fn open_folder(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        shell_open(text)
+    }
+    #[cfg(not(windows))]
+    {
+        open(path, Target::Folder)
+    }
+}
+
 /// UTF-16 with the terminating zero the Win32 API expects.
 #[cfg(windows)]
 fn wide(text: &str) -> Vec<u16> {
@@ -178,7 +218,7 @@ fn shell_open(address: &str) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(format!(
-            "the browser did not open (ShellExecute {})",
+            "the default program did not open (ShellExecute {})",
             result as isize
         )))
     }

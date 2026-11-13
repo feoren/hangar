@@ -40,6 +40,7 @@ use crate::notes::{
 use crate::notify::{self, Notifier};
 use crate::panel_window::{self, PanelMessage, PanelWindowError};
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
+use crate::path_links::{self, Opened, PathKind, PathLinkError};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
@@ -1661,6 +1662,54 @@ pub async fn open_local_url(url: String) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+}
+
+// Paths and addresses clicked in the terminal (path_links.rs).
+
+/// File, folder or nothing for each of at most 64 local absolute paths a session printed, so the
+/// terminal underlines only paths that exist. Never reads a file.
+#[tauri::command]
+pub async fn stat_paths(paths: Vec<String>) -> Result<Vec<Option<PathKind>>, PathLinkError> {
+    if paths.len() > path_links::MAX_PATHS {
+        return Err(PathLinkError::TooMany);
+    }
+    let task = tauri::async_runtime::spawn_blocking(move || path_links::kinds(&paths));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| PathLinkError::Task(error.to_string()))?,
+        Err(_) => Err(PathLinkError::TimedOut),
+    }
+}
+
+/// Opens a path clicked in the terminal: a folder in the file manager, a file in its default
+/// program when it is plainly harmless (path_links.rs), anything else selected in the file
+/// manager. Only from the focused window, since it follows a click.
+#[tauri::command]
+pub async fn open_path(
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<Opened, PathLinkError> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err(PathLinkError::NotFocused);
+    }
+    let task = tauri::async_runtime::spawn_blocking(move || path_links::open(&path));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| PathLinkError::Task(error.to_string()))?,
+        Err(_) => Err(PathLinkError::TimedOut),
+    }
+}
+
+/// Opens a plain http(s) address clicked in the terminal in the default browser; only from the
+/// focused window.
+#[tauri::command]
+pub async fn open_web_url(window: tauri::WebviewWindow, url: String) -> Result<(), PathLinkError> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err(PathLinkError::NotFocused);
+    }
+    let url = path_links::web_url(&url).ok_or(PathLinkError::NotWeb)?;
+    tauri::async_runtime::spawn_blocking(move || desktop::open_url(&url))
+        .await
+        .map_err(|error| PathLinkError::Task(error.to_string()))?
+        .map_err(PathLinkError::Open)
 }
 
 /// Every path below a session's folder for the file tree's filter (file_tree.rs, `PathIndex`):

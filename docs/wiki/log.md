@@ -678,3 +678,11 @@ accepting `--append-system-prompt=<value>`. The text is never handed to a cmd.ex
 Settings names such programs; the length check covers the fully quoted command line with the gate
 options; the template and the Settings help warn against secrets.
 Pages changed: [[agent-instruction-flags-measurement]], [[agent-instructions]].
+
+## [2026-11-13] ingest | Terminal links
+Read xterm.js 6.0.0's Linkifier and RenderService (line cache, re-query on viewport render,
+reply map reset with late callbacks) and measured Windows dropping trailing dots and spaces
+from file names. Filed the terminal links behavior and the allowlist decision for opening
+clicked files.
+Pages changed: [[xterm-linkifier]] (new), [[windows-path-normalization-measurement]] (new),
+[[terminal-links]] (new), index.

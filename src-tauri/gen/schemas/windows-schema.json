@@ -555,10 +555,22 @@
           "markdownDescription": "Enables the open_panel_window command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_path command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-path",
+          "markdownDescription": "Enables the open_path command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-profile-file",
           "markdownDescription": "Enables the open_profile_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_web_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-web-url",
+          "markdownDescription": "Enables the open_web_url command without any pre-configured scope."
         },
         {
           "description": "Enables the panel_to_main command without any pre-configured scope.",
@@ -775,6 +787,12 @@
           "type": "string",
           "const": "allow-shared-notes-unlock",
           "markdownDescription": "Enables the shared_notes_unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stat_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stat-paths",
+          "markdownDescription": "Enables the stat_paths command without any pre-configured scope."
         },
         {
           "description": "Enables the system_usage command without any pre-configured scope.",
@@ -1257,10 +1275,22 @@
           "markdownDescription": "Denies the open_panel_window command without any pre-configured scope."
         },
         {
+          "description": "Denies the open_path command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-path",
+          "markdownDescription": "Denies the open_path command without any pre-configured scope."
+        },
+        {
           "description": "Denies the open_profile_file command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-profile-file",
           "markdownDescription": "Denies the open_profile_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_web_url command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-web-url",
+          "markdownDescription": "Denies the open_web_url command without any pre-configured scope."
         },
         {
           "description": "Denies the panel_to_main command without any pre-configured scope.",
@@ -1477,6 +1507,12 @@
           "type": "string",
           "const": "deny-shared-notes-unlock",
           "markdownDescription": "Denies the shared_notes_unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stat_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stat-paths",
+          "markdownDescription": "Denies the stat_paths command without any pre-configured scope."
         },
         {
           "description": "Denies the system_usage command without any pre-configured scope.",

@@ -26,6 +26,7 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
+import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
@@ -40,6 +41,7 @@ import {
 } from "./sessionSearch";
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
+import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { guardSecondaryClick } from "./terminalMouse";
 import { setupUnicode } from "./terminalUnicode";
 import {
@@ -65,6 +67,9 @@ const RESTORE_ERASE_GRACE_MS = 1500;
 
 /** Shared by all terminals, so each bundled font loads once. */
 const fontLoader = createFontLoader((query) => document.fonts.load(query));
+
+/** Shared by all terminals: a path printed in two sessions is looked up once. */
+const pathChecker = new PathChecker((paths) => api.statPaths(paths));
 
 export interface TerminalOptions {
   fontSize?: number;
@@ -139,6 +144,11 @@ export class SessionTerminal {
   onFallback: ((fallback: SessionFallback) => void) | null = null;
   /** Click on a link (OSC 8) with an allowed address; only http and https get this far. */
   onLink: ((url: string) => void) | null = null;
+  /** Click on an address or existing path in the output (terminalLinkProvider.ts). */
+  onOpenLink: ((request: LinkRequest) => void) | null = null;
+  /** The session's folder, for relative paths in the output; the app knows the session. */
+  cwd: () => string | null = () => null;
+  private readonly links: TerminalLinks;
   /** The clipboard held an image but no text, and saving the image failed. */
   onImagePasteFailed: (() => void) | null = null;
   /**
@@ -210,6 +220,13 @@ export class SessionTerminal {
           if (url !== null) this.onLink?.(url);
         },
         allowNonHttpProtocols: false,
+      },
+    });
+    this.links = new TerminalLinks(this.term, {
+      cwd: () => this.cwd(),
+      checker: pathChecker,
+      open: (request) => {
+        this.onOpenLink?.(request);
       },
     });
     this.term.loadAddon(this.fitAddon);
@@ -316,6 +333,7 @@ export class SessionTerminal {
           this.term.focus();
         });
         this.watchClicks(this.term.element);
+        this.links.watch(this.term.element);
       }
     } else if (this.term.element && this.term.element.parentElement !== host) {
       host.appendChild(this.term.element);
@@ -330,6 +348,7 @@ export class SessionTerminal {
   private watchClicks(element: HTMLElement): void {
     let press: { x: number; y: number } | null = null;
     element.addEventListener("mousedown", (event) => {
+      this.links.takeOpened();
       press =
         event.button === 0 && event.detail === 1 ? { x: event.clientX, y: event.clientY } : null;
     });
@@ -340,6 +359,8 @@ export class SessionTerminal {
       if (Math.abs(event.clientX - start.x) > 3 || Math.abs(event.clientY - start.y) > 3) return;
       const modifier = event.altKey || event.shiftKey || event.ctrlKey || event.metaKey;
       const { clientX, clientY } = event;
+      // A click that opened a link (xterm handled it before this listener) moves nothing.
+      if (this.links.takeOpened()) return;
       // xterm settles its selection in its own mouseup handling; read it afterwards.
       setTimeout(() => {
         this.moveCursorToClick(clientX, clientY, modifier);
@@ -727,6 +748,8 @@ export class SessionTerminal {
     this.onExit = null;
     this.onFallback = null;
     this.onLink = null;
+    this.onOpenLink = null;
+    this.links.dispose();
     this.onImagePasteFailed = null;
     this.onPromptLine = null;
     this.onDevServer = null;

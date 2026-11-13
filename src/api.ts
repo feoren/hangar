@@ -395,6 +395,19 @@ export const api = {
    */
   openLocalUrl: (url: string) => invoke<null>("open_local_url", { url }),
   /**
+   * Terminal links (terminalLinks.ts): "file", "dir" or `null` for each of at most 64 local
+   * absolute paths; UNC and device paths are always `null`. Check with `parsePathKinds`.
+   */
+  statPaths: (paths: string[]) => invoke<unknown>("stat_paths", { paths }),
+  /**
+   * Opens a local absolute path clicked in the terminal: a folder in the file manager, a file in
+   * its default program only for harmless types (text, code, images, PDF); anything else is
+   * only shown selected. Main window, focused.
+   */
+  openPath: (path: string) => invoke<unknown>("open_path", { path }),
+  /** Opens a plain http(s) address clicked in the terminal in the default browser. */
+  openWebUrl: (url: string) => invoke<null>("open_web_url", { url }),
+  /**
    * Branch per folder (at most 64, read from `.git`, no process): branch name, the short hash of
    * a detached HEAD, or `null` outside a repository. Check with `parseBranches`.
    */

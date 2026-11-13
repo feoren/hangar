@@ -218,6 +218,7 @@ import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
+import { openLink } from "./terminalLinkOpen";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
@@ -1627,8 +1628,29 @@ export function App() {
         dispatch({ type: "fellBack", id, ...fallback });
       };
       terminal.isWatched = () => activeIdRef.current === id && windowWatched();
+      // An OSC 8 link opens like a printed address; the notice shows it to copy if that fails.
       terminal.onLink = (url) => {
-        setLink({ url, copied: false });
+        api.openWebUrl(url).catch(() => {
+          setLink({ url, copied: false });
+        });
+      };
+      // Addresses and existing paths in the output (terminalLinkOpen.ts decides what opens).
+      terminal.cwd = () => stateRef.current.sessions.find((s) => s.id === id)?.cwd ?? null;
+      terminal.onOpenLink = (request) => {
+        void openLink(request, {
+          openUrl: (url) => api.openWebUrl(url),
+          openPath: (path) => api.openPath(path),
+          openViewer: (relative) =>
+            api.openFileViewer(id, relative).then(() => {
+              rememberFile(id, relative);
+            }),
+        }).then((outcome) => {
+          if (outcome.kind === "showUrl") setLink({ url: outcome.url, copied: false });
+          if (outcome.kind === "failed") {
+            const translate = createTranslator(settingsRef.current.language);
+            setError(translate("link.openFailed", { error: errorText(outcome.error) }));
+          }
+        });
       };
       // A pasted screenshot's path is quoted like a dropped file, for the session's program.
       terminal.shellKind = () => {

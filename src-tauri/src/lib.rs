@@ -40,6 +40,7 @@ pub mod notify;
 pub mod output;
 pub mod panel_window;
 pub mod paste_image;
+pub mod path_links;
 pub mod persist;
 pub mod proctree;
 pub mod profile;
@@ -392,6 +393,9 @@ pub fn run() -> tauri::Result<()> {
             commands::list_session_paths,
             commands::reveal_session_folder,
             commands::open_local_url,
+            commands::stat_paths,
+            commands::open_path,
+            commands::open_web_url,
             commands::open_file_viewer,
             commands::file_viewer_content,
             commands::file_viewer_stamp,
