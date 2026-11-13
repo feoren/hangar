@@ -686,3 +686,6 @@ from file names. Filed the terminal links behavior and the allowlist decision fo
 clicked files.
 Pages changed: [[xterm-linkifier]] (new), [[windows-path-normalization-measurement]] (new),
 [[terminal-links]] (new), index.
+## [2026-11-13] query | Files tab inserts paths per session program
+Right click and drag from the Files tab now type the path the way the target session's program reads it: an @ mention for agents, quoted native paths for PowerShell and cmd, POSIX paths for Git Bash (`/c/...`) and WSL (`/mnt/c/...`); relative inside the session's folder, absolute outside, so any pane takes a drop. Paths with control characters insert nothing.
+Pages changed: [[file-viewer]].

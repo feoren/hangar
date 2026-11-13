@@ -5,7 +5,7 @@
 
 import type { FolderEntry, FolderListing, PathEntry } from "./api";
 import type { ChangeKind, Claim } from "./claims";
-import { quotePath } from "./pathQuote";
+import { quotePath, type TreePath } from "./pathQuote";
 import type { PeerView } from "./team";
 
 // ---------------------------------------------------------------------------------------------
@@ -77,25 +77,18 @@ export function ancestors(path: string): string[] {
 }
 
 /**
- * What a right click on a tree row types into the terminal: `@` and the path from the project's
- * folder, as agent CLIs mention files, a folder with a trailing `/`, and a space so the next word
- * does not stick to it. A path with spaces is quoted the way agents read quoted paths.
+ * An agent's @ mention of a path from the project's folder: `@` and the path, a folder with a
+ * trailing `/`, and a space so the next word does not stick to it. A path with spaces is quoted
+ * the way agents read quoted paths. Tree rows go through `insertPathText` (pathQuote.ts), which
+ * gives the same mention to agents and a shell's own form to shells.
  */
 export function mentionText(path: string, folder: boolean): string {
   return `@${quotePath(folder ? `${path}/` : path, "agent")} `;
 }
 
-/**
- * A mention names its path relative to the tree's folder, so only a session working in that same
- * folder may take a dragged row; another pane's session would read a wrong path.
- */
-export function takesMention(treeCwd: string, sessionCwd: string): boolean {
-  return folderKeyOf(treeCwd).key === folderKeyOf(sessionCwd).key;
-}
-
-/** The mention of a tree row, for the right click and for dragging it onto a terminal. */
-export function rowMention(row: ItemRow): string {
-  return mentionText(row.path, row.entry.kind === "dir");
+/** A tree row as the right click and a drag insert it (`insertPathText`). */
+export function rowTreePath(root: string, row: ItemRow): TreePath {
+  return { root, path: row.path, folder: row.entry.kind === "dir" };
 }
 
 export function childPath(parent: string, name: string): string {

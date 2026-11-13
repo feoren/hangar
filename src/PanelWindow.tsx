@@ -26,11 +26,13 @@ import {
   PANEL_CONTEXT,
   panelSessionIsAgent,
   panelSessionName,
+  panelSessionShell,
   parsePanelCommand,
   parsePanelContext,
   updateWindowPrefs,
   WINDOW_PREFS_KEY,
 } from "./panelBridge";
+import { insertPathText } from "./pathQuote";
 import { loadSettings } from "./settings";
 import { focusCycleStep, matchShortcut, nextFocusZone } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
@@ -382,8 +384,11 @@ export function PanelWindow() {
               sessions={sessions}
               nameOf={nameOf}
               focusToken={filesFocusToken}
-              onMention={(text) => {
-                onSend(text, null);
+              onInsertPath={(item) => {
+                // The panel only ever shows the active session's tree, so that is the target.
+                if (cwd === null) return;
+                const text = insertPathText(item, cwd, panelSessionShell(sessions, activeId));
+                if (text !== "") onSend(text, activeId);
               }}
             />
           }

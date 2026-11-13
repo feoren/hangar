@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { dropText, quotePath, shellKind, wslPath } from "./pathQuote";
+import {
+  dropText,
+  insertPathText,
+  isShellKind,
+  quotePath,
+  shellKind,
+  wslPath,
+  type TreePath,
+} from "./pathQuote";
 
 describe("shellKind", () => {
   it("recognizes shells by file name, with path and extension", () => {
@@ -145,5 +153,186 @@ describe("dropText", () => {
   it("is empty without paths", () => {
     expect(dropText([], "cmd")).toBe("");
     expect(dropText([""], "cmd")).toBe("");
+  });
+});
+
+describe("isShellKind", () => {
+  it("accepts only the known kinds", () => {
+    expect(isShellKind("powershell")).toBe(true);
+    expect(isShellKind("agent")).toBe(true);
+    expect(isShellKind("bash")).toBe(false);
+    expect(isShellKind(undefined)).toBe(false);
+  });
+});
+
+describe("insertPathText", () => {
+  const repo = String.raw`C:\work\shop`;
+  const file = (path: string, root = repo): TreePath => ({ root, path, folder: false });
+  const folder = (path: string, root = repo): TreePath => ({ root, path, folder: true });
+
+  describe("agent", () => {
+    it("mentions the path from the session's folder with @ and forward slashes", () => {
+      expect(insertPathText(file("xyz_test/test.md"), repo, "agent")).toBe("@xyz_test/test.md ");
+      expect(insertPathText(file("README.md"), "c:/work/shop/", "agent")).toBe("@README.md ");
+    });
+
+    it("marks a folder with a trailing slash", () => {
+      expect(insertPathText(folder("src/components"), repo, "agent")).toBe("@src/components/ ");
+    });
+
+    it("quotes paths with spaces or quotes so the agent reads one path", () => {
+      expect(insertPathText(file("docs/my notes.md"), repo, "agent")).toBe('@"docs/my notes.md" ');
+      expect(insertPathText(file("ada's.md"), repo, "agent")).toBe('@"ada\'s.md" ');
+      expect(insertPathText(file('say "hi".md'), repo, "agent")).toBe("@'say \"hi\".md' ");
+    });
+
+    it("keeps umlauts and other scripts as they are", () => {
+      expect(insertPathText(file("Übersicht/日本.md"), repo, "agent")).toBe("@Übersicht/日本.md ");
+    });
+
+    it("names a path outside the session's folder absolutely", () => {
+      expect(insertPathText(file("src/a.ts"), String.raw`C:\work\other`, "agent")).toBe(
+        "@C:/work/shop/src/a.ts ",
+      );
+      // A folder whose name only starts like the session's folder is outside it.
+      expect(insertPathText(file("a.ts"), String.raw`C:\work\sh`, "agent")).toBe(
+        "@C:/work/shop/a.ts ",
+      );
+      expect(insertPathText(folder("my dir"), "/home/ada/b", "agent")).toBe(
+        '@"C:/work/shop/my dir/" ',
+      );
+    });
+
+    it("works from a worktree session's own folder", () => {
+      const worktree = String.raw`C:\work\shop-worktrees\fix-login`;
+      expect(insertPathText(file("src/login.ts", worktree), worktree, "agent")).toBe(
+        "@src/login.ts ",
+      );
+      // Dragged onto a session in the main checkout, the worktree's file stays the right one.
+      expect(insertPathText(file("src/login.ts", worktree), repo, "agent")).toBe(
+        "@C:/work/shop-worktrees/fix-login/src/login.ts ",
+      );
+    });
+
+    it("works on POSIX paths, case sensitive", () => {
+      expect(insertPathText(file("a/b.md", "/home/ada/app"), "/home/ada/app", "agent")).toBe(
+        "@a/b.md ",
+      );
+      expect(insertPathText(file("a/b.md", "/home/ada/app"), "/home/ada/App", "agent")).toBe(
+        "@/home/ada/app/a/b.md ",
+      );
+    });
+
+    it("names a file of a drive's root folder", () => {
+      expect(insertPathText(file("a.md", "C:\\"), "D:\\", "agent")).toBe("@C:/a.md ");
+      expect(insertPathText(file("a.md", "C:\\"), "c:", "agent")).toBe("@a.md ");
+    });
+  });
+
+  describe("powershell", () => {
+    it("types a relative path with backslashes and no @", () => {
+      expect(insertPathText(file("xyz_test/test.md"), repo, "powershell")).toBe(
+        "xyz_test\\test.md ",
+      );
+      expect(insertPathText(folder("src/components"), repo, "powershell")).toBe("src\\components ");
+    });
+
+    it("single-quotes spaces and special characters, doubling single quotes", () => {
+      expect(insertPathText(file("my notes/a.md"), repo, "powershell")).toBe("'my notes\\a.md' ");
+      expect(insertPathText(file("ada's.md"), repo, "powershell")).toBe("'ada''s.md' ");
+      expect(insertPathText(file("$x.md"), repo, "powershell")).toBe("'$x.md' ");
+    });
+
+    it("keeps umlauts unquoted", () => {
+      expect(insertPathText(file("Übersicht/ä.md"), repo, "powershell")).toBe("Übersicht\\ä.md ");
+    });
+
+    it("types a path outside the session's folder absolutely", () => {
+      expect(insertPathText(file("a b.md"), String.raw`D:\elsewhere`, "powershell")).toBe(
+        "'C:\\work\\shop\\a b.md' ",
+      );
+    });
+
+    it("keeps a name starting with a dash from reading as a parameter", () => {
+      expect(insertPathText(file("-x.md"), repo, "powershell")).toBe(".\\-x.md ");
+    });
+  });
+
+  describe("cmd", () => {
+    it("types backslashes, double quotes only when needed", () => {
+      expect(insertPathText(file("xyz_test/test.md"), repo, "cmd")).toBe("xyz_test\\test.md ");
+      expect(insertPathText(file("my notes/a&b.md"), repo, "cmd")).toBe('"my notes\\a&b.md" ');
+      expect(insertPathText(folder("src"), repo, "cmd")).toBe("src ");
+      expect(insertPathText(file("a.md"), String.raw`D:\x`, "cmd")).toBe("C:\\work\\shop\\a.md ");
+    });
+  });
+
+  describe("posix", () => {
+    it("types relative paths with forward slashes", () => {
+      expect(insertPathText(file("xyz_test/test.md"), repo, "posix")).toBe("xyz_test/test.md ");
+      expect(insertPathText(folder("src"), repo, "posix")).toBe("src ");
+    });
+
+    it("single-quotes spaces and quotes", () => {
+      expect(insertPathText(file("my notes.md"), repo, "posix")).toBe("'my notes.md' ");
+      expect(insertPathText(file("ada's.md"), repo, "posix")).toBe("'ada'\\''s.md' ");
+      expect(insertPathText(file("-x.md"), repo, "posix")).toBe("./-x.md ");
+    });
+
+    it("names a Windows path outside the folder as Git Bash does", () => {
+      expect(insertPathText(file("a b.md"), String.raw`D:\x`, "posix")).toBe(
+        "'/c/work/shop/a b.md' ",
+      );
+      expect(insertPathText(file("ä.md", "/home/zoë"), "/tmp", "posix")).toBe("/home/zoë/ä.md ");
+    });
+  });
+
+  describe("special characters", () => {
+    it("single-quotes every PowerShell metacharacter", () => {
+      for (const name of ["a$b", "a`b", "a(b)", "a&b", "a;b", "a,b", "@a", "a{b}", "a[b]", "#a"]) {
+        expect(insertPathText(file(name), repo, "powershell")).toBe(`'${name}' `);
+      }
+      expect(insertPathText(file("a\u2019b"), repo, "powershell")).toBe("'a\u2019\u2019b' ");
+    });
+
+    it("double-quotes cmd metacharacters", () => {
+      for (const name of ["a&b", "a^b", "a%b%", "a b", "a|b", "a(b)"]) {
+        expect(insertPathText(file(name), repo, "cmd")).toBe(`"${name}" `);
+      }
+    });
+
+    it("single-quotes POSIX metacharacters so nothing expands", () => {
+      for (const name of ["a$(b)", "a;b", "a`b`", "~a", "a*b", String.raw`a\b`]) {
+        expect(insertPathText(file(name, "/srv"), "/srv", "posix")).toBe(`'${name}' `);
+      }
+    });
+
+    it("inserts nothing for a name with a line break or another control character", () => {
+      for (const kind of ["agent", "powershell", "cmd", "posix", "wsl"] as const) {
+        expect(insertPathText(file("a\nmarker b", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a\u001b[201~b", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a\u009bb", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a.md", "/sr\rv"), "/srv", kind)).toBe("");
+      }
+    });
+  });
+
+  describe("wsl", () => {
+    it("lowercases the drive and maps WSL shares to Linux paths", () => {
+      expect(insertPathText(file("a.md", String.raw`D:\Data`), String.raw`C:\x`, "wsl")).toBe(
+        "/mnt/d/Data/a.md ",
+      );
+      expect(
+        insertPathText(file("a.md", "\\\\wsl$\\Ubuntu\\home\\ada"), String.raw`C:\x`, "wsl"),
+      ).toBe("/home/ada/a.md ");
+      expect(insertPathText(file("-a.md", "/srv"), "/srv", "wsl")).toBe("./-a.md ");
+    });
+
+    it("types relative paths inside the folder and /mnt paths outside", () => {
+      expect(insertPathText(file("xyz_test/test.md"), repo, "wsl")).toBe("xyz_test/test.md ");
+      expect(insertPathText(file("a b.md"), String.raw`D:\x`, "wsl")).toBe(
+        "'/mnt/c/work/shop/a b.md' ",
+      );
+    });
   });
 });

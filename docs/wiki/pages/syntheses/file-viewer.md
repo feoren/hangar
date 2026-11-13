@@ -4,7 +4,7 @@ type: synthesis
 tags: [file-tree, window, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 # File viewer window (contract)
@@ -200,15 +200,26 @@ moves to the first match.
 
 ## Dragging a row onto a terminal
 
-A row of the tree dragged onto a terminal pane types its mention (`rowMention`, the same text as
-the right click: `@path `, a folder with `/`, quoted when it has spaces) into the session under
-the drop point, as a paste, and activates that session; the pane shows the drop hint while the
-row is over it. Pointer events with pointer capture, not HTML5 drag and drop: Tauri's native
-file drop owns that in the window (see `useSessionDrag.ts`). The drag starts beyond the session
-drag's threshold, so clicks and double clicks stay; Escape cancels. Only the main window drags
-(the detached panel has no panes). The mention is relative to the tree's folder, so only a pane
-whose session works in that same folder takes the drop (`takesMention`); other panes show no
-drop hint.
+A row of the tree dragged onto a terminal pane types its path into the session under the drop
+point, as a paste, and activates that session; the pane shows the drop hint while the row is over
+it. The right click types the same text into the active session (in the detached panel too). The
+text depends on the target session's program (`insertPathText` in `pathQuote.ts`, kind from
+`shellKind` of the profile's command; the panel gets it as `PanelSession.shell`):
+
+| Program | Text for `xyz_test/test.md` |
+| --- | --- |
+| agent CLI or unknown | `@xyz_test/test.md`, a folder with a trailing `/`, quoted with spaces |
+| PowerShell | `xyz_test\test.md`, single quotes for anything but letters, digits, `_-.:\/` |
+| cmd | `xyz_test\test.md`, double quotes when needed (`%NAME%` still expands: known limit) |
+| bash, zsh, sh, fish | `xyz_test/test.md`, POSIX single quotes; outside the folder `/c/...` |
+| WSL | `xyz_test/test.md`; outside the folder `/mnt/c/...`, `\\wsl$\Distro\x` as `/x` |
+
+Inside the session's working folder the path is relative, otherwise absolute, so any pane takes
+the drop. A relative path starting with `-` gets `./` (`.\`) so no shell reads it as an option. A
+path with a control character (line break, ESC) inserts nothing. Pointer events with pointer
+capture, not HTML5 drag and drop: Tauri's native file drop owns that in the window (see
+`useSessionDrag.ts`). The drag starts beyond the session drag's threshold, so clicks and double
+clicks stay; Escape cancels. Only the main window drags (the detached panel has no panes).
 
 ## Capability `file-viewer`
 

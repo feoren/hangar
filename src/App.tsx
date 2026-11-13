@@ -135,7 +135,7 @@ import {
   type SendTarget,
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
-import { dropText, shellKind } from "./pathQuote";
+import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
@@ -298,8 +298,8 @@ import { SessionSearchDialog } from "./SessionSearchDialog";
 import type { LineMatch } from "./sessionSearch";
 import { useActivityRecorder } from "./activityStore";
 import { localSessionsOf } from "./fileActivity";
-import { FilesPanel, type MentionDrag } from "./FilesPanel";
-import { mentionText, takesMention } from "./fileTree";
+import { FilesPanel, type PathDrag } from "./FilesPanel";
+import { mentionText } from "./fileTree";
 import { fileOf, forgetFile, rememberFile } from "./fileContext";
 import { parseGitDiff } from "./gitDiff";
 import {
@@ -2671,20 +2671,28 @@ export function App() {
   };
 
   /**
-   * A row of the file tree dragged onto a pane: its @ mention goes into that session, if it works
-   * in the tree's folder (the active session's), as the mention is relative to it.
+   * A path from the Files tab into a session (the active one for `null`), typed for its program:
+   * an @ mention for agents, the shell's own form for shells, relative to the session's folder.
    */
-  const dragMention = (drag: MentionDrag) => {
-    const tree = stateRef.current.sessions.find((s) => s.id === activeIdRef.current);
-    const hit = drag.phase === "cancel" ? undefined : liveSessionAt(drag.x, drag.y);
-    const target = hit && tree && takesMention(tree.cwd, hit.cwd) ? hit : undefined;
+  const insertPath = (item: TreePath, sessionId: number | null) => {
+    const id = sessionId ?? activeIdRef.current;
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const profile = profilesRef.current.find((p) => p.id === session.profileId);
+    const text = insertPathText(item, session.cwd, shellKind(profile?.command ?? ""));
+    if (text !== "") sendFromNotes(text, session.id);
+  };
+
+  /** A row of the file tree dragged onto a pane: its path goes into that session. */
+  const dragPath = (drag: PathDrag) => {
+    const target = drag.phase === "cancel" ? undefined : liveSessionAt(drag.x, drag.y);
     if (drag.phase === "move") {
       setDropTarget(target?.id ?? null);
       return;
     }
     setDropTarget(null);
     if (drag.phase !== "drop" || target === undefined) return;
-    sendFromNotes(drag.text, target.id);
+    insertPath(drag.item, target.id);
     focusTerminal();
   };
 
@@ -2779,6 +2787,9 @@ export function App() {
         agent: runsAgent(
           profiles.find((profile) => profile.id === session.profileId)?.command,
           session.kind,
+        ),
+        shell: shellKind(
+          profiles.find((profile) => profile.id === session.profileId)?.command ?? "",
         ),
       })),
     [state.sessions, localSessions, profiles],
@@ -4778,11 +4789,11 @@ export function App() {
                     sessions={localSessions}
                     nameOf={sessionName}
                     focusToken={filesFocusToken}
-                    onMention={(text) => {
-                      sendFromNotes(text, null);
+                    onInsertPath={(item) => {
+                      insertPath(item, null);
                       focusTerminal();
                     }}
-                    onDragMention={dragMention}
+                    onDragPath={dragPath}
                   />
                 }
               />

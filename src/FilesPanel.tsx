@@ -37,7 +37,7 @@ import {
   loadedPaths,
   onChangePath,
   revealFolders,
-  rowMention,
+  rowTreePath,
   startsFilter,
   treeKey,
   treeReducer,
@@ -53,6 +53,7 @@ import {
   type TreeRow,
   type TreeState,
 } from "./fileTree";
+import type { TreePath } from "./pathQuote";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
@@ -114,12 +115,12 @@ let heatPrefs: { on: boolean; window: HeatWindow } = { on: false, window: "today
  * A tree row dragged with the mouse: `move` while it travels, then `drop` where it was let go or
  * `cancel` (Escape, the pointer lost). Coordinates are CSS pixels of the window.
  */
-export interface MentionDrag {
+export interface PathDrag {
   phase: "move" | "drop" | "cancel";
   x: number;
   y: number;
-  /** The row's mention, as the right click types it (`rowMention`). */
-  text: string;
+  /** The dragged row; the target session's program decides how it is typed (`insertPathText`). */
+  item: TreePath;
 }
 
 /** The path index for the filter, read once per filter. */
@@ -158,13 +159,16 @@ interface Props {
   nameOf: (id: number) => string;
   /** Goes up when the tree should take the focus (opened from the session row). */
   focusToken: number;
-  /** Right click on a row: this text (`@path `) goes into the active session's terminal. */
-  onMention: (text: string) => void;
+  /**
+   * Right click on a row: its path goes into the active session's terminal, typed for the
+   * session's program (`insertPathText`: an @ mention for agents, a quoted path for shells).
+   */
+  onInsertPath: (item: TreePath) => void;
   /**
    * Rows can be dragged onto a terminal pane (main window only; the detached panel has no
    * panes). Without it, rows do not drag.
    */
-  onDragMention?: (drag: MentionDrag) => void;
+  onDragPath?: (drag: PathDrag) => void;
 }
 
 /**
@@ -331,8 +335,13 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
     }, REVEAL_FOCUS_MS);
   };
 
-  const { canDrag, startDrag, justDropped, ghost, ghostRef } = useRowDrag(props.onDragMention);
-  const windows = folderKeyOf(state.root ?? session.cwd).windows;
+  /** The tree's folder, which the rows' paths are relative to. */
+  const treeRoot = state.root ?? session.cwd;
+  const { canDrag, startDrag, justDropped, ghost, ghostRef } = useRowDrag(
+    props.onDragPath,
+    treeRoot,
+  );
+  const windows = folderKeyOf(treeRoot).windows;
   const log = useEventLog();
   const sessions = props.sessions;
   const project = useMemo(() => {
@@ -725,9 +734,9 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 onOpen={() => {
                   openFile(row.path);
                 }}
-                onMention={() => {
+                onInsert={() => {
                   dispatch({ type: "focus", path: row.path });
-                  props.onMention(rowMention(row));
+                  props.onInsertPath(rowTreePath(treeRoot, row));
                 }}
                 onPointerDown={(event) => {
                   startDrag(event, row);
@@ -756,7 +765,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   );
 }
 
-/** Offset of the dragged mention from the pointer, so it never hides the drop point. */
+/** Offset of the dragged path from the pointer, so it never hides the drop point. */
 const GHOST_OFFSET_X = 14;
 const GHOST_OFFSET_Y = 16;
 
@@ -767,7 +776,7 @@ const GHOST_OFFSET_Y = 16;
  * capture, so no terminal sees mouse motion with a pressed button. Without a drop target (the
  * detached panel window) nothing drags.
  */
-function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
+function useRowDrag(onDrag: ((drag: PathDrag) => void) | undefined, root: string) {
   const [ghost, setGhost] = useState<{ text: string; x: number; y: number } | null>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   /** Set from the drop until the click that follows it has passed. */
@@ -787,7 +796,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
     const pointer = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
-    const text = rowMention(row);
+    const item = rowTreePath(root, row);
     let active = false;
 
     const finish = (phase: "drop" | "cancel", x: number, y: number) => {
@@ -803,7 +812,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
       window.setTimeout(() => {
         dropped.current = false;
       }, 0);
-      onDrag({ phase, x, y, text });
+      onDrag({ phase, x, y, item });
     };
     const move = (moved: PointerEvent) => {
       if (moved.pointerId !== pointer) return;
@@ -816,7 +825,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
           // The pointer is already gone; the drag ends with its pointerup or pointercancel.
         }
         setGhost({
-          text: text.trim(),
+          text: item.folder ? `${item.path}/` : item.path,
           x: moved.clientX + GHOST_OFFSET_X,
           y: moved.clientY + GHOST_OFFSET_Y,
         });
@@ -825,7 +834,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
       if (node) {
         node.style.transform = `translate(${String(moved.clientX + GHOST_OFFSET_X)}px, ${String(moved.clientY + GHOST_OFFSET_Y)}px)`;
       }
-      onDrag({ phase: "move", x: moved.clientX, y: moved.clientY, text });
+      onDrag({ phase: "move", x: moved.clientX, y: moved.clientY, item });
     };
     const up = (released: PointerEvent) => {
       if (released.pointerId === pointer) finish("drop", released.clientX, released.clientY);
@@ -1005,8 +1014,8 @@ function TreeItem(props: {
   onClick: () => void;
   /** Double click on a file: show it in the viewer. */
   onOpen: () => void;
-  /** Right click: the row's path as an @ mention into the terminal. */
-  onMention: () => void;
+  /** Right click: the row's path into the terminal (`insertPathText`). */
+  onInsert: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLLIElement>) => void;
 }) {
   const { row, focused, selected, fileMark, folderMark, heat, setRef, onClick, onOpen } = props;
@@ -1047,7 +1056,7 @@ function TreeItem(props: {
       onDoubleClick={kind === "file" ? onOpen : undefined}
       onContextMenu={(event) => {
         event.preventDefault();
-        props.onMention();
+        props.onInsert();
       }}
       onPointerDown={props.onPointerDown}
     >

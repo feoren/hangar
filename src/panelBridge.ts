@@ -8,6 +8,7 @@
 import { EMPTY_CLAIMS, parseClaimsSnapshot, type ClaimsSnapshot } from "./claims";
 import type { SideTab } from "./layout";
 import { MAX_NOTE_BYTES } from "./notes";
+import { isShellKind, type ShellKind } from "./pathQuote";
 import { EMPTY_ACTIVITY, parseTeamActivity, type TeamActivity } from "./team";
 
 /** Event from the backend to the main window; payload checked by `panel_to_main`. */
@@ -150,6 +151,8 @@ export interface PanelSession {
   repo: string | null;
   /** Runs an agent, not a plain shell (sessionChip.ts, `runsAgent`): diff comments go to it. */
   agent: boolean;
+  /** How its program reads typed paths (pathQuote.ts, `shellKind`), for the Files tab. */
+  shell: ShellKind;
 }
 
 /** What the tabs of the detached panel show; the main window computes it. */
@@ -216,10 +219,11 @@ function parseSessions(value: unknown): PanelSession[] | null {
     const program = field(entry, "program");
     const repo = field(entry, "repo");
     const agent = field(entry, "agent");
+    const shell = field(entry, "shell");
     if (!isId(id) || typeof title !== "string" || typeof running !== "boolean") return null;
     if (typeof program !== "string" || (repo !== null && typeof repo !== "string")) return null;
-    if (typeof agent !== "boolean") return null;
-    sessions.push({ id, title, running, program, repo, agent });
+    if (typeof agent !== "boolean" || !isShellKind(shell)) return null;
+    sessions.push({ id, title, running, program, repo, agent, shell });
   }
   return sessions;
 }
@@ -259,6 +263,11 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */
 export function panelSessionName(sessions: readonly PanelSession[], id: number): string {
   return sessions.find((session) => session.id === id)?.title ?? `#${String(id)}`;
+}
+
+/** How the session's program reads typed paths; an unknown session counts as an agent. */
+export function panelSessionShell(sessions: readonly PanelSession[], id: number | null): ShellKind {
+  return sessions.find((session) => session.id === id)?.shell ?? "agent";
 }
 
 /** Whether the session runs an agent; `false` for an unknown session. */

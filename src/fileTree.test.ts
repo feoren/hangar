@@ -10,9 +10,8 @@ import {
   filterWords,
   loadedPaths,
   revealFolders,
-  rowMention,
+  rowTreePath,
   startsFilter,
-  takesMention,
   ancestors,
   avatarStack,
   buildMarks,
@@ -574,24 +573,16 @@ describe("mentionText", () => {
   });
 });
 
-describe("rowMention", () => {
-  it("is the right click's text for a dragged file or folder", () => {
+describe("rowTreePath", () => {
+  it("names a row by the tree's folder, its path and whether it is a folder", () => {
     const state = run([
       { type: "loaded", path: "", listing: listing([dir("src"), file("a b.md")]) },
     ]);
     const rows = visibleRows(state).filter((row): row is ItemRow => row.kind === "item");
-    expect(rows.map(rowMention)).toEqual(["@src/ ", '@"a b.md" ']);
-  });
-});
-
-describe("takesMention", () => {
-  it("accepts only a session in the tree's own folder", () => {
-    const app = String.raw`C:\work\app`;
-    expect(takesMention(app, "c:/work/app/")).toBe(true);
-    expect(takesMention("/home/a/app", "/home/a/app")).toBe(true);
-    expect(takesMention("/home/a/app", "/home/a/App")).toBe(false);
-    expect(takesMention(app, String.raw`C:\work\app\src`)).toBe(false);
-    expect(takesMention(app, String.raw`C:\work\other`)).toBe(false);
+    expect(rows.map((row) => rowTreePath("/home/ada/app", row))).toEqual([
+      { root: "/home/ada/app", path: "src", folder: true },
+      { root: "/home/ada/app", path: "a b.md", folder: false },
+    ]);
   });
 });
 

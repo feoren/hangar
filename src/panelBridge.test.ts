@@ -8,6 +8,7 @@ import {
   panelContextPayload,
   panelSessionIsAgent,
   panelSessionName,
+  panelSessionShell,
   parsePanelCommand,
   parsePanelContext,
   parsePanelMessage,
@@ -194,9 +195,26 @@ function context(): PanelContext {
         program: "Claude Code",
         repo: String.raw`C:\work\shop`,
         agent: true,
+        shell: "agent",
       },
-      { id: 2, title: "Codex", running: false, program: "", repo: null, agent: true },
-      { id: 3, title: "pwsh", running: true, program: "PowerShell", repo: null, agent: false },
+      {
+        id: 2,
+        title: "Codex",
+        running: false,
+        program: "",
+        repo: null,
+        agent: true,
+        shell: "agent",
+      },
+      {
+        id: 3,
+        title: "pwsh",
+        running: true,
+        program: "PowerShell",
+        repo: null,
+        agent: false,
+        shell: "powershell",
+      },
     ],
     claims: claims(),
     activities: new Map([["project-1", activity()]]),
@@ -269,6 +287,24 @@ describe("panel context", () => {
         ...good,
         sessions: [{ id: 1, title: "a", running: true, program: "", repo: null, agent: "yes" }],
       },
+      {
+        ...good,
+        sessions: [
+          {
+            id: 1,
+            title: "a",
+            running: true,
+            program: "",
+            repo: null,
+            agent: false,
+            shell: "bash",
+          },
+        ],
+      },
+      {
+        ...good,
+        sessions: [{ id: 1, title: "a", running: true, program: "", repo: null, agent: false }],
+      },
       { ...good, sessions: "all" },
       { ...good, claims: { enabled: "yes", sessions: [], overlaps: [] } },
       { ...good, claims: undefined },
@@ -298,6 +334,14 @@ describe("panel context", () => {
     expect(panelSessionIsAgent(sessions, 3)).toBe(false);
     expect(panelSessionIsAgent(sessions, 9)).toBe(false);
     expect(panelSessionIsAgent(sessions, null)).toBe(false);
+  });
+
+  it("knows how each session reads typed paths", () => {
+    const { sessions } = context();
+    expect(panelSessionShell(sessions, 1)).toBe("agent");
+    expect(panelSessionShell(sessions, 3)).toBe("powershell");
+    expect(panelSessionShell(sessions, 9)).toBe("agent");
+    expect(panelSessionShell(sessions, null)).toBe("agent");
   });
 });
 

@@ -95,6 +95,108 @@ function posixQuote(path: string): string {
   return SAFE_POSIX.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`;
 }
 
+/** All kinds, for checking a kind read from a message. */
+export const SHELL_KINDS: readonly ShellKind[] = ["powershell", "cmd", "posix", "wsl", "agent"];
+
+export function isShellKind(value: unknown): value is ShellKind {
+  return SHELL_KINDS.some((kind) => kind === value);
+}
+
+/** An entry of the Files tab: a path below the tree's folder, with `/` between its names. */
+export interface TreePath {
+  /** The tree's folder: the working folder of the session the tree shows. */
+  root: string;
+  /** Relative to `root`, `/` between names, never empty. */
+  path: string;
+  folder: boolean;
+}
+
+// eslint-disable-next-line no-control-regex -- control characters are exactly the target here.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** A Windows path: a drive (`C:\`, `C:/`) or a share (`\\server\share`). */
+function isWindowsPath(path: string): boolean {
+  return /^[a-z]:([\\/]|$)/i.test(path) || /^[\\/]{2}[^\\/]/.test(path);
+}
+
+/** `/` between names and no trailing `/`, except for a bare root (`/`, `C:/`). */
+function normalized(path: string, windows: boolean): string {
+  const slashed = windows ? path.replace(/\\/g, "/") : path;
+  const trimmed = slashed.replace(/\/+$/, "");
+  if (trimmed === "") return "/";
+  return /^[a-z]:$/i.test(trimmed) ? `${trimmed}/` : trimmed;
+}
+
+/** `path` relative to `folder` (both normalized), or `null` when it lies outside. */
+function relativeTo(path: string, folder: string, windows: boolean): string | null {
+  const prefix = folder.endsWith("/") ? folder : `${folder}/`;
+  const head = path.slice(0, prefix.length);
+  const same = windows ? head.toLowerCase() === prefix.toLowerCase() : head === prefix;
+  return same && path.length > prefix.length ? path.slice(prefix.length) : null;
+}
+
+/** `C:/x/y` as Git Bash sees it (`/c/x/y`); a share keeps its `//server/share` form. */
+function gitBashPath(path: string): string {
+  const drive = /^([a-z]):\/?(.*)$/i.exec(path);
+  if (drive?.[1] === undefined) return path;
+  const rest = drive[2] ?? "";
+  const base = `/${drive[1].toLowerCase()}`;
+  return rest === "" ? base : `${base}/${rest}`;
+}
+
+/**
+ * A shell would read a relative path starting with `-` as an option: it gets a `./` (`.\`) in
+ * front, which names the same file.
+ */
+function notAnOption(relative: string, separator: string): string {
+  return relative.startsWith("-") ? `.${separator}${relative}` : relative;
+}
+
+/**
+ * What inserting a Files tab entry types into a session, for the program reading it:
+ *
+ * - `agent`: an @ mention (`@src/app.ts`), `/` between names, a folder with a trailing `/`, as
+ *   agent CLIs mention files and folders; a path with spaces quoted (`@"my notes.md"`).
+ * - `powershell`, `cmd`: backslashes, quoted as that shell needs it.
+ * - `posix`: `/` between names; a Windows path as Git Bash names it (`/c/...`).
+ * - `wsl`: `/` between names; a Windows path as WSL sees it (`/mnt/c/...`).
+ *
+ * Inside the session's working folder the path is relative to it, otherwise absolute, so a row
+ * dragged onto a session in another folder still names the right file. A trailing space keeps the
+ * next word apart.
+ *
+ * Empty for a path with control characters (a line break, ESC): no quoting makes them safe in
+ * every shell, and a program without bracketed paste would run what follows a line break.
+ */
+export function insertPathText(item: TreePath, sessionCwd: string, kind: ShellKind): string {
+  if (CONTROL.test(item.root) || CONTROL.test(item.path)) return "";
+  const windows = isWindowsPath(item.root);
+  const root = normalized(item.root, windows);
+  const inner = item.path.replace(/^\/+|\/+$/g, "");
+  const absolute = root.endsWith("/") ? `${root}${inner}` : `${root}/${inner}`;
+  const relative = relativeTo(absolute, normalized(sessionCwd, windows), windows);
+  switch (kind) {
+    case "agent": {
+      const path = relative ?? absolute;
+      return `@${agentQuote(item.folder ? `${path}/` : path)} `;
+    }
+    case "powershell":
+    case "cmd": {
+      const path = relative === null ? absolute : notAnOption(relative, "/");
+      const native = windows ? path.replace(/\//g, "\\") : path;
+      return `${quotePath(native, kind)} `;
+    }
+    case "posix": {
+      if (relative !== null) return `${posixQuote(notAnOption(relative, "/"))} `;
+      return `${posixQuote(windows ? gitBashPath(absolute) : absolute)} `;
+    }
+    case "wsl": {
+      if (relative !== null) return `${posixQuote(notAnOption(relative, "/"))} `;
+      return `${posixQuote(wslPath(absolute))} `;
+    }
+  }
+}
+
 /**
  * Text inserted for dropped paths: quoted, separated by spaces, with a trailing space so the
  * next drop or word does not stick to it. Empty for no paths.
