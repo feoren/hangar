@@ -4961,6 +4961,53 @@ body.resizing-horizontal * {
   padding: 2px 10px 8px;
 }
 
+/* "Private | Shared" on top of the notes list, the two halves sharing the panel's width. */
+.notes-sides {
+  padding: 8px 8px 0 10px;
+}
+
+.notes-sides .segmented {
+  display: flex;
+}
+
+.notes-sides .segment {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notes-sides .segment > span:not(.notes-side-count) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notes-side-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* With the switch above, the search sits a little closer. */
+.notes-sides + .notes-toolbar {
+  padding-top: 6px;
+}
+
+.notes-group-head .notes-group-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notes-group-head .notes-group-hint {
+  flex: 1 0 auto;
+}
+
 .scope-chip {
   max-width: 160px;
   padding: 2px 10px;
@@ -5282,11 +5329,6 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
-/* "This project": the shared notes (in the repository) above the ones on this computer. */
-.notes-group + .notes-group {
-  border-top: 1px solid var(--border);
-}
-
 .notes-group-head {
   display: flex;
   align-items: center;
@@ -5310,10 +5352,6 @@ body.resizing-horizontal * {
   text-overflow: ellipsis;
 }
 
-.notes-group-head .icon-button:first-of-type {
-  margin-left: auto;
-}
-
 .notes-group-line {
   display: flex;
   flex-wrap: wrap;
@@ -5328,7 +5366,6 @@ body.resizing-horizontal * {
   line-height: 1.45;
 }
 
-.notes-group-empty,
 .notes-group-note {
   margin: 0;
   padding: 2px 14px 10px;

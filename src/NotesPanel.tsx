@@ -47,9 +47,21 @@ import {
 } from "./notes";
 import { sendableText } from "./panelBridge";
 import {
+  effectiveSide,
+  listedFolders,
+  loadNotesSide,
+  newNoteTarget,
+  onSide,
+  saveNotesSide,
+  sideCounts,
+  sideFolders,
+  sideOf,
+  sideSwitchShown,
+  type NotesSide,
+} from "./notesSide";
+import {
   DEFAULT_SCOPE,
   effectiveScope,
-  groupsScope,
   mixesScopes,
   newNoteFolder,
   projectFolder,
@@ -65,7 +77,6 @@ import {
   sharedFolder,
   sharedHints,
   sharedLine,
-  showsGroups,
   type SharedStatus,
 } from "./sharedNotes";
 import {
@@ -198,9 +209,10 @@ export function NotesPanel(props: Props) {
   const t = useT();
   const now = useClock(30_000);
   const sharedHeadId = useId();
-  const localHeadId = useId();
+  const sideName = useId();
   const root = useRef<HTMLDivElement>(null);
   const [scope, setScopeState] = useState<NotesScope>(lastScope);
+  const [chosenSide, setChosenSide] = useState<NotesSide>(loadNotesSide);
   const [view, setView] = useState<View>(lastOpen ? "note" : "list");
   const [list, setList] = useState<NoteRef[]>([]);
   const [listedKey, setListedKey] = useState<string | null>(null);
@@ -255,7 +267,18 @@ export function NotesPanel(props: Props) {
   const listMoreButton = useRef<HTMLButtonElement>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const onChangedRef = useRef(props.onChanged);
-  const contextRef = useRef({ sessionFolder, folders });
+  /** `newTarget`: a quick note goes where a new note goes, else to the private notes. */
+  const contextRef = useRef<{
+    sessionFolder: NoteFolder | null;
+    folders: readonly NoteFolderInfo[];
+    newTarget: NoteFolder;
+    privateTarget: NoteFolder;
+  }>({
+    sessionFolder,
+    folders,
+    newTarget: newNoteFolder(lastScope, sessionFolder),
+    privateTarget: newNoteFolder(lastScope, sessionFolder),
+  });
   const loadSharedRef = useRef<() => void>(() => undefined);
   const sharedBusy = useRef(false);
   const sharedAgain = useRef(false);
@@ -267,7 +290,6 @@ export function NotesPanel(props: Props) {
       props.onChanged(folder);
       if (isShared(folder)) loadSharedRef.current();
     };
-    contextRef.current = { sessionFolder, folders };
   });
 
   const shownScope = effectiveScope(scope, sessionFolder);
@@ -278,14 +300,29 @@ export function NotesPanel(props: Props) {
     project !== null && sharedStatus?.state === "unlocked" ? project.path : undefined;
   const listFolders = useMemo(
     () =>
-      scopeFolders(
-        scope,
-        sessionFolder,
-        folders,
+      listedFolders(
+        scopeFolders(scope, sessionFolder, folders),
         sharedPath === undefined ? null : sharedFolder({ path: sharedPath }),
       ),
     [scope, sessionFolder, folders, sharedPath],
   );
+  /** The shown project's shared notes while they can be read, else `null`. */
+  const sharedTarget = listFolders.find(isShared) ?? null;
+  const privateFolders = listFolders.filter((folder) => !isShared(folder));
+  const switchShown = sideSwitchShown(projectId !== null, sharedStatus);
+  const side = effectiveSide(chosenSide, projectId !== null, sharedStatus);
+  const privateTarget = newNoteFolder(scope, sessionFolder);
+  /** Where a new note goes; `null` on a Shared side that is locked or off. */
+  const newTarget = newNoteTarget(side, privateTarget, sharedTarget);
+
+  useEffect(() => {
+    contextRef.current = {
+      sessionFolder,
+      folders,
+      newTarget: newTarget ?? privateTarget,
+      privateTarget,
+    };
+  });
   const listKey = listFolders.map(folderId).join("|");
   const mixed = mixesScopes(scope, sessionFolder);
   const preview = current?.id != null && previewNotes.has(noteKey({ ...current, id: current.id }));
@@ -294,6 +331,11 @@ export function NotesPanel(props: Props) {
   const setScope = (next: NotesScope) => {
     lastScope = next;
     setScopeState(next);
+  };
+
+  const setSide = (next: NotesSide) => {
+    saveNotesSide(next);
+    setChosenSide(next);
   };
 
   const showToast = useCallback((next: Toast) => {
@@ -695,13 +737,13 @@ export function NotesPanel(props: Props) {
   useEffect(() => {
     if (!request || request.token <= handledToken) return;
     handledToken = request.token;
-    const { sessionFolder: session } = contextRef.current;
+    const { sessionFolder: session, newTarget, privateTarget: privateFolder } = contextRef.current;
     // After the commit: the steps below change state of their own.
     void Promise.resolve().then(() => {
       switch (request.kind) {
         case "quick":
           setQuery("");
-          void startDraft(newNoteFolder(scope, session), true);
+          void startDraft(newTarget, true);
           return;
         case "focus":
           if (view === "note") focusEditor();
@@ -734,27 +776,16 @@ export function NotesPanel(props: Props) {
             );
             return;
           }
+          // Terminal output may hold secrets: it never lands in the shared notes on its own.
           const content = appendCapture("", request.text, stamp, request.source);
-          void startDraft(newNoteFolder(scope, session), false, content).then(() => {
+          void startDraft(privateFolder, false, content).then(() => {
             setAnnouncement(t("notes.capturedNew"));
           });
           return;
         }
       }
     });
-  }, [
-    request,
-    scope,
-    view,
-    language,
-    t,
-    startDraft,
-    leave,
-    show,
-    ensureCreated,
-    focusEditor,
-    focusList,
-  ]);
+  }, [request, view, language, t, startDraft, leave, show, ensureCreated, focusEditor, focusList]);
 
   // Preview: rendered from the text, again after each pause while typing.
   useEffect(() => {
@@ -826,6 +857,8 @@ export function NotesPanel(props: Props) {
     generation.current += 1;
     await leave();
     show(null, "", false);
+    // Back on the side the note belongs to, so its row is there to take the focus.
+    if (note !== null && switchShown) setSide(sideOf(note.folder));
     setView("list");
     await reloadList();
     requestAnimationFrame(() => {
@@ -837,8 +870,9 @@ export function NotesPanel(props: Props) {
   };
 
   const newNote = () => {
+    if (newTarget === null) return;
     setQuery("");
-    void startDraft(newNoteFolder(scope, sessionFolder), true);
+    void startDraft(newTarget, true);
   };
 
   const commitRename = async (value: string) => {
@@ -925,7 +959,7 @@ export function NotesPanel(props: Props) {
     setTrash(null);
     try {
       const lists = await Promise.all(
-        listFolders.map(async (folder) =>
+        sideFolders(side, privateFolders, sharedTarget).map(async (folder) =>
           parseTrash(await api.listTrash(folder)).map((item): TrashRow => ({ ...item, folder })),
         ),
       );
@@ -1139,17 +1173,22 @@ export function NotesPanel(props: Props) {
 
   const listMoreItems: PopupItem[] = [
     { type: "action", key: "trash", label: t("notes.trash"), run: () => void openTrash() },
-    {
-      type: "action",
-      key: "folder",
-      label: t("notes.openFolder"),
-      title: newNoteFolder(scope, sessionFolder).path ?? general,
-      run: () => {
-        api.revealNotesFolder(newNoteFolder(scope, sessionFolder)).catch((e: unknown) => {
-          setError(errorText(e));
-        });
-      },
-    },
+    // Shared notes live in the repository, not in a notes folder of their own to open.
+    ...(side === "private"
+      ? [
+          {
+            type: "action" as const,
+            key: "folder",
+            label: t("notes.openFolder"),
+            title: privateTarget.path ?? general,
+            run: () => {
+              api.revealNotesFolder(privateTarget).catch((e: unknown) => {
+                setError(errorText(e));
+              });
+            },
+          },
+        ]
+      : []),
   ];
 
   const sendItems: PopupItem[] = sessions.map((session) => ({
@@ -1196,11 +1235,28 @@ export function NotesPanel(props: Props) {
           return { ...note, excerpt: detail?.excerpt ?? "", progress: detail?.progress ?? null };
         });
 
-  const grouped = !searching && groupsScope(scope, sessionFolder) && showsGroups(sharedStatus);
-  const sharedRows = rowsShown.filter((note) => isShared(note.folder));
-  const localRows = rowsShown.filter((note) => !isShared(note.folder));
+  // With the switch each side lists only its own notes, search hits included; without it the
+  // list is as it always was (a shared hit of another project shows its lock).
+  const splitBySide = switchShown || side === "shared";
+  const sideRows = splitBySide ? onSide(rowsShown, side) : rowsShown;
+  const counts = sideCounts(rowsShown);
+  const sharedCounted = sharedStatus?.state === "unlocked";
   const groupLine = sharedStatus === null ? null : sharedLine(sharedStatus);
   const groupHints = sharedStatus === null ? [] : sharedHints(sharedStatus);
+  const sideOptions: { value: NotesSide; label: string; title: string; count: number | null }[] = [
+    {
+      value: "private",
+      label: t("notes.sidePrivate"),
+      title: t("sharedNotes.local"),
+      count: listed || searching ? counts.private : null,
+    },
+    {
+      value: "shared",
+      label: t("sharedNotes.group"),
+      title: t("notes.sideSharedTip"),
+      count: sharedCounted && (listed || searching) ? counts.shared : null,
+    },
+  ];
 
   const progressText = (progress: ChecklistProgress) =>
     t("notes.progress", { done: progress.done, total: progress.total });
@@ -1217,7 +1273,7 @@ export function NotesPanel(props: Props) {
   ) => {
     const key = noteKey(note);
     const time = note.updatedAt === null ? "" : relativeTime(note.updatedAt, now, language);
-    const showProject = mixed || searching;
+    const showProject = (mixed && side === "private") || searching;
     const progress = note.progress !== null && note.progress.total > 0 ? note.progress : null;
     return (
       <li key={key}>
@@ -1235,7 +1291,7 @@ export function NotesPanel(props: Props) {
           }}
         >
           <span className="note-row-head">
-            {isShared(note.folder) && (
+            {isShared(note.folder) && !splitBySide && (
               <span className="note-row-lock" title={t("sharedNotes.lockLabel")}>
                 <LockIcon size={12} />
                 <span className="sr-only">{t("sharedNotes.lockLabel")}</span>
@@ -1268,6 +1324,15 @@ export function NotesPanel(props: Props) {
     );
   };
 
+  const rowList = (
+    <ul
+      className="notes-list"
+      aria-label={side === "shared" ? t("sharedNotes.group") : t("notes.list")}
+    >
+      {sideRows.map((note, index) => renderRow(note, index))}
+    </ul>
+  );
+
   return (
     <div
       ref={root}
@@ -1287,6 +1352,30 @@ export function NotesPanel(props: Props) {
     >
       {view === "list" && (
         <>
+          {switchShown && (
+            <div className="notes-sides">
+              <div className="segmented" role="radiogroup" aria-label={t("notes.sideLabel")}>
+                {sideOptions.map((option) => (
+                  <label key={option.value} className="segment" title={option.title}>
+                    <input
+                      type="radio"
+                      name={sideName}
+                      value={option.value}
+                      checked={side === option.value}
+                      onChange={() => {
+                        setSide(option.value);
+                      }}
+                    />
+                    {option.value === "shared" && <LockIcon size={12} />}
+                    <span>{option.label}</span>
+                    {option.count !== null && (
+                      <span className="notes-side-count">{option.count}</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="notes-toolbar">
             <label className="notes-search">
               <SearchIcon size={14} />
@@ -1326,15 +1415,17 @@ export function NotesPanel(props: Props) {
                 </button>
               )}
             </label>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={t("notes.new")}
-              title={`${t("notes.new")} (${formatShortcut(SHORTCUT_LABELS.quickNote, t)})`}
-              onClick={newNote}
-            >
-              <PlusIcon />
-            </button>
+            {newTarget !== null && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={side === "shared" ? t("sharedNotes.new") : t("notes.new")}
+                title={`${side === "shared" ? t("sharedNotes.new") : t("notes.new")} (${formatShortcut(SHORTCUT_LABELS.quickNote, t)})`}
+                onClick={newNote}
+              >
+                <PlusIcon />
+              </button>
+            )}
             <button
               ref={listMoreButton}
               type="button"
@@ -1350,7 +1441,7 @@ export function NotesPanel(props: Props) {
               <MoreIcon />
             </button>
           </div>
-          {!searching && (
+          {!searching && side === "private" && (
             <div className="notes-scopes" role="group" aria-label={t("notes.scopeLabel")}>
               {scopeChips.map((chip) => {
                 const on = sameScope(chip.scope, shownScope);
@@ -1376,10 +1467,10 @@ export function NotesPanel(props: Props) {
             </div>
           )}
           <div className="notes-list-wrap">
-            {searching && shownHits !== null && shownHits.length === 0 && (
+            {searching && shownHits !== null && sideRows.length === 0 && (
               <p className="notes-message muted">{t("notes.noHits", { query: query.trim() })}</p>
             )}
-            {!grouped && !searching && listed && list.length === 0 && (
+            {side === "private" && !searching && listed && sideRows.length === 0 && (
               <div className="notes-empty">
                 <p>
                   {scopeName !== null
@@ -1394,99 +1485,52 @@ export function NotesPanel(props: Props) {
                 </p>
               </div>
             )}
-            {grouped && (
-              <>
-                <section className="notes-group" aria-labelledby={sharedHeadId}>
-                  <div className="notes-group-head">
-                    <LockIcon size={12} />
-                    <span id={sharedHeadId} className="notes-group-title">
-                      {t("sharedNotes.group")}
-                    </span>
-                    <span className="notes-group-hint">{t("sharedNotes.groupHint")}</span>
-                    {sharedStatus?.state === "unlocked" && sharedPath !== undefined && (
+            {side === "shared" && !searching && project?.path != null && (
+              <section className="notes-group" aria-labelledby={sharedHeadId}>
+                <div className="notes-group-head">
+                  <span id={sharedHeadId} className="notes-group-title" title={project.path}>
+                    {folderName(project.path)}
+                  </span>
+                  <span className="notes-group-hint">{t("sharedNotes.groupHint")}</span>
+                </div>
+                {groupLine !== null && (
+                  <div className="notes-group-line">
+                    <p>{t(groupLine.text)}</p>
+                    {groupLine.action !== null && (
                       <button
                         type="button"
-                        className="icon-button"
-                        aria-label={t("sharedNotes.new")}
-                        title={t("sharedNotes.new")}
+                        className="secondary-button"
                         onClick={() => {
-                          setQuery("");
-                          void startDraft(sharedFolder({ path: sharedPath }), true);
+                          setSharedDialog({
+                            mode: groupLine.action === "turnOn" ? "setup" : "unlock",
+                            folder: project,
+                          });
                         }}
                       >
-                        <PlusIcon size={14} />
+                        {groupLine.action === "turnOn"
+                          ? t("sharedNotes.turnOn")
+                          : t("sharedNotes.unlock")}
                       </button>
                     )}
                   </div>
-                  {groupLine !== null ? (
-                    <div className="notes-group-line">
-                      <p>{t(groupLine.text)}</p>
-                      {groupLine.action !== null && project !== null && (
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => {
-                            setSharedDialog({
-                              mode: groupLine.action === "turnOn" ? "setup" : "unlock",
-                              folder: project,
-                            });
-                          }}
-                        >
-                          {groupLine.action === "turnOn"
-                            ? t("sharedNotes.turnOn")
-                            : t("sharedNotes.unlock")}
-                        </button>
-                      )}
-                    </div>
-                  ) : sharedRows.length === 0 ? (
-                    listed && <p className="notes-group-empty muted">{t("sharedNotes.empty")}</p>
-                  ) : (
-                    <ul className="notes-list" aria-labelledby={sharedHeadId}>
-                      {sharedRows.map((note, index) => renderRow(note, index))}
-                    </ul>
-                  )}
-                  {groupHints.map((hint) => (
-                    <p key={hint.key} className="notes-group-note muted">
-                      {t(hint.key, hint.params)}
-                    </p>
-                  ))}
-                </section>
-                <section className="notes-group" aria-labelledby={localHeadId}>
-                  <div className="notes-group-head">
-                    <span id={localHeadId} className="notes-group-title">
-                      {t("sharedNotes.local")}
-                    </span>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={t("notes.new")}
-                      title={t("notes.new")}
-                      onClick={newNote}
-                    >
-                      <PlusIcon size={14} />
+                )}
+                {groupLine === null && listed && sideRows.length === 0 && sharedCounted && (
+                  <div className="notes-empty">
+                    <p>{t("sharedNotes.empty")}</p>
+                    <button type="button" className="primary-button" onClick={newNote}>
+                      {t("sharedNotes.new")}
                     </button>
                   </div>
-                  {localRows.length === 0 ? (
-                    listed && (
-                      <p className="notes-group-empty muted">
-                        {t("notes.emptyHint", {
-                          keys: formatShortcut(SHORTCUT_LABELS.quickNote, t),
-                        })}
-                      </p>
-                    )
-                  ) : (
-                    <ul className="notes-list" aria-labelledby={localHeadId}>
-                      {localRows.map((note, index) => renderRow(note, sharedRows.length + index))}
-                    </ul>
-                  )}
-                </section>
-              </>
+                )}
+                {sideRows.length > 0 && rowList}
+                {groupHints.map((hint) => (
+                  <p key={hint.key} className="notes-group-note muted">
+                    {t(hint.key, hint.params)}
+                  </p>
+                ))}
+              </section>
             )}
-            {!grouped && rowsShown.length > 0 && (
-              <ul className="notes-list" aria-label={t("notes.list")}>
-                {rowsShown.map((note, index) => renderRow(note, index))}
-              </ul>
-            )}
+            {(side === "private" || searching) && sideRows.length > 0 && rowList}
           </div>
         </>
       )}

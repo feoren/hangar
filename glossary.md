@@ -89,6 +89,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich (Notizen: Arbeitsordner oder Allgemein) | scope                             | `NoteFolder`; the list shows one scope or all (`NotesScope`)                        |
 | Notizbereich                                    | notes panel                       |                                                                                     |
 | Bereichs-Chips                                  | scope chips                       | "This project", "All", "General" above the notes list; `notesScope.ts`              |
+| Seite (Notizen: Privat oder Geteilt)            | notes side                        | `NotesSide`; switch above the notes list, `notesSide.ts`                            |
 | Schnelle Notiz                                  | quick note                        | Ctrl+Shift+N; created once it has content, an empty one is dropped                  |
 | Eigenes Notizfenster                            | detached window                   | window label `notes`; `NotesWindow.tsx`, `notesBridge.ts`                           |
 | Rechter Bereich                                 | right panel                       | tabs Notes and Changes; `SidePanel.tsx`                                             |

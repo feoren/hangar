@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { folderId, parseSearchHits, sameFolder } from "./notes";
-import { groupsScope, projectFolder, scopeFolders } from "./notesScope";
+import { projectFolder, scopeFolders } from "./notesScope";
 import {
   parseSaveCode,
   parseSharedStatus,
@@ -109,28 +109,20 @@ describe("shared notes scopes", () => {
     expect(sameFolder(shared, sharedFolder({ path: "c:/work/repo/" }))).toBe(true);
   });
 
-  it("lists the shared notes next to the project's private notes", () => {
-    const shared = sharedFolder(project);
-    expect(scopeFolders({ kind: "project" }, project, [], shared)).toEqual([shared, project]);
+  it("lists only private scopes; the Shared side adds the shared one", () => {
     expect(scopeFolders({ kind: "project" }, project, [])).toEqual([project]);
-    expect(scopeFolders({ kind: "general" }, project, [], shared)).toEqual([{ path: null }]);
-    expect(scopeFolders({ kind: "all" }, project, [], shared)).toEqual([
-      { path: null },
-      project,
-      shared,
-    ]);
+    expect(scopeFolders({ kind: "general" }, project, [])).toEqual([{ path: null }]);
+    expect(scopeFolders({ kind: "all" }, project, [])).toEqual([{ path: null }, project]);
   });
 
-  it("names the project whose shared notes are shown and when to group", () => {
+  it("names the project whose shared notes are shown", () => {
     expect(projectFolder({ kind: "project" }, project)).toEqual(project);
     expect(projectFolder({ kind: "all" }, project)).toEqual(project);
-    expect(projectFolder({ kind: "general" }, project)).toBeNull();
+    expect(projectFolder({ kind: "general" }, project)).toEqual(project);
     expect(projectFolder({ kind: "project" }, null)).toBeNull();
+    expect(projectFolder({ kind: "general" }, null)).toBeNull();
     const other = { path: "D:\\other" };
     expect(projectFolder({ kind: "folder", folder: other }, project)).toEqual(other);
-    expect(groupsScope({ kind: "project" }, project)).toBe(true);
-    expect(groupsScope({ kind: "all" }, project)).toBe(false);
-    expect(groupsScope({ kind: "project" }, null)).toBe(false);
   });
 
   it("marks shared search hits", () => {

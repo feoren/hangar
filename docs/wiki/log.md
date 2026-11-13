@@ -636,3 +636,10 @@ The system bar's gauges became tiles with the sparkline as background; measured 
 pane-placed sessions (without terminal lines) and names the program and version; the context
 meter and the marker dot in a session row lost their tooltips.
 Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] ingest | Notes panel split into Private and Shared
+The notes panel's two groups (Shared, Only on this computer) became a segmented switch
+Private | Shared with counts above the list, shown only where the project can have shared notes.
+New notes and quick notes go to the chosen side, captured terminal output always to the private
+notes; the choice is remembered in `localStorage`.
+Pages changed: [[notes]], [[0006-encrypted-project-notes]].

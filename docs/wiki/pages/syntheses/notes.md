@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 # Notes (contract)
@@ -205,9 +205,14 @@ type SharedStatus =
   `git check-ignore` of `vault.json`; `unreadable`: note files that do not open here.
 - The notes window has the same commands (`capabilities/notes.json`).
 
-UI: "This project" (and another opened project) shows two groups, **Shared** (lock icon, "in the
-repository", its own "+") and **Only on this computer** (today's notes, its own "+"). The Shared
-group shows one line per state with at most one action; quiet hints below say what is not
-committed, ignored or unreadable. "All" and search show shared notes with a lock icon. A note's
+UI: where the shown project (the opened one, else the active session's) can have shared notes, a
+segmented switch **Private | Shared** with counts sits above the list (`src/notesSide.ts`, choice in
+`localStorage` `hangar.notesSide`). Private lists the notes on this computer with the scope chips;
+Shared lists the project's shared notes and shows one line per state with at most one action;
+quiet hints below say what is not committed, ignored or unreadable. Search lists the hits of the
+chosen side. The toolbar "+" and the quick note create on the chosen side (on a locked or off
+Shared side they go to the private notes); captured terminal output always goes to the private
+notes. Without the switch (no project, no Git repository) search shows shared hits with a lock
+icon. A note's
 More menu offers "Move to shared notes" or "Move to this computer". Setup is one dialog: the code,
 Copy, Save as file, "I saved the code", and "Turn on" only after that box is ticked.

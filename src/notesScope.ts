@@ -32,17 +32,15 @@ export function scopeFolders(
   scope: NotesScope,
   sessionFolder: NoteFolder | null,
   folders: readonly NoteFolderInfo[],
-  shared: NoteFolder | null = null,
 ): NoteFolder[] {
   const shown = effectiveScope(scope, sessionFolder);
-  const withShared = (folder: NoteFolder) => (shared === null ? [folder] : [shared, folder]);
   switch (shown.kind) {
     case "project":
-      return sessionFolder === null ? [GENERAL_FOLDER] : withShared(sessionFolder);
+      return sessionFolder === null ? [GENERAL_FOLDER] : [sessionFolder];
     case "general":
       return [GENERAL_FOLDER];
     case "folder":
-      return withShared(shown.folder);
+      return [shown.folder];
     case "all": {
       const result: NoteFolder[] = [];
       const seen = new Set<string>();
@@ -55,7 +53,6 @@ export function scopeFolders(
       add(GENERAL_FOLDER);
       for (const info of folders) if (info.noteCount > 0) add({ path: info.path });
       if (sessionFolder !== null) add(sessionFolder);
-      if (shared !== null) add(shared);
       return result;
     }
   }
@@ -76,8 +73,8 @@ export function newNoteFolder(scope: NotesScope, sessionFolder: NoteFolder | nul
 }
 
 /**
- * The one project whose shared notes the panel shows: the active project for "This project" and
- * "All", the opened project, none for General. `shared` passed to `scopeFolders` belongs to it.
+ * The one project whose shared notes the panel's Shared side shows: the opened project, else the
+ * active session's project; `null` without either.
  */
 export function projectFolder(
   scope: NotesScope,
@@ -85,20 +82,13 @@ export function projectFolder(
 ): NoteFolder | null {
   const shown = effectiveScope(scope, sessionFolder);
   switch (shown.kind) {
-    case "project":
-    case "all":
-      return sessionFolder?.path != null ? { path: sessionFolder.path } : null;
     case "folder":
       return shown.folder.path !== null ? { path: shown.folder.path } : null;
+    case "project":
+    case "all":
     case "general":
-      return null;
+      return sessionFolder?.path != null ? { path: sessionFolder.path } : null;
   }
-}
-
-/** Whether the list shows the two groups "Shared" and "Only on this computer". */
-export function groupsScope(scope: NotesScope, sessionFolder: NoteFolder | null): boolean {
-  const kind = effectiveScope(scope, sessionFolder).kind;
-  return kind === "project" || kind === "folder";
 }
 
 /** The scope that shows `folder` (quick access "Notes in …"). */
