@@ -524,31 +524,103 @@ export function filterWords(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
+/** Scores of one word, best first: the whole name, its start, a word start in it, anywhere. */
+const SCORE_EXACT = 6;
+const SCORE_PREFIX = 4;
+const SCORE_WORD_START = 3;
+const SCORE_IN_NAME = 2;
+/** Only in a folder above. */
+const SCORE_IN_PATH = 1;
+
+/** Characters after which a new word of a name starts (`file_tree`, `app.test`, `my-app`). */
+const NAME_SEPARATOR = /[\s._\-()[\]]/;
+
+/** Whether `index` starts a word of the name: after a separator or a camelCase step. */
+function startsWord(name: string, index: number): boolean {
+  if (index === 0) return true;
+  const previous = name.charAt(index - 1);
+  if (NAME_SEPARATOR.test(previous)) return true;
+  const current = name.charAt(index);
+  return (
+    previous !== previous.toUpperCase() &&
+    current === current.toUpperCase() &&
+    current !== current.toLowerCase()
+  );
+}
+
+/** Where a (lower case) word sits best in a name, and how well; `null` when it is not in it. */
+function matchInName(
+  name: string,
+  lower: string,
+  word: string,
+): { at: number; score: number } | null {
+  let at = lower.indexOf(word);
+  if (at < 0) return null;
+  if (at === 0) {
+    const dot = lower.lastIndexOf(".");
+    const stem = dot > 0 ? lower.slice(0, dot) : lower;
+    return { at, score: lower === word || stem === word ? SCORE_EXACT : SCORE_PREFIX };
+  }
+  const first = at;
+  for (; at >= 0; at = lower.indexOf(word, at + 1)) {
+    if (startsWord(name, at)) return { at, score: SCORE_WORD_START };
+  }
+  return { at: first, score: SCORE_IN_NAME };
+}
+
 /**
  * How well a path matches, `null` for no match. Every word must appear somewhere in the path and
  * at least one in the last name, so "src" finds the folder `src` and `src.rs`, not every file
- * inside `src/`, while "src main" finds `src/main.rs`. A word in the name counts more, at its
- * start more still.
+ * inside `src/`, while "src main" finds `src/main.rs`. A word that is the whole name (with or
+ * without its extension) counts most, then one at the name's start, at a word start inside it
+ * (`tree` in `fileTree.ts`), anywhere in it, and least in a folder above.
  */
 export function filterScore(path: string, words: readonly string[]): number | null {
   if (words.length === 0) return null;
   const lower = path.toLowerCase();
-  const name = lower.slice(lower.lastIndexOf("/") + 1);
+  const cut = path.lastIndexOf("/") + 1;
+  const name = path.slice(cut);
+  const lowerName = lower.slice(cut);
   let score = 0;
   let inName = false;
   for (const word of words) {
-    if (!lower.includes(word)) return null;
-    if (name.startsWith(word)) {
-      score += 3;
+    const match = matchInName(name, lowerName, word);
+    if (match !== null) {
+      score += match.score;
       inName = true;
-    } else if (name.includes(word)) {
-      score += 2;
-      inName = true;
+    } else if (lower.includes(word)) {
+      score += SCORE_IN_PATH;
     } else {
-      score += 1;
+      return null;
     }
   }
   return inName ? score : null;
+}
+
+/**
+ * The characters of a row's name the filter matched, ascending, for highlighting: each word where
+ * it scored (`filterScore`). Words only in a folder above mark nothing.
+ */
+export function filterHighlight(name: string, words: readonly string[]): number[] {
+  const lower = name.toLowerCase();
+  // A lower case form of another length (a rare letter) would shift the marks: mark nothing.
+  if (lower.length !== name.length) return [];
+  const marked = new Set<number>();
+  for (const word of words) {
+    const match = matchInName(name, lower, word);
+    if (match === null) continue;
+    for (let index = match.at; index < match.at + word.length; index += 1) marked.add(index);
+  }
+  return [...marked].sort((a, b) => a - b);
+}
+
+/** Paths in the index from which the filter waits for a typing pause, so keys never lag. */
+export const FILTER_DEBOUNCE_FROM = 20_000;
+export const FILTER_DEBOUNCE_MS = 120;
+
+/** How long the filter waits after a key before it searches `size` paths. */
+export function filterDelay(size: number): number {
+  return size >= FILTER_DEBOUNCE_FROM ? FILTER_DEBOUNCE_MS : 0;
 }
 
 /** Every path the tree has read so far: what the filter searches until the full index is in. */
@@ -568,6 +640,8 @@ export interface FilterResult {
   rows: ItemRow[];
   /** Matches in all, also those beyond the limit. */
   matched: number;
+  /** The best match, where Enter in the filter field goes; `null` without matches. */
+  best: string | null;
 }
 
 /** One collator for every comparison: `localeCompare` with options builds one per call. */
@@ -650,7 +724,7 @@ export function filterTree(
     });
   };
   walk("", 0);
-  return { rows, matched: scored.length };
+  return { rows, matched: scored.length, best: kept[0]?.path ?? null };
 }
 
 /**

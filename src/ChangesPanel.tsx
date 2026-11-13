@@ -8,7 +8,7 @@ import { CommitBox } from "./CommitBox";
 import { CommitHistory } from "./CommitHistory";
 import { Dialog } from "./Dialog";
 import { folderName } from "./folders";
-import { commitMode, discardDeletes, lineComment, stageAllPaths } from "./gitActions";
+import { commitMode, discardDeletes, lineComment, pathBatches, stageAllPaths } from "./gitActions";
 import { parseGitDiff, splitPath, type ChangeEntry, type GitDiff } from "./gitDiff";
 import { CHANGES_VIEWS, type ChangesView, type CommitFocus } from "./gitHistory";
 import { useT, type MessageKey } from "./i18n";
@@ -160,6 +160,14 @@ export function ChangesPanel(props: Props) {
             runAction((id) =>
               stage ? api.gitStage(id, [entry.path]) : api.gitUnstage(id, [entry.path]),
             );
+          },
+          onStageAll: (paths, stage) => {
+            runAction(async (id) => {
+              // One call per batch; the backend takes a bounded number of paths per call.
+              for (const batch of pathBatches(paths)) {
+                await (stage ? api.gitStage(id, batch) : api.gitUnstage(id, batch));
+              }
+            });
           },
           onDiscard: setDiscarding,
         };

@@ -6656,6 +6656,16 @@ body.resizing-horizontal * {
   color: var(--muted);
 }
 
+/* The box that stages every file sits right above each file's box. */
+.changes-summary.with-stage {
+  align-items: center;
+  padding-left: 12px;
+}
+
+.changes-summary .change-stage {
+  margin: 0;
+}
+
 .changes-hint {
   margin: 4px 10px;
   padding: 6px 8px;
@@ -7279,8 +7289,27 @@ body.resizing-horizontal * {
   border-radius: 6px;
 }
 
+/* The same ring as every other input (input:focus-visible), drawn on the whole field. */
 .files-filter:focus-within {
   border-color: var(--accent);
+}
+
+.files-filter:has(.files-filter-input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.files-filter-input:focus-visible {
+  outline: none;
+}
+
+/* The number of matches, quiet at the field's end. */
+.files-filter-count {
+  flex: none;
+  padding: 0 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .files-filter-icon {
@@ -7326,6 +7355,13 @@ body.resizing-horizontal * {
 .files-filter-note {
   padding: 6px 14px 2px;
   font-size: 12px;
+}
+
+/* The characters of a name the filter matched, as in the launcher. */
+.tree-match {
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
 }
 
 /* Filtered tree: folders shown only for the way to a match stay in the background. */

@@ -5,8 +5,11 @@ import type { Claim } from "./claims";
 import {
   mentionText,
   filteredStep,
+  filterDelay,
+  filterHighlight,
   filterScore,
   filterTree,
+  FILTER_DEBOUNCE_FROM,
   filterWords,
   loadedPaths,
   revealFolders,
@@ -604,13 +607,49 @@ describe("tree filter", () => {
   });
 
   it("needs every word in the path and one in the name", () => {
-    expect(filterScore("src/main.rs", ["main"])).toBe(3);
+    expect(filterScore("src/main.rs", ["main"])).toBe(6);
     expect(filterScore("src/domain.rs", ["main"])).toBe(2);
-    expect(filterScore("src/main.rs", ["src", "main"])).toBe(4);
+    expect(filterScore("src/main.rs", ["src", "main"])).toBe(7);
     // Only in a folder above: not a match, or "src" would list everything inside src/.
     expect(filterScore("src/lib.rs", ["src"])).toBeNull();
     expect(filterScore("src/lib.rs", ["lib", "x"])).toBeNull();
     expect(filterScore("src", [])).toBeNull();
+  });
+
+  it("ranks the whole name over its start, a word start, the middle and a folder above", () => {
+    const words = ["tree"];
+    const exact = filterScore("src/tree.ts", words) ?? 0;
+    const prefix = filterScore("src/treeView.ts", words) ?? 0;
+    const wordStart = filterScore("src/fileTree.ts", words) ?? 0;
+    const separated = filterScore("src/file_tree.ts", words) ?? 0;
+    const inside = filterScore("src/street.ts", words) ?? 0;
+    expect(exact).toBeGreaterThan(prefix);
+    expect(prefix).toBeGreaterThan(wordStart);
+    expect(separated).toBe(wordStart);
+    expect(wordStart).toBeGreaterThan(inside);
+    // A name word plus a folder word beats the name word alone in a deeper folder.
+    expect(filterScore("tree/x/tree.ts", ["tree", "x"])).toBeGreaterThan(exact);
+  });
+
+  it("names the best match for Enter in the field", () => {
+    expect(filterTree(paths, "main").best).toBe("docs/main.md");
+    expect(filterTree(paths, "mainview").best).toBe("src/ui/MainView.tsx");
+  });
+
+  it("marks the matched characters of a name", () => {
+    expect(filterHighlight("MainView.tsx", ["main"])).toEqual([0, 1, 2, 3]);
+    // The word start wins over an earlier match inside a word.
+    expect(filterHighlight("streetTree.ts", ["tree"])).toEqual([6, 7, 8, 9]);
+    expect(filterHighlight("main.rs", ["main", "rs"])).toEqual([0, 1, 2, 3, 5, 6]);
+    // A word only in a folder above marks nothing in the name.
+    expect(filterHighlight("main.rs", ["src"])).toEqual([]);
+    expect(filterHighlight("main.rs", [])).toEqual([]);
+  });
+
+  it("waits for a typing pause only on large indexes", () => {
+    expect(filterDelay(0)).toBe(0);
+    expect(filterDelay(FILTER_DEBOUNCE_FROM - 1)).toBe(0);
+    expect(filterDelay(FILTER_DEBOUNCE_FROM)).toBeGreaterThan(0);
   });
 
   it("shows the matches under their folders, all open", () => {
@@ -635,7 +674,7 @@ describe("tree filter", () => {
       ["src/ui", false],
     ]);
     expect(filterTree(paths, "").rows).toEqual([]);
-    expect(filterTree(paths, "zzz")).toEqual({ rows: [], matched: 0 });
+    expect(filterTree(paths, "zzz")).toEqual({ rows: [], matched: 0, best: null });
   });
 
   it("keeps only the best matches and counts the rest", () => {

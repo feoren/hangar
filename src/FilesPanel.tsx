@@ -27,8 +27,11 @@ import {
   avatarStack,
   buildMarks,
   CHANGE_LETTERS,
+  filterDelay,
   filteredStep,
+  filterHighlight,
   filterTree,
+  filterWords,
   folderKeyOf,
   folderPeople,
   foldersToRefresh,
@@ -71,7 +74,8 @@ import {
   RevealFolderIcon,
   SearchIcon,
 } from "./icons";
-import { revealInvisible } from "./invisible";
+import { highlightRuns } from "./fuzzy";
+import { hasInvisible, revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { beyondThreshold } from "./sessionDrag";
 import { clockTime, personName, personTag, type TeamActivity } from "./team";
@@ -94,6 +98,8 @@ const OPEN_ERROR_MS = 6000;
 const MAX_SAVED_TREES = 24;
 /** A revealed row is focused once it shows, if that happens within this time. */
 const REVEAL_FOCUS_MS = 3000;
+/** Typing pause after which screen readers hear the filter's result. */
+const FILTER_ANNOUNCE_MS = 700;
 /** One replay step of the activity map, and the calmer pace with reduced motion. */
 const PLAY_STEP_MS = 450;
 const PLAY_STEP_CALM_MS = 1200;
@@ -305,10 +311,23 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
     if (!filtering) return null;
     return indexLoad.kind === "ready" ? indexLoad.index.entries : loadedPaths({ folders });
   }, [filtering, indexLoad, folders]);
+  // A large index is searched after a short typing pause, so keys never wait for the search.
+  const delay = filterDelay(source?.length ?? 0);
+  const [settled, setSettled] = useState(query);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSettled(query);
+    }, delay);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [query, delay]);
+  const searched = delay === 0 || settled.trim() === "" ? query : settled;
   const filtered = useMemo(
-    () => (source === null ? null : filterTree(source, query)),
-    [source, query],
+    () => (source === null ? null : filterTree(source, searched)),
+    [source, searched],
   );
+  const words = useMemo(() => filterWords(searched), [searched]);
   const rows: TreeRow[] = useMemo(() => filtered?.rows ?? visibleRows(state), [filtered, state]);
 
   /** A row revealed from the filter takes the focus once it shows (its folders may still load). */
@@ -541,8 +560,11 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       return;
     }
     if (event.key === "ArrowDown" || event.key === "Enter") {
-      // Into the results: the first match (or the tree's first row).
-      const first = itemRows.find((row) => row.context !== true) ?? itemRows[0];
+      // Into the results: Enter to the best match, ArrowDown to the first one on screen (or the
+      // tree's first row).
+      const bestPath = event.key === "Enter" ? (filtered?.best ?? null) : null;
+      const best = bestPath === null ? undefined : itemRows.find((row) => row.path === bestPath);
+      const first = best ?? itemRows.find((row) => row.context !== true) ?? itemRows[0];
       if (first === undefined) return;
       event.preventDefault();
       wantFocus.current = true;
@@ -560,12 +582,30 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       : filtered.matched === 0
         ? indexLoad.kind === "loading"
           ? t("files.filterSearching")
-          : t("files.filterNone")
+          : t("files.filterNone", { query: searched.trim() })
         : filtered.matched > filtered.rows.filter((row) => row.context !== true).length
           ? t("files.filterMore")
           : indexLoad.kind === "ready" && indexLoad.index.truncated
             ? t("files.filterPartial")
             : null;
+  // Screen readers hear the result once typing pauses, not after every key.
+  const announcement =
+    filtered === null
+      ? ""
+      : filtered.matched === 0
+        ? (filterNote ?? "")
+        : [t("files.filterCount", { count: filtered.matched }), filterNote]
+            .filter((part) => part !== null)
+            .join(". ");
+  const [announced, setAnnounced] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAnnounced(announcement);
+    }, FILTER_ANNOUNCE_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [announcement]);
   return (
     <div ref={panel} tabIndex={-1} className="changes files">
       <div className="changes-header">
@@ -634,7 +674,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
             type="text"
             className="files-filter-input"
             value={query}
-            placeholder={t("files.filter")}
+            placeholder={t("files.filterPlaceholder")}
             aria-label={t("files.filter")}
             spellCheck={false}
             autoComplete="off"
@@ -651,6 +691,14 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
               if (event.currentTarget.value === "") setFilterOpen(false);
             }}
           />
+          {filtered !== null && filtered.matched > 0 && (
+            <span
+              className="files-filter-count"
+              title={t("files.filterCount", { count: filtered.matched })}
+            >
+              <span aria-hidden="true">{filtered.matched}</span>
+            </span>
+          )}
           {query !== "" && (
             <button
               type="button"
@@ -684,11 +732,10 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
           {openError}
         </p>
       )}
-      {filterNote !== null && (
-        <p className="changes-message files-filter-note" role="status">
-          {filterNote}
-        </p>
-      )}
+      {filterNote !== null && <p className="changes-message files-filter-note">{filterNote}</p>}
+      <p className="sr-only" role="status">
+        {announced}
+      </p>
       {!filtering && root?.kind === "failed" ? (
         <p className="changes-message error-text selectable" role="alert">
           {t("files.failed", { error: root.message })}
@@ -716,6 +763,9 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 fileMark={marks.files.get(treeKey(row.path, windows)) ?? null}
                 folderMark={marks.folders.get(treeKey(row.path, windows)) ?? null}
                 heat={heatOn ? rowHeat(heat, row, windows) : null}
+                highlight={
+                  filtering && row.context !== true ? filterHighlight(row.name, words) : null
+                }
                 nameOf={nameOf}
                 sessionOf={sessionOf}
                 canDrag={canDrag}
@@ -993,6 +1043,28 @@ function TreeHint({ row }: { row: HintRow }) {
   );
 }
 
+/** A row's name, the filter's matches marked; invisible characters show as placeholders. */
+function RowName({ name, highlight }: { name: string; highlight: readonly number[] | null }) {
+  // Placeholders change the text's length, so a name with them is shown without marks.
+  if (highlight === null || highlight.length === 0 || hasInvisible(name)) {
+    return <Revealed text={name} />;
+  }
+  return (
+    <>
+      {highlightRuns(name, highlight).map((run, index) =>
+        // Runs never move for this name and highlight.
+        run.match ? (
+          <mark key={index} className="tree-match">
+            {run.text}
+          </mark>
+        ) : (
+          <span key={index}>{run.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 /** Left padding of a row: the indentation plus the chevron's column for hints. */
 function rowIndent(depth: number): number {
   return 8 + depth * INDENT + 16;
@@ -1006,6 +1078,8 @@ function TreeItem(props: {
   folderMark: FolderMark | null;
   /** The row's share of the activity map; `null` while the map is off. */
   heat: RowHeat | null;
+  /** Filtered tree: the characters of the name the filter matched. */
+  highlight: readonly number[] | null;
   nameOf: (id: number) => string;
   sessionOf: (id: number) => LocalSession | undefined;
   /** Rows can be dragged onto a terminal. */
@@ -1078,7 +1152,7 @@ function TreeItem(props: {
         )}
       </span>
       <span className="tree-name">
-        <Revealed text={row.name} />
+        <RowName name={row.name} highlight={props.highlight} />
       </span>
       {notes.length > 0 && <span className="sr-only">{notes.join(". ")}</span>}
       <span className="tree-marks" aria-hidden="true">

@@ -1,6 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { diffKey, newLineNumbers, stageAction, stageState } from "./gitActions";
+import {
+  diffKey,
+  newLineNumbers,
+  stageAction,
+  stageAllBox,
+  stageState,
+  type StageState,
+} from "./gitActions";
 
 import {
   CHANGE_LABELS,
@@ -31,6 +38,8 @@ export interface FileActions {
   /** An action runs: boxes and buttons wait for it. */
   busy: boolean;
   onStage: (entry: ChangeEntry, stage: boolean) => void;
+  /** The header box: stage (`true`) or unstage these files in one go. */
+  onStageAll: (paths: string[], stage: boolean) => void;
   /** The panel asks before anything is thrown away. */
   onDiscard: (entry: ChangeEntry) => void;
 }
@@ -57,7 +66,8 @@ export function ChangeList({ result, actions, onComment }: Props) {
   const deletions = entries.reduce((sum, entry) => sum + entry.deletions, 0);
   return (
     <>
-      <p className="changes-summary">
+      <p className={actions ? "changes-summary with-stage" : "changes-summary"}>
+        {actions && <StageAllCheckbox entries={entries} actions={actions} />}
         <span>{t("changes.files", { count: entries.length })}</span>
         <span className="changes-plus">+{additions}</span>
         <span className="changes-minus">−{deletions}</span>
@@ -172,15 +182,54 @@ function FileItem({
   );
 }
 
+/** Sets the mixed look, which exists only as a property, not as an attribute React could set. */
+function useIndeterminate(state: StageState) {
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = state === "partial";
+  }, [state]);
+  return box;
+}
+
+/**
+ * The box next to the file count: checked when every file is staged, mixed when some changes are.
+ * A click stages every file not fully staged (untracked ones too) or, all staged, unstages all.
+ */
+function StageAllCheckbox({
+  entries,
+  actions,
+}: {
+  entries: readonly ChangeEntry[];
+  actions: FileActions;
+}) {
+  const t = useT();
+  const all = stageAllBox(entries);
+  const box = useIndeterminate(all?.state ?? "unstaged");
+  if (all === null) return null;
+  const label = all.action === "unstage" ? t("changes.unstageAll") : t("changes.stageAll");
+  return (
+    <input
+      ref={box}
+      type="checkbox"
+      className="change-stage"
+      checked={all.state === "staged"}
+      // Not `disabled`: the focus stays on the box while the action runs (as on each file's box).
+      aria-disabled={actions.busy}
+      aria-label={label}
+      title={label}
+      onChange={() => {
+        if (actions.busy) return;
+        actions.onStageAll(all.paths, all.action === "stage");
+      }}
+    />
+  );
+}
+
 /** Checked: all changes staged; mixed: some of them; empty: none (untracked files too). */
 function StageBox({ entry, actions }: { entry: ChangeEntry; actions: FileActions }) {
   const t = useT();
   const state = stageState(entry.status);
-  const box = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    // `indeterminate` exists only as a property, not as an attribute React could set.
-    if (box.current) box.current.indeterminate = state === "partial";
-  }, [state]);
+  const box = useIndeterminate(state);
   const label = state === "staged" ? t("changes.unstage") : t("changes.stage");
   return (
     <input
