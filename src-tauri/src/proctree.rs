@@ -4,7 +4,8 @@
 //! closed (session over, app exited, app crashed), Windows terminates every process in the job.
 //! Unix: portable-pty starts the child as session leader; its PID is the process group.
 //!
-//! [`usages`] reads what a whole tree uses right now (CPU time and resident memory), for the
+//! [`usages`] reads what a whole tree uses right now (CPU time, resident memory and the ids of its
+//! processes, which `gpu.rs` matches against the GPU counters), for the
 //! resources of a session (`resources.rs`). Windows asks the Job Object; Linux reads `/proc` once
 //! for all trees and sums every process of the child's terminal session; other systems report
 //! nothing, so the window shows nothing.
@@ -17,14 +18,16 @@ pub use windows::ProcTree;
 #[cfg(unix)]
 pub use unix::ProcTree;
 
-/// CPU time and resident memory of one process tree at one moment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// CPU time, resident memory and processes of one process tree at one moment.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TreeUsage {
     /// CPU time (user plus kernel) the tree has used so far. It includes processes of the tree
     /// that have already ended, so it does not shrink while the tree lives.
     pub cpu: Duration,
     /// Resident memory (working set) of the processes alive now, in bytes.
     pub memory: u64,
+    /// Ids of the processes alive now.
+    pub processes: Vec<u32>,
 }
 
 /// What each tree uses right now, in the order given; `None` where it cannot be read.
@@ -146,14 +149,17 @@ mod windows {
             let ticks = u64::try_from(accounting.TotalUserTime)
                 .unwrap_or(0)
                 .saturating_add(u64::try_from(accounting.TotalKernelTime).unwrap_or(0));
-            let memory = self
+            // Only the ids whose process is confirmed in the job count, for the memory and the
+            // GPU alike.
+            let (processes, sets): (Vec<u32>, Vec<u64>) = self
                 .process_ids()?
                 .into_iter()
-                .filter_map(|pid| working_set(pid, self.job))
-                .sum();
+                .filter_map(|pid| Some((pid, working_set(pid, self.job)?)))
+                .unzip();
             Ok(TreeUsage {
                 cpu: Duration::from_nanos(ticks.saturating_mul(100)),
-                memory,
+                memory: sets.into_iter().sum(),
+                processes,
             })
         }
 
@@ -308,16 +314,11 @@ mod linux {
             .enumerate()
             .map(|(index, tree)| (i64::from(tree.group()), index))
             .collect();
-        let mut sums: Vec<Option<(u64, u64)>> = vec![None; trees.len()];
+        let mut sums: Vec<Option<(u64, u64, Vec<u32>)>> = vec![None; trees.len()];
         for entry in entries.flatten() {
-            if !entry
-                .file_name()
-                .to_string_lossy()
-                .bytes()
-                .all(|b| b.is_ascii_digit())
-            {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
                 continue;
-            }
+            };
             // A process may end between listing and reading; it is simply not counted.
             let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else {
                 continue;
@@ -326,16 +327,18 @@ mod linux {
                 continue;
             };
             if let Some(&index) = wanted.get(&fields.session) {
-                let sum = sums[index].get_or_insert((0, 0));
+                let sum = sums[index].get_or_insert((0, 0, Vec::new()));
                 sum.0 = sum.0.saturating_add(fields.cpu_ticks);
                 sum.1 = sum.1.saturating_add(fields.rss_pages);
+                sum.2.push(pid);
             }
         }
         sums.into_iter()
             .map(|sum| {
-                sum.map(|(cpu, rss)| TreeUsage {
+                sum.map(|(cpu, rss, processes)| TreeUsage {
                     cpu: Duration::from_nanos(cpu.saturating_mul(1_000_000_000 / ticks)),
                     memory: rss.saturating_mul(page),
+                    processes,
                 })
             })
             .collect()

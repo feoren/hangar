@@ -545,3 +545,34 @@ export function HomeIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Processor chip: the CPU share in a narrow session row. */
+export function CpuIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="8" height="8" rx="1.2" />
+      <path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5" />
+    </Svg>
+  );
+}
+
+/** Memory module: the RAM in use in a narrow session row. */
+export function MemoryIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.5" y="4" width="13" height="7" rx="1" />
+      <path d="M4.5 11v2.5M8 11v2.5M11.5 11v2.5M5 6.5v2M8 6.5v2M11 6.5v2" />
+    </Svg>
+  );
+}
+
+/** Graphics card with its fan: the GPU in a narrow session row. */
+export function GpuIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.5" y="3.5" width="13" height="8.5" rx="1.2" />
+      <circle cx="6" cy="7.75" r="2.25" />
+      <path d="M10.5 6.25h1.5M10.5 9.25h1.5M3.5 12v2" />
+    </Svg>
+  );
+}

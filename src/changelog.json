@@ -2,7 +2,22 @@
   {
     "version": "0.7.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Jede Session zeigt jetzt CPU, RAM und, wenn sie die GPU nutzt, GPU-Last und Grafikspeicher. Die Systemleiste nennt RAM und GPU zusätzlich in GB.",
+        "en": "Each session now shows its CPU, RAM and, if it uses the GPU, GPU load and memory. The system bar also gives RAM and GPU memory in GB.",
+        "el": "Κάθε συνεδρία δείχνει τώρα CPU, RAM και, αν χρησιμοποιεί την GPU, φόρτο και μνήμη GPU. Η γραμμή συστήματος δίνει RAM και μνήμη GPU και σε GB.",
+        "es": "Cada sesión muestra ahora su CPU, RAM y, si usa la GPU, la carga y la memoria de GPU. La barra del sistema indica también la RAM y la memoria de GPU en GB.",
+        "fr": "Chaque session affiche son CPU, sa RAM et, si elle utilise le GPU, la charge et la mémoire GPU. La barre système indique aussi RAM et mémoire GPU en Go.",
+        "it": "Ogni sessione mostra ora CPU, RAM e, se usa la GPU, carico e memoria GPU. La barra di sistema indica anche RAM e memoria GPU in GB.",
+        "ja": "各セッションに CPU と RAM、GPU を使っている場合は GPU 負荷と GPU メモリが表示されます。システムバーは RAM と GPU メモリを GB でも示します。",
+        "pl": "Każda sesja pokazuje teraz CPU, RAM, a jeśli używa GPU, także obciążenie i pamięć GPU. Pasek systemu podaje też RAM i pamięć GPU w GB.",
+        "pt": "Cada sessão agora mostra CPU, RAM e, se usar a GPU, a carga e a memória da GPU. A barra do sistema também mostra a RAM e a memória da GPU em GB.",
+        "ru": "Каждая сессия теперь показывает CPU, ОЗУ и, если использует GPU, загрузку и память GPU. Системная панель также показывает ОЗУ и память GPU в ГБ.",
+        "tr": "Her oturum artık CPU, RAM ve GPU kullanıyorsa GPU yükünü ve belleğini gösteriyor. Sistem çubuğu RAM ve GPU belleğini GB olarak da gösteriyor.",
+        "zh": "每个会话现在显示 CPU、内存，以及在使用 GPU 时的 GPU 负载和显存。系统栏还会以 GB 显示内存和显存用量。"
+      }
+    ]
   },
   {
     "version": "0.6.0",

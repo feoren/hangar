@@ -28,6 +28,7 @@ pub mod git;
 pub mod git_actions;
 pub mod git_activity;
 pub mod git_history;
+pub mod gpu;
 pub mod hook_http;
 pub mod hook_recipes;
 pub mod icon;
@@ -200,6 +201,8 @@ pub fn run() -> tauri::Result<()> {
             app.manage(notify::Notifier::default());
             app.manage(resources::ResourceMonitor::default());
             app.manage(system_usage::SystemMonitor::default());
+            // One GPU reading for the system bar and the session rows alike.
+            app.manage(gpu::GpuMonitor::default());
             app.manage(subagents::Watchers::default());
             // Context meter of the sessions' rows: one thread for all sessions, numbers only.
             let context = context_usage::ContextUsage::default();

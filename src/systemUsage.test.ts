@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { createTranslator } from "./i18n";
 import {
   advance,
   barPending,
   EMPTY_STATE,
   formatShare,
+  gaugeAmount,
+  gaugeAmountLabel,
   gaugeWarns,
   HISTORY_LENGTH,
   parseSystemUsage,
@@ -14,23 +17,36 @@ import {
   sparkPaths,
   SYSTEM_POLL_MS,
   WARN_PERCENT,
+  type SystemUsage,
 } from "./systemUsage";
 
+const GB = 1024 * 1024 * 1024;
+const NO_AMOUNTS = { memoryUsed: null, memoryTotal: null, gpuMemory: null };
+
+function reading(cpu: number | null, memory: number | null, gpu: number | null): SystemUsage {
+  return { cpu, memory, gpu, ...NO_AMOUNTS };
+}
+
 describe("parseSystemUsage", () => {
-  it("accepts shares and unknown values", () => {
-    expect(parseSystemUsage({ cpu: 23.4, memory: 61, gpu: null })).toEqual({
-      cpu: 23.4,
-      memory: 61,
-      gpu: null,
-    });
+  it("accepts shares and unknown values, also without amounts", () => {
+    expect(parseSystemUsage({ cpu: 23.4, memory: 61, gpu: null })).toEqual(reading(23.4, 61, null));
+  });
+
+  it("reads the amounts in bytes", () => {
+    expect(
+      parseSystemUsage({
+        cpu: 1,
+        memory: 62,
+        gpu: 30,
+        memoryUsed: 19.8 * GB,
+        memoryTotal: 32 * GB,
+        gpuMemory: null,
+      }),
+    ).toEqual({ ...reading(1, 62, 30), memoryUsed: 19.8 * GB, memoryTotal: 32 * GB });
   });
 
   it("clamps to 0 to 100", () => {
-    expect(parseSystemUsage({ cpu: 140, memory: -3, gpu: 0 })).toEqual({
-      cpu: 100,
-      memory: 0,
-      gpu: 0,
-    });
+    expect(parseSystemUsage({ cpu: 140, memory: -3, gpu: 0 })).toEqual(reading(100, 0, 0));
   });
 
   it("rejects anything malformed", () => {
@@ -39,6 +55,8 @@ describe("parseSystemUsage", () => {
     expect(parseSystemUsage({ cpu: "1", memory: 2, gpu: 3 })).toBeNull();
     expect(parseSystemUsage({ cpu: 1, memory: 2 })).toBeNull();
     expect(parseSystemUsage({ cpu: Number.NaN, memory: 2, gpu: 3 })).toBeNull();
+    expect(parseSystemUsage({ cpu: 1, memory: 2, gpu: 3, memoryUsed: -1 })).toBeNull();
+    expect(parseSystemUsage({ cpu: 1, memory: 2, gpu: 3, gpuMemory: "1" })).toBeNull();
   });
 });
 
@@ -65,7 +83,7 @@ describe("history", () => {
 });
 
 describe("advance", () => {
-  const usage = { cpu: 10, memory: 50, gpu: null };
+  const usage = reading(10, 50, null);
 
   it("publishes a changed reading and moves every history on", () => {
     const { state, changed } = advance(EMPTY_STATE, usage);
@@ -79,6 +97,7 @@ describe("advance", () => {
     const first = advance(EMPTY_STATE, usage).state;
     const { state, changed } = advance(first, { ...usage });
     expect(changed).toBe(false);
+    expect(advance(first, { ...usage, memoryUsed: 1 }).changed).toBe(true);
     // The same object: nothing for React to render.
     expect(state.usage).toBe(first.usage);
     expect(state.history.cpu).toEqual([10, 10]);
@@ -87,13 +106,13 @@ describe("advance", () => {
 
 describe("barPending", () => {
   it("waits for the second reading while the CPU is unknown", () => {
-    const first = { cpu: null, memory: 40, gpu: null };
+    const first = reading(null, 40, null);
     expect(barPending(first, 1)).toBe(true);
     expect(barPending(first, 2)).toBe(false);
   });
 
   it("shows a first reading that already has a CPU", () => {
-    expect(barPending({ cpu: 5, memory: 40, gpu: null }, 1)).toBe(false);
+    expect(barPending(reading(5, 40, null), 1)).toBe(false);
   });
 });
 
@@ -132,5 +151,33 @@ describe("formatShare", () => {
   it("rounds to whole percent in the UI language's style", () => {
     expect(formatShare(23.4, "en")).toBe("23%");
     expect(formatShare(61.5, "de")).toBe("62 %");
+  });
+});
+
+describe("gauge amounts", () => {
+  const usage: SystemUsage = {
+    ...reading(10, 62, 30),
+    memoryUsed: 19.8 * GB,
+    memoryTotal: 31.9 * GB,
+    gpuMemory: 3.1 * GB,
+  };
+
+  it("gives the memory in use behind RAM and GPU, none for the CPU", () => {
+    expect(gaugeAmount("memory", usage, "en")).toBe("19.8 GB");
+    expect(gaugeAmount("gpu", usage, "en")).toBe("3.1 GB");
+    expect(gaugeAmount("cpu", usage, "en")).toBeNull();
+    expect(gaugeAmount("gpu", { ...usage, gpuMemory: 0 }, "en")).toBeNull();
+    expect(gaugeAmount("memory", { ...usage, memoryUsed: null }, "en")).toBeNull();
+  });
+
+  it("spells out used of total for the tooltip", () => {
+    const t = createTranslator("en");
+    expect(gaugeAmountLabel("memory", usage, "en", t)).toBe("19.8 GB of 31.9 GB");
+    expect(gaugeAmountLabel("memory", { ...usage, memoryTotal: null }, "en", t)).toBe("19.8 GB");
+    expect(gaugeAmountLabel("gpu", usage, "en", t)).toBe("3.1 GB");
+    expect(gaugeAmountLabel("cpu", usage, "en", t)).toBeNull();
+    expect(gaugeAmountLabel("memory", usage, "de", createTranslator("de"))).toMatch(
+      /^19,8\sGB von 31,9\sGB$/u,
+    );
   });
 });

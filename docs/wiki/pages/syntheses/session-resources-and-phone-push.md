@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, resources, system-bar, process-tree, notifications, push, keychain, contract]
 sources: ["[[system-usage-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 # Session resources and push to the phone
@@ -14,8 +14,21 @@ trees, keychain, network), the window decides when to ask and what to show.
 
 ## Resources per session
 
-**What it shows.** The session peek (resting the mouse on a row) names `CPU 12 % · 340 MB` for the
-session's whole process tree (the PTY child and everything it starts). A session that is an
+**What it shows.** A session row has three lines: the title line; the short state with its
+duration and where the session runs (`working · 3 min · hangar · main`, the folder and branch give
+way first); and the load of the session's whole process tree (the PTY child and everything it
+starts) followed by the run time and the context meter: `CPU 12 % · RAM 340 MB · GPU 30 % 1.2 GB ·
+2 h`. The GPU part appears only while the tree has GPU load or dedicated GPU memory above zero.
+With the setting off, before the first reading or for an ended session the load part is absent;
+when the run time and context meter are absent too, the third line is gone (`:empty`), no gap.
+In a narrow row the third line gives way in a fixed order, by container queries on
+`.session-text` with `:has()` for the parts present: first the context meter's token count, then
+its bar down to a 12 px stub, then the names CPU, RAM and GPU give way to small icons (screen
+readers keep the names). If that is still too wide, whole parts wrap out of sight from the end
+(`.session-facts` wraps inside a one-line box): a part shows whole or not at all, and the context
+share always stays. Measured at 305, 320, 400 and 505 px, plain and project rows, typical and
+widest values: no overflow, nothing cut (raw/2026-11-13-session-row-layout-measurement.md).
+The session peek (resting the mouse on a row) names the same numbers. A session that is an
 outlier gets a small gauge mark in its title line, in the warning color; the peek and the screen
 reader text say why. Session rows have no tooltip, neither on the row nor on the context meter
 or the marker dot inside it: what a row only marks (overlap, gate off, exit code, outlier,
@@ -29,8 +42,8 @@ Resources, default on) also controls the system bar below; off, the window never
 | Layer | Name | Shape |
 | ----- | ---- | ----- |
 | Command (main window only) | `session_resources` | `() -> SessionResources[]` |
-| Rust | `resources::SessionResources` | `{ id, cpu: number \| null, memory: number, outlier: boolean }` (camelCase) |
-| TS | `resources.ts` `parseResources` | the same, per session id; malformed answers are dropped whole |
+| Rust | `resources::SessionResources` | `{ id, cpu: number \| null, memory: number, gpu: number \| null, gpuMemory: number \| null, outlier: boolean }` (camelCase) |
+| TS | `resources.ts` `parseResources` | the same, per session id; missing GPU fields read as `null`, malformed answers are dropped whole |
 
 - `cpu` is the share of the whole machine in percent (0 to 100, one decimal), like the task
   manager: CPU time used since the previous answer divided by wall time times logical processors
@@ -41,7 +54,23 @@ Resources, default on) also controls the system bar below; off, the window never
   equivalents, not the displayed share: on 16 processors a runaway single-threaded loop is only
   6 % of the machine but a whole core for a long time. The stretch starts at the previous reading;
   after a pause (window hidden) the use is the average over the pause.
+- `gpu` is the busiest GPU engine counting only the tree's processes (their shares summed per
+  engine, like the machine's load below), percent with one decimal; `gpuMemory` the tree's
+  dedicated GPU memory in bytes. Both `null` when no process of the tree has a counter instance,
+  and always `null` outside Windows.
 - An answer younger than `CACHE_FOR` (1 s) is repeated without reading again.
+
+**GPU reading** (`src-tauri/src/gpu.rs`, `GpuMonitor`, Windows only). One PDH query, opened on the
+first reading and kept open, with three counters added through `PdhAddEnglishCounterW`:
+`\GPU Engine(*)\Utilization Percentage` (instances `pid_<n>_luid_..._phys_<p>_eng_<e>_engtype_<t>`),
+`\GPU Process Memory(*)\Dedicated Usage` (instances `pid_<n>_luid_..._phys_<p>`) and
+`\GPU Adapter Memory(*)\Dedicated Usage` (instances per adapter, summed). Only the engine counter
+is required; without a memory counter its numbers stay `null`. The snapshot is shared by
+`session_resources` and `system_usage` and cached for 1 s, so the two polls never collect twice
+within a second; one collection took about 3 ms with 26 processes on the GPU (`reads_this_machine`).
+The tree's process ids come from the Job Object's process list (`TreeUsage::processes`, only ids
+confirmed in the job by `IsProcessInJob`); on Linux from the same `/proc` pass. Linux and macOS
+have no GPU numbers: there is no vendor-neutral source on Linux and no reader yet on macOS.
 
 **Polling, not events.** `useSessionResources.ts` asks every `RESOURCE_POLL_MS` (2 s) and only
 while the setting is on, `document.visibilityState` is `visible` and at least one row listens.
@@ -79,7 +108,12 @@ on Windows with one more `windows-sys` feature.
 ## System bar
 
 **What it shows.** One row (24 px, as tall as a group header) above the New session group:
-`CPU 23 %`, `RAM 61 %`, `GPU 8 %` of the whole machine. Each gauge is a small tile whose
+`CPU 23 %`, `RAM 61 %`, `GPU 8 %` of the whole machine. RAM and GPU add the amount in use
+(`RAM 62 % 19.8 GB`, `GPU 30 % 3.1 GB` dedicated memory) from a 285 px wide bar on, that is in
+every sidebar from its 305 px minimum (container query; RAM and GPU tiles get 3 parts of the row,
+CPU 2), and always in the tile's tooltip and screen reader text (`19.8 GB of 31.9 GB`). Measured
+in all 12 languages at 305, 320, 400 and 505 px (raw/2026-11-13-session-row-layout-measurement.md). The total dedicated GPU memory is not shown: PDH has no
+counter for it and DXGI would need another API surface. Each gauge is a small tile whose
 background is a sparkline of the last minute (41 readings at 1.5 s) that slides one reading to the
 left over each poll interval, with the name on the left and the share on the right on top. With
 `prefers-reduced-motion` the sparkline gives way to a still bar along the tile's bottom edge.
@@ -95,8 +129,8 @@ group "System load" with one text per gauge; the graphs are `aria-hidden`.
 | Layer | Name | Shape |
 | ----- | ---- | ----- |
 | Command (main window only) | `system_usage` | `() -> SystemUsage` |
-| Rust | `system_usage::SystemUsage` | `{ cpu, memory, gpu: number \| null }`, percent 0 to 100, one decimal |
-| TS | `systemUsage.ts` `parseSystemUsage` | the same, clamped; malformed answers are dropped |
+| Rust | `system_usage::SystemUsage` | `{ cpu, memory, gpu: number \| null }`, percent 0 to 100, one decimal; `{ memoryUsed, memoryTotal, gpuMemory: number \| null }` in bytes |
+| TS | `systemUsage.ts` `parseSystemUsage` | the same, clamped; missing amounts read as `null`, malformed answers are dropped |
 
 **Polling.** `useSystemUsage.ts` is one store for all three gauges. It asks every
 `SYSTEM_POLL_MS` (1.5 s) only while the setting is on, the window is visible and the bar is
@@ -117,11 +151,12 @@ wants the other. Fewer controls; the label became "Show CPU, memory and GPU".
 - Memory: `(total - available) / total`. Windows `GlobalMemoryStatusEx` (`ullTotalPhys`,
   `ullAvailPhys`; windows-sys feature `Win32_System_SystemInformation`); Linux `/proc/meminfo`
   `MemTotal` and `MemAvailable`.
-- GPU (Windows only): one PDH query on the counter `GPU Engine(*)\Utilization Percentage`, added
-  with `PdhAddEnglishCounterW` so the path resolves on every display language, opened on the first
-  reading and kept open (windows-sys feature `Win32_System_Performance`). The counter is a rate:
+- GPU (Windows only): from the shared GPU reading above (`gpu.rs`), whose engine counter is
+  `GPU Engine(*)\Utilization Percentage`, added with `PdhAddEnglishCounterW` so the path resolves
+  on every display language (windows-sys feature `Win32_System_Performance`); the GPU memory is
+  the adapters' dedicated usage summed. The counter is a rate:
   the first collection only sets the baseline, so the first answer has `gpu: null`. Instance names
-  look like `pid_1234_luid_0x0_0xD1B5_phys_0_eng_3_engtype_VideoDecode`; `gpu_percent` sums the
+  look like `pid_1234_luid_0x0_0xD1B5_phys_0_eng_3_engtype_VideoDecode`; `GpuSnapshot` sums the
   processes per engine (luid, phys, eng) and takes the busiest engine, capped at 100. Chosen over
   "sum of the 3D engines" because the task manager reads the same counters this way: a video
   decode or compute job on its own engine shows as load while 3D is idle. Without the counter (no

@@ -27,6 +27,7 @@ use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
+use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
@@ -1357,16 +1358,18 @@ pub async fn notify_session(
 
 // Session resources (resources.rs) and push to the phone (push.rs).
 
-/// CPU and memory of every running session's process tree. The window asks every few seconds
+/// CPU, memory and GPU of every running session's process tree. The window asks every few seconds
 /// while it is visible and the setting is on; nothing samples in between, and an answer younger
 /// than a second is repeated.
 #[tauri::command]
 pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<ResourceMonitor>()
-            .sample(std::time::Instant::now(), || {
-                app.state::<SessionManager>().tree_usages()
-            })
+        let now = std::time::Instant::now();
+        app.state::<ResourceMonitor>().sample(
+            now,
+            || app.state::<SessionManager>().tree_usages(),
+            || app.state::<GpuMonitor>().snapshot(now),
+        )
     })
     .await
     .unwrap_or_default()
@@ -1377,8 +1380,9 @@ pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
 #[tauri::command]
 pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
     tauri::async_runtime::spawn_blocking(move || {
+        let now = std::time::Instant::now();
         app.state::<SystemMonitor>()
-            .sample(std::time::Instant::now())
+            .sample(now, || app.state::<GpuMonitor>().snapshot(now))
     })
     .await
     .unwrap_or_default()

@@ -1,6 +1,6 @@
-// CPU and memory of each session's whole process tree (Rust: `SessionResources` in
+// CPU, memory and GPU of each session's whole process tree (Rust: `SessionResources` in
 // src-tauri/src/resources.rs). The window asks every RESOURCE_POLL_MS while it is visible and the
-// setting is on; the session's peek shows the numbers and its row an outlier as a small mark.
+// setting is on; the session's row and peek show the numbers, the row an outlier as a small mark.
 
 import type { Translate } from "./i18n";
 
@@ -12,12 +12,22 @@ export interface SessionResources {
   cpu: number | null;
   /** Resident memory in bytes. */
   memory: number;
+  /** Busiest GPU engine of the tree in percent; `null` without GPU numbers (Windows only). */
+  gpu: number | null;
+  /** Dedicated GPU memory of the tree in bytes; `null` like `gpu`. */
+  gpuMemory: number | null;
   /** Above 90 % CPU for 30 s, or more than 4 GB of memory. */
   outlier: boolean;
 }
 
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/** An optional count: missing (older backends) and `null` are `null`, anything else malformed. */
+function optionalCount(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return null;
+  return isCount(value) ? value : undefined;
 }
 
 /** The backend's answer per session id; `null` for anything malformed. */
@@ -31,17 +41,32 @@ export function parseResources(value: unknown): Map<number, SessionResources> | 
     const cpu: unknown = Reflect.get(item, "cpu");
     const memory: unknown = Reflect.get(item, "memory");
     const outlier: unknown = Reflect.get(item, "outlier");
+    const gpu = optionalCount(Reflect.get(item, "gpu"));
+    const gpuMemory = optionalCount(Reflect.get(item, "gpuMemory"));
     if (!isCount(id) || !Number.isInteger(id) || !isCount(memory)) return null;
     if (cpu !== null && !isCount(cpu)) return null;
     if (typeof outlier !== "boolean") return null;
-    map.set(id, { cpu: cpu === null ? null : Math.min(cpu, 100), memory, outlier });
+    if (gpu === undefined || gpuMemory === undefined) return null;
+    map.set(id, {
+      cpu: cpu === null ? null : Math.min(cpu, 100),
+      memory,
+      gpu: gpu === null ? null : Math.min(gpu, 100),
+      gpuMemory,
+      outlier,
+    });
   }
   return map;
 }
 
 /** Equal numbers as shown, so an unchanged session keeps its object and does not re-render. */
 export function sameResources(a: SessionResources, b: SessionResources): boolean {
-  return a.cpu === b.cpu && a.memory === b.memory && a.outlier === b.outlier;
+  return (
+    a.cpu === b.cpu &&
+    a.memory === b.memory &&
+    a.gpu === b.gpu &&
+    a.gpuMemory === b.gpuMemory &&
+    a.outlier === b.outlier
+  );
 }
 
 const MB = 1024 * 1024;
@@ -66,9 +91,44 @@ export function formatCpu(percent: number, language: string): string {
   }).format(percent / 100);
 }
 
-/** "CPU 12 % · 340 MB", or only the memory before the second reading. */
+/**
+ * The GPU part, "30 % 1.2 GB", "30 %" or "1.2 GB"; `null` unless the tree really uses the GPU
+ * (some load or some dedicated memory), so a session that never touches it shows nothing.
+ */
+export function formatGpu(resources: SessionResources, language: string): string | null {
+  const load = resources.gpu !== null && resources.gpu > 0 ? resources.gpu : null;
+  const memory =
+    resources.gpuMemory !== null && resources.gpuMemory > 0 ? resources.gpuMemory : null;
+  if (load === null && memory === null) return null;
+  return [
+    load === null ? null : formatCpu(load, language),
+    memory === null ? null : formatMemory(memory, language),
+  ]
+    .filter((part) => part !== null)
+    .join(" ");
+}
+
+/** The values of the row's resource line; `cpu` is `null` before the second reading. */
+export interface ResourceParts {
+  cpu: string | null;
+  memory: string;
+  gpu: string | null;
+}
+
+export function resourceParts(resources: SessionResources, language: string): ResourceParts {
+  return {
+    cpu: resources.cpu === null ? null : formatCpu(resources.cpu, language),
+    memory: formatMemory(resources.memory, language),
+    gpu: formatGpu(resources, language),
+  };
+}
+
+/** "CPU 12 % · 340 MB · GPU 30 % 1.2 GB", or without CPU before the second reading. */
 export function resourceText(resources: SessionResources, language: string, t: Translate): string {
-  const memory = formatMemory(resources.memory, language);
-  if (resources.cpu === null) return t("session.resourcesMemory", { memory });
-  return t("session.resources", { cpu: formatCpu(resources.cpu, language), memory });
+  const parts = resourceParts(resources, language);
+  const base =
+    parts.cpu === null
+      ? t("session.resourcesMemory", { memory: parts.memory })
+      : t("session.resources", { cpu: parts.cpu, memory: parts.memory });
+  return parts.gpu === null ? base : `${base} · ${t("system.gpu")} ${parts.gpu}`;
 }

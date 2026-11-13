@@ -444,6 +444,7 @@ const de = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} ausgelastet",
+  "system.amountOf": "{used} von {total}",
   "push.heading": "Aufs Handy",
   "push.help":
     "Eine Nachricht an dein Handy, wenn eine Session eine Minute lang auf dich wartet, fertig ist oder fehlschlägt. Sie nennt Programm, Nummer und Zustand, nie Terminalinhalt. Die Ruhezeiten gelten auch hier.",
@@ -1782,6 +1783,7 @@ const en: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} in use",
+  "system.amountOf": "{used} of {total}",
   "push.heading": "To your phone",
   "push.help":
     "A message to your phone when a session has waited for you for a minute, is done or failed. It names the program, number and state, never terminal content. Quiet hours apply here too.",
@@ -3109,6 +3111,7 @@ const el: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} σε χρήση",
+  "system.amountOf": "{used} από {total}",
   "push.heading": "Στο κινητό",
   "push.help":
     "Ένα μήνυμα στο κινητό σου όταν μια συνεδρία σε περιμένει ένα λεπτό, τελειώσει ή αποτύχει. Αναφέρει πρόγραμμα, αριθμό και κατάσταση, ποτέ περιεχόμενο τερματικού. Οι ώρες ησυχίας ισχύουν κι εδώ.",
@@ -4460,6 +4463,7 @@ const es: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} en uso",
+  "system.amountOf": "{used} de {total}",
   "push.heading": "Al móvil",
   "push.help":
     "Un mensaje a tu móvil cuando una sesión lleva un minuto esperándote, termina o falla. Dice el programa, el número y el estado, nunca contenido del terminal. Las horas de silencio también cuentan aquí.",
@@ -5799,6 +5803,7 @@ const fr: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name} : {value} utilisé",
+  "system.amountOf": "{used} sur {total}",
   "push.heading": "Sur ton téléphone",
   "push.help":
     "Un message sur ton téléphone quand une session t’attend depuis une minute, se termine ou échoue. Il donne le programme, le numéro et l’état, jamais le contenu du terminal. Les heures calmes s’appliquent aussi.",
@@ -7152,6 +7157,7 @@ const it: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} in uso",
+  "system.amountOf": "{used} di {total}",
   "push.heading": "Sul telefono",
   "push.help":
     "Un messaggio sul tuo telefono quando una sessione ti aspetta da un minuto, termina o fallisce. Indica programma, numero e stato, mai il contenuto del terminale. Anche qui valgono le ore di silenzio.",
@@ -8490,6 +8496,7 @@ const ja: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} 使用中",
+  "system.amountOf": "{used} / {total}",
   "push.heading": "スマートフォンへ",
   "push.help":
     "セッションが 1 分間あなたを待っているとき、完了したとき、失敗したときにスマートフォンへ通知します。プログラム、番号、状態だけを送り、ターミナルの内容は送りません。おやすみ時間もここに適用されます。",
@@ -9827,6 +9834,7 @@ const pl: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} w użyciu",
+  "system.amountOf": "{used} z {total}",
   "push.heading": "Na telefon",
   "push.help":
     "Wiadomość na twój telefon, gdy sesja czeka na ciebie od minuty, kończy się lub zawodzi. Podaje program, numer i stan, nigdy treści terminala. Godziny ciszy obowiązują także tutaj.",
@@ -11156,6 +11164,7 @@ const pt: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} em uso",
+  "system.amountOf": "{used} de {total}",
   "push.heading": "No celular",
   "push.help":
     "Uma mensagem no seu celular quando uma sessão espera por você há um minuto, termina ou falha. Ela traz o programa, o número e o estado, nunca conteúdo do terminal. As horas de silêncio valem aqui também.",
@@ -12488,6 +12497,7 @@ const ru: Record<MessageKey, string> = {
   "system.memory": "ОЗУ",
   "system.gpu": "GPU",
   "system.gauge": "{name}: занято {value}",
+  "system.amountOf": "{used} из {total}",
   "push.heading": "На телефон",
   "push.help":
     "Сообщение на твой телефон, когда сессия ждёт тебя минуту, завершилась или упала. Только программа, номер и состояние, никогда содержимое терминала. Тихие часы действуют и здесь.",
@@ -13808,6 +13818,7 @@ const tr: Record<MessageKey, string> = {
   "system.memory": "RAM",
   "system.gpu": "GPU",
   "system.gauge": "{name}: {value} kullanımda",
+  "system.amountOf": "{used} / {total}",
   "push.heading": "Telefona",
   "push.help":
     "Bir oturum bir dakikadır seni beklediğinde, bittiğinde veya başarısız olduğunda telefonuna bir mesaj. Program, numara ve durumu içerir, asla terminal içeriği değil. Sessiz saatler burada da geçerli.",
@@ -15110,6 +15121,7 @@ const zh: Record<MessageKey, string> = {
   "system.memory": "内存",
   "system.gpu": "GPU",
   "system.gauge": "{name}: 已用 {value}",
+  "system.amountOf": "{used} / {total}",
   "push.heading": "推送到手机",
   "push.help":
     "当会话等你满一分钟、完成或失败时，向你的手机发送消息。只包含程序、编号和状态，绝不包含终端内容。免打扰时段同样适用。",

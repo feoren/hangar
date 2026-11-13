@@ -614,8 +614,9 @@ h2 .beta-badge {
 }
 
 /* Fills the row, so the folder or program on the second line measures its share against the row,
-   not against the text's own width. */
+   not against the text's own width. Its width is the container the third line adapts to. */
 .session-text {
+  container: session-text / inline-size;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -727,10 +728,23 @@ h2 .beta-badge {
 }
 
 .session-status {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Where the session runs, after its state on the second line: quieter than the state and the
+   first to give way (its shrink weight dwarfs the state's), the folder before the branch. */
+.session-where {
+  display: inline-flex;
+  flex: 0 1000 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0.85;
 }
 
 /* How long it has been working or resting: never cut, the sentence before it gives way. */
@@ -741,22 +755,62 @@ h2 .beta-badge {
   white-space: nowrap;
 }
 
-/* Third line: folder, git branch and run time, quieter than the status above it. It keeps its
-   height when empty, so rows stay aligned. */
+/* Third line: the process tree's CPU, RAM and GPU, the run time and the context meter, quieter
+   than the status above it. Without any of them (setting off, ended session) the line is gone
+   rather than an empty gap. */
 .session-detail {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 1lh;
   overflow: hidden;
   font-size: 11px;
   color: var(--muted);
   opacity: 0.85;
 }
 
+.session-detail:empty {
+  display: none;
+}
+
+/* The load and the run time. When the line is too narrow for all of them, the parts that do
+   not fit wrap onto a second line that the fixed height hides: a part shows whole or not at all,
+   never cut mid-text, and the context meter after it always keeps its place. Before that happens
+   the line gives way in a fixed order (the container queries below): first the context meter's
+   token count, then its bar down to a stub, then the names give way to small icons. */
+.session-facts {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 4px;
+  min-width: 0;
+  height: 1lh;
+  overflow: hidden;
+}
+
+/* "CPU 12 %", "RAM 340 MB", "GPU 30 % 1.2 GB" in steady digits, so the line does not jitter
+   between readings. */
+.session-resource {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-resource-icon {
+  display: none;
+}
+
+.session-resource-icon svg {
+  display: block;
+}
+
 /* Without a folder in front (it is the row's title), the line starts without a separator. */
-.session-detail > :first-child > [aria-hidden="true"]:first-child {
+.session-detail > :first-child > [aria-hidden="true"]:first-child,
+.session-facts > :first-child > .session-sep {
   display: none;
 }
 
@@ -820,6 +874,52 @@ h2 .beta-badge {
 
 /* --- End of context meter --- */
 
+/* Third line in a narrow row: the giving-way order of .session-facts. The widths are the room
+   (.session-text) the parts need at their widest ("100 %", "12.3 GB", "23 h"), measured in Edge
+   with the UI font: with GPU about 395 px in full, 335 px without the token count, 322 px with the
+   bar at its stub; with CPU and RAM only 285 px and 232 px. Below the last step whole parts wrap
+   out of sight from the end (.session-facts); the context share always stays. */
+@container session-text (max-width: 394px) {
+  .session-detail:has(.session-resource-gpu) .session-context-tokens {
+    display: none;
+  }
+}
+
+@container session-text (max-width: 334px) {
+  .session-detail:has(.session-resource-gpu) .session-context-bar {
+    flex-basis: 12px;
+    min-width: 12px;
+  }
+}
+
+@container session-text (max-width: 321px) {
+  .session-detail:has(.session-resource-gpu) .session-resource-name,
+  .session-detail:has(.session-resource-gpu) .session-resource .session-sep {
+    display: none;
+  }
+
+  .session-detail:has(.session-resource-gpu) .session-resource-icon {
+    display: block;
+  }
+
+  .session-detail:has(.session-resource-gpu) .session-facts {
+    column-gap: 7px;
+  }
+}
+
+@container session-text (max-width: 284px) {
+  .session-detail:has(.session-resource) .session-context-tokens {
+    display: none;
+  }
+}
+
+@container session-text (max-width: 231px) {
+  .session-detail:has(.session-resource) .session-context-bar {
+    flex-basis: 12px;
+    min-width: 12px;
+  }
+}
+
 /* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
    an ellipsis, the folder keeps up to half of the line and yields after it, the run time stays
    whole. */
@@ -829,9 +929,11 @@ h2 .beta-badge {
   overflow: hidden;
 }
 
-.session-detail .session-path {
-  flex: 0 1 auto;
-  max-width: 50%;
+/* The branch gives way before the folder: the folder keeps its width up to 60 % of the space
+   (beyond that it ellipsizes), so a short folder ("hangar") is never cut by a long branch. */
+.session-where .session-path {
+  flex: 0 0 auto;
+  max-width: 60%;
 }
 
 .session-branch svg {
@@ -845,7 +947,13 @@ h2 .beta-badge {
 }
 
 .session-path {
+  display: inline-flex;
   flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+}
+
+.session-path-name {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1451,8 +1559,10 @@ h2 .beta-badge {
 /* System bar: one row as tall as a group header above New session; CPU, RAM and GPU of the
    machine. Each gauge is a small tile whose background is the sparkline of the last minute, with
    the name on the left and the share on the right on top of it, so all three keep their graph,
-   name and value down to the narrowest sidebar (200 px). */
+   name and value down to the narrowest sidebar. The amounts behind RAM and GPU ("62 % 19.8 GB")
+   join the share where their tiles have room for them; below that they live in the tooltip. */
 .system-bar {
+  container-type: inline-size;
   display: flex;
   flex: none;
   align-items: center;
@@ -1556,6 +1666,30 @@ h2 .beta-badge {
 
 .gauge.warn .gauge-value {
   color: var(--warn);
+}
+
+/* RAM and GPU carry an amount after their share, so they get more of the row than the CPU. */
+.gauge-cpu {
+  flex-grow: 2;
+}
+
+.gauge-memory,
+.gauge-gpu {
+  flex-grow: 3;
+}
+
+.gauge-amount {
+  display: none;
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+/* From the narrowest sidebar (305 px, a 293 px bar) on, "RAM 100 % 31.9 GB" fits its tile in
+   every language (measured in Edge); a narrower bar keeps the amounts in the tooltip. */
+@container (min-width: 285px) {
+  .gauge-amount {
+    display: inline;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

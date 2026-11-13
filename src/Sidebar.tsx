@@ -16,13 +16,16 @@ import {
   BranchIcon,
   ChevronIcon,
   CloseIcon,
+  CpuIcon,
   DownloadIcon,
   EditIcon,
   FolderIcon,
   GlobeIcon,
   HangarLogo,
   GaugeIcon,
+  GpuIcon,
   HomeIcon,
+  MemoryIcon,
   OverlapIcon,
   PlusIcon,
   RestartIcon,
@@ -93,7 +96,7 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
-import { resourceText } from "./resources";
+import { resourceParts, resourceText } from "./resources";
 import { useSessionResources } from "./useSessionResources";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
@@ -1476,6 +1479,39 @@ interface ItemProps extends Props {
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
 }
 
+const RESOURCE_ICONS = { cpu: CpuIcon, memory: MemoryIcon, gpu: GpuIcon } as const;
+
+/**
+ * One number of the third line, "CPU 12 %". In a narrow row the name gives way to a small icon
+ * (CSS); screen readers always hear the name.
+ */
+function ResourceFact({
+  kind,
+  name,
+  value,
+}: {
+  kind: keyof typeof RESOURCE_ICONS;
+  name: string;
+  value: string;
+}) {
+  const Icon = RESOURCE_ICONS[kind];
+  return (
+    <span className={`session-resource session-resource-${kind}`}>
+      <span className="session-sep" aria-hidden="true">
+        ·
+      </span>
+      <span className="session-resource-name" aria-hidden="true">
+        {name}
+      </span>
+      <span className="session-resource-icon">
+        <Icon size={10} />
+      </span>
+      <span aria-hidden="true">{value}</span>
+      <span className="sr-only">{`${name} ${value}`}</span>
+    </span>
+  );
+}
+
 function SessionItem({
   session,
   groupKey,
@@ -1519,10 +1555,11 @@ function SessionItem({
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
-  // Only while the setting is on and the window visible; the peek names the numbers, the row
-  // shows a mark for an outlier only.
+  // Only while the setting is on and the window visible; the third line shows the numbers, the
+  // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
   const outlier = resources?.outlier === true ? t("session.outlier") : null;
+  const usage = resources === undefined || exited ? null : resourceParts(resources, language);
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
@@ -1631,11 +1668,11 @@ function SessionItem({
                 {chip !== null && <StatusChip kind={chip} />}
               </span>
             </span>
-            {/* The program leads its status ("Claude Code is working"); the state's shape sits in
-                the chip above, so the icon replaces the former status dot. */}
+            {/* Second line: the short state ("working") and how long, then where it runs. The
+                program is already named by the title or the group, so the state stays short;
+                the folder and branch give way first, the duration stays whole. */}
             <span className="session-meta">
               <span className="state-dot" aria-hidden="true" />
-              {/* Only the sentence ellipsizes; the duration after it stays whole. */}
               <span className={waiting ? "session-status attention-text" : "session-status"}>
                 {line.sentence}
               </span>
@@ -1645,44 +1682,74 @@ function SessionItem({
                   {line.duration}
                 </span>
               )}
-            </span>
-            <span className="session-detail">
-              {place !== null && <span className="session-path">{place}</span>}
-              {session.worktree && isTeamSession(session) ? (
-                <span className="session-branch worktree">
-                  <span aria-hidden="true">·</span>
-                  <TeamIcon size={11} />
-                  <span className="sr-only">
-                    {t("worktree.sessionHint", {
-                      branch: revealInvisible(where.branch ?? session.worktree.branch),
-                    })}
-                  </span>
-                  {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
-                  <span className="session-branch-name" aria-hidden="true">
-                    <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
-                  </span>
+              {(place !== null ||
+                where.branch !== null ||
+                (session.worktree !== undefined && isTeamSession(session))) && (
+                <span className="session-where">
+                  {place !== null && (
+                    <span className="session-path">
+                      <span aria-hidden="true">·</span>
+                      <span className="session-path-name">{place}</span>
+                    </span>
+                  )}
+                  {session.worktree && isTeamSession(session) ? (
+                    <span className="session-branch worktree">
+                      <span aria-hidden="true">·</span>
+                      <TeamIcon size={11} />
+                      <span className="sr-only">
+                        {t("worktree.sessionHint", {
+                          branch: revealInvisible(where.branch ?? session.worktree.branch),
+                        })}
+                      </span>
+                      {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
+                      <span className="session-branch-name" aria-hidden="true">
+                        <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
+                      </span>
+                    </span>
+                  ) : (
+                    where.branch !== null && (
+                      <span className="session-branch">
+                        <span aria-hidden="true">·</span>
+                        <BranchIcon size={11} />
+                        <span className="sr-only">
+                          {t("session.branch", { branch: revealInvisible(where.branch) })}
+                        </span>
+                        <span className="session-branch-name" aria-hidden="true">
+                          <Revealed text={where.branch} />
+                        </span>
+                      </span>
+                    )
+                  )}
                 </span>
-              ) : (
-                where.branch !== null && (
-                  <span className="session-branch">
-                    <span aria-hidden="true">·</span>
-                    <BranchIcon size={11} />
-                    <span className="sr-only">
-                      {t("session.branch", { branch: revealInvisible(where.branch) })}
-                    </span>
-                    <span className="session-branch-name" aria-hidden="true">
-                      <Revealed text={where.branch} />
-                    </span>
-                  </span>
-                )
               )}
-              {where.runtime !== null && (
-                <span className="session-runtime">
-                  <span aria-hidden="true">·</span>
-                  <span className="sr-only">
-                    {t("session.runtime", { duration: where.runtime })}
-                  </span>
-                  <span aria-hidden="true">{where.runtime}</span>
+            </span>
+            {/* Third line: the tree's load (while the setting is on), run time and context meter.
+                Gone when all of them are (CSS :empty), so a row never keeps an empty line. In a
+                narrow row the parts give way in a fixed order, whole and never cut (styles.css,
+                "Third line"). */}
+            <span className="session-detail">
+              {(usage !== null || where.runtime !== null) && (
+                <span className="session-facts">
+                  {usage !== null && usage.cpu !== null && (
+                    <ResourceFact kind="cpu" name={t("system.cpu")} value={usage.cpu} />
+                  )}
+                  {usage !== null && (
+                    <ResourceFact kind="memory" name={t("system.memory")} value={usage.memory} />
+                  )}
+                  {usage !== null && usage.gpu !== null && (
+                    <ResourceFact kind="gpu" name={t("system.gpu")} value={usage.gpu} />
+                  )}
+                  {where.runtime !== null && (
+                    <span className="session-runtime">
+                      <span className="session-sep" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="sr-only">
+                        {t("session.runtime", { duration: where.runtime })}
+                      </span>
+                      <span aria-hidden="true">{where.runtime}</span>
+                    </span>
+                  )}
                 </span>
               )}
               <ContextMeter sessionId={session.id} language={language} />

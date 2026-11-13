@@ -2,6 +2,8 @@ import { useT } from "./i18n";
 import {
   barPending,
   formatShare,
+  gaugeAmount,
+  gaugeAmountLabel,
   GAUGES,
   gaugeWarns,
   SPARK_HEIGHT,
@@ -16,7 +18,8 @@ const NAME_KEYS = { cpu: "system.cpu", memory: "system.memory", gpu: "system.gpu
 
 /**
  * One row above New session: CPU, RAM and GPU of the whole machine, each a sparkline of the last
- * minute and the current share. A value the platform cannot give hides its gauge; with none at
+ * minute and the current share; RAM and GPU add the amount in use where the bar is wide enough,
+ * and always in the tooltip. A value the platform cannot give hides its gauge; with none at
  * all (setting off, first reading pending) the row is gone.
  */
 export function SystemBar({ language }: { language: string }) {
@@ -33,6 +36,8 @@ export function SystemBar({ language }: { language: string }) {
           key={gauge}
           gauge={gauge}
           value={usage[gauge] ?? 0}
+          amount={gaugeAmount(gauge, usage, language)}
+          amountLabel={gaugeAmountLabel(gauge, usage, language, t)}
           history={history[gauge]}
           tick={tick}
           name={t(NAME_KEYS[gauge])}
@@ -46,6 +51,8 @@ export function SystemBar({ language }: { language: string }) {
 function SystemGauge({
   gauge,
   value,
+  amount,
+  amountLabel,
   history,
   tick,
   name,
@@ -53,6 +60,10 @@ function SystemGauge({
 }: {
   gauge: Gauge;
   value: number;
+  /** "19.8 GB", shown after the share where the bar is wide enough (CSS container query). */
+  amount: string | null;
+  /** "19.8 GB of 31.9 GB", for the tooltip and screen readers. */
+  amountLabel: string | null;
   history: History;
   tick: number;
   name: string;
@@ -61,8 +72,13 @@ function SystemGauge({
   const t = useT();
   const text = formatShare(value, language);
   const paths = sparkPaths(history);
+  const label = t("system.gauge", { name, value: text });
+  const full = amountLabel === null ? label : `${label} · ${amountLabel}`;
   return (
-    <span className={gaugeWarns(value) ? `gauge gauge-${gauge} warn` : `gauge gauge-${gauge}`}>
+    <span
+      className={gaugeWarns(value) ? `gauge gauge-${gauge} warn` : `gauge gauge-${gauge}`}
+      title={amountLabel === null ? undefined : full}
+    >
       <span className="gauge-name" aria-hidden="true">
         {name}
       </span>
@@ -88,8 +104,9 @@ function SystemGauge({
       </span>
       <span className="gauge-value" aria-hidden="true">
         {text}
+        {amount !== null && <span className="gauge-amount">{amount}</span>}
       </span>
-      <span className="sr-only">{t("system.gauge", { name, value: text })}</span>
+      <span className="sr-only">{full}</span>
     </span>
   );
 }

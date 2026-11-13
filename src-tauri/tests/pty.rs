@@ -287,10 +287,12 @@ fn tree_usage_of_a_running_session() {
     wait_for_output(&manager, info.id, &rx, "hangar-usage-ok");
     let first = manager.tree_usages();
     if cfg!(any(windows, target_os = "linux")) {
-        let (id, usage) = first.first().copied().expect("one reading");
+        let (id, usage) = first.first().cloned().expect("one reading");
         assert_eq!(id, info.id);
         assert!(usage.memory > 100 * 1024, "memory {}", usage.memory);
-        let (_, later) = manager.tree_usages()[0];
+        // The ids feed the per-process GPU counters (gpu.rs).
+        assert!(!usage.processes.is_empty(), "the tree's processes");
+        let (_, later) = manager.tree_usages().swap_remove(0);
         assert!(later.cpu >= usage.cpu);
     } else {
         assert!(first.is_empty(), "no readings on this platform");

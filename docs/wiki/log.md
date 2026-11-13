@@ -650,3 +650,16 @@ and `account_status` retried it only when it read the keychain itself. Documente
 load with retries, the view revision, and the profile picture contract (`avatar_url`,
 `avatar_etag`, `GET /me/avatar`) with the backend's download rules and cache.
 Pages changed: [[hangar-account-api]].
+
+## [2026-11-13] query | GPU per session and memory amounts in the system bar
+Session rows got three lines (state, duration, folder and branch; then CPU, RAM, GPU, run time
+and context meter). The GPU numbers per session tree come from a PDH reading shared with the
+system bar (gpu.rs: engine utilization, process and adapter dedicated memory), Windows only. The
+system bar adds RAM and GPU memory amounts from 340 px and in the tooltip.
+Pages changed: [[session-resources-and-phone-push]], index.
+
+## [2026-11-13] query | Session row third line and system bar amounts at narrow widths
+Measured the session row's third line and the system bar in Edge at 305 to 505 px; the line now
+gives way in a fixed order (token count, bar, names to icons, whole parts wrap away) and the
+system bar shows RAM and GPU amounts from 305 px.
+Pages changed: [[session-resources-and-phone-push]]; raw: 2026-11-13-session-row-layout-measurement.md.
