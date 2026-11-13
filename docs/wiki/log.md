@@ -697,3 +697,9 @@ Apache-2.0 for Darcula and Tokyo Night, MIT/X11 for gruvbox) and the Monokai Pro
 forbids redistribution; Ember is now drawn from the classic 2006 Monokai values. Origins and
 licenses in THIRD_PARTY_NOTICES.md. A trademark registry search for the new names is still open.
 Pages changed: [[0009-own-color-scheme-names]] (new), [[file-viewer]], [[agent-workflow-features]], index.
+
+## [2026-11-13] query | Session peek without CPU and RAM
+The session row's third line shows CPU, RAM and GPU, so the peek no longer repeats them; it
+keeps the outlier note. `resourceText` and the texts `session.resources` and
+`session.resourcesMemory` are gone.
+Pages changed: [[session-resources-and-phone-push]].

@@ -96,7 +96,7 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
-import { resourceParts, resourceText } from "./resources";
+import { resourceParts } from "./resources";
 import { useSessionResources } from "./useSessionResources";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
@@ -323,7 +323,7 @@ export function Sidebar(props: Props) {
   const peekOnScreen =
     peekSession !== undefined &&
     (peekSession.id === activeId || props.placements.has(peekSession.id));
-  /** CPU and memory of the peeked session, for its peek; nothing while none is peeked. */
+  /** The peeked session's numbers, for its outlier note; the row itself shows CPU, RAM and GPU. */
   const peekResources = useSessionResources(peekSession?.id ?? -1);
   /** Mouse handlers of a session row for the peek. */
   const peekHandlers = (id: number): PeekEvents => ({
@@ -492,8 +492,6 @@ export function Sidebar(props: Props) {
           overlap: props.overlaps.get(peekSession.id),
           gateOff: gateHint(peekSession.gate, t),
           exit: exitDetail(peekSession, t),
-          resources:
-            peekResources === undefined ? null : resourceText(peekResources, props.language, t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),

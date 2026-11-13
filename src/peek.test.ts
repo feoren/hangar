@@ -100,7 +100,6 @@ describe("peekNotes", () => {
       peekNotes({
         cwd: "/home/me/app",
         devServer: "http://localhost:5173",
-        resources: "CPU 12 % · 340 MB",
         outlier: "Outlier",
         exit: "Exit code 1",
         gateOff: "Gate is off",
@@ -111,7 +110,6 @@ describe("peekNotes", () => {
       "Gate is off",
       "Exit code 1",
       "Outlier",
-      "CPU 12 % · 340 MB",
       "http://localhost:5173",
       "/home/me/app",
     ]);

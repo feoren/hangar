@@ -2,8 +2,6 @@
 // src-tauri/src/resources.rs). The window asks every RESOURCE_POLL_MS while it is visible and the
 // setting is on; the session's row and peek show the numbers, the row an outlier as a small mark.
 
-import type { Translate } from "./i18n";
-
 /** How often the window asks while it is visible. */
 export const RESOURCE_POLL_MS = 2000;
 
@@ -121,14 +119,4 @@ export function resourceParts(resources: SessionResources, language: string): Re
     memory: formatMemory(resources.memory, language),
     gpu: formatGpu(resources, language),
   };
-}
-
-/** "CPU 12 % · 340 MB · GPU 30 % 1.2 GB", or without CPU before the second reading. */
-export function resourceText(resources: SessionResources, language: string, t: Translate): string {
-  const parts = resourceParts(resources, language);
-  const base =
-    parts.cpu === null
-      ? t("session.resourcesMemory", { memory: parts.memory })
-      : t("session.resources", { cpu: parts.cpu, memory: parts.memory });
-  return parts.gpu === null ? base : `${base} · ${t("system.gpu")} ${parts.gpu}`;
 }

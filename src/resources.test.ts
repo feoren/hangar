@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createTranslator } from "./i18n";
 import {
   formatCpu,
   formatGpu,
   formatMemory,
   parseResources,
   resourceParts,
-  resourceText,
   sameResources,
   type SessionResources,
 } from "./resources";
@@ -99,15 +97,6 @@ describe("formatting", () => {
       memory: "340 MB",
       gpu: "8%",
     });
-  });
-
-  it("says CPU, memory and GPU, or the memory alone before the second reading", () => {
-    const t = createTranslator("en");
-    expect(resourceText(QUIET, "en", t)).toBe("CPU 12% · 340 MB");
-    expect(resourceText({ ...QUIET, cpu: null }, "en", t)).toBe("Memory 340 MB");
-    expect(resourceText({ ...QUIET, gpu: 30, gpuMemory: 1.2 * GB }, "en", t)).toBe(
-      "CPU 12% · 340 MB · GPU 30% 1.2 GB",
-    );
   });
 
   it("compares what is shown", () => {

@@ -28,11 +28,12 @@ readers keep the names). If that is still too wide, whole parts wrap out of sigh
 (`.session-facts` wraps inside a one-line box): a part shows whole or not at all, and the context
 share always stays. Measured at 305, 320, 400 and 505 px, plain and project rows, typical and
 widest values: no overflow, nothing cut (raw/2026-11-13-session-row-layout-measurement.md).
-The session peek (resting the mouse on a row) names the same numbers. A session that is an
+The session peek (resting the mouse on a row) no longer repeats the numbers, since the row shows
+them; it keeps the outlier note. A session that is an
 outlier gets a small gauge mark in its title line, in the warning color; the peek and the screen
 reader text say why. Session rows have no tooltip, neither on the row nor on the context meter
 or the marker dot inside it: what a row only marks (overlap, gate off, exit code, outlier,
-resources, dev server address, program and version) is spelled out in the peek (`peek.ts`
+dev server address, program and version) is spelled out in the peek (`peek.ts`
 `peekNotes`), and the screen reader labels carry the same. A session on screen anyway (active or
 in a pane) peeks too, then without terminal lines (`peekShows`). Setting `showResources` (Settings > Attention >
 Resources, default on) also controls the system bar below; off, the window never asks.
