@@ -10,6 +10,7 @@ import {
   meInitials,
   onlinePeople,
   pillLabel,
+  pillText,
   shownProject,
   shownTab,
   teamPill,
@@ -149,6 +150,7 @@ describe("teamPill", () => {
     expect(pill.tone).toBe("ok");
     expect(pill.online).toHaveLength(2);
     expect(pillLabel(pill, t, byName)).toBe("Team: 2 online: anna, ben");
+    expect(pillText(pill, t)).toBe("2 online");
   });
 
   it("says connected when nobody else is online", () => {

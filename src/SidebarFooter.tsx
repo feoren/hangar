@@ -15,7 +15,7 @@ import {
 import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
-import { meInitials, pillLabel, teamPill, type OnlinePerson } from "./teamOverview";
+import { meInitials, pillLabel, pillText, teamPill, type OnlinePerson } from "./teamOverview";
 import type { Theme } from "./theme";
 import { useAccount, useAccountAvatar } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
@@ -170,8 +170,8 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
           onClick={props.onToggleTeam}
         >
           <span className="team-mark" aria-hidden="true" />
-          <span className="team-pill-count" aria-hidden="true">
-            {pill.online.length}
+          <span className="team-pill-text" aria-hidden="true">
+            {pillText(pill, t)}
           </span>
         </button>
       )}

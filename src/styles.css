@@ -9638,10 +9638,12 @@ body.session-dragging .session-actions {
   }
 }
 
-/* The team pill: its state mark and how many people are online; the tooltip says the rest. */
+/* The team pill: its state mark and a short state text ("2 online"); the tooltip names who. It
+   gives way before the panel tabs, its text then ends in an ellipsis. */
 .team-pill {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   height: 26px;
@@ -9674,10 +9676,12 @@ body.session-dragging .session-actions {
   outline-offset: 1px;
 }
 
-.team-pill-count {
-  min-width: 1ch;
+.team-pill-text {
+  min-width: 0;
+  overflow: hidden;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The same in the rail: team, account and Settings as three icons. */

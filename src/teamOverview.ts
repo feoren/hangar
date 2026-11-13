@@ -103,7 +103,8 @@ export function teamPill(
 }
 
 /** The pill's state in words. */
-function stateText(pill: TeamPill, t: Translate): string {
+/** The pill's short text: "2 online", "Requests: 1", "Not connected" and so on. */
+export function pillText(pill: TeamPill, t: Translate): string {
   switch (pill.kind) {
     case "requests":
       return t("teamPill.requests", { count: pill.requests });
@@ -132,7 +133,7 @@ export function pillLabel(
   nameOf: (person: OnlinePerson) => string,
 ): string {
   const names = pill.online.map(nameOf).join(", ");
-  const text = stateText(pill, t);
+  const text = pillText(pill, t);
   const state = names === "" ? text : `${text}: ${names}`;
   return t("teamPill.label", { state });
 }
