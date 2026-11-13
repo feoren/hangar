@@ -703,3 +703,8 @@ The session row's third line shows CPU, RAM and GPU, so the peek no longer repea
 keeps the outlier note. `resourceText` and the texts `session.resources` and
 `session.resourcesMemory` are gone.
 Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] query | Changes list opens collapsed
+The changes list in the right panel (and a commit's files in the history) no longer opens the
+last file with a diff by itself; every file starts closed and keeps the user's choice.
+Pages changed: [[commit-history]].

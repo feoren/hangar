@@ -7,7 +7,6 @@ import {
   changeEntries,
   DIFF_PAGE_LINES,
   FILE_PAGE,
-  autoOpenPath,
   isFileOpen,
   NO_CHOICES,
   toggleFile,
@@ -49,8 +48,7 @@ interface Props {
 export function ChangeList({ result, actions, onComment }: Props) {
   const t = useT();
   const entries = useMemo(() => changeEntries(result), [result]);
-  // Only the last file opens by itself; files the user opened or closed keep their state.
-  const auto = useMemo(() => autoOpenPath(entries), [entries]);
+  // Every file starts closed; files the user opened stay open across refreshes.
   const [choices, setChoices] = useState<OpenChoices>(NO_CHOICES);
   // Thousands of files (a generated folder) would make the panel slow; the totals count them all.
   const [listed, setListed] = useState(FILE_PAGE);
@@ -70,14 +68,12 @@ export function ChangeList({ result, actions, onComment }: Props) {
           <FileItem
             key={entry.path}
             entry={entry}
-            open={isFileOpen(entry.path, auto, choices)}
+            open={isFileOpen(entry.path, choices)}
             truncated={result.truncated}
             actions={actions}
             onComment={onComment}
             onToggle={() => {
-              setChoices((current) =>
-                toggleFile(current, entry.path, isFileOpen(entry.path, auto, current)),
-              );
+              setChoices((current) => toggleFile(current, entry.path));
             }}
           />
         ))}

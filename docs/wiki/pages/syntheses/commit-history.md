@@ -70,7 +70,8 @@ is off while that read runs).
 merges pages (`appendPage`: no duplicates, an empty page ends the paging) and groups the list into
 "not pushed" and the rest (`commitGroups`). A commit opens in place; its diff is read on the first
 open and kept while the panel is mounted, and it is shown with the same `ChangeList` as the
-uncommitted changes, so only its last file opens by itself.
+uncommitted changes, so all its files start closed and open by hand (since 0.7.0; before, the
+last file with a diff opened by itself).
 
 ## How it runs
 
