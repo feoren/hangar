@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -7,9 +7,9 @@ import {
   peekPosition,
   peekWidth,
   peekShows,
-  sameLines,
   type PeekAnchor,
 } from "./peek";
+import { runStyle, sameLine, samePeekContent, type PeekContent, type PeekLine } from "./peekStyle";
 
 /** Open menus and modal dialogs own the screen; a peek would cover them or hide behind them. */
 const PEEK_BLOCKERS = '.menu-panel, [aria-modal="true"]';
@@ -86,7 +86,7 @@ interface Props {
    * The session's last lines (`null` when it has none yet); no reader for a session on screen
    * anyway, whose peek then shows only its title, status and notes.
    */
-  readLines: (() => readonly string[] | null) | null;
+  readLines: (() => PeekContent | null) | null;
 }
 
 /**
@@ -100,14 +100,15 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
   useEffect(() => {
     reader.current = readLines;
   });
-  const [lines, setLines] = useState<readonly string[] | null>(() => readLines?.() ?? null);
+  const [content, setContent] = useState<PeekContent | null>(() => readLines?.() ?? null);
+  const lines = content?.lines ?? null;
   const box = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const fresh = reader.current?.() ?? null;
-      setLines((current) => (sameLines(current, fresh) ? current : fresh));
+      setContent((current) => (samePeekContent(current, fresh) ? current : fresh));
     }, PEEK_REFRESH_MS);
     return () => {
       window.clearInterval(timer);
@@ -155,10 +156,41 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
           {note}
         </span>
       ))}
-      {lines !== null && lines.length > 0 && (
-        <pre className="session-peek-lines">{lines.join("\n")}</pre>
+      {content !== null && content.lines.length > 0 && (
+        // The scheme's own background and text color: the colors programs pick are meant for
+        // it, and the peek then reads like a small copy of the terminal.
+        <pre
+          className="session-peek-lines"
+          style={{ background: content.background, color: content.foreground }}
+        >
+          {content.lines.map((line, index) => (
+            <PeekLineView key={index} line={line} last={index === content.lines.length - 1} />
+          ))}
+        </pre>
       )}
     </div>,
     document.body,
   );
 }
+
+/** One line of the peek; unchanged lines skip rendering (sameLine). */
+const PeekLineView = memo(
+  function PeekLineView({ line, last }: { line: PeekLine; last: boolean }) {
+    return (
+      <>
+        {line.map((run, index) => {
+          const style = runStyle(run);
+          return style === undefined ? (
+            <Fragment key={index}>{run.text}</Fragment>
+          ) : (
+            <span key={index} style={style}>
+              {run.text}
+            </span>
+          );
+        })}
+        {!last && "\n"}
+      </>
+    );
+  },
+  (before, after) => before.last === after.last && sameLine(before.line, after.line),
+);

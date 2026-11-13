@@ -30,6 +30,8 @@ import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
+import { tailLines } from "./overview";
+import { PEEK_COLUMNS, plainLines, styledTail, type PeekContent, type PeekLine } from "./peekStyle";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import {
   columnOf,
@@ -497,6 +499,27 @@ export class SessionTerminal {
 
   clearSearch(): void {
     this.searchAddon.clearDecorations();
+  }
+
+  /**
+   * The last `count` rows with content in their colors, for the session peek. Falls back to plain
+   * text when the cells cannot be read.
+   */
+  peekContent(count: number): PeekContent {
+    const colors = schemeColors(this.look.scheme, this.theme);
+    let lines: PeekLine[];
+    try {
+      lines = styledTail(
+        this.term.buffer.active,
+        count,
+        colors,
+        PEEK_COLUMNS,
+        MINIMUM_CONTRAST[this.theme],
+      );
+    } catch {
+      lines = plainLines(tailLines(this.rowSource(), count));
+    }
+    return { lines, background: colors.background, foreground: colors.foreground };
   }
 
   /**

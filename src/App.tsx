@@ -4419,7 +4419,7 @@ export function App() {
             // A session on screen needs no peek; its own terminal shows more.
             if (shownRef.current.has(id)) return null;
             const terminal = terminals.get(id);
-            return terminal ? tailLines(terminal.rowSource(), PEEK_LINES) : null;
+            return terminal ? terminal.peekContent(PEEK_LINES) : null;
           }}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;

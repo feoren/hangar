@@ -110,11 +110,6 @@ export function peekNotes(sources: PeekNoteSources): string[] {
  * Whether a peek shows: one with terminal lines once it has some, one without (the session is on
  * screen anyway) always, for its title, status and notes.
  */
-export function peekShows(withLines: boolean, lines: readonly string[] | null): boolean {
+export function peekShows(withLines: boolean, lines: readonly unknown[] | null): boolean {
   return !withLines || (lines !== null && lines.length > 0);
-}
-
-export function sameLines(a: readonly string[] | null, b: readonly string[] | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.length === b.length && a.every((line, index) => line === b[index]);
 }

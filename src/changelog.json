@@ -72,6 +72,20 @@
         "ru": "Цветовые схемы теперь носят собственные имена Hangar, например Harbor, Nocturne и Fjord. Твой выбор сохраняется, а у Ember новая палитра.",
         "tr": "Renk şemaları artık Hangar'ın kendi adlarını taşıyor, örneğin Harbor, Nocturne ve Fjord. Seçimin korunur ve Ember yeni bir palet aldı.",
         "zh": "配色方案现在使用 Hangar 自己的名称，例如 Harbor、Nocturne 和 Fjord。你之前的选择会保留，Ember 也换上了新的调色板。"
+      },
+      {
+        "de": "Die Vorschau einer Session zeigt die letzten Terminalzeilen jetzt in ihren Farben, wie im Terminal.",
+        "en": "A session's peek now shows its last terminal lines in their colors, just like the terminal.",
+        "el": "Η προεπισκόπηση μιας συνεδρίας δείχνει τώρα τις τελευταίες γραμμές του τερματικού στα χρώματά τους, όπως στο τερματικό.",
+        "es": "La vista previa de una sesión muestra ahora sus últimas líneas de terminal con sus colores, igual que el terminal.",
+        "fr": "L’aperçu d’une session affiche maintenant ses dernières lignes de terminal en couleur, comme le terminal.",
+        "it": "L’anteprima di una sessione mostra ora le ultime righe del terminale nei loro colori, come nel terminale.",
+        "ja": "セッションのプレビューに、ターミナルと同じ色で最後の行が表示されるようになりました。",
+        "pl": "Podgląd sesji pokazuje teraz ostatnie wiersze terminala w ich kolorach, tak jak terminal.",
+        "pt": "A prévia de uma sessão agora mostra as últimas linhas do terminal com as cores delas, como no terminal.",
+        "ru": "Предпросмотр сессии теперь показывает последние строки терминала в их цветах, как в самом терминале.",
+        "tr": "Bir oturumun önizlemesi artık son terminal satırlarını terminaldeki gibi renkleriyle gösteriyor.",
+        "zh": "会话预览现在以终端中的颜色显示最后几行终端内容。"
       }
     ]
   },

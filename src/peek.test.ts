@@ -8,7 +8,6 @@ import {
   peekShows,
   peekPosition,
   peekWidth,
-  sameLines,
 } from "./peek";
 
 const viewport = { width: 1200, height: 800 };
@@ -59,20 +58,6 @@ describe("peekWidth", () => {
     expect(peekWidth(560, 720)).toBeNull();
     expect(peekWidth(720 - 2 * PEEK_GAP - PEEK_MIN_WIDTH, 720)).toBe(PEEK_MIN_WIDTH);
     expect(peekWidth(720 - 2 * PEEK_GAP - PEEK_MIN_WIDTH + 1, 720)).toBeNull();
-  });
-});
-
-describe("sameLines", () => {
-  it("compares line by line", () => {
-    expect(sameLines(["a", "b"], ["a", "b"])).toBe(true);
-    expect(sameLines(["a", "b"], ["a", "c"])).toBe(false);
-    expect(sameLines(["a"], ["a", "b"])).toBe(false);
-  });
-
-  it("treats a missing preview as its own value", () => {
-    expect(sameLines(null, null)).toBe(true);
-    expect(sameLines(null, [])).toBe(false);
-    expect(sameLines([], null)).toBe(false);
   });
 });
 

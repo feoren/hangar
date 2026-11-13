@@ -10,6 +10,7 @@ import { folderName, type FolderPrefs } from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { peekNotes } from "./peek";
+import type { PeekContent } from "./peekStyle";
 import { useT } from "./i18n";
 import {
   AlertIcon,
@@ -250,7 +251,7 @@ interface Props {
    * The last lines of a session's terminal for the peek beside its row; `null` when the session
    * has none to show, for instance because it is on screen.
    */
-  peekLines: (id: number) => readonly string[] | null;
+  peekLines: (id: number) => PeekContent | null;
 }
 
 export function Sidebar(props: Props) {
