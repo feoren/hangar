@@ -708,3 +708,6 @@ Pages changed: [[session-resources-and-phone-push]].
 The changes list in the right panel (and a commit's files in the history) no longer opens the
 last file with a diff by itself; every file starts closed and keeps the user's choice.
 Pages changed: [[commit-history]].
+
+## [2026-11-14] lint | Mask a personal path in a raw source
+A history scan for secrets and private data found the local user name in the npm folder of `raw/2026-11-07-update-sources-measurement.md`. Masked it as `%APPDATA%\npm` under the masking rule and translated a leftover German note; the measurement itself is unchanged.
