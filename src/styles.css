@@ -2128,17 +2128,22 @@ h2 .beta-badge {
   min-height: 0;
 }
 
-/* Spacing via `inset` instead of padding: FitAddon measures the parent without subtracting padding. */
+/* Spacing via `inset` instead of padding: FitAddon measures the parent without subtracting padding.
+   A hidden pane keeps its size but moves out of the viewport: xterm pauses its renderer only when
+   its screen stops intersecting the viewport, so an invisible pane in place would still draw every
+   frame of output. On its way back xterm redraws it in full. */
 .pane {
   position: absolute;
   inset: 8px 4px 4px 12px;
   display: flex;
   flex-direction: column;
   visibility: hidden;
+  translate: -200vw 0;
 }
 
 .pane.visible {
   visibility: visible;
+  translate: none;
 }
 
 /* The terminal area of a pane; search bar and drop hint are positioned against it. */
@@ -10130,6 +10135,11 @@ body.session-dragging .session-actions {
    out of sight; the home view takes the body. */
 .panes.put-aside > :not(.empty) {
   visibility: hidden;
+}
+
+/* Out of the viewport too, so the terminals behind the home view stop drawing (see .pane). */
+.panes.put-aside > .pane {
+  translate: -200vw 0;
 }
 
 /* The home button in the sidebar header: pressed while the home view shows. */
