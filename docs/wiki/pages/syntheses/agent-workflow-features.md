@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # Agent workflow features (0.3.0)
@@ -144,7 +144,9 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   2.56.0.windows.4), so submodule filters do not come into play. Then
   `git branch -d <branch>` (an unmerged branch stays). `worktree remove`, `worktree prune` and
   `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
-  folder), so no repository hook runs; `worktree add` keeps the hooks. Refuses any path outside
+  folder), so no repository hook runs. `worktree add` runs with the same empty hooks folder and
+  the filter overrides, so neither a post-checkout or reference-transaction hook nor a smudge
+  filter runs; a fresh worktree therefore holds Git LFS files as pointers. Refuses any path outside
   the app's worktrees folder, and any record whose path does not end in
   `<repo dir of repoRoot>/<slug of branch>` (so `repoRoot` cannot be swapped for another
   repository). `worktree add` and `worktree remove` get 120 s instead of 10 s, because killing a

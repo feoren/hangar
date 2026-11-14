@@ -4,6 +4,10 @@
 //! next to the repository, so repositories and synced folders stay clean. Removing never forces:
 //! a worktree with changes and an unmerged branch stay, and the reason goes back to the window.
 //! Removal only ever touches paths inside that folder and branches named `hangar/<slug>`.
+//!
+//! No hook and no clean, smudge or process filter of the repository runs for any git call here.
+//! A fresh worktree therefore holds Git LFS files (and any other filtered file) as stored in the
+//! repository, LFS files as pointers; an agent that needs them runs `git lfs pull` itself.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -216,14 +220,24 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
         source,
     })?;
     let branch = format!("{BRANCH_PREFIX}{slug}");
-    let args = [
-        OsStr::new("worktree"),
-        OsStr::new("add"),
-        OsStr::new("-b"),
-        OsStr::new(&branch),
-        path.as_os_str(),
-        OsStr::new("HEAD"),
-    ];
+    // The checkout runs post-checkout and reference-transaction hooks and smudge filters, any
+    // program a cloned repository's config names; switched off like everywhere else.
+    let neutral = git::filter_overrides(git, &repo_root, deadline)?;
+    let hooks = format!("core.hooksPath={}", empty_hooks_dir(base)?.display());
+    let args = neutral
+        .iter()
+        .map(OsStr::new)
+        .chain([
+            OsStr::new("-c"),
+            OsStr::new(&hooks),
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-b"),
+            OsStr::new(&branch),
+            path.as_os_str(),
+            OsStr::new("HEAD"),
+        ])
+        .collect::<Vec<_>>();
     let output = git.run(&repo_root, args, deadline, 64 * 1024)?;
     if !output.success {
         let _ = fs::remove_dir(&parent);
@@ -545,6 +559,69 @@ mod tests {
             check_managed(&base, &base.join(&dir).join("victim"), &root),
             Err(WorktreeError::OutsideFolder)
         ));
+    }
+
+    #[test]
+    fn create_runs_no_repository_hook_or_filter() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("worktree-create-hooks");
+        let base = tmp.path().join(DIR_NAME);
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        fs::write(repo.join(".gitattributes"), "*.txt filter=marker\n").unwrap();
+        fs::write(repo.join("readme.txt"), "hello\n").unwrap();
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+
+        let hook_marker = tmp.path().join("hook-ran");
+        let hook_text = hook_marker.to_string_lossy().replace('\\', "/");
+        let hooks = repo.join(".git").join("hooks");
+        fs::create_dir_all(&hooks).unwrap();
+        for name in ["post-checkout", "reference-transaction"] {
+            let hook = hooks.join(name);
+            fs::write(&hook, format!("#!/bin/sh\ntouch '{hook_text}'\n")).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let filter_marker = tmp.path().join("filter-ran");
+        let filter = crate::git::tests::marker_filter(&filter_marker);
+        git_ok(&git, &repo, &["config", "filter.marker.smudge", &filter]);
+
+        // The same checkout through plain git runs both, otherwise the test proves nothing.
+        let probe = tmp.path().join("probe");
+        let probe_arg = probe.to_string_lossy().into_owned();
+        git_ok(
+            &git,
+            &repo,
+            &["worktree", "add", "-b", "probe", &probe_arg, "HEAD"],
+        );
+        assert!(
+            hook_marker.exists(),
+            "git did not run the hook; test is void"
+        );
+        assert!(
+            filter_marker.exists(),
+            "git did not run the smudge filter; test is void"
+        );
+        fs::remove_file(&hook_marker).unwrap();
+        fs::remove_file(&filter_marker).unwrap();
+
+        let worktree = create(&git, &base, &repo, "hooks").unwrap();
+        assert!(!hook_marker.exists(), "a repository hook ran during create");
+        assert!(
+            !filter_marker.exists(),
+            "a repository filter ran during create"
+        );
+        // Without its smudge filter the file is checked out as stored.
+        assert_eq!(
+            fs::read_to_string(worktree.path.join("readme.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "hello\n"
+        );
     }
 
     #[test]
