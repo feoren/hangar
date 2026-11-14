@@ -5,6 +5,7 @@ import "./styles.css";
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 
+import { watchDevicePx } from "./devicePixel";
 import { detectLanguage } from "./i18n";
 import { loadSettings } from "./settings";
 import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
@@ -13,6 +14,9 @@ import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
 applyDocumentTheme(
   resolveTheme(loadSettings(detectLanguage(navigator.language)).theme, systemPrefersDark()),
 );
+
+// Lines on whole device pixels (tree guides), also after moving to a display with another scale.
+watchDevicePx(document.documentElement);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Element #root missing in index.html");

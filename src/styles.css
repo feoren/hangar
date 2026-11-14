@@ -94,16 +94,42 @@
   /* Session row: the colored edge on its left and the thin border that continues around it. */
   --row-edge: 3px;
   --row-border: 1px;
-  /* Tree guides (sub-agent tree, agent groups): a hairline in the border color; each row hangs
-     off the vertical line with a short elbow, the row's content starting one step to the right. */
+  /* The widths the browser draws them with: borders are rounded down to whole device pixels
+     (2.4px at 125 %). The tree guide is placed with these, so it meets the header's guide. The
+     values here are the fallback for a WebView without CSS round(); @supports below snaps them. */
+  --row-edge-drawn: var(--row-edge);
+  --row-border-drawn: var(--row-border);
+  /* Tree guides (sub-agent tree, agent groups): a dotted line; each row hangs off the vertical
+     line with a short elbow, the row's content starting one step to the right. */
   /* Dotted lines need more color than a solid hairline to stay visible. */
   --tree-guide: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* One device pixel in CSS pixels; devicePixel.ts sets it at runtime (0.8px at 125 %). */
+  --device-px: 1px;
+  /* Thickness of the guide and length of one dot and one gap: the whole device pixels in one CSS
+     pixel (at least one), so every dot is equally sharp at any display scale (snapped in
+     @supports below; one CSS pixel without round()). */
+  --tree-dot: 1px;
+  /* The dots of every guide part, vertical and horizontal: one dot, one gap. Each vertical line
+     is a single element per tree (styles for .agent-rows and .subagent-tree), so its dots never
+     meet a second pattern; a phase shared through `background-attachment: fixed` was tried and
+     still jumped where a part started on a fractional device pixel (150 %, 175 %, 225 %). */
+  --tree-dots-y: repeating-linear-gradient(
+    to bottom,
+    var(--tree-guide) 0 var(--tree-dot),
+    transparent var(--tree-dot) calc(2 * var(--tree-dot))
+  );
+  --tree-dots-x: repeating-linear-gradient(
+    to right,
+    var(--tree-guide) 0 var(--tree-dot),
+    transparent var(--tree-dot) calc(2 * var(--tree-dot))
+  );
   /* Frame of the session on screen (sidebar): Hangar blue. */
   --active-frame: var(--accent);
   --tree-step: 14px;
   --tree-elbow: 10px;
-  /* Air between a guide and what it connects: the elbow stops this far before a row, and a
-     group's guide starts this far below the header's badge. */
+  /* Air between a guide and the content it connects: a sub-agent's elbow stops this far before
+     its node, and a group's guide starts this far below the header's badge. A session row's
+     elbow has no air: it runs right up to the row's frame. */
   --tree-gap: calc(var(--tree-step) - var(--tree-elbow));
   /* Program groups: the guide runs below the header's badge center (8 px button padding, 12 px
      chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
@@ -132,6 +158,16 @@
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
+}
+
+/* Without round() (Chromium before 125) the declarations would be invalid at use time and every
+   tree guide would vanish; the plain values in :root keep a line there. */
+@supports (width: round(down, 1px, 1px)) {
+  :root {
+    --row-edge-drawn: max(var(--device-px), round(down, var(--row-edge), var(--device-px)));
+    --row-border-drawn: max(var(--device-px), round(down, var(--row-border), var(--device-px)));
+    --tree-dot: max(var(--device-px), round(down, 1px, var(--device-px)));
+  }
 }
 
 /* Run times that need more room: "99 giorni" 3.93em, "23 godz." 3.79em, "99 ημέρες" 4.43em. */
@@ -554,32 +590,27 @@ h2 .beta-badge {
 
 /* The whole way of the tree line from the group header to the row on screen takes the accent:
    the stub below the header, the line past every row above it, and its own line down to its
-   elbow. The eye follows it from the header to the session the terminal shows. */
+   elbow. The eye follows it from the header to the session the terminal shows. Solid on the way
+   to the active row: a dotted line in the accent is too faint to follow. */
 .agent-rows:has(> .session.active)::before,
 .agent-rows > .session:has(~ .session.active) > .tree-guide::before,
-.session.active > .tree-guide::before,
 .session.active > .tree-guide::after {
-  /* Solid on the way to the active row: a dotted hairline in the accent is too faint to follow. */
-  border-style: solid;
-  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The active row's own line down to its elbow, the corner included, is the guide element's
+   background; its ::before carries on below the elbow in dots on the shared grid. */
+.session.active > .tree-guide {
+  background: linear-gradient(var(--accent), var(--accent)) 0 0 / var(--tree-dot)
+    calc(var(--agent-elbow-y) + var(--tree-dot)) no-repeat;
 }
 
 .session.active > .tree-guide::before {
-  bottom: auto;
-  height: var(--agent-elbow-y);
+  top: calc(var(--agent-elbow-y) + var(--tree-dot));
 }
 
-/* Below its elbow the line runs on to the next row in its usual color, drawn as dots like the
-   dotted border it replaces. */
-.session.active:not(.tree-last) > .tree-guide {
-  background-image: repeating-linear-gradient(
-    to bottom,
-    var(--tree-guide) 0 1px,
-    transparent 1px 2px
-  );
-  background-repeat: no-repeat;
-  background-position: 0 var(--agent-elbow-y);
-  background-size: var(--hairline) calc(100% - var(--agent-elbow-y));
+.session.active.tree-last > .tree-guide::before {
+  display: none;
 }
 
 /* Waiting rows draw the eye with a firmer ring, as their old ring did. */
@@ -1944,14 +1975,11 @@ h2 .beta-badge {
   position: absolute;
   top: calc(-7px + var(--tree-gap));
   left: var(--agent-tree-x);
+  width: var(--tree-dot);
   height: calc(7px - var(--tree-gap));
   content: "";
   pointer-events: none;
-  /* Only the left side: the lit path sets a solid style on all sides, and an unset width would
-     then draw the default 3 px on the others. */
-  border-style: dotted;
-  border-color: var(--tree-guide);
-  border-width: 0 0 0 var(--hairline);
+  background: var(--tree-dots-y);
 }
 
 .agent-rows > li {
@@ -1962,37 +1990,92 @@ h2 .beta-badge {
    so the line runs on unbroken. */
 .tree-guide {
   position: absolute;
-  top: calc(-1 * var(--row-border));
-  bottom: calc(-1 * (var(--row-border) + 2px));
-  left: calc(-1 * (var(--tree-step) + var(--row-edge)));
+  top: calc(-1 * var(--row-border-drawn));
+  bottom: calc(-1 * (var(--row-border-drawn) + 2px));
+  left: calc(-1 * (var(--tree-step) + var(--row-edge-drawn)));
   width: var(--tree-step);
   pointer-events: none;
 }
 
-/* More specific than the shared 50 % elbow below: agent rows are three lines tall. */
+/* More specific than the shared elbow below: agent rows are three lines tall, and a session
+   row's elbow runs right up to the row's frame (the guide ends at the row's outer edge),
+   starting beside the vertical line rather than on it, so no dot is drawn twice. */
 .agent-rows .tree-guide::after {
   top: var(--agent-elbow-y);
+  width: calc(var(--tree-step) - var(--tree-dot));
 }
 
+/* The last row's line ends with its elbow, the corner included. */
 .session.tree-last > .tree-guide::before {
   bottom: auto;
-  height: var(--agent-elbow-y);
+  height: calc(var(--agent-elbow-y) + var(--tree-dot));
 }
 
-/* Below a middle row with its sub-agents open, the guide runs on past them to the next row. */
+/* Below a middle row with its sub-agents open, the guide runs on past them to the next row. It
+   starts where the row's own guide ends (the tree's -1px margin collapses with the row's 2px),
+   as a second dot drawn over the first would look darker. */
 .agent-rows > .subagent-tree-row.tree-continues::before {
   position: absolute;
-  top: 0;
+  top: 1px;
   bottom: -4px;
   left: calc(-1 * var(--tree-step));
+  width: var(--tree-dot);
   content: "";
   pointer-events: none;
-  border-left: var(--hairline) dotted var(--tree-guide);
+  background: var(--tree-dots-y);
 }
 
 /* The sub-agent tree hangs below the row's state dot now that the row has no badge. */
 .agent-rows .subagent-tree {
-  padding-left: 11px;
+  --subagent-indent: 11px;
+}
+
+/* One line per group instead of one piece per row: a dotted line from below the header's badge
+   down to the last row's elbow (an anchor on that row ends it), and over it the accent from the
+   header down to the active row's elbow. Pieces per row each start their own dot pattern, and
+   where a piece starts on a fractional device pixel the pattern jumps (measured in Edge at
+   150 %, 175 % and 225 %); a single element has no joint. The rows keep only their elbows. The
+   per-row pieces above stay as the fallback for a WebView without anchor positioning. */
+@supports (anchor-name: --tree-end) {
+  .agent-rows > .session.tree-last {
+    anchor-name: --tree-end;
+  }
+
+  .agent-rows > .session.active {
+    anchor-name: --tree-lit;
+  }
+
+  .agent-rows > .session.active.tree-last {
+    anchor-name: --tree-end, --tree-lit;
+  }
+
+  .agent-rows::before,
+  .agent-rows:has(> .session.active)::before {
+    bottom: calc(anchor(--tree-end top) - var(--agent-elbow-y) - var(--tree-dot));
+    height: auto;
+    background: var(--tree-dots-y);
+  }
+
+  /* Painted after the rows and the dotted line, so the accent lies on top. */
+  .agent-rows:has(> .session.active)::after {
+    position: absolute;
+    top: calc(-7px + var(--tree-gap));
+    bottom: calc(anchor(--tree-lit top) - var(--agent-elbow-y) - var(--tree-dot));
+    left: var(--agent-tree-x);
+    width: var(--tree-dot);
+    content: "";
+    pointer-events: none;
+    background: var(--accent);
+  }
+
+  .agent-rows .tree-guide::before,
+  .agent-rows > .subagent-tree-row.tree-continues::before {
+    display: none;
+  }
+
+  .agent-rows .session.active > .tree-guide {
+    background: none;
+  }
 }
 
 /* Collapsed sessions with one waiting: dot with a ring, plus tooltip and screen reader text. */
@@ -2589,8 +2672,10 @@ h2 .beta-badge {
 }
 
 .subagent-tree {
+  --subagent-indent: 20px;
+  position: relative;
   margin: 0;
-  padding: 0 0 0 20px;
+  padding: 0 0 0 var(--subagent-indent);
   list-style: none;
 }
 
@@ -2599,7 +2684,9 @@ h2 .beta-badge {
   padding-left: var(--tree-step);
 }
 
-/* Shared by the sub-agent tree and the agent groups' session rows (.tree-guide). */
+/* Shared by the sub-agent tree and the agent groups' session rows (.tree-guide). Dotted, so the
+   tree reads as structure and stays quieter than the rows' own edges; every part draws its dots
+   from the patterns in :root (--tree-dots-y, --tree-dots-x). */
 .subagent-tree-item::before,
 .subagent-tree-item::after,
 .tree-guide::before,
@@ -2607,9 +2694,6 @@ h2 .beta-badge {
   position: absolute;
   left: 0;
   content: "";
-  border-color: var(--tree-guide);
-  /* Dotted, so the tree reads as structure and stays quieter than the rows' own edges. */
-  border-style: dotted;
   pointer-events: none;
 }
 
@@ -2618,19 +2702,18 @@ h2 .beta-badge {
 .tree-guide::before {
   top: 0;
   bottom: 0;
-  border-width: 0 0 0 var(--hairline);
+  width: var(--tree-dot);
+  background: var(--tree-dots-y);
 }
 
-.subagent-tree-item:last-child::before {
-  bottom: 50%;
-}
-
-/* The elbow to the row. */
+/* The elbow to the row, beside the vertical line. */
 .subagent-tree-item::after,
 .tree-guide::after {
   top: 50%;
-  width: var(--tree-elbow);
-  border-width: var(--hairline) 0 0;
+  left: var(--tree-dot);
+  width: calc(var(--tree-elbow) - var(--tree-dot));
+  height: var(--tree-dot);
+  background: var(--tree-dots-x);
 }
 
 .subagent-node {
@@ -2725,9 +2808,30 @@ h2 .beta-badge {
 
 .subagent-tree-item:last-child::before {
   bottom: auto;
-  height: 12px;
+  height: calc(12px + var(--tree-dot));
 }
 
+/* As in the agent groups: one dotted line for the whole tree, ending with the last row's elbow,
+   instead of a piece per row (the pieces above are the fallback). */
+@supports (anchor-name: --subagent-end) {
+  .subagent-tree > .subagent-tree-item:last-child {
+    anchor-name: --subagent-end;
+  }
+
+  .subagent-tree::before {
+    position: absolute;
+    top: 0;
+    bottom: calc(anchor(--subagent-end top) - 12px - var(--tree-dot));
+    left: var(--subagent-indent);
+    width: var(--tree-dot);
+    content: "";
+    pointer-events: none;
+    background: var(--tree-dots-y);
+  }
+
+  .subagent-tree-item::before {
+    display: none;
+  }
 .subagent-dismiss {
   top: 12px;
 }
