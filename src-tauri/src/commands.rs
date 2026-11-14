@@ -59,6 +59,7 @@ use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
+use crate::worktree_cleanup;
 
 /// Result of loading the profiles at startup. A broken profile file must not keep the app from
 /// starting; it shows up as an error in the window instead. A successful reload
@@ -1935,15 +1936,20 @@ fn worktrees_dir(store: &Store) -> PathBuf {
     store.dir().join(worktree::DIR_NAME)
 }
 
+/// The new worktree counts as in use for the cleanup until a session works in it.
 #[tauri::command]
 pub async fn create_worktree(
+    app: tauri::AppHandle,
     store: State<'_, Store>,
     cwd: PathBuf,
     label: String,
 ) -> Result<Worktree, WorktreeError> {
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
-        worktree::create(&Git::locate()?, &base, &cwd, &label)
+        let created = worktree::create(&Git::locate()?, &base, &cwd, &label)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .add(&created.path, std::time::Instant::now());
+        Ok(created)
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
@@ -1962,6 +1968,8 @@ pub async fn remove_worktree(
     tauri::async_runtime::spawn_blocking(move || {
         worktree::check_shape(&worktree)?;
         worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .remove(&worktree.path);
         let claims = app.state::<ClaimsService>();
         let released = claims.release(&worktree.path);
         let removal = Git::locate()
@@ -1972,6 +1980,154 @@ pub async fn remove_worktree(
             claims.unrelease(released);
         }
         removal
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Worktree cleanup (worktree_cleanup.rs). Contract: agent-workflow-features.md, "Worktree
+// cleanup".
+
+/// Folders that occupy a worktree: every session's folder (running or ended, still in the
+/// list), every saved session's folder and worktree, which a restart brings back, and the
+/// worktrees created for a session that has not started yet ([`worktree_cleanup::PendingWorktrees`]).
+fn occupied_folders(app: &tauri::AppHandle, store: &Store) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut occupied: Vec<PathBuf> = app
+        .state::<SessionManager>()
+        .list()
+        .into_iter()
+        .map(|info| info.cwd)
+        .collect();
+    let mut roots = Vec::new();
+    if let Some(workspace) = store.load_workspace() {
+        for session in workspace.sessions {
+            occupied.push(session.cwd);
+            if let Some(worktree) = session.worktree {
+                occupied.push(worktree.path);
+                roots.push(worktree.repo_root);
+            }
+        }
+    }
+    let occupied = app
+        .state::<worktree_cleanup::PendingWorktrees>()
+        .with_pending(
+            occupied,
+            std::time::Instant::now(),
+            worktree_cleanup::PENDING_TIMEOUT,
+        );
+    (occupied, roots)
+}
+
+/// The worktrees Hangar created, each with its state. `folders` are the window's folders whose
+/// repositories count too (recent folders, favorites, sessions' repositories), at most
+/// [`worktree_cleanup::MAX_FOLDERS`]; a missing worktree folder is only found through them.
+#[tauri::command]
+pub async fn list_hangar_worktrees(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    folders: Vec<PathBuf>,
+) -> Result<Vec<worktree_cleanup::CleanupEntry>, WorktreeError> {
+    if folders.len() > worktree_cleanup::MAX_FOLDERS {
+        return Err(GitError::TooManyPaths.into());
+    }
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        let (occupied, roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        Ok(worktree_cleanup::list(&cx, &folders, &roots))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Size of one worktree folder below Hangar's worktrees folder, bounded in files and time.
+#[tauri::command]
+pub async fn hangar_worktree_size(
+    store: State<'_, Store>,
+    path: PathBuf,
+) -> Result<worktree_cleanup::WorktreeSize, WorktreeError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree_cleanup::check_measurable(&base, &path)?;
+        Ok(worktree_cleanup::measure(
+            &path,
+            worktree_cleanup::SIZE_MAX_FILES,
+            worktree_cleanup::SIZE_BUDGET,
+        ))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Checks the state again and removes the worktree only when it is still merged or clean.
+#[tauri::command]
+pub async fn remove_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Remove,
+    )
+    .await
+}
+
+/// Checks the state again and drops git's record only when the folder is still missing.
+#[tauri::command]
+pub async fn prune_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Prune,
+    )
+    .await
+}
+
+/// Like [`remove_worktree`], the claims let go of the folder first and take it back when it
+/// stays.
+async fn clean_up_worktree(
+    app: tauri::AppHandle,
+    store: &Store,
+    path: PathBuf,
+    repo_root: PathBuf,
+    action: worktree_cleanup::Action,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        worktree::check_managed(&base, &path, &repo_root)?;
+        let (occupied, _roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        let claims = app.state::<ClaimsService>();
+        let released = claims.release(&path);
+        let outcome = worktree_cleanup::clean_up(&cx, &path, &repo_root, action);
+        if !outcome.as_ref().is_ok_and(|outcome| outcome.done) {
+            claims.unrelease(released);
+        }
+        outcome
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?

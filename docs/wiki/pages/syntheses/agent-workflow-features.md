@@ -3,7 +3,7 @@ title: "Agent workflow features (0.3.0)"
 type: synthesis
 status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
-sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]"]
+sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
 updated: 2026-11-14
 ---
@@ -142,7 +142,10 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   `config.worktree` filter counts too), which reach that child through `GIT_CONFIG_PARAMETERS`.
   A worktree with populated submodules is refused by git without `--force` (measured, git
   2.56.0.windows.4), so submodule filters do not come into play. Then
-  `git branch -d <branch>` (an unmerged branch stays). `worktree remove`, `worktree prune` and
+  `git branch -d <branch>` (an unmerged branch stays). A folder deleted by hand leaves only git's
+  record: `git worktree remove <path>` takes exactly that one away, never `worktree prune`, which
+  would also drop the records of the user's own worktrees ([[worktree-remove-missing-measurement]]);
+  a record already gone counts as removed. `worktree remove` and
   `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
   folder), so no repository hook runs. `worktree add` runs with the same empty hooks folder and
   the filter overrides, so neither a post-checkout or reference-transaction hook nor a smudge
@@ -151,6 +154,72 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   `<repo dir of repoRoot>/<slug of branch>` (so `repoRoot` cannot be swapped for another
   repository). `worktree add` and `worktree remove` get 120 s instead of 10 s, because killing a
   checkout halfway leaves a broken worktree.
+
+### Worktree cleanup
+Dialog "Clean up worktrees" (File menu, so also in quick access; no shortcut of its own) lists the
+worktrees Hangar created and removes the safe ones. Code: `src-tauri/src/worktree_cleanup.rs`,
+`src/worktreeCleanup.ts`, `src/WorktreeCleanupDialog.tsx`.
+
+- **Scope.** Only Hangar's layout counts: `<app local data>/worktrees/<repo dir>/<slug>` with branch
+  `hangar/<slug>`, where the repo dir is the one of the repository git keeps the record in
+  (`check_managed`). Other worktrees of a repository (also `.claude/worktrees/*` or the user's own)
+  and stray folders are never listed and never touched. Found two ways: the folders below the
+  worktrees folder (their `.git` file names the repository, read lexically, in the spelling the
+  repo dir was made from), and `git worktree list --porcelain -z` of every repository Hangar
+  knows: those of the folders' `.git` files, of the saved workspace's worktrees, and of the
+  folders the window passes (sessions' repositories and folders, favorites, recent folders; at
+  most 64). A folder deleted by hand is only found through such a repository. At most 64
+  repositories and 256 entries; 45 s for a whole listing, entries left over are "cannot be
+  checked".
+- **States** (`CleanupState`, serialized as `{ kind, reason? }`), in this order: `inUse` (a
+  session's folder lies in it, running or ended, or a saved session's folder or worktree, which a
+  restart brings back, or a worktree `create_worktree` made in this run whose session has not
+  started yet), `unknown` with a `cause` (`repoNotFound`, `notKnownToGit`, `otherBranch`,
+  `noBranch`, `locked`, `notCheckedInTime`, `remoteRepo`, `gitFailed`) and a `detail` (git's own
+  message for `gitFailed`, the branch for `otherBranch`; the window words each cause itself and
+  shows only git's message),
+  `missing` (folder gone, record left), `changes` (`git status --porcelain=v1 -z
+  --untracked-files=normal --ignored=matching --ignore-submodules=all` with the filter overrides
+  shows anything but `!!`), `ignored` (only `!!`: `worktree remove` would delete them without
+  asking), `merged` (the branch's commit is an ancestor of the default branch: `refs/heads/<name>`
+  or `refs/remotes/origin/<name>`, the name from `origin/HEAD`, otherwise `main` or `master`;
+  `git merge-base --is-ancestor`, so a squash merge does not count), `clean` (own commits not in
+  the default branch).
+- **Actions.** `merged` and `clean`: remove; `missing`: drop the record; all others: show the
+  folder in the file manager (`open_path`); a missing folder without its repository offers
+  nothing. "Remove all safe ones" (shown from two safe entries on) runs them one after another.
+- **Removal checks again.** The window sends only `path` and `repoRoot`. The backend checks the
+  layout (the repo dir binds the two), reads the repository's records and the state again, and
+  acts only when that state still allows exactly the requested action; otherwise it answers
+  `done: false` with the fresh state. Removing goes through `worktree::remove_folder` (never
+  forces, keeps ignored files, hooks and filters off), so a change made after the check still
+  keeps the folder. The branch goes only for `merged` (or a missing folder whose branch is
+  merged), with `git update-ref -d refs/heads/hangar/<slug> <checked commit>` under the empty
+  hooks folder: it fails if the branch moved since the check. The claims let go of the folder
+  first and take it back when it stays, as for `remove_worktree`.
+- **Freshly created worktrees.** Between `create_worktree` and the start of its session a
+  worktree is no session's folder yet and would count as merged or clean. The backend keeps the
+  paths it created in this run in memory (`PendingWorktrees`) and counts them as in use until a
+  session's folder lies in one, the worktree is removed, or 10 minutes passed (a start that
+  failed).
+- **Ignored files** (decision). A worktree with ignored files stays and says so: they may be
+  build output, but also `.env` files or local databases, and `git worktree remove` would delete
+  them without asking. A later "remove with build output" may only ever delete a fixed list of
+  folders that a build regenerates (such as `node_modules` or `target`), never `.env` or other
+  ignored files.
+- **Debug builds.** A debug build (`pnpm tauri dev`) uses the same app data folder as an installed
+  Hangar, so it lists the installed instance's worktrees too, but knows nothing of that
+  instance's running sessions: there such worktrees may show as removable.
+- **Size and last change.** `hangar_worktree_size` walks one folder in the layout: no link or
+  reparse point is followed or counted, at most 200 000 entries or 5 s, then `complete: false` and
+  the window shows "≥ size". The window asks for one folder at a time. "Changed" is the newest of
+  the folder, its `.git` file, the worktree's index, HEAD and reflog, and the newest file the walk
+  saw.
+- **Commands** (main window only): `list_hangar_worktrees(folders: string[]) -> CleanupEntry[]`
+  (`{ path, repoRoot: string | null, branch, modified: number | null, state }`),
+  `hangar_worktree_size(path) -> { bytes, files, complete, newest: number | null }`,
+  `remove_hangar_worktree(path, repoRoot)` and `prune_hangar_worktree(path, repoRoot)` return
+  `{ done, branchDeleted, state, reason: string | null }`. All run in `spawn_blocking`.
 
 ### Workspace
 `SavedSession` gains three optional fields (absent or `null` in old files):

@@ -317,6 +317,8 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
+import { WorktreeCleanupDialog } from "./WorktreeCleanupDialog";
+import { cleanupFolders } from "./worktreeCleanup";
 import { tailLines } from "./overview";
 import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
@@ -391,7 +393,15 @@ const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog =
-  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
+  | "about"
+  | "settings"
+  | "whatsNew"
+  | "launcher"
+  | "broadcast"
+  | "searchAll"
+  | "overview"
+  | "worktreeCleanup"
+  | null;
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -3944,6 +3954,13 @@ export function App() {
             openSaveTemplate?.();
           },
         },
+        {
+          type: "action",
+          label: t("menu.worktreeCleanup"),
+          run: () => {
+            setDialog("worktreeCleanup");
+          },
+        },
         { type: "separator" },
         {
           type: "action",
@@ -5477,6 +5494,17 @@ export function App() {
             }}
             onClose={closeDialog}
             onReveal={revealMatch}
+          />
+        )}
+        {dialog === "worktreeCleanup" && (
+          <WorktreeCleanupDialog
+            folders={cleanupFolders({
+              favorites: folders.favorites,
+              recent: folders.recent,
+              sessions: state.sessions,
+            })}
+            language={settings.language}
+            onClose={closeDialog}
           />
         )}
         {dialog === "overview" && (

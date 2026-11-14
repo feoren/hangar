@@ -731,3 +731,7 @@ Pages changed: [[queued-messages-and-stall-hint]].
 ## [2026-11-14] ingest | Agent prompt strings and the queue's question guard
 Read short phrases from the installed Claude Code 2.1.325 and Codex 0.169.0 executables (nothing run) and how Claude Code picks its notification channel: `auto` rings no bell in Hangar's terminal, so a permission dialog ends quietly. The queue now checks the screen for a question before sending.
 Pages changed: [[agent-prompt-strings-reading]], [[agent-prompt-shapes]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Worktree cleanup
+A dialog lists the worktrees Hangar created (its own layout only, found below the worktrees folder and in the records of the repositories Hangar knows) with state, size and last change, and removes the safe ones after the backend checked the state again; a branch goes only when merged into the default branch, deleted against the checked commit. Measured with git 2.56 that `worktree remove` on a folder deleted by hand takes away only that record, so the removal after closing a session no longer runs `worktree prune`. Causes of an entry that cannot be checked are codes the window words itself; worktrees created in this run count as in use until their session starts; ignored files keep a worktree on purpose.
+Pages changed: [[agent-workflow-features]], [[worktree-remove-missing-measurement]].
