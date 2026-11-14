@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-configure-command-guard"
+description = "Enables the configure_command_guard command without any pre-configured scope."
+commands.allow = ["configure_command_guard"]
+
+[[permission]]
+identifier = "deny-configure-command-guard"
+description = "Denies the configure_command_guard command without any pre-configured scope."
+commands.deny = ["configure_command_guard"]

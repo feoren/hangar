@@ -261,10 +261,22 @@
           "markdownDescription": "Enables the close_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the command_guard_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-command-guard-info",
+          "markdownDescription": "Enables the command_guard_info command without any pre-configured scope."
+        },
+        {
           "description": "Enables the configure_claims command without any pre-configured scope.",
           "type": "string",
           "const": "allow-configure-claims",
           "markdownDescription": "Enables the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the configure_command_guard command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-configure-command-guard",
+          "markdownDescription": "Enables the configure_command_guard command without any pre-configured scope."
         },
         {
           "description": "Enables the configure_gate command without any pre-configured scope.",
@@ -1017,10 +1029,22 @@
           "markdownDescription": "Denies the close_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the command_guard_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-command-guard-info",
+          "markdownDescription": "Denies the command_guard_info command without any pre-configured scope."
+        },
+        {
           "description": "Denies the configure_claims command without any pre-configured scope.",
           "type": "string",
           "const": "deny-configure-claims",
           "markdownDescription": "Denies the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the configure_command_guard command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-configure-command-guard",
+          "markdownDescription": "Denies the configure_command_guard command without any pre-configured scope."
         },
         {
           "description": "Denies the configure_gate command without any pre-configured scope.",

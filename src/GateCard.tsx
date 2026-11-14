@@ -5,12 +5,14 @@ import {
   ruleAnswerText,
   ruleFolder,
   rulePathLabel,
+  ruleText,
   type GateAnswer,
   type PendingDecision,
   type RuleAnswer,
 } from "./gate";
 import { useT } from "./i18n";
 import { OverlapIcon } from "./icons";
+import { Revealed } from "./Revealed";
 
 /**
  * A pending decision of the gate: which session wants to change which file, who else is changing
@@ -22,6 +24,12 @@ import { OverlapIcon } from "./icons";
  *
  * "Remember for this project" opens two more rows, "always" and "never", for the file or its
  * folder; the backend keeps that answer as a rule of the project and answers later asks itself.
+ *
+ * A shell command the command guard holds shows the matched rules, the program call that matched
+ * and the command as sent, with control and invisible characters as marked placeholders (text the
+ * agent typed cannot pose as one). "Allow once" and "Block"; "Remember for this project" names the
+ * rules again and offers to always allow or always block them in the project, except for Hangar's
+ * own settings. Without an answer the backend blocks it after 10 minutes.
  */
 export function GateCard(props: {
   decision: PendingDecision;
@@ -55,7 +63,9 @@ export function GateCard(props: {
   const answer = (value: GateAnswer) => () => {
     props.onAnswer(value);
   };
-  const folder = ruleFolder(decision.path);
+  const command = decision.command;
+  const remember = command === null || command.rememberable;
+  const folder = command === null ? ruleFolder(decision.path) : null;
   const ruleRow = (label: string, file: GateAnswer, inFolder: GateAnswer) => (
     <div className="gate-rule-row">
       <span className="gate-rule-label">{label}</span>
@@ -64,7 +74,7 @@ export function GateCard(props: {
       </button>
       {folder !== null && (
         <button type="button" className="secondary-button" onClick={answer(inFolder)}>
-          {t("gate.ruleFolder", { folder: rulePathLabel(folder, "folder") })}
+          {t("gate.ruleFolder", { folder: rulePathLabel(folder, "folder", t) })}
         </button>
       )}
     </div>
@@ -90,21 +100,60 @@ export function GateCard(props: {
       <p className="gate-detail selectable" id={`${id}-detail`}>
         {text.detail}
       </p>
+      {command !== null && command.call !== "" && command.call !== command.text && (
+        <p className="gate-command-call selectable">
+          <Revealed text={command.call} />
+        </p>
+      )}
+      {command !== null && (
+        // Shown as sent, line by line; invisible characters become marked placeholders.
+        <pre className="gate-command selectable" aria-label={t("gate.commandLabel")}>
+          {command.text.split("\n").map((line, index) => (
+            // Lines never move; the index is stable for this text.
+            <span key={index}>
+              {index > 0 && "\n"}
+              <Revealed text={line} />
+            </span>
+          ))}
+        </pre>
+      )}
+      {command !== null && command.hidden > 0 && (
+        <p className="gate-command-more">{t("gate.commandHidden", { count: command.hidden })}</p>
+      )}
       <div className="gate-actions">
         <button type="button" className="secondary-button" onClick={answer("allowOnce")}>
           {t("gate.allowOnce")}
         </button>
-        <button type="button" className="secondary-button" onClick={answer("allowFile")}>
-          {t("gate.allowFile")}
-        </button>
+        {command === null && (
+          <button type="button" className="secondary-button" onClick={answer("allowFile")}>
+            {t("gate.allowFile")}
+          </button>
+        )}
         <button type="button" className="secondary-button" onClick={answer("deny")}>
-          {t("gate.deny")}
+          {t(command === null ? "gate.deny" : "gate.block")}
         </button>
       </div>
-      {remembering && (
+      {remembering && command === null && (
         <div className="gate-rules" id={`${id}-rules`} role="group" aria-label={t("gate.remember")}>
           {ruleRow(t("gate.always"), "alwaysFile", "alwaysFolder")}
           {ruleRow(t("gate.never"), "neverFile", "neverFolder")}
+        </div>
+      )}
+      {remembering && command !== null && command.rememberable && (
+        <div className="gate-rules" id={`${id}-rules`} role="group" aria-label={t("gate.remember")}>
+          <p className="gate-rule-applies">
+            {t("gate.commandAppliesTo", {
+              rules: command.rules.map((rule) => ruleText(rule, t)).join(" · "),
+            })}
+          </p>
+          <div className="gate-rule-row">
+            <button type="button" className="secondary-button" onClick={answer("alwaysCommand")}>
+              {t("gate.alwaysCommand")}
+            </button>
+            <button type="button" className="secondary-button" onClick={answer("neverCommand")}>
+              {t("gate.neverCommand")}
+            </button>
+          </div>
         </div>
       )}
       {props.error !== null && (
@@ -113,17 +162,19 @@ export function GateCard(props: {
         </p>
       )}
       <div className="gate-foot">
-        <button
-          type="button"
-          className="link-button"
-          aria-expanded={remembering}
-          aria-controls={remembering ? `${id}-rules` : undefined}
-          onClick={() => {
-            setRemembering((open) => !open);
-          }}
-        >
-          {t("gate.remember")}
-        </button>
+        {remember && (
+          <button
+            type="button"
+            className="link-button"
+            aria-expanded={remembering}
+            aria-controls={remembering ? `${id}-rules` : undefined}
+            onClick={() => {
+              setRemembering((open) => !open);
+            }}
+          >
+            {t("gate.remember")}
+          </button>
+        )}
         {props.floating && (
           <button
             type="button"
@@ -147,7 +198,9 @@ export function GateCard(props: {
           </button>
         )}
         <span className="gate-note">
-          {props.more > 0 ? t("gate.more", { count: props.more }) : t("gate.timeout")}
+          {props.more > 0
+            ? t("gate.more", { count: props.more })
+            : t(command === null ? "gate.timeout" : "gate.commandTimeout")}
         </span>
       </div>
     </section>

@@ -12,6 +12,8 @@ pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
+pub mod command_guard;
+pub mod command_split;
 mod commands;
 pub mod context_usage;
 pub mod desktop;
@@ -103,6 +105,8 @@ pub fn run() -> tauri::Result<()> {
             let home = app.path().home_dir()?;
             let config_dir = app.path().app_config_dir()?;
             let profile_path = config_dir.join(profile::FILE_NAME);
+            // The command guard's rules sit next to the profiles: the user edits both.
+            let guard_file = config_dir.join(command_guard::FILE_NAME);
             let (profiles, error) = match profile::load_or_init(&config_dir) {
                 Ok(profiles) => (profiles, None),
                 Err(error) => (
@@ -289,6 +293,7 @@ pub fn run() -> tauri::Result<()> {
                 },
             );
             gate.load_rules(gate_rules_file);
+            gate.load_command_guard(guard_file);
             app.state::<SessionManager>()
                 .set_launch_gate(std::sync::Arc::new(gate.clone()));
             // The team shares the sessions of repositories linked to a shared project; the gate
@@ -420,6 +425,8 @@ pub fn run() -> tauri::Result<()> {
             commands::answer_gate,
             commands::gate_rules,
             commands::delete_gate_rule,
+            commands::configure_command_guard,
+            commands::command_guard_info,
             commands::save_profile,
             commands::delete_profile,
             commands::profile_env,

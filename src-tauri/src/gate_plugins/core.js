@@ -4,8 +4,10 @@
 // Free of dependencies: only node: modules, which Node (Pi) and Bun (Oh My Pi, OpenCode) both
 // provide. node:http rather than fetch, because Node's fetch sends Sec-Fetch-Mode, which Hangar's
 // endpoint refuses as a request from a browser page.
+// Shell commands go to the same endpoint as tool "Bash" with the command line; Hangar's command
+// guard decides there whether the person is asked.
 // Fails open: whatever goes wrong (no variable, endpoint unreachable, an answer it cannot read)
-// lets the edit through, as every other hook of Hangar's gate does. The gate coordinates the
+// lets the edit or command through, as every other hook of Hangar's gate does. The gate coordinates the
 // user's own sessions; it is not a security boundary.
 import { request } from "node:http";
 import { homedir } from "node:os";
@@ -17,6 +19,8 @@ const ROUTE = "/v1/pre-tool-use";
 const DEADLINE_MS = 630000;
 const MAX_ANSWER = 1024 * 1024;
 const MAX_PATHS = 64;
+// Hangar's endpoint reads no longer command (command_guard.rs MAX_COMMAND_BYTES); it asks instead.
+const MAX_COMMAND_BYTES = 64 * 1024;
 const PATCH_MARKERS = ["*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"];
 const PATH_KEYS = ["path", "file_path", "filePath"];
 
@@ -96,7 +100,7 @@ function verdictOf(text) {
 }
 
 // One question to the endpoint, the same request Claude Code's HTTP hook sends. Never rejects.
-function askGate(gate, tool, path, cwd, signal) {
+function askGate(gate, tool, toolInput, cwd, signal) {
   return new Promise((done) => {
     let settled = false;
     let call;
@@ -121,7 +125,7 @@ function askGate(gate, tool, path, cwd, signal) {
     const body = JSON.stringify({
       hook_event_name: "PreToolUse",
       tool_name: tool,
-      tool_input: { file_path: path },
+      tool_input: toolInput,
       cwd,
     });
     try {
@@ -183,9 +187,25 @@ async function decideEdit(tool, paths, cwd, signal, normalize) {
   const gate = gateEndpoint();
   if (gate === undefined) return { kind: "allow", notes: [GATE_ENV + " is missing or malformed"] };
   for (const named of paths) {
-    const verdict = await askGate(gate, tool, absolutePath(normalize(named), cwd), cwd, signal);
+    const filePath = absolutePath(normalize(named), cwd);
+    const verdict = await askGate(gate, tool, { file_path: filePath }, cwd, signal);
     if (verdict.kind === "error") notes.push(verdict.note);
     else if (verdict.kind !== "allow") return { ...verdict, notes };
   }
   return { kind: "allow", notes };
+}
+
+// Asks about one shell command; anything but a non-empty string goes ahead unasked. `tool` names
+// the shell for Hangar's reading: "Bash", "PowerShell", or "Shell" when it is not known.
+async function decideCommand(tool, command, cwd, signal) {
+  if (typeof command !== "string" || command.trim() === "") return { kind: "allow", notes: [] };
+  const gate = gateEndpoint();
+  if (gate === undefined) return { kind: "allow", notes: [GATE_ENV + " is missing or malformed"] };
+  // A huge command is cut to twice the endpoint's limit: still over it, so the endpoint answers
+  // "ask" as for the whole command, without sending megabytes.
+  const limit = MAX_COMMAND_BYTES * 2;
+  const text = Buffer.byteLength(command) > limit ? command.slice(0, limit) : command;
+  const verdict = await askGate(gate, tool, { command: text }, cwd, signal);
+  if (verdict.kind === "error") return { kind: "allow", notes: [verdict.note] };
+  return { ...verdict, notes: [] };
 }

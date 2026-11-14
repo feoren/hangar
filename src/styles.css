@@ -9194,6 +9194,62 @@ body.session-dragging .session-actions {
   margin-left: 21px;
 }
 
+/* The command guard's rules file and what in it could not be read, under its setting. */
+#command-guard-help p {
+  margin: 0;
+}
+
+.command-guard-file {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.command-guard-problems {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+.command-guard-problem {
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+/* The program call that matched, above the whole command. */
+.gate-command-call {
+  margin: 0 0 2px 21px;
+  font-family: var(--mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.gate-command-more,
+.gate-rule-applies {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.gate-command-more {
+  margin-left: 21px;
+}
+
+/* A held shell command, verbatim: long lines wrap, a long script scrolls inside the card. */
+.gate-command {
+  max-height: 9.5em;
+  margin: 0 0 4px 21px;
+  padding: 5px 8px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
 /* "Remember for this project": two quiet rows below the answers, opened from the foot. */
 .gate-rules {
   display: flex;

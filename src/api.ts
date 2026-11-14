@@ -543,6 +543,13 @@ export const api = {
   gateRules: () => invoke<unknown>("gate_rules"),
   /** `false`: no rule has that id (deleted meanwhile). */
   deleteGateRule: (id: number) => invoke<boolean>("delete_gate_rule", { id }),
+  /**
+   * Turns the command guard (backend command_guard.rs) on or off; it applies to running team
+   * sessions at once, and turning it off lets every held shell command go on.
+   */
+  configureCommandGuard: (enabled: boolean) => invoke<null>("configure_command_guard", { enabled }),
+  /** The guard's rules file, rules and problems; check with `parseGuardInfo`. */
+  commandGuardInfo: () => invoke<unknown>("command_guard_info"),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */

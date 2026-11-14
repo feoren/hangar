@@ -8,16 +8,26 @@ const EDIT_TOOLS = {
   ast_edit: { tool: "Edit", patchKeys: [] },
 };
 
+// Pi's shell tools and the dialect Hangar reads each in; both take `input.command` (Pi 1.5.2
+// `dist/core/tools/bash.js` and `powershell.js`, docs/wiki/pages/sources/shell-tool-input-shapes.md).
+const SHELL_TOOLS = { bash: "Bash", powershell: "PowerShell" };
+
 export default function hangarGate(pi) {
   pi.on("tool_call", async (event, ctx) => {
     try {
-      const spec = lookup(EDIT_TOOLS, event?.toolName);
-      if (spec === undefined) return undefined;
       const cwd = typeof ctx?.cwd === "string" ? ctx.cwd : process.cwd();
-      const paths = editPaths(event.input, spec);
-      const verdict = await decideEdit(spec.tool, paths, cwd, ctx?.signal, piPath);
+      let verdict;
+      const shell = lookup(SHELL_TOOLS, event?.toolName);
+      if (shell !== undefined) {
+        verdict = await decideCommand(shell, event.input?.command, cwd, ctx?.signal);
+      } else {
+        const spec = lookup(EDIT_TOOLS, event?.toolName);
+        if (spec === undefined) return undefined;
+        const paths = editPaths(event.input, spec);
+        verdict = await decideEdit(spec.tool, paths, cwd, ctx?.signal, piPath);
+      }
       if (verdict.kind === "aborted") {
-        return { block: true, reason: "Hangar: the edit was cancelled." };
+        return { block: true, reason: "Hangar: the tool call was cancelled." };
       }
       if (verdict.kind === "ask" && ctx?.hasUI) {
         const go = await ctx.ui.confirm("Hangar", verdict.reason);
@@ -27,7 +37,7 @@ export default function hangarGate(pi) {
         return { block: true, reason: verdict.reason };
       }
       if (verdict.notes.length > 0 && ctx?.hasUI) {
-        ctx.ui.notify("Hangar gate: " + verdict.notes[0] + "; the edit goes ahead", "warning");
+        ctx.ui.notify("Hangar gate: " + verdict.notes[0] + "; the tool call goes ahead", "warning");
       }
       return undefined;
     } catch {
