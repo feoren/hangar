@@ -130,44 +130,136 @@ class SignatureProblemTest(unittest.TestCase):
                 self.assertIsNotNone(release.signature_problem(text))
 
 
+def test_folder(test, prefix):
+    tmp_root = Path(__file__).resolve().parent.parent / "tests" / ".tmp"
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix=prefix, dir=tmp_root))
+    test.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+    return folder
+
+
+# What a release machine may have set; none of it may reach the build.
+SIGNING_ENVIRONMENT = {
+    "TAURI_SIGNING_PRIVATE_KEY": "inherited-key-marker",
+    "TAURI_SIGNING_PRIVATE_KEY_PATH": "inherited-path-marker",
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "inherited-password-marker",
+}
+
+
 class BuildCommandTest(unittest.TestCase):
     """build() without a real build: the process call is intercepted."""
 
-    def run_build(self, signing):
+    def run_build(self, signing, environ=None):
         calls = []
 
         def fake_run(command, **kwargs):
             config = None
+            config_path = None
             if "--config" in command:
                 config_path = Path(command[command.index("--config") + 1])
                 config = json.loads(config_path.read_text(encoding="utf-8"))
-                calls.append((command, config, config_path))
-            else:
-                calls.append((command, None, None))
+            calls.append((command, config, config_path, kwargs.get("env")))
             return subprocess.CompletedProcess(command, 0)
 
-        with tempfile.TemporaryDirectory() as folder:
-            key = Path(folder) / "test.key"
-            key.write_text("key\n", encoding="utf-8")
-            with mock.patch.object(release.shutil, "which", return_value="pnpm"), mock.patch.object(
-                release.subprocess, "run", side_effect=fake_run
-            ):
-                release.build(key, signing)
+        environ = dict(os.environ, **(environ or {}))
+        with mock.patch.object(release.shutil, "which", return_value="pnpm"), mock.patch.object(
+            release.subprocess, "run", side_effect=fake_run
+        ), mock.patch.dict(release.os.environ, environ, clear=True):
+            release.build(signing)
         self.assertEqual(len(calls), 1)
         return calls[0]
 
-    def test_unsigned_keeps_the_command(self):
-        command, config, _ = self.run_build(None)
-        self.assertEqual(command, ["pnpm", "tauri", "build"])
-        self.assertIsNone(config)
+    def test_unsigned_only_switches_off_updater_artifacts(self):
+        command, config, config_path, _ = self.run_build(None)
+        self.assertEqual(command[:3], ["pnpm", "tauri", "build"])
+        self.assertEqual(config, {"bundle": {"createUpdaterArtifacts": False}})
+        self.assertFalse(config_path.exists())
 
     def test_signed_via_config_file_deleted_afterwards(self):
         signing = release.windows_signing_config({"HANGAR_CERT_THUMBPRINT": THUMB})
-        command, config, config_path = self.run_build(signing)
+        command, config, config_path, _ = self.run_build(signing)
         self.assertEqual(command[:3], ["pnpm", "tauri", "build"])
-        self.assertEqual(config, signing)
+        self.assertEqual(config["bundle"]["windows"], signing["bundle"]["windows"])
+        self.assertIs(config["bundle"]["createUpdaterArtifacts"], False)
         self.assertNotIn(THUMB.upper(), " ".join(command))
         self.assertFalse(config_path.exists())
+
+    def test_the_build_never_sees_the_updater_key(self):
+        _, _, _, env = self.run_build(None, SIGNING_ENVIRONMENT)
+        self.assertIsNotNone(env)
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        self.assertNotIn("inherited-key-marker", env.values())
+        # The rest of the environment still reaches the build.
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+
+
+class UpdaterSigningTest(unittest.TestCase):
+    """sign_update(): a process of its own, the only one that gets the key."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release signing ")
+        self.key = self.folder / "test key.key"
+        self.key.write_text("key-content-marker\n", encoding="utf-8")
+        self.setup = self.folder / "Hangar_0.2.0+31_x64-setup.exe"
+        self.setup.write_bytes(b"installer")
+
+    def run_sign(self, environ=None, writes_signature=True, returncode=0):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs.get("env")))
+            if writes_signature:
+                Path(command[-1] + ".sig").write_text("signature-marker", encoding="utf-8")
+            return subprocess.CompletedProcess(command, returncode)
+
+        clean = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")
+        }
+        clean.update(environ or {})
+        with mock.patch.object(release.shutil, "which", return_value="pnpm"), mock.patch.object(
+            release.subprocess, "run", side_effect=fake_run
+        ), mock.patch.dict(release.os.environ, clean, clear=True):
+            signature = release.sign_update(self.key, self.setup, "0.2.0+31")
+        self.assertEqual(len(calls), 1)
+        return calls[0], signature
+
+    def test_signs_the_installer_bound_to_the_version(self):
+        (command, env), signature = self.run_sign()
+        self.assertEqual(
+            command, ["pnpm", "tauri", "signer", "sign", "--app-version", "0.2.0+31", str(self.setup)]
+        )
+        self.assertEqual(signature, self.setup.with_name(self.setup.name + ".sig"))
+        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY"], "key-content-marker")
+        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "")
+        # Neither key nor password on the command line, where the process list shows them.
+        self.assertNotIn("key-content-marker", " ".join(command))
+
+    def test_a_given_password_reaches_only_the_signer(self):
+        (_, env), _ = self.run_sign({"TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "pw-marker"})
+        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "pw-marker")
+
+    def test_an_inherited_key_path_does_not_win_over_the_chosen_key(self):
+        (_, env), _ = self.run_sign({"TAURI_SIGNING_PRIVATE_KEY_PATH": "inherited-path-marker"})
+        self.assertNotIn("TAURI_SIGNING_PRIVATE_KEY_PATH", env)
+
+    def test_warns_when_the_key_has_no_password(self):
+        with mock.patch("sys.stdout") as out:
+            self.run_sign()
+        printed = "".join(str(call.args[0]) for call in out.write.call_args_list if call.args)
+        self.assertIn("no password", printed)
+
+    def test_a_stale_signature_never_counts(self):
+        stale = self.setup.with_name(self.setup.name + ".sig")
+        stale.write_text("old", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            self.run_sign(writes_signature=False)
+        self.assertFalse(stale.exists())
+
+    def test_a_failed_signer_aborts(self):
+        with self.assertRaises(SystemExit):
+            self.run_sign(returncode=1)
 
 
 TAURI_CONF_TEXT = """{

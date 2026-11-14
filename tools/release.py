@@ -29,8 +29,12 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
   so every release must raise the major, minor or revision number.
 
 1. Sets the version in src-tauri/tauri.conf.json, src-tauri/Cargo.toml and package.json.
-2. Builds with `pnpm tauri build` and signs the update file with the private key
-   (default: %USERPROFILE%\.tauri\hangar.key, override with HANGAR_SIGNING_KEY).
+2. Builds with `pnpm tauri build`, with updater signing switched off and without the updater key in
+   its environment (no build script or dependency ever sees it). Afterwards a separate
+   `pnpm tauri signer sign --app-version <version>` signs the finished installer, the only process
+   that gets the private key (default: %USERPROFILE%\.tauri\hangar.key, override with
+   HANGAR_SIGNING_KEY) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD. The signature is the same `.sig`
+   next to the installer that `tauri build` writes, with the version in its trusted comment.
 3. Puts everything to upload under release/<version>/:
      Hangar_<x.y.z-build>_x64-setup.exe   installer for this version (target of the update URL)
      Hangar-Setup.exe                 same file under a fixed name for the download link
@@ -496,33 +500,87 @@ def quoted(argv):
     return " ".join('"%s"' % arg if (" " in arg or not arg) else arg for arg in argv)
 
 
-def build(key_path, signing):
+# Prefix of the variables through which Tauri takes the updater key, its path and its password.
+UPDATER_KEY_VARIABLES = "TAURI_SIGNING_PRIVATE_KEY"
+
+
+def without_updater_key(environ):
+    """A copy of `environ` without any updater key variable (Windows names ignore case)."""
+    return {
+        name: value
+        for name, value in environ.items()
+        if not name.upper().startswith(UPDATER_KEY_VARIABLES)
+    }
+
+
+def build_config(signing):
+    """The --config override for `tauri build`: updater artifacts off, Authenticode if set.
+
+    `tauri build` would sign the installer itself and needs the key in its environment for that,
+    which every Node and Cargo build process would inherit; sign_update() signs it afterwards.
+    """
+    config = {"bundle": {"createUpdaterArtifacts": False}}
+    if signing is not None:
+        config["bundle"].update(signing.get("bundle", {}))
+    return config
+
+
+def build(signing):
     pnpm = shutil.which("pnpm")
     if not pnpm:
         fail("pnpm not found")
-    env = dict(os.environ)
-    # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
-    env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
-    env.setdefault("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    env = without_updater_key(os.environ)
     command = [pnpm, "tauri", "build"]
     config_file = None
     try:
-        if signing is not None:
-            # A file instead of a JSON argument: on Windows pnpm is a .cmd file, and cmd.exe mangles
-            # quotes in arguments. It also keeps the value out of the process list.
-            # `tauri build --config` accepts JSON strings or file paths.
-            with tempfile.NamedTemporaryFile(
-                "w", encoding="utf-8", suffix=".json", prefix="hangar-sign-", delete=False
-            ) as handle:
-                json.dump(signing, handle)
-                config_file = Path(handle.name)
-            command += ["--config", str(config_file)]
+        # A file instead of a JSON argument: on Windows pnpm is a .cmd file, and cmd.exe mangles
+        # quotes in arguments. It also keeps the value out of the process list.
+        # `tauri build --config` accepts JSON strings or file paths.
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", suffix=".json", prefix="hangar-sign-", delete=False
+        ) as handle:
+            json.dump(build_config(signing), handle)
+            config_file = Path(handle.name)
+        command += ["--config", str(config_file)]
         result = subprocess.run(command, cwd=ROOT, env=env, check=False)
     finally:
         if config_file is not None:
             config_file.unlink(missing_ok=True)
     if result.returncode != 0:
         fail("pnpm tauri build failed (exit code %d)" % result.returncode)
+
+
+def sign_update(key_path, setup, version):
+    """Signs the finished installer for the updater and returns the path of its `.sig`.
+
+    Runs after Authenticode signing, which changes the file. `--app-version` binds the version
+    into the signed trusted comment, as `tauri build` does (`version:<version>`); the updater
+    compares it with the version latest.json announces.
+    """
+    pnpm = shutil.which("pnpm")
+    if not pnpm:
+        fail("pnpm not found")
+    env = without_updater_key(os.environ)
+    # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
+    env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
+    # The current key has none; an empty value keeps the signer from asking for one.
+    password = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+    env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = password
+    if not password:
+        print(
+            "Warning: the updater key is used with no password (TAURI_SIGNING_PRIVATE_KEY_PASSWORD "
+            "is empty). Anyone who can read the key file can sign updates; keep it off synced folders."
+        )
+    signature = setup.with_name(setup.name + ".sig")
+    # Only a signature written by this run counts.
+    signature.unlink(missing_ok=True)
+    command = [pnpm, "tauri", "signer", "sign", "--app-version", version, str(setup)]
+    result = subprocess.run(command, cwd=ROOT, env=env, check=False, stdin=subprocess.DEVNULL)
+    if result.returncode != 0:
+        fail("pnpm tauri signer sign failed (exit code %d)" % result.returncode)
+    if not signature.is_file():
+        fail("updater signature missing: %s" % signature)
+    return signature
 
 
 def find_setup(built_after):
@@ -643,7 +701,7 @@ def main():
         print("Authenticode code signing active (setting from the environment, values are not printed).")
 
     started = time.time()
-    build(key_path, signing)
+    build(signing)
     setup = find_setup(started)
     if signing is not None:
         # According to the Tauri repo it signs the program, the uninstaller and the installer; the
@@ -651,6 +709,8 @@ def main():
         verify_signature(setup)
         if MAIN_EXE.is_file() and MAIN_EXE.stat().st_mtime >= started:
             verify_signature(MAIN_EXE)
+    # After Authenticode, which rewrites the installer: the signature covers the final bytes.
+    sign_update(key_path, setup, version)
     base_url = args.base_url or github_base_url(args.version)
     target, setup_name = collect(setup, version, base_url, notes or "")
     print()

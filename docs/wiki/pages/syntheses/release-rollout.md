@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
 created: 2026-11-07
-updated: 2026-11-11
+updated: 2026-11-14
 ---
 
 # Rolling out a release
@@ -39,7 +39,13 @@ collects its items under that same version without a date. `src/versionSync.test
    - dates the changelog entry to today
    - builds only from a clean working tree
    - sets the version in `tauri.conf.json`, `Cargo.toml` and `package.json`
-   - builds with `pnpm tauri build` and signs with `%USERPROFILE%\.tauri\hangar.key`
+   - builds with `pnpm tauri build` with `bundle.createUpdaterArtifacts: false` (a `--config`
+     override) and without any `TAURI_SIGNING_PRIVATE_KEY*` variable in its environment, so no
+     build script or dependency sees the key; then signs the finished installer in a separate
+     `pnpm tauri signer sign --app-version <X.Y.Z+Build>` with `%USERPROFILE%\.tauri\hangar.key`.
+     The `.sig` is the same as from `tauri build` (trusted comment
+     `timestamp:...<TAB>file:<installer>.exe<TAB>version:<X.Y.Z+Build>`, measured with Tauri CLI 2.12.4
+     and a throwaway key); the script warns when the key is used without a password
    - creates `release/0.2.0-31/` containing `Hangar_0.2.0-31_x64-setup.exe`, `Hangar-Setup.exe`,
      `SHA256SUMS.txt`, `latest.json` (its download URL points to the GitHub release `v0.2.0`) and
      `release-notes.md`
