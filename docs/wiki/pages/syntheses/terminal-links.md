@@ -4,7 +4,7 @@ type: synthesis
 tags: [terminal, links, xterm, security]
 sources: ["[[xterm-linkifier]]", "[[windows-path-normalization-measurement]]"]
 created: 2026-11-13
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 # Terminal links
@@ -34,10 +34,17 @@ Web addresses and existing file or folder paths in a session's output are links.
 
 - Only local absolute paths; no UNC or device paths, no data streams.
 - Hover lookup never touches the network: paths on a `DRIVE_REMOTE` drive, paths whose
-  canonical form is UNC, and a link or junction in the last segment count as missing.
+  canonical form is UNC, and any path with a symlink or junction in any segment whose target
+  (read with `read_link`, which does not touch it) is no local fixed drive path count as missing
+  and are not opened. Links to local targets are followed, at most 8 in a row
+  (`src-tauri/src/no_links.rs`); the segments are checked from the root down, so no lookup passes
+  an unchecked link. On Windows only name surrogate reparse points (symlink, junction, mount
+  point) count as links; the tag comes from `FindFirstFileW`. A volume mount point names a
+  `\\?\Volume{...}` target and is therefore refused too.
 - **Allowlist decision:** a file opens in its default program only when its canonical name has
-  a harmless extension (text, data, code of compiled languages, images, PDF, SVG); everything
-  else, including every script type Windows runs (`.js`, `.py`, `.cmd`, ...) and HTML, is only
+  a harmless extension (text, data, code of compiled languages, raster images, PDF); everything
+  else, including every script type Windows runs (`.js`, `.py`, `.cmd`, ...), HTML, SVG and XML
+  (their default program may be a browser, which runs the script they can carry), is only
   shown selected in the file manager. A denylist was rejected: no list of runnable types is
   complete, and Windows' handling of trailing dots and spaces ([[windows-path-normalization-measurement]])
   hides extensions from a check on the printed name. On Unix an execute bit also means reveal.

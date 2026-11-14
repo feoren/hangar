@@ -35,6 +35,7 @@ pub mod icon;
 pub mod install_source;
 pub mod instructions;
 pub mod manager;
+pub mod no_links;
 pub mod notes;
 pub mod notify;
 pub mod output;

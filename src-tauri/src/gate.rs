@@ -730,7 +730,10 @@ pub fn context_facts_full(
         }
     }
     let top = std::path::Path::new(&own.root_key);
-    let look = !crate::git::is_remote(top) && local_fixed_drive(top) && plain_folder(top);
+    // A worktree reached through a link (`mklink /D C:\w \\host\share`) may lie on another
+    // computer, so its files are not looked up.
+    let look =
+        !crate::git::is_remote(top) && local_fixed_drive(top) && crate::no_links::plain_folder(top);
     let listed = lines.len();
     // All looks together: a slow folder costs the prompt at most this long.
     let deadline = std::time::Instant::now() + SPELLING_BUDGET;
@@ -862,7 +865,7 @@ fn existing_spelling(
         let Ok(meta) = std::fs::symlink_metadata(&dir) else {
             return None;
         };
-        if is_reparse_point(&meta) {
+        if crate::no_links::is_reparse_point(&meta) {
             return None;
         }
         // A folder until the last part, which is a file.
@@ -872,34 +875,6 @@ fn existing_spelling(
         }
     }
     (!parts.is_empty()).then(|| parts.join("/"))
-}
-
-/// Whether `top` and every folder above it are plain folders: none is a symlink, junction or
-/// other reparse point. A worktree reached through one (`mklink /D C:\w \\host\share`) may
-/// lie on another computer, so its files are not looked up. Checked without following links.
-fn plain_folder(top: &std::path::Path) -> bool {
-    top.ancestors().all(|folder| {
-        folder.as_os_str().is_empty()
-            || std::fs::symlink_metadata(folder).is_ok_and(|meta| {
-                // A drive root reports no reparse point of its own; a mount point below it does.
-                meta.is_dir() && !is_reparse_point(&meta)
-            })
-    })
-}
-
-/// A symlink, or on Windows any reparse point (junctions and mount points too, which
-/// `FileType::is_symlink` may not report).
-fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt as _;
-        /// `FILE_ATTRIBUTE_REPARSE_POINT` of the Windows SDK.
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    meta.file_type().is_symlink()
 }
 
 /// Whether `top` lies on a fixed local drive. On Windows a mapped network drive (`Z:`) or a
@@ -2165,8 +2140,8 @@ mod tests {
         assert_eq!(existing_spelling(&top, "linked/Secret.rs", later), None);
         // A worktree reached through a link (it may be a network share) is not looked into, and
         // the context then names the teammate's spelling.
-        assert!(plain_folder(&top));
-        assert!(!plain_folder(&link));
+        assert!(crate::no_links::plain_folder(&top));
+        assert!(!crate::no_links::plain_folder(&link));
         let inner = link.to_string_lossy().into_owned();
         let mine = vec![worktree(&inner, &[1], vec![])];
         let team = [teammate("secret.rs", "Anna (Claude Code)", &[])];

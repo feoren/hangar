@@ -6,10 +6,13 @@
 //!   whose real path is a network path, since a mere lookup would contact another machine (and
 //!   hand it the user's credentials on Windows); no alternate data streams;
 //! - looking up only says "file", "folder" or nothing, never reads a file, and never follows a
-//!   link in the last segment;
+//!   link (symlink or junction) in any segment whose target, read without touching it, is no
+//!   local fixed drive path, since one can lead to a network share as well; links to local
+//!   targets are followed, at most a few in a row ([`crate::no_links`]); a click on a refused
+//!   path does nothing either;
 //! - a click opens a file in its default program only when its real name (after Windows dropped
-//!   trailing dots and spaces, expanded 8.3 short names and followed links) has an extension from
-//!   a short list of harmless types (text, code, images, PDF). Everything else is only shown
+//!   trailing dots and spaces and expanded 8.3 short names) has an extension from a short list of
+//!   harmless types (text, code, raster images, PDF). Everything else is only shown
 //!   selected in the file manager: an allowlist, because no list of runnable types is complete;
 //! - macOS bundles (an app is a folder) are revealed, never opened;
 //! - web addresses only as plain http(s) without user name or password.
@@ -19,6 +22,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Serialize, Serializer};
+
+use crate::no_links::{Links, NoLinksError};
 
 /// Paths per lookup; the frontend batches the paths of the lines under the mouse.
 pub const MAX_PATHS: usize = 64;
@@ -101,9 +106,10 @@ fn local_path_for(text: &str, windows: bool) -> Option<&str> {
     }
 }
 
-/// The real path: links followed, 8.3 names expanded, trailing dots and spaces dropped as Windows
-/// does. `None` when it cannot be read or is no local drive path (`\\?\UNC\...`). On Windows the
-/// `\\?\` prefix is dropped again, so programs get the usual form.
+/// The real path: 8.3 names expanded, trailing dots and spaces dropped as Windows does. `None`
+/// when it cannot be read or is no local drive path (`\\?\UNC\...`). On Windows the `\\?\` prefix
+/// is dropped again, so programs get the usual form. Resolving follows links, so callers check
+/// for them first ([`crate::no_links::metadata`]).
 pub fn real_path(path: &Path) -> Option<PathBuf> {
     let real = fs::canonicalize(path).ok()?;
     local_real(&real.to_string_lossy(), cfg!(windows)).map(PathBuf::from)
@@ -148,16 +154,13 @@ fn on_network_drive(_path: &Path) -> bool {
     false
 }
 
-/// File or folder for the hover underline, `None` when nothing is there, when the last segment
-/// is a link (or junction), or when the path lies on or leads to the network.
+/// File or folder for the hover underline, `None` when nothing is there, or when the path lies on
+/// or leads to the network (also through a link in any segment).
 pub fn kind(path: &Path) -> Option<PathKind> {
     if on_network_drive(path) {
         return None;
     }
-    let meta = fs::symlink_metadata(path).ok()?;
-    if meta.file_type().is_symlink() {
-        return None;
-    }
+    let meta = crate::no_links::metadata(path, Links::FollowLocal).ok()?;
     real_path(path)?;
     if meta.is_dir() {
         Some(PathKind::Dir)
@@ -180,13 +183,15 @@ pub fn kinds(paths: &[String]) -> Result<Vec<Option<PathKind>>, PathLinkError> {
 }
 
 /// Extensions a click opens in their default program. Their usual "open" never runs code: text,
-/// code of compiled languages, data, images and PDF. Scripts Windows would run (`.js`, `.py`,
-/// `.ps1`, ...) are deliberately missing, as is HTML. Compared without case.
+/// code of compiled languages, data, raster images and PDF. Scripts Windows would run (`.js`,
+/// `.py`, `.ps1`, ...) are deliberately missing, as are HTML, SVG and XML: their default program
+/// may be a browser, which runs the script they can carry (XML through XSLT or an XHTML
+/// namespace). Compared without case.
 const OPENABLE: &[&str] = &[
-    "txt", "md", "markdown", "log", "json", "jsonc", "toml", "yaml", "yml", "csv", "tsv", "xml",
-    "ini", "cfg", "conf", "rs", "go", "c", "h", "cc", "cpp", "hpp", "cs", "java", "kt", "swift",
-    "ts", "tsx", "css", "scss", "sass", "less", "sql", "diff", "patch", "lock", "pdf", "png",
-    "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
+    "txt", "md", "markdown", "log", "json", "jsonc", "toml", "yaml", "yml", "csv", "tsv", "ini",
+    "cfg", "conf", "rs", "go", "c", "h", "cc", "cpp", "hpp", "cs", "java", "kt", "swift", "ts",
+    "tsx", "css", "scss", "sass", "less", "sql", "diff", "patch", "lock", "pdf", "png", "jpg",
+    "jpeg", "gif", "webp", "bmp", "ico",
 ];
 
 /// macOS bundle folders: `open` would launch or install them.
@@ -233,6 +238,13 @@ fn action_for(text: &str, macos: bool) -> Result<Action, PathLinkError> {
     let path = local_path(text).ok_or(PathLinkError::NotLocal)?;
     if on_network_drive(&path) {
         return Err(PathLinkError::NotLocal);
+    }
+    match crate::no_links::metadata(&path, Links::FollowLocal) {
+        Err(NoLinksError::Unreadable { .. }) => return Err(PathLinkError::NotFound),
+        Err(NoLinksError::Link(_) | NoLinksError::Remote(_) | NoLinksError::TooManyLinks) => {
+            return Err(PathLinkError::NotLocal)
+        }
+        Ok(_) => {}
     }
     let real = real_path(&path).ok_or(PathLinkError::NotFound)?;
     let meta = fs::metadata(&real).map_err(|_| PathLinkError::NotFound)?;
@@ -374,7 +386,6 @@ mod tests {
             "report.pdf",
             "data.json",
             "main.rs",
-            "a.svg",
         ] {
             assert!(opens_directly(Path::new(name)), "{name}");
         }
@@ -387,6 +398,8 @@ mod tests {
             "tool.js",
             "s.py",
             "page.html",
+            "x.svg",
+            "x.xml",
             "help.chm",
             "Makefile",
             "archive.zip",
@@ -469,6 +482,82 @@ mod tests {
                 );
             }
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn links_to_local_folders_are_followed() {
+        let dir = test_dir("path_links_link");
+        let target = dir.join("target");
+        fs::create_dir_all(target.join("inner")).unwrap();
+        fs::write(target.join("marker.md"), "marker").unwrap();
+        fs::write(target.join("marker.cmd"), "rem marker").unwrap();
+        let link = dir.join("linked");
+        // A run that failed halfway leaves the link behind.
+        let _ = fs::remove_dir(&link);
+        crate::no_links::tests::folder_link(&link, &target);
+        assert!(link.join("marker.md").is_file(), "the link works");
+        let found = kinds(&[
+            text(&link.join("marker.md")),
+            text(&link.join("inner")),
+            text(&link.join("inner").join("missing.md")),
+            text(&link),
+        ])
+        .unwrap();
+        assert_eq!(
+            found,
+            vec![
+                Some(PathKind::File),
+                Some(PathKind::Dir),
+                None,
+                Some(PathKind::Dir)
+            ]
+        );
+        // Decided on the real path behind the link.
+        assert_eq!(
+            action(&text(&link.join("marker.md"))).unwrap(),
+            Action::OpenFile(target.join("marker.md"))
+        );
+        assert_eq!(
+            action(&text(&link.join("marker.cmd"))).unwrap(),
+            Action::Reveal(target.join("marker.cmd"))
+        );
+        assert_eq!(
+            action(&text(&link)).unwrap(),
+            Action::OpenFolder(target.clone())
+        );
+        fs::remove_dir(&link)
+            .or_else(|_| fs::remove_file(&link))
+            .unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn links_to_network_paths_are_neither_looked_up_nor_opened() {
+        let dir = test_dir("path_links_remote");
+        let link = dir.join("share");
+        let _ = fs::remove_dir(&link).or_else(|_| fs::remove_file(&link));
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(r"\\nonexistent.invalid\share", &link);
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink("//nonexistent.invalid/share", &link);
+        if let Err(error) = made {
+            // Symlinks need developer mode or a privilege on Windows, and a junction cannot
+            // point to a UNC path; no_links tests the target rule by itself.
+            eprintln!("no symlink allowed here ({error}), skipping");
+            fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+        let printed = text(&link.join("notes.md"));
+        assert_eq!(
+            kinds(&[printed.clone(), text(&link)]).unwrap(),
+            vec![None, None]
+        );
+        assert!(matches!(action(&printed), Err(PathLinkError::NotLocal)));
+        assert!(matches!(action(&text(&link)), Err(PathLinkError::NotLocal)));
+        fs::remove_dir(&link)
+            .or_else(|_| fs::remove_file(&link))
+            .unwrap();
         fs::remove_dir_all(&dir).unwrap();
     }
 
