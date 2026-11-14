@@ -212,7 +212,7 @@ import {
   type Shortcut,
 } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
-import { useSidebarMotion } from "./sidebarMotion";
+import { useSidebarMotion, useWindowResizing } from "./sidebarMotion";
 import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
@@ -509,6 +509,7 @@ export function App() {
   /** The app grid; its sidebar column glides when the sidebar folds (sidebarMotion.ts). */
   const appGrid = useRef<HTMLDivElement>(null);
   useSidebarMotion(appGrid, layout.collapsed, layout.sidebarWidth);
+  useWindowResizing();
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
@@ -1849,7 +1850,7 @@ export function App() {
         const info = await api.createSession(
           profile.id,
           worktree?.path ?? base,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           false,
           null,
@@ -1949,7 +1950,7 @@ export function App() {
         // No working folder from here: the backend uses the profile's or the home folder.
         const info = await api.createUpdateSession(
           profileId,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           updatesRef.current.get(profileId)?.planId ?? null,
         );
@@ -2076,7 +2077,7 @@ export function App() {
         const info = await api.createSession(
           saved.profileId,
           saved.cwd,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           true,
           saved.cliSessionId,
@@ -2132,7 +2133,7 @@ export function App() {
           const info = await api.createSession(
             session.profileId,
             session.cwd,
-            terminal.size(),
+            terminal.startSize(),
             terminal.createChannel(),
             true,
             session.cliSessionId ?? null,
@@ -2156,7 +2157,7 @@ export function App() {
       }
       try {
         terminal.markRestarted();
-        const info = await api.restart(id, terminal.size(), terminal.createChannel());
+        const info = await api.restart(id, terminal.startSize(), terminal.createChannel());
         dispatch({ type: "updated", session: info });
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id, code: terminal.exitCode });

@@ -28,6 +28,7 @@ import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
 import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
+import { PtySizeSync } from "./ptySize";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
 import { tailLines } from "./overview";
@@ -133,6 +134,12 @@ export class SessionTerminal {
   private pendingInput = "";
   /** Last write to the backend; broadcast waits for it before sending Enter. */
   private lastWrite: Promise<unknown> = Promise.resolve();
+  /** New terminal sizes for the PTY, once a drag rests (ptySize.ts). */
+  private readonly ptySize = new PtySizeSync((id, size) => {
+    // The program redraws for the resize; that output is not work (attention.ts).
+    this.attention.resized();
+    api.resize(id, size).catch(ignore);
+  });
   private opened = false;
   private disposed = false;
   /** `undefined`: still running. Set as soon as the exit event arrives. */
@@ -262,7 +269,7 @@ export class SessionTerminal {
     });
     this.term.onResize(({ cols, rows }) => {
       this.attention.resized();
-      if (this.id !== null) api.resize(this.id, { cols, rows }).catch(ignore);
+      this.ptySize.resized({ cols, rows });
     });
     this.term.attachCustomKeyEventHandler((event) => this.handleKey(event));
   }
@@ -305,10 +312,19 @@ export class SessionTerminal {
       api.ack(id, this.pendingAck).catch(ignore);
       this.pendingAck = 0;
     }
+    this.ptySize.attach(id);
   }
 
   size(): TermSize {
     return { cols: this.term.cols, rows: this.term.rows };
+  }
+
+  /**
+   * The size a new process starts with (create, restart); by default the terminal's own. The PTY
+   * then has it, so a resize to the same size is not sent again.
+   */
+  startSize(size: TermSize = this.size()): TermSize {
+    return this.ptySize.started(size);
   }
 
   mount(host: HTMLElement): void {
@@ -778,6 +794,7 @@ export class SessionTerminal {
     this.onDevServer = null;
     this.attentionListener = null;
     this.searchListener = null;
+    this.ptySize.dispose();
     this.attention.dispose();
     this.term.dispose();
   }

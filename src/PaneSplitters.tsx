@@ -9,7 +9,7 @@ import {
   type AreaSize,
   type ZoneSplitter,
 } from "./paneRatios";
-import { paneResizing } from "./sidebarMotion";
+import { paneResizing, SPLITTER_KEY_SETTLE_MS } from "./sidebarMotion";
 import type { LayoutId, Ratios } from "./snapLayouts";
 
 interface Props {
@@ -26,8 +26,6 @@ const OUTER = 6;
 const INNER = 3;
 /** Grab width of a splitter (px); it is centered on the gap between two panes. */
 const GRAB = 8;
-/** After the last arrow key press, the terminals fit after this pause (ms). */
-const KEY_SETTLE_MS = 250;
 
 /** Position of a splitter in the panes area: on the gap, as long as the panes beside it. */
 function splitterStyle(splitter: ZoneSplitter): React.CSSProperties {
@@ -167,7 +165,7 @@ export function PaneSplitters({ layout, ratios, onChange, onReset, label: name }
               window.clearTimeout(keyTimer.current);
               keyTimer.current = window.setTimeout(() => {
                 paneResizing.setMoving(false);
-              }, KEY_SETTLE_MS);
+              }, SPLITTER_KEY_SETTLE_MS);
               onChange(next);
             }}
           />

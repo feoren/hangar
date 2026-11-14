@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import type { AttentionState } from "./attention";
 import { Badge } from "./Badge";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
-import { paneResizing, sidebarMotion } from "./sidebarMotion";
+import { paneResizing, sidebarMotion, windowResizing } from "./sidebarMotion";
 import type { SessionView } from "./sessions";
 import { zoneRect, type LayoutId, type Ratios } from "./snapLayouts";
 import type { SessionTerminal } from "./terminal";
@@ -77,26 +77,40 @@ export function TerminalPane(props: Props) {
   const { terminal, sessionId, active, visible, split, dropping } = props;
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
+  const shown = useRef(visible);
+  const fitRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     terminal.mount(element);
-    // While the sidebar folds or a splitter between panes moves, the fit waits for the end of
-    // the motion (sidebarMotion.ts); one stable function, so it waits at most once per gate.
+    // While the sidebar folds or a splitter moves, the fit waits for the end of the motion
+    // (sidebarMotion.ts). While the window is resized, only the panes on screen follow; hidden
+    // ones fit once it rests. One stable function, so it waits at most once per gate.
     const fit = () => {
       if (sidebarMotion.isMoving) sidebarMotion.whenSettled(fit);
       else if (paneResizing.isMoving) paneResizing.whenSettled(fit);
+      else if (windowResizing.isMoving && !shown.current) windowResizing.whenSettled(fit);
       else terminal.fit();
     };
+    fitRef.current = fit;
     const observer = new ResizeObserver(fit);
     observer.observe(element);
     return () => {
       observer.disconnect();
+      fitRef.current = null;
       sidebarMotion.forget(fit);
       paneResizing.forget(fit);
+      windowResizing.forget(fit);
     };
   }, [terminal]);
+
+  // Before the observer can fire for the new layout. A pane shown while the window still moves
+  // does not wait for the rest of the drag.
+  useLayoutEffect(() => {
+    shown.current = visible;
+    if (visible && windowResizing.isMoving) fitRef.current?.();
+  }, [visible]);
 
   useEffect(() => {
     if (!active) return;
