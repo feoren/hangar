@@ -61,13 +61,16 @@ export interface StatusLine {
   word: string;
   /** The whole sentence for the peek and screen readers: "Claude Code has been working for 3 min". */
   full: string;
+  /** Word and sentence are the stall hint ("quiet", "nothing new for 7 min"), not the state. */
+  stalled?: boolean;
 }
 
 /**
  * The row's state as one word ("working"), and for the peek the whole sentence with the program as
  * its subject ("Claude Code has been working for 3 min"). Working and resting say for how long
  * once that is a minute or more; waiting and ended sessions keep the plain phrase (the exit detail
- * lives in the peek).
+ * lives in the peek). A working session that has shown nothing new since `stalledSince`
+ * (stall.ts) says so instead, quietly, in the same place.
  */
 export function statusLine(
   agent: string,
@@ -78,8 +81,20 @@ export function statusLine(
   t: Translate,
   language: string,
   reason: AttentionReason | null = null,
+  stalledSince: number | null = null,
 ): StatusLine {
   const phrase = statusPhrase(session, attention, reason);
+  const stalledFor =
+    phrase === "working" && stalledSince !== null
+      ? formatDuration(now - stalledSince, language)
+      : null;
+  if (stalledFor !== null) {
+    return {
+      word: t("stall.short"),
+      full: t("stall.agent", { agent, duration: stalledFor }),
+      stalled: true,
+    };
+  }
   const since =
     phrase === "working" ? activity.workingSince : phrase === "idle" ? activity.lastOutput : null;
   const duration = since === null ? null : formatDuration(now - since, language);

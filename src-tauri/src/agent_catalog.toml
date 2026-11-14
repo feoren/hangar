@@ -106,6 +106,20 @@
 #                    Without a plan Hangar shows install_* for copying only.
 #                    Values and evidence: docs/wiki/pages/agents/updates.md,
 #                    docs/wiki/pages/sources/update-installers.md.
+#   agent_commands   Optional. Commands the session menu and quick access offer for a running
+#                    session of the program, typed in as a bracketed paste:
+#                    { label_key = "compact", text = "/compact", submit = true, confirm = false }.
+#                    Exactly one of label_key (a label Hangar translates: compact, clear, new,
+#                    model, usage, context, status, stats) or label (own text, up to 40
+#                    characters). text: one line, up to 200 characters, no leading space,
+#                    each text once.
+#                    submit (default true): Enter follows. confirm (default false): ask first,
+#                    for commands that throw the conversation away. label_key = "compact" is
+#                    also what the context meter's compact button sends from 80 % context use.
+#                    A user profile with the same id and program inherits them and adds its
+#                    own; an own command with the same text replaces the catalog's. Only
+#                    commands found in the installed program or its docs:
+#                    docs/wiki/pages/syntheses/agent-commands.md.
 #
 # Source of all entries: official vendor docs, as of 2026-11-07
 # (docs/wiki/raw/2026-11-07-agent-clis-research.md, rules in docs/wiki/pages/agents/catalog.md).
@@ -128,6 +142,15 @@ capabilities = { pre_edit_block = true, context_inject = true, per_session_confi
 # input error, not "unknown option"). No file form is listed as an option.
 instruction_args = ["--append-system-prompt={text}"]
 prompt_args = ["{prompt}"]
+# Command table of the 2.1.325 binary (/usage has the aliases cost and stats):
+# docs/wiki/pages/sources/agent-commands-measurement.md.
+agent_commands = [
+  { label_key = "compact", text = "/compact" },
+  { label_key = "context", text = "/context" },
+  { label_key = "usage", text = "/usage" },
+  { label_key = "model", text = "/model" },
+  { label_key = "clear", text = "/clear", confirm = true },
+]
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
@@ -154,6 +177,14 @@ capabilities = { pre_edit_block = true, context_inject = false, per_session_conf
 # `developer_instructions` is a top-level key of its config (found in the 0.169.0 binary).
 instruction_args = ["-c", "developer_instructions={toml_text}"]
 prompt_args = ["{prompt}"]
+# Command names and help texts of the 0.169.0 binary:
+# docs/wiki/pages/sources/agent-commands-measurement.md.
+agent_commands = [
+  { label_key = "compact", text = "/compact" },
+  { label_key = "status", text = "/status" },
+  { label_key = "model", text = "/model" },
+  { label_key = "new", text = "/new", confirm = true },
+]
 icon = "Cx"
 homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
@@ -172,6 +203,14 @@ resume_args = ["--resume"]
 # folder is trusted for the session (GEMINI_CLI_TRUST_WORKSPACE). Recipe built, live measurement
 # pending (measured = false keeps it off): docs/wiki/pages/syntheses/agent-gate-adapters.md.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "gemini_system_settings", measured = false, min_version = "0.68.0" }
+# From the vendor's command reference (not installed here, so not read from a binary):
+# docs/wiki/pages/sources/agent-commands-measurement.md.
+agent_commands = [
+  { label_key = "compact", text = "/compress" },
+  { label_key = "stats", text = "/stats" },
+  { label_key = "model", text = "/model" },
+  { label_key = "clear", text = "/clear", confirm = true },
+]
 icon = "G"
 homepage = "https://github.com/google-gemini/gemini-cli"
 install_windows = "npm install -g @google/gemini-cli"

@@ -14,6 +14,7 @@ use crate::agent_catalog::ProfileView;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
+use crate::daily_review::{self, DailyReview, ReviewError};
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
@@ -22,7 +23,7 @@ use crate::file_viewer::{
 };
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_rules::GateRule;
-use crate::gate_service::GateService;
+use crate::gate_service::{GateService, GuardInfo};
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
@@ -46,9 +47,10 @@ use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
+use crate::report::{self, ReportError};
 use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
-use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
+use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode, Status};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::system_usage::{SystemMonitor, SystemUsage};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
@@ -57,7 +59,9 @@ use crate::team_share::SessionState;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
+use crate::work_log::{self, WorkLog, WorkLogError};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
+use crate::worktree_cleanup;
 
 /// Result of loading the profiles at startup. A broken profile file must not keep the app from
 /// starting; it shows up as an error in the window instead. A successful reload
@@ -85,6 +89,41 @@ fn channel_sink(channel: Channel<SessionEvent>) -> impl EventSink {
     move |event| {
         // A send error means the window is gone. Then there is nobody left to tell.
         let _ = channel.send(event);
+    }
+}
+
+/// Passes every event on and writes the work log's end record when the process exits.
+/// `session` is set once the start returned the id.
+fn work_log_sink(
+    log: WorkLog,
+    session: Arc<OnceLock<SessionId>>,
+    inner: impl EventSink,
+) -> impl EventSink {
+    move |event: SessionEvent| {
+        if matches!(event, SessionEvent::Exit { .. }) {
+            if let Some(id) = session.get() {
+                log.ended(*id, work_log::now_ms());
+            }
+        }
+        inner.emit(event);
+    }
+}
+
+/// The work log's start record of a session that just started (ADR 0011).
+fn log_started(log: &WorkLog, manager: &SessionManager, info: &SessionInfo) {
+    let names = manager.profile_names();
+    let program = names
+        .get(&info.profile_id)
+        .map_or(info.profile_id.as_str(), String::as_str);
+    let now = work_log::now_ms();
+    log.started(info, program, now);
+    // A process that exited before its id was known reported the exit to nobody.
+    let exited = manager
+        .list()
+        .iter()
+        .any(|session| session.id == info.id && session.status == Status::Exited);
+    if exited {
+        log.ended(info.id, now);
     }
 }
 
@@ -504,6 +543,7 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 #[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
 pub fn create_session(
     manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
     profile_id: String,
     cwd: Option<PathBuf>,
     size: TermSize,
@@ -514,8 +554,14 @@ pub fn create_session(
     instructions: Option<bool>,
     start_prompt: Option<StartPrompt>,
 ) -> Result<SessionInfo, ManagerError> {
+    let session = Arc::new(OnceLock::new());
+    let sink = work_log_sink(
+        work_log.inner().clone(),
+        Arc::clone(&session),
+        channel_sink(on_event),
+    );
     // Optional, so existing calls without the later arguments stay valid.
-    manager.create_requested(
+    let info = manager.create_requested(
         &profile_id,
         cwd,
         size,
@@ -526,8 +572,11 @@ pub fn create_session(
             instructions: instructions.unwrap_or(false),
             prompt: start_prompt,
         },
-        channel_sink(on_event),
-    )
+        sink,
+    )?;
+    let _ = session.set(info.id);
+    log_started(&work_log, &manager, &info);
+    Ok(info)
 }
 
 /// Opens exactly this machine's `HANGAR.md` in the default editor; if it is missing, it is
@@ -612,6 +661,7 @@ pub fn restart_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     watchers: State<'_, Watchers>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
     size: TermSize,
     on_event: Channel<SessionEvent>,
@@ -627,8 +677,11 @@ pub fn restart_session(
         let _ = watch.session.set(id);
         manager.restart(id, size, update_sink(app, on_event, watch))
     } else {
-        manager.restart(id, size, channel_sink(on_event))
+        let session = Arc::new(OnceLock::from(id));
+        let sink = work_log_sink(work_log.inner().clone(), session, channel_sink(on_event));
+        manager.restart(id, size, sink)
     }?;
+    log_started(&work_log, &manager, &info);
     // The restart runs under a new conversation id; a watch would keep following the old one.
     // The window starts a new watch with the returned `SessionInfo` if it wants one.
     watchers.stop(id);
@@ -638,10 +691,13 @@ pub fn restart_session(
 #[tauri::command]
 pub fn rename_session(
     manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
     title: String,
 ) -> Result<SessionInfo, ManagerError> {
-    manager.rename(id, &title)
+    let info = manager.rename(id, &title)?;
+    work_log.renamed(id, &info.title);
+    Ok(info)
 }
 
 /// Also withdraws the session's desktop notification, off the main thread, and ends its
@@ -651,9 +707,11 @@ pub fn close_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     watchers: State<'_, Watchers>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
 ) -> Result<(), ManagerError> {
     manager.close(id)?;
+    work_log.ended(id, work_log::now_ms());
     watchers.stop(id);
     tauri::async_runtime::spawn_blocking(move || app.state::<Notifier>().forget(id));
     Ok(())
@@ -1416,6 +1474,13 @@ pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
     .unwrap_or_default()
 }
 
+/// Whether the machine runs on battery, read afresh (power.rs); later changes arrive as
+/// `power-changed` events with the same shape. One system call or a few small sysfs files.
+#[tauri::command]
+pub fn power_state(monitor: State<'_, crate::power::PowerMonitor>) -> crate::power::PowerState {
+    monitor.refresh(crate::power::read())
+}
+
 /// The keychain may take a moment or ask the user, hence on a blocking thread.
 async fn push_blocking<T: Send + 'static>(
     app: tauri::AppHandle,
@@ -1493,6 +1558,17 @@ pub async fn git_branches(paths: Vec<String>) -> Result<HashMap<String, Option<S
         .map_err(|error| GitError::Task(error.to_string()))?
 }
 
+/// Repository place per folder for the project overview (`git::RepoPlace`): the work tree and
+/// the repository's main folder, read from `.git` files without a process, like `git_branches`.
+#[tauri::command]
+pub async fn git_repo_places(
+    paths: Vec<String>,
+) -> Result<HashMap<String, Option<git::RepoPlace>>, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::repo_places(&paths))
+        .await
+        .map_err(|error| GitError::Task(error.to_string()))?
+}
+
 #[tauri::command]
 pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
     tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
@@ -1516,6 +1592,38 @@ pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, Activity
     tauri::async_runtime::spawn_blocking(move || git_activity::activity(&Git::locate()?, &folders))
         .await
         .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
+}
+
+/// A working phase of a session ended (`from`, `to` in Unix ms); the window reports one event
+/// per phase, never per output chunk. Only times: the backend adds the session's details.
+#[tauri::command]
+pub async fn log_work_phase(
+    work_log: State<'_, WorkLog>,
+    id: SessionId,
+    from: i64,
+    to: i64,
+) -> Result<(), WorkLogError> {
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || log.phase(id, from, to, work_log::now_ms()))
+        .await
+        .map_err(|error| WorkLogError::Task(error.to_string()))?
+}
+
+/// The daily review of one local day, `[start, end)` in Unix ms as the window computed it
+/// (daily_review.rs, ADR 0011).
+#[tauri::command]
+pub async fn daily_review(
+    work_log: State<'_, WorkLog>,
+    start: i64,
+    end: i64,
+) -> Result<DailyReview, ReviewError> {
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate().ok();
+        daily_review::review(&log, git.as_ref(), start, end, work_log::now_ms())
+    })
+    .await
+    .map_err(|error| ReviewError::Task(error.to_string()))?
 }
 
 /// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.
@@ -1934,15 +2042,20 @@ fn worktrees_dir(store: &Store) -> PathBuf {
     store.dir().join(worktree::DIR_NAME)
 }
 
+/// The new worktree counts as in use for the cleanup until a session works in it.
 #[tauri::command]
 pub async fn create_worktree(
+    app: tauri::AppHandle,
     store: State<'_, Store>,
     cwd: PathBuf,
     label: String,
 ) -> Result<Worktree, WorktreeError> {
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
-        worktree::create(&Git::locate()?, &base, &cwd, &label)
+        let created = worktree::create(&Git::locate()?, &base, &cwd, &label)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .add(&created.path, std::time::Instant::now());
+        Ok(created)
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
@@ -1961,6 +2074,8 @@ pub async fn remove_worktree(
     tauri::async_runtime::spawn_blocking(move || {
         worktree::check_shape(&worktree)?;
         worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .remove(&worktree.path);
         let claims = app.state::<ClaimsService>();
         let released = claims.release(&worktree.path);
         let removal = Git::locate()
@@ -1971,6 +2086,154 @@ pub async fn remove_worktree(
             claims.unrelease(released);
         }
         removal
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Worktree cleanup (worktree_cleanup.rs). Contract: agent-workflow-features.md, "Worktree
+// cleanup".
+
+/// Folders that occupy a worktree: every session's folder (running or ended, still in the
+/// list), every saved session's folder and worktree, which a restart brings back, and the
+/// worktrees created for a session that has not started yet ([`worktree_cleanup::PendingWorktrees`]).
+fn occupied_folders(app: &tauri::AppHandle, store: &Store) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut occupied: Vec<PathBuf> = app
+        .state::<SessionManager>()
+        .list()
+        .into_iter()
+        .map(|info| info.cwd)
+        .collect();
+    let mut roots = Vec::new();
+    if let Some(workspace) = store.load_workspace() {
+        for session in workspace.sessions {
+            occupied.push(session.cwd);
+            if let Some(worktree) = session.worktree {
+                occupied.push(worktree.path);
+                roots.push(worktree.repo_root);
+            }
+        }
+    }
+    let occupied = app
+        .state::<worktree_cleanup::PendingWorktrees>()
+        .with_pending(
+            occupied,
+            std::time::Instant::now(),
+            worktree_cleanup::PENDING_TIMEOUT,
+        );
+    (occupied, roots)
+}
+
+/// The worktrees Hangar created, each with its state. `folders` are the window's folders whose
+/// repositories count too (recent folders, favorites, sessions' repositories), at most
+/// [`worktree_cleanup::MAX_FOLDERS`]; a missing worktree folder is only found through them.
+#[tauri::command]
+pub async fn list_hangar_worktrees(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    folders: Vec<PathBuf>,
+) -> Result<Vec<worktree_cleanup::CleanupEntry>, WorktreeError> {
+    if folders.len() > worktree_cleanup::MAX_FOLDERS {
+        return Err(GitError::TooManyPaths.into());
+    }
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        let (occupied, roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        Ok(worktree_cleanup::list(&cx, &folders, &roots))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Size of one worktree folder below Hangar's worktrees folder, bounded in files and time.
+#[tauri::command]
+pub async fn hangar_worktree_size(
+    store: State<'_, Store>,
+    path: PathBuf,
+) -> Result<worktree_cleanup::WorktreeSize, WorktreeError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree_cleanup::check_measurable(&base, &path)?;
+        Ok(worktree_cleanup::measure(
+            &path,
+            worktree_cleanup::SIZE_MAX_FILES,
+            worktree_cleanup::SIZE_BUDGET,
+        ))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Checks the state again and removes the worktree only when it is still merged or clean.
+#[tauri::command]
+pub async fn remove_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Remove,
+    )
+    .await
+}
+
+/// Checks the state again and drops git's record only when the folder is still missing.
+#[tauri::command]
+pub async fn prune_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Prune,
+    )
+    .await
+}
+
+/// Like [`remove_worktree`], the claims let go of the folder first and take it back when it
+/// stays.
+async fn clean_up_worktree(
+    app: tauri::AppHandle,
+    store: &Store,
+    path: PathBuf,
+    repo_root: PathBuf,
+    action: worktree_cleanup::Action,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        worktree::check_managed(&base, &path, &repo_root)?;
+        let (occupied, _roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        let claims = app.state::<ClaimsService>();
+        let released = claims.release(&path);
+        let outcome = worktree_cleanup::clean_up(&cx, &path, &repo_root, action);
+        if !outcome.as_ref().is_ok_and(|outcome| outcome.done) {
+            claims.unrelease(released);
+        }
+        outcome
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
@@ -2023,6 +2286,19 @@ pub fn gate_rules(gate: State<'_, GateService>) -> Vec<GateRule> {
 #[tauri::command]
 pub fn delete_gate_rule(gate: State<'_, GateService>, id: u64) -> bool {
     gate.delete_rule(id)
+}
+
+/// Turns the command guard on or off (the window's setting; on by default). It applies at once,
+/// also to running team sessions; turning it off lets every held shell command go on.
+#[tauri::command]
+pub fn configure_command_guard(gate: State<'_, GateService>, enabled: bool) {
+    gate.configure_command_guard(enabled);
+}
+
+/// The command guard's rules file, its rules and what could not be read in it.
+#[tauri::command]
+pub fn command_guard_info(gate: State<'_, GateService>) -> GuardInfo {
+    gate.command_guard_info()
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change
@@ -2257,6 +2533,51 @@ pub async fn export_session(
     })
     .await
     .map_err(|error| ExportError::Task(error.to_string()))?
+}
+
+/// Saves the conversation of a session as a Markdown report read from the agent's own
+/// transcript (report/). The backend renders it, then opens the save dialog itself. `None` when
+/// the dialog was cancelled. `utcOffsetMinutes`: the window's offset from UTC for the times shown;
+/// `labels`: the report's headings in the window's language.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn export_report(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    manager: Manager<'_>,
+    session_id: SessionId,
+    title: String,
+    suggested_name: String,
+    utc_offset_minutes: i32,
+    labels: report::Labels,
+) -> Result<Option<String>, ReportError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    let (target, program) = manager.report_target(session_id)?;
+    let source = report::Source {
+        target,
+        program,
+        title,
+    };
+    let labels = labels.cleaned();
+    let name = export::report_file_name(&suggested_name);
+    tauri::async_runtime::spawn_blocking(move || {
+        let content = report::build(&source, &labels, utc_offset_minutes)?;
+        let chosen = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(name)
+            .add_filter(export::NOTE_FILTER, &[export::NOTE_EXTENSION])
+            .blocking_save_file();
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+        export::write(&path, &content)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|error| ReportError::Task(error.to_string()))?
 }
 
 /// Saves the clipboard's image as a PNG in the app's cache folder and returns its path, for the

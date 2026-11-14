@@ -21,8 +21,13 @@ const setup = gateSetup((enabled) => api.configureGate(enabled));
 /** Settles once the backend heard the gate setting for the first time (gate.ts `gateSetup`). */
 export const gateReady: Promise<void> = setup.ready;
 
+/**
+ * `guard`: the command guard's setting, sent whenever it changes; the backend applies it to
+ * running sessions at once, so no start waits for it.
+ */
 export function useGate(
   enabled: boolean,
+  guard: boolean,
   onFresh: (decisions: PendingDecision[]) => void,
 ): GateSnapshot {
   const [snapshot, setSnapshot] = useState<GateSnapshot>(EMPTY_GATE);
@@ -76,6 +81,10 @@ export function useGate(
       current = false;
     };
   }, [enabled]);
+
+  useEffect(() => {
+    api.configureCommandGuard(guard).catch(() => undefined);
+  }, [guard]);
 
   return snapshot;
 }

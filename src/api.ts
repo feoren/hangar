@@ -57,6 +57,27 @@ export interface Profile {
    * (`launcher`: an npm cmd.exe launcher that cannot carry the text). Older backends send none.
    */
   instructions?: InstructionsReach;
+  /**
+   * Rust `AgentCommand` list (agent_commands.rs): what the session menu can type into a running
+   * session of the program, the catalog's first. Older backends send none.
+   */
+  agentCommands?: AgentCommand[];
+}
+
+/** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */
+export type AgentCommandLabel =
+  "compact" | "clear" | "new" | "model" | "usage" | "context" | "status" | "stats";
+
+/** Rust `AgentCommand`: exactly one of `labelKey` and `label` is set. */
+export interface AgentCommand {
+  labelKey?: AgentCommandLabel;
+  label?: string;
+  /** Typed into the session as a bracketed paste. */
+  text: string;
+  /** Enter follows the text. */
+  submit: boolean;
+  /** Ask before sending (the command throws the conversation away). */
+  confirm: boolean;
 }
 
 export type InstructionsReach = "none" | "yes" | "launcher";
@@ -358,6 +379,26 @@ export const api = {
   exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
     invoke<unknown>("export_session", { format, content, suggestedName }),
   /**
+   * Saves the session's conversation as a Markdown report, read by the backend from the agent's
+   * own transcript (only for sessions with `subAgents`, see `canExportReport`). The backend
+   * renders it, opens the save dialog itself and writes at most 32 MiB. Check with
+   * `parseExportResult`.
+   */
+  exportReport: (
+    sessionId: number,
+    title: string,
+    suggestedName: string,
+    utcOffsetMinutes: number,
+    labels: ReportLabels,
+  ) =>
+    invoke<unknown>("export_report", {
+      sessionId,
+      title,
+      suggestedName,
+      utcOffsetMinutes,
+      labels,
+    }),
+  /**
    * Saves the clipboard's image as a PNG in the app's cache folder (removed after a week): its
    * path, `noImage`, or `busy` while another paste runs. Rejects with a message when reading or
    * saving fails.
@@ -375,6 +416,8 @@ export const api = {
   sessionResources: () => invoke<unknown>("session_resources"),
   /** CPU, memory and GPU of the whole machine in percent (systemUsage.ts parses it). */
   systemUsage: () => invoke<unknown>("system_usage"),
+  /** Battery or AC, read afresh (power.ts parses it). */
+  powerState: () => invoke<unknown>("power_state"),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
   pushSettings: () => invoke<unknown>("push_settings"),
   /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */
@@ -413,6 +456,12 @@ export const api = {
    */
   gitBranches: (paths: string[]) => invoke<unknown>("git_branches", { paths }),
   /**
+   * Repository place per folder (at most 64, read from `.git`, no process): the checkout and the
+   * repository's main folder (a linked worktree names its repository), or `null` outside one.
+   * Check with `parseRepoPlaces` (projectCards.ts).
+   */
+  gitRepoPlaces: (paths: string[]) => invoke<unknown>("git_repo_places", { paths }),
+  /**
    * Changes of a working folder against HEAD (at most 2 MiB of diff text). Check with
    * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
    */
@@ -428,6 +477,12 @@ export const api = {
    * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
    */
   gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
+  // Work log and daily review (ADR 0011).
+  /** A working phase of the session ended; times in Unix ms. The backend adds the details. */
+  logWorkPhase: (id: number, from: number, to: number) =>
+    invoke<null>("log_work_phase", { id, from, to }),
+  /** One local day `[start, end)` in Unix ms. Check with `parseDailyReview` (dailyReview.ts). */
+  dailyReview: (start: number, end: number) => invoke<unknown>("daily_review", { start, end }),
   /**
    * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
    * 1..=100. Check with `parseGitLog` (gitHistory.ts).
@@ -488,6 +543,22 @@ export const api = {
   /** Never forces; what stays is named in `reason`. Check with `parseRemoval`. */
   removeWorktree: (worktree: Worktree) => invoke<unknown>("remove_worktree", { worktree }),
   /**
+   * The worktrees Hangar created, with their state; `folders` add their repositories to the
+   * search (at most 64). Check with `parseCleanupEntries` (worktreeCleanup.ts).
+   */
+  listHangarWorktrees: (folders: string[]) => invoke<unknown>("list_hangar_worktrees", { folders }),
+  /** Bounded size of one listed worktree folder; check with `parseWorktreeSize`. */
+  hangarWorktreeSize: (path: string) => invoke<unknown>("hangar_worktree_size", { path }),
+  /**
+   * Removes a listed worktree after the backend checked its state again; check with
+   * `parseCleanupOutcome`.
+   */
+  removeHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("remove_hangar_worktree", { path, repoRoot }),
+  /** Drops git's record of a worktree whose folder is gone, after checking again. */
+  pruneHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("prune_hangar_worktree", { path, repoRoot }),
+  /**
    * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
    * While on, the backend emits `claims-changed` with every new snapshot.
    */
@@ -507,6 +578,13 @@ export const api = {
   gateRules: () => invoke<unknown>("gate_rules"),
   /** `false`: no rule has that id (deleted meanwhile). */
   deleteGateRule: (id: number) => invoke<boolean>("delete_gate_rule", { id }),
+  /**
+   * Turns the command guard (backend command_guard.rs) on or off; it applies to running team
+   * sessions at once, and turning it off lets every held shell command go on.
+   */
+  configureCommandGuard: (enabled: boolean) => invoke<null>("configure_command_guard", { enabled }),
+  /** The guard's rules file, rules and problems; check with `parseGuardInfo`. */
+  commandGuardInfo: () => invoke<unknown>("command_guard_info"),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */
@@ -583,6 +661,25 @@ export const api = {
     invoke<null>("configure_tray", { enabled, labels }),
 };
 
+/** Headings of a session report in the window's language (Rust: `Labels` in report/mod.rs). */
+export interface ReportLabels {
+  program: string;
+  folder: string;
+  branch: string;
+  started: string;
+  lastActivity: string;
+  duration: string;
+  conversation: string;
+  subAgent: string;
+  /** Holds `{count}`. */
+  tokens: string;
+  compacted: string;
+  earlierLeftOut: string;
+  changedFiles: string;
+  commits: string;
+  none: string;
+}
+
 /** Menu texts and tooltip of the notification area icon (Rust: `TrayLabels` in tray.rs). */
 export interface TrayLabels {
   open: string;
@@ -596,6 +693,8 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
+/** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */
+export const POWER_CHANGED = "power-changed";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */

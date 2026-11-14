@@ -38,12 +38,14 @@ describe("parseSettings", () => {
       },
       dotAnimation: "wave",
       quietSeconds: 10,
+      stallMinutes: 12,
       taskbarFlash: false,
       notifyDesktop: false,
       chime: false,
       chimeVolume: 70,
       quietHours: { enabled: true, from: 1380, to: 360 },
       showResources: false,
+      powerSaving: false,
       keepInTray: true,
       showVersions: false,
       showIcons: false,
@@ -54,6 +56,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: false,
       claimsEnabled: false,
       gateEnabled: false,
+      commandGuardEnabled: false,
       hangarMd: false,
       worktreeUpstreamCheck: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
@@ -81,6 +84,7 @@ describe("parseSettings", () => {
       taskbarFlash: "yes",
       notifyDesktop: "no",
       showResources: "off",
+      powerSaving: "yes",
       keepInTray: 1,
       showVersions: "no",
       showIcons: null,
@@ -91,6 +95,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
+      commandGuardEnabled: "on",
       dotAnimation: "spin",
       sessionGrouping: "folder",
     };
@@ -241,6 +246,17 @@ describe("parseSettings", () => {
     expect(parse(4.6)).toBe(5);
   });
 
+  it("hints at a stuck agent after five minutes by default, 0 turns it off", () => {
+    expect(defaultSettings("de").stallMinutes).toBe(5);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").stallMinutes).toBe(5);
+    const parse = (stallMinutes: unknown) =>
+      parseSettings(JSON.stringify({ stallMinutes }), "de").stallMinutes;
+    expect(parse(0)).toBe(0);
+    expect(parse(12)).toBe(12);
+    expect(parse(999)).toBe(30);
+    expect(parse("7")).toBe(5);
+  });
+
   it("flashes the taskbar by default, also for older settings", () => {
     expect(defaultSettings("de").taskbarFlash).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").taskbarFlash).toBe(true);
@@ -259,6 +275,12 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ showResources: false }), "de").showResources).toBe(false);
+  });
+
+  it("saves energy on battery by default, also for older settings", () => {
+    expect(defaultSettings("de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ powerSaving: false }), "de").powerSaving).toBe(false);
   });
 
   it("remembers sessions and checks for program updates by default", () => {

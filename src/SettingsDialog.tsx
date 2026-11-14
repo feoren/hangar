@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
 
+import { CommandGuardSettings } from "./CommandGuardSettings";
 import { Dialog } from "./Dialog";
 import { GateRulesSettings } from "./GateRulesSettings";
 import {
@@ -510,6 +511,13 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
           <> {t("settings.gateNeedsClaims", { setting: t("settings.claims") })}</>
         )}
       </p>
+      <CommandGuardSettings
+        enabled={settings.commandGuardEnabled}
+        available={settings.gateEnabled && settings.claimsEnabled}
+        onChange={(enabled) => {
+          onChange({ commandGuardEnabled: enabled });
+        }}
+      />
       <GateRulesSettings language={settings.language} />
     </section>
   );

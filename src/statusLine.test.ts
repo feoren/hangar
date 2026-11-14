@@ -157,6 +157,46 @@ describe("statusLine", () => {
   });
 });
 
+describe("stall hint in the status line", () => {
+  const working = { workingSince: NOW - 20 * MINUTE, lastOutput: NOW };
+  const line = (
+    state: Parameters<typeof statusLine>[2],
+    stalledSince: number | null,
+    extra: Partial<SessionView> = {},
+    reason: Parameters<typeof statusLine>[7] = null,
+  ) =>
+    statusLine("Claude Code", session(extra), state, working, NOW, t, "en", reason, stalledSince);
+
+  it("names the stall in one word and says how long in the sentence", () => {
+    const stalled = line("working", NOW - 7 * MINUTE);
+    expect(stalled.word).toBe("quiet");
+    expect(stalled.full).toBe("Claude Code has shown nothing new for 7 min");
+    expect(stalled.stalled).toBe(true);
+    const german = statusLine(
+      "Claude Code",
+      session(),
+      "working",
+      working,
+      NOW,
+      createTranslator("de"),
+      "de",
+      null,
+      NOW - 7 * MINUTE,
+    );
+    expect(german.word).toBe("still");
+    expect(german.full).toBe("Claude Code zeigt seit 7 Min. nichts Neues");
+  });
+
+  it("never shows for done, asks, failed or ended sessions", () => {
+    const since = NOW - 7 * MINUTE;
+    expect(line("attention", since, {}, "quiet").stalled).toBeUndefined();
+    expect(line("attention", since, {}, "bell").stalled).toBeUndefined();
+    expect(line("idle", since, { status: "exited", exitCode: 1 }).stalled).toBeUndefined();
+    expect(line("idle", since).stalled).toBeUndefined();
+    expect(line("working", null).word).toBe(t("status.short.working"));
+  });
+});
+
 describe("detailLine", () => {
   it("names the folder, the branch and the run time", () => {
     expect(detailLine(session(), "main", NOW, "en")).toEqual({

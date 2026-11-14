@@ -25,6 +25,7 @@ import {
   parseExportResult,
   TRAY_QUIT,
   parsePathIndex,
+  type AgentCommand,
   type NoteFolder,
   type Profile,
   type SessionInfo,
@@ -85,7 +86,18 @@ import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
-import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
+import { queueOffer, sessionMenuEntries, stallOffer, type SessionAction } from "./sessionMenu";
+import { canExportReport, reportLabels, utcOffsetMinutes } from "./sessionReport";
+import {
+  asksQuestion,
+  awaitsAnswer,
+  commandBusy,
+  commandMenuEntries,
+  compactRepeated,
+  sendCommand,
+  sessionCommands,
+} from "./agentCommands";
+import { AgentCommandConfirm } from "./AgentCommandConfirm";
 import {
   newSnippetId,
   usableSnippets,
@@ -146,7 +158,32 @@ import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote"
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
-import { setResourcesEnabled } from "./useSessionResources";
+import {
+  isPowerSaving,
+  onPowerSavingChange,
+  setPowerSavingEnabled,
+  startPowerWatch,
+} from "./usePower";
+import { pollInterval } from "./power";
+import { observeResources, setResourcesEnabled } from "./useSessionResources";
+import {
+  discardMessage,
+  loadStoredQueue,
+  guardedEnd,
+  phaseEnded,
+  phaseEnd,
+  saveMessage,
+  queueMessage,
+  restoredQueue,
+  saveStoredQueue,
+  storedQueue,
+  workStarted,
+  type MessageQueue,
+  type QueuedMessage,
+} from "./messageQueue";
+import { looksLikeQuestion } from "./promptGuard";
+import { QueueDialog } from "./QueueDialog";
+import { StallMonitor, stallThresholdMs, wallClock } from "./stall";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
 import {
@@ -298,6 +335,11 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
+import { WorktreeCleanupDialog } from "./WorktreeCleanupDialog";
+import { cleanupFolders } from "./worktreeCleanup";
+import { ProjectOverview } from "./ProjectOverview";
+import { DailyReviewDialog } from "./DailyReviewDialog";
+import { PhaseRecorder, type WorkPhase } from "./dailyReview";
 import { tailLines } from "./overview";
 import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
@@ -372,7 +414,31 @@ const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog =
-  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
+  | "about"
+  | "settings"
+  | "whatsNew"
+  | "launcher"
+  | "broadcast"
+  | "searchAll"
+  | "overview"
+  | "worktreeCleanup"
+  | "dailyReview"
+  | null;
+
+/**
+ * Working phases of the sessions for the work log (ADR 0011): one event when a phase ends,
+ * never per output chunk. Module wide like `terminals`: one window, one recorder.
+ */
+const phases = new PhaseRecorder();
+
+function reportPhase(phase: WorkPhase | null): Promise<void> {
+  if (phase === null) return Promise.resolve();
+  // The log is a convenience; a failed write must not disturb the session.
+  return api.logWorkPhase(phase.id, phase.from, phase.to).then(
+    () => undefined,
+    () => undefined,
+  );
+}
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -602,6 +668,34 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** The commands submenu of a session (session menu, "Commands …"), at the menu's place. */
+  const [commandMenu, setCommandMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** A command with `confirm` that waits for the answer of its dialog. */
+  const [commandAsk, setCommandAsk] = useState<{ id: number; command: AgentCommand } | null>(null);
+  /** When each session last got a compact from its row button (the click's `timeStamp`). */
+  const compactSentAt = useRef(new Map<number, number>());
+  /**
+   * Queued messages per session key (messageQueue.ts). The ref is the truth the attention
+   * listener reads and writes outside React; the state renders it.
+   */
+  const [queue, setQueue] = useState<MessageQueue>(() => restoredQueue(loadStoredQueue()));
+  const queueRef = useRef<MessageQueue>(queue);
+  const changeQueue = useCallback((next: MessageQueue) => {
+    if (next === queueRef.current) return;
+    queueRef.current = next;
+    setQueue(next);
+  }, []);
+  /** The queued message editor: for which session, and where the menu was (`null`: centered). */
+  const [queueEditor, setQueueEditor] = useState<{
+    id: number;
+    anchor: { x: number; y: number } | null;
+  } | null>(null);
+  /** Sends a queued message once its session is done; set below, read by the listener. */
+  const sendQueuedRef = useRef<(id: number, text: string) => void>(() => undefined);
+  /** "Show last lines" from the session menu, for the sidebar's peek. */
+  const [peekRequest, setPeekRequest] = useState<{ id: number; token: number } | null>(null);
+  /** Working agent sessions that have shown nothing new for a while, and since when (stall.ts). */
+  const [stalls, setStalls] = useState<ReadonlyMap<number, number>>(() => new Map());
   /**
    * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
    * is the active one; switching sessions or arranging the panes ends the view.
@@ -622,6 +716,11 @@ export function App() {
    */
   const [putAside, setPutAside] = useState(false);
   const homeShown = state.sessions.length === 0 || putAside;
+  /**
+   * How often each session finished a stretch of work the user asked for: the project overview
+   * asks git again for a card when one of its sessions finished, and only then.
+   */
+  const [finishedRuns, setFinishedRuns] = useState<ReadonlyMap<number, number>>(() => new Map());
   /** Screen reader message after a session moved in the sidebar. */
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
@@ -768,7 +867,59 @@ export function App() {
     setResourcesEnabled(settings.showResources);
     setSystemUsageEnabled(settings.showResources);
   }, [settings.showResources]);
+  // Power saving on battery: slower polls and still row pulses (power.ts); on AC nothing changes.
+  useEffect(() => {
+    setPowerSavingEnabled(settings.powerSaving);
+    startPowerWatch();
+  }, [settings.powerSaving]);
   const profilesRef = useRef(profiles);
+  /**
+   * The stall hint (stall.ts): samples the screens of working agent sessions outside React and
+   * reports only when a hint comes or goes. Plain shells and sessions without attention never get
+   * one.
+   */
+  const [stallMonitor] = useState(() => new StallMonitor(wallClock, setStalls));
+  useEffect(() => {
+    stallMonitor.setSources(() =>
+      stateRef.current.sessions.map((session) => {
+        const terminal = terminals.get(session.id);
+        const command = profilesRef.current.find((p) => p.id === session.profileId)?.command;
+        return {
+          id: session.id,
+          working: terminal?.attention.state === "working",
+          detected:
+            settingsRef.current.attentionEnabled &&
+            session.status === "running" &&
+            !isPlaceholder(session.id) &&
+            runsAgent(command, session.kind),
+          lines: () => terminal?.screenLines() ?? [],
+        };
+      }),
+    );
+  }, [stallMonitor]);
+  useEffect(() => {
+    stallMonitor.setThreshold(
+      settings.attentionEnabled ? stallThresholdMs(settings.stallMinutes) : null,
+    );
+  }, [stallMonitor, settings.attentionEnabled, settings.stallMinutes]);
+  // On battery the screens are compared less often (power.ts `pollInterval`).
+  useEffect(() => {
+    const follow = () => {
+      stallMonitor.setSampleInterval(pollInterval("stall", isPowerSaving()));
+    };
+    follow();
+    return onPowerSavingChange(follow);
+  }, [stallMonitor]);
+  // CPU use of a session's process tree counts as busy; without readings only the screen counts.
+  useEffect(() => {
+    const stop = observeResources((readings) => {
+      for (const [id, reading] of readings) stallMonitor.cpu(id, reading.cpu);
+    });
+    return () => {
+      stop();
+      stallMonitor.dispose();
+    };
+  }, [stallMonitor]);
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({
     fontSize: layout.fontSize,
@@ -964,9 +1115,11 @@ export function App() {
       dialog !== null ||
       closingId !== null ||
       markerId !== null ||
+      queueEditor !== null ||
       templateDialog !== null ||
-      snippetDraft !== null;
-  }, [dialog, closingId, markerId, templateDialog, snippetDraft]);
+      snippetDraft !== null ||
+      commandAsk !== null;
+  }, [dialog, closingId, markerId, queueEditor, templateDialog, snippetDraft, commandAsk]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -1076,7 +1229,7 @@ export function App() {
   });
   // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
   // notification once, under the same settings as a session that starts waiting.
-  const gate = useGate(gateActive(settings), (fresh) => {
+  const gate = useGate(gateActive(settings), settings.commandGuardEnabled, (fresh) => {
     const current = noticesAt(settingsRef.current, new Date());
     if (!current.attentionEnabled) return;
     const watched = windowWatched();
@@ -1101,6 +1254,11 @@ export function App() {
     () => gate.pending.filter((decision) => !answeredGate.has(decision.id)),
     [gate.pending, answeredGate],
   );
+  /** Sessions with a pending gate decision, for the attention listener (a queued message waits). */
+  const gateWaitingRef = useRef<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    gateWaitingRef.current = waitingSessions({ enabled: gate.enabled, pending: pendingGate });
+  }, [gate.enabled, pendingGate]);
   // A session waiting for a decision looks like any waiting session, with the reason "gate".
   const { attention, reasons } = useMemo(
     () =>
@@ -1269,9 +1427,19 @@ export function App() {
   // The marker dialog or session menu of a session that is gone (closed, or replaced by a restart
   // with a new ID) closes, or the modal flag would keep blocking the shortcuts.
   if (markerId !== null && !state.sessions.some((s) => s.id === markerId)) setMarkerId(null);
+  if (queueEditor !== null && !state.sessions.some((s) => s.id === queueEditor.id)) {
+    setQueueEditor(null);
+  }
   if (sessionMenu !== null && !state.sessions.some((s) => s.id === sessionMenu.id)) {
     setSessionMenu(null);
   }
+  // The same for the commands submenu and its question, also once the session's process ended
+  // or it may show a question (agentCommands.ts `awaitsAnswer`).
+  const commandsGone = (id: number) =>
+    !state.sessions.some((s) => s.id === id && s.status === "running") ||
+    awaitsAnswer(reasons.get(id) ?? null);
+  if (commandMenu !== null && commandsGone(commandMenu.id)) setCommandMenu(null);
+  if (commandAsk !== null && commandsGone(commandAsk.id)) setCommandAsk(null);
   // The sub-agent view belongs to the active session: another one becoming active, or the
   // session closing, ends it (and with it the watch).
   if (subAgentsOf !== null && subAgentsOf !== state.activeId) setSubAgentsOf(null);
@@ -1314,6 +1482,17 @@ export function App() {
     if (state.sessions.length === 0) return;
     setPutAside((current) => !current);
     focusTerminal();
+  };
+
+  /**
+   * The project overview of the home view, from the menu or quick access; sessions keep running.
+   * Its heading takes the focus once it shows, after the menu or quick access gave the focus back.
+   */
+  const showProjects = () => {
+    if (state.sessions.length > 0) setPutAside(true);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".projects h2")?.focus();
+    });
   };
 
   /** Shows the warning for the session `name` and resolves with the user's answer. */
@@ -1603,6 +1782,7 @@ export function App() {
    * unless they are on screen already or the session works again by the time git answers.
    */
   const offerDone = useCallback((id: number) => {
+    setFinishedRuns((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1));
     const session = stateRef.current.sessions.find((s) => s.id === id);
     if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
@@ -1717,8 +1897,34 @@ export function App() {
         const entered = previous !== "attention" || next !== "attention";
         const notices = noticesAt(settingsRef.current, new Date());
         const session = stateRef.current.sessions.find((s) => s.id === id);
+        // A queued message (messageQueue.ts): armed by work that follows the user's input, sent
+        // when the work is done, kept when the program asks.
+        if (next === "working" && previous !== "working") {
+          changeQueue(workStarted(queueRef.current, terminal.key, terminal.hasTyped()));
+        }
+        const ended = phaseEnd(
+          previous,
+          next,
+          reason,
+          terminal.attention.endedBy,
+          gateWaitingRef.current.has(id),
+        );
+        // A permission dialog rings no bell: a question on screen keeps the message, because
+        // Enter after it would confirm the preselected answer (promptGuard.ts).
+        const end =
+          ended === "done" && queueRef.current.has(terminal.key)
+            ? guardedEnd(ended, looksLikeQuestion(terminal.screenLines()))
+            : ended;
+        const queued = end === null ? null : phaseEnded(queueRef.current, terminal.key, end);
+        if (queued !== null) changeQueue(queued.queue);
+        // The session goes on with the queued message right away: no notice that it waits.
+        const send = queued?.send ?? null;
+        const continues = send !== null;
+        if (send !== null) sendQueuedRef.current(id, send);
+        // The stall hint belongs to one working phase.
+        if (next !== "working") stallMonitor.progressed(id);
         const chime =
-          session === undefined || isPlaceholder(id)
+          continues || session === undefined || isPlaceholder(id)
             ? null
             : chimeFor({ previous, previousReason, next, reason }, sessionExit(session, terminal), {
                 enabled: notices.chime && notices.attentionEnabled,
@@ -1726,10 +1932,17 @@ export function App() {
                 shown: shownRef.current.has(id),
               });
         // Only work the user asked for: a program's start-up output (also on restore) is no task.
-        if (finishedWork(previous, next, reason) && terminal.takeTyped()) offerDone(id);
+        if (finishedWork(previous, next, reason) && terminal.takeTyped() && !continues) {
+          offerDone(id);
+        }
         // New work makes the session's done notice stale.
         if (next === "working") {
           setDoneNotice((current) => (current?.sessionId === id ? null : current));
+        }
+        if (!isPlaceholder(id) && session?.kind !== "update") {
+          void reportPhase(
+            phases.change(id, next === "working", Date.now(), terminal.activity().lastOutput),
+          );
         }
         previous = next;
         previousReason = reason;
@@ -1738,7 +1951,7 @@ export function App() {
         // exits while it waits. Update sessions are no agent's work.
         pushes.change(
           id,
-          session === undefined || isPlaceholder(id) || session.kind === "update"
+          continues || session === undefined || isPlaceholder(id) || session.kind === "update"
             ? null
             : pushEventFor(next, terminal.exitCode),
         );
@@ -1751,11 +1964,11 @@ export function App() {
         });
         if (!entered) return;
         flasher.attentionChanged(next, {
-          enabled: notices.taskbarFlash,
+          enabled: notices.taskbarFlash && !continues,
           windowFocused: document.hasFocus(),
         });
         const notify = shouldNotify(next, {
-          enabled: notices.notifyDesktop,
+          enabled: notices.notifyDesktop && !continues,
           windowFocused: document.hasFocus(),
         });
         if (notify && session && !isPlaceholder(id)) {
@@ -1775,7 +1988,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher, chimes, pushes, offerDone],
+    [flasher, chimes, pushes, offerDone, changeQueue, stallMonitor],
   );
 
   /**
@@ -1790,6 +2003,9 @@ export function App() {
   const forgetAttention = useCallback(
     (id: number) => {
       pushes.forget(id);
+      void reportPhase(
+        phases.end(id, Date.now(), terminals.get(id)?.activity().lastOutput ?? null),
+      );
       setAttention((current) => {
         if (!current.has(id)) return current;
         const map = new Map(current);
@@ -2218,6 +2434,8 @@ export function App() {
       if (terminal) {
         // Closed means: it does not come back after a restart either.
         api.deleteScrollback(terminal.key).catch(() => undefined);
+        // Its queued message goes with it.
+        changeQueue(discardMessage(queueRef.current, terminal.key));
         terminal.dispose();
       }
       terminals.delete(id);
@@ -2253,7 +2471,7 @@ export function App() {
         }
       }
     },
-    [showError, forgetAttention, removeSessionWorktree],
+    [showError, forgetAttention, removeSessionWorktree, changeQueue],
   );
 
   /**
@@ -2415,6 +2633,11 @@ export function App() {
     if (quitting.current) return;
     quitting.current = true;
     try {
+      // Open working phases end with the app; bounded like the rest of the quit.
+      await Promise.race([
+        Promise.all(phases.flush(Date.now()).map(reportPhase)),
+        delay(QUIT_SAVE_TIMEOUT_MS),
+      ]);
       await persistAll();
       await Promise.race([removeOrphanedWorktrees(), delay(QUIT_SAVE_TIMEOUT_MS)]);
     } finally {
@@ -2516,6 +2739,23 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [state.sessions, state.activeId, restored, settings.restoreSessions, saveWorkspaceNow]);
+
+  // Queued messages come back with their sessions: stored per session key, only for sessions that
+  // are restored (or were remembered before a reload), and only once the restore has run.
+  useEffect(() => {
+    if (!restored) return;
+    if (!settings.restoreSessions) {
+      saveStoredQueue({});
+      return;
+    }
+    const keys = new Set<string>();
+    for (const session of state.sessions) {
+      const key = terminals.get(session.id)?.key;
+      if (key !== undefined) keys.add(key);
+    }
+    for (const saved of rememberedWorkspace.current?.sessions ?? []) keys.add(saved.key);
+    saveStoredQueue(storedQueue(queue, (key) => keys.has(key)));
+  }, [queue, state.sessions, restored, settings.restoreSessions]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
@@ -3054,6 +3294,19 @@ export function App() {
     });
   };
 
+  /**
+   * "Add to notes" of the daily review: a new note in General, because a day spans several
+   * projects; then the notes show that area.
+   */
+  const saveReviewNote = async (title: string, markdown: string) => {
+    const folder: NoteFolder = { path: null };
+    const id = await api.createNote(folder, title);
+    if (typeof id !== "string") throw new Error(t("error.unknown"));
+    await api.writeNote(folder, id, markdown);
+    notesChangedHere();
+    setNotesRefresh((value) => value + 1);
+  };
+
   /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
     if (panelWindow.detached) {
@@ -3265,6 +3518,26 @@ export function App() {
       .finally(focusActive);
   };
   /**
+   * Saves a session's conversation as a Markdown report. The backend reads the agent's transcript
+   * and asks for the place in its save dialog; a cancelled dialog is no error.
+   */
+  const exportReport = (id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const now = new Date();
+    api
+      .exportReport(
+        id,
+        session.title,
+        exportFileName(session.title, now, "report"),
+        utcOffsetMinutes(now),
+        reportLabels(t),
+      )
+      .then(parseExportResult)
+      .catch(showError)
+      .finally(focusActive);
+  };
+  /**
    * The values of snippet variables for one session, read right now (snippetVariables.ts).
    * Anything unavailable stays out; git errors count as unavailable.
    */
@@ -3337,6 +3610,12 @@ export function App() {
     });
   };
 
+  /** Pastes filled text into one session and sends Enter after it (broadcast.ts). */
+  const submitText = (id: number, text: string) => {
+    const terminal = terminals.get(id);
+    if (terminal) void sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS));
+  };
+
   /**
    * Text to several sessions: each gets it with its own variable values as a bracketed paste,
    * then Enter as a separate write. Afterwards the split view shows up to four of them. When a
@@ -3352,13 +3631,79 @@ export function App() {
       }
     }
     setDialog(null);
-    const pause = () => delay(BROADCAST_ENTER_DELAY_MS);
-    for (const { id, result } of filled) {
-      const terminal = terminals.get(id);
-      if (terminal && result.ok) void sendToTargets([terminal], result.text, pause);
-    }
+    for (const { id, result } of filled) if (result.ok) submitText(id, result.text);
     splitView.showOnly(ids);
     return null;
+  };
+
+  /**
+   * A queued message whose session is done: the same path as "Send to several" (variables filled,
+   * bracketed paste, then Enter). A missing variable sends nothing; the message stays queued and
+   * a notice names the gap.
+   */
+  const sendQueued = (id: number, text: string) => {
+    const key = terminals.get(id)?.key;
+    void fillVariables(id, text).then((filled) => {
+      if (filled.ok) {
+        submitText(id, filled.text);
+        return;
+      }
+      if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
+      setError(t("snippets.notSentIn", { session: sessionName(id), details: filled.details }));
+    });
+  };
+  // The attention listener lives outside React; it always reaches the newest values.
+  useEffect(() => {
+    sendQueuedRef.current = sendQueued;
+  });
+
+  /** The session may show a question, so a command's Enter would answer it (`asksQuestion`). */
+  const sessionAsks = (id: number) =>
+    asksQuestion(reasons.get(id) ?? null, () => terminals.get(id)?.screenLines() ?? []);
+
+  /**
+   * An agent command into one running session, sent like "Send to several" (agentCommands.ts);
+   * that session shows afterwards, so its answer is in view.
+   */
+  const sendAgentCommand = (id: number, command: AgentCommand) => {
+    const session = state.sessions.find((s) => s.id === id);
+    const terminal = terminals.get(id);
+    if (session?.status !== "running" || !terminal || withholdCommand(id, command)) return;
+    void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS));
+    dispatch({ type: "activated", id });
+    focusTerminal();
+  };
+
+  /**
+   * The session may show a question (agentCommands.ts `asksQuestion`): the command stays unsent,
+   * since its Enter would answer that question, and a notice says why nothing happened. Menu and
+   * quick access hide the commands then; this catches the row's compact button, which cannot
+   * watch the screen, and a question that came up after the menu opened.
+   */
+  const withholdCommand = (id: number, command: AgentCommand) => {
+    if (!sessionAsks(id)) return false;
+    setError(t("agentCommand.asksFirst", { session: sessionName(id), command: command.text }));
+    return true;
+  };
+
+  /** From the menu or quick access: commands that throw the conversation away ask first. */
+  const runAgentCommand = (id: number, command: AgentCommand) => {
+    if (withholdCommand(id, command)) return;
+    if (command.confirm) setCommandAsk({ id, command });
+    else sendAgentCommand(id, command);
+  };
+
+  /**
+   * The row's compact button. It is hidden while the agent is busy; should the agent get busy
+   * between render and click, nothing is sent (agentCommands.ts `commandBusy`).
+   */
+  const compactFromRow = (id: number, command: AgentCommand, at: number) => {
+    if (commandBusy(attention.get(id) ?? "idle", reasons.get(id) ?? null)) return;
+    // The button stays until the agent's answer marks it as working; a double click in between
+    // would otherwise queue a second compact.
+    if (compactRepeated(compactSentAt.current.get(id), at)) return;
+    compactSentAt.current.set(id, at);
+    runAgentCommand(id, command);
   };
 
   const setMarker = (id: number, marker: Marker) => {
@@ -3765,6 +4110,13 @@ export function App() {
             openSaveTemplate?.();
           },
         },
+        {
+          type: "action",
+          label: t("menu.worktreeCleanup"),
+          run: () => {
+            setDialog("worktreeCleanup");
+          },
+        },
         { type: "separator" },
         {
           type: "action",
@@ -3809,6 +4161,18 @@ export function App() {
                 exportSession("html");
               },
             },
+            // Only for programs whose transcript Hangar reads; hidden for all others.
+            ...(activeSession !== undefined && canExportReport(activeSession)
+              ? [
+                  {
+                    type: "action" as const,
+                    label: t("menu.exportReport"),
+                    run: () => {
+                      exportReport(activeSession.id);
+                    },
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -3925,6 +4289,11 @@ export function App() {
           shortcut: keys("home"),
           run: toggleHome,
         },
+        {
+          type: "action",
+          label: t("projects.menu"),
+          run: showProjects,
+        },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
@@ -3950,6 +4319,13 @@ export function App() {
           disabled: state.sessions.length === 0,
           run: () => {
             perform("overview");
+          },
+        },
+        {
+          type: "action",
+          label: t("review.menu"),
+          run: () => {
+            setDialog("dailyReview");
           },
         },
         {
@@ -4127,13 +4503,84 @@ export function App() {
 
   const menuSession =
     sessionMenu === null ? undefined : state.sessions.find((s) => s.id === sessionMenu.id);
-  const runSessionAction = (action: SessionAction, id: number) => {
+  /** Queued message per session id, for the rows, the menu and quick access. */
+  const queuedById = new Map<number, QueuedMessage>();
+  for (const session of state.sessions) {
+    const key = terminals.get(session.id)?.key;
+    const entry = key === undefined ? undefined : queue.get(key);
+    if (entry !== undefined) queuedById.set(session.id, entry);
+  }
+  /** What the queued-message entries offer for a session (sessionMenu.ts queueOffer). */
+  const queueOfferFor = (session: SessionView) =>
+    queueOffer({
+      status: session.status,
+      agent: runsAgent(profileById.get(session.profileId)?.command, session.kind),
+      attentionEnabled: settings.attentionEnabled,
+      state: attention.get(session.id) ?? "idle",
+      queued: queuedById.has(session.id),
+    });
+  /** Discards the session's queued message. */
+  const discardQueued = (id: number) => {
+    const key = terminals.get(id)?.key;
+    if (key !== undefined) changeQueue(discardMessage(queueRef.current, key));
+  };
+  const closeQueueEditor = () => {
+    setQueueEditor(null);
+    focusActive();
+  };
+  /**
+   * Saves the editor's text. A session that finished while the editor was open (done, no
+   * question) gets it right away instead of waiting for work that will not come.
+   */
+  const saveQueued = (id: number, text: string) => {
+    const terminal = terminals.get(id);
+    if (terminal === undefined) return;
+    const session = state.sessions.find((s) => s.id === id);
+    const saved = saveMessage(queueRef.current, terminal.key, text, {
+      running: session?.status === "running",
+      working: terminal.attention.state === "working",
+      endedBy: terminal.attention.endedBy,
+      gateWaiting: gateWaitingRef.current.has(id),
+      showsQuestion: looksLikeQuestion(terminal.screenLines()),
+    });
+    changeQueue(saved.queue);
+    if (saved.send !== null) sendQueued(id, saved.send);
+    closeQueueEditor();
+  };
+  /** The session is on screen (active or in a pane): its own terminal shows more than a peek. */
+  const onScreen = (id: number) => id === state.activeId || placements.has(id);
+  const runSessionAction = (
+    action: SessionAction,
+    id: number,
+    anchor: { x: number; y: number } | null = null,
+  ) => {
     switch (action) {
+      case "queue":
+        setQueueEditor({ id, anchor });
+        break;
+      case "discardQueue":
+        discardQueued(id);
+        break;
+      case "peek":
+        setPeekRequest((current) => ({ id, token: (current?.token ?? 0) + 1 }));
+        break;
+      case "interrupt":
+        // ETX, as Ctrl+C typed in the terminal would send it; the hint starts over.
+        stallMonitor.progressed(id);
+        terminals.get(id)?.attention.interrupted();
+        api.write(id, "\x03").catch(showError);
+        break;
       case "rename":
         startRename(id);
         break;
       case "marker":
         setMarkerId(id);
+        break;
+      case "report":
+        exportReport(id);
+        break;
+      case "commands":
+        if (sessionMenu !== null) setCommandMenu({ ...sessionMenu, id });
         break;
       case "subAgents":
         toggleSubAgents(id);
@@ -4152,22 +4599,71 @@ export function App() {
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id).map(
-          (entry): PopupItem => {
-            if (entry.type === "separator") return entry;
-            const action = entry.key;
-            const id = menuSession.id;
-            return {
-              ...entry,
-              run: () => {
-                runSessionAction(action, id);
-              },
-            };
-          },
-        );
+      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id, {
+          queue: queueOfferFor(menuSession),
+          stall: stallOffer(
+            stalls.has(menuSession.id) && attention.get(menuSession.id) === "working",
+            onScreen(menuSession.id),
+          ),
+          commands:
+            sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
+        }).map((entry): PopupItem => {
+          if (entry.type === "separator") return entry;
+          const action = entry.key;
+          const id = menuSession.id;
+          const anchor = sessionMenu === null ? null : { x: sessionMenu.x, y: sessionMenu.y };
+          return {
+            ...entry,
+            run: () => {
+              runSessionAction(action, id, anchor);
+            },
+          };
+        });
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
+  const editorSession =
+    queueEditor === null ? undefined : state.sessions.find((s) => s.id === queueEditor.id);
+  const editorKey = editorSession === undefined ? undefined : terminals.get(editorSession.id)?.key;
+  // A session that ended (or went) meanwhile offers no commands: its menu and question go too.
+  const commandMenuSession =
+    commandMenu === null ? undefined : state.sessions.find((s) => s.id === commandMenu.id);
+  const commandItems: PopupItem[] =
+    commandMenuSession === undefined
+      ? []
+      : commandMenuEntries(
+          sessionCommands(commandMenuSession, profiles),
+          commandMenuSession.title,
+          t,
+        ).map((entry): PopupItem => {
+          if (entry.type === "heading") return entry;
+          const { command, ...item } = entry;
+          const id = commandMenuSession.id;
+          return {
+            ...item,
+            run: () => {
+              runAgentCommand(id, command);
+            },
+          };
+        });
+  const commandAskSession =
+    commandAsk === null ? undefined : state.sessions.find((s) => s.id === commandAsk.id);
+
+  /** The active session's agent commands for quick access, `null` when it offers none. */
+  const launcherCommands = () => {
+    if (activeSession === undefined) return null;
+    const commands = sessionCommands(activeSession, profiles);
+    if (commands.length === 0 || sessionAsks(activeSession.id)) return null;
+    const id = activeSession.id;
+    return {
+      commands,
+      sessionTitle: activeSession.title,
+      programName: profileById.get(activeSession.profileId)?.name ?? "",
+      run: (command: AgentCommand) => {
+        runAgentCommand(id, command);
+      },
+    };
+  };
 
   /** Entries of quick access; built only while it is open. */
   const launcherItems = () =>
@@ -4212,6 +4708,16 @@ export function App() {
               },
             }
           : null,
+      queue:
+        activeSession === undefined
+          ? null
+          : {
+              offer: queueOfferFor(activeSession),
+              open: () => {
+                setQueueEditor({ id: activeSession.id, anchor: null });
+              },
+            },
+      agentCommands: launcherCommands(),
       openSettings,
       menu,
       skipLabels: [t("menu.launcher")],
@@ -4399,6 +4905,7 @@ export function App() {
           onSessionMenu={(id, x, y) => {
             setSessionMenu({ id, x, y });
           }}
+          onAgentCommand={compactFromRow}
           drag={
             sessionDragView === null
               ? null
@@ -4432,6 +4939,9 @@ export function App() {
           subAgentPick={subAgentPick}
           onShowSubAgent={showSubAgent}
           onDismissSubAgents={dismissSubAgents}
+          queued={queuedById}
+          stalls={stalls}
+          peekRequest={peekRequest}
           peekLines={(id) => {
             // A session on screen needs no peek; its own terminal shows more.
             if (shownRef.current.has(id)) return null;
@@ -4703,6 +5213,31 @@ export function App() {
                   ) : (
                     allHidden && <p>{t("sidebar.allHidden")}</p>
                   )}
+                  <ProjectOverview
+                    sessions={state.sessions}
+                    rows={new Map(overviewTiles().map((tile) => [tile.id, tile]))}
+                    activeId={state.activeId}
+                    devServers={devServers}
+                    finished={finishedRuns}
+                    language={settings.language}
+                    onActivate={(id) => {
+                      setPutAside(false);
+                      dispatch({ type: "activated", id });
+                      focusTerminal();
+                    }}
+                    onOpenDevServer={openDevServer}
+                    onShowChanges={(id) => {
+                      setPutAside(false);
+                      showDoneChanges(id);
+                    }}
+                    onNewSession={
+                      nextProgram
+                        ? () => {
+                            perform("newSession");
+                          }
+                        : null
+                    }
+                  />
                   <ActivityCalendar
                     folders={activityFolders(
                       folders.favorites,
@@ -5116,6 +5651,51 @@ export function App() {
             }}
           />
         )}
+        {queueEditor !== null && editorSession !== undefined && editorKey !== undefined && (
+          <QueueDialog
+            key={queueEditor.id}
+            title={editorSession.title}
+            initial={queue.get(editorKey)?.text ?? ""}
+            anchor={queueEditor.anchor}
+            onSave={(text) => {
+              saveQueued(editorSession.id, text);
+            }}
+            onDiscard={
+              queue.has(editorKey)
+                ? () => {
+                    discardQueued(editorSession.id);
+                    closeQueueEditor();
+                  }
+                : null
+            }
+            onClose={closeQueueEditor}
+          />
+        )}
+        {commandMenu !== null && commandMenuSession !== undefined && (
+          <PopupMenu
+            items={commandItems}
+            label={t("agentCommand.menuFor", { session: commandMenuSession.title })}
+            position={commandMenu}
+            onClose={() => {
+              setCommandMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {commandAsk !== null && commandAskSession !== undefined && (
+          <AgentCommandConfirm
+            command={commandAsk.command}
+            sessionTitle={commandAskSession.title}
+            onCancel={() => {
+              setCommandAsk(null);
+              focusActive();
+            }}
+            onConfirm={() => {
+              setCommandAsk(null);
+              sendAgentCommand(commandAsk.id, commandAsk.command);
+            }}
+          />
+        )}
         {snippetDraft !== null && (
           <SaveSnippetDialog
             text={snippetDraft}
@@ -5178,6 +5758,26 @@ export function App() {
             }}
             onClose={closeDialog}
             onReveal={revealMatch}
+          />
+        )}
+        {dialog === "worktreeCleanup" && (
+          <WorktreeCleanupDialog
+            folders={cleanupFolders({
+              favorites: folders.favorites,
+              recent: folders.recent,
+              sessions: state.sessions,
+            })}
+            language={settings.language}
+            onClose={closeDialog}
+          />
+        )}
+        {dialog === "dailyReview" && (
+          <DailyReviewDialog
+            language={settings.language}
+            load={api.dailyReview}
+            onCopy={writeClipboard}
+            onToNotes={saveReviewNote}
+            onClose={closeDialog}
           />
         )}
         {dialog === "overview" && (

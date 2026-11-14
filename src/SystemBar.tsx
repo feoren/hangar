@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { LeafIcon } from "./icons";
 import {
   barPending,
   formatShare,
@@ -12,6 +13,7 @@ import {
   type Gauge,
   type History,
 } from "./systemUsage";
+import { usePowerSaving } from "./usePower";
 import { useSystemUsage } from "./useSystemUsage";
 
 const NAME_KEYS = { cpu: "system.cpu", memory: "system.memory", gpu: "system.gpu" } as const;
@@ -20,15 +22,17 @@ const NAME_KEYS = { cpu: "system.cpu", memory: "system.memory", gpu: "system.gpu
  * One row above New session: CPU, RAM and GPU of the whole machine, each a sparkline of the last
  * minute and the current share; RAM and GPU add the amount in use where the bar is wide enough,
  * and always in the tooltip. A value the platform cannot give hides its gauge; with none at
- * all (setting off, first reading pending) the row is gone.
+ * all (setting off, first reading pending) the row is gone, unless it carries the power saving
+ * mark alone.
  */
 export function SystemBar({ language }: { language: string }) {
   const t = useT();
   const { usage, history, tick } = useSystemUsage();
-  const shown = GAUGES.filter((gauge) => usage[gauge] !== null);
+  const saving = usePowerSaving();
   // The very first reading knows memory only (CPU and GPU are rates and need a second one):
   // waiting for it keeps the bar from showing RAM alone and then jumping to three gauges.
-  if (shown.length === 0 || barPending(usage, tick)) return null;
+  const shown = barPending(usage, tick) ? [] : GAUGES.filter((gauge) => usage[gauge] !== null);
+  if (shown.length === 0 && !saving) return null;
   return (
     <div className="system-bar" role="group" aria-label={t("system.usage")}>
       {shown.map((gauge) => (
@@ -44,7 +48,24 @@ export function SystemBar({ language }: { language: string }) {
           language={language}
         />
       ))}
+      <PowerIndicator active={saving} />
     </div>
+  );
+}
+
+/** A quiet leaf at the bar's end while Hangar saves energy on battery; nothing otherwise. */
+export function PowerIndicator({ active }: { active: boolean }) {
+  const t = useT();
+  if (!active) return null;
+  return (
+    <span
+      className="power-indicator"
+      role="img"
+      aria-label={t("power.active")}
+      title={t("power.activeHint")}
+    >
+      <LeafIcon size={12} />
+    </span>
   );
 }
 

@@ -4,6 +4,7 @@ import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnima
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import { PhonePushSettings } from "./PhonePushSettings";
+import { powerKnown } from "./power";
 import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
 import { edgeClass } from "./sessionChip";
@@ -34,9 +35,11 @@ import {
   type LookState,
   type PulseStrength,
 } from "./stateLook";
+import { clampStallMinutes, STALL_MINUTES } from "./stall";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
 import type { Theme } from "./theme";
+import { usePowerState } from "./usePower";
 
 interface Props {
   settings: Settings;
@@ -97,6 +100,7 @@ const LOOKS_WITHOUT_ATTENTION: readonly LookState[] = ["idle", "failed"];
  */
 export function AttentionSettings({ settings, theme, onChange }: Props) {
   const t = useT();
+  const power = usePowerState();
   const enabled = settings.attentionEnabled;
   return (
     <>
@@ -144,6 +148,22 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ quietSeconds: clampQuietSeconds(value) });
           }}
         />
+        <RangeField
+          id="stall-minutes"
+          label={t("settings.stallTime")}
+          value={settings.stallMinutes}
+          min={STALL_MINUTES.min}
+          max={STALL_MINUTES.max}
+          display={
+            settings.stallMinutes === 0
+              ? t("settings.stallOff")
+              : t("settings.minutes", { count: settings.stallMinutes })
+          }
+          onChange={(value) => {
+            onChange({ stallMinutes: clampStallMinutes(value) });
+          }}
+        />
+        <p className="muted settings-help">{t("settings.stallHelp")}</p>
 
         <CheckField
           id="taskbar-flash"
@@ -220,6 +240,18 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ showResources });
           }}
         />
+        {/* Only where the backend can tell battery from AC (only offer what works). */}
+        {powerKnown(power) && (
+          <CheckField
+            id="power-saving"
+            checked={settings.powerSaving}
+            label={t("settings.powerSaving")}
+            help={t("settings.powerSavingHelp")}
+            onChange={(powerSaving) => {
+              onChange({ powerSaving });
+            }}
+          />
+        )}
       </fieldset>
     </>
   );

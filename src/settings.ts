@@ -18,6 +18,7 @@ import {
 } from "./terminalLook";
 import { DEFAULT_QUIET_HOURS, parseQuietHours, type QuietHours } from "./quietHours";
 import { isSessionGrouping, type SessionGrouping } from "./sessionGroups";
+import { clampStallMinutes, STALL_MINUTES } from "./stall";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
 import { DEFAULT_VIEWER_THEME, parseViewerTheme, type ViewerTheme } from "./viewerThemes";
@@ -44,6 +45,11 @@ export interface Settings {
   /** How the dots of a working session move (dotAnimation.ts). */
   dotAnimation: DotAnimation;
   quietSeconds: number;
+  /**
+   * Minutes without anything new on a working agent's screen before its row hints that it may be
+   * stuck (stall.ts); 0 turns the hint off.
+   */
+  stallMinutes: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
   /** Desktop notification when a session starts waiting in the background (desktopNotify.ts). */
@@ -59,6 +65,11 @@ export interface Settings {
    * Off: the window does not ask the backend at all.
    */
   showResources: boolean;
+  /**
+   * On battery, Hangar polls less often and stills the row pulses (power.ts). Only offered where
+   * the backend can tell battery from AC; on AC it changes nothing.
+   */
+  powerSaving: boolean;
   /**
    * Closing the window only hides it; an icon in the notification area brings it back or quits
    * (tray.ts). Off: closing quits, as before.
@@ -90,6 +101,12 @@ export interface Settings {
    * session is changing (gate.ts). Only effective together with `claimsEnabled`.
    */
   gateEnabled: boolean;
+  /**
+   * While the gate is active, a team session's agent waits for the person before a shell command
+   * that matches a rule of command-guard.toml (backend command_guard.rs). On by default; applies
+   * to running sessions at once.
+   */
+  commandGuardEnabled: boolean;
   /**
    * Every agent start hands the agent HANGAR.md from Hangar's config folder as an extra
    * instruction, where its program takes one (backend `instructions.rs`). On by default: the
@@ -123,6 +140,7 @@ type Flag =
   | "notifyDesktop"
   | "chime"
   | "showResources"
+  | "powerSaving"
   | "keepInTray"
   | "showVersions"
   | "showIcons"
@@ -132,6 +150,7 @@ type Flag =
   | "subAgentExcerpts"
   | "claimsEnabled"
   | "gateEnabled"
+  | "commandGuardEnabled"
   | "hangarMd"
   | "worktreeUpstreamCheck"
   | "cursorBlink";
@@ -144,12 +163,14 @@ export function defaultSettings(language: Language): Settings {
     looks: DEFAULT_LOOKS,
     dotAnimation: DEFAULT_DOT_ANIMATION,
     quietSeconds: QUIET_SECONDS.default,
+    stallMinutes: STALL_MINUTES.default,
     taskbarFlash: true,
     notifyDesktop: true,
     chime: true,
     chimeVolume: CHIME_VOLUME.default,
     quietHours: DEFAULT_QUIET_HOURS,
     showResources: true,
+    powerSaving: true,
     keepInTray: false,
     showVersions: true,
     showIcons: true,
@@ -160,6 +181,7 @@ export function defaultSettings(language: Language): Settings {
     subAgentExcerpts: true,
     claimsEnabled: true,
     gateEnabled: true,
+    commandGuardEnabled: true,
     hangarMd: true,
     worktreeUpstreamCheck: true,
     programs: DEFAULT_PROGRAM_PREFS,
@@ -208,6 +230,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const language = get("language");
   const theme = get("theme");
   const quiet = get("quietSeconds");
+  const stall = get("stallMinutes");
   const lines = get("scrollbackLines");
   const volume = get("chimeVolume");
   const scheme = get("terminalScheme");
@@ -227,6 +250,10 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)
         : defaults.quietSeconds,
+    stallMinutes:
+      typeof stall === "number" && Number.isFinite(stall)
+        ? clampStallMinutes(stall)
+        : defaults.stallMinutes,
     taskbarFlash: flag("taskbarFlash"),
     notifyDesktop: flag("notifyDesktop"),
     chime: flag("chime"),
@@ -236,6 +263,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         : defaults.chimeVolume,
     quietHours: parseQuietHours(get("quietHours")),
     showResources: flag("showResources"),
+    powerSaving: flag("powerSaving"),
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),
@@ -249,6 +277,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     subAgentExcerpts: flag("subAgentExcerpts"),
     claimsEnabled: flag("claimsEnabled"),
     gateEnabled: flag("gateEnabled"),
+    commandGuardEnabled: flag("commandGuardEnabled"),
     hangarMd: flag("hangarMd"),
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
     programs: parseProgramPrefs(get("programs")),

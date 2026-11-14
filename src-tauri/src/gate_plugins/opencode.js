@@ -11,16 +11,29 @@ const EDIT_TOOLS = {
   apply_patch: { tool: "Edit", patchKeys: ["patchText", "patch", "input"] },
 };
 
+// OpenCode's shell tool (measured: hooks see it as `bash`), with `args.command` and an optional
+// `args.workdir` relative to the session's folder (OpenCode 1.19.5 binary,
+// docs/wiki/pages/sources/shell-tool-input-shapes.md). On Windows OpenCode picks PowerShell or
+// cmd.exe, so Hangar reads the command as "Shell", in every dialect.
+const SHELL_TOOL = "bash";
+const SHELL_KIND = process.platform === "win32" ? "Shell" : "Bash";
+
 export const HangarGate = async (context) => {
   const cwd = typeof context?.directory === "string" ? context.directory : process.cwd();
   return {
     "tool.execute.before": async (input, output) => {
       let verdict;
       try {
-        const spec = lookup(EDIT_TOOLS, input?.tool);
-        if (spec === undefined) return;
-        const paths = editPaths(output?.args, spec);
-        verdict = await decideEdit(spec.tool, paths, cwd, undefined, asIs);
+        if (input?.tool === SHELL_TOOL) {
+          const workdir = output?.args?.workdir;
+          const where = typeof workdir === "string" && workdir !== "" ? absolutePath(workdir, cwd) : cwd;
+          verdict = await decideCommand(SHELL_KIND, output?.args?.command, where, undefined);
+        } else {
+          const spec = lookup(EDIT_TOOLS, input?.tool);
+          if (spec === undefined) return;
+          const paths = editPaths(output?.args, spec);
+          verdict = await decideEdit(spec.tool, paths, cwd, undefined, asIs);
+        }
       } catch {
         return;
       }

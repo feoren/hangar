@@ -261,10 +261,22 @@
           "markdownDescription": "Enables the close_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the command_guard_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-command-guard-info",
+          "markdownDescription": "Enables the command_guard_info command without any pre-configured scope."
+        },
+        {
           "description": "Enables the configure_claims command without any pre-configured scope.",
           "type": "string",
           "const": "allow-configure-claims",
           "markdownDescription": "Enables the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the configure_command_guard command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-configure-command-guard",
+          "markdownDescription": "Enables the configure_command_guard command without any pre-configured scope."
         },
         {
           "description": "Enables the configure_gate command without any pre-configured scope.",
@@ -307,6 +319,12 @@
           "type": "string",
           "const": "allow-create-worktree",
           "markdownDescription": "Enables the create_worktree command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the daily_review command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-daily-review",
+          "markdownDescription": "Enables the daily_review command without any pre-configured scope."
         },
         {
           "description": "Enables the default_cwd command without any pre-configured scope.",
@@ -355,6 +373,12 @@
           "type": "string",
           "const": "allow-export-note",
           "markdownDescription": "Enables the export_note command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the export_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-report",
+          "markdownDescription": "Enables the export_report command without any pre-configured scope."
         },
         {
           "description": "Enables the export_session command without any pre-configured scope.",
@@ -453,6 +477,12 @@
           "markdownDescription": "Enables the git_log command without any pre-configured scope."
         },
         {
+          "description": "Enables the git_repo_places command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-repo-places",
+          "markdownDescription": "Enables the git_repo_places command without any pre-configured scope."
+        },
+        {
           "description": "Enables the git_stage command without any pre-configured scope.",
           "type": "string",
           "const": "allow-git-stage",
@@ -465,10 +495,22 @@
           "markdownDescription": "Enables the git_unstage command without any pre-configured scope."
         },
         {
+          "description": "Enables the hangar_worktree_size command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hangar-worktree-size",
+          "markdownDescription": "Enables the hangar_worktree_size command without any pre-configured scope."
+        },
+        {
           "description": "Enables the kill_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-kill-session",
           "markdownDescription": "Enables the kill_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_hangar_worktrees command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-hangar-worktrees",
+          "markdownDescription": "Enables the list_hangar_worktrees command without any pre-configured scope."
         },
         {
           "description": "Enables the list_note_folders command without any pre-configured scope.",
@@ -523,6 +565,12 @@
           "type": "string",
           "const": "allow-load-workspace",
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the log_work_phase command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-log-work-phase",
+          "markdownDescription": "Enables the log_work_phase command without any pre-configured scope."
         },
         {
           "description": "Enables the move_note command without any pre-configured scope.",
@@ -591,6 +639,12 @@
           "markdownDescription": "Enables the paste_clipboard_image command without any pre-configured scope."
         },
         {
+          "description": "Enables the power_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-power-state",
+          "markdownDescription": "Enables the power_state command without any pre-configured scope."
+        },
+        {
           "description": "Enables the profile_env command without any pre-configured scope.",
           "type": "string",
           "const": "allow-profile-env",
@@ -613,6 +667,12 @@
           "type": "string",
           "const": "allow-program-icons",
           "markdownDescription": "Enables the program_icons command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the prune_hangar_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-prune-hangar-worktree",
+          "markdownDescription": "Enables the prune_hangar_worktree command without any pre-configured scope."
         },
         {
           "description": "Enables the push_save command without any pre-configured scope.",
@@ -649,6 +709,12 @@
           "type": "string",
           "const": "allow-reload-profiles",
           "markdownDescription": "Enables the reload_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_hangar_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-hangar-worktree",
+          "markdownDescription": "Enables the remove_hangar_worktree command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_worktree command without any pre-configured scope.",
@@ -987,10 +1053,22 @@
           "markdownDescription": "Denies the close_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the command_guard_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-command-guard-info",
+          "markdownDescription": "Denies the command_guard_info command without any pre-configured scope."
+        },
+        {
           "description": "Denies the configure_claims command without any pre-configured scope.",
           "type": "string",
           "const": "deny-configure-claims",
           "markdownDescription": "Denies the configure_claims command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the configure_command_guard command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-configure-command-guard",
+          "markdownDescription": "Denies the configure_command_guard command without any pre-configured scope."
         },
         {
           "description": "Denies the configure_gate command without any pre-configured scope.",
@@ -1033,6 +1111,12 @@
           "type": "string",
           "const": "deny-create-worktree",
           "markdownDescription": "Denies the create_worktree command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the daily_review command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-daily-review",
+          "markdownDescription": "Denies the daily_review command without any pre-configured scope."
         },
         {
           "description": "Denies the default_cwd command without any pre-configured scope.",
@@ -1081,6 +1165,12 @@
           "type": "string",
           "const": "deny-export-note",
           "markdownDescription": "Denies the export_note command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the export_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-report",
+          "markdownDescription": "Denies the export_report command without any pre-configured scope."
         },
         {
           "description": "Denies the export_session command without any pre-configured scope.",
@@ -1179,6 +1269,12 @@
           "markdownDescription": "Denies the git_log command without any pre-configured scope."
         },
         {
+          "description": "Denies the git_repo_places command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-repo-places",
+          "markdownDescription": "Denies the git_repo_places command without any pre-configured scope."
+        },
+        {
           "description": "Denies the git_stage command without any pre-configured scope.",
           "type": "string",
           "const": "deny-git-stage",
@@ -1191,10 +1287,22 @@
           "markdownDescription": "Denies the git_unstage command without any pre-configured scope."
         },
         {
+          "description": "Denies the hangar_worktree_size command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hangar-worktree-size",
+          "markdownDescription": "Denies the hangar_worktree_size command without any pre-configured scope."
+        },
+        {
           "description": "Denies the kill_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-kill-session",
           "markdownDescription": "Denies the kill_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_hangar_worktrees command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-hangar-worktrees",
+          "markdownDescription": "Denies the list_hangar_worktrees command without any pre-configured scope."
         },
         {
           "description": "Denies the list_note_folders command without any pre-configured scope.",
@@ -1249,6 +1357,12 @@
           "type": "string",
           "const": "deny-load-workspace",
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the log_work_phase command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-log-work-phase",
+          "markdownDescription": "Denies the log_work_phase command without any pre-configured scope."
         },
         {
           "description": "Denies the move_note command without any pre-configured scope.",
@@ -1317,6 +1431,12 @@
           "markdownDescription": "Denies the paste_clipboard_image command without any pre-configured scope."
         },
         {
+          "description": "Denies the power_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-power-state",
+          "markdownDescription": "Denies the power_state command without any pre-configured scope."
+        },
+        {
           "description": "Denies the profile_env command without any pre-configured scope.",
           "type": "string",
           "const": "deny-profile-env",
@@ -1339,6 +1459,12 @@
           "type": "string",
           "const": "deny-program-icons",
           "markdownDescription": "Denies the program_icons command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the prune_hangar_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-prune-hangar-worktree",
+          "markdownDescription": "Denies the prune_hangar_worktree command without any pre-configured scope."
         },
         {
           "description": "Denies the push_save command without any pre-configured scope.",
@@ -1375,6 +1501,12 @@
           "type": "string",
           "const": "deny-reload-profiles",
           "markdownDescription": "Denies the reload_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_hangar_worktree command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-hangar-worktree",
+          "markdownDescription": "Denies the remove_hangar_worktree command without any pre-configured scope."
         },
         {
           "description": "Denies the remove_worktree command without any pre-configured scope.",

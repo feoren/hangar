@@ -16,6 +16,11 @@
 //! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
 //! own under `<data>/gate/sessions/`, removed when the session's process ends.
 //!
+//! Shell commands: Claude Code's `Bash` hook and the extensions' shell tool reach the same route
+//! with the command line instead of a path. The command guard (`command_guard.rs`, rules in
+//! `command-guard.toml`) decides whether the person is asked; a held command that gets no answer
+//! in time is denied (fail safe), whereas every error still lets it through.
+//!
 //! Connections: one thread each. Until its head is read and its token known, a connection holds
 //! one of [`MAX_UNAUTHENTICATED`] slots and has [`Limits::head`] in total for the head, however
 //! slowly it sends; a known session then moves to one of [`MAX_CONNECTIONS`] slots with
@@ -38,10 +43,13 @@ use zeroize::Zeroizing;
 
 use crate::agent_catalog::{Agent, HookFormat};
 use crate::claims::WorktreeClaims;
+use crate::command_guard::{
+    self, Hit, Place, RuleProblem, RuleSet, RuleSummary, Style, RULE_HANGAR_CONFIG, RULE_TOO_LONG,
+};
 use crate::gate::{
-    self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, Waiting, DECISION_TIMEOUT,
-    ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON, ROUTE_USER_PROMPT_SUBMIT,
-    ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
+    self, Answer, AskRule, CommandConflict, CommandText, EditRequest, Gate, GateSnapshot, Opened,
+    Outcome, Waiting, DECISION_TIMEOUT, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON,
+    ROUTE_USER_PROMPT_SUBMIT, ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
 use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
 use crate::hook_http::{self, Head, Status};
@@ -63,6 +71,8 @@ pub const MAX_CONNECTIONS: usize = 64;
 /// Connections whose token is not known yet. Small, so a flood of slow connections cannot hold
 /// the threads; it only delays new hooks, which then fail open.
 pub const MAX_UNAUTHENTICATED: usize = 8;
+/// Stack of each connection thread (see `accept_loop`).
+const CONNECTION_STACK: usize = 8 * 1024 * 1024;
 /// How often a held request checks whether the agent still waits.
 const WAIT_TICK: Duration = Duration::from_millis(500);
 /// After the answer: how much the client may still send before the close.
@@ -131,6 +141,47 @@ struct Inner {
     starts: AtomicUsize,
     /// The person's gate rules (`gate_rules.rs`) and the file they live in.
     rules: Mutex<Rules>,
+    /// The command guard's setting and rules.
+    guard: Mutex<Guard>,
+}
+
+/// The command guard: on by default; its rules come from the file, read again when it changed.
+struct Guard {
+    enabled: bool,
+    /// `command-guard.toml` in Hangar's config folder; without one (tests) the default rules.
+    file: Option<PathBuf>,
+    /// Modification time and length of the file the rules were read from.
+    stamp: Option<(Option<SystemTime>, u64)>,
+    /// Whether Hangar already tried to write the default file in this run.
+    wrote_default: bool,
+    rules: Arc<RuleSet>,
+}
+
+impl Default for Guard {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            file: None,
+            stamp: None,
+            wrote_default: false,
+            rules: Arc::new(command_guard::default_rules()),
+        }
+    }
+}
+
+/// What Settings shows of the command guard (command `command_guard_info`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardInfo {
+    pub enabled: bool,
+    /// Where the rules live, for the person to edit; empty without a file.
+    pub file: String,
+    pub rules: Vec<RuleSummary>,
+    pub problems: Vec<RuleProblem>,
+    /// The file could not be read, so the default rules apply.
+    pub defaults: bool,
+    /// How many rules Hangar ships, so Settings can say when the file holds fewer.
+    pub default_count: usize,
 }
 
 /// The rule book and where it is saved; without a file (tests, before `load_rules`) rules live
@@ -198,6 +249,7 @@ impl GateService {
                 session_dirs: Mutex::new(HashMap::new()),
                 starts: AtomicUsize::new(0),
                 rules: Mutex::new(Rules::default()),
+                guard: Mutex::new(Guard::default()),
             }),
         }
     }
@@ -247,13 +299,24 @@ impl GateService {
     /// gate rule ([`Answer::rule`]) saves it for the decision's project and answers the
     /// other waiting decisions it covers at once.
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
-        let rule = answer
+        // Checked before any rule is saved: an answer the decision does not take sets nothing.
+        if !lock(&self.inner.gate).accepts(id, answer) {
+            return false;
+        }
+        let rules = answer
             .rule()
-            .and_then(|(effect, scope)| self.add_rule_for(id, effect, scope));
+            .map(|(effect, scope)| self.add_rules_for(id, effect, scope))
+            .unwrap_or_default();
         let resolved = lock(&self.inner.gate).answer(id, answer);
         let found = resolved.is_some();
         deliver(resolved.into_iter().flatten());
-        let settled = rule.is_some_and(|rule| self.inner.settle_waiting(&rule));
+        let mut settled = false;
+        for rule in rules.iter().filter(|rule| rule.scope != RuleScope::Command) {
+            settled |= self.inner.settle_waiting(rule);
+        }
+        if rules.iter().any(|rule| rule.scope == RuleScope::Command) {
+            settled |= self.inner.settle_commands();
+        }
         if found || settled {
             self.inner.publish();
         }
@@ -277,6 +340,50 @@ impl GateService {
         };
     }
 
+    /// Where the command guard's rules live; read on first use, written with the commented
+    /// defaults when missing.
+    pub fn load_command_guard(&self, file: PathBuf) {
+        let mut guard = lock(&self.inner.guard);
+        guard.file = Some(file);
+        guard.stamp = None;
+    }
+
+    /// The window's setting. Turning it off lets every held shell command go on.
+    pub fn configure_command_guard(&self, enabled: bool) {
+        let changed = {
+            let mut guard = lock(&self.inner.guard);
+            let changed = guard.enabled != enabled;
+            guard.enabled = enabled;
+            changed
+        };
+        if !changed || enabled {
+            return;
+        }
+        let released = lock(&self.inner.gate).release_commands();
+        if !released.is_empty() {
+            deliver(released);
+            self.inner.publish();
+        }
+    }
+
+    /// The guard's setting, file, rules and problems, the file read again if it changed.
+    pub fn command_guard_info(&self) -> GuardInfo {
+        let set = self.inner.guard_rules();
+        let guard = lock(&self.inner.guard);
+        GuardInfo {
+            enabled: guard.enabled,
+            file: guard
+                .file
+                .as_ref()
+                .map(|file| file.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            rules: set.summaries(),
+            problems: set.problems.clone(),
+            defaults: set.defaults,
+            default_count: command_guard::default_rules().rules.len(),
+        }
+    }
+
     /// Every gate rule, in the order they were set.
     pub fn rules(&self) -> Vec<GateRule> {
         lock(&self.inner.rules).book.rules().to_vec()
@@ -292,27 +399,41 @@ impl GateService {
         removed
     }
 
-    /// The rule an answer sets for decision `id`: its file, or the file's folder, in the project
-    /// of the waiting session. `None` when the decision no longer waits, the session is in no
-    /// known repository, or the path cannot be a rule (a folder rule for a file at the top).
-    fn add_rule_for(&self, id: u64, effect: RuleEffect, scope: RuleScope) -> Option<GateRule> {
-        let waiting = lock(&self.inner.gate).waiting(id)?;
+    /// The rules an answer sets for decision `id`: its file, or the file's folder, or each guard
+    /// rule a held command matched (except those [`command_guard::rememberable`] refuses), in the
+    /// project of the waiting session. Empty when the decision no longer waits, the session is in
+    /// no known repository, or the path cannot be a rule (a folder rule for a file at the top).
+    fn add_rules_for(&self, id: u64, effect: RuleEffect, scope: RuleScope) -> Vec<GateRule> {
+        let Some(waiting) = lock(&self.inner.gate).waiting(id) else {
+            return Vec::new();
+        };
         let worktrees = (self.inner.worktrees)();
-        let project = worktrees
+        let Some(project) = worktrees
             .iter()
-            .find(|w| w.sessions.contains(&waiting.session))?
-            .repo
-            .clone();
-        let path = match scope {
-            RuleScope::File => waiting.path.clone(),
-            RuleScope::Folder => gate_rules::folder_of(&waiting.path)?,
+            .find(|w| w.sessions.contains(&waiting.session))
+            .map(|w| w.repo.clone())
+        else {
+            return Vec::new();
+        };
+        let paths: Vec<String> = match (scope, &waiting.command_rules) {
+            (RuleScope::Command, Some(ids)) => ids
+                .iter()
+                .filter(|id| command_guard::rememberable(id))
+                .cloned()
+                .collect(),
+            (RuleScope::File, None) => vec![waiting.path.clone()],
+            (RuleScope::Folder, None) => gate_rules::folder_of(&waiting.path).into_iter().collect(),
+            _ => Vec::new(),
         };
         let mut rules = lock(&self.inner.rules);
-        let rule = rules
-            .book
-            .add(&project, &path, scope, effect, now_millis())?;
-        rules.save();
-        Some(rule)
+        let added: Vec<GateRule> = paths
+            .iter()
+            .filter_map(|path| rules.book.add(&project, path, scope, effect, now_millis()))
+            .collect();
+        if !added.is_empty() {
+            rules.save();
+        }
+        added
     }
 
     /// Hangar quits: waiting edits are denied, no token works any more.
@@ -803,6 +924,30 @@ fn deliver(outcomes: impl IntoIterator<Item = (Waiter, Outcome)>) {
     }
 }
 
+/// The default rules with a problem that names why the file could not be read.
+fn file_problem(reason: &str) -> RuleSet {
+    let mut set = command_guard::default_rules();
+    set.defaults = true;
+    set.problems.insert(
+        0,
+        RuleProblem {
+            rule: None,
+            id: None,
+            line: None,
+            message: reason.to_owned(),
+        },
+    );
+    set
+}
+
+/// The user's home folder, where `~` and `$HOME` in a command lead.
+fn home_folder() -> Option<PathBuf> {
+    let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -969,9 +1114,14 @@ fn accept_loop(inner: &Arc<Inner>, listener: &TcpListener) {
             continue;
         };
         let worker = Arc::clone(inner);
-        // A failed spawn drops the closure with its slot and stream.
+        // A failed spawn drops the closure with its slot and stream. The stack is set rather
+        // than left to the platform default: the command guard splits text the agent wrote, and
+        // a stack overflow here would abort the whole app with every session in it. Its
+        // recursion is bounded (`command_split::MAX_DEPTH`, `command_guard::MAX_BRACE_GROUPS`);
+        // this is the margin on top.
         let _ = thread::Builder::new()
             .name("gate-conn".to_owned())
+            .stack_size(CONNECTION_STACK)
             .spawn(move || serve(&worker, &stream, slot));
     }
 }
@@ -1061,12 +1211,13 @@ impl Inner {
                     .iter()
                     .find(|tree| tree.sessions.contains(&w.session))
                     .is_some_and(|tree| {
-                        gate_rules::rule_matches(
-                            rule,
-                            &tree.repo,
-                            &w.key,
-                            gate_rules::CASE_INSENSITIVE,
-                        )
+                        w.command_rules.is_none()
+                            && gate_rules::rule_matches(
+                                rule,
+                                &tree.repo,
+                                &w.key,
+                                gate_rules::CASE_INSENSITIVE,
+                            )
                     })
             })
             .collect();
@@ -1083,9 +1234,180 @@ impl Inner {
         any
     }
 
+    /// Answers the held shell commands the remembered answers now cover: any deny for one of a
+    /// command's rules blocks it, an allow for every one of them lets it go on. `true` when any.
+    fn settle_commands(&self) -> bool {
+        let waiting: Vec<Waiting> = lock(&self.gate)
+            .all_waiting()
+            .into_iter()
+            .filter(|w| w.command_rules.is_some())
+            .collect();
+        if waiting.is_empty() {
+            return false;
+        }
+        let worktrees = (self.worktrees)();
+        let titles = (self.titles)();
+        let mut settled: Vec<(Waiting, RuleEffect, Vec<GateRule>)> = Vec::new();
+        {
+            let rules = lock(&self.rules);
+            for w in waiting {
+                let Some(tree) = worktrees.iter().find(|t| t.sessions.contains(&w.session)) else {
+                    continue;
+                };
+                let ids = w.command_rules.clone().unwrap_or_default();
+                let found: Vec<Option<GateRule>> = ids
+                    .iter()
+                    .map(|id| {
+                        rules
+                            .book
+                            .find_command(&tree.repo, id)
+                            .filter(|_| command_guard::rememberable(id))
+                            .cloned()
+                    })
+                    .collect();
+                if let Some(deny) = found
+                    .iter()
+                    .flatten()
+                    .find(|rule| rule.effect == RuleEffect::Deny)
+                {
+                    let deny = deny.clone();
+                    settled.push((w, RuleEffect::Deny, vec![deny]));
+                } else if found.iter().all(Option::is_some) {
+                    let all = found.into_iter().flatten().collect();
+                    settled.push((w, RuleEffect::Allow, all));
+                }
+            }
+        }
+        let mut gate = lock(&self.gate);
+        let mut any = false;
+        for (w, effect, used) in settled {
+            let Some(outcomes) = gate.settle(w.id, effect) else {
+                continue;
+            };
+            deliver(outcomes);
+            for rule in &used {
+                gate.record(log_entry(rule, w.session, &titles, &rule.path));
+            }
+            any = true;
+        }
+        any
+    }
+
     fn publish(&self) {
         let snapshot = lock(&self.gate).snapshot();
         (self.emit)(&snapshot);
+    }
+
+    /// The guard's rules, read again when the file changed (one look at its metadata per call,
+    /// taken from the opened file so the check and the read see the same file). A missing file
+    /// is written once per run with the commented defaults. The disk is never touched under the
+    /// guard's lock.
+    fn guard_rules(&self) -> Arc<RuleSet> {
+        let (file, stamp, wrote_default, cached) = {
+            let guard = lock(&self.guard);
+            (
+                guard.file.clone(),
+                guard.stamp,
+                guard.wrote_default,
+                Arc::clone(&guard.rules),
+            )
+        };
+        let Some(file) = file else {
+            return cached;
+        };
+        let mut opened = std::fs::File::open(&file);
+        if matches!(&opened, Err(error) if error.kind() == io::ErrorKind::NotFound) {
+            if !wrote_default {
+                lock(&self.guard).wrote_default = true;
+                let written = file
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| {
+                        crate::persist::write_atomic(&file, command_guard::DEFAULT_RULES.as_bytes())
+                    });
+                if let Err(error) = written {
+                    eprintln!("hangar: {} not written: {error}", file.display());
+                }
+            }
+            opened = std::fs::File::open(&file);
+        }
+        let mut handle = match opened {
+            Ok(handle) => handle,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Arc::new(command_guard::default_rules());
+            }
+            Err(error) => return Arc::new(file_problem(&format!("not readable: {error}"))),
+        };
+        let Ok(meta) = handle.metadata() else {
+            return Arc::new(file_problem("its size could not be read"));
+        };
+        let now = (meta.modified().ok(), meta.len());
+        if stamp == Some(now) {
+            return cached;
+        }
+        let limit = command_guard::MAX_FILE_BYTES as u64;
+        let mut bytes = Vec::new();
+        let set = if meta.len() > limit {
+            file_problem("the file is larger than 1 MiB")
+        } else {
+            match (&mut handle).take(limit + 1).read_to_end(&mut bytes) {
+                Err(error) => file_problem(&format!("not readable: {error}")),
+                Ok(_) if bytes.len() as u64 > limit => {
+                    file_problem("the file is larger than 1 MiB")
+                }
+                Ok(_) => match String::from_utf8(bytes) {
+                    Ok(text) => command_guard::parse_rules(&text),
+                    Err(_) => file_problem("the file is not UTF-8 text"),
+                },
+            }
+        };
+        let set = Arc::new(set);
+        let mut guard = lock(&self.guard);
+        guard.stamp = Some(now);
+        guard.rules = Arc::clone(&set);
+        set
+    }
+
+    /// Hangar's own folders: the config folder (the guard's file) and the local data folder (the
+    /// remembered answers, the hook folders).
+    /// Only the folders that hold settings or gate state: the config folder (the guard's rules,
+    /// the profiles) and the gate's own folder (hook settings, the extensions' session folders).
+    /// Not the local data folder as a whole, where the team sessions' worktrees live.
+    fn protected_folders(&self) -> Vec<PathBuf> {
+        let config = lock(&self.guard)
+            .file
+            .as_ref()
+            .and_then(|file| file.parent().map(Path::to_path_buf));
+        config
+            .into_iter()
+            .chain(std::iter::once(self.settings_dir.clone()))
+            .collect()
+    }
+
+    /// The settings files themselves, wherever they lie: the guard's rules and the remembered
+    /// answers (in the local data folder).
+    fn protected_files(&self) -> Vec<PathBuf> {
+        let guard = lock(&self.guard).file.clone();
+        let rules = lock(&self.rules).file.clone();
+        [guard, rules].into_iter().flatten().collect()
+    }
+
+    /// Where a shell command or an edit of `session` runs, for the guard's checks. Without a
+    /// usable working folder from the hook, relative paths stay unplaceable (asked about).
+    fn place_for(&self, cwd: Option<&str>, own: Option<&WorktreeClaims>) -> Place {
+        let key = |path: &Path| crate::git::path_key(path);
+        let protected: Vec<String> = self.protected_folders().iter().map(|p| key(p)).collect();
+        // The identifier of the config folder; the data folder has the same name, which is why
+        // names only count for paths outside the session's project.
+        let names: Vec<&str> = protected.first().map(String::as_str).into_iter().collect();
+        Place {
+            cwd: cwd.map(Path::new).filter(|cwd| cwd.is_absolute()).map(key),
+            project: own.map(|own| own.root_key.clone()),
+            home: home_folder().as_deref().map(key),
+            protected_names: command_guard::protected_names(&names),
+            protected_files: self.protected_files().iter().map(|p| key(p)).collect(),
+            protected,
+        }
     }
 
     /// Who sent the request. A browser page (`Origin`, `Sec-Fetch-*`) or another `Host` than the
@@ -1199,12 +1521,23 @@ impl Inner {
         if !lock(&self.gate).enabled() {
             return Outcome::Allow;
         }
+        if let Some(command) = request.command.clone() {
+            return self.decide_command(session, &request, command, stream);
+        }
         let Some(path) = request.path.as_deref() else {
             return Outcome::Allow;
         };
         let worktrees = (self.worktrees)();
+        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
+        // An edit of Hangar's own settings is held like a risky command, whatever collides.
+        let place = self.place_for(request.cwd.as_deref(), own);
+        if command_guard::edit_touches_hangar(path, &place, Style::HOST) {
+            let text = format!("{}: {path}", request.tool);
+            let hit = Hit::builtin(RULE_HANGAR_CONFIG, text.clone());
+            return self.ask_command(session, &request.tool, own, text, vec![hit], stream);
+        }
         // A session outside every known worktree cannot collide; its path is not even looked at.
-        let Some(own) = worktrees.iter().find(|w| w.sessions.contains(&session)) else {
+        let Some(own) = own else {
             return Outcome::Allow;
         };
         let candidates = path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key));
@@ -1270,6 +1603,141 @@ impl Inner {
             Opened::Full => return Outcome::Ask(gate::full_reason(&shown_path, &named)),
         };
         self.publish();
+        self.hold(id, ticket, &rx, stream)
+    }
+
+    /// Answers one shell command: at once when no guard rule matches it, by the person's
+    /// remembered answers for the rules in this project, or once the person decided. With the
+    /// guard switched off only Hangar's own settings are still asked about.
+    fn decide_command(
+        &self,
+        session: SessionId,
+        request: &EditRequest,
+        command: CommandText,
+        stream: &TcpStream,
+    ) -> Outcome {
+        let guard_on = lock(&self.guard).enabled;
+        let worktrees = (self.worktrees)();
+        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
+        let place = self.place_for(request.cwd.as_deref(), own);
+        let (text, hits) = match command {
+            CommandText::TooLong(start) => {
+                (start, vec![Hit::builtin(RULE_TOO_LONG, String::new())])
+            }
+            CommandText::Text(text) => {
+                let rules = self.guard_rules();
+                let dialects = command_guard::dialects_of(&request.tool);
+                let hits = command_guard::check(&rules.rules, &text, dialects, &place, Style::HOST);
+                (text, hits)
+            }
+        };
+        let hits = hits
+            .into_iter()
+            .filter(|hit| guard_on || hit.rule_id == RULE_HANGAR_CONFIG)
+            .collect();
+        self.ask_command(session, &request.tool, own, text, hits, stream)
+    }
+
+    /// The person's decision about `hits` of one command (or an edit of Hangar's settings): a
+    /// remembered deny for any rule blocks it, rules with a remembered allow drop out, and the
+    /// rest are asked about on one card. Allowed at once when nothing is left.
+    fn ask_command(
+        &self,
+        session: SessionId,
+        tool: &str,
+        own: Option<&WorktreeClaims>,
+        text: String,
+        hits: Vec<Hit>,
+        stream: &TcpStream,
+    ) -> Outcome {
+        if hits.is_empty() {
+            return Outcome::Allow;
+        }
+        let mut remaining = Vec::new();
+        let mut remembered = Vec::new();
+        {
+            let rules = lock(&self.rules);
+            for hit in hits {
+                let rule = own.and_then(|own| {
+                    rules
+                        .book
+                        .find_command(&own.repo, &hit.rule_id)
+                        .filter(|_| command_guard::rememberable(&hit.rule_id))
+                        .cloned()
+                });
+                match rule {
+                    Some(rule) => remembered.push((rule, hit)),
+                    None => remaining.push(hit),
+                }
+            }
+        }
+        if !remembered.is_empty() {
+            let titles = (self.titles)();
+            let shown = command_guard::shown(&text, gate_rules::LOG_COMMAND_CHARS);
+            {
+                let mut gate = lock(&self.gate);
+                if !gate.enabled() {
+                    return Outcome::Allow;
+                }
+                for (rule, _) in &remembered {
+                    gate.record(log_entry(rule, session, &titles, &shown));
+                }
+            }
+            self.publish();
+        }
+        if let Some((_, hit)) = remembered
+            .iter()
+            .find(|(rule, _)| rule.effect == RuleEffect::Deny)
+        {
+            return Outcome::Deny(gate::command_rule_denied_reason(&[AskRule::new(
+                &hit.rule_id,
+                &hit.description,
+            )]));
+        }
+        if remaining.is_empty() {
+            return Outcome::Allow;
+        }
+        let call = remaining
+            .iter()
+            .find(|hit| !hit.call.is_empty())
+            .map(|hit| hit.call.clone())
+            .unwrap_or_default();
+        let rules: Vec<AskRule> = remaining
+            .iter()
+            .map(|hit| AskRule::new(&hit.rule_id, &hit.description))
+            .collect();
+        let (tx, rx) = sync_channel(1);
+        let conflict = CommandConflict {
+            rules: rules.clone(),
+            call,
+            text,
+        };
+        let opened = {
+            let mut gate = lock(&self.gate);
+            if !gate.enabled() {
+                return Outcome::Allow;
+            }
+            gate.open_command(session, tool, conflict, now_millis(), tx)
+        };
+        let (id, ticket) = match opened {
+            Opened::Waiting { id, ticket } => (id, ticket),
+            Opened::Allowed => return Outcome::Allow,
+            // Not the agent's own prompt: in an unattended mode it may answer itself.
+            Opened::Full => return Outcome::Deny(gate::command_full_reason(&rules)),
+        };
+        self.publish();
+        self.hold(id, ticket, &rx, stream)
+    }
+
+    /// Waits for the outcome of decision `id`: the person's answer, a rule set meanwhile, the
+    /// expiry after the decision time, or the agent closing the connection.
+    fn hold(
+        &self,
+        id: u64,
+        ticket: u64,
+        rx: &std::sync::mpsc::Receiver<Outcome>,
+        stream: &TcpStream,
+    ) -> Outcome {
         let deadline = Instant::now() + self.limits.decision;
         loop {
             match rx.recv_timeout(WAIT_TICK.min(self.limits.decision)) {
@@ -1979,6 +2447,549 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    fn bash(root: &Path, command: &str) -> String {
+        serde_json::json!({
+            "session_id": "x", "cwd": root, "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": command, "description": "run it" },
+        })
+        .to_string()
+    }
+
+    fn decision_of(answer: &str) -> (String, String) {
+        let json: serde_json::Value = serde_json::from_str(answer).unwrap();
+        let output = &json["hookSpecificOutput"];
+        (
+            output["permissionDecision"].as_str().unwrap().to_owned(),
+            output["permissionDecisionReason"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+    }
+
+    #[test]
+    fn a_risky_command_waits_for_the_person_and_harmless_ones_pass() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // Harmless commands, and ones the rules allow inside the project, go ahead at once.
+        for command in [
+            "git push",
+            "rm -rf ./node_modules",
+            "git reset --soft HEAD~1",
+            "ls",
+        ] {
+            assert_eq!(
+                post(
+                    port,
+                    ROUTE_PRE_TOOL_USE,
+                    Some(&token),
+                    &bash(&fixture.root, command)
+                ),
+                (200, String::new()),
+                "{command}"
+            );
+        }
+        // A force push waits; the card names the rule and shows the command as sent.
+        let command = "git push --force origin main\u{1b}[2J";
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, command));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.clone().unwrap();
+        assert_eq!(ask.rules.len(), 1);
+        assert_eq!(ask.rules[0].id, "git-push-force");
+        assert!(ask.rules[0].builtin);
+        assert_eq!(ask.call, "git push --force origin main\u{1b}[2J");
+        assert_eq!(ask.text, command);
+        assert!(decision.path.is_empty() && decision.other_sessions.is_empty());
+        // A file answer does not fit a command; the card stays.
+        assert!(!fixture.service.answer(decision.id, Answer::AllowFile));
+        assert_eq!(fixture.service.snapshot().pending.len(), 1);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("\"git-push-force\""), "{reason}");
+        assert!(reason.contains("did not allow"), "{reason}");
+        // Switched off in Settings, the same command goes ahead without a card.
+        fixture.service.configure_command_guard(false);
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, command)
+            ),
+            (200, String::new())
+        );
+        assert!(!fixture.service.command_guard_info().enabled);
+    }
+
+    #[test]
+    fn a_remembered_answer_covers_the_rule_in_the_project() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture.settings.path().join("gate-rules.json");
+        fixture.service.load_rules(file.clone());
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let first = bash(&fixture.root, "git reset --hard");
+        let waiting = {
+            let (token, body) = (token.clone(), first.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let id = next_pending(&fixture.events).pending[0].id;
+        assert!(fixture.service.answer(id, Answer::AlwaysCommand));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        let rules = fixture.service.rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            (
+                rules[0].project.as_str(),
+                rules[0].path.as_str(),
+                rules[0].scope
+            ),
+            ("repo", "git-reset-hard", RuleScope::Command)
+        );
+        assert_eq!(
+            RuleBook::parse(&std::fs::read(&file).unwrap()).rules(),
+            rules.as_slice()
+        );
+        // Another command matching the same rule: allowed by the rule, logged, no card.
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git -C . reset --hard HEAD~2")
+            ),
+            (200, String::new())
+        );
+        let snapshot = fixture.service.snapshot();
+        assert!(snapshot.pending.is_empty());
+        assert_eq!(snapshot.log[0].path, "git -C . reset --hard HEAD~2");
+        assert_eq!(snapshot.log[0].rule_path, "git-reset-hard");
+        // A command rule never answers an edit, and an edit rule never a command.
+        assert!(lock(&fixture.service.inner.rules)
+            .book
+            .find("repo", "git-reset-hard")
+            .is_none());
+        // "Always block" turns the same rule into a deny.
+        {
+            let mut rules = lock(&fixture.service.inner.rules);
+            rules
+                .book
+                .add(
+                    "repo",
+                    "git-reset-hard",
+                    RuleScope::Command,
+                    RuleEffect::Deny,
+                    1,
+                )
+                .unwrap();
+        }
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &first);
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("standing answer"), "{reason}");
+    }
+
+    #[test]
+    fn a_command_nobody_answers_is_blocked() {
+        let fixture = fixture(Duration::from_millis(300));
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let (code, answer) = post(
+            port,
+            ROUTE_PRE_TOOL_USE,
+            Some(&token),
+            &bash(&fixture.root, "rm -rf ~"),
+        );
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("no answer"), "{reason}");
+        assert!(reason.contains("rm-outside-project"), "{reason}");
+    }
+
+    #[test]
+    fn switching_the_guard_off_lets_a_held_command_go_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, "diskpart"));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        next_pending(&fixture.events);
+        fixture.service.configure_command_guard(false);
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn an_overlong_command_is_asked_about_not_handed_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = "x".repeat(command_guard::MAX_COMMAND_BYTES + 1);
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &long));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        assert_eq!(ask.rules[0].id, command_guard::RULE_TOO_LONG);
+        assert_eq!(ask.text.chars().count(), gate::MAX_SHOWN_COMMAND);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!((code, decision_of(&answer).0.as_str()), (200, "deny"));
+        // A tool that is no shell keeps its `command` field to itself.
+        let other = serde_json::json!({
+            "tool_name": "Task", "cwd": fixture.root,
+            "tool_input": { "command": "git push --force" },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &other),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn a_working_folder_hangar_cannot_use_still_asks() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        for cwd in [
+            "a".repeat(gate::MAX_FIELD_BYTES + 1),
+            "C:/x\u{0}y".to_owned(),
+        ] {
+            let body = serde_json::json!({
+                "tool_name": "Bash", "cwd": cwd,
+                "tool_input": { "command": "rm -rf build" },
+            })
+            .to_string();
+            let waiting = {
+                let token = token.clone();
+                thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+            };
+            let decision = next_pending(&fixture.events).pending.remove(0);
+            assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+            assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        }
+    }
+
+    #[test]
+    fn an_edit_with_a_working_folder_hangar_cannot_use_is_still_checked() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture
+            .settings
+            .path()
+            .join("com.example.hangar")
+            .join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = "a".repeat(gate::MAX_FIELD_BYTES + 1);
+        // An ordinary edit goes ahead instead of being refused.
+        let body = serde_json::json!({
+            "tool_name": "Edit", "cwd": long,
+            "tool_input": { "file_path": fixture.root.join("src").join("own.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+            (200, String::new())
+        );
+        // An edit of the rules file is still held.
+        let body = serde_json::json!({
+            "tool_name": "Write", "cwd": long,
+            "tool_input": { "file_path": file, "content": "" },
+        })
+        .to_string();
+        let waiting = {
+            let token = token.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn hangars_worktrees_in_its_data_folder_are_not_its_settings() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        // Next to the gate's folder, as the app has it (the fixture's gate folder is its root).
+        let data_dir = TempDir::new("gate-data-folder");
+        let data = data_dir.path().to_path_buf();
+        fixture.service.load_command_guard(
+            fixture
+                .settings
+                .path()
+                .join("config")
+                .join(command_guard::FILE_NAME),
+        );
+        fixture.service.load_rules(data.join(gate_rules::FILE_NAME));
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // The session's own folder holds nothing of Hangar's; an edit and a command pass.
+        let edit = serde_json::json!({
+            "tool_name": "Edit", "cwd": fixture.root,
+            "tool_input": { "file_path": fixture.root.join("src").join("main.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &edit),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git status")
+            ),
+            (200, String::new())
+        );
+        // The remembered answers' file is protected, the data folder around it is not.
+        let slashed = |path: &Path| path.display().to_string().replace('\\', "/");
+        let protected = format!("rm {}", slashed(&data.join(gate_rules::FILE_NAME)));
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &protected));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+        waiting.join().unwrap();
+        let elsewhere = format!("ls {}", slashed(&data.join("notes")));
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, &elsewhere)
+            ),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn every_rule_of_a_command_counts_and_only_the_unanswered_ones_are_shown() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        lock(&fixture.service.inner.rules)
+            .book
+            .add(
+                "repo",
+                "git-reset-hard",
+                RuleScope::Command,
+                RuleEffect::Allow,
+                1,
+            )
+            .unwrap();
+        // The remembered allow for the reset does not carry the delete of the home folder.
+        let chained = bash(&fixture.root, "git reset --hard && rm -rf ~");
+        let waiting = {
+            let (token, body) = (token.clone(), chained.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        let ids: Vec<&str> = ask.rules.iter().map(|rule| rule.id.as_str()).collect();
+        assert_eq!(ids, ["rm-outside-project"]);
+        assert_eq!(ask.call, "rm -rf ~");
+        // "Always allow" remembers the rules shown.
+        assert!(fixture.service.answer(decision.id, Answer::AlwaysCommand));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        let remembered: Vec<String> = fixture
+            .service
+            .rules()
+            .into_iter()
+            .map(|rule| rule.path)
+            .collect();
+        assert_eq!(remembered, ["git-reset-hard", "rm-outside-project"]);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &chained),
+            (200, String::new())
+        );
+        // A remembered deny for any rule blocks the whole command.
+        lock(&fixture.service.inner.rules)
+            .book
+            .add(
+                "repo",
+                "rm-outside-project",
+                RuleScope::Command,
+                RuleEffect::Deny,
+                2,
+            )
+            .unwrap();
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &chained);
+        assert_eq!((code, decision_of(&answer).0.as_str()), (200, "deny"));
+    }
+
+    #[test]
+    fn a_full_queue_blocks_a_command_instead_of_handing_it_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let mut held = Vec::new();
+        for n in 0..gate::MAX_PENDING_PER_SESSION {
+            let body = bash(&fixture.root, &format!("rm -rf /tmp/x{n}"));
+            let token = token.clone();
+            held.push(thread::spawn(move || {
+                post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body)
+            }));
+            loop {
+                if next_pending(&fixture.events).pending.len() == n + 1 {
+                    break;
+                }
+            }
+        }
+        let (code, answer) = post(
+            port,
+            ROUTE_PRE_TOOL_USE,
+            Some(&token),
+            &bash(&fixture.root, "rm -rf /tmp/more"),
+        );
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!((code, verdict.as_str()), (200, "deny"));
+        assert!(reason.contains("too many decisions"), "{reason}");
+        fixture.service.ended(1);
+        for waiting in held {
+            assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        }
+    }
+
+    #[test]
+    fn hangars_own_settings_are_asked_about_even_with_the_guard_off() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let config = fixture.settings.path().join("com.example.hangar");
+        let file = config.join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        fixture.service.configure(true);
+        fixture.service.configure_command_guard(false);
+        let (port, token) = launch(&fixture, 1);
+        // An edit of the rules file.
+        let body = serde_json::json!({
+            "tool_name": "Write", "cwd": fixture.root,
+            "tool_input": { "file_path": file, "content": "" },
+        })
+        .to_string();
+        let waiting = {
+            let token = token.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        assert_eq!(ask.rules[0].id, command_guard::RULE_HANGAR_CONFIG);
+        assert!(!ask.rememberable);
+        // It cannot be allowed for good, and switching the guard off does not release it.
+        assert!(!fixture.service.answer(decision.id, Answer::AlwaysCommand));
+        fixture.service.configure_command_guard(true);
+        fixture.service.configure_command_guard(false);
+        assert_eq!(fixture.service.snapshot().pending.len(), 1);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        assert!(fixture.service.rules().is_empty());
+        // A command that names the folder.
+        // Forward slashes: in a POSIX command a backslash escapes.
+        let command = format!(
+            "cp x {}",
+            config
+                .join("profiles.toml")
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        );
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &command));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        // Other commands pass while the guard is off.
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git push -f")
+            ),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn the_rules_file_is_written_once_and_read_again_when_it_changes() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture
+            .settings
+            .path()
+            .join("config")
+            .join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        let info = fixture.service.command_guard_info();
+        assert!(info.enabled);
+        assert_eq!(info.file, file.to_string_lossy());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            command_guard::DEFAULT_RULES
+        );
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
+        assert!(info.problems.is_empty());
+        // The person's edit applies to the next command, with its problems reported.
+        std::fs::write(
+            &file,
+            "[[rule]]\nid = 'only'\ndescription = 'any ls'\nprogram = ['ls']\n\n\
+             [[rule]]\nid = 'broken'\ndescription = 'x'\nprogram = ['x']\nanny = ['-f']\n",
+        )
+        .unwrap();
+        let info = fixture.service.command_guard_info();
+        let ids: Vec<&str> = info.rules.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["only"]);
+        assert_eq!(info.problems.len(), 1);
+        assert_eq!(info.problems[0].id.as_deref(), Some("broken"));
+        // A file that is no TOML keeps the defaults and says why.
+        std::fs::write(&file, "[[rule]\n").unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(info.defaults);
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
+        // An oversized file is reported, and the defaults apply.
+        std::fs::write(&file, "#".repeat(command_guard::MAX_FILE_BYTES + 1)).unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(info.defaults);
+        assert!(
+            info.problems[0].message.contains("1 MiB"),
+            "{:?}",
+            info.problems
+        );
+        assert_eq!(info.default_count, info.rules.len());
+        // Deleted, it is not written again in the same run; the defaults apply.
+        std::fs::remove_file(&file).unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(!file.exists());
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
     }
 
     #[test]

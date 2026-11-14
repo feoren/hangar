@@ -11,7 +11,9 @@ import {
   parseGateRules,
   ruleAnswerText,
   ruleFolder,
+  ruleText,
   RULE_NOTE_MS,
+  type AskRule,
   type RuleAnswer,
   gateSetup,
   parseGateSnapshot,
@@ -45,8 +47,118 @@ const rawDecision = {
 };
 
 function decision(overrides: Partial<PendingDecision> = {}): PendingDecision {
-  return { ...rawDecision, reserved: [], level: "overlappingLines", ...overrides };
+  return { ...rawDecision, reserved: [], level: "overlappingLines", command: null, ...overrides };
 }
+
+/** A held shell command as the backend serializes it. */
+const rawCommand = {
+  id: 9,
+  sessionId: 1,
+  tool: "Bash",
+  path: "",
+  otherSessions: [],
+  teammates: [],
+  reserved: [],
+  level: "sameFile",
+  lines: [],
+  createdAt: 1_762_700_000_000,
+  command: {
+    rules: [
+      {
+        id: "git-push-force",
+        description: "git push --force overwrites the branch on the remote",
+        builtin: true,
+      },
+    ],
+    call: "git push --force",
+    text: "git push --force\ngit status",
+    hidden: 0,
+    rememberable: true,
+  },
+};
+
+describe("held shell commands", () => {
+  it("parses a command decision without a file or other sessions", () => {
+    const parsed = parseGateSnapshot({ enabled: true, pending: [rawCommand, rawDecision] });
+    expect(parsed?.pending.map((entry) => entry.id)).toEqual([7, 9]);
+    const held = parsed?.pending[1];
+    expect(held?.command?.rules[0]?.id).toBe("git-push-force");
+    expect(held?.path).toBe("");
+    expect(parsed?.pending[0]?.command).toBeNull();
+  });
+
+  it("refuses a command without its rule or text", () => {
+    for (const command of [
+      { ...rawCommand.command, rules: [] },
+      { ...rawCommand.command, rules: [{ id: "", description: "x", builtin: false }] },
+      { ...rawCommand.command, rules: [{ id: "x", description: 3, builtin: false }] },
+      { ...rawCommand.command, text: "" },
+      { ...rawCommand.command, hidden: -1 },
+      { ...rawCommand.command, rememberable: "yes" },
+      "git push",
+    ]) {
+      expect(
+        parseGateSnapshot({ enabled: true, pending: [{ ...rawCommand, command }] }),
+      ).toBeNull();
+    }
+  });
+
+  it("names the session and the rule's description", () => {
+    const held = parseGateSnapshot({ enabled: true, pending: [rawCommand] })?.pending[0];
+    if (held === undefined) throw new Error("not parsed");
+    expect(decisionText(held, nameOf, t)).toEqual({
+      title: "Claude Code wants to run a dangerous command",
+      detail: "git push --force overwrites the branch on the remote",
+    });
+  });
+
+  it("shows Hangar's own rules translated and the user's wording as written", () => {
+    const de = createTranslator("de");
+    const shipped: AskRule = {
+      id: "git-push-force",
+      description: "git push --force overwrites the branch on the remote",
+      builtin: true,
+    };
+    expect(ruleText(shipped, de)).toBe("git push --force überschreibt den Branch auf dem Remote");
+    // The user changed the shipped description: their words, not the translation.
+    const changed: AskRule = { ...shipped, description: "never on main", builtin: false };
+    expect(ruleText(changed, de)).toBe("never on main");
+    // A rule of the user's own, with an invisible character shown.
+    const own: AskRule = { id: "my-rule", description: "no\u202edeploy", builtin: false };
+    expect(ruleText(own, de)).toBe("no<U+202E>deploy");
+    // Built-in rules Hangar adds itself.
+    const config: AskRule = { id: "hangar-config", description: "x", builtin: true };
+    expect(ruleText(config, t)).toBe(
+      "Touches Hangar's own settings (the rules file or the remembered answers)",
+    );
+    // An unknown id marked built-in falls back to the description.
+    expect(ruleText({ id: "future-rule", description: "later", builtin: true }, t)).toBe("later");
+  });
+
+  it("names a command rule's answer by its rule", () => {
+    const entry: RuleAnswer = {
+      ...rawAnswer,
+      scope: "command",
+      effect: "deny",
+      path: "git reset --hard",
+      rulePath: "git-reset-hard",
+    };
+    expect(ruleAnswerText(entry, t)).toBe(
+      "Remembered answer: git reset --hard refused (command rule git-reset-hard)",
+    );
+    const rules = parseGateRules([
+      {
+        id: 1,
+        projectName: "app",
+        path: "git-reset-hard",
+        scope: "command",
+        effect: "allow",
+        createdAt: 1,
+      },
+    ]);
+    expect(rules).toHaveLength(1);
+  });
+});
 
 const rawAnswer = {
   id: 4,

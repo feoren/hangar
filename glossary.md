@@ -25,6 +25,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Fokus (Sub-Agent)                               | focus                             | the one sub-agent whose activity log is streamed, `focus_sub_agent`                 |
 | Schließen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay                       |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextLine.tsx`                |
+| Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                |
+| Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`             |
 | Notiz                                           | note                              |                                                                                     |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                                              |
 | Papierkorb                                      | trash                             |                                                                                     |
@@ -122,6 +124,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich (Terminal-Fläche einer Session)         | pane                              | `TerminalPane.tsx`                                                                  |
 | Maskieren (Pfade für eine Shell)                | quoting                           | `pathQuote.ts`                                                                      |
 | Exportieren (Session)                           | export                            | `sessionExport.ts`                                                                  |
+| Bericht (Session)                               | session report                    | `report/`, the agent's transcript as Markdown, `export_report`                      |
+| Transkript                                      | transcript                        | the agent CLI's own conversation file, not the scrollback                           |
 | Schlüsselbund (des Betriebssystems)             | keychain                          | `secrets.rs`; Credential Manager on Windows                                         |
 | Geheime Variable                                | secret variable                   | `secret_env`; only the name is in the file                                          |
 | Infobereich, Tray-Symbol                        | notification area, tray icon      | `tray.rs`                                                                           |
@@ -132,7 +136,14 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Schnellzugriff                                  | quick access, launcher            | `launcher.ts`; "launcher" in code                                                   |
 | Suche in allen Sessions                         | search across sessions            | `sessionSearch.ts`; output and scrollback of every open terminal                    |
 | Übersicht (alle Sessions als Kacheln)           | overview, tile                    | `overview.ts`; live tiles with the last lines of each session                       |
+| Startansicht                                    | home view                         | house button in the sidebar; sessions put aside (`putAside`), they keep running     |
+| Projekt-Übersicht (Startansicht)                | project overview                  | `ProjectOverview.tsx`; one card per project of the sessions, above the calendar     |
+| Projektkarte                                    | project card                      | `projectCards.ts`; a repository with its worktrees, or a plain folder               |
+| Checkout (einer Projektkarte)                   | checkout                          | a work tree of the project with sessions; `RepoPlace.workTree`                      |
 | Hover-Vorschau (Session)                        | session peek                      | `peek.ts`, `SessionPeek.tsx`; last lines beside a sidebar row while the mouse rests |
+| Vorgemerkte Nachricht                           | queued message                    | `messageQueue.ts`; sent once the session is done, kept while it asks                |
+| Rückfragen-Schutz                               | question guard                    | `promptGuard.ts`; a question on screen holds the queued message back                |
+| Hänger-Hinweis                                  | stall hint                        | `stall.ts`; a working agent shows nothing new for a while, quiet text on its row    |
 | Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                       |
 | Variable (Textbaustein)                         | snippet variable                  | `snippetVariables.ts`; `{{file}}` and others, filled per session when sending       |
@@ -143,11 +154,15 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Ressourcen (Session)                            | resources                         | `resources.rs`; CPU share and resident memory of a session's process tree           |
 | Ausreißer                                       | outlier                           | a session that keeps 0.9 cores busy for 30 s or holds more than 4 GiB of memory     |
 | Systemleiste                                    | system bar                        | `SystemBar.tsx`, `system_usage.rs`; machine CPU, RAM and GPU above New session      |
+| Energiesparen im Akkubetrieb                    | power saving                      | `power.ts`, `power.rs`; slower polls and still pulses while on battery              |
+| Akkubetrieb, Netzbetrieb                        | on battery, on AC                 | `PowerState`; `noBattery` for machines without one                                  |
+| Energiesparmodus (des Systems)                  | battery saver                     | Windows `SystemStatusFlag`; state `saver`                                           |
 | Push aufs Handy                                 | push (to the phone)               | `push.rs`, `phonePush.ts`; ntfy or Pushover, opt-in                                 |
 | Statuszeile (Session)                           | status line                       | `statusLine.ts`; status, folder, branch, run time                                   |
 | Laufzeit (Session)                              | run time                          | since the process started                                                           |
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                          |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                                   |
+| Worktree-Aufräumer                              | worktree cleanup                  | dialog listing Hangar's own worktrees; `worktree_cleanup.rs`, `worktreeCleanup.ts`  |
 | Private Session                                 | private session                   | starts in the folder, no agent gate, never shared; ADR 0008                         |
 | Team-Session                                    | team session                      | own worktree, agent gate, shared with the team; `SessionMode`                       |
 | Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Project folder", `startMode.ts`                        |
@@ -155,6 +170,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hook-Helfer (Agent-Gate)                        | gate helper                       | `hangar gate-hook`, `gate_hook.rs`; an agent's command hook                         |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                                      |
 | Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`          |
+| Tagesrückblick                                  | daily review                      | one local day's sessions, times and commits; `daily_review.rs`, ADR 0011            |
+| Arbeitsprotokoll                                | work log                          | JSON Lines per UTC day under `activity/`, `work_log.rs`; not the activity log       |
+| Arbeitsphase                                    | working phase                     | one stretch of the state "working", logged when it ends                             |
+| Aktive Zeit                                     | active time                       | the union of the working phases; parallel sessions count once                       |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel           |
 | Stagen, Unstagen                                | stage, unstage                    | a file into or out of the index; stage box per file, `git_stage`, `git_unstage`     |
 | Verwerfen (Änderungen einer Datei)              | discard                           | back to HEAD, an untracked file is deleted; asks first; `git_discard`               |
@@ -174,6 +193,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Offene Entscheidung                             | pending decision                  | `PendingDecision`; allow once, allow for this file or deny                          |
 | Gemerkte Antwort (Gate-Regel)                   | gate rule                         | `gate_rules.rs`; always or never, for a file or folder of one project               |
 | Automatisch beantwortet (Gate-Protokoll)        | rule log                          | `RuleAnswer`; the last edits a gate rule answered, newest first                     |
+| Schutz vor gefährlichen Befehlen                | command guard                     | `command_guard.rs`; asks before a team session's agent runs a matching command      |
+| Befehlsregel                                    | guard rule                        | one `[[rule]]` of `command-guard.toml`: id, description, matcher                    |
+| Eingebaute Befehlsregel                         | built-in rule                     | `hangar-*` rule not in the file: too complex, stdin, too long, Hangar's settings    |
+| Gemerkte Antwort (Befehlsregel)                 | command rule                      | a gate rule with scope `command` for one guard rule in one project                  |
 | Grund (nicht teamfähig)                         | team block                        | `TeamBlock`; why a program cannot be a team session on this machine                 |
 | Reservierung (Aufgabe)                          | reservation                       | `reservation.rs` (protocol crate); first wins, expires when idle                    |
 | Freigabe-Anfrage                                | release request                   | asks the holder of a reservation to hand the task over                              |

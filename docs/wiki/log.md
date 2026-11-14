@@ -719,3 +719,64 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Transcript fields for the session report
+Measured (key names and counts only) which Claude Code main transcript fields carry prompts, slash commands, tool calls, sub-agent runs, times and the branch, and that Codex 0.169.0 still has no flag that fixes the thread id. Filed the contract of `export_report` ("Export as report", Claude Code only).
+Pages changed: [[session-report-transcripts]] (new), [[agent-workflow-features]].
+
+## [2026-11-14] query | Queued messages and the stall hint
+Filed how a queued message decides when to go out (the tracker's new `endedBy`, armed and disarmed messages, no send after a restore) and how the stall hint tells progress from a ticking spinner. Noted why the texts live beside `workspace.json` instead of in it (`deny_unknown_fields`).
+Pages changed: [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Agent prompt strings and the queue's question guard
+Read short phrases from the installed Claude Code 2.1.325 and Codex 0.169.0 executables (nothing run) and how Claude Code picks its notification channel: `auto` rings no bell in Hangar's terminal, so a permission dialog ends quietly. The queue now checks the screen for a question before sending.
+Pages changed: [[agent-prompt-strings-reading]], [[agent-prompt-shapes]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Worktree cleanup
+A dialog lists the worktrees Hangar created (its own layout only, found below the worktrees folder and in the records of the repositories Hangar knows) with state, size and last change, and removes the safe ones after the backend checked the state again; a branch goes only when merged into the default branch, deleted against the checked commit. Measured with git 2.56 that `worktree remove` on a folder deleted by hand takes away only that record, so the removal after closing a session no longer runs `worktree prune`. Causes of an entry that cannot be checked are codes the window words itself; worktrees created in this run count as in use until their session starts; ignored files keep a worktree on purpose.
+Pages changed: [[agent-workflow-features]], [[worktree-remove-missing-measurement]].
+
+## [2026-11-14] schema | Command guard decided and built
+ADR 0010: the agent gate asks before a team session's agent runs a shell command that matches a rule of `command-guard.toml` (written with commented defaults on first use). Claude Code's matcher gains `Bash|PowerShell`, the Pi and OpenCode extensions send `bash` calls; Codex and private sessions stay uncovered with the reasons. Remembered answers are gate rules with scope `command`; no answer within 10 minutes denies. Shell tool input shapes are not measured live and are marked so.
+Pages changed: [[0010-command-guard]], [[gate-rules]], [[agent-gate-adapters]].
+
+## [2026-11-14] ingest | Shell tool input shapes; command guard reworked after review
+Read the installed agents for their shell tool inputs (Claude Code transcripts, Pi 1.5.2 `bash.js` and `powershell.js`, OpenCode 1.19.5 binary strings) and filed them as a source. ADR 0010 reworked after the security and acceptance review: one lexer per dialect, every matching rule counts, built-in rules for commands too complex, read from stdin, too long or naming Hangar's own settings, a full queue denies, `cwd` problems no longer fail open, OpenCode's `workdir`, translated wording of Hangar's own rules, the residual risk stated.
+Pages changed: [[shell-tool-input-shapes]], [[0010-command-guard]], [[agent-gate-adapters]].
+
+## [2026-11-14] schema | Command guard: second security review
+ADR 0010 updated: brace expansion capped at 8 braces and the hook threads given an 8 MiB stack (a deep expansion overflowed the stack), `hangar-config` narrowed to the config folder, `<local data>/gate` and the two settings files (Hangar's own worktrees in the data folder are ordinary projects), redirection targets checked, wildcards and 8.3 names against the protected names, shell options with values, PowerShell arguments in parentheses, `wsl` without `-e`, `start` and `Start-Process` unwrapped, empty special parameters, `--version` and `--help` no stdin scripts, a bad `cwd` dropped for edit tools too.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] schema | Command guard: third security review
+ADR 0010 refined: a wildcard needs five letters of its own outside a plain extension to stand for one of Hangar's names, bracket classes count as wildcards, a wildcard right below the app settings folders counts, `start` unwrapping counts toward the depth limit, a single plain string in PowerShell parentheses is read as that string.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] ingest | Agent commands and compacting from the context meter
+Read the slash command tables of the installed Claude Code 2.1.325 and Codex CLI 0.169.0
+executables and Gemini CLI's command reference (not installed). The catalog gets `agent_commands`
+for the three; profiles can add their own. The session menu, quick access and a compact button in
+the row actions (from 80 % context use, hidden while the agent works) send them like "Send to
+several". Binary strings also show that Codex refuses such commands during a turn and Claude
+Code queues them; the compact button therefore also hides after a bell or during a gate decision.
+Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [[catalog]], index.
+
+## [2026-11-14] ingest | Power detection for the power saving mode
+Saved Microsoft's `SYSTEM_POWER_STATUS` reference and the kernel's `sysfs-class-power` ABI to raw, with one own reading of a Windows 11 desktop (AC 1, battery flag 128). The power saving mode maps them to `noBattery`, `ac`, `battery`, `saver` or `unknown`; laptops on battery and Linux are not measured yet.
+Pages changed: [[power-status-sources]], [[power-detection]].
+
+## [2026-11-14] ingest | Project overview in the home view
+New synthesis for the project overview: how folders become projects, the new `git_repo_places` command and why the existing commands did not fit, what a card shows and when git is asked. Measured with git 2.56.0.windows.4 that a linked worktree's `.git` file names an absolute git folder and its `commondir` holds `../..`.
+Pages changed: [[project-overview]], [[git-worktree-commondir-measurement]].
+
+## [2026-11-14] query | Work log and daily review
+Decision on the work log behind the daily review: what is stored per session (key, title, program, folder, repository, worktree flag, times), UTC day files, 90 days, size limits, never terminal content or prompts; how the review computes run and active time as unions and which git calls collect the day's commits and files.
+Pages changed: [[0011-work-log-and-daily-review]].
+
+## [2026-11-14] query | Agent commands use the queue's question guard
+After merging the queued message and the agent commands, commands also check the screen for a question or choice list (`asksQuestion` on top of `looksLikeQuestion`): the menu and quick access hide them, every send checks again, and the compact button's click into a question sends nothing and says why.
+Pages changed: [[agent-commands]].
+
+## [2026-11-14] query | Stall hint on battery
+The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
+Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].

@@ -16,7 +16,7 @@ const PEEK_BLOCKERS = '.menu-panel, [aria-modal="true"]';
 
 /**
  * When the mouse rests on a session row: which row, once PEEK_DELAY_MS have passed. Leaving the
- * row, pressing a button on it, any key and the window losing focus end the peek; the sidebar ends
+ * row, pressing a mouse button anywhere, any key and the window losing focus end the peek; the sidebar ends
  * it on scrolling (`onScrollCapture`). `enabled` off (say, while a row is dragged) ends it too
  * and starts none.
  */
@@ -32,21 +32,40 @@ export function useSessionPeek(enabled: boolean) {
     setPeek(null);
   }, []);
 
+  /** Shows the peek beside `row` now; `false` when there is no room for it. */
+  const open = useCallback((id: number, row: HTMLElement): boolean => {
+    if (!row.isConnected) return false;
+    const rect = row.getBoundingClientRect();
+    const sidebar = row.closest(".sidebar")?.getBoundingClientRect().right ?? rect.right;
+    const width = peekWidth(sidebar, window.innerWidth);
+    if (width === null) return false;
+    setPeek({ id, top: rect.top, bottom: rect.bottom, sidebarRight: sidebar, width });
+    return true;
+  }, []);
+
   const enter = useCallback(
     (id: number, row: HTMLElement) => {
       leave();
       if (!enabled) return;
       timer.current = window.setTimeout(() => {
         timer.current = null;
-        if (!row.isConnected || document.querySelector(PEEK_BLOCKERS) !== null) return;
-        const rect = row.getBoundingClientRect();
-        const sidebar = row.closest(".sidebar")?.getBoundingClientRect().right ?? rect.right;
-        const width = peekWidth(sidebar, window.innerWidth);
-        if (width === null) return;
-        setPeek({ id, top: rect.top, bottom: rect.bottom, sidebarRight: sidebar, width });
+        if (document.querySelector(PEEK_BLOCKERS) !== null) return;
+        open(id, row);
       }, PEEK_DELAY_MS);
     },
-    [enabled, leave],
+    [enabled, leave, open],
+  );
+
+  /**
+   * Shows the peek at once, without the mouse on the row ("Show last lines" in the session
+   * menu). It ends like any peek: a key, a click anywhere, scrolling, the window losing focus.
+   */
+  const show = useCallback(
+    (id: number, row: HTMLElement): boolean => {
+      leave();
+      return enabled && open(id, row);
+    },
+    [enabled, leave, open],
   );
 
   // Ends a pending peek as well as a shown one, so nothing appears after the user moved on.
@@ -57,10 +76,13 @@ export function useSessionPeek(enabled: boolean) {
       leave();
     };
     window.addEventListener("keydown", onKey, true);
+    // A peek shown from the menu has no row under the mouse to leave: any click ends it.
+    window.addEventListener("pointerdown", leave, true);
     window.addEventListener("blur", leave);
     window.addEventListener("resize", leave);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", leave, true);
       window.removeEventListener("blur", leave);
       window.removeEventListener("resize", leave);
       if (timer.current !== null) window.clearTimeout(timer.current);
@@ -68,7 +90,7 @@ export function useSessionPeek(enabled: boolean) {
   }, [leave]);
 
   // A drag or rename that starts while a peek shows hides it at once.
-  return { peek: enabled ? peek : null, enter, leave };
+  return { peek: enabled ? peek : null, enter, leave, show };
 }
 
 interface Props {

@@ -404,6 +404,17 @@ export function GaugeIcon(props: IconProps) {
   );
 }
 
+/** Two arrows pressing on a line: compact the agent's context. */
+export function CompactIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 8h10" />
+      <path d="M8 2v3.5M6 3.5l2 2 2-2" />
+      <path d="M8 14v-3.5M6 12.5l2-2 2 2" />
+    </Svg>
+  );
+}
+
 /** Gear: settings. */
 export function GearIcon(props: IconProps) {
   return (
@@ -578,6 +589,16 @@ export function GpuIcon(props: IconProps) {
       <rect x="2" y="3.5" width="12.5" height="7.5" rx="1" />
       <circle cx="9.25" cy="7.25" r="2.25" />
       <path d="M6 11v2.5h6V11" />
+    </Svg>
+  );
+}
+
+/** Power saving on battery (system bar). */
+export function LeafIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 12.5C3.5 7 7 3.5 12.5 3.5c0 5.5-3.5 9-9 9z" />
+      <path d="M3.5 12.5l4.5-4.5" />
     </Svg>
   );
 }
