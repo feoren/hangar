@@ -135,6 +135,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Suche in allen Sessions                         | search across sessions            | `sessionSearch.ts`; output and scrollback of every open terminal                    |
 | Übersicht (alle Sessions als Kacheln)           | overview, tile                    | `overview.ts`; live tiles with the last lines of each session                       |
 | Hover-Vorschau (Session)                        | session peek                      | `peek.ts`, `SessionPeek.tsx`; last lines beside a sidebar row while the mouse rests |
+| Vorgemerkte Nachricht                           | queued message                    | `messageQueue.ts`; sent once the session is done, kept while it asks                |
+| Rückfragen-Schutz                               | question guard                    | `promptGuard.ts`; a question on screen holds the queued message back                |
+| Hänger-Hinweis                                  | stall hint                        | `stall.ts`; a working agent shows nothing new for a while, quiet text on its row    |
 | Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                       |
 | Variable (Textbaustein)                         | snippet variable                  | `snippetVariables.ts`; `{{file}}` and others, filled per session when sending       |

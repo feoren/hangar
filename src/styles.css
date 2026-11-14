@@ -805,6 +805,13 @@ h2 .beta-badge {
   opacity: 0.85;
 }
 
+/* A working agent that has shown nothing new for a while (stall.ts): said in words, in the
+   muted color, never an alarm color. Italic tells it from the state at a glance. */
+.session-status.stalled {
+  color: var(--muted);
+  font-style: italic;
+}
+
 /* How long it has been working or resting: never cut, the sentence before it gives way. */
 .session-status-duration {
   display: inline-flex;
@@ -6406,6 +6413,37 @@ body.resizing-horizontal * {
   border-radius: 5px;
 }
 
+/* Queued message (QueueDialog.tsx): a small editor beside the row it was opened from. Opened
+   from the session menu it floats where the menu was, without dimming the window; from quick
+   access it is centered like any dialog. */
+.dialog.queue-editor {
+  width: min(380px, calc(100vw - 32px));
+}
+
+.overlay:has(> .dialog.queue-editor.anchored) {
+  display: block;
+  background: transparent;
+}
+
+.dialog.queue-editor.anchored {
+  position: fixed;
+  padding: 14px 16px;
+}
+
+.queue-text {
+  width: 100%;
+  min-height: 64px;
+  max-height: 40vh;
+  margin-top: 4px;
+  font-family: var(--mono);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.queue-discard {
+  margin-right: auto;
+}
+
 /* Send to several */
 .dialog.broadcast {
   width: min(520px, calc(100vw - 32px));
@@ -8812,6 +8850,14 @@ body.session-dragging .session-actions {
 }
 
 .session-gate-off {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--muted);
+}
+
+/* A queued message waits for the session to be done (messageQueue.ts): a quiet clock. */
+.session-queued {
   display: inline-flex;
   flex: none;
   align-items: center;

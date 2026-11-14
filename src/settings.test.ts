@@ -38,6 +38,7 @@ describe("parseSettings", () => {
       },
       dotAnimation: "wave",
       quietSeconds: 10,
+      stallMinutes: 12,
       taskbarFlash: false,
       notifyDesktop: false,
       chime: false,
@@ -239,6 +240,17 @@ describe("parseSettings", () => {
     expect(parse(-5)).toBe(QUIET_SECONDS.min);
     expect(parse(999)).toBe(QUIET_SECONDS.max);
     expect(parse(4.6)).toBe(5);
+  });
+
+  it("hints at a stuck agent after five minutes by default, 0 turns it off", () => {
+    expect(defaultSettings("de").stallMinutes).toBe(5);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").stallMinutes).toBe(5);
+    const parse = (stallMinutes: unknown) =>
+      parseSettings(JSON.stringify({ stallMinutes }), "de").stallMinutes;
+    expect(parse(0)).toBe(0);
+    expect(parse(12)).toBe(12);
+    expect(parse(999)).toBe(30);
+    expect(parse("7")).toBe(5);
   });
 
   it("flashes the taskbar by default, also for older settings", () => {

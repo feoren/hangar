@@ -9,6 +9,7 @@ import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
+import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import { peekNotes } from "./peek";
 import type { PeekContent } from "./peekStyle";
 import { useT } from "./i18n";
@@ -16,6 +17,7 @@ import {
   AlertIcon,
   BranchIcon,
   ChevronIcon,
+  ClockIcon,
   CloseIcon,
   DownloadIcon,
   EditIcon,
@@ -251,6 +253,27 @@ interface Props {
    * has none to show, for instance because it is on screen.
    */
   peekLines: (id: number) => PeekContent | null;
+  /** Queued message per session id (messageQueue.ts): a quiet clock on the row, the text in the peek. */
+  queued: ReadonlyMap<number, QueuedMessage>;
+  /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
+  stalls: ReadonlyMap<number, number>;
+  /**
+   * "Show last lines" from the session menu: the peek of that row opens at once; a new `token`
+   * opens it again. If the row is not in the list (a folded group), the session is shown instead.
+   */
+  peekRequest: { id: number; token: number } | null;
+}
+
+/** The peek's line about a queued message: when it goes out, then the text. */
+function queuedNote(
+  entry: QueuedMessage | undefined,
+  asks: boolean,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (entry === undefined) return null;
+  const text = queuedPreview(entry.text);
+  if (asks || entry.waiting === true) return t("queue.noteAsks", { text });
+  return entry.armed ? t("queue.note", { text }) : t("queue.noteRestored", { text });
 }
 
 export function Sidebar(props: Props) {
@@ -334,6 +357,20 @@ export function Sidebar(props: Props) {
     onPointerDownCapture: peekState.leave,
   });
 
+  // "Show last lines" from the session menu, once per request.
+  const peekRequest = props.peekRequest;
+  const { show: showPeek } = peekState;
+  const { onActivate } = props;
+  useEffect(() => {
+    if (peekRequest === null) return;
+    const row = root.current?.querySelector<HTMLElement>(
+      `[data-session-row="${String(peekRequest.id)}"]`,
+    );
+    if (row == null || !showPeek(peekRequest.id, row)) onActivate(peekRequest.id);
+    // Only a new request opens it; a changed callback does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peekRequest]);
+
   useEffect(() => {
     if (!refocusToggle.current) return;
     refocusToggle.current = false;
@@ -365,6 +402,7 @@ export function Sidebar(props: Props) {
         t,
         props.language,
         props.reasons.get(session.id) ?? null,
+        props.stalls.get(session.id) ?? null,
       ),
       // A worktree's folder name repeats its branch; the repository's name says more.
       detail: detailLine(
@@ -492,6 +530,7 @@ export function Sidebar(props: Props) {
           overlap: props.overlaps.get(peekSession.id),
           gateOff: gateHint(peekSession.gate, t),
           exit: exitDetail(peekSession, t),
+          queued: queuedNote(props.queued.get(peekSession.id), chipOf(peekSession) === "asks", t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
@@ -668,6 +707,7 @@ export function Sidebar(props: Props) {
                       name,
                       status,
                       props.overlaps.get(session.id),
+                      props.queued.has(session.id) ? t("queue.marker") : "",
                       placeText,
                       markerColorText(session.marker, t),
                     ]
@@ -1507,6 +1547,7 @@ function SessionItem({
   devServers,
   onOpenDevServer,
   language,
+  queued: queuedMessages,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -1520,6 +1561,7 @@ function SessionItem({
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
+  const queued = queuedMessages.has(session.id);
   // Only while the setting is on and the window visible; the third line shows the numbers, the
   // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
@@ -1613,6 +1655,13 @@ function SessionItem({
                   <span className="sr-only">{outlier}</span>
                 </span>
               )}
+              {/* A queued message: a quiet clock, the text is in the peek. */}
+              {queued && (
+                <span className="session-queued">
+                  <ClockIcon size={12} />
+                  <span className="sr-only">{t("queue.marker")}</span>
+                </span>
+              )}
               {/* Rare and lasting (no endpoint, unusable data path): visible, but quiet. */}
               {gateOff !== null && (
                 <span className="session-gate-off">
@@ -1639,7 +1688,15 @@ function SessionItem({
                 the folder and branch give way first, the duration stays whole. */}
             <span className="session-meta">
               <span className="state-dot" aria-hidden="true" />
-              <span className={waiting ? "session-status attention-text" : "session-status"}>
+              <span
+                className={
+                  waiting
+                    ? "session-status attention-text"
+                    : line.stalled === true
+                      ? "session-status stalled"
+                      : "session-status"
+                }
+              >
                 {line.sentence}
               </span>
               {line.duration !== null && (

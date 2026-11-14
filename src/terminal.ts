@@ -248,6 +248,8 @@ export class SessionTerminal {
     });
 
     this.term.onData((data) => {
+      // Ctrl+C or a lone Escape interrupts an agent's turn; its end is then no finished task.
+      if (data === "\x03" || data === "\x1b") this.attention.interrupted();
       this.send(data);
       this.trackPrompt(data);
     });
@@ -539,6 +541,19 @@ export class SessionTerminal {
   }
 
   /**
+   * The rows on screen as plain text (the bottom of the buffer, not where the user scrolled to),
+   * for the stall hint's fingerprint (stall.ts). Read every few seconds, never per output chunk.
+   */
+  screenLines(): string[] {
+    const buffer = this.term.buffer.active;
+    const lines: string[] = [];
+    for (let row = buffer.baseY; row < buffer.baseY + this.term.rows; row += 1) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
+    }
+    return lines;
+  }
+
+  /**
    * The visible buffer as rows for the search across sessions and the overview. Reads lazily: the
    * caller decides how many rows to touch and when to pause.
    */
@@ -671,6 +686,11 @@ export class SessionTerminal {
     const typed = this.typedSinceTaken;
     this.typedSinceTaken = false;
     return typed;
+  }
+
+  /** Like `takeTyped`, without resetting: whether the work that starts now follows input. */
+  hasTyped(): boolean {
+    return this.typedSinceTaken;
   }
 
   /** Only while the app listens; typed input is small, so this costs nothing measurable. */

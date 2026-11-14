@@ -71,6 +71,7 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     openSnapPicker: null,
     openBroadcast: vi.fn(),
     subAgents: null,
+    queue: null,
     openSettings: vi.fn(),
     menu: [],
     skipLabels: [],
@@ -345,5 +346,20 @@ describe("buildLauncherItems", () => {
       (item) => item.key === "subAgents",
     );
     expect(hide?.label).toBe(createTranslator("en")("session.hideSubAgents"));
+  });
+
+  it("offers the queued message for the active session only where the menu would", () => {
+    const keys = (queue: Parameters<typeof context>[0]) =>
+      buildLauncherItems(context(queue)).filter((item) => item.key === "queue");
+    expect(keys({})).toEqual([]);
+    const open = vi.fn();
+    expect(keys({ queue: { offer: null, open } })).toEqual([]);
+    const add = keys({ queue: { offer: "offer", open } })[0];
+    expect(add?.label).toBe(createTranslator("en")("queue.add"));
+    add?.run();
+    expect(open).toHaveBeenCalledOnce();
+    expect(keys({ queue: { offer: "queued", open } })[0]?.label).toBe(
+      createTranslator("en")("queue.edit"),
+    );
   });
 });

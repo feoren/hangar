@@ -3,6 +3,8 @@ import { useLayoutEffect, useRef } from "react";
 interface Props {
   labelledBy: string;
   className?: string;
+  /** Places the panel itself, e.g. next to where it was opened from; centered without. */
+  style?: React.CSSProperties | undefined;
   /** Escape, a click outside or the close button. The caller returns focus to the terminal. */
   onClose: () => void;
   children: React.ReactNode;
@@ -20,7 +22,7 @@ const FOCUSABLE = [
 ].join(", ");
 
 /** Modal dialog: focus moves in on open (element with `data-autofocus`), Tab stays inside. */
-export function Dialog({ labelledBy, className, onClose, children }: Props) {
+export function Dialog({ labelledBy, className, style, onClose, children }: Props) {
   const panel = useRef<HTMLDivElement>(null);
 
   // Layout effect, so focus is in place before the app hands it to the terminal next frame.
@@ -69,6 +71,7 @@ export function Dialog({ labelledBy, className, onClose, children }: Props) {
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
+        style={style}
         onKeyDown={onKeyDown}
       >
         {children}
