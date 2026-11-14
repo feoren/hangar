@@ -155,10 +155,14 @@ describe("statusSubject", () => {
 });
 
 describe("detailPlace", () => {
-  it("leaves out the folder when it already is the title", () => {
+  it("keeps the folder even when it already is the title", () => {
     expect(detailPlace({ primary: "hangar", secondary: "Claude Code", byFolder: true }, "x")).toBe(
-      null,
+      "hangar",
     );
+  });
+
+  it("has no place without a folder", () => {
+    expect(detailPlace(null, "")).toBeNull();
   });
 
   it("keeps the folder next to a name of its own and in worktree rows", () => {

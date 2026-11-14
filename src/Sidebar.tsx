@@ -1561,10 +1561,11 @@ function SessionItem({
   const waiting = state === "attention";
   const line = lines.status;
   const where = lines.detail;
-  // In a project group the header names the folder: the row leads with the program instead.
+  // In a project group the header names the folder: the row's title leads with the program
+  // instead. The second line names the folder in every row, so rows read alike.
   const inProject = badge !== null;
   const name = inProject ? projectRowName(label, session.title) : (label?.primary ?? session.title);
-  const place = inProject ? null : detailPlace(label, where.folder);
+  const place = detailPlace(label, where.folder);
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
