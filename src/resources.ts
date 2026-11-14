@@ -89,34 +89,53 @@ export function formatCpu(percent: number, language: string): string {
   }).format(percent / 100);
 }
 
+/** The GPU's two numbers, each `null` unless the tree really uses that part of the GPU. */
+export interface GpuParts {
+  /** "30 %"; `null` without load. */
+  load: string | null;
+  /** "1.2 GB"; `null` without dedicated memory. */
+  memory: string | null;
+}
+
+/** Load and dedicated memory apart, so the row can give each its own column. */
+export function gpuParts(resources: SessionResources, language: string): GpuParts {
+  const load = resources.gpu !== null && resources.gpu > 0 ? resources.gpu : null;
+  const memory =
+    resources.gpuMemory !== null && resources.gpuMemory > 0 ? resources.gpuMemory : null;
+  return {
+    load: load === null ? null : formatCpu(load, language),
+    memory: memory === null ? null : formatMemory(memory, language),
+  };
+}
+
 /**
  * The GPU part, "30 % 1.2 GB", "30 %" or "1.2 GB"; `null` unless the tree really uses the GPU
  * (some load or some dedicated memory), so a session that never touches it shows nothing.
  */
 export function formatGpu(resources: SessionResources, language: string): string | null {
-  const load = resources.gpu !== null && resources.gpu > 0 ? resources.gpu : null;
-  const memory =
-    resources.gpuMemory !== null && resources.gpuMemory > 0 ? resources.gpuMemory : null;
+  const { load, memory } = gpuParts(resources, language);
   if (load === null && memory === null) return null;
-  return [
-    load === null ? null : formatCpu(load, language),
-    memory === null ? null : formatMemory(memory, language),
-  ]
-    .filter((part) => part !== null)
-    .join(" ");
+  return [load, memory].filter((part) => part !== null).join(" ");
 }
 
 /** The values of the row's resource line; `cpu` is `null` before the second reading. */
 export interface ResourceParts {
   cpu: string | null;
   memory: string;
+  /** Load and memory together, for screen readers; `null` while the tree leaves the GPU alone. */
   gpu: string | null;
+  /** The same apart, for the row's two GPU columns. */
+  gpuLoad: string | null;
+  gpuMemory: string | null;
 }
 
 export function resourceParts(resources: SessionResources, language: string): ResourceParts {
+  const gpu = gpuParts(resources, language);
   return {
     cpu: resources.cpu === null ? null : formatCpu(resources.cpu, language),
     memory: formatMemory(resources.memory, language),
     gpu: formatGpu(resources, language),
+    gpuLoad: gpu.load,
+    gpuMemory: gpu.memory,
   };
 }

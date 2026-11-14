@@ -12,6 +12,7 @@ import {
   HISTORY_LENGTH,
   parseSystemUsage,
   pushHistory,
+  reportsGpu,
   SPARK_HEIGHT,
   SPARK_WIDTH,
   sparkPaths,
@@ -113,6 +114,15 @@ describe("barPending", () => {
 
   it("shows a first reading that already has a CPU", () => {
     expect(barPending(reading(5, 40, null), 1)).toBe(false);
+  });
+});
+
+describe("reportsGpu", () => {
+  it("keeps the GPU column while the machine gives load or memory", () => {
+    expect(reportsGpu(EMPTY_STATE.usage)).toBe(false);
+    expect(reportsGpu(reading(10, 40, null))).toBe(false);
+    expect(reportsGpu(reading(10, 40, 0))).toBe(true);
+    expect(reportsGpu({ ...reading(10, 40, null), gpuMemory: GB })).toBe(true);
   });
 });
 

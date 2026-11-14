@@ -17,16 +17,13 @@ import {
   BranchIcon,
   ChevronIcon,
   CloseIcon,
-  CpuIcon,
   DownloadIcon,
   EditIcon,
   FolderIcon,
   GlobeIcon,
   HangarLogo,
   GaugeIcon,
-  GpuIcon,
   HomeIcon,
-  MemoryIcon,
   OverlapIcon,
   PlusIcon,
   RestartIcon,
@@ -96,9 +93,11 @@ import { pillProgress, updatePill, updatePillHint } from "./updatePill";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
-import { ContextMeter } from "./ContextMeter";
 import { resourceParts } from "./resources";
+import { SessionLoad } from "./SessionLoad";
+import { SessionRun } from "./SessionRun";
 import { useSessionResources } from "./useSessionResources";
+import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
 import { displayVersion } from "./version";
@@ -1478,39 +1477,6 @@ interface ItemProps extends Props {
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
 }
 
-const RESOURCE_ICONS = { cpu: CpuIcon, memory: MemoryIcon, gpu: GpuIcon } as const;
-
-/**
- * One number of the third line, "CPU 12 %". In a narrow row the name gives way to a small icon
- * (CSS); screen readers always hear the name.
- */
-function ResourceFact({
-  kind,
-  name,
-  value,
-}: {
-  kind: keyof typeof RESOURCE_ICONS;
-  name: string;
-  value: string;
-}) {
-  const Icon = RESOURCE_ICONS[kind];
-  return (
-    <span className={`session-resource session-resource-${kind}`}>
-      <span className="session-sep" aria-hidden="true">
-        ·
-      </span>
-      <span className="session-resource-name" aria-hidden="true">
-        {name}
-      </span>
-      <span className="session-resource-icon">
-        <Icon size={10} />
-      </span>
-      <span aria-hidden="true">{value}</span>
-      <span className="sr-only">{`${name} ${value}`}</span>
-    </span>
-  );
-}
-
 function SessionItem({
   session,
   groupKey,
@@ -1559,6 +1525,7 @@ function SessionItem({
   const resources = useSessionResources(session.id);
   const outlier = resources?.outlier === true ? t("session.outlier") : null;
   const usage = resources === undefined || exited ? null : resourceParts(resources, language);
+  const gpuColumn = useGpuColumn();
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
@@ -1722,36 +1689,13 @@ function SessionItem({
                 </span>
               )}
             </span>
-            {/* Third line: the tree's load (while the setting is on), run time and context meter.
-                Gone when all of them are (CSS :empty), so a row never keeps an empty line. In a
-                narrow row the parts give way in a fixed order, whole and never cut (styles.css,
-                "Third line"). */}
+            {/* Third line: the tree's load (while the setting is on), then the run time and the
+                context meter, each value in a column of fixed width. When both halves do not fit
+                side by side, the second moves to a fourth line; without any of them (CSS :empty)
+                the row keeps no empty line (styles.css, "Third line"). */}
             <span className="session-detail">
-              {(usage !== null || where.runtime !== null) && (
-                <span className="session-facts">
-                  {usage !== null && usage.cpu !== null && (
-                    <ResourceFact kind="cpu" name={t("system.cpu")} value={usage.cpu} />
-                  )}
-                  {usage !== null && (
-                    <ResourceFact kind="memory" name={t("system.memory")} value={usage.memory} />
-                  )}
-                  {usage !== null && usage.gpu !== null && (
-                    <ResourceFact kind="gpu" name={t("system.gpu")} value={usage.gpu} />
-                  )}
-                  {where.runtime !== null && (
-                    <span className="session-runtime">
-                      <span className="session-sep" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="sr-only">
-                        {t("session.runtime", { duration: where.runtime })}
-                      </span>
-                      <span aria-hidden="true">{where.runtime}</span>
-                    </span>
-                  )}
-                </span>
-              )}
-              <ContextMeter sessionId={session.id} language={language} />
+              {usage !== null && <SessionLoad usage={usage} gpuColumn={gpuColumn} />}
+              <SessionRun sessionId={session.id} runtime={where.runtime} language={language} />
             </span>
           </span>
         </button>

@@ -10,6 +10,7 @@ import {
   advance,
   EMPTY_STATE,
   parseSystemUsage,
+  reportsGpu,
   SYSTEM_POLL_MS,
   type SystemState,
 } from "./systemUsage";
@@ -90,4 +91,12 @@ function subscribe(listener: () => void): () => void {
 /** The last published reading and the history of each gauge. */
 export function useSystemUsage(): SystemState {
   return useSyncExternalStore(subscribe, () => published);
+}
+
+/**
+ * Whether the session rows keep a GPU column. A boolean snapshot: a row re-renders only when the
+ * answer changes, not with every reading.
+ */
+export function useGpuColumn(): boolean {
+  return useSyncExternalStore(subscribe, () => reportsGpu(published.usage));
 }

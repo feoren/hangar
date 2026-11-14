@@ -146,6 +146,14 @@ export function barPending(usage: SystemUsage, tick: number): boolean {
   return usage.cpu === null && tick < 2;
 }
 
+/**
+ * Whether the machine gives GPU numbers at all (Windows today): then every session row keeps a
+ * GPU column, empty for a session that leaves the GPU alone, so the columns after it line up.
+ */
+export function reportsGpu(usage: SystemUsage): boolean {
+  return usage.gpu !== null || usage.gpuMemory !== null;
+}
+
 export function gaugeWarns(value: number): boolean {
   return value >= WARN_PERCENT;
 }

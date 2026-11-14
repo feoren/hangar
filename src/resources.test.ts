@@ -4,6 +4,7 @@ import {
   formatCpu,
   formatGpu,
   formatMemory,
+  gpuParts,
   parseResources,
   resourceParts,
   sameResources,
@@ -91,11 +92,31 @@ describe("formatting", () => {
   });
 
   it("gives the row's parts, without CPU before the second reading", () => {
-    expect(resourceParts(QUIET, "en")).toEqual({ cpu: "12%", memory: "340 MB", gpu: null });
+    expect(resourceParts(QUIET, "en")).toEqual({
+      cpu: "12%",
+      memory: "340 MB",
+      gpu: null,
+      gpuLoad: null,
+      gpuMemory: null,
+    });
     expect(resourceParts({ ...QUIET, cpu: null, gpu: 8 }, "en")).toEqual({
       cpu: null,
       memory: "340 MB",
       gpu: "8%",
+      gpuLoad: "8%",
+      gpuMemory: null,
+    });
+  });
+
+  it("splits the GPU into load and memory for their own columns", () => {
+    expect(gpuParts(QUIET, "en")).toEqual({ load: null, memory: null });
+    expect(gpuParts({ ...QUIET, gpu: 30, gpuMemory: 1.2 * GB }, "en")).toEqual({
+      load: "30%",
+      memory: "1.2 GB",
+    });
+    expect(gpuParts({ ...QUIET, gpu: 0, gpuMemory: 64 * MB }, "en")).toEqual({
+      load: null,
+      memory: "64 MB",
     });
   });
 

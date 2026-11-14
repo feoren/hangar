@@ -109,6 +109,17 @@
      chevron, 6 px gap, half the 16 px badge), the elbow meets the title line. */
   --agent-tree-x: 34px;
   --agent-elbow-y: 16px;
+  /* Cells of a session row's third line (11 px text), each wide enough for its widest realistic
+     value in every UI language, so the columns line up from row to row. Measured in Edge with the
+     UI font and tabular digits, plus about 7 % for other platforms' fonts: "100 %" 2.71em,
+     "12,3 GB" and "999 MB" 3.37em, "199.9k / 200k" 5.92em, the run time (59 min, 23 h, 1 and 99
+     days) 3.36em at most ("99 days"), wider in three languages below. A value beyond them widens
+     its cell rather than being cut. */
+  --fact-percent: 2.9em;
+  --fact-memory: 3.6em;
+  --fact-runtime: 3.6em;
+  --fact-bar: 3.6em;
+  --fact-tokens: 6.3em;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -121,6 +132,19 @@
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
+}
+
+/* Run times that need more room: "99 giorni" 3.93em, "23 godz." 3.79em, "99 ημέρες" 4.43em. */
+:root:lang(it) {
+  --fact-runtime: 4.2em;
+}
+
+:root:lang(pl) {
+  --fact-runtime: 4.1em;
+}
+
+:root:lang(el) {
+  --fact-runtime: 4.7em;
 }
 
 :root[data-theme="light"] {
@@ -758,16 +782,24 @@ h2 .beta-badge {
   white-space: nowrap;
 }
 
-/* Third line: the process tree's CPU, RAM and GPU, the run time and the context meter, quieter
-   than the status above it. Without any of them (setting off, ended session) the line is gone
-   rather than an empty gap. */
+/* Third line: the process tree's load and the session's run time and context, quieter than the
+   status above it. Two groups, the load (CPU, RAM, GPU) and the session (run time, context bar
+   and share, tokens), each in cells of fixed width (--fact-* in :root) with right-aligned tabular
+   digits, so every column sits at the same place in every row; the columns themselves separate
+   the values. Side by side when both groups fit; otherwise the session group wraps onto a fourth
+   line at the same left edge and the row grows by that line. Without any of them (setting off,
+   ended session) the line is gone rather than an empty gap. */
 .session-detail {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  column-gap: 12px;
+  row-gap: 0;
   min-width: 0;
   overflow: hidden;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--muted);
   opacity: 0.85;
 }
@@ -776,31 +808,66 @@ h2 .beta-badge {
   display: none;
 }
 
-/* The load and the run time. When the line is too narrow for all of them, the parts that do
-   not fit wrap onto a second line that the fixed height hides: a part shows whole or not at all,
-   never cut mid-text, and the context meter after it always keeps its place. Before that happens
-   the line gives way in a fixed order (the container queries below): first the context meter's
-   token count, then its bar down to a stub, then the names give way to small icons. */
-.session-facts {
+/* A group never wraps inside: it moves as a whole. Only when it alone is wider than the row (after
+   the giving-way steps below) do its last cells wrap onto a line that the fixed height hides, so
+   a cell shows whole or not at all, never cut mid-text. */
+.session-load,
+.session-run {
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
-  column-gap: 4px;
+  column-gap: 8px;
   min-width: 0;
   height: 1lh;
   overflow: hidden;
 }
 
-/* "CPU 12 %", "RAM 340 MB", "GPU 30 % 1.2 GB" in steady digits, so the line does not jitter
-   between readings. */
+/* The session group always claims its full width, also without context numbers yet, so every row
+   decides alike whether it moves to the fourth line and its columns stay in place. The 20 px are
+   its gaps: 8 after the run time, 4 between bar and share, 8 before the tokens. */
+.session-run {
+  flex-basis: calc(
+    var(--fact-runtime) + var(--fact-bar) + var(--fact-percent) + var(--fact-tokens) + 20px
+  );
+}
+
+/* "CPU 12 %", "RAM 340 MB", "GPU 30 % 1.2 GB": the name, then each value in its fixed cell. */
 .session-resource {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 4px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+}
+
+/* A column without a value yet keeps its width, so the columns after it stay in place. */
+.session-resource.vacant {
+  visibility: hidden;
+}
+
+.session-value,
+.session-runtime,
+.session-context-share,
+.session-context-tokens {
+  flex: none;
+  text-align: end;
+}
+
+.session-value-percent,
+.session-context-share {
+  min-width: var(--fact-percent);
+}
+
+.session-value-memory {
+  min-width: var(--fact-memory);
+}
+
+.session-runtime {
+  min-width: var(--fact-runtime);
+}
+
+.session-context-tokens {
+  min-width: var(--fact-tokens);
 }
 
 .session-resource-icon {
@@ -811,45 +878,27 @@ h2 .beta-badge {
   display: block;
 }
 
-/* Without a folder in front (it is the row's title), the line starts without a separator. */
-.session-detail > :first-child > [aria-hidden="true"]:first-child,
-.session-facts > :first-child > .session-sep {
-  display: none;
-}
-
-.session-branch,
-.session-runtime {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* --- Context meter of a session row (ContextMeter.tsx) ---
-   It takes the rest of the detail line up to the row's right edge: the bar grows into the free
-   width, the share and the tokens used of the window follow at the end. As quiet as the rest of
-   the line; the path and branch give way first, the bar shrinks to its minimum before the numbers
-   are cut. From 80 % the bar and numbers take the warning color. */
+/* --- Context meter of a session row (SessionRun.tsx) ---
+   A bar of fixed width, the share and the tokens used of the window, as cells of the session
+   group (the wrapper adds no box of its own). As quiet as the rest of the line; from 80 % the bar
+   and numbers take the warning color. */
 .session-context {
-  display: inline-flex;
-  flex: 1 0 auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  margin-left: auto;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+  display: contents;
 }
 
 .session-context-bar {
   position: relative;
-  flex: 1 1 24px;
-  min-width: 24px;
+  flex: none;
+  width: var(--fact-bar);
   height: 3px;
   overflow: hidden;
   background: color-mix(in srgb, var(--muted) 30%, transparent);
   border-radius: 999px;
+}
+
+/* The share sits close to its bar, as one value. */
+.session-context-share {
+  margin-left: -4px;
 }
 
 .session-context-fill {
@@ -877,50 +926,52 @@ h2 .beta-badge {
 
 /* --- End of context meter --- */
 
-/* Third line in a narrow row: the giving-way order of .session-facts. The widths are the room
-   (.session-text) the parts need at their widest ("100 %", "12.3 GB", "23 h"), measured in Edge
-   with the UI font: with GPU about 395 px in full, 335 px without the token count, 322 px with the
-   bar at its stub; with CPU and RAM only 285 px and 232 px. Below the last step whole parts wrap
-   out of sight from the end (.session-facts); the context share always stays. */
-@container session-text (max-width: 394px) {
-  .session-detail:has(.session-resource-gpu) .session-context-tokens {
-    display: none;
-  }
-}
-
-@container session-text (max-width: 334px) {
-  .session-detail:has(.session-resource-gpu) .session-context-bar {
-    flex-basis: 12px;
-    min-width: 12px;
-  }
-}
-
-@container session-text (max-width: 321px) {
-  .session-detail:has(.session-resource-gpu) .session-resource-name,
-  .session-detail:has(.session-resource-gpu) .session-resource .session-sep {
+/* Third line in a very narrow row: when a group alone does not fit the room (.session-text), it
+   gives way in steps instead of moving. The widths follow from the cells at 11 px (--fact-*), the
+   widest names ("CPU" 1.87em, "RAM" 2.14em, "GPU" 1.93em) and the gaps:
+   load with GPU 18.94em + 32 px = 241 px, then the names give way to icons (205 px);
+   load without GPU 10.51em + 16 px = 132 px, the same step;
+   session with the widest run time ("99 ημέρες") 17.5em + 20 px = 213 px, then the token count
+   goes, and at 136 px the bar shrinks to a stub. Below the last step whole cells wrap out of sight
+   from the end of their group. */
+@container session-text (max-width: 241px) {
+  .session-load:has(.session-resource-gpu) .session-resource-name {
     display: none;
   }
 
-  .session-detail:has(.session-resource-gpu) .session-resource-icon {
+  .session-load:has(.session-resource-gpu) .session-resource-icon {
     display: block;
   }
+}
 
-  .session-detail:has(.session-resource-gpu) .session-facts {
-    column-gap: 7px;
+@container session-text (max-width: 132px) {
+  .session-load .session-resource-name {
+    display: none;
+  }
+
+  .session-load .session-resource-icon {
+    display: block;
   }
 }
 
-@container session-text (max-width: 284px) {
-  .session-detail:has(.session-resource) .session-context-tokens {
+@container session-text (max-width: 213px) {
+  .session-run .session-context-tokens {
     display: none;
   }
 }
 
-@container session-text (max-width: 231px) {
-  .session-detail:has(.session-resource) .session-context-bar {
-    flex-basis: 12px;
-    min-width: 12px;
+@container session-text (max-width: 136px) {
+  .session-run .session-context-bar {
+    width: 12px;
   }
+}
+
+.session-branch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 /* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
