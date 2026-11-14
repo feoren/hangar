@@ -719,3 +719,7 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Worktree cleanup
+A dialog lists the worktrees Hangar created (its own layout only, found below the worktrees folder and in the records of the repositories Hangar knows) with state, size and last change, and removes the safe ones after the backend checked the state again; a branch goes only when merged into the default branch, deleted against the checked commit. Measured with git 2.56 that `worktree remove` on a folder deleted by hand takes away only that record, so the removal after closing a session no longer runs `worktree prune`. Causes of an entry that cannot be checked are codes the window words itself; worktrees created in this run count as in use until their session starts; ignored files keep a worktree on purpose.
+Pages changed: [[agent-workflow-features]], [[worktree-remove-missing-measurement]].

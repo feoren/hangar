@@ -488,6 +488,22 @@ export const api = {
   /** Never forces; what stays is named in `reason`. Check with `parseRemoval`. */
   removeWorktree: (worktree: Worktree) => invoke<unknown>("remove_worktree", { worktree }),
   /**
+   * The worktrees Hangar created, with their state; `folders` add their repositories to the
+   * search (at most 64). Check with `parseCleanupEntries` (worktreeCleanup.ts).
+   */
+  listHangarWorktrees: (folders: string[]) => invoke<unknown>("list_hangar_worktrees", { folders }),
+  /** Bounded size of one listed worktree folder; check with `parseWorktreeSize`. */
+  hangarWorktreeSize: (path: string) => invoke<unknown>("hangar_worktree_size", { path }),
+  /**
+   * Removes a listed worktree after the backend checked its state again; check with
+   * `parseCleanupOutcome`.
+   */
+  removeHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("remove_hangar_worktree", { path, repoRoot }),
+  /** Drops git's record of a worktree whose folder is gone, after checking again. */
+  pruneHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("prune_hangar_worktree", { path, repoRoot }),
+  /**
    * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
    * While on, the backend emits `claims-changed` with every new snapshot.
    */

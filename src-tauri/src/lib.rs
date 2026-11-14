@@ -68,6 +68,7 @@ pub mod tray;
 pub mod updates;
 pub mod version;
 pub mod worktree;
+pub mod worktree_cleanup;
 pub mod wsl;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -245,6 +246,7 @@ pub fn run() -> tauri::Result<()> {
             // repositories.
             let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
             app.manage(persist::Store::new(local_dir));
+            app.manage(worktree_cleanup::PendingWorktrees::default());
             // Local claims: the worker stays idle until the window turns the setting on.
             let claims = claims_service::ClaimsService::default();
             let sessions = app.handle().clone();
@@ -405,6 +407,10 @@ pub fn run() -> tauri::Result<()> {
             commands::file_viewer_open_link,
             commands::create_worktree,
             commands::remove_worktree,
+            commands::list_hangar_worktrees,
+            commands::hangar_worktree_size,
+            commands::remove_hangar_worktree,
+            commands::prune_hangar_worktree,
             commands::configure_claims,
             commands::claims_snapshot,
             commands::configure_gate,

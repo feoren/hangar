@@ -6227,6 +6227,119 @@ body.resizing-horizontal * {
   border-radius: 5px;
 }
 
+/* Worktree cleanup */
+.dialog.worktree-cleanup {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+}
+
+.cleanup-list {
+  flex: 1;
+  min-height: 0;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.cleanup-group + .cleanup-group {
+  margin-top: 14px;
+}
+
+.cleanup-repo {
+  margin: 0 0 6px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cleanup-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cleanup-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.cleanup-row + .cleanup-row {
+  margin-top: 6px;
+}
+
+.cleanup-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cleanup-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The state in words; the tint only repeats it. */
+.cleanup-state {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--count-chip-bg);
+  border-radius: 999px;
+}
+
+.cleanup-state[data-state="merged"],
+.cleanup-state[data-state="clean"] {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+.cleanup-state[data-state="changes"],
+.cleanup-state[data-state="ignored"] {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+.cleanup-state[data-state="inUse"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.cleanup-hint,
+.cleanup-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cleanup-notice {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.dialog .cleanup-summary {
+  font-size: 12px;
+}
+
 /* Send to several */
 .dialog.broadcast {
   width: min(520px, calc(100vw - 32px));

@@ -163,9 +163,18 @@ pub fn check_shape(worktree: &Worktree) -> Result<(), WorktreeError> {
     Ok(())
 }
 
-/// `path` must be `<base>/<repo dir>/<slug>`, both names in Hangar's own format, the repo dir the
-/// one of `repo_root`, and must not leave `base` through a link once resolved.
+/// `path` must be `<base>/<repo dir>/<slug>` ([`check_layout`]) with the repo dir of `repo_root`.
 pub fn check_managed(base: &Path, path: &Path, repo_root: &Path) -> Result<(), WorktreeError> {
+    let (repo_dir, _slug) = check_layout(base, path)?;
+    if repo_dir != repo_dir_name(repo_root) {
+        return Err(WorktreeError::OutsideFolder);
+    }
+    Ok(())
+}
+
+/// `path` must be `<base>/<repo dir>/<slug>`, both names in Hangar's own format, and must not
+/// leave `base` through a link once resolved. Gives the two names.
+pub fn check_layout(base: &Path, path: &Path) -> Result<(String, String), WorktreeError> {
     let outside = Err(WorktreeError::OutsideFolder);
     if !path.is_absolute() || !base.is_absolute() {
         return outside;
@@ -187,16 +196,13 @@ pub fn check_managed(base: &Path, path: &Path, repo_root: &Path) -> Result<(), W
     if !is_valid_slug(repo_dir) || !is_valid_slug(slug) {
         return outside;
     }
-    if *repo_dir != repo_dir_name(repo_root) {
-        return outside;
-    }
     // Junctions and symlinks: compare the resolved paths too, as far as they exist.
     if let (Ok(real_path), Ok(real_base)) = (path.canonicalize(), base.canonicalize()) {
         if !real_path.starts_with(&real_base) {
             return outside;
         }
     }
-    Ok(())
+    Ok(((*repo_dir).to_owned(), (*slug).to_owned()))
 }
 
 pub fn check_branch(branch: &str) -> Result<(), WorktreeError> {
@@ -223,7 +229,7 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
     // The checkout runs post-checkout and reference-transaction hooks and smudge filters, any
     // program a cloned repository's config names; switched off like everywhere else.
     let neutral = git::filter_overrides(git, &repo_root, deadline)?;
-    let hooks = format!("core.hooksPath={}", empty_hooks_dir(base)?.display());
+    let hooks = no_hooks_arg(base)?;
     let args = neutral
         .iter()
         .map(OsStr::new)
@@ -255,7 +261,7 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
 /// `branch -d`). Not a valid slug, so it can never be taken for a worktree.
 pub const NO_HOOKS_DIR: &str = ".no-hooks";
 
-fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
+pub(crate) fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
     let dir = base.join(NO_HOOKS_DIR);
     let io = |source| WorktreeError::Io {
         path: dir.clone(),
@@ -285,108 +291,50 @@ pub fn ignored_reason(ignored: &[String]) -> Option<String> {
     Some(reason)
 }
 
-/// Ignored files and folders in the worktree (`!!` entries of `git status --ignored=matching`).
-/// `neutral` are the filter overrides ([`git::filter_overrides`]).
-fn ignored_files(
+/// Every changed, untracked and ignored entry of the worktree (`git status --porcelain=v1 -z
+/// --ignored=matching`; ignored ones are `!!`). Untracked files are listed whatever the
+/// repository's `status.showUntrackedFiles` says. `neutral` are the filter overrides
+/// ([`git::filter_overrides`]).
+pub(crate) fn status_entries(
     git: &Git,
     path: &Path,
     neutral: &[String],
     deadline: Instant,
-) -> Result<Vec<String>, String> {
-    let status = git
-        .run(
-            path,
-            neutral.iter().map(String::as_str).chain([
-                "status",
-                "--porcelain=v1",
-                "-z",
-                "--ignored=matching",
-                "--ignore-submodules=all",
-            ]),
-            deadline,
-            git::MAX_LIST_BYTES,
-        )
-        .map_err(|e| e.to_string())?;
+) -> Result<Vec<git::FileChange>, GitError> {
+    let status = git.run(
+        path,
+        neutral.iter().map(String::as_str).chain([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+            "--ignored=matching",
+            "--ignore-submodules=all",
+        ]),
+        deadline,
+        git::MAX_LIST_BYTES,
+    )?;
     if !status.success {
-        // A cut list could hide ignored files; only a complete one counts.
-        return Err(git::message(&status.stderr));
+        // A cut list could hide changed or ignored files; only a complete one counts.
+        return Err(status.failure());
     }
-    Ok(git::parse_status(&status.stdout)
-        .into_iter()
-        .filter(|file| file.status == "!!")
-        .map(|file| file.path)
-        .collect())
+    Ok(git::parse_status(&status.stdout))
 }
 
 /// `git worktree remove` without `--force`, then `git branch -d`. A worktree with ignored files
 /// stays too. What stays is reported in [`Removal::reason`], not as an error.
 pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, WorktreeError> {
-    check_shape(worktree)?;
-    check_managed(base, &worktree.path, &worktree.repo_root)?;
-    git::check_folder(&worktree.repo_root)?;
-    git::check_git_links(&worktree.path)?;
+    if let Some(reason) = remove_folder(git, base, worktree)? {
+        return Ok(Removal {
+            removed: false,
+            branch_deleted: false,
+            reason: Some(reason),
+        });
+    }
     let deadline = Instant::now() + TIMEOUT;
-    let root = &worktree.repo_root;
-    let hooks = format!("core.hooksPath={}", empty_hooks_dir(base)?.display());
-    let kept = |reason: String| Removal {
-        removed: false,
-        branch_deleted: false,
-        reason: Some(reason),
-    };
-
-    if worktree.path.exists() {
-        // Read in the worktree, so a filter set only in its own config.worktree counts too.
-        let neutral = match git::filter_overrides(git, &worktree.path, deadline) {
-            Ok(neutral) => neutral,
-            Err(error) => return Ok(kept(error.to_string())),
-        };
-        let ignored = match ignored_files(git, &worktree.path, &neutral, deadline) {
-            Ok(ignored) => ignored,
-            Err(reason) => return Ok(kept(reason)),
-        };
-        if let Some(reason) = ignored_reason(&ignored) {
-            return Ok(kept(reason));
-        }
-        // `worktree remove` checks the worktree with a `git status` of its own, which runs clean
-        // filters on files whose stat data changed. `-c` reaches that child process through
-        // GIT_CONFIG_PARAMETERS. A worktree with populated submodules is refused without
-        // `--force` (measured with git 2.56), so their filters do not come into play.
-        let args = neutral
-            .iter()
-            .map(OsStr::new)
-            .chain([
-                OsStr::new("-c"),
-                OsStr::new(&hooks),
-                OsStr::new("worktree"),
-                OsStr::new("remove"),
-                worktree.path.as_os_str(),
-            ])
-            .collect::<Vec<_>>();
-        let output = git.run(root, args, deadline, 64 * 1024)?;
-        if !output.success {
-            return Ok(kept(git::message(&output.stderr)));
-        }
-    } else {
-        // Deleted by hand: only git's bookkeeping is left. Failure changes nothing for the user.
-        let _ = git.run(
-            root,
-            ["-c", &hooks, "worktree", "prune"],
-            deadline,
-            64 * 1024,
-        );
-    }
-    if worktree.path.exists() {
-        return Ok(kept(
-            "The worktree folder could not be deleted completely".to_owned(),
-        ));
-    }
-    if let Some(parent) = worktree.path.parent() {
-        // Only succeeds when no other worktree of this repository is left.
-        let _ = fs::remove_dir(parent);
-    }
-
+    let hooks = no_hooks_arg(base)?;
     let output = git.run(
-        root,
+        &worktree.repo_root,
         ["-c", &hooks, "branch", "-d", worktree.branch.as_str()],
         deadline,
         64 * 1024,
@@ -396,6 +344,156 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
         branch_deleted: output.success,
         reason: (!output.success).then(|| git::message(&output.stderr)),
     })
+}
+
+/// `-c` value that points `core.hooksPath` at the empty [`NO_HOOKS_DIR`].
+pub(crate) fn no_hooks_arg(base: &Path) -> Result<String, WorktreeError> {
+    Ok(format!(
+        "core.hooksPath={}",
+        empty_hooks_dir(base)?.display()
+    ))
+}
+
+/// Removes the worktree's folder and git's record of it, never by force, and leaves the branch
+/// alone. `None` once both are gone; otherwise why it stays. A folder deleted by hand leaves only
+/// git's record, which `git worktree remove` takes away for that one worktree (measured with git
+/// 2.56; `worktree prune` would also take the records of the user's own worktrees).
+pub fn remove_folder(
+    git: &Git,
+    base: &Path,
+    worktree: &Worktree,
+) -> Result<Option<String>, WorktreeError> {
+    check_shape(worktree)?;
+    check_managed(base, &worktree.path, &worktree.repo_root)?;
+    git::check_folder(&worktree.repo_root)?;
+    git::check_git_links(&worktree.path)?;
+    let deadline = Instant::now() + TIMEOUT;
+    let root = &worktree.repo_root;
+    let hooks = no_hooks_arg(base)?;
+
+    let mut neutral = Vec::new();
+    if worktree.path.exists() {
+        // Read in the worktree, so a filter set only in its own config.worktree counts too.
+        neutral = match git::filter_overrides(git, &worktree.path, deadline) {
+            Ok(neutral) => neutral,
+            Err(error) => return Ok(Some(error.to_string())),
+        };
+        let ignored: Vec<String> = match status_entries(git, &worktree.path, &neutral, deadline) {
+            Ok(entries) => entries
+                .into_iter()
+                .filter(|file| file.status == "!!")
+                .map(|file| file.path)
+                .collect(),
+            Err(error) => return Ok(Some(error.to_string())),
+        };
+        if let Some(reason) = ignored_reason(&ignored) {
+            return Ok(Some(reason));
+        }
+    }
+    // `worktree remove` checks the worktree with a `git status` of its own, which runs clean
+    // filters on files whose stat data changed. `-c` reaches that child process through
+    // GIT_CONFIG_PARAMETERS. A worktree with populated submodules is refused without `--force`
+    // (measured with git 2.56), so their filters do not come into play.
+    let args = neutral
+        .iter()
+        .map(OsStr::new)
+        .chain([
+            OsStr::new("-c"),
+            OsStr::new(&hooks),
+            OsStr::new("worktree"),
+            OsStr::new("remove"),
+            worktree.path.as_os_str(),
+        ])
+        .collect::<Vec<_>>();
+    let existed = worktree.path.exists();
+    let output = git.run(root, args, deadline, 64 * 1024)?;
+    if !output.success {
+        // Folder and record both gone already (deleted by hand, then pruned): nothing is left.
+        let gone = !existed
+            && list(git, root, deadline).is_ok_and(|listed| {
+                !listed
+                    .iter()
+                    .any(|entry| git::path_key(&entry.path) == git::path_key(&worktree.path))
+            });
+        if !gone {
+            return Ok(Some(git::message(&output.stderr)));
+        }
+    }
+    if worktree.path.exists() {
+        return Ok(Some(
+            "The worktree folder could not be deleted completely".to_owned(),
+        ));
+    }
+    if let Some(parent) = worktree.path.parent() {
+        // Only succeeds when no other worktree of this repository is left.
+        let _ = fs::remove_dir(parent);
+    }
+    Ok(None)
+}
+
+/// One entry of `git worktree list --porcelain -z`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Listed {
+    pub path: PathBuf,
+    /// Commit checked out; `None` before the first commit.
+    pub head: Option<String>,
+    /// Full ref name (`refs/heads/...`); `None` for a detached HEAD or a bare repository.
+    pub branch: Option<String>,
+    pub locked: bool,
+    /// git says the folder is gone (`prunable`).
+    pub prunable: bool,
+}
+
+/// Records of `git worktree list --porcelain -z`: `key value ` fields, an empty field ends a
+/// record. The first record is the main worktree.
+pub fn parse_list(output: &[u8]) -> Vec<Listed> {
+    let mut list = Vec::new();
+    let mut current: Option<Listed> = None;
+    for field in output.split(|b| *b == 0) {
+        let field = String::from_utf8_lossy(field);
+        if field.is_empty() {
+            list.extend(current.take());
+            continue;
+        }
+        let (key, value) = field.split_once(' ').unwrap_or((&field, ""));
+        match key {
+            "worktree" => {
+                list.extend(current.take());
+                current = Some(Listed {
+                    path: git::native_path(value),
+                    ..Listed::default()
+                });
+            }
+            _ => {
+                let Some(entry) = current.as_mut() else {
+                    continue;
+                };
+                match key {
+                    "HEAD" => entry.head = Some(value.to_owned()),
+                    "branch" => entry.branch = Some(value.to_owned()),
+                    "locked" => entry.locked = true,
+                    "prunable" => entry.prunable = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+    list.extend(current);
+    list
+}
+
+/// All worktrees of the repository at `root`, as git keeps them.
+pub fn list(git: &Git, root: &Path, deadline: Instant) -> Result<Vec<Listed>, GitError> {
+    let output = git.run(
+        root,
+        ["worktree", "list", "--porcelain", "-z"],
+        deadline,
+        git::MAX_LIST_BYTES,
+    )?;
+    if !output.success || output.truncated {
+        return Err(output.failure());
+    }
+    Ok(parse_list(&output.stdout))
 }
 
 #[cfg(test)]
@@ -622,6 +720,46 @@ mod tests {
                 .replace("\r\n", "\n"),
             "hello\n"
         );
+    }
+
+    #[test]
+    fn remove_after_the_folder_was_deleted_by_hand() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("worktree-deleted");
+        let base = tmp.path().join(DIR_NAME);
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        git_ok(
+            &git,
+            &repo,
+            &["commit", "--quiet", "--allow-empty", "-m", "x"],
+        );
+        // The user's own worktree, deleted by hand as well: its record must stay.
+        let own = tmp.path().join("own");
+        git_ok(
+            &git,
+            &repo,
+            &["worktree", "add", "-q", "-b", "own", &own.to_string_lossy()],
+        );
+        fs::remove_dir_all(&own).unwrap();
+
+        let deleted = create(&git, &base, &repo, "deleted").unwrap();
+        fs::remove_dir_all(&deleted.path).unwrap();
+        let removal = remove(&git, &base, &deleted).unwrap();
+        assert!(removal.removed && removal.branch_deleted, "{removal:?}");
+        let listed = list(&git, &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(listed.iter().all(|entry| entry.path != deleted.path));
+        assert!(
+            listed.iter().any(|entry| entry.prunable),
+            "the user's own record was pruned"
+        );
+
+        // Folder and record already gone (pruned by hand): nothing is left to keep.
+        let pruned = create(&git, &base, &repo, "pruned").unwrap();
+        fs::remove_dir_all(&pruned.path).unwrap();
+        git_ok(&git, &repo, &["worktree", "prune"]);
+        let removal = remove(&git, &base, &pruned).unwrap();
+        assert!(removal.removed && removal.branch_deleted, "{removal:?}");
     }
 
     #[test]

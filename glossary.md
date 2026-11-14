@@ -148,6 +148,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Laufzeit (Session)                              | run time                          | since the process started                                                           |
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                          |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                                   |
+| Worktree-Aufräumer                              | worktree cleanup                  | dialog listing Hangar's own worktrees; `worktree_cleanup.rs`, `worktreeCleanup.ts`  |
 | Private Session                                 | private session                   | starts in the folder, no agent gate, never shared; ADR 0008                         |
 | Team-Session                                    | team session                      | own worktree, agent gate, shared with the team; `SessionMode`                       |
 | Art der Session (Privat oder Team)              | session mode                      | `SessionMode`; switch below "Project folder", `startMode.ts`                        |
