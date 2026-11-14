@@ -760,3 +760,7 @@ the row actions (from 80 % context use, hidden while the agent works) send them 
 several". Binary strings also show that Codex refuses such commands during a turn and Claude
 Code queues them; the compact button therefore also hides after a bell or during a gate decision.
 Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [[catalog]], index.
+
+## [2026-11-14] ingest | Power detection for the power saving mode
+Saved Microsoft's `SYSTEM_POWER_STATUS` reference and the kernel's `sysfs-class-power` ABI to raw, with one own reading of a Windows 11 desktop (AC 1, battery flag 128). The power saving mode maps them to `noBattery`, `ac`, `battery`, `saver` or `unknown`; laptops on battery and Linux are not measured yet.
+Pages changed: [[power-status-sources]], [[power-detection]].

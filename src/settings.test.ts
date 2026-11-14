@@ -45,6 +45,7 @@ describe("parseSettings", () => {
       chimeVolume: 70,
       quietHours: { enabled: true, from: 1380, to: 360 },
       showResources: false,
+      powerSaving: false,
       keepInTray: true,
       showVersions: false,
       showIcons: false,
@@ -83,6 +84,7 @@ describe("parseSettings", () => {
       taskbarFlash: "yes",
       notifyDesktop: "no",
       showResources: "off",
+      powerSaving: "yes",
       keepInTray: 1,
       showVersions: "no",
       showIcons: null,
@@ -273,6 +275,12 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ showResources: false }), "de").showResources).toBe(false);
+  });
+
+  it("saves energy on battery by default, also for older settings", () => {
+    expect(defaultSettings("de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ powerSaving: false }), "de").powerSaving).toBe(false);
   });
 
   it("remembers sessions and checks for program updates by default", () => {

@@ -157,6 +157,7 @@ import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote"
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
+import { setPowerSavingEnabled, startPowerWatch } from "./usePower";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
 import {
   discardMessage,
@@ -835,6 +836,11 @@ export function App() {
     setResourcesEnabled(settings.showResources);
     setSystemUsageEnabled(settings.showResources);
   }, [settings.showResources]);
+  // Power saving on battery: slower polls and still row pulses (power.ts); on AC nothing changes.
+  useEffect(() => {
+    setPowerSavingEnabled(settings.powerSaving);
+    startPowerWatch();
+  }, [settings.powerSaving]);
   const profilesRef = useRef(profiles);
   /**
    * The stall hint (stall.ts): samples the screens of working agent sessions outside React and

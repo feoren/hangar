@@ -587,3 +587,13 @@ export function GpuIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Power saving on battery (system bar). */
+export function LeafIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 12.5C3.5 7 7 3.5 12.5 3.5c0 5.5-3.5 9-9 9z" />
+      <path d="M3.5 12.5l4.5-4.5" />
+    </Svg>
+  );
+}

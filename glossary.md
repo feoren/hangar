@@ -150,6 +150,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Ressourcen (Session)                            | resources                         | `resources.rs`; CPU share and resident memory of a session's process tree           |
 | Ausreißer                                       | outlier                           | a session that keeps 0.9 cores busy for 30 s or holds more than 4 GiB of memory     |
 | Systemleiste                                    | system bar                        | `SystemBar.tsx`, `system_usage.rs`; machine CPU, RAM and GPU above New session      |
+| Energiesparen im Akkubetrieb                    | power saving                      | `power.ts`, `power.rs`; slower polls and still pulses while on battery              |
+| Akkubetrieb, Netzbetrieb                        | on battery, on AC                 | `PowerState`; `noBattery` for machines without one                                  |
+| Energiesparmodus (des Systems)                  | battery saver                     | Windows `SystemStatusFlag`; state `saver`                                           |
 | Push aufs Handy                                 | push (to the phone)               | `push.rs`, `phonePush.ts`; ntfy or Pushover, opt-in                                 |
 | Statuszeile (Session)                           | status line                       | `statusLine.ts`; status, folder, branch, run time                                   |
 | Laufzeit (Session)                              | run time                          | since the process started                                                           |

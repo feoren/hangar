@@ -23,6 +23,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[keyring]]: keyring 4.2 for secret profile variables: store crates per platform, error variants that carry raw bytes, build cost (sources: 1, updated: 2026-11-08)
 
 ## Platforms
+- [[power-detection]]: battery or AC per platform for the power saving mode: Windows `GetSystemPowerStatus` mapping (no battery, AC, battery, battery saver), Linux `/sys/class/power_supply`, macOS unknown and hidden; 30 s poll, `power-changed` on change, what saving slows and stills (sources: 1, updated: 2026-11-14)
 
 ## Agent CLIs
 - [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, unverified points (sources: 3, updated: 2026-11-14)
@@ -40,6 +41,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[worktree-remove-missing-measurement]]: measurement: git 2.56 `worktree remove` without `--force` takes away only the record of a folder deleted by hand, `worktree prune` would take all; porcelain `-z` fields of `worktree list` (sources: 0, updated: 2026-11-14)
 - [[shell-tool-input-shapes]]: reading (nothing run): Claude Code 2.1.319 to 2.1.323 transcripts show `Bash` and `PowerShell` calls with `input.command`; Pi 1.5.2 `bash` and `powershell` take `{ command, timeout }`; OpenCode 1.19.5 `bash` takes `command`, `timeout`, `workdir` and picks PowerShell, pwsh or cmd on Windows (sources: 0, updated: 2026-11-14)
 - [[agent-commands-measurement]]: measurement (binary strings, no session run): slash commands of Claude Code 2.1.325 (`/compact`, `/clear`, `/usage` with alias `/cost`, `/context`, `/model`) and Codex 0.169.0 (`/compact`, `/new`, `/status`, `/model`), Gemini CLI from its command reference (`/compress`, `/clear`, `/stats`, `/model`) (sources: 0, updated: 2026-11-14)
+- [[power-status-sources]]: Microsoft docs of `SYSTEM_POWER_STATUS` (AC line, battery flag 128 and 255, battery saver flag since Windows 10), kernel sysfs ABI of power supplies, own reading of a Windows 11 desktop (AC 1, flag 128) (sources: 0, updated: 2026-11-14)
 - [[agent-instruction-flags-measurement]]: measurement (help texts and binary strings, no session run): Claude Code 2.1.323 `--append-system-prompt` and positional prompt, Codex 0.169.0 `-c` with TOML values, `developer_instructions` config key and positional prompt, Aider 0.86.2 `--read` and a `--message` that exits; Gemini CLI not installed (sources: 0, updated: 2026-11-13)
 - [[xterm-linkifier]]: reading of xterm.js 6.0.0 Linkifier: providers are asked per hovered line, cached per line, asked again on a rendered viewport change (`term.refresh`), late callbacks write into the new reply map, overlapping links are pruned, activation on mouseup without a selection check (sources: 0, updated: 2026-11-13)
 - [[windows-path-normalization-measurement]]: measurement: Windows 11 finds `marker.cmd` for `marker.cmd.` and `marker.cmd `, `fs::canonicalize` gives the real name as `\\?\<drive>:\...`; 8.3 names not measured (volume creates none) (sources: 0, updated: 2026-11-13)
