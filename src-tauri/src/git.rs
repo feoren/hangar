@@ -832,7 +832,7 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
 
 /// The changed files of the work tree at `root` (`git status`, untracked files included, renames
 /// once) and whether the list was cut. `neutral` are the [`filter_overrides`].
-fn status_files(
+pub(crate) fn status_files(
     git: &Git,
     root: &Path,
     neutral: &[String],

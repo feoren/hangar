@@ -155,6 +155,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hook-Helfer (Agent-Gate)                        | gate helper                       | `hangar gate-hook`, `gate_hook.rs`; an agent's command hook                         |
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                                      |
 | Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`          |
+| Tagesrückblick                                  | daily review                      | one local day's sessions, times and commits; `daily_review.rs`, ADR 0011            |
+| Arbeitsprotokoll                                | work log                          | JSON Lines per UTC day under `activity/`, `work_log.rs`; not the activity log       |
+| Arbeitsphase                                    | working phase                     | one stretch of the state "working", logged when it ends                             |
+| Aktive Zeit                                     | active time                       | the union of the working phases; parallel sessions count once                       |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel           |
 | Stagen, Unstagen                                | stage, unstage                    | a file into or out of the index; stage box per file, `git_stage`, `git_unstage`     |
 | Verwerfen (Änderungen einer Datei)              | discard                           | back to HEAD, an untracked file is deleted; asks first; `git_discard`               |

@@ -4650,6 +4650,168 @@ body.resizing-horizontal * {
   cursor: default;
 }
 
+/* Daily review */
+
+.dialog.daily-review {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, calc(100vw - 32px));
+  height: min(680px, calc(100vh - 32px));
+}
+
+.review-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+/* The chevron points right; the previous day's button turns it around. */
+.review-prev svg {
+  transform: rotate(180deg);
+}
+
+.review-date {
+  min-width: 0;
+}
+
+.review-nav .secondary-button {
+  margin-left: auto;
+}
+
+.review-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -6px;
+  padding: 0 6px 4px;
+  overflow-y: auto;
+  border-radius: 4px;
+  user-select: text;
+}
+
+.review-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.review-summary > div {
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.review-summary dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-summary dd {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dialog .review-hint {
+  margin: 8px 0 4px;
+}
+
+.review-project {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.review-project-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.review-project h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.review-project h4 {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.review-sessions,
+.review-commits,
+.review-files ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-sessions li,
+.review-commits li,
+.review-files li {
+  padding: 2px 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.review-sessions li {
+  display: flex;
+  flex-direction: column;
+}
+
+.review-session-name {
+  font-weight: 500;
+}
+
+.review-commits code,
+.review-files code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.review-files {
+  margin-top: 8px;
+}
+
+.review-files summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.review-files ul {
+  padding-left: 14px;
+}
+
+.review-actions {
+  align-items: center;
+}
+
+.dialog .review-notice {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .review-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* What's New */
 
 .dialog.whats-new {

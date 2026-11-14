@@ -428,6 +428,12 @@ export const api = {
    * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
    */
   gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
+  // Work log and daily review (ADR 0011).
+  /** A working phase of the session ended; times in Unix ms. The backend adds the details. */
+  logWorkPhase: (id: number, from: number, to: number) =>
+    invoke<null>("log_work_phase", { id, from, to }),
+  /** One local day `[start, end)` in Unix ms. Check with `parseDailyReview` (dailyReview.ts). */
+  dailyReview: (start: number, end: number) => invoke<unknown>("daily_review", { start, end }),
   /**
    * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
    * 1..=100. Check with `parseGitLog` (gitHistory.ts).

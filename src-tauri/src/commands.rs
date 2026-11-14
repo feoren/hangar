@@ -14,6 +14,7 @@ use crate::agent_catalog::ProfileView;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
+use crate::daily_review::{self, DailyReview, ReviewError};
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
@@ -48,7 +49,7 @@ use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
 use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
-use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
+use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode, Status};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::system_usage::{SystemMonitor, SystemUsage};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
@@ -57,6 +58,7 @@ use crate::team_share::SessionState;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
+use crate::work_log::{self, WorkLog, WorkLogError};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
 
 /// Result of loading the profiles at startup. A broken profile file must not keep the app from
@@ -85,6 +87,41 @@ fn channel_sink(channel: Channel<SessionEvent>) -> impl EventSink {
     move |event| {
         // A send error means the window is gone. Then there is nobody left to tell.
         let _ = channel.send(event);
+    }
+}
+
+/// Passes every event on and writes the work log's end record when the process exits.
+/// `session` is set once the start returned the id.
+fn work_log_sink(
+    log: WorkLog,
+    session: Arc<OnceLock<SessionId>>,
+    inner: impl EventSink,
+) -> impl EventSink {
+    move |event: SessionEvent| {
+        if matches!(event, SessionEvent::Exit { .. }) {
+            if let Some(id) = session.get() {
+                log.ended(*id, work_log::now_ms());
+            }
+        }
+        inner.emit(event);
+    }
+}
+
+/// The work log's start record of a session that just started (ADR 0011).
+fn log_started(log: &WorkLog, manager: &SessionManager, info: &SessionInfo) {
+    let names = manager.profile_names();
+    let program = names
+        .get(&info.profile_id)
+        .map_or(info.profile_id.as_str(), String::as_str);
+    let now = work_log::now_ms();
+    log.started(info, program, now);
+    // A process that exited before its id was known reported the exit to nobody.
+    let exited = manager
+        .list()
+        .iter()
+        .any(|session| session.id == info.id && session.status == Status::Exited);
+    if exited {
+        log.ended(info.id, now);
     }
 }
 
@@ -504,6 +541,7 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 #[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
 pub fn create_session(
     manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
     profile_id: String,
     cwd: Option<PathBuf>,
     size: TermSize,
@@ -514,8 +552,14 @@ pub fn create_session(
     instructions: Option<bool>,
     start_prompt: Option<StartPrompt>,
 ) -> Result<SessionInfo, ManagerError> {
+    let session = Arc::new(OnceLock::new());
+    let sink = work_log_sink(
+        work_log.inner().clone(),
+        Arc::clone(&session),
+        channel_sink(on_event),
+    );
     // Optional, so existing calls without the later arguments stay valid.
-    manager.create_requested(
+    let info = manager.create_requested(
         &profile_id,
         cwd,
         size,
@@ -526,8 +570,11 @@ pub fn create_session(
             instructions: instructions.unwrap_or(false),
             prompt: start_prompt,
         },
-        channel_sink(on_event),
-    )
+        sink,
+    )?;
+    let _ = session.set(info.id);
+    log_started(&work_log, &manager, &info);
+    Ok(info)
 }
 
 /// Opens exactly this machine's `HANGAR.md` in the default editor; if it is missing, it is
@@ -612,6 +659,7 @@ pub fn restart_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     watchers: State<'_, Watchers>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
     size: TermSize,
     on_event: Channel<SessionEvent>,
@@ -627,8 +675,11 @@ pub fn restart_session(
         let _ = watch.session.set(id);
         manager.restart(id, size, update_sink(app, on_event, watch))
     } else {
-        manager.restart(id, size, channel_sink(on_event))
+        let session = Arc::new(OnceLock::from(id));
+        let sink = work_log_sink(work_log.inner().clone(), session, channel_sink(on_event));
+        manager.restart(id, size, sink)
     }?;
+    log_started(&work_log, &manager, &info);
     // The restart runs under a new conversation id; a watch would keep following the old one.
     // The window starts a new watch with the returned `SessionInfo` if it wants one.
     watchers.stop(id);
@@ -638,10 +689,13 @@ pub fn restart_session(
 #[tauri::command]
 pub fn rename_session(
     manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
     title: String,
 ) -> Result<SessionInfo, ManagerError> {
-    manager.rename(id, &title)
+    let info = manager.rename(id, &title)?;
+    work_log.renamed(id, &info.title);
+    Ok(info)
 }
 
 /// Also withdraws the session's desktop notification, off the main thread, and ends its
@@ -651,9 +705,11 @@ pub fn close_session(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     watchers: State<'_, Watchers>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
 ) -> Result<(), ManagerError> {
     manager.close(id)?;
+    work_log.ended(id, work_log::now_ms());
     watchers.stop(id);
     tauri::async_runtime::spawn_blocking(move || app.state::<Notifier>().forget(id));
     Ok(())
@@ -1516,6 +1572,38 @@ pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, Activity
     tauri::async_runtime::spawn_blocking(move || git_activity::activity(&Git::locate()?, &folders))
         .await
         .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
+}
+
+/// A working phase of a session ended (`from`, `to` in Unix ms); the window reports one event
+/// per phase, never per output chunk. Only times: the backend adds the session's details.
+#[tauri::command]
+pub async fn log_work_phase(
+    work_log: State<'_, WorkLog>,
+    id: SessionId,
+    from: i64,
+    to: i64,
+) -> Result<(), WorkLogError> {
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || log.phase(id, from, to, work_log::now_ms()))
+        .await
+        .map_err(|error| WorkLogError::Task(error.to_string()))?
+}
+
+/// The daily review of one local day, `[start, end)` in Unix ms as the window computed it
+/// (daily_review.rs, ADR 0011).
+#[tauri::command]
+pub async fn daily_review(
+    work_log: State<'_, WorkLog>,
+    start: i64,
+    end: i64,
+) -> Result<DailyReview, ReviewError> {
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate().ok();
+        daily_review::review(&log, git.as_ref(), start, end, work_log::now_ms())
+    })
+    .await
+    .map_err(|error| ReviewError::Task(error.to_string()))?
 }
 
 /// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.

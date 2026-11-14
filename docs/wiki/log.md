@@ -719,3 +719,7 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] query | Work log and daily review
+Decision on the work log behind the daily review: what is stored per session (key, title, program, folder, repository, worktree flag, times), UTC day files, 90 days, size limits, never terminal content or prompts; how the review computes run and active time as unions and which git calls collect the day's commits and files.
+Pages changed: [[0011-work-log-and-daily-review]].
