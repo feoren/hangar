@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  asksQuestion,
   awaitsAnswer,
   commandBusy,
   commandLabel,
@@ -111,6 +112,34 @@ describe("compact button", () => {
     expect(awaitsAnswer("gate")).toBe(true);
     expect(awaitsAnswer("quiet")).toBe(false);
     expect(awaitsAnswer(null)).toBe(false);
+  });
+});
+
+describe("asksQuestion", () => {
+  const permission = [
+    "  Bash command",
+    "    git push",
+    " Do you want to proceed?",
+    " ❯ 1. Yes",
+    "   2. No, and tell Claude what to do differently (esc)",
+  ];
+  const idlePrompt = ["● Done. The tests pass.", "", "> ", "  ? for shortcuts"];
+
+  it("withholds a command from a permission dialog that rang no bell", () => {
+    expect(asksQuestion("quiet", () => permission)).toBe(true);
+    expect(asksQuestion(null, () => permission)).toBe(true);
+  });
+
+  it("sends at the idle input prompt", () => {
+    expect(asksQuestion("quiet", () => idlePrompt)).toBe(false);
+    expect(asksQuestion(null, () => [])).toBe(false);
+  });
+
+  it("decides on a bell or gate decision without reading the screen", () => {
+    const screen = vi.fn(() => idlePrompt);
+    expect(asksQuestion("bell", screen)).toBe(true);
+    expect(asksQuestion("gate", screen)).toBe(true);
+    expect(screen).not.toHaveBeenCalled();
   });
 });
 

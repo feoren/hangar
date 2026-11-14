@@ -225,7 +225,7 @@ interface Props {
   /** Right click or context menu key on a session: the session menu at this point. */
   onSessionMenu: (id: number, x: number, y: number) => void;
   /** The compact button of a row: types the program's compact command into that session. */
-  onAgentCommand: (id: number, command: AgentCommand) => void;
+  onAgentCommand: (id: number, command: AgentCommand, at: number) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
   drag: { id: number; line: DropLine | null } | null;
   /** Mouse down on a session row: may become a drag (useSessionDrag). */

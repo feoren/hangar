@@ -10,6 +10,7 @@ import { HIGH_SHARE } from "./contextUsage";
 import { sendToTargets, type BroadcastTarget } from "./broadcast";
 import type { MessageKey, Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
+import { looksLikeQuestion } from "./promptGuard";
 import type { SessionView } from "./sessions";
 
 const LABELS: Record<AgentCommandLabel, MessageKey> = {
@@ -65,6 +66,20 @@ export function commandBusy(state: AttentionState, reason: AttentionReason | nul
  */
 export function awaitsAnswer(reason: AttentionReason | null): boolean {
   return reason === "bell" || reason === "gate";
+}
+
+/**
+ * `awaitsAnswer`, or the newest screen lines show a question or a choice list (promptGuard.ts, the
+ * queued message's guard). Permission dialogs of Claude Code and Codex ring no bell in Hangar's
+ * terminal, so neither the bell nor the gate reveals them, and the Enter after a command would
+ * confirm the preselected answer. `screen` is read only when the reason does not decide already,
+ * and only where a command is offered or sent, never on every render.
+ */
+export function asksQuestion(
+  reason: AttentionReason | null,
+  screen: () => readonly string[],
+): boolean {
+  return awaitsAnswer(reason) || looksLikeQuestion(screen());
 }
 
 /**

@@ -83,5 +83,17 @@ person picked the command deliberately; after a bell or during a gate decision
 commands submenu or question closes. Mid-turn behavior, from binary strings only (no session run,
 [[agent-commands-measurement]]): Claude Code 2.1.325 queues slash commands typed while it works;
 Codex CLI 0.169.0 has the text "'/…' is disabled while a task is in progress." and refuses such
-commands during a turn. A permission prompt that rings no bell and has no gate is not detected;
-an Enter sent into it is not measured.
+commands during a turn.
+
+## Decision: no command into a question on screen
+
+Permission dialogs of Claude Code and Codex ring no bell in Hangar's terminal
+([[agent-prompt-shapes]]), so `awaitsAnswer` alone misses them. Commands therefore use the queued
+message's screen check as well (`asksQuestion` in `agentCommands.ts`, built on `looksLikeQuestion`
+in `promptGuard.ts`): the session menu leaves out "Commands" and quick access lists no commands
+while the newest screen lines show a question or a choice list, and every send checks again
+(`withholdCommand` in `App.tsx`). The row's compact button cannot watch the screen, since the
+screen is read only where a command is offered or sent, never on every render; a click on it into
+a question sends nothing and a notice says to answer the question first. A false match only
+withholds a command, which is the safe direction. An Enter sent into such a prompt is not
+measured.

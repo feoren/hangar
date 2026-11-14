@@ -772,3 +772,7 @@ Pages changed: [[project-overview]], [[git-worktree-commondir-measurement]].
 ## [2026-11-14] query | Work log and daily review
 Decision on the work log behind the daily review: what is stored per session (key, title, program, folder, repository, worktree flag, times), UTC day files, 90 days, size limits, never terminal content or prompts; how the review computes run and active time as unions and which git calls collect the day's commits and files.
 Pages changed: [[0011-work-log-and-daily-review]].
+
+## [2026-11-14] query | Agent commands use the queue's question guard
+After merging the queued message and the agent commands, commands also check the screen for a question or choice list (`asksQuestion` on top of `looksLikeQuestion`): the menu and quick access hide them, every send checks again, and the compact button's click into a question sends nothing and says why.
+Pages changed: [[agent-commands]].

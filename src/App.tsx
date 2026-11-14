@@ -89,6 +89,7 @@ import { MarkerDialog } from "./MarkerDialog";
 import { queueOffer, sessionMenuEntries, stallOffer, type SessionAction } from "./sessionMenu";
 import { canExportReport, reportLabels, utcOffsetMinutes } from "./sessionReport";
 import {
+  asksQuestion,
   awaitsAnswer,
   commandBusy,
   commandMenuEntries,
@@ -665,7 +666,7 @@ export function App() {
   const [commandMenu, setCommandMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   /** A command with `confirm` that waits for the answer of its dialog. */
   const [commandAsk, setCommandAsk] = useState<{ id: number; command: AgentCommand } | null>(null);
-  /** When each session last got a compact from its row button (`performance.now()`). */
+  /** When each session last got a compact from its row button (the click's `timeStamp`). */
   const compactSentAt = useRef(new Map<number, number>());
   /**
    * Queued messages per session key (messageQueue.ts). The ref is the truth the attention
@@ -3642,6 +3643,10 @@ export function App() {
     sendQueuedRef.current = sendQueued;
   });
 
+  /** The session may show a question, so a command's Enter would answer it (`asksQuestion`). */
+  const sessionAsks = (id: number) =>
+    asksQuestion(reasons.get(id) ?? null, () => terminals.get(id)?.screenLines() ?? []);
+
   /**
    * An agent command into one running session, sent like "Send to several" (agentCommands.ts);
    * that session shows afterwards, so its answer is in view.
@@ -3649,14 +3654,27 @@ export function App() {
   const sendAgentCommand = (id: number, command: AgentCommand) => {
     const session = state.sessions.find((s) => s.id === id);
     const terminal = terminals.get(id);
-    if (session?.status !== "running" || !terminal || awaitsAnswer(reasons.get(id) ?? null)) return;
+    if (session?.status !== "running" || !terminal || withholdCommand(id, command)) return;
     void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS));
     dispatch({ type: "activated", id });
     focusTerminal();
   };
 
+  /**
+   * The session may show a question (agentCommands.ts `asksQuestion`): the command stays unsent,
+   * since its Enter would answer that question, and a notice says why nothing happened. Menu and
+   * quick access hide the commands then; this catches the row's compact button, which cannot
+   * watch the screen, and a question that came up after the menu opened.
+   */
+  const withholdCommand = (id: number, command: AgentCommand) => {
+    if (!sessionAsks(id)) return false;
+    setError(t("agentCommand.asksFirst", { session: sessionName(id), command: command.text }));
+    return true;
+  };
+
   /** From the menu or quick access: commands that throw the conversation away ask first. */
   const runAgentCommand = (id: number, command: AgentCommand) => {
+    if (withholdCommand(id, command)) return;
     if (command.confirm) setCommandAsk({ id, command });
     else sendAgentCommand(id, command);
   };
@@ -3665,13 +3683,12 @@ export function App() {
    * The row's compact button. It is hidden while the agent is busy; should the agent get busy
    * between render and click, nothing is sent (agentCommands.ts `commandBusy`).
    */
-  const compactFromRow = (id: number, command: AgentCommand) => {
+  const compactFromRow = (id: number, command: AgentCommand, at: number) => {
     if (commandBusy(attention.get(id) ?? "idle", reasons.get(id) ?? null)) return;
     // The button stays until the agent's answer marks it as working; a double click in between
     // would otherwise queue a second compact.
-    const now = performance.now();
-    if (compactRepeated(compactSentAt.current.get(id), now)) return;
-    compactSentAt.current.set(id, now);
+    if (compactRepeated(compactSentAt.current.get(id), at)) return;
+    compactSentAt.current.set(id, at);
     runAgentCommand(id, command);
   };
 
@@ -4575,8 +4592,7 @@ export function App() {
             onScreen(menuSession.id),
           ),
           commands:
-            sessionCommands(menuSession, profiles).length > 0 &&
-            !awaitsAnswer(reasons.get(menuSession.id) ?? null),
+            sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
         }).map((entry): PopupItem => {
           if (entry.type === "separator") return entry;
           const action = entry.key;
@@ -4623,7 +4639,7 @@ export function App() {
   const launcherCommands = () => {
     if (activeSession === undefined) return null;
     const commands = sessionCommands(activeSession, profiles);
-    if (commands.length === 0 || awaitsAnswer(reasons.get(activeSession.id) ?? null)) return null;
+    if (commands.length === 0 || sessionAsks(activeSession.id)) return null;
     const id = activeSession.id;
     return {
       commands,

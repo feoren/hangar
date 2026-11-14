@@ -17,7 +17,8 @@ interface Props {
   commands: readonly AgentCommand[];
   /** The agent works or waits for an answer (agentCommands.ts `commandBusy`). */
   busy: boolean;
-  onRun: (sessionId: number, command: AgentCommand) => void;
+  /** `at`: the click's time stamp (performance.now() clock), for the repeated-click check. */
+  onRun: (sessionId: number, command: AgentCommand, at: number) => void;
 }
 
 export function CompactAction({ sessionId, commands, busy, onRun }: Props) {
@@ -33,8 +34,8 @@ export function CompactAction({ sessionId, commands, busy, onRun }: Props) {
       className="icon-button session-compact"
       aria-label={label}
       title={`${label} (${command.text})`}
-      onClick={() => {
-        onRun(sessionId, command);
+      onClick={(event) => {
+        onRun(sessionId, command, event.timeStamp);
       }}
     >
       <CompactIcon />

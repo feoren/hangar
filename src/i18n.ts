@@ -107,6 +107,8 @@ const de = {
     "Das Programm beginnt danach mit leerem Kontext; das bisherige Gespräch ist in dieser Sitzung nicht mehr sichtbar.",
   "agentCommand.send": "Senden",
   "agentCommand.keyword": "Befehl",
+  "agentCommand.asksFirst":
+    "{session} stellt gerade eine Frage. Beantworte sie zuerst, dann sende {command} erneut.",
   "session.showSubAgents": "Sub-Agents anzeigen",
   "session.hideSubAgents": "Sub-Agents ausblenden",
   "queue.add": "Nachricht vormerken …",
@@ -1656,6 +1658,8 @@ const en: Record<MessageKey, string> = {
     "The program then starts with an empty context; the conversation so far is no longer shown in this session.",
   "agentCommand.send": "Send",
   "agentCommand.keyword": "Command",
+  "agentCommand.asksFirst":
+    "{session} is asking a question. Answer it first, then send {command} again.",
   "session.showSubAgents": "Show sub-agents",
   "session.hideSubAgents": "Hide sub-agents",
   "queue.add": "Queue message …",
@@ -3167,6 +3171,8 @@ const el: Record<MessageKey, string> = {
     "Το πρόγραμμα ξεκινά μετά με κενό πλαίσιο· η μέχρι τώρα συνομιλία δεν εμφανίζεται πια σε αυτή τη συνεδρία.",
   "agentCommand.send": "Αποστολή",
   "agentCommand.keyword": "Εντολή",
+  "agentCommand.asksFirst":
+    "Το {session} κάνει μια ερώτηση. Απάντησέ της πρώτα και μετά στείλε ξανά το {command}.",
   "session.showSubAgents": "Εμφάνιση υπο-πρακτόρων",
   "session.hideSubAgents": "Απόκρυψη υπο-πρακτόρων",
   "queue.add": "Προγραμματισμός μηνύματος…",
@@ -4729,6 +4735,8 @@ const es: Record<MessageKey, string> = {
     "Después, el programa empieza con el contexto vacío; la conversación anterior ya no se muestra en esta sesión.",
   "agentCommand.send": "Enviar",
   "agentCommand.keyword": "Comando",
+  "agentCommand.asksFirst":
+    "{session} está haciendo una pregunta. Respóndela primero y luego vuelve a enviar {command}.",
   "session.showSubAgents": "Mostrar subagentes",
   "session.hideSubAgents": "Ocultar subagentes",
   "queue.add": "Programar mensaje…",
@@ -6268,6 +6276,8 @@ const fr: Record<MessageKey, string> = {
     "Le programme repart ensuite avec un contexte vide ; la conversation précédente n’apparaît plus dans cette session.",
   "agentCommand.send": "Envoyer",
   "agentCommand.keyword": "Commande",
+  "agentCommand.asksFirst":
+    "{session} pose une question. Réponds-y d’abord, puis renvoie {command}.",
   "session.showSubAgents": "Afficher les sous-agents",
   "session.hideSubAgents": "Masquer les sous-agents",
   "queue.add": "Préparer un message…",
@@ -7827,6 +7837,8 @@ const it: Record<MessageKey, string> = {
     "Il programma riparte poi con un contesto vuoto; la conversazione precedente non è più visibile in questa sessione.",
   "agentCommand.send": "Invia",
   "agentCommand.keyword": "Comando",
+  "agentCommand.asksFirst":
+    "{session} sta facendo una domanda. Rispondi prima, poi invia di nuovo {command}.",
   "session.showSubAgents": "Mostra sotto-agenti",
   "session.hideSubAgents": "Nascondi sotto-agenti",
   "queue.add": "Prepara messaggio…",
@@ -9371,6 +9383,8 @@ const ja: Record<MessageKey, string> = {
     "プログラムは空のコンテキストで再開し、これまでの会話はこのセッションに表示されなくなります。",
   "agentCommand.send": "送信",
   "agentCommand.keyword": "コマンド",
+  "agentCommand.asksFirst":
+    "{session} が質問しています。先に答えてから、{command} をもう一度送信してください。",
   "session.showSubAgents": "サブエージェントを表示",
   "session.hideSubAgents": "サブエージェントを非表示",
   "queue.add": "メッセージを予約…",
@@ -10912,6 +10926,8 @@ const pl: Record<MessageKey, string> = {
     "Program zacznie potem z pustym kontekstem; dotychczasowa rozmowa nie będzie już widoczna w tej sesji.",
   "agentCommand.send": "Wyślij",
   "agentCommand.keyword": "Polecenie",
+  "agentCommand.asksFirst":
+    "{session} zadaje pytanie. Najpierw na nie odpowiedz, a potem wyślij {command} ponownie.",
   "session.showSubAgents": "Pokaż podagentów",
   "session.hideSubAgents": "Ukryj podagentów",
   "queue.add": "Zaplanuj wiadomość…",
@@ -12436,6 +12452,8 @@ const pt: Record<MessageKey, string> = {
     "Depois, o programa começa com o contexto vazio; a conversa anterior deixa de aparecer nesta sessão.",
   "agentCommand.send": "Enviar",
   "agentCommand.keyword": "Comando",
+  "agentCommand.asksFirst":
+    "{session} está fazendo uma pergunta. Responda primeiro e depois envie {command} de novo.",
   "session.showSubAgents": "Mostrar subagentes",
   "session.hideSubAgents": "Ocultar subagentes",
   "queue.add": "Agendar mensagem…",
@@ -13972,6 +13990,8 @@ const ru: Record<MessageKey, string> = {
     "После этого программа начнёт с пустым контекстом; прежний разговор в этой сессии больше не виден.",
   "agentCommand.send": "Отправить",
   "agentCommand.keyword": "Команда",
+  "agentCommand.asksFirst":
+    "{session} задаёт вопрос. Сначала ответь на него, затем отправь {command} ещё раз.",
   "session.showSubAgents": "Показать субагентов",
   "session.hideSubAgents": "Скрыть субагентов",
   "queue.add": "Отложить сообщение…",
@@ -15493,6 +15513,8 @@ const tr: Record<MessageKey, string> = {
     "Program ardından boş bir bağlamla başlar; şimdiye kadarki konuşma bu oturumda artık görünmez.",
   "agentCommand.send": "Gönder",
   "agentCommand.keyword": "Komut",
+  "agentCommand.asksFirst":
+    "{session} bir soru soruyor. Önce yanıtla, sonra {command} komutunu yeniden gönder.",
   "session.showSubAgents": "Alt ajanları göster",
   "session.hideSubAgents": "Alt ajanları gizle",
   "queue.add": "Mesajı sıraya al…",
@@ -17007,6 +17029,7 @@ const zh: Record<MessageKey, string> = {
   "agentCommand.confirmBody": "之后程序以空上下文开始；此前的对话不再显示在此会话中。",
   "agentCommand.send": "发送",
   "agentCommand.keyword": "命令",
+  "agentCommand.asksFirst": "{session} 正在提问。请先回答，然后再次发送 {command}。",
   "session.showSubAgents": "显示子代理",
   "session.hideSubAgents": "隐藏子代理",
   "queue.add": "预约消息…",
