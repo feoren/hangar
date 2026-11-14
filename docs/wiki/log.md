@@ -711,3 +711,11 @@ Pages changed: [[commit-history]].
 
 ## [2026-11-14] lint | Mask a personal path in a raw source
 A history scan for secrets and private data found the local user name in the npm folder of `raw/2026-11-07-update-sources-measurement.md`. Masked it as `%APPDATA%\npm` under the masking rule and translated a leftover German note; the measurement itself is unchanged.
+
+## [2026-11-14] ingest | Updater signing outside the build
+`tools/release.py` no longer hands the updater key to `pnpm tauri build`: the build runs with `bundle.createUpdaterArtifacts: false`, and `tauri signer sign --app-version` signs the installer afterwards as the only process with the key. Measured with Tauri CLI 2.12.4 and a throwaway key that the signer writes `<file>.sig` with the same trusted comment as the build (`timestamp`, `file`, `version`) and accepts an empty password variable without asking.
+Pages changed: [[release-rollout]].
+
+## [2026-11-14] lint | Audit fixes reflected in the pages
+Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
+Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
