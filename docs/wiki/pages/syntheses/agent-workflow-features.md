@@ -3,7 +3,7 @@ title: "Agent workflow features (0.3.0)"
 type: synthesis
 status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
-sources: ["[[terminal-font-coverage-measurement]]"]
+sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]"]
 created: 2026-11-08
 updated: 2026-11-14
 ---
@@ -221,6 +221,35 @@ name is cleaned: `< > : " / \ | ? *` become `_`, control and invisible character
 Notifications) go,
 leading and trailing dots and spaces go, Windows device names (`CON`, `NUL`, `COM1`, ...) get a
 leading `_`, at most 100 characters, empty becomes `session`; the extension is added once.
+
+### Session report
+`export_report(sessionId, title, suggestedName, utcOffsetMinutes, labels) -> string | null`
+(`src-tauri/src/report/`): the session's conversation as Markdown, read from the agent's own
+transcript, not the terminal. Only for sessions with `subAgents` (Claude Code with a conversation
+id); the context menu entry "Export as report" and the app menu's "Export session > As report"
+(and with it quick access) are hidden for every other program. Codex is left out because its
+rollouts cannot be linked to a session ([[session-report-transcripts]]).
+- Content: title, program, working folder, branch (`gitBranch` of the newest record, else HEAD),
+  start, last activity and duration (first and last record, in the window's offset from UTC);
+  then in order the prompts as quotes, slash commands, assistant text as Markdown, one line per
+  tool call (name plus key argument: a path relative to the working folder or the first line of a
+  command, at most 160 characters; never its output) and one per sub-agent run (type,
+  description, tokens of the finished run or of its own transcript); at the end the work tree's
+  changed files (`git status`, as the Changes tab) and the commits on HEAD authored from the
+  first record to five minutes after the last (at most one page of 100).
+- Safety: the transcript is found as for the sub-agent view (real folders inside the projects
+  folder, no links) and opened without following a link; every text is stripped of terminal
+  sequences and control characters, masked (`redact`) and capped (50 000 characters per prompt
+  or text); thinking blocks and tool results are never read into the report. Titles, paths,
+  branch and commit subjects are escaped, an unclosed code fence is closed, and raw HTML in
+  prompts and assistant texts outside code is shown as text (`<` becomes `&lt;`), as the terminal
+  showed it, so a viewer never renders it and an unclosed `<!--` cannot hide the rest. The two
+  git sections are labelled for what they are: "Uncommitted changes" (the work tree now, not only
+  the agent's) and "Commits in this period" (a time window, not a link to the session). At most 256 MiB of
+  the transcript's end are read (a marker shows a left-out start), the report itself at most
+  32 MiB like the export, checked before the save dialog (filter "Markdown" `*.md`).
+- `labels` are the headings in the window's language (14 texts, `tokens` with `{count}`), cleaned
+  to one line of at most 80 characters with English fallbacks.
 
 ### WSL
 Windows only: the profile list gains one terminal per installed WSL distribution

@@ -86,6 +86,7 @@ import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
+import { canExportReport, reportLabels, utcOffsetMinutes } from "./sessionReport";
 import {
   newSnippetId,
   usableSnippets,
@@ -3265,6 +3266,26 @@ export function App() {
       .finally(focusActive);
   };
   /**
+   * Saves a session's conversation as a Markdown report. The backend reads the agent's transcript
+   * and asks for the place in its save dialog; a cancelled dialog is no error.
+   */
+  const exportReport = (id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const now = new Date();
+    api
+      .exportReport(
+        id,
+        session.title,
+        exportFileName(session.title, now, "report"),
+        utcOffsetMinutes(now),
+        reportLabels(t),
+      )
+      .then(parseExportResult)
+      .catch(showError)
+      .finally(focusActive);
+  };
+  /**
    * The values of snippet variables for one session, read right now (snippetVariables.ts).
    * Anything unavailable stays out; git errors count as unavailable.
    */
@@ -3809,6 +3830,18 @@ export function App() {
                 exportSession("html");
               },
             },
+            // Only for programs whose transcript Hangar reads; hidden for all others.
+            ...(activeSession !== undefined && canExportReport(activeSession)
+              ? [
+                  {
+                    type: "action" as const,
+                    label: t("menu.exportReport"),
+                    run: () => {
+                      exportReport(activeSession.id);
+                    },
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -4134,6 +4167,9 @@ export function App() {
         break;
       case "marker":
         setMarkerId(id);
+        break;
+      case "report":
+        exportReport(id);
         break;
       case "subAgents":
         toggleSubAgents(id);

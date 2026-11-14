@@ -860,14 +860,19 @@ fn status_files(
 /// overrides (a config read, runs nothing) and one `git status`. `None` when `cwd` is no work
 /// tree. A list cut at [`MAX_LIST_BYTES`] counts what fit, like `diff`.
 pub fn changed_count(git: &Git, cwd: &Path) -> Result<Option<u32>, GitError> {
+    Ok(changed_files(git, cwd)?.map(|(files, _)| u32::try_from(files.len()).unwrap_or(u32::MAX)))
+}
+
+/// The files [`diff`] would list for `cwd` (status codes only, no line counts) and whether the
+/// list was cut, without the diff itself. `None` when `cwd` is no work tree.
+pub fn changed_files(git: &Git, cwd: &Path) -> Result<Option<(Vec<FileChange>, bool)>, GitError> {
     check_folder(cwd)?;
     let deadline = Instant::now() + TIMEOUT;
     let Some(root) = toplevel(git, cwd, deadline)? else {
         return Ok(None);
     };
     let neutral = filter_overrides(git, &root, deadline)?;
-    let (files, _truncated) = status_files(git, &root, &neutral, deadline)?;
-    Ok(Some(u32::try_from(files.len()).unwrap_or(u32::MAX)))
+    status_files(git, &root, &neutral, deadline).map(Some)
 }
 
 /// A cut diff ends at the last whole line, so no half UTF-8 character or half line remains.

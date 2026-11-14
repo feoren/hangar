@@ -7,6 +7,7 @@ pub mod agent_catalog;
 pub mod avatar;
 pub mod batch;
 pub mod child_env;
+pub mod civil;
 pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
@@ -48,6 +49,7 @@ pub mod profile;
 pub mod profile_edit;
 pub mod project_notes;
 pub mod push;
+pub mod report;
 pub mod resolve;
 pub mod resources;
 pub mod secrets;
@@ -419,6 +421,7 @@ pub fn run() -> tauri::Result<()> {
             commands::delete_profile_secret,
             commands::profile_secrets,
             commands::export_session,
+            commands::export_report,
             commands::paste_clipboard_image,
             commands::configure_tray,
             commands::watch_sub_agents,

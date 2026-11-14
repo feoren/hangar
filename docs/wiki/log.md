@@ -719,3 +719,7 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Transcript fields for the session report
+Measured (key names and counts only) which Claude Code main transcript fields carry prompts, slash commands, tool calls, sub-agent runs, times and the branch, and that Codex 0.169.0 still has no flag that fixes the thread id. Filed the contract of `export_report` ("Export as report", Claude Code only).
+Pages changed: [[session-report-transcripts]] (new), [[agent-workflow-features]].

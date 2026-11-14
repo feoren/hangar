@@ -46,6 +46,7 @@ use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
+use crate::report::{self, ReportError};
 use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
 use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
@@ -2257,6 +2258,51 @@ pub async fn export_session(
     })
     .await
     .map_err(|error| ExportError::Task(error.to_string()))?
+}
+
+/// Saves the conversation of a session as a Markdown report read from the agent's own
+/// transcript (report/). The backend renders it, then opens the save dialog itself. `None` when
+/// the dialog was cancelled. `utcOffsetMinutes`: the window's offset from UTC for the times shown;
+/// `labels`: the report's headings in the window's language.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn export_report(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    manager: Manager<'_>,
+    session_id: SessionId,
+    title: String,
+    suggested_name: String,
+    utc_offset_minutes: i32,
+    labels: report::Labels,
+) -> Result<Option<String>, ReportError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    let (target, program) = manager.report_target(session_id)?;
+    let source = report::Source {
+        target,
+        program,
+        title,
+    };
+    let labels = labels.cleaned();
+    let name = export::report_file_name(&suggested_name);
+    tauri::async_runtime::spawn_blocking(move || {
+        let content = report::build(&source, &labels, utc_offset_minutes)?;
+        let chosen = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(name)
+            .add_filter(export::NOTE_FILTER, &[export::NOTE_EXTENSION])
+            .blocking_save_file();
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+        export::write(&path, &content)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|error| ReportError::Task(error.to_string()))?
 }
 
 /// Saves the clipboard's image as a PNG in the app's cache folder and returns its path, for the

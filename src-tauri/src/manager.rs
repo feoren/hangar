@@ -1377,6 +1377,20 @@ impl SessionManager {
         })
     }
 
+    /// The transcript target of a session and its program's name, for the session report
+    /// (`crate::report`); the same sessions as the sub-agent view.
+    pub fn report_target(
+        &self,
+        id: SessionId,
+    ) -> Result<(subagents::Target, String), ManagerError> {
+        let target = self.sub_agent_target(id)?;
+        let program = lock(&self.shared.sessions)
+            .get(&id)
+            .map(|entry| entry.agent.profile.name.clone())
+            .ok_or(ManagerError::UnknownSession(id))?;
+        Ok((target, program))
+    }
+
     /// Every session whose program keeps transcripts Hangar can read (the same ones as the
     /// sub-agent view), for the context meter (`context_usage`).
     pub fn context_targets(&self) -> Vec<(SessionId, subagents::Target)> {
