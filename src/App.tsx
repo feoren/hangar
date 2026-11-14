@@ -46,7 +46,14 @@ import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
 import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths, parseBranches } from "./gitBranches";
-import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
+import {
+  decideWhatsNew,
+  loadLastSeen,
+  saveLastSeen,
+  whatsNewNeedsEntries,
+  type ChangelogEntry,
+} from "./changelog";
+import { loadChangelog } from "./changelogData";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
@@ -287,7 +294,7 @@ import { GateCard, GateRuleNote } from "./GateCard";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
-import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
+import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
@@ -527,6 +534,8 @@ export function App() {
   const [teamOpen, setTeamOpen] = useState(false);
   /** What's New starting at this version; `null` shows all entries (opened from the menu). */
   const [whatsNewSince, setWhatsNewSince] = useState<string | null>(null);
+  /** The changelog, once What's New needed it (changelogData.ts). */
+  const [changelog, setChangelog] = useState<readonly ChangelogEntry[] | null>(null);
   // Read before the settings are saved for the first time: has Hangar run here before?
   const [knownUser] = useState(hasStoredSettings);
   const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -874,13 +883,17 @@ export function App() {
     loadProfiles(showError);
     api.defaultCwd().then(setHome).catch(showError);
     getVersion()
-      .then((v) => {
+      .then(async (v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
         // After an update, show once what's new. The version is stored right away so the
-        // dialog does not come back even after a crash or reload.
-        const decision = decideWhatsNew(CHANGELOG, v, loadLastSeen(), knownUser);
+        // dialog does not come back even after a crash or reload. On an ordinary start the
+        // decision needs no entries, and the changelog is not loaded.
+        const lastSeen = loadLastSeen();
+        const entries = whatsNewNeedsEntries(v, lastSeen, knownUser) ? await loadChangelog() : [];
+        const decision = decideWhatsNew(entries, v, lastSeen, knownUser);
         if (decision.remember !== null) saveLastSeen(decision.remember);
         if (!decision.show) return;
+        setChangelog(entries);
         setWhatsNewSince(decision.since);
         setDialog((current) => current ?? "whatsNew");
       })
@@ -3681,8 +3694,13 @@ export function App() {
       settings.programs,
     );
   const openWhatsNew = () => {
-    setWhatsNewSince(null);
-    setDialog("whatsNew");
+    loadChangelog()
+      .then((entries) => {
+        setChangelog(entries);
+        setWhatsNewSince(null);
+        setDialog("whatsNew");
+      })
+      .catch(showError);
   };
   const menu: MenuGroup[] = [
     {
@@ -5277,8 +5295,9 @@ export function App() {
             </div>
           </Dialog>
         )}
-        {dialog === "whatsNew" && (
+        {dialog === "whatsNew" && changelog !== null && (
           <WhatsNewDialog
+            changelog={changelog}
             language={settings.language}
             since={whatsNewSince}
             current={version}

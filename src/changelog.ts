@@ -275,6 +275,22 @@ export function decideWhatsNew(
   return { show, since: reference, remember: current };
 }
 
+/**
+ * Whether `decideWhatsNew` needs the entries at all for these inputs. On most starts the version
+ * is the one last seen, and the changelog (a large file) need not be loaded for that.
+ */
+export function whatsNewNeedsEntries(
+  currentVersion: string,
+  lastSeen: string | null,
+  knownUser: boolean,
+): boolean {
+  const current = baseVersion(currentVersion);
+  if (current === null) return false;
+  const seen = lastSeen !== null && baseVersion(lastSeen) !== null ? lastSeen : null;
+  if (seen === null) return knownUser;
+  return compareVersions(current, seen) > 0;
+}
+
 const LAST_SEEN_KEY = "hangar.lastSeenVersion";
 
 export function loadLastSeen(): string | null {
