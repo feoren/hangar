@@ -546,7 +546,7 @@ export function HomeIcon(props: IconProps) {
   );
 }
 
-/** Processor chip: the CPU share in a narrow session row. */
+/** Processor chip: the CPU share in a session row. */
 export function CpuIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -556,7 +556,7 @@ export function CpuIcon(props: IconProps) {
   );
 }
 
-/** Memory module: the RAM in use in a narrow session row. */
+/** Memory module: the RAM in use in a session row. */
 export function MemoryIcon(props: IconProps) {
   return (
     <Svg {...props}>
@@ -566,13 +566,18 @@ export function MemoryIcon(props: IconProps) {
   );
 }
 
-/** Graphics card with its fan: the GPU in a narrow session row. */
+/**
+ * Graphics card seen from the side: the bracket on the left reaching past the card, one fan and
+ * the edge connector below; the GPU in a session row. Asymmetric, unlike the chip
+ * (pins all round) and the memory module (contacts in a row).
+ */
 export function GpuIcon(props: IconProps) {
   return (
     <Svg {...props}>
-      <rect x="1.5" y="3.5" width="13" height="8.5" rx="1.2" />
-      <circle cx="6" cy="7.75" r="2.25" />
-      <path d="M10.5 6.25h1.5M10.5 9.25h1.5M3.5 12v2" />
+      <path d="M2 2v12" />
+      <rect x="2" y="3.5" width="12.5" height="7.5" rx="1" />
+      <circle cx="9.25" cy="7.25" r="2.25" />
+      <path d="M6 11v2.5h6V11" />
     </Svg>
   );
 }
