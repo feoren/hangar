@@ -405,6 +405,7 @@ pub fn run() -> tauri::Result<()> {
             commands::push_test,
             commands::push_session,
             commands::git_branches,
+            commands::git_repo_places,
             commands::git_diff,
             commands::git_changed_count,
             commands::git_activity,

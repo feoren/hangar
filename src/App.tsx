@@ -330,6 +330,7 @@ import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
 import { WorktreeCleanupDialog } from "./WorktreeCleanupDialog";
 import { cleanupFolders } from "./worktreeCleanup";
+import { ProjectOverview } from "./ProjectOverview";
 import { tailLines } from "./overview";
 import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
@@ -690,6 +691,11 @@ export function App() {
    */
   const [putAside, setPutAside] = useState(false);
   const homeShown = state.sessions.length === 0 || putAside;
+  /**
+   * How often each session finished a stretch of work the user asked for: the project overview
+   * asks git again for a card when one of its sessions finished, and only then.
+   */
+  const [finishedRuns, setFinishedRuns] = useState<ReadonlyMap<number, number>>(() => new Map());
   /** Screen reader message after a session moved in the sidebar. */
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
@@ -1445,6 +1451,17 @@ export function App() {
     focusTerminal();
   };
 
+  /**
+   * The project overview of the home view, from the menu or quick access; sessions keep running.
+   * Its heading takes the focus once it shows, after the menu or quick access gave the focus back.
+   */
+  const showProjects = () => {
+    if (state.sessions.length > 0) setPutAside(true);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".projects h2")?.focus();
+    });
+  };
+
   /** Shows the warning for the session `name` and resolves with the user's answer. */
   const confirmPaste = useCallback(
     (name: string) =>
@@ -1732,6 +1749,7 @@ export function App() {
    * unless they are on screen already or the session works again by the time git answers.
    */
   const offerDone = useCallback((id: number) => {
+    setFinishedRuns((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1));
     const session = stateRef.current.sessions.find((s) => s.id === id);
     if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
@@ -4196,6 +4214,11 @@ export function App() {
           shortcut: keys("home"),
           run: toggleHome,
         },
+        {
+          type: "action",
+          label: t("projects.menu"),
+          run: showProjects,
+        },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
@@ -5109,6 +5132,31 @@ export function App() {
                   ) : (
                     allHidden && <p>{t("sidebar.allHidden")}</p>
                   )}
+                  <ProjectOverview
+                    sessions={state.sessions}
+                    rows={new Map(overviewTiles().map((tile) => [tile.id, tile]))}
+                    activeId={state.activeId}
+                    devServers={devServers}
+                    finished={finishedRuns}
+                    language={settings.language}
+                    onActivate={(id) => {
+                      setPutAside(false);
+                      dispatch({ type: "activated", id });
+                      focusTerminal();
+                    }}
+                    onOpenDevServer={openDevServer}
+                    onShowChanges={(id) => {
+                      setPutAside(false);
+                      showDoneChanges(id);
+                    }}
+                    onNewSession={
+                      nextProgram
+                        ? () => {
+                            perform("newSession");
+                          }
+                        : null
+                    }
+                  />
                   <ActivityCalendar
                     folders={activityFolders(
                       folders.favorites,

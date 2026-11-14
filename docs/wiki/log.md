@@ -764,3 +764,7 @@ Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [
 ## [2026-11-14] ingest | Power detection for the power saving mode
 Saved Microsoft's `SYSTEM_POWER_STATUS` reference and the kernel's `sysfs-class-power` ABI to raw, with one own reading of a Windows 11 desktop (AC 1, battery flag 128). The power saving mode maps them to `noBattery`, `ac`, `battery`, `saver` or `unknown`; laptops on battery and Linux are not measured yet.
 Pages changed: [[power-status-sources]], [[power-detection]].
+
+## [2026-11-14] ingest | Project overview in the home view
+New synthesis for the project overview: how folders become projects, the new `git_repo_places` command and why the existing commands did not fit, what a card shows and when git is asked. Measured with git 2.56.0.windows.4 that a linked worktree's `.git` file names an absolute git folder and its `commondir` holds `../..`.
+Pages changed: [[project-overview]], [[git-worktree-commondir-measurement]].

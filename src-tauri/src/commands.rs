@@ -1502,6 +1502,17 @@ pub async fn git_branches(paths: Vec<String>) -> Result<HashMap<String, Option<S
         .map_err(|error| GitError::Task(error.to_string()))?
 }
 
+/// Repository place per folder for the project overview (`git::RepoPlace`): the work tree and
+/// the repository's main folder, read from `.git` files without a process, like `git_branches`.
+#[tauri::command]
+pub async fn git_repo_places(
+    paths: Vec<String>,
+) -> Result<HashMap<String, Option<git::RepoPlace>>, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::repo_places(&paths))
+        .await
+        .map_err(|error| GitError::Task(error.to_string()))?
+}
+
 #[tauri::command]
 pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
     tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))

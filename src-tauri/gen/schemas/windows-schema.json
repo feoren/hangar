@@ -471,6 +471,12 @@
           "markdownDescription": "Enables the git_log command without any pre-configured scope."
         },
         {
+          "description": "Enables the git_repo_places command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-repo-places",
+          "markdownDescription": "Enables the git_repo_places command without any pre-configured scope."
+        },
+        {
           "description": "Enables the git_stage command without any pre-configured scope.",
           "type": "string",
           "const": "allow-git-stage",
@@ -1243,6 +1249,12 @@
           "type": "string",
           "const": "deny-git-log",
           "markdownDescription": "Denies the git_log command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the git_repo_places command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-repo-places",
+          "markdownDescription": "Denies the git_repo_places command without any pre-configured scope."
         },
         {
           "description": "Denies the git_stage command without any pre-configured scope.",
