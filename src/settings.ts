@@ -60,6 +60,11 @@ export interface Settings {
    */
   showResources: boolean;
   /**
+   * On battery, Hangar polls less often and stills the row pulses (power.ts). Only offered where
+   * the backend can tell battery from AC; on AC it changes nothing.
+   */
+  powerSaving: boolean;
+  /**
    * Closing the window only hides it; an icon in the notification area brings it back or quits
    * (tray.ts). Off: closing quits, as before.
    */
@@ -123,6 +128,7 @@ type Flag =
   | "notifyDesktop"
   | "chime"
   | "showResources"
+  | "powerSaving"
   | "keepInTray"
   | "showVersions"
   | "showIcons"
@@ -150,6 +156,7 @@ export function defaultSettings(language: Language): Settings {
     chimeVolume: CHIME_VOLUME.default,
     quietHours: DEFAULT_QUIET_HOURS,
     showResources: true,
+    powerSaving: true,
     keepInTray: false,
     showVersions: true,
     showIcons: true,
@@ -236,6 +243,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         : defaults.chimeVolume,
     quietHours: parseQuietHours(get("quietHours")),
     showResources: flag("showResources"),
+    powerSaving: flag("powerSaving"),
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),

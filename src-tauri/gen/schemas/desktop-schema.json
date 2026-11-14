@@ -591,6 +591,12 @@
           "markdownDescription": "Enables the paste_clipboard_image command without any pre-configured scope."
         },
         {
+          "description": "Enables the power_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-power-state",
+          "markdownDescription": "Enables the power_state command without any pre-configured scope."
+        },
+        {
           "description": "Enables the profile_env command without any pre-configured scope.",
           "type": "string",
           "const": "allow-profile-env",
@@ -1315,6 +1321,12 @@
           "type": "string",
           "const": "deny-paste-clipboard-image",
           "markdownDescription": "Denies the paste_clipboard_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the power_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-power-state",
+          "markdownDescription": "Denies the power_state command without any pre-configured scope."
         },
         {
           "description": "Denies the profile_env command without any pre-configured scope.",

@@ -1787,6 +1787,48 @@ h2 .beta-badge {
   }
 }
 
+/* Saving energy on battery (power.ts): a quiet leaf at the bar's end. */
+.power-indicator {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* While saving, the same still look as reduced motion: no breathing rows, blinking dots or
+   scrolling sparklines (their poll is slower now). Spinners that show progress keep turning. The
+   previews in the attention settings (.look-card) keep moving: they show what a choice will do
+   once plugged in, and only while the settings are open. */
+:root.power-saving .look:not(.look-card *),
+:root.power-saving .look .state-dot:not(.look-card *),
+:root.power-saving .status-chip-dots span:not(.look-card *),
+:root.power-saving .subagent-dot.running,
+:root.power-saving .rail-session.attention .badge {
+  animation: none;
+}
+
+:root.power-saving .session.attention:not(.look-card *) {
+  --edge-ring: 75%;
+}
+
+:root.power-saving .status-chip-dots span:nth-child(1):not(.look-card *) {
+  opacity: 0.4;
+}
+
+:root.power-saving .status-chip-dots span:nth-child(2):not(.look-card *) {
+  opacity: 0.7;
+}
+
+:root.power-saving .gauge-spark {
+  display: none;
+}
+
+:root.power-saving .gauge-bar {
+  display: block;
+}
+
 /* Collapsible sidebar groups */
 
 .sidebar-group {

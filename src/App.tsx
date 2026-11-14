@@ -146,6 +146,7 @@ import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote"
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
+import { setPowerSavingEnabled, startPowerWatch } from "./usePower";
 import { setResourcesEnabled } from "./useSessionResources";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
@@ -768,6 +769,11 @@ export function App() {
     setResourcesEnabled(settings.showResources);
     setSystemUsageEnabled(settings.showResources);
   }, [settings.showResources]);
+  // Power saving on battery: slower polls and still row pulses (power.ts); on AC nothing changes.
+  useEffect(() => {
+    setPowerSavingEnabled(settings.powerSaving);
+    startPowerWatch();
+  }, [settings.powerSaving]);
   const profilesRef = useRef(profiles);
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({

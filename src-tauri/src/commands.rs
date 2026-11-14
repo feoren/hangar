@@ -1416,6 +1416,13 @@ pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
     .unwrap_or_default()
 }
 
+/// Whether the machine runs on battery, read afresh (power.rs); later changes arrive as
+/// `power-changed` events with the same shape. One system call or a few small sysfs files.
+#[tauri::command]
+pub fn power_state(monitor: State<'_, crate::power::PowerMonitor>) -> crate::power::PowerState {
+    monitor.refresh(crate::power::read())
+}
+
 /// The keychain may take a moment or ask the user, hence on a blocking thread.
 async fn push_blocking<T: Send + 'static>(
     app: tauri::AppHandle,

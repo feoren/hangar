@@ -719,3 +719,7 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Power detection for the power saving mode
+Saved Microsoft's `SYSTEM_POWER_STATUS` reference and the kernel's `sysfs-class-power` ABI to raw, with one own reading of a Windows 11 desktop (AC 1, battery flag 128). The power saving mode maps them to `noBattery`, `ac`, `battery`, `saver` or `unknown`; laptops on battery and Linux are not measured yet.
+Pages changed: [[power-status-sources]], [[power-detection]].

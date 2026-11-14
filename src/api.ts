@@ -375,6 +375,8 @@ export const api = {
   sessionResources: () => invoke<unknown>("session_resources"),
   /** CPU, memory and GPU of the whole machine in percent (systemUsage.ts parses it). */
   systemUsage: () => invoke<unknown>("system_usage"),
+  /** Battery or AC, read afresh (power.ts parses it). */
+  powerState: () => invoke<unknown>("power_state"),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
   pushSettings: () => invoke<unknown>("push_settings"),
   /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */
@@ -596,6 +598,8 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
+/** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */
+export const POWER_CHANGED = "power-changed";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */

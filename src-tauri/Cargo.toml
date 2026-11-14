@@ -121,6 +121,9 @@ windows-sys = { version = "0.61", features = [
   # PdhOpenQueryW and friends: the GPU load of the system bar from the "GPU Engine" performance
   # counter (system_usage.rs). Bindings only, pdh.dll ships with Windows.
   "Win32_System_Performance",
+  # GetSystemPowerStatus: battery or AC and the battery saver for the power saving mode
+  # (power.rs). Bindings only, kernel32.dll ships with Windows.
+  "Win32_System_Power",
   # K32GetProcessMemoryInfo: the working set of each process of a session (proctree.rs).
   "Win32_System_ProcessStatus",
   # Uninstall keys, to tell how a program was installed (install_source.rs).

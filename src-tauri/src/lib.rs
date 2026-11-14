@@ -43,6 +43,7 @@ pub mod panel_window;
 pub mod paste_image;
 pub mod path_links;
 pub mod persist;
+pub mod power;
 pub mod proctree;
 pub mod profile;
 pub mod profile_edit;
@@ -207,6 +208,17 @@ pub fn run() -> tauri::Result<()> {
             app.manage(notify::Notifier::default());
             app.manage(resources::ResourceMonitor::default());
             app.manage(system_usage::SystemMonitor::default());
+            // Battery or AC for the power saving mode: one cheap reading every 30 s, events only
+            // on a change.
+            let power = power::PowerMonitor::default();
+            let events = app.handle().clone();
+            let started = power.start(power::read, move |state| {
+                let _ = events.emit_to(panel_window::MAIN_LABEL, power::EVENT, state);
+            });
+            if let Err(error) = started {
+                eprintln!("hangar: power state not watched: {error}");
+            }
+            app.manage(power);
             // One GPU reading for the system bar and the session rows alike.
             app.manage(gpu::GpuMonitor::default());
             app.manage(subagents::Watchers::default());
@@ -377,6 +389,7 @@ pub fn run() -> tauri::Result<()> {
             commands::notify_session,
             commands::session_resources,
             commands::system_usage,
+            commands::power_state,
             commands::push_settings,
             commands::push_save,
             commands::push_test,
@@ -453,6 +466,7 @@ pub fn run() -> tauri::Result<()> {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
             handle.state::<context_usage::ContextUsage>().stop();
+            handle.state::<power::PowerMonitor>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.
