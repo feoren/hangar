@@ -11,9 +11,10 @@ import {
   type Poll,
 } from "./power";
 import { RESOURCE_POLL_MS } from "./resources";
+import { STALL_SAMPLE_MS } from "./stall";
 import { SYSTEM_POLL_MS } from "./systemUsage";
 
-const POLLS: readonly Poll[] = ["system", "resources", "branches"];
+const POLLS: readonly Poll[] = ["system", "resources", "branches", "stall"];
 
 describe("parsePowerState", () => {
   it("takes the backend's states and nothing else", () => {
@@ -52,6 +53,7 @@ describe("pollInterval", () => {
     expect(pollInterval("system", false)).toBe(SYSTEM_POLL_MS);
     expect(pollInterval("resources", false)).toBe(RESOURCE_POLL_MS);
     expect(pollInterval("branches", false)).toBe(BRANCH_REFRESH_MS);
+    expect(pollInterval("stall", false)).toBe(STALL_SAMPLE_MS);
   });
 
   it("polls less often while saving", () => {
@@ -61,6 +63,7 @@ describe("pollInterval", () => {
     expect(pollInterval("system", true)).toBe(5000);
     expect(pollInterval("resources", true)).toBe(5000);
     expect(pollInterval("branches", true)).toBe(60_000);
+    expect(pollInterval("stall", true)).toBe(30_000);
   });
 });
 

@@ -4,6 +4,7 @@
 
 import { BRANCH_REFRESH_MS } from "./gitBranches";
 import { RESOURCE_POLL_MS } from "./resources";
+import { STALL_SAMPLE_MS } from "./stall";
 import { SYSTEM_POLL_MS } from "./systemUsage";
 
 export const POWER_STATES = ["unknown", "noBattery", "ac", "battery", "saver"] as const;
@@ -32,23 +33,27 @@ export function savingActive(state: PowerState, enabled: boolean): boolean {
 }
 
 /** The periodic work that slows down while saving. */
-export type Poll = "system" | "resources" | "branches";
+export type Poll = "system" | "resources" | "branches" | "stall";
 
 const NORMAL_MS: Readonly<Record<Poll, number>> = {
   system: SYSTEM_POLL_MS,
   resources: RESOURCE_POLL_MS,
   branches: BRANCH_REFRESH_MS,
+  stall: STALL_SAMPLE_MS,
 };
 
 /**
  * While saving: the system bar and the session rows every 5 s instead of 1.5 and 2 s, the git
  * branches every minute instead of every 15 s. Slow enough to let the processor sleep between
- * readings, fast enough that the numbers still follow a build.
+ * readings, fast enough that the numbers still follow a build. The stall hint compares screens
+ * every 30 s instead of 10 s: its shortest threshold is a minute, so it comes at most half a
+ * minute late.
  */
 const SAVING_MS: Readonly<Record<Poll, number>> = {
   system: 5000,
   resources: 5000,
   branches: 60_000,
+  stall: 30_000,
 };
 
 /** How often `poll` runs; on AC always its normal interval. */

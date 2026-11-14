@@ -158,7 +158,13 @@ import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote"
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
-import { setPowerSavingEnabled, startPowerWatch } from "./usePower";
+import {
+  isPowerSaving,
+  onPowerSavingChange,
+  setPowerSavingEnabled,
+  startPowerWatch,
+} from "./usePower";
+import { pollInterval } from "./power";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
 import {
   discardMessage,
@@ -896,6 +902,14 @@ export function App() {
       settings.attentionEnabled ? stallThresholdMs(settings.stallMinutes) : null,
     );
   }, [stallMonitor, settings.attentionEnabled, settings.stallMinutes]);
+  // On battery the screens are compared less often (power.ts `pollInterval`).
+  useEffect(() => {
+    const follow = () => {
+      stallMonitor.setSampleInterval(pollInterval("stall", isPowerSaving()));
+    };
+    follow();
+    return onPowerSavingChange(follow);
+  }, [stallMonitor]);
   // CPU use of a session's process tree counts as busy; without readings only the screen counts.
   useEffect(() => {
     const stop = observeResources((readings) => {

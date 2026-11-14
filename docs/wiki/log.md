@@ -776,3 +776,7 @@ Pages changed: [[0011-work-log-and-daily-review]].
 ## [2026-11-14] query | Agent commands use the queue's question guard
 After merging the queued message and the agent commands, commands also check the screen for a question or choice list (`asksQuestion` on top of `looksLikeQuestion`): the menu and quick access hide them, every send checks again, and the compact button's click into a question sends nothing and says why.
 Pages changed: [[agent-commands]].
+
+## [2026-11-14] query | Stall hint on battery
+The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
+Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].

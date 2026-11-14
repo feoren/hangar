@@ -65,7 +65,10 @@ no thread runs and the setting stays hidden.
 
 The system bar polls every 5 s instead of 1.5 s and shows still bars instead of sparklines (their
 history starts over when saving turns on or off); the session rows every 5 s instead of 2 s; the
-git branches every 60 s instead of 15 s. The root element carries `power-saving`, which stills
+git branches every 60 s instead of 15 s; the stall hint compares the screens of working agent
+sessions every 30 s instead of 10 s (`StallMonitor.setSampleInterval`, its own timer on an
+injected clock rather than `PollTimer`, so its tests keep fake time; the time since the last
+progress is kept, so the hint comes at most half a minute late). The root element carries `power-saving`, which stills
 the row pulses, blinking state dots, working dots, the running sub-agent dot and the rail's
 waiting ring, like reduced motion. The previews in the attention settings (`.look-card`) and the
 terminal settings' cursor preview keep moving: they show what a choice does once plugged in. Hidden terminal panes are already moved out of

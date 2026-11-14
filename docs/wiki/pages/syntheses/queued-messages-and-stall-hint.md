@@ -60,7 +60,8 @@ A working agent never stops printing: its spinner and elapsed time redraw every 
 tracker turns "working" into "done" after only a few quiet seconds anyway. So the hint does not
 look at raw output but at progress on the screen (`src/stall.ts`):
 
-- Every `STALL_SAMPLE_MS` (10 s) `StallMonitor` reads the visible rows of each working agent
+- Every `STALL_SAMPLE_MS` (10 s; 30 s while saving energy on battery, [[power-detection]])
+  `StallMonitor` reads the visible rows of each working agent
   session (`SessionTerminal.screenLines`), removes elapsed times and every character that is no
   letter or digit (spinner glyphs, arrows, separators) and compares the rest with the last sample.
   Token counts and new lines stay, so they count as progress.

@@ -15,7 +15,7 @@ export const STALL_MINUTES = { min: 0, max: 30, default: 5 } as const;
 /** CPU share (percent of the machine) from which the process tree counts as busy. */
 export const STALL_CPU_PERCENT = 1;
 
-/** How often the screens of working agent sessions are compared. */
+/** How often the screens of working agent sessions are compared (on battery: power.ts). */
 export const STALL_SAMPLE_MS = 10_000;
 
 /** Wall clock: the row says "for 7 min", so the times are epoch milliseconds. */
@@ -102,15 +102,18 @@ function sameStalls(a: ReadonlyMap<number, number>, b: ReadonlyMap<number, numbe
 }
 
 /**
- * Samples the working sessions every STALL_SAMPLE_MS while the hint is on and reports the stalled
- * ones (id to the time since which nothing new came) on changes only, so React renders a few
- * times per stall, not per sample.
+ * Samples the working sessions every STALL_SAMPLE_MS (slower while saving energy,
+ * `setSampleInterval`) while the hint is on and reports the stalled ones (id to the time since
+ * which nothing new came) on changes only, so React renders a few times per stall, not per
+ * sample. Its own timer runs on the injected clock instead of power.ts `PollTimer`, so the tests
+ * drive it with fake time and the first sample waits one interval instead of running at once.
  */
 export class StallMonitor {
   private readonly watches = new Map<number, Watch>();
   private stalled: ReadonlyMap<number, number> = new Map();
   private thresholdMs: number | null = null;
   private timer: number | null = null;
+  private sampleMs = STALL_SAMPLE_MS;
 
   private sources: () => readonly StallSource[] = () => [];
 
@@ -134,6 +137,18 @@ export class StallMonitor {
       return;
     }
     if (this.timer === null) this.schedule();
+  }
+
+  /**
+   * The time between two samples. A running timer starts over with the new interval; the times
+   * since the last progress stay, so a hint neither comes early nor starts its waiting anew.
+   */
+  setSampleInterval(ms: number): void {
+    if (ms === this.sampleMs) return;
+    this.sampleMs = ms;
+    if (this.timer === null) return;
+    this.stop();
+    this.schedule();
   }
 
   /** A CPU reading of a session's process tree; `null` while unknown. */
@@ -199,7 +214,7 @@ export class StallMonitor {
       this.timer = null;
       this.sample();
       if (this.thresholdMs !== null) this.schedule();
-    }, STALL_SAMPLE_MS);
+    }, this.sampleMs);
   }
 
   private stop(): void {

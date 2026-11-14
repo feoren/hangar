@@ -158,6 +158,22 @@ describe("StallMonitor", () => {
     expect(reports.at(-1)?.size).toBe(0);
   });
 
+  it("samples at a new interval at once and keeps the time since the last progress", () => {
+    const slow = 3 * STALL_SAMPLE_MS;
+    tick(2 * MINUTE);
+    monitor.setSampleInterval(slow);
+    const sampled = vi.fn(monitor.sample.bind(monitor));
+    monitor.sample = sampled;
+    vi.advanceTimersByTime(slow - 1);
+    expect(sampled).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(sampled).toHaveBeenCalledOnce();
+    // The first sample set the last progress; the slower timer does not start the waiting anew.
+    vi.advanceTimersByTime(FIVE - 2 * MINUTE);
+    expect(reports.at(-1)?.get(1)).toBe(STALL_SAMPLE_MS);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it("stops sampling and clears when turned off", () => {
     tick(FIVE + STALL_SAMPLE_MS);
     monitor.setThreshold(null);
