@@ -358,6 +358,26 @@ export const api = {
   exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
     invoke<unknown>("export_session", { format, content, suggestedName }),
   /**
+   * Saves the session's conversation as a Markdown report, read by the backend from the agent's
+   * own transcript (only for sessions with `subAgents`, see `canExportReport`). The backend
+   * renders it, opens the save dialog itself and writes at most 32 MiB. Check with
+   * `parseExportResult`.
+   */
+  exportReport: (
+    sessionId: number,
+    title: string,
+    suggestedName: string,
+    utcOffsetMinutes: number,
+    labels: ReportLabels,
+  ) =>
+    invoke<unknown>("export_report", {
+      sessionId,
+      title,
+      suggestedName,
+      utcOffsetMinutes,
+      labels,
+    }),
+  /**
    * Saves the clipboard's image as a PNG in the app's cache folder (removed after a week): its
    * path, `noImage`, or `busy` while another paste runs. Rejects with a message when reading or
    * saving fails.
@@ -582,6 +602,25 @@ export const api = {
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),
 };
+
+/** Headings of a session report in the window's language (Rust: `Labels` in report/mod.rs). */
+export interface ReportLabels {
+  program: string;
+  folder: string;
+  branch: string;
+  started: string;
+  lastActivity: string;
+  duration: string;
+  conversation: string;
+  subAgent: string;
+  /** Holds `{count}`. */
+  tokens: string;
+  compacted: string;
+  earlierLeftOut: string;
+  changedFiles: string;
+  commits: string;
+  none: string;
+}
 
 /** Menu texts and tooltip of the notification area icon (Rust: `TrayLabels` in tray.rs). */
 export interface TrayLabels {

@@ -122,6 +122,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich (Terminal-Fläche einer Session)         | pane                              | `TerminalPane.tsx`                                                                  |
 | Maskieren (Pfade für eine Shell)                | quoting                           | `pathQuote.ts`                                                                      |
 | Exportieren (Session)                           | export                            | `sessionExport.ts`                                                                  |
+| Bericht (Session)                               | session report                    | `report/`, the agent's transcript as Markdown, `export_report`                      |
+| Transkript                                      | transcript                        | the agent CLI's own conversation file, not the scrollback                           |
 | Schlüsselbund (des Betriebssystems)             | keychain                          | `secrets.rs`; Credential Manager on Windows                                         |
 | Geheime Variable                                | secret variable                   | `secret_env`; only the name is in the file                                          |
 | Infobereich, Tray-Symbol                        | notification area, tray icon      | `tray.rs`                                                                           |

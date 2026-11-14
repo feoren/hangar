@@ -114,6 +114,11 @@ pub fn note_file_name(title: &str) -> String {
     file_name_with(title, NOTE_EXTENSION)
 }
 
+/// [`file_name`] for a session report, with `.md`.
+pub fn report_file_name(suggested: &str) -> String {
+    file_name_with(suggested, NOTE_EXTENSION)
+}
+
 fn file_name_with(suggested: &str, extension: &str) -> String {
     let mut stem: String = suggested
         .chars()
@@ -206,6 +211,10 @@ mod tests {
         assert_eq!(file_name("CONSOLE", text), "CONSOLE.txt");
         assert_eq!(note_file_name("Plan: Q4/2026"), "Plan_ Q4_2026.md");
         assert_eq!(note_file_name("notes.MD"), "notes.md");
+        assert_eq!(
+            report_file_name("Claude Code 2026-11-14 10-05.md"),
+            "Claude Code 2026-11-14 10-05.md"
+        );
         assert_eq!(file_name("COM10", text), "COM10.txt");
         let long = file_name(&"x".repeat(500), text);
         assert_eq!(long.chars().count(), MAX_STEM_CHARS + 4);

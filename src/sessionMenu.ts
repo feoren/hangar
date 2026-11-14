@@ -4,14 +4,17 @@
 
 import type { Translate } from "./i18n";
 import type { SessionView } from "./sessions";
+import { canExportReport } from "./sessionReport";
 
-export type SessionAction = "rename" | "marker" | "subAgents" | "restart" | "kill" | "close";
+export type SessionAction =
+  "rename" | "marker" | "report" | "subAgents" | "restart" | "kill" | "close";
 
 export type SessionMenuEntry =
   { type: "action"; key: SessionAction; label: string } | { type: "separator"; key: string };
 
 /**
- * Rename, marker, then show or hide the sub-agents (only for sessions that have them), then
+ * Rename, marker, export as report (only for programs whose transcript Hangar reads), then show
+ * or hide the sub-agents (only for sessions that have them), then
  * restart (ended) or end process (running), then close. `subAgentsShown`: the sub-agent view of
  * this session is open, so the entry hides it.
  */
@@ -35,6 +38,9 @@ export function sessionMenuEntries(
   return [
     { type: "action", key: "rename", label: t("session.rename") },
     { type: "action", key: "marker", label: t("menu.marker") },
+    ...(canExportReport(session)
+      ? [{ type: "action", key: "report", label: t("session.exportReport") } as const]
+      : []),
     ...subAgents,
     { type: "separator", key: "sep" },
     exited

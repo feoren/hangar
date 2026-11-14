@@ -3,6 +3,11 @@
 
 export type ExportFormat = "text" | "html";
 
+/** What a file holds: the scrollback as text or HTML, or the session report as Markdown. */
+export type ExportKind = ExportFormat | "report";
+
+const EXTENSIONS: Record<ExportKind, string> = { text: "txt", html: "html", report: "md" };
+
 /** The backend's limit for one export. */
 export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;
 
@@ -33,7 +38,7 @@ function pad(value: number): string {
  * "Claude Code 2026-11-08 15-30.txt": session title plus local time, without characters that
  * Windows, macOS or Linux forbid in file names.
  */
-export function exportFileName(title: string, date: Date, format: ExportFormat): string {
+export function exportFileName(title: string, date: Date, kind: ExportKind): string {
   const stamp = `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}`;
   const clean = title
     // eslint-disable-next-line no-control-regex
@@ -44,7 +49,7 @@ export function exportFileName(title: string, date: Date, format: ExportFormat):
     .slice(0, 80)
     .trim();
   const base = clean === "" ? "Hangar" : clean;
-  return `${base} ${stamp}.${format === "html" ? "html" : "txt"}`;
+  return `${base} ${stamp}.${EXTENSIONS[kind]}`;
 }
 
 function escapeHtml(text: string): string {

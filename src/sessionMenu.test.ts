@@ -38,6 +38,7 @@ describe("sessionMenuEntries", () => {
     expect(keys(true)).toEqual([
       "rename",
       "marker",
+      "report",
       "sep-sub-agents",
       "subAgents",
       "sep",
@@ -54,5 +55,18 @@ describe("sessionMenuEntries", () => {
     expect(label(true)).toBe(t("session.hideSubAgents"));
     // An open view can always be closed, even after the session lost its sub-agents.
     expect(keys(false, true)).toContain("subAgents");
+  });
+
+  it("offers the report only for programs whose transcript Hangar reads", () => {
+    const report = (session: { status: "running" | "exited"; subAgents?: boolean }) =>
+      sessionMenuEntries(session, t).find((entry) => entry.key === "report");
+    // Claude Code sessions with a conversation id, running or ended.
+    for (const status of ["running", "exited"] as const) {
+      const entry = report({ status, subAgents: true });
+      expect(entry?.type === "action" ? entry.label : "").toBe(t("session.exportReport"));
+    }
+    // Codex, terminals and every other program: hidden, not disabled.
+    expect(report({ status: "running" })).toBeUndefined();
+    expect(report({ status: "running", subAgents: false })).toBeUndefined();
   });
 });
