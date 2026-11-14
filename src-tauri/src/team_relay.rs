@@ -1,15 +1,18 @@
 //! The WebSocket to the team relay: TCP from tokio, TLS from rustls with the operating system's
 //! certificate verification (the same stack reqwest uses for the account), the handshake from
 //! tokio-tungstenite. The address is the ticket's `relay_url`, already checked by
-//! `account::relay_url` (`wss`, or `ws` only on the loopback); the check is repeated here right
-//! before the ticket travels, and plain `ws` to the name `localhost` only in debug builds (a name
-//! can resolve elsewhere, a loopback address cannot). No proxy support yet.
+//! `account::relay_url` (`wss`, or `ws` only on the loopback and only for a ticket a loopback
+//! server issued); the check is repeated here right before the ticket travels, and plain `ws` to
+//! the name `localhost` only in debug builds (a name can resolve elsewhere, a loopback address
+//! cannot). No proxy support yet.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use hangar_team_protocol::limits::MAX_FRAME_BYTES;
 use reqwest::Url;
+
+use crate::account::BaseUrl;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
@@ -35,22 +38,23 @@ pub enum RelayError {
     Handshake(String),
 }
 
-/// Opens the WebSocket to `url` within `limit`. Messages and frames over the protocol's 1 MiB
-/// are refused by the reader before they are decoded.
-pub async fn connect(url: &Url, limit: Duration) -> Result<Socket, RelayError> {
-    tokio::time::timeout(limit, open(url))
+/// Opens the WebSocket to `url`, the relay of a ticket `base` issued, within `limit`. Messages
+/// and frames over the protocol's 1 MiB are refused by the reader before they are decoded.
+pub async fn connect(url: &Url, base: &BaseUrl, limit: Duration) -> Result<Socket, RelayError> {
+    tokio::time::timeout(limit, open(url, base))
         .await
         .map_err(|_| RelayError::Timeout)?
 }
 
-async fn open(url: &Url) -> Result<Socket, RelayError> {
+async fn open(url: &Url, base: &BaseUrl) -> Result<Socket, RelayError> {
     let host = url
         .host_str()
         .map(|h| h.trim_start_matches('[').trim_end_matches(']').to_owned())
         .filter(|h| !h.is_empty())
         .ok_or(RelayError::Address)?;
     let port = url.port_or_known_default().ok_or(RelayError::Address)?;
-    if url.scheme() == "ws" && !plain_allowed(&host, cfg!(debug_assertions)) {
+    if url.scheme() == "ws" && !(base.is_loopback() && plain_allowed(&host, cfg!(debug_assertions)))
+    {
         return Err(RelayError::Address);
     }
     let tcp = TcpStream::connect((host.as_str(), port))
@@ -108,8 +112,17 @@ mod tests {
 
     #[test]
     fn a_plain_websocket_elsewhere_is_refused_before_connecting() {
+        let local = BaseUrl::parse("http://127.0.0.1:8080/api/v1").unwrap();
         let url = Url::parse("ws://192.0.2.1:9/").unwrap();
-        let refused = tauri::async_runtime::block_on(connect(&url, Duration::from_secs(5)));
+        let refused = tauri::async_runtime::block_on(connect(&url, &local, Duration::from_secs(5)));
+        assert!(matches!(refused, Err(RelayError::Address)));
+    }
+
+    #[test]
+    fn a_plain_websocket_for_a_real_server_is_refused_before_connecting() {
+        let https = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
+        let url = Url::parse("ws://127.0.0.1:9/").unwrap();
+        let refused = tauri::async_runtime::block_on(connect(&url, &https, Duration::from_secs(5)));
         assert!(matches!(refused, Err(RelayError::Address)));
     }
 }

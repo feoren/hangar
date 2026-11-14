@@ -583,8 +583,10 @@ impl Project {
 pub struct RelayTicket {
     pub ticket: Zeroizing<String>,
     pub expires_at: u64,
-    /// Checked by [`relay_url`]: the ticket travels there.
+    /// Checked by [`relay_url`] against [`Self::base`]: the ticket travels there.
     pub relay_url: Url,
+    /// The server that issued the ticket; plain `ws` is fine only when it is a loopback one.
+    pub base: BaseUrl,
 }
 
 impl fmt::Debug for RelayTicket {
@@ -592,6 +594,7 @@ impl fmt::Debug for RelayTicket {
         f.debug_struct("RelayTicket")
             .field("expires_at", &self.expires_at)
             .field("relay_url", &self.relay_url)
+            .field("base", &self.base.as_str())
             .finish_non_exhaustive()
     }
 }
@@ -604,29 +607,33 @@ struct RawRelayTicket {
 }
 
 impl RelayTicket {
-    /// `None` when the ticket is no token or the relay address is not one Hangar connects to.
-    pub fn parse(body: &[u8]) -> Option<Self> {
+    /// `None` when the ticket is no token or the relay address is not one Hangar connects to
+    /// for a ticket `base` issued.
+    pub fn parse(body: &[u8], base: &BaseUrl) -> Option<Self> {
         let raw: RawRelayTicket = serde_json::from_slice(body).ok()?;
         let ticket = Zeroizing::new(raw.ticket);
-        let relay_url = relay_url(&raw.relay_url)?;
+        let relay_url = relay_url(&raw.relay_url, base)?;
         is_token_text(&ticket).then(|| Self {
             ticket,
             expires_at: raw.expires_at,
             relay_url,
+            base: base.clone(),
         })
     }
 }
 
-/// The relay address of a ticket when Hangar may send the ticket there: `wss`, or plain `ws`
-/// only on the loopback for development; no user info or fragment.
-pub fn relay_url(text: &str) -> Option<Url> {
+/// The relay address of a ticket `base` issued when Hangar may send the ticket there: `wss`, or
+/// plain `ws` to the loopback only when `base` itself is a loopback development server; no user
+/// info or fragment. A real server answering with `ws://127.0.0.1` would otherwise hand the
+/// ticket in plain text to whatever listens on that port of this machine.
+pub fn relay_url(text: &str, base: &BaseUrl) -> Option<Url> {
     if text.chars().count() > MAX_BASE_CHARS {
         return None;
     }
     let url = Url::parse(text.trim()).ok()?;
     let scheme = match url.scheme() {
         "wss" => true,
-        "ws" => is_loopback(&url),
+        "ws" => base.is_loopback() && is_loopback(&url),
         _ => false,
     };
     let fine = scheme
@@ -1379,28 +1386,56 @@ mod tests {
 
     #[test]
     fn relay_tickets_hide_the_ticket() {
+        let base = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
         let ticket = RelayTicket::parse(
             br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1794225660,"relay_url":"wss://relay.example.test"}"#,
+            &base,
         )
         .unwrap();
         assert_eq!(ticket.expires_at, 1_794_225_660);
         assert_eq!(ticket.relay_url.as_str(), "wss://relay.example.test/");
+        assert_eq!(ticket.base, base);
         assert!(!format!("{ticket:?}").contains("eyJ2"));
         let foreign =
             br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"ws://relay.example.test"}"#;
-        assert!(RelayTicket::parse(foreign).is_none());
+        assert!(RelayTicket::parse(foreign, &base).is_none());
+    }
+
+    #[test]
+    fn plain_relay_tickets_only_from_a_loopback_server() {
+        let plain =
+            br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"ws://127.0.0.1:9/"}"#;
+        let secure =
+            br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"wss://relay.example.test/"}"#;
+        let https = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
+        let local = BaseUrl::parse("http://localhost:3000/api/v1").unwrap();
+        assert!(RelayTicket::parse(plain, &https).is_none());
+        assert!(RelayTicket::parse(plain, &BaseUrl::official()).is_none());
+        let ticket = RelayTicket::parse(plain, &local).unwrap();
+        assert_eq!(ticket.relay_url.as_str(), "ws://127.0.0.1:9/");
+        assert_eq!(ticket.base, local);
+        assert!(RelayTicket::parse(secure, &https).is_some());
+        assert!(RelayTicket::parse(secure, &local).is_some());
     }
 
     #[test]
     fn relay_addresses_need_wss_except_on_loopback() {
+        let https = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
+        let local = BaseUrl::parse("http://127.0.0.1:8080/api/v1").unwrap();
         for good in [
             "wss://relay.example.test",
             "wss://relay.example.test:8443/v1/socket",
+        ] {
+            assert!(relay_url(good, &https).is_some(), "{good}");
+            assert!(relay_url(good, &local).is_some(), "{good}");
+        }
+        for plain in [
             "ws://127.0.0.1:9000/relay",
             "ws://localhost:9000",
             "ws://[::1]:9000",
         ] {
-            assert!(relay_url(good).is_some(), "{good}");
+            assert!(relay_url(plain, &local).is_some(), "{plain}");
+            assert!(relay_url(plain, &https).is_none(), "{plain}");
         }
         for bad in [
             "ws://relay.example.test",
@@ -1413,10 +1448,11 @@ mod tests {
             "not a url",
             "",
         ] {
-            assert!(relay_url(bad).is_none(), "{bad}");
+            assert!(relay_url(bad, &local).is_none(), "{bad}");
+            assert!(relay_url(bad, &https).is_none(), "{bad}");
         }
         let long = format!("wss://relay.example.test/{}", "a".repeat(MAX_BASE_CHARS));
-        assert!(relay_url(&long).is_none());
+        assert!(relay_url(&long, &https).is_none());
     }
 
     #[test]

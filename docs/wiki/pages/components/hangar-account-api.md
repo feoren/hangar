@@ -7,7 +7,7 @@ version: "API v1 (base /api/v1), as of 2026-11-09"
 license: "service API; client code in this repository is MIT"
 repo: "website of the official service (not public); client in src-tauri/src/account*.rs"
 created: 2026-11-09
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 # Hangar account API (sign-in, account, projects)
@@ -190,8 +190,10 @@ app has no upload path).
   https-only client unless the base is loopback http; a loopback base never goes through a proxy.
 - **Pages in the window:** `verificationUri` and `verificationUriComplete` are the addresses as
   checked and normalized by the origin check, never the server's raw text.
-- **Relay tickets:** `relay_url` must be `wss`, or `ws` only on the loopback, without user info or
-  fragment; otherwise the ticket is refused as malformed. A same-site check against the base is
+- **Relay tickets:** `relay_url` must be `wss`, or `ws` only on the loopback and only when the
+  base that issued the ticket is itself a loopback server (a real server answering with
+  `ws://127.0.0.1` would hand the ticket in plain text to whatever listens there), without user
+  info or fragment; `team_relay` repeats the check right before connecting; otherwise the ticket is refused as malformed. A same-site check against the base is
   not done (it would need the public suffix list).
 - **Interface:** commands `account_status`, `account_sign_in`, `account_cancel_sign_in`,
   `account_sign_out`, `account_projects`, `account_avatar` (the picture as a `data:` URL or

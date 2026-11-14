@@ -1389,14 +1389,19 @@ impl Worker {
             return Ok(attention(AttentionReason::Refused));
         };
         let timing = self.timing();
-        let socket =
-            match crate::team_relay::connect(&ticket.relay_url, timing.connect_timeout).await {
-                Ok(socket) => socket,
-                Err(error) => {
-                    eprintln!("hangar: team relay not reached: {error}");
-                    return Ok(SessionEnd::Lost);
-                }
-            };
+        let socket = match crate::team_relay::connect(
+            &ticket.relay_url,
+            &ticket.base,
+            timing.connect_timeout,
+        )
+        .await
+        {
+            Ok(socket) => socket,
+            Err(error) => {
+                eprintln!("hangar: team relay not reached: {error}");
+                return Ok(SessionEnd::Lost);
+            }
+        };
         drop(ticket);
         let (mut writer, mut reader) = socket.split();
         // Bounded: a relay sending faster than the worker handles frames waits on its socket.

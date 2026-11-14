@@ -363,7 +363,7 @@ impl AccountApi {
             .send(Method::POST, "relay-ticket", Some(access), Body::Json(body))
             .await?;
         let body = checked(answer)?;
-        RelayTicket::parse(&body).ok_or(ApiError::Malformed)
+        RelayTicket::parse(&body, &self.base).ok_or(ApiError::Malformed)
     }
 }
 
