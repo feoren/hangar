@@ -331,6 +331,8 @@ import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
 import { WorktreeCleanupDialog } from "./WorktreeCleanupDialog";
 import { cleanupFolders } from "./worktreeCleanup";
 import { ProjectOverview } from "./ProjectOverview";
+import { DailyReviewDialog } from "./DailyReviewDialog";
+import { PhaseRecorder, type WorkPhase } from "./dailyReview";
 import { tailLines } from "./overview";
 import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
@@ -413,7 +415,23 @@ type OpenDialog =
   | "searchAll"
   | "overview"
   | "worktreeCleanup"
+  | "dailyReview"
   | null;
+
+/**
+ * Working phases of the sessions for the work log (ADR 0011): one event when a phase ends,
+ * never per output chunk. Module wide like `terminals`: one window, one recorder.
+ */
+const phases = new PhaseRecorder();
+
+function reportPhase(phase: WorkPhase | null): Promise<void> {
+  if (phase === null) return Promise.resolve();
+  // The log is a convenience; a failed write must not disturb the session.
+  return api.logWorkPhase(phase.id, phase.from, phase.to).then(
+    () => undefined,
+    () => undefined,
+  );
+}
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -1906,6 +1924,11 @@ export function App() {
         if (next === "working") {
           setDoneNotice((current) => (current?.sessionId === id ? null : current));
         }
+        if (!isPlaceholder(id) && session?.kind !== "update") {
+          void reportPhase(
+            phases.change(id, next === "working", Date.now(), terminal.activity().lastOutput),
+          );
+        }
         previous = next;
         previousReason = reason;
         if (chime !== null) chimes.request(chime, settingsRef.current.chimeVolume);
@@ -1965,6 +1988,9 @@ export function App() {
   const forgetAttention = useCallback(
     (id: number) => {
       pushes.forget(id);
+      void reportPhase(
+        phases.end(id, Date.now(), terminals.get(id)?.activity().lastOutput ?? null),
+      );
       setAttention((current) => {
         if (!current.has(id)) return current;
         const map = new Map(current);
@@ -2592,6 +2618,11 @@ export function App() {
     if (quitting.current) return;
     quitting.current = true;
     try {
+      // Open working phases end with the app; bounded like the rest of the quit.
+      await Promise.race([
+        Promise.all(phases.flush(Date.now()).map(reportPhase)),
+        delay(QUIT_SAVE_TIMEOUT_MS),
+      ]);
       await persistAll();
       await Promise.race([removeOrphanedWorktrees(), delay(QUIT_SAVE_TIMEOUT_MS)]);
     } finally {
@@ -3246,6 +3277,19 @@ export function App() {
       if (!terminal.revealMatch(match)) setStartHint(t("searchAll.gone"));
       terminal.focus();
     });
+  };
+
+  /**
+   * "Add to notes" of the daily review: a new note in General, because a day spans several
+   * projects; then the notes show that area.
+   */
+  const saveReviewNote = async (title: string, markdown: string) => {
+    const folder: NoteFolder = { path: null };
+    const id = await api.createNote(folder, title);
+    if (typeof id !== "string") throw new Error(t("error.unknown"));
+    await api.writeNote(folder, id, markdown);
+    notesChangedHere();
+    setNotesRefresh((value) => value + 1);
   };
 
   /** Quick access "Notes in …": that project's notes. */
@@ -4244,6 +4288,13 @@ export function App() {
           disabled: state.sessions.length === 0,
           run: () => {
             perform("overview");
+          },
+        },
+        {
+          type: "action",
+          label: t("review.menu"),
+          run: () => {
+            setDialog("dailyReview");
           },
         },
         {
@@ -5687,6 +5738,15 @@ export function App() {
               sessions: state.sessions,
             })}
             language={settings.language}
+            onClose={closeDialog}
+          />
+        )}
+        {dialog === "dailyReview" && (
+          <DailyReviewDialog
+            language={settings.language}
+            load={api.dailyReview}
+            onCopy={writeClipboard}
+            onToNotes={saveReviewNote}
             onClose={closeDialog}
           />
         )}

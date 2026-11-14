@@ -17,6 +17,7 @@ pub mod command_guard;
 pub mod command_split;
 mod commands;
 pub mod context_usage;
+pub mod daily_review;
 pub mod desktop;
 pub mod exe_image;
 pub mod exec_alias;
@@ -73,6 +74,7 @@ pub mod text;
 pub mod tray;
 pub mod updates;
 pub mod version;
+pub mod work_log;
 pub mod worktree;
 pub mod worktree_cleanup;
 pub mod wsl;
@@ -264,6 +266,12 @@ pub fn run() -> tauri::Result<()> {
             // The person's gate rules: local, they name this machine's
             // repositories.
             let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
+            // Work log for the daily review (ADR 0011): local, it names this machine's
+            // folders. Old days are deleted off the main thread.
+            let work_log = work_log::WorkLog::new(local_dir.join(work_log::DIR));
+            let pruned = work_log.clone();
+            std::thread::spawn(move || pruned.prune(work_log::now_ms()));
+            app.manage(work_log);
             app.manage(persist::Store::new(local_dir));
             app.manage(worktree_cleanup::PendingWorktrees::default());
             // Local claims: the worker stays idle until the window turns the setting on.
@@ -409,6 +417,8 @@ pub fn run() -> tauri::Result<()> {
             commands::git_diff,
             commands::git_changed_count,
             commands::git_activity,
+            commands::log_work_phase,
+            commands::daily_review,
             commands::git_log,
             commands::git_commit_diff,
             commands::git_stage,
@@ -490,6 +500,10 @@ pub fn run() -> tauri::Result<()> {
             // Waiting edits are denied before the agents are ended.
             handle.state::<gate_service::GateService>().stop();
             handle.state::<claims_service::ClaimsService>().stop();
+            // The sessions end with the app; their runs end now in the work log.
+            handle
+                .state::<work_log::WorkLog>()
+                .end_all(work_log::now_ms());
             handle.state::<SessionManager>().shutdown();
         }
     });

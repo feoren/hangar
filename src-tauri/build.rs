@@ -65,6 +65,8 @@ const COMMANDS: &[&str] = &[
     "git_diff",
     "git_changed_count",
     "git_activity",
+    "log_work_phase",
+    "daily_review",
     "git_log",
     "git_commit_diff",
     "git_stage",

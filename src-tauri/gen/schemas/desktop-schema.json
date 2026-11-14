@@ -321,6 +321,12 @@
           "markdownDescription": "Enables the create_worktree command without any pre-configured scope."
         },
         {
+          "description": "Enables the daily_review command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-daily-review",
+          "markdownDescription": "Enables the daily_review command without any pre-configured scope."
+        },
+        {
           "description": "Enables the default_cwd command without any pre-configured scope.",
           "type": "string",
           "const": "allow-default-cwd",
@@ -559,6 +565,12 @@
           "type": "string",
           "const": "allow-load-workspace",
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the log_work_phase command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-log-work-phase",
+          "markdownDescription": "Enables the log_work_phase command without any pre-configured scope."
         },
         {
           "description": "Enables the move_note command without any pre-configured scope.",
@@ -1101,6 +1113,12 @@
           "markdownDescription": "Denies the create_worktree command without any pre-configured scope."
         },
         {
+          "description": "Denies the daily_review command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-daily-review",
+          "markdownDescription": "Denies the daily_review command without any pre-configured scope."
+        },
+        {
           "description": "Denies the default_cwd command without any pre-configured scope.",
           "type": "string",
           "const": "deny-default-cwd",
@@ -1339,6 +1357,12 @@
           "type": "string",
           "const": "deny-load-workspace",
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the log_work_phase command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-log-work-phase",
+          "markdownDescription": "Denies the log_work_phase command without any pre-configured scope."
         },
         {
           "description": "Denies the move_note command without any pre-configured scope.",
