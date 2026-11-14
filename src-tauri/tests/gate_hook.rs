@@ -753,6 +753,247 @@ fn opencode_plugin_asks_the_endpoint_and_throws_on_a_deny() {
     assert!(thrown.contains("src/shared.rs"), "{thrown}");
 }
 
+/// One POST to the gate's endpoint as Claude Code's HTTP hook sends it; the status and body.
+fn post_hook(port: u16, token: &str, body: &str) -> (u16, String) {
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    let request = format!(
+        "POST /v1/pre-tool-use HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+         Authorization: Bearer {token}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut answer = String::new();
+    let _ = stream.read_to_string(&mut answer);
+    let (head, body) = answer.split_once("\r\n\r\n").unwrap_or((&answer, ""));
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    (status, body.to_owned())
+}
+
+/// Claude Code's start for a team session carries `Bash` in the hook's matcher, and a `Bash`
+/// call with a force push waits for the person; a harmless one does not. The commands are only
+/// text here; nothing runs them.
+#[test]
+fn claude_bash_hook_holds_a_risky_command_until_the_person_answers() {
+    let fixture = fixture("gate-guard-claude");
+    let launch = launched(fixture.service.prepare(
+        1,
+        &catalog_agent("claude"),
+        Path::new("claude.exe"),
+        &[],
+    ));
+    let settings: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
+    let matcher = settings["hooks"]["PreToolUse"][0]["matcher"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(matcher.split('|').any(|tool| tool == "Bash"), "{matcher}");
+    let token = launch
+        .env
+        .iter()
+        .find(|(name, _)| name == "HANGAR_HOOK_TOKEN")
+        .map(|(_, value)| value.to_string())
+        .unwrap();
+    let port = fixture.service.port().unwrap();
+    let call = |command: &str| {
+        serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": fixture.root,
+            "tool_input": { "command": command },
+        })
+        .to_string()
+    };
+    assert_eq!(
+        post_hook(port, &token, &call("git push origin main")),
+        (200, String::new())
+    );
+    let held = {
+        let body = call("cd .. && rm -rf other-project");
+        let token = token.clone();
+        std::thread::spawn(move || post_hook(port, &token, &body))
+    };
+    answer_next(&fixture, Answer::Deny).join().unwrap();
+    let (status, body) = held.join().unwrap();
+    assert_eq!(status, 200);
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+    let reason = json["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("rm-outside-project"), "{reason}");
+}
+
+#[test]
+fn pi_and_opencode_extensions_send_shell_commands_to_the_guard() {
+    if !node_available() {
+        eprintln!("node not found; the extension shell tests are skipped");
+        return;
+    }
+    for (kind, agent, program) in [
+        ("pi", "pi", "pi.exe"),
+        ("opencode", "opencode", "opencode.exe"),
+    ] {
+        let fixture = fixture(&format!("gate-guard-{kind}"));
+        let dir = TempDir::new(&format!("gate-guard-{kind}-run"));
+        let launch = launched(fixture.service.prepare(
+            1,
+            &catalog_agent(agent),
+            Path::new(program),
+            &[],
+        ));
+        let file = if kind == "pi" {
+            PathBuf::from(&launch.prepend[1])
+        } else {
+            let config: serde_json::Value = launch
+                .env
+                .iter()
+                .find(|(name, _)| name == hook_recipes::OPENCODE_CONFIG_CONTENT_ENV)
+                .map(|(_, value)| serde_json::from_str(value.as_str()).unwrap())
+                .unwrap();
+            url::Url::parse(config["plugin"][0].as_str().unwrap())
+                .unwrap()
+                .to_file_path()
+                .unwrap()
+        };
+        let gate = gate_env(&launch);
+        // A harmless command and a tool without a command go ahead at once; one that were held
+        // would run into the run limit.
+        for args in [
+            serde_json::json!({ "command": "git status" }),
+            serde_json::json!({ "command": 5 }),
+            serde_json::json!({}),
+        ] {
+            let answer = plugin_answer(&run_plugin(
+                &dir,
+                kind,
+                &file,
+                "bash",
+                args.clone(),
+                &fixture.root,
+                &gate,
+            ));
+            assert_eq!(answer["result"], serde_json::Value::Null, "{kind} {args}");
+        }
+        let held = {
+            let (file, root, gate) = (file.clone(), fixture.root.clone(), gate.clone());
+            let dir = TempDir::new(&format!("gate-guard-{kind}-held"));
+            std::thread::spawn(move || {
+                run_plugin(
+                    &dir,
+                    kind,
+                    &file,
+                    "bash",
+                    serde_json::json!({ "command": "git push --force" }),
+                    &root,
+                    &gate,
+                )
+            })
+        };
+        answer_next(&fixture, Answer::Deny).join().unwrap();
+        let answer = plugin_answer(&held.join().unwrap());
+        let reason = if kind == "pi" {
+            assert_eq!(answer["result"]["block"], true, "{answer}");
+            answer["result"]["reason"].as_str().unwrap().to_owned()
+        } else {
+            answer["thrown"].as_str().unwrap().to_owned()
+        };
+        assert!(reason.contains("git-push-force"), "{kind}: {reason}");
+    }
+}
+
+/// The extension's module file of a prepared session, as the agent loads it.
+fn extension_file(launch: &GateLaunch, kind: &str) -> PathBuf {
+    if kind == "pi" {
+        return PathBuf::from(&launch.prepend[1]);
+    }
+    let config: serde_json::Value = launch
+        .env
+        .iter()
+        .find(|(name, _)| name == hook_recipes::OPENCODE_CONFIG_CONTENT_ENV)
+        .map(|(_, value)| serde_json::from_str(value.as_str()).unwrap())
+        .unwrap();
+    url::Url::parse(config["plugin"][0].as_str().unwrap())
+        .unwrap()
+        .to_file_path()
+        .unwrap()
+}
+
+/// Pi's `powershell` tool is read as PowerShell, and OpenCode's `workdir` moves the folder the
+/// command's paths count from.
+#[test]
+fn extension_shell_tools_carry_their_dialect_and_working_folder() {
+    if !node_available() {
+        eprintln!("node not found; the extension shell tests are skipped");
+        return;
+    }
+    let fixture = fixture("gate-guard-dialect");
+    let dir = TempDir::new("gate-guard-dialect-run");
+    let held = |kind: &str, agent: &str, tool: &str, args: serde_json::Value| {
+        let launch = launched(fixture.service.prepare(
+            1,
+            &catalog_agent(agent),
+            Path::new(&format!("{agent}.exe")),
+            &[],
+        ));
+        let file = extension_file(&launch, kind);
+        let gate = gate_env(&launch);
+        let (root, kind, tool) = (fixture.root.clone(), kind.to_owned(), tool.to_owned());
+        let dir = TempDir::new(&format!("gate-guard-dialect-{kind}"));
+        let run =
+            std::thread::spawn(move || run_plugin(&dir, &kind, &file, &tool, args, &root, &gate));
+        answer_next(&fixture, Answer::Deny).join().unwrap();
+        plugin_answer(&run.join().unwrap())
+    };
+    // A quoted path ending in a backslash closes the string in PowerShell: the delete is seen.
+    let answer = held(
+        "pi",
+        "pi",
+        "powershell",
+        serde_json::json!({ "command": "Get-ChildItem \"x\\\"; Remove-Item -Recurse ../other" }),
+    );
+    assert_eq!(answer["result"]["block"], true, "{answer}");
+    let reason = answer["result"]["reason"].as_str().unwrap();
+    assert!(reason.contains("remove-item-outside-project"), "{reason}");
+    assert!(!reason.contains("hangar-too-complex"), "{reason}");
+    // A delete inside the project goes ahead; the same one in a `workdir` outside it is asked.
+    let launch = launched(fixture.service.prepare(
+        1,
+        &catalog_agent("opencode"),
+        Path::new("opencode.exe"),
+        &[],
+    ));
+    let file = extension_file(&launch, "opencode");
+    let answer = plugin_answer(&run_plugin(
+        &dir,
+        "opencode",
+        &file,
+        "bash",
+        serde_json::json!({ "command": "rm -rf build" }),
+        &fixture.root,
+        &gate_env(&launch),
+    ));
+    assert_eq!(answer["result"], serde_json::Value::Null);
+    let answer = held(
+        "opencode",
+        "opencode",
+        "bash",
+        serde_json::json!({ "command": "rm -rf build", "workdir": "../other-project" }),
+    );
+    assert!(
+        answer["thrown"]
+            .as_str()
+            .unwrap()
+            .contains("rm-outside-project"),
+        "{answer}"
+    );
+}
+
 #[test]
 fn a_binary_without_the_helper_marker_is_refused_without_spawning() {
     let dir = TempDir::new("gate-hook-marker");

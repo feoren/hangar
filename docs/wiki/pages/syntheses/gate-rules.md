@@ -4,7 +4,7 @@ type: synthesis
 tags: [gate, rules, team, catalog, ui]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # Gate rules and why an agent is not team-capable
@@ -50,6 +50,11 @@ answer goes to the waiting edit at once and becomes a gate rule.
   block is hidden while there is no rule and no automatic answer.
 - **Agent's reason.** A deny by rule tells the agent that the user's standing rule for the project
   does not allow the edit while another session changes the file (`gate::rule_denied_reason`).
+- **Command rules.** The command guard ([[0010-command-guard]]) keeps its remembered answers in
+  the same book and log: scope `command`, `path` the guard rule's id (checked like an id, not a
+  path), one per project and guard rule. A command rule never answers an edit and a file rule
+  never a command. The log names the command (cut to 200 characters); Settings shows the rule as
+  "command rule <id>". An older Hangar skips such entries and drops them on its next save.
 
 ## Why an agent is not team-capable
 

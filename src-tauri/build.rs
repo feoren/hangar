@@ -90,6 +90,8 @@ const COMMANDS: &[&str] = &[
     "answer_gate",
     "gate_rules",
     "delete_gate_rule",
+    "configure_command_guard",
+    "command_guard_info",
     "save_profile",
     "delete_profile",
     "profile_env",

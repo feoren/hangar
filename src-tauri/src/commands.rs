@@ -22,7 +22,7 @@ use crate::file_viewer::{
 };
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_rules::GateRule;
-use crate::gate_service::GateService;
+use crate::gate_service::{GateService, GuardInfo};
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
@@ -2023,6 +2023,19 @@ pub fn gate_rules(gate: State<'_, GateService>) -> Vec<GateRule> {
 #[tauri::command]
 pub fn delete_gate_rule(gate: State<'_, GateService>, id: u64) -> bool {
     gate.delete_rule(id)
+}
+
+/// Turns the command guard on or off (the window's setting; on by default). It applies at once,
+/// also to running team sessions; turning it off lets every held shell command go on.
+#[tauri::command]
+pub fn configure_command_guard(gate: State<'_, GateService>, enabled: bool) {
+    gate.configure_command_guard(enabled);
+}
+
+/// The command guard's rules file, its rules and what could not be read in it.
+#[tauri::command]
+pub fn command_guard_info(gate: State<'_, GateService>) -> GuardInfo {
+    gate.command_guard_info()
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change

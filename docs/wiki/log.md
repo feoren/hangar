@@ -719,3 +719,19 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] schema | Command guard decided and built
+ADR 0010: the agent gate asks before a team session's agent runs a shell command that matches a rule of `command-guard.toml` (written with commented defaults on first use). Claude Code's matcher gains `Bash|PowerShell`, the Pi and OpenCode extensions send `bash` calls; Codex and private sessions stay uncovered with the reasons. Remembered answers are gate rules with scope `command`; no answer within 10 minutes denies. Shell tool input shapes are not measured live and are marked so.
+Pages changed: [[0010-command-guard]], [[gate-rules]], [[agent-gate-adapters]].
+
+## [2026-11-14] ingest | Shell tool input shapes; command guard reworked after review
+Read the installed agents for their shell tool inputs (Claude Code transcripts, Pi 1.5.2 `bash.js` and `powershell.js`, OpenCode 1.19.5 binary strings) and filed them as a source. ADR 0010 reworked after the security and acceptance review: one lexer per dialect, every matching rule counts, built-in rules for commands too complex, read from stdin, too long or naming Hangar's own settings, a full queue denies, `cwd` problems no longer fail open, OpenCode's `workdir`, translated wording of Hangar's own rules, the residual risk stated.
+Pages changed: [[shell-tool-input-shapes]], [[0010-command-guard]], [[agent-gate-adapters]].
+
+## [2026-11-14] schema | Command guard: second security review
+ADR 0010 updated: brace expansion capped at 8 braces and the hook threads given an 8 MiB stack (a deep expansion overflowed the stack), `hangar-config` narrowed to the config folder, `<local data>/gate` and the two settings files (Hangar's own worktrees in the data folder are ordinary projects), redirection targets checked, wildcards and 8.3 names against the protected names, shell options with values, PowerShell arguments in parentheses, `wsl` without `-e`, `start` and `Start-Process` unwrapped, empty special parameters, `--version` and `--help` no stdin scripts, a bad `cwd` dropped for edit tools too.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] schema | Command guard: third security review
+ADR 0010 refined: a wildcard needs five letters of its own outside a plain extension to stand for one of Hangar's names, bracket classes count as wildcards, a wildcard right below the app settings folders counts, `start` unwrapping counts toward the depth limit, a single plain string in PowerShell parentheses is read as that string.
+Pages changed: [[0010-command-guard]].

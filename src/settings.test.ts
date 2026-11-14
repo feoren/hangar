@@ -54,6 +54,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: false,
       claimsEnabled: false,
       gateEnabled: false,
+      commandGuardEnabled: false,
       hangarMd: false,
       worktreeUpstreamCheck: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
@@ -91,6 +92,7 @@ describe("parseSettings", () => {
       subAgentExcerpts: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
+      commandGuardEnabled: "on",
       dotAnimation: "spin",
       sessionGrouping: "folder",
     };

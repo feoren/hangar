@@ -91,6 +91,12 @@ export interface Settings {
    */
   gateEnabled: boolean;
   /**
+   * While the gate is active, a team session's agent waits for the person before a shell command
+   * that matches a rule of command-guard.toml (backend command_guard.rs). On by default; applies
+   * to running sessions at once.
+   */
+  commandGuardEnabled: boolean;
+  /**
    * Every agent start hands the agent HANGAR.md from Hangar's config folder as an extra
    * instruction, where its program takes one (backend `instructions.rs`). On by default: the
    * file starts as a comment only, which sends nothing until the user writes into it.
@@ -132,6 +138,7 @@ type Flag =
   | "subAgentExcerpts"
   | "claimsEnabled"
   | "gateEnabled"
+  | "commandGuardEnabled"
   | "hangarMd"
   | "worktreeUpstreamCheck"
   | "cursorBlink";
@@ -160,6 +167,7 @@ export function defaultSettings(language: Language): Settings {
     subAgentExcerpts: true,
     claimsEnabled: true,
     gateEnabled: true,
+    commandGuardEnabled: true,
     hangarMd: true,
     worktreeUpstreamCheck: true,
     programs: DEFAULT_PROGRAM_PREFS,
@@ -249,6 +257,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     subAgentExcerpts: flag("subAgentExcerpts"),
     claimsEnabled: flag("claimsEnabled"),
     gateEnabled: flag("gateEnabled"),
+    commandGuardEnabled: flag("commandGuardEnabled"),
     hangarMd: flag("hangarMd"),
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
     programs: parseProgramPrefs(get("programs")),

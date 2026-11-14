@@ -174,6 +174,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Offene Entscheidung                             | pending decision                  | `PendingDecision`; allow once, allow for this file or deny                          |
 | Gemerkte Antwort (Gate-Regel)                   | gate rule                         | `gate_rules.rs`; always or never, for a file or folder of one project               |
 | Automatisch beantwortet (Gate-Protokoll)        | rule log                          | `RuleAnswer`; the last edits a gate rule answered, newest first                     |
+| Schutz vor gefährlichen Befehlen                | command guard                     | `command_guard.rs`; asks before a team session's agent runs a matching command      |
+| Befehlsregel                                    | guard rule                        | one `[[rule]]` of `command-guard.toml`: id, description, matcher                    |
+| Eingebaute Befehlsregel                         | built-in rule                     | `hangar-*` rule not in the file: too complex, stdin, too long, Hangar's settings    |
+| Gemerkte Antwort (Befehlsregel)                 | command rule                      | a gate rule with scope `command` for one guard rule in one project                  |
 | Grund (nicht teamfähig)                         | team block                        | `TeamBlock`; why a program cannot be a team session on this machine                 |
 | Reservierung (Aufgabe)                          | reservation                       | `reservation.rs` (protocol crate); first wins, expires when idle                    |
 | Freigabe-Anfrage                                | release request                   | asks the holder of a reservation to hand the task over                              |

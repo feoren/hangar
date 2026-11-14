@@ -1261,6 +1261,45 @@ const de = {
   "gate.ruleFolder": "Ordner {folder}",
   "gate.ruleAllowed": "Gemerkte Antwort: {path} erlaubt ({rule})",
   "gate.ruleDenied": "Gemerkte Antwort: {path} abgelehnt ({rule})",
+  "gate.commandTitle": "{session} will einen gefährlichen Befehl ausführen",
+  "guardRule.gitPushForce": "git push --force überschreibt den Branch auf dem Remote",
+  "guardRule.gitResetHard": "git reset --hard verwirft nicht committete Änderungen",
+  "guardRule.gitCleanForce": "git clean -f löscht nicht versionierte Dateien",
+  "guardRule.rmOutsideProject":
+    "rm -r löscht einen Ordner außerhalb des Projekts, ein Laufwerk oder den Benutzerordner",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse löscht einen Ordner außerhalb des Projekts, ein Laufwerk oder den Benutzerordner",
+  "guardRule.delOutsideProject":
+    "del /s oder rd /s löscht Dateien außerhalb des Projekts, auf einem Laufwerk oder im Benutzerordner",
+  "guardRule.sqlDrop":
+    "DROP oder TRUNCATE über einen Datenbank-Client löscht Tabellen oder Datenbanken",
+  "guardRule.formatDisk": "format, diskpart oder mkfs löscht ein Laufwerk",
+  "guardRule.tooComplex":
+    "Zu verschachtelt zum Prüfen: zu tief, zu viele Befehle oder ein offenes Anführungszeichen",
+  "guardRule.stdinScript":
+    "Eine Shell liest ihr Skript aus einer Pipe oder einem Here-String, das Hangar nicht sieht",
+  "guardRule.tooLong": "Zu lang zum Prüfen: über 64 KiB oder mit einem NUL-Zeichen",
+  "guardRule.hangarConfig":
+    "Betrifft Hangars eigene Einstellungen (Regeldatei oder gemerkte Antworten)",
+  "gate.commandHidden": "{count} weitere Zeichen nicht angezeigt",
+  "gate.commandAppliesTo": "Gilt für: {rules}",
+  "settings.commandGuardFewer":
+    "Die Regeldatei enthält {count} der {defaults} mitgelieferten Regeln. Lösch sie, um alle zurückzubekommen.",
+  "gate.commandLabel": "Befehl",
+  "gate.block": "Blockieren",
+  "gate.alwaysCommand": "Immer erlauben",
+  "gate.neverCommand": "Immer blockieren",
+  "gate.commandTimeout": "Ohne Antwort wird der Befehl nach 10 Minuten blockiert.",
+  "gate.commandRuleName": "Befehlsregel {id}",
+  "settings.commandGuard": "Vor gefährlichen Befehlen fragen",
+  "settings.commandGuardHelp":
+    "In Team-Sessions mit {programs} fragt Hangar, bevor der Agent einen Befehl ausführt, der zu einer deiner Regeln passt, etwa ein Force-Push, ein hartes Zurücksetzen oder Löschen außerhalb des Projekts. Ein Sicherheitsnetz, keine Sandbox: Ein Befehl, der verschleiert, was er tut, kann durchrutschen.",
+  "settings.commandGuardFile": "Regeln: {file}",
+  "settings.commandGuardDefaults":
+    "Die Regeldatei ließ sich nicht lesen, deshalb gelten die mitgelieferten Regeln.",
+  "settings.commandGuardProblems": "Probleme in der Regeldatei",
+  "settings.commandGuardRule": "Regel {n}",
+  "settings.commandGuardLine": "Zeile {line}",
   "settings.gateRules": "Gemerkte Antworten",
   "settings.gateRulesHelp":
     "Antworten, die du mit „Für dieses Projekt merken“ gegeben hast. Jede gilt nur in ihrem Projekt; „Nie“ geht vor „Immer“.",
@@ -2594,6 +2633,43 @@ const en: Record<MessageKey, string> = {
   "gate.ruleFolder": "folder {folder}",
   "gate.ruleAllowed": "Remembered answer: {path} allowed ({rule})",
   "gate.ruleDenied": "Remembered answer: {path} refused ({rule})",
+  "gate.commandTitle": "{session} wants to run a dangerous command",
+  "guardRule.gitPushForce": "git push --force overwrites the branch on the remote",
+  "guardRule.gitResetHard": "git reset --hard throws away uncommitted changes",
+  "guardRule.gitCleanForce": "git clean -f deletes untracked files",
+  "guardRule.rmOutsideProject":
+    "rm -r deletes a folder outside the project, a drive root or the home folder",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse deletes a folder outside the project, a drive root or the home folder",
+  "guardRule.delOutsideProject":
+    "del /s or rd /s deletes files outside the project, a drive root or the home folder",
+  "guardRule.sqlDrop": "DROP or TRUNCATE through a database client deletes tables or databases",
+  "guardRule.formatDisk": "format, diskpart or mkfs erases a drive",
+  "guardRule.tooComplex":
+    "Too complex to check: nested too deep, too many commands, or a quote left open",
+  "guardRule.stdinScript":
+    "A shell reads its script from a pipe or here-string, which Hangar cannot see",
+  "guardRule.tooLong": "Too long to check: over 64 KiB or with a NUL character",
+  "guardRule.hangarConfig":
+    "Touches Hangar's own settings (the rules file or the remembered answers)",
+  "gate.commandHidden": "{count} more characters not shown",
+  "gate.commandAppliesTo": "Applies to: {rules}",
+  "settings.commandGuardFewer":
+    "The rules file holds {count} of the {defaults} built-in rules. Delete it to get all of them back.",
+  "gate.commandLabel": "Command",
+  "gate.block": "Block",
+  "gate.alwaysCommand": "Always allow",
+  "gate.neverCommand": "Always block",
+  "gate.commandTimeout": "Without an answer, the command is blocked after 10 minutes.",
+  "gate.commandRuleName": "command rule {id}",
+  "settings.commandGuard": "Ask before dangerous commands",
+  "settings.commandGuardHelp":
+    "In team sessions with {programs}, Hangar asks before the agent runs a command that matches one of your rules, such as a force push, a hard reset or deleting outside the project. A safety net, not a sandbox: a command written to hide what it does can get through.",
+  "settings.commandGuardFile": "Rules: {file}",
+  "settings.commandGuardDefaults": "The rules file could not be read, so the built-in rules apply.",
+  "settings.commandGuardProblems": "Problems in the rules file",
+  "settings.commandGuardRule": "Rule {n}",
+  "settings.commandGuardLine": "Line {line}",
   "settings.gateRules": "Remembered answers",
   "settings.gateRulesHelp":
     "Answers you gave with “Remember for this project”. Each applies only in its project; “Never” wins over “Always”.",
@@ -3959,6 +4035,46 @@ const el: Record<MessageKey, string> = {
   "gate.ruleFolder": "φάκελος {folder}",
   "gate.ruleAllowed": "Αποθηκευμένη απάντηση: επιτράπηκε το {path} ({rule})",
   "gate.ruleDenied": "Αποθηκευμένη απάντηση: απορρίφθηκε το {path} ({rule})",
+  "gate.commandTitle": "Το {session} θέλει να εκτελέσει μια επικίνδυνη εντολή",
+  "guardRule.gitPushForce":
+    "Το git push --force αντικαθιστά τον κλάδο στο απομακρυσμένο αποθετήριο",
+  "guardRule.gitResetHard": "Το git reset --hard πετά αλλαγές που δεν έχουν δεσμευτεί",
+  "guardRule.gitCleanForce": "Το git clean -f διαγράφει αρχεία χωρίς παρακολούθηση",
+  "guardRule.rmOutsideProject":
+    "Το rm -r διαγράφει φάκελο έξω από το έργο, ρίζα δίσκου ή τον φάκελο χρήστη",
+  "guardRule.removeItemOutsideProject":
+    "Το Remove-Item -Recurse διαγράφει φάκελο έξω από το έργο, ρίζα δίσκου ή τον φάκελο χρήστη",
+  "guardRule.delOutsideProject":
+    "Το del /s ή rd /s διαγράφει αρχεία έξω από το έργο, σε ρίζα δίσκου ή στον φάκελο χρήστη",
+  "guardRule.sqlDrop":
+    "Το DROP ή TRUNCATE μέσω προγράμματος βάσης δεδομένων διαγράφει πίνακες ή βάσεις",
+  "guardRule.formatDisk": "Το format, diskpart ή mkfs σβήνει έναν δίσκο",
+  "guardRule.tooComplex":
+    "Πολύ σύνθετη για έλεγχο: πολύ βαθιά ένθεση, πολλές εντολές ή ανοιχτά εισαγωγικά",
+  "guardRule.stdinScript":
+    "Ένα κέλυφος διαβάζει το σενάριό του από σωλήνωση ή here-string, που το Hangar δεν βλέπει",
+  "guardRule.tooLong": "Πολύ μεγάλη για έλεγχο: πάνω από 64 KiB ή με χαρακτήρα NUL",
+  "guardRule.hangarConfig":
+    "Αγγίζει τις ρυθμίσεις του ίδιου του Hangar (αρχείο κανόνων ή αποθηκευμένες απαντήσεις)",
+  "gate.commandHidden": "{count} ακόμη χαρακτήρες δεν εμφανίζονται",
+  "gate.commandAppliesTo": "Ισχύει για: {rules}",
+  "settings.commandGuardFewer":
+    "Το αρχείο κανόνων περιέχει {count} από τους {defaults} ενσωματωμένους κανόνες. Διάγραψέ το για να τους πάρεις όλους πίσω.",
+  "gate.commandLabel": "Εντολή",
+  "gate.block": "Αποκλεισμός",
+  "gate.alwaysCommand": "Πάντα άδεια",
+  "gate.neverCommand": "Πάντα αποκλεισμός",
+  "gate.commandTimeout": "Χωρίς απάντηση, η εντολή αποκλείεται μετά από 10 λεπτά.",
+  "gate.commandRuleName": "κανόνας εντολών {id}",
+  "settings.commandGuard": "Ερώτηση πριν από επικίνδυνες εντολές",
+  "settings.commandGuardHelp":
+    "Στις συνεδρίες ομάδας με {programs}, το Hangar ρωτά πριν ο πράκτορας εκτελέσει μια εντολή που ταιριάζει με έναν από τους κανόνες σου, όπως ένα force push, ένα σκληρό reset ή διαγραφή έξω από το έργο. Δίχτυ ασφαλείας, όχι sandbox: μια εντολή γραμμένη ώστε να κρύβει τι κάνει μπορεί να περάσει.",
+  "settings.commandGuardFile": "Κανόνες: {file}",
+  "settings.commandGuardDefaults":
+    "Το αρχείο κανόνων δεν διαβάστηκε, γι' αυτό ισχύουν οι ενσωματωμένοι κανόνες.",
+  "settings.commandGuardProblems": "Προβλήματα στο αρχείο κανόνων",
+  "settings.commandGuardRule": "Κανόνας {n}",
+  "settings.commandGuardLine": "Γραμμή {line}",
   "settings.gateRules": "Αποθηκευμένες απαντήσεις",
   "settings.gateRulesHelp":
     "Απαντήσεις που έδωσες με «Θυμήσου για αυτό το έργο». Η καθεμία ισχύει μόνο στο έργο της· το «Ποτέ» υπερισχύει του «Πάντα».",
@@ -5312,6 +5428,45 @@ const es: Record<MessageKey, string> = {
   "gate.ruleFolder": "carpeta {folder}",
   "gate.ruleAllowed": "Respuesta recordada: {path} permitido ({rule})",
   "gate.ruleDenied": "Respuesta recordada: {path} rechazado ({rule})",
+  "gate.commandTitle": "{session} quiere ejecutar un comando peligroso",
+  "guardRule.gitPushForce": "git push --force sobrescribe la rama en el remoto",
+  "guardRule.gitResetHard": "git reset --hard descarta los cambios sin confirmar",
+  "guardRule.gitCleanForce": "git clean -f borra archivos sin seguimiento",
+  "guardRule.rmOutsideProject":
+    "rm -r borra una carpeta fuera del proyecto, la raíz de una unidad o la carpeta personal",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse borra una carpeta fuera del proyecto, la raíz de una unidad o la carpeta personal",
+  "guardRule.delOutsideProject":
+    "del /s o rd /s borra archivos fuera del proyecto, en la raíz de una unidad o en la carpeta personal",
+  "guardRule.sqlDrop":
+    "DROP o TRUNCATE mediante un cliente de base de datos borra tablas o bases de datos",
+  "guardRule.formatDisk": "format, diskpart o mkfs borra una unidad",
+  "guardRule.tooComplex":
+    "Demasiado complejo para revisar: anidado demasiado, demasiados comandos o unas comillas abiertas",
+  "guardRule.stdinScript":
+    "Un shell lee su script de una tubería o un here-string, que Hangar no ve",
+  "guardRule.tooLong": "Demasiado largo para revisar: más de 64 KiB o con un carácter NUL",
+  "guardRule.hangarConfig":
+    "Afecta a los ajustes propios de Hangar (el archivo de reglas o las respuestas recordadas)",
+  "gate.commandHidden": "{count} caracteres más no se muestran",
+  "gate.commandAppliesTo": "Se aplica a: {rules}",
+  "settings.commandGuardFewer":
+    "El archivo de reglas contiene {count} de las {defaults} reglas incluidas. Bórralo para recuperarlas todas.",
+  "gate.commandLabel": "Comando",
+  "gate.block": "Bloquear",
+  "gate.alwaysCommand": "Permitir siempre",
+  "gate.neverCommand": "Bloquear siempre",
+  "gate.commandTimeout": "Sin respuesta, el comando se bloquea a los 10 minutos.",
+  "gate.commandRuleName": "regla de comandos {id}",
+  "settings.commandGuard": "Preguntar antes de comandos peligrosos",
+  "settings.commandGuardHelp":
+    "En las sesiones de equipo con {programs}, Hangar pregunta antes de que el agente ejecute un comando que coincide con una de tus reglas, como un push forzado, un reset duro o borrar fuera del proyecto. Es una red de seguridad, no un entorno aislado: un comando escrito para ocultar lo que hace puede pasar.",
+  "settings.commandGuardFile": "Reglas: {file}",
+  "settings.commandGuardDefaults":
+    "No se pudo leer el archivo de reglas, así que se aplican las reglas incluidas.",
+  "settings.commandGuardProblems": "Problemas en el archivo de reglas",
+  "settings.commandGuardRule": "Regla {n}",
+  "settings.commandGuardLine": "Línea {line}",
   "settings.gateRules": "Respuestas recordadas",
   "settings.gateRulesHelp":
     "Respuestas que diste con «Recordar para este proyecto». Cada una vale solo en su proyecto; «Nunca» gana a «Siempre».",
@@ -6675,6 +6830,45 @@ const fr: Record<MessageKey, string> = {
   "gate.ruleFolder": "dossier {folder}",
   "gate.ruleAllowed": "Réponse retenue : {path} autorisé ({rule})",
   "gate.ruleDenied": "Réponse retenue : {path} refusé ({rule})",
+  "gate.commandTitle": "{session} veut exécuter une commande dangereuse",
+  "guardRule.gitPushForce": "git push --force écrase la branche sur le dépôt distant",
+  "guardRule.gitResetHard": "git reset --hard jette les modifications non validées",
+  "guardRule.gitCleanForce": "git clean -f supprime les fichiers non suivis",
+  "guardRule.rmOutsideProject":
+    "rm -r supprime un dossier hors du projet, la racine d'un lecteur ou le dossier personnel",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse supprime un dossier hors du projet, la racine d'un lecteur ou le dossier personnel",
+  "guardRule.delOutsideProject":
+    "del /s ou rd /s supprime des fichiers hors du projet, à la racine d'un lecteur ou dans le dossier personnel",
+  "guardRule.sqlDrop":
+    "DROP ou TRUNCATE via un client de base de données supprime des tables ou des bases",
+  "guardRule.formatDisk": "format, diskpart ou mkfs efface un lecteur",
+  "guardRule.tooComplex":
+    "Trop complexe à vérifier : imbrication trop profonde, trop de commandes ou guillemets non fermés",
+  "guardRule.stdinScript":
+    "Un shell lit son script depuis un tube ou une here-string, que Hangar ne voit pas",
+  "guardRule.tooLong": "Trop long à vérifier : plus de 64 Kio ou avec un caractère NUL",
+  "guardRule.hangarConfig":
+    "Touche aux réglages de Hangar lui-même (fichier de règles ou réponses retenues)",
+  "gate.commandHidden": "{count} caractères de plus non affichés",
+  "gate.commandAppliesTo": "S'applique à : {rules}",
+  "settings.commandGuardFewer":
+    "Le fichier de règles contient {count} des {defaults} règles fournies. Supprime-le pour toutes les récupérer.",
+  "gate.commandLabel": "Commande",
+  "gate.block": "Bloquer",
+  "gate.alwaysCommand": "Toujours autoriser",
+  "gate.neverCommand": "Toujours bloquer",
+  "gate.commandTimeout": "Sans réponse, la commande est bloquée après 10 minutes.",
+  "gate.commandRuleName": "règle de commande {id}",
+  "settings.commandGuard": "Demander avant les commandes dangereuses",
+  "settings.commandGuardHelp":
+    "Dans les sessions d'équipe avec {programs}, Hangar demande avant que l'agent exécute une commande qui correspond à l'une de tes règles, comme un push forcé, un reset dur ou une suppression hors du projet. C'est un filet de sécurité, pas un bac à sable : une commande écrite pour cacher ce qu'elle fait peut passer.",
+  "settings.commandGuardFile": "Règles : {file}",
+  "settings.commandGuardDefaults":
+    "Le fichier de règles n'a pas pu être lu, les règles fournies s'appliquent donc.",
+  "settings.commandGuardProblems": "Problèmes dans le fichier de règles",
+  "settings.commandGuardRule": "Règle {n}",
+  "settings.commandGuardLine": "Ligne {line}",
   "settings.gateRules": "Réponses retenues",
   "settings.gateRulesHelp":
     "Les réponses données avec « Retenir pour ce projet ». Chacune ne vaut que dans son projet ; « Jamais » l'emporte sur « Toujours ».",
@@ -8030,6 +8224,44 @@ const it: Record<MessageKey, string> = {
   "gate.ruleFolder": "cartella {folder}",
   "gate.ruleAllowed": "Risposta ricordata: {path} consentito ({rule})",
   "gate.ruleDenied": "Risposta ricordata: {path} rifiutato ({rule})",
+  "gate.commandTitle": "{session} vuole eseguire un comando pericoloso",
+  "guardRule.gitPushForce": "git push --force sovrascrive il branch sul remoto",
+  "guardRule.gitResetHard": "git reset --hard butta via le modifiche non confermate",
+  "guardRule.gitCleanForce": "git clean -f elimina i file non tracciati",
+  "guardRule.rmOutsideProject":
+    "rm -r elimina una cartella fuori dal progetto, la radice di un'unità o la cartella utente",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse elimina una cartella fuori dal progetto, la radice di un'unità o la cartella utente",
+  "guardRule.delOutsideProject":
+    "del /s o rd /s elimina file fuori dal progetto, nella radice di un'unità o nella cartella utente",
+  "guardRule.sqlDrop": "DROP o TRUNCATE tramite un client di database elimina tabelle o database",
+  "guardRule.formatDisk": "format, diskpart o mkfs cancella un'unità",
+  "guardRule.tooComplex":
+    "Troppo complesso da controllare: annidato troppo, troppi comandi o virgolette aperte",
+  "guardRule.stdinScript":
+    "Una shell legge il suo script da una pipe o una here-string, che Hangar non vede",
+  "guardRule.tooLong": "Troppo lungo da controllare: oltre 64 KiB o con un carattere NUL",
+  "guardRule.hangarConfig":
+    "Tocca le impostazioni di Hangar stesso (file delle regole o risposte ricordate)",
+  "gate.commandHidden": "Altri {count} caratteri non mostrati",
+  "gate.commandAppliesTo": "Vale per: {rules}",
+  "settings.commandGuardFewer":
+    "Il file delle regole contiene {count} delle {defaults} regole incluse. Eliminalo per riaverle tutte.",
+  "gate.commandLabel": "Comando",
+  "gate.block": "Blocca",
+  "gate.alwaysCommand": "Consenti sempre",
+  "gate.neverCommand": "Blocca sempre",
+  "gate.commandTimeout": "Senza risposta, il comando viene bloccato dopo 10 minuti.",
+  "gate.commandRuleName": "regola dei comandi {id}",
+  "settings.commandGuard": "Chiedi prima dei comandi pericolosi",
+  "settings.commandGuardHelp":
+    "Nelle sessioni di team con {programs}, Hangar chiede prima che l'agente esegua un comando che corrisponde a una delle tue regole, come un push forzato, un reset hard o un'eliminazione fuori dal progetto. È una rete di sicurezza, non una sandbox: un comando scritto per nascondere ciò che fa può passare.",
+  "settings.commandGuardFile": "Regole: {file}",
+  "settings.commandGuardDefaults":
+    "Non è stato possibile leggere il file delle regole, quindi valgono le regole incluse.",
+  "settings.commandGuardProblems": "Problemi nel file delle regole",
+  "settings.commandGuardRule": "Regola {n}",
+  "settings.commandGuardLine": "Riga {line}",
   "settings.gateRules": "Risposte ricordate",
   "settings.gateRulesHelp":
     "Le risposte date con «Ricorda per questo progetto». Ognuna vale solo nel suo progetto; «Mai» prevale su «Sempre».",
@@ -9383,6 +9615,44 @@ const ja: Record<MessageKey, string> = {
   "gate.ruleFolder": "フォルダー {folder}",
   "gate.ruleAllowed": "記憶した回答: {path} を許可 ({rule})",
   "gate.ruleDenied": "記憶した回答: {path} を拒否 ({rule})",
+  "gate.commandTitle": "{session} が危険なコマンドを実行しようとしています",
+  "guardRule.gitPushForce": "git push --force はリモートのブランチを上書きします",
+  "guardRule.gitResetHard": "git reset --hard はコミットしていない変更を破棄します",
+  "guardRule.gitCleanForce": "git clean -f は追跡されていないファイルを削除します",
+  "guardRule.rmOutsideProject":
+    "rm -r はプロジェクト外のフォルダー、ドライブのルート、またはホームフォルダーを削除します",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse はプロジェクト外のフォルダー、ドライブのルート、またはホームフォルダーを削除します",
+  "guardRule.delOutsideProject":
+    "del /s または rd /s はプロジェクト外、ドライブのルート、またはホームフォルダーのファイルを削除します",
+  "guardRule.sqlDrop":
+    "データベースクライアントでの DROP や TRUNCATE はテーブルやデータベースを削除します",
+  "guardRule.formatDisk": "format、diskpart、mkfs はドライブを消去します",
+  "guardRule.tooComplex":
+    "複雑すぎて確認できません: 入れ子が深すぎる、コマンドが多すぎる、または引用符が閉じていません",
+  "guardRule.stdinScript":
+    "シェルがパイプまたは here-string からスクリプトを読み込みます。Hangar からは見えません",
+  "guardRule.tooLong": "長すぎて確認できません: 64 KiB を超えるか NUL 文字を含みます",
+  "guardRule.hangarConfig": "Hangar 自身の設定 (ルールファイルまたは記憶した回答) に触れます",
+  "gate.commandHidden": "表示されていない文字があと {count} 文字あります",
+  "gate.commandAppliesTo": "対象: {rules}",
+  "settings.commandGuardFewer":
+    "ルールファイルには組み込みの {defaults} 個のうち {count} 個のルールしかありません。削除するとすべて戻ります。",
+  "gate.commandLabel": "コマンド",
+  "gate.block": "ブロック",
+  "gate.alwaysCommand": "常に許可",
+  "gate.neverCommand": "常にブロック",
+  "gate.commandTimeout": "応答がない場合、10 分後にコマンドはブロックされます。",
+  "gate.commandRuleName": "コマンドルール {id}",
+  "settings.commandGuard": "危険なコマンドの前に確認する",
+  "settings.commandGuardHelp":
+    "{programs} のチームセッションでは、エージェントがあなたのルールに一致するコマンド (force push、hard reset、プロジェクト外での削除など) を実行する前に Hangar が確認します。これは安全網であり、サンドボックスではありません。動作を隠すように書かれたコマンドは通り抜けることがあります。",
+  "settings.commandGuardFile": "ルール: {file}",
+  "settings.commandGuardDefaults":
+    "ルールファイルを読み込めなかったため、組み込みのルールが適用されます。",
+  "settings.commandGuardProblems": "ルールファイルの問題",
+  "settings.commandGuardRule": "ルール {n}",
+  "settings.commandGuardLine": "{line} 行目",
   "settings.gateRules": "記憶した回答",
   "settings.gateRulesHelp":
     "「このプロジェクトで記憶」で選んだ回答です。それぞれのプロジェクト内でのみ有効で、「拒否」が「許可」より優先されます。",
@@ -10722,6 +10992,44 @@ const pl: Record<MessageKey, string> = {
   "gate.ruleFolder": "folder {folder}",
   "gate.ruleAllowed": "Zapamiętana odpowiedź: {path} dozwolone ({rule})",
   "gate.ruleDenied": "Zapamiętana odpowiedź: {path} odrzucone ({rule})",
+  "gate.commandTitle": "{session} chce uruchomić niebezpieczne polecenie",
+  "guardRule.gitPushForce": "git push --force nadpisuje gałąź na zdalnym repozytorium",
+  "guardRule.gitResetHard": "git reset --hard odrzuca niezatwierdzone zmiany",
+  "guardRule.gitCleanForce": "git clean -f usuwa nieśledzone pliki",
+  "guardRule.rmOutsideProject":
+    "rm -r usuwa folder poza projektem, katalog główny dysku albo folder domowy",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse usuwa folder poza projektem, katalog główny dysku albo folder domowy",
+  "guardRule.delOutsideProject":
+    "del /s lub rd /s usuwa pliki poza projektem, w katalogu głównym dysku albo w folderze domowym",
+  "guardRule.sqlDrop": "DROP lub TRUNCATE przez klienta bazy danych usuwa tabele lub bazy",
+  "guardRule.formatDisk": "format, diskpart lub mkfs czyści dysk",
+  "guardRule.tooComplex":
+    "Zbyt złożone do sprawdzenia: za głębokie zagnieżdżenie, za dużo poleceń albo niezamknięty cudzysłów",
+  "guardRule.stdinScript":
+    "Powłoka czyta skrypt z potoku lub here-stringa, którego Hangar nie widzi",
+  "guardRule.tooLong": "Zbyt długie do sprawdzenia: ponad 64 KiB albo ze znakiem NUL",
+  "guardRule.hangarConfig":
+    "Dotyczy własnych ustawień Hangara (pliku reguł lub zapamiętanych odpowiedzi)",
+  "gate.commandHidden": "Nie pokazano jeszcze {count} znaków",
+  "gate.commandAppliesTo": "Dotyczy: {rules}",
+  "settings.commandGuardFewer":
+    "Plik reguł zawiera {count} z {defaults} wbudowanych reguł. Usuń go, aby odzyskać wszystkie.",
+  "gate.commandLabel": "Polecenie",
+  "gate.block": "Zablokuj",
+  "gate.alwaysCommand": "Zawsze zezwalaj",
+  "gate.neverCommand": "Zawsze blokuj",
+  "gate.commandTimeout": "Bez odpowiedzi polecenie zostanie zablokowane po 10 minutach.",
+  "gate.commandRuleName": "reguła poleceń {id}",
+  "settings.commandGuard": "Pytaj przed niebezpiecznymi poleceniami",
+  "settings.commandGuardHelp":
+    "W sesjach zespołowych z {programs} Hangar pyta, zanim agent uruchomi polecenie pasujące do jednej z twoich reguł, na przykład wymuszony push, twardy reset albo usuwanie poza projektem. To siatka bezpieczeństwa, nie piaskownica: polecenie napisane tak, by ukryć, co robi, może przejść.",
+  "settings.commandGuardFile": "Reguły: {file}",
+  "settings.commandGuardDefaults":
+    "Nie udało się odczytać pliku reguł, więc obowiązują reguły wbudowane.",
+  "settings.commandGuardProblems": "Problemy w pliku reguł",
+  "settings.commandGuardRule": "Reguła {n}",
+  "settings.commandGuardLine": "Wiersz {line}",
   "settings.gateRules": "Zapamiętane odpowiedzi",
   "settings.gateRulesHelp":
     "Odpowiedzi udzielone przez „Zapamiętaj dla tego projektu”. Każda działa tylko w swoim projekcie; „Nigdy” ma pierwszeństwo przed „Zawsze”.",
@@ -12071,6 +12379,43 @@ const pt: Record<MessageKey, string> = {
   "gate.ruleFolder": "pasta {folder}",
   "gate.ruleAllowed": "Resposta lembrada: {path} permitido ({rule})",
   "gate.ruleDenied": "Resposta lembrada: {path} recusado ({rule})",
+  "gate.commandTitle": "{session} quer executar um comando perigoso",
+  "guardRule.gitPushForce": "git push --force sobrescreve o branch no remoto",
+  "guardRule.gitResetHard": "git reset --hard descarta alterações não confirmadas",
+  "guardRule.gitCleanForce": "git clean -f exclui arquivos não rastreados",
+  "guardRule.rmOutsideProject":
+    "rm -r exclui uma pasta fora do projeto, a raiz de uma unidade ou a pasta pessoal",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse exclui uma pasta fora do projeto, a raiz de uma unidade ou a pasta pessoal",
+  "guardRule.delOutsideProject":
+    "del /s ou rd /s exclui arquivos fora do projeto, na raiz de uma unidade ou na pasta pessoal",
+  "guardRule.sqlDrop": "DROP ou TRUNCATE por um cliente de banco de dados exclui tabelas ou bancos",
+  "guardRule.formatDisk": "format, diskpart ou mkfs apaga uma unidade",
+  "guardRule.tooComplex":
+    "Complexo demais para verificar: aninhado demais, comandos demais ou aspas abertas",
+  "guardRule.stdinScript": "Um shell lê o script de um pipe ou here-string, que o Hangar não vê",
+  "guardRule.tooLong": "Longo demais para verificar: mais de 64 KiB ou com um caractere NUL",
+  "guardRule.hangarConfig":
+    "Mexe nas configurações do próprio Hangar (arquivo de regras ou respostas lembradas)",
+  "gate.commandHidden": "Mais {count} caracteres não exibidos",
+  "gate.commandAppliesTo": "Vale para: {rules}",
+  "settings.commandGuardFewer":
+    "O arquivo de regras tem {count} das {defaults} regras incluídas. Exclua-o para recuperar todas.",
+  "gate.commandLabel": "Comando",
+  "gate.block": "Bloquear",
+  "gate.alwaysCommand": "Sempre permitir",
+  "gate.neverCommand": "Sempre bloquear",
+  "gate.commandTimeout": "Sem resposta, o comando é bloqueado após 10 minutos.",
+  "gate.commandRuleName": "regra de comandos {id}",
+  "settings.commandGuard": "Perguntar antes de comandos perigosos",
+  "settings.commandGuardHelp":
+    "Nas sessões de equipe com {programs}, o Hangar pergunta antes que o agente execute um comando que corresponde a uma das suas regras, como um push forçado, um reset hard ou uma exclusão fora do projeto. É uma rede de segurança, não um sandbox: um comando escrito para esconder o que faz pode passar.",
+  "settings.commandGuardFile": "Regras: {file}",
+  "settings.commandGuardDefaults":
+    "Não foi possível ler o arquivo de regras, então valem as regras incluídas.",
+  "settings.commandGuardProblems": "Problemas no arquivo de regras",
+  "settings.commandGuardRule": "Regra {n}",
+  "settings.commandGuardLine": "Linha {line}",
   "settings.gateRules": "Respostas lembradas",
   "settings.gateRulesHelp":
     "Respostas que você deu com “Lembrar para este projeto”. Cada uma vale só no seu projeto; “Nunca” vence “Sempre”.",
@@ -13405,6 +13750,43 @@ const ru: Record<MessageKey, string> = {
   "gate.ruleFolder": "папка {folder}",
   "gate.ruleAllowed": "Запомненный ответ: {path} разрешено ({rule})",
   "gate.ruleDenied": "Запомненный ответ: {path} отклонено ({rule})",
+  "gate.commandTitle": "{session} хочет выполнить опасную команду",
+  "guardRule.gitPushForce": "git push --force перезаписывает ветку на удалённом репозитории",
+  "guardRule.gitResetHard": "git reset --hard отбрасывает незафиксированные изменения",
+  "guardRule.gitCleanForce": "git clean -f удаляет неотслеживаемые файлы",
+  "guardRule.rmOutsideProject": "rm -r удаляет папку вне проекта, корень диска или домашнюю папку",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse удаляет папку вне проекта, корень диска или домашнюю папку",
+  "guardRule.delOutsideProject":
+    "del /s или rd /s удаляет файлы вне проекта, в корне диска или в домашней папке",
+  "guardRule.sqlDrop": "DROP или TRUNCATE через клиент базы данных удаляет таблицы или базы",
+  "guardRule.formatDisk": "format, diskpart или mkfs стирает диск",
+  "guardRule.tooComplex":
+    "Слишком сложно для проверки: слишком глубокая вложенность, слишком много команд или незакрытая кавычка",
+  "guardRule.stdinScript":
+    "Оболочка читает скрипт из канала или here-string, которого Hangar не видит",
+  "guardRule.tooLong": "Слишком длинно для проверки: больше 64 КиБ или с символом NUL",
+  "guardRule.hangarConfig":
+    "Затрагивает собственные настройки Hangar (файл правил или запомненные ответы)",
+  "gate.commandHidden": "Ещё {count} символов не показано",
+  "gate.commandAppliesTo": "Относится к: {rules}",
+  "settings.commandGuardFewer":
+    "В файле правил {count} из {defaults} встроенных правил. Удали его, чтобы вернуть все.",
+  "gate.commandLabel": "Команда",
+  "gate.block": "Заблокировать",
+  "gate.alwaysCommand": "Всегда разрешать",
+  "gate.neverCommand": "Всегда блокировать",
+  "gate.commandTimeout": "Без ответа команда блокируется через 10 минут.",
+  "gate.commandRuleName": "правило команд {id}",
+  "settings.commandGuard": "Спрашивать перед опасными командами",
+  "settings.commandGuardHelp":
+    "В командных сессиях с {programs} Hangar спрашивает, прежде чем агент выполнит команду, подходящую под одно из твоих правил, например force push, жёсткий reset или удаление за пределами проекта. Это страховка, а не песочница: команда, написанная так, чтобы скрыть, что она делает, может пройти.",
+  "settings.commandGuardFile": "Правила: {file}",
+  "settings.commandGuardDefaults":
+    "Не удалось прочитать файл правил, поэтому действуют встроенные правила.",
+  "settings.commandGuardProblems": "Проблемы в файле правил",
+  "settings.commandGuardRule": "Правило {n}",
+  "settings.commandGuardLine": "Строка {line}",
   "settings.gateRules": "Запомненные ответы",
   "settings.gateRulesHelp":
     "Ответы, данные через «Запомнить для этого проекта». Каждый действует только в своём проекте; «Никогда» важнее «Всегда».",
@@ -14736,6 +15118,44 @@ const tr: Record<MessageKey, string> = {
   "gate.ruleFolder": "{folder} klasörü",
   "gate.ruleAllowed": "Hatırlanan yanıt: {path} izin verildi ({rule})",
   "gate.ruleDenied": "Hatırlanan yanıt: {path} reddedildi ({rule})",
+  "gate.commandTitle": "{session} tehlikeli bir komut çalıştırmak istiyor",
+  "guardRule.gitPushForce": "git push --force uzak depodaki dalın üzerine yazar",
+  "guardRule.gitResetHard": "git reset --hard kaydedilmemiş değişiklikleri atar",
+  "guardRule.gitCleanForce": "git clean -f izlenmeyen dosyaları siler",
+  "guardRule.rmOutsideProject":
+    "rm -r proje dışındaki bir klasörü, bir sürücü kökünü veya ana klasörü siler",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse proje dışındaki bir klasörü, bir sürücü kökünü veya ana klasörü siler",
+  "guardRule.delOutsideProject":
+    "del /s veya rd /s proje dışındaki, sürücü kökündeki veya ana klasördeki dosyaları siler",
+  "guardRule.sqlDrop":
+    "Veritabanı istemcisiyle DROP veya TRUNCATE tabloları veya veritabanlarını siler",
+  "guardRule.formatDisk": "format, diskpart veya mkfs bir sürücüyü siler",
+  "guardRule.tooComplex":
+    "Denetlemek için fazla karmaşık: çok derin iç içe, çok fazla komut veya açık kalmış bir tırnak",
+  "guardRule.stdinScript":
+    "Bir kabuk betiğini Hangar'ın göremediği bir borudan veya here-string'den okuyor",
+  "guardRule.tooLong": "Denetlemek için fazla uzun: 64 KiB'tan büyük veya NUL karakteri içeriyor",
+  "guardRule.hangarConfig":
+    "Hangar'ın kendi ayarlarına dokunuyor (kural dosyası veya hatırlanan yanıtlar)",
+  "gate.commandHidden": "{count} karakter daha gösterilmiyor",
+  "gate.commandAppliesTo": "Geçerli olduğu kurallar: {rules}",
+  "settings.commandGuardFewer":
+    "Kural dosyası yerleşik {defaults} kuraldan {count} tanesini içeriyor. Hepsini geri almak için dosyayı sil.",
+  "gate.commandLabel": "Komut",
+  "gate.block": "Engelle",
+  "gate.alwaysCommand": "Her zaman izin ver",
+  "gate.neverCommand": "Her zaman engelle",
+  "gate.commandTimeout": "Yanıt gelmezse komut 10 dakika sonra engellenir.",
+  "gate.commandRuleName": "komut kuralı {id}",
+  "settings.commandGuard": "Tehlikeli komutlardan önce sor",
+  "settings.commandGuardHelp":
+    "{programs} ile ekip oturumlarında Hangar, ajan kurallarından birine uyan bir komutu çalıştırmadan önce sorar; örneğin zorla push, sert reset veya proje dışında silme. Bu bir güvenlik ağıdır, sanal alan değildir: ne yaptığını gizleyecek şekilde yazılmış bir komut geçebilir.",
+  "settings.commandGuardFile": "Kurallar: {file}",
+  "settings.commandGuardDefaults": "Kural dosyası okunamadı, bu yüzden yerleşik kurallar geçerli.",
+  "settings.commandGuardProblems": "Kural dosyasındaki sorunlar",
+  "settings.commandGuardRule": "Kural {n}",
+  "settings.commandGuardLine": "Satır {line}",
   "settings.gateRules": "Hatırlanan yanıtlar",
   "settings.gateRulesHelp":
     "“Bu proje için hatırla” ile verdiğin yanıtlar. Her biri yalnızca kendi projesinde geçerli; “Asla”, “Her zaman”dan önce gelir.",
@@ -16018,6 +16438,38 @@ const zh: Record<MessageKey, string> = {
   "gate.ruleFolder": "文件夹 {folder}",
   "gate.ruleAllowed": "已记住的回答：允许 {path}（{rule}）",
   "gate.ruleDenied": "已记住的回答：拒绝 {path}（{rule}）",
+  "gate.commandTitle": "{session} 想要运行一条危险命令",
+  "guardRule.gitPushForce": "git push --force 会覆盖远程上的分支",
+  "guardRule.gitResetHard": "git reset --hard 会丢弃未提交的更改",
+  "guardRule.gitCleanForce": "git clean -f 会删除未跟踪的文件",
+  "guardRule.rmOutsideProject": "rm -r 会删除项目之外的文件夹、驱动器根目录或主文件夹",
+  "guardRule.removeItemOutsideProject":
+    "Remove-Item -Recurse 会删除项目之外的文件夹、驱动器根目录或主文件夹",
+  "guardRule.delOutsideProject": "del /s 或 rd /s 会删除项目之外、驱动器根目录或主文件夹中的文件",
+  "guardRule.sqlDrop": "通过数据库客户端执行 DROP 或 TRUNCATE 会删除表或数据库",
+  "guardRule.formatDisk": "format、diskpart 或 mkfs 会擦除驱动器",
+  "guardRule.tooComplex": "过于复杂，无法检查：嵌套太深、命令太多或引号未闭合",
+  "guardRule.stdinScript": "某个 shell 从管道或 here-string 读取脚本，Hangar 看不到其内容",
+  "guardRule.tooLong": "过长，无法检查：超过 64 KiB 或包含 NUL 字符",
+  "guardRule.hangarConfig": "涉及 Hangar 自身的设置（规则文件或已记住的回答）",
+  "gate.commandHidden": "还有 {count} 个字符未显示",
+  "gate.commandAppliesTo": "适用于：{rules}",
+  "settings.commandGuardFewer":
+    "规则文件只包含 {defaults} 条内置规则中的 {count} 条。删除该文件即可全部恢复。",
+  "gate.commandLabel": "命令",
+  "gate.block": "阻止",
+  "gate.alwaysCommand": "始终允许",
+  "gate.neverCommand": "始终阻止",
+  "gate.commandTimeout": "如无回答，命令将在 10 分钟后被阻止。",
+  "gate.commandRuleName": "命令规则 {id}",
+  "settings.commandGuard": "运行危险命令前询问",
+  "settings.commandGuardHelp":
+    "在 {programs} 的团队会话中，代理运行与你的某条规则匹配的命令（例如强制推送、硬重置或删除项目之外的内容）之前，Hangar 会先询问。这是安全网，不是沙箱：刻意隐藏其行为的命令可能会漏过。",
+  "settings.commandGuardFile": "规则：{file}",
+  "settings.commandGuardDefaults": "无法读取规则文件，因此使用内置规则。",
+  "settings.commandGuardProblems": "规则文件中的问题",
+  "settings.commandGuardRule": "规则 {n}",
+  "settings.commandGuardLine": "第 {line} 行",
   "settings.gateRules": "已记住的回答",
   "settings.gateRulesHelp":
     "通过“为此项目记住”给出的回答。每个回答只在其项目中有效；“拒绝”优先于“允许”。",

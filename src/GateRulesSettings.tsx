@@ -90,7 +90,7 @@ export function GateRulesSettings(props: { language: string }) {
       {rules.length > 0 && (
         <ul className="gate-rule-list" aria-labelledby="gate-rules-title">
           {rules.map((rule) => {
-            const path = rulePathLabel(rule.path, rule.scope);
+            const path = rulePathLabel(rule.path, rule.scope, t);
             return (
               <li key={rule.id} className="gate-rule-item">
                 <span className={`gate-rule-effect ${rule.effect}`}>

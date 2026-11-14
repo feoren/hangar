@@ -1076,7 +1076,7 @@ export function App() {
   });
   // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
   // notification once, under the same settings as a session that starts waiting.
-  const gate = useGate(gateActive(settings), (fresh) => {
+  const gate = useGate(gateActive(settings), settings.commandGuardEnabled, (fresh) => {
     const current = noticesAt(settingsRef.current, new Date());
     if (!current.attentionEnabled) return;
     const watched = windowWatched();

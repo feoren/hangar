@@ -5,6 +5,10 @@
 //! reaches beyond its project: paths are relative, without `..`, and matched below the folder
 //! only. A deny rule wins over an allow rule.
 //!
+//! The command guard (`command_guard.rs`) keeps its remembered answers in the same book: a rule
+//! with [`RuleScope::Command`] names a guard rule's id instead of a path and answers every shell
+//! command of its project that matches that guard rule.
+//!
 //! Pure: parsing, matching and the rule book. The service (`gate_service.rs`) loads and saves the
 //! file and applies the rules before it asks the window.
 
@@ -23,6 +27,8 @@ pub const LOG_LEN: usize = 50;
 /// and path (about 3 KiB each, pretty printed), so a full book always reads back.
 pub const MAX_FILE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PATH_LEN: usize = 1024;
+/// Characters of a shell command kept in the log.
+pub const LOG_COMMAND_CHARS: usize = 200;
 const FILE_VERSION: u64 = 1;
 
 /// What a rule answers.
@@ -33,12 +39,14 @@ pub enum RuleEffect {
     Deny,
 }
 
-/// What a rule covers: one file, or every file below a folder.
+/// What a rule covers: one file, every file below a folder, or the shell commands that match a
+/// command guard rule (its id in [`GateRule::path`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RuleScope {
     File,
     Folder,
+    Command,
 }
 
 /// One gate rule (Settings lists and deletes them; command `gate_rules`).
@@ -50,7 +58,8 @@ pub struct GateRule {
     pub project: String,
     /// The project's folder name, for display.
     pub project_name: String,
-    /// Relative to the worktree's top, `/` separators, as git prints it.
+    /// Relative to the worktree's top, `/` separators, as git prints it; for
+    /// [`RuleScope::Command`] the guard rule's id.
     pub path: String,
     pub scope: RuleScope,
     pub effect: RuleEffect,
@@ -70,7 +79,8 @@ pub struct RuleAnswer {
     /// The session's title when the rule answered.
     pub session: String,
     pub project_name: String,
-    /// The edited file, relative to the worktree's top.
+    /// The edited file, relative to the worktree's top; for a shell command the command as
+    /// shown, cut to [`LOG_COMMAND_CHARS`].
     pub path: String,
     pub rule_id: u64,
     pub rule_path: String,
@@ -134,9 +144,20 @@ fn fold(text: &str, case_insensitive: bool) -> String {
 /// Whether paths compare without case on this platform (as [`crate::claims::file_key`]).
 pub const CASE_INSENSITIVE: bool = cfg!(any(windows, target_os = "macos"));
 
-/// Does `rule` cover the file `key` (a [`crate::claims::file_key`]) in `project`?
+/// The rule's `path` for its scope: a safe relative path, or a guard rule id.
+fn rule_path(path: &str, scope: RuleScope) -> Option<String> {
+    match scope {
+        RuleScope::File | RuleScope::Folder => normalize_path(path),
+        RuleScope::Command => crate::command_guard::valid_id(path).then(|| path.to_owned()),
+    }
+}
+
+/// Does `rule` cover the file `key` (a [`crate::claims::file_key`]) in `project`? A command rule
+/// covers no file.
 pub fn rule_matches(rule: &GateRule, project: &str, key: &str, case_insensitive: bool) -> bool {
-    if fold(&rule.project, case_insensitive) != fold(project, case_insensitive) {
+    if rule.scope == RuleScope::Command
+        || fold(&rule.project, case_insensitive) != fold(project, case_insensitive)
+    {
         return false;
     }
     let Some(file) = normalize_path(key) else {
@@ -149,7 +170,20 @@ pub fn rule_matches(rule: &GateRule, project: &str, key: &str, case_insensitive:
         RuleScope::Folder => file
             .strip_prefix(path.as_str())
             .is_some_and(|rest| rest.starts_with('/')),
+        RuleScope::Command => false,
     }
+}
+
+/// Does `rule` answer shell commands matching the guard rule `guard_rule` in `project`?
+pub fn command_rule_matches(
+    rule: &GateRule,
+    project: &str,
+    guard_rule: &str,
+    case_insensitive: bool,
+) -> bool {
+    rule.scope == RuleScope::Command
+        && rule.path == guard_rule
+        && fold(&rule.project, case_insensitive) == fold(project, case_insensitive)
 }
 
 /// The rule that answers an edit of `key` in `project`: any deny rule before any allow rule, and
@@ -216,7 +250,7 @@ impl RuleBook {
     }
 
     /// Adds a rule, or changes the effect of the rule for the same project, path and scope.
-    /// `None` when the path is unsafe, the project empty or the book full.
+    /// `None` when the path (or guard rule id) is unsafe, the project empty or the book full.
     pub fn add(
         &mut self,
         project: &str,
@@ -225,7 +259,7 @@ impl RuleBook {
         effect: RuleEffect,
         now_millis: u64,
     ) -> Option<GateRule> {
-        let path = normalize_path(path)?;
+        let path = rule_path(path, scope)?;
         // As `parse_rule` checks it: a rule that would not read back is not added.
         if project.is_empty()
             || project.len() > MAX_PATH_LEN
@@ -271,6 +305,16 @@ impl RuleBook {
     pub fn find(&self, project: &str, key: &str) -> Option<&GateRule> {
         find(&self.rules, project, key, CASE_INSENSITIVE)
     }
+
+    /// The remembered answer for shell commands of `project` matching the guard rule
+    /// `guard_rule`. [`RuleBook::add`] keeps one per project and guard rule, but a hand-edited
+    /// file may hold two that differ in case: a deny wins, as for files.
+    pub fn find_command(&self, project: &str, guard_rule: &str) -> Option<&GateRule> {
+        self.rules
+            .iter()
+            .filter(|rule| command_rule_matches(rule, project, guard_rule, CASE_INSENSITIVE))
+            .max_by_key(|rule| rule.effect == RuleEffect::Deny)
+    }
 }
 
 fn parse_rule(entry: &Value) -> Option<GateRule> {
@@ -279,8 +323,8 @@ fn parse_rule(entry: &Value) -> Option<GateRule> {
     if project.is_empty() || project.len() > MAX_PATH_LEN || project.chars().any(char::is_control) {
         return None;
     }
-    let path = normalize_path(entry.get("path")?.as_str()?)?;
     let scope = serde_json::from_value(entry.get("scope")?.clone()).ok()?;
+    let path = rule_path(entry.get("path")?.as_str()?, scope)?;
     let effect = serde_json::from_value(entry.get("effect")?.clone()).ok()?;
     let created_at = entry.get("createdAt").and_then(Value::as_u64).unwrap_or(0);
     Some(GateRule {
@@ -454,6 +498,85 @@ mod tests {
         assert!(book.remove(1));
         assert!(!book.remove(1));
         assert_eq!(book.find(PROJECT, "src/a.ts").unwrap().id, 2);
+    }
+
+    #[test]
+    fn command_rules_answer_their_guard_rule_and_no_file() {
+        let mut book = RuleBook::default();
+        let rule = book
+            .add(
+                PROJECT,
+                "git-push-force",
+                RuleScope::Command,
+                RuleEffect::Allow,
+                1,
+            )
+            .unwrap();
+        assert_eq!(rule.path, "git-push-force");
+        // The same guard rule again changes the effect.
+        let again = book
+            .add(
+                PROJECT,
+                "git-push-force",
+                RuleScope::Command,
+                RuleEffect::Deny,
+                2,
+            )
+            .unwrap();
+        assert_eq!(again.id, rule.id);
+        assert_eq!(
+            book.find_command(PROJECT, "git-push-force").unwrap().effect,
+            RuleEffect::Deny
+        );
+        assert!(book.find_command(PROJECT, "git-reset-hard").is_none());
+        assert!(book
+            .find_command("c:/code/other/.git", "git-push-force")
+            .is_none());
+        // Two entries that differ only in the project's case (a hand-edited file): deny wins.
+        let both = r#"{"rules": [
+            {"id": 1, "project": "C:/Code/App/.git", "path": "rm-outside-project", "scope": "command", "effect": "allow"},
+            {"id": 2, "project": "c:/code/app/.git", "path": "rm-outside-project", "scope": "command", "effect": "deny"},
+            {"id": 3, "project": "c:/code/app/.git", "path": "rm-outside-project", "scope": "command", "effect": "allow"}
+        ]}"#;
+        if CASE_INSENSITIVE {
+            assert_eq!(
+                RuleBook::parse(both.as_bytes())
+                    .find_command(PROJECT, "rm-outside-project")
+                    .map(|rule| rule.effect),
+                Some(RuleEffect::Deny)
+            );
+        }
+        // A command rule never answers an edit, even of a file named like the guard rule.
+        assert!(book.find(PROJECT, "git-push-force").is_none());
+        // A file rule never answers a command.
+        book.add(
+            PROJECT,
+            "git-reset-hard",
+            RuleScope::File,
+            RuleEffect::Allow,
+            3,
+        );
+        assert!(book.find_command(PROJECT, "git-reset-hard").is_none());
+        // Ids follow the guard's rules; paths and odd text are refused.
+        for bad in ["", "Git Push", "../x", "a/b", "x\ny"] {
+            assert!(
+                book.add(PROJECT, bad, RuleScope::Command, RuleEffect::Allow, 0)
+                    .is_none(),
+                "{bad:?}"
+            );
+        }
+        let parsed = RuleBook::parse(&book.to_json());
+        assert_eq!(parsed, book);
+        let text = r#"{"rules": [
+            {"id": 1, "project": "p", "path": "Bad Id", "scope": "command", "effect": "deny"},
+            {"id": 2, "project": "p", "path": "rm-outside-project", "scope": "command", "effect": "deny"}
+        ]}"#;
+        let ids: Vec<u64> = RuleBook::parse(text.as_bytes())
+            .rules()
+            .iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, vec![2]);
     }
 
     #[test]
