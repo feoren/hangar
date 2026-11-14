@@ -2761,30 +2761,56 @@ h2 .beta-badge {
   font-variant-numeric: tabular-nums;
 }
 
-/* Finished rows: a remove button replaces the run time on hover or keyboard focus. */
-.subagent-dismiss {
+/* Finished rows: a quiet "close" in italics at the end of the second line, always there, so
+   closing needs no hunt for a hover icon; the run time and tokens in line one stay. It lies over
+   the room the activity line keeps for it (.subagent-close-room, the same text, hidden), so the
+   activity gives way before it and nothing overlaps. */
+.subagent-close-text {
   position: absolute;
-  top: 50%;
-  right: 3px;
-  width: 20px;
-  height: 20px;
-  opacity: 0;
-  transform: translateY(-50%);
+  right: 8px;
+  bottom: 4px;
+  padding: 0 3px;
+  margin-right: -3px;
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: inherit;
+  color: var(--muted);
+  white-space: nowrap;
+  border-radius: 3px;
 }
 
-.subagent-tree-item.removable:hover .subagent-dismiss,
-.subagent-tree-item.removable:focus-within .subagent-dismiss {
-  opacity: 1;
+.subagent-close-text:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
-.subagent-tree-item.removable:hover .subagent-node-time,
-.subagent-tree-item.removable:focus-within .subagent-node-time {
-  visibility: hidden;
+/* The button lies over its row: the row keeps its hover look while the pointer is on it. */
+.subagent-tree-item:has(> .subagent-close-text:hover) > .subagent-node:not(.picked) {
+  color: var(--text);
+  background: var(--hover);
 }
 
-.subagent-dismiss:focus-visible {
+.subagent-close-text:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 0;
+  color: var(--text);
+}
+
+.subagent-node-activity:has(.subagent-close-room) {
+  display: flex;
+  gap: 8px;
+}
+
+.subagent-activity-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subagent-close-room {
+  flex: none;
+  margin-left: auto;
+  visibility: hidden;
 }
 
 .subagent-node.clear .subagent-node-name {
@@ -2832,8 +2858,6 @@ h2 .beta-badge {
   .subagent-tree-item::before {
     display: none;
   }
-.subagent-dismiss {
-  top: 12px;
 }
 
 .subagent-node.agent {

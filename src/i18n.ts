@@ -115,8 +115,9 @@ const de = {
   "subAgents.unavailable":
     "Für diese Session sind gerade keine Sub-Agents verfügbar. Nach einem Neustart wieder.",
   "subAgents.error": "Sub-Agents lassen sich nicht anzeigen: {error}",
-  "subAgents.dismiss": "{name} entfernen",
-  "subAgents.dismissFinished": "Fertige entfernen",
+  "subAgents.dismiss": "{name} schließen",
+  "subAgents.dismissFinished": "Fertige schließen",
+  "subAgents.close": "schließen",
   "subAgents.dismissHelp": "Blendet fertige Sub-Agents hier aus. Ihre Protokolle bleiben erhalten.",
   "subAgents.showAll": "Alle Sub-Agents",
   "subAgents.task": "Auftrag",
@@ -1474,8 +1475,9 @@ const en: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Sub-agents are not available for this session right now. They will be after a restart.",
   "subAgents.error": "Cannot show sub-agents: {error}",
-  "subAgents.dismiss": "Remove {name}",
-  "subAgents.dismissFinished": "Remove finished",
+  "subAgents.dismiss": "Close {name}",
+  "subAgents.dismissFinished": "Close finished",
+  "subAgents.close": "close",
   "subAgents.dismissHelp": "Hides finished sub-agents here. Their transcripts stay.",
   "subAgents.showAll": "All sub-agents",
   "subAgents.task": "Task",
@@ -2799,8 +2801,9 @@ const el: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Οι υπο-πράκτορες δεν είναι διαθέσιμοι τώρα για αυτή τη συνεδρία. Θα είναι μετά από επανεκκίνηση.",
   "subAgents.error": "Δεν είναι δυνατή η εμφάνιση υπο-πρακτόρων: {error}",
-  "subAgents.dismiss": "Αφαίρεση {name}",
-  "subAgents.dismissFinished": "Αφαίρεση ολοκληρωμένων",
+  "subAgents.dismiss": "Κλείσιμο {name}",
+  "subAgents.dismissFinished": "Κλείσιμο ολοκληρωμένων",
+  "subAgents.close": "κλείσιμο",
   "subAgents.dismissHelp":
     "Κρύβει εδώ τους ολοκληρωμένους υπο-πράκτορες. Τα αρχεία καταγραφής τους παραμένουν.",
   "subAgents.showAll": "Όλοι οι υπο-πράκτορες",
@@ -4169,8 +4172,9 @@ const es: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Los subagentes no están disponibles ahora para esta sesión. Lo estarán tras reiniciarla.",
   "subAgents.error": "No se pueden mostrar los subagentes: {error}",
-  "subAgents.dismiss": "Quitar {name}",
-  "subAgents.dismissFinished": "Quitar terminados",
+  "subAgents.dismiss": "Cerrar {name}",
+  "subAgents.dismissFinished": "Cerrar terminados",
+  "subAgents.close": "cerrar",
   "subAgents.dismissHelp":
     "Oculta aquí los subagentes terminados. Sus transcripciones se conservan.",
   "subAgents.showAll": "Todos los subagentes",
@@ -5517,8 +5521,9 @@ const fr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Les sous-agents ne sont pas disponibles pour cette session pour le moment. Ils le seront après un redémarrage.",
   "subAgents.error": "Impossible d'afficher les sous-agents : {error}",
-  "subAgents.dismiss": "Retirer {name}",
-  "subAgents.dismissFinished": "Retirer les terminés",
+  "subAgents.dismiss": "Fermer {name}",
+  "subAgents.dismissFinished": "Fermer les terminés",
+  "subAgents.close": "fermer",
   "subAgents.dismissHelp":
     "Masque ici les sous-agents terminés. Leurs transcriptions sont conservées.",
   "subAgents.showAll": "Tous les sous-agents",
@@ -6886,8 +6891,9 @@ const it: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "I sotto-agenti non sono disponibili ora per questa sessione. Lo saranno dopo un riavvio.",
   "subAgents.error": "Impossibile mostrare i sotto-agenti: {error}",
-  "subAgents.dismiss": "Rimuovi {name}",
-  "subAgents.dismissFinished": "Rimuovi i terminati",
+  "subAgents.dismiss": "Chiudi {name}",
+  "subAgents.dismissFinished": "Chiudi i terminati",
+  "subAgents.close": "chiudi",
   "subAgents.dismissHelp": "Nasconde qui i sotto-agenti terminati. Le loro trascrizioni restano.",
   "subAgents.showAll": "Tutti i sotto-agenti",
   "subAgents.task": "Compito",
@@ -8240,8 +8246,9 @@ const ja: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "このセッションでは現在サブエージェントを利用できません。再起動後に利用できます。",
   "subAgents.error": "サブエージェントを表示できません: {error}",
-  "subAgents.dismiss": "{name} を削除",
-  "subAgents.dismissFinished": "完了したものを削除",
+  "subAgents.dismiss": "{name} を閉じる",
+  "subAgents.dismissFinished": "完了したものを閉じる",
+  "subAgents.close": "閉じる",
   "subAgents.dismissHelp":
     "完了したサブエージェントをここから非表示にします。記録はそのまま残ります。",
   "subAgents.showAll": "すべてのサブエージェント",
@@ -9590,8 +9597,9 @@ const pl: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Podagenci nie są teraz dostępni dla tej sesji. Będą po ponownym uruchomieniu.",
   "subAgents.error": "Nie można pokazać podagentów: {error}",
-  "subAgents.dismiss": "Usuń {name}",
-  "subAgents.dismissFinished": "Usuń zakończone",
+  "subAgents.dismiss": "Zamknij {name}",
+  "subAgents.dismissFinished": "Zamknij zakończone",
+  "subAgents.close": "zamknij",
   "subAgents.dismissHelp": "Ukrywa tutaj zakończonych podagentów. Ich zapisy pozostają.",
   "subAgents.showAll": "Wszyscy podagenci",
   "subAgents.task": "Zadanie",
@@ -10928,8 +10936,9 @@ const pt: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Os subagentes não estão disponíveis agora para esta sessão. Estarão após reiniciá-la.",
   "subAgents.error": "Não foi possível mostrar os subagentes: {error}",
-  "subAgents.dismiss": "Remover {name}",
-  "subAgents.dismissFinished": "Remover concluídos",
+  "subAgents.dismiss": "Fechar {name}",
+  "subAgents.dismissFinished": "Fechar concluídos",
+  "subAgents.close": "fechar",
   "subAgents.dismissHelp":
     "Oculta aqui os subagentes concluídos. As transcrições deles continuam guardadas.",
   "subAgents.showAll": "Todos os subagentes",
@@ -12276,8 +12285,9 @@ const ru: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Субагенты сейчас недоступны для этого сеанса. Они станут доступны после перезапуска.",
   "subAgents.error": "Не удалось показать субагентов: {error}",
-  "subAgents.dismiss": "Убрать {name}",
-  "subAgents.dismissFinished": "Убрать завершённые",
+  "subAgents.dismiss": "Закрыть {name}",
+  "subAgents.dismissFinished": "Закрыть завершённые",
+  "subAgents.close": "закрыть",
   "subAgents.dismissHelp": "Скрывает здесь завершённых субагентов. Их журналы сохраняются.",
   "subAgents.showAll": "Все субагенты",
   "subAgents.task": "Задача",
@@ -13609,8 +13619,9 @@ const tr: Record<MessageKey, string> = {
   "subAgents.unavailable":
     "Bu oturum için alt ajanlar şu anda kullanılamıyor. Yeniden başlattıktan sonra kullanılabilir.",
   "subAgents.error": "Alt ajanlar gösterilemiyor: {error}",
-  "subAgents.dismiss": "{name} öğesini kaldır",
-  "subAgents.dismissFinished": "Bitenleri kaldır",
+  "subAgents.dismiss": "{name} öğesini kapat",
+  "subAgents.dismissFinished": "Bitenleri kapat",
+  "subAgents.close": "kapat",
   "subAgents.dismissHelp": "Biten alt ajanları burada gizler. Kayıtları korunur.",
   "subAgents.showAll": "Tüm alt ajanlar",
   "subAgents.task": "Görev",
@@ -14938,8 +14949,9 @@ const zh: Record<MessageKey, string> = {
   "subAgents.none": "暂无子代理。代理启动子代理后会显示在这里。",
   "subAgents.unavailable": "此会话目前无法使用子代理，重新启动后即可使用。",
   "subAgents.error": "无法显示子代理：{error}",
-  "subAgents.dismiss": "移除 {name}",
-  "subAgents.dismissFinished": "移除已完成",
+  "subAgents.dismiss": "关闭 {name}",
+  "subAgents.dismissFinished": "关闭已完成",
+  "subAgents.close": "关闭",
   "subAgents.dismissHelp": "在此隐藏已完成的子代理。它们的记录会保留。",
   "subAgents.showAll": "所有子代理",
   "subAgents.task": "任务",

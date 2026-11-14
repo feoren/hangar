@@ -643,15 +643,16 @@ menu paste uses the clipboard plugin.
     key is session plus conversation id only) and dropping excerpts at once when they are no
     longer wanted. The tree lists up to five sub-agents (the shown one, running and newer
     first, in start order, else four plus "N more"); a row shows that sub-agent's log and is
-    highlighted. Finished rows get a remove button that replaces the run time on hover or
-    keyboard focus; with two or more finished ones a last row "Remove finished" removes them
-    all. Removing only hides them in the tree and the list (`dismissFinished`, finished ones
-    only, per session and conversation id); transcripts are never touched. The removed ids live
-    in the app's memory for this run of Hangar, not in the workspace: a view preference that
-    needs no format change, and a new conversation starts with a clean tree anyway. Removing the
-    shown sub-agent closes the view; removing by keyboard moves the focus to the next row (or
-    the previous one), and to the terminal once the tree is empty; by mouse the terminal gets
-    the focus back.
+    highlighted. Finished rows end their second line with an always visible italic text
+    button "close" (`SubAgentItem`, `.subagent-close-text`), lying over room the activity line
+    keeps for it; run time and tokens stay in line one. With two or more finished ones a last
+    row "Close finished" closes them all. Closing only hides them in the tree and the list
+    (`dismissFinished`, finished ones only, per session and conversation id); transcripts are
+    never touched. The closed ids live in the app's memory for this run of Hangar, not in the
+    workspace: a view preference that needs no format change, and a new conversation starts
+    with a clean tree anyway. Closing the shown sub-agent closes the view; closing by keyboard
+    moves the focus to the next row (or the previous one), and to the terminal once the tree
+    is empty; by mouse the terminal gets the focus back.
     As built, conversation ids (`src/workspace.ts`, `src/sessions.ts`): `cliSessionId` is saved
     per entry (lower case, invalid or duplicate ids dropped to `null`, so the backend never
     refuses the workspace), passed to `create_session` on restore and on restarting a
