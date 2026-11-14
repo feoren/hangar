@@ -199,15 +199,18 @@ describe("the first line: signs, title, state", () => {
   });
 
   it("keeps title, state and signs in that order for screen readers", () => {
-    const row = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
+    // The row's inside lives in SessionRow.tsx; Sidebar.tsx hands it the signs.
+    const row = readFileSync(new URL("./SessionRow.tsx", import.meta.url), "utf8");
     const title = row.indexOf('<span className="session-title">{name}</span>');
     const state = row.indexOf('<span className="session-state">', title);
-    const signs = row.indexOf('<span className="session-signs">', state);
+    const signs = row.indexOf("{signs}", state);
     expect(title).toBeGreaterThan(0);
     expect(state).toBeGreaterThan(title);
     expect(signs).toBeGreaterThan(state);
-    // A row says its state in words; the status chip stays for the rail only.
-    expect(row).not.toContain("<StatusChip kind={chip} />");
+    const sidebar = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
+    expect(sidebar).toContain('<span className="session-signs">');
+    // A standard row says its state in words; that it shows no status chip is checked by
+    // rendering it (SessionRow.test.tsx).
   });
 });
 

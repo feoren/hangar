@@ -144,6 +144,20 @@
         "zh": "侧边栏将每个会话的信息对齐到固定宽度的列中，树线绘制均匀，已完成的子智能体可用文字按钮关闭。"
       },
       {
+        "de": "Unter Darstellung wählst du, wie die Seitenleiste jede Session zeigt: 14 Stile, etwa Pill, Ring, Kacheln oder aufklappbar. Gruppen und Baumlinien bleiben.",
+        "en": "Under Appearance you choose how the sidebar shows each session: 14 styles such as pill, ring, tiles or expandable. Groups and tree lines stay.",
+        "el": "Στην Εμφάνιση επιλέγεις πώς δείχνει η πλαϊνή στήλη κάθε συνεδρία: 14 στυλ, όπως pill, δακτύλιος, πλακίδια ή αναπτυσσόμενο. Ομάδες και γραμμές δέντρου μένουν.",
+        "es": "En Apariencia eliges cómo muestra la barra lateral cada sesión: 14 estilos, como píldora, anillo, mosaicos o desplegable. Grupos y líneas de árbol se mantienen.",
+        "fr": "Dans Apparence, choisis comment la barre latérale affiche chaque session : 14 styles, dont pastille, anneau ou tuiles. Groupes et arborescence restent.",
+        "it": "In Aspetto scegli come la barra laterale mostra ogni sessione: 14 stili, come pillola, anello, riquadri o espandibile. Gruppi e linee dell’albero restano.",
+        "ja": "「外観」で、サイドバーの各セッションの表示を14種類のスタイル（ピル、リング、タイル、折りたたみなど）から選べます。グループとツリー線はそのままです。",
+        "pl": "W sekcji Wygląd wybierasz, jak pasek boczny pokazuje sesje: 14 stylów, np. pigułka, pierścień, kafelki lub rozwijane. Grupy i linie drzewa zostają.",
+        "pt": "Em Aparência você escolhe como a barra lateral mostra cada sessão: 14 estilos, como pílula, anel, blocos ou expansível. Grupos e linhas da árvore continuam.",
+        "ru": "В разделе «Оформление» можно выбрать вид сеансов на боковой панели: 14 стилей, например плашка, кольцо, плитки или раскрывающийся. Группы и дерево остаются.",
+        "tr": "Görünüm bölümünde kenar çubuğunun her oturumu nasıl göstereceğini seçersin: hap, halka, kutucuk veya açılır gibi 14 stil. Gruplar ve ağaç çizgileri kalır.",
+        "zh": "在“外观”中可选择侧边栏显示每个会话的方式：共 14 种样式，如胶囊、圆环、磁贴或可展开。分组和树状线保持不变。"
+      },
+      {
         "de": "Sicherer: Terminal-Links öffnen nur lokale Ziele, neue Worktrees führen keine Repository-Hooks aus, und das Team-Relay nimmt einfaches ws nur lokal an.",
         "en": "Safer: terminal links open only local targets, new worktrees run no repository hooks, and the team relay accepts plain ws only from this machine.",
         "el": "Πιο ασφαλές: οι σύνδεσμοι τερματικού ανοίγουν μόνο τοπικούς στόχους, τα νέα worktrees δεν τρέχουν hooks και το relay δέχεται απλό ws μόνο τοπικά.",

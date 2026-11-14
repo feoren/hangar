@@ -22,6 +22,7 @@ function ResourceFact({
   name,
   values,
   spoken,
+  label,
 }: {
   kind: keyof typeof RESOURCE_ICONS;
   name: string;
@@ -29,6 +30,8 @@ function ResourceFact({
   values: readonly { cell: "percent" | "memory"; text: string | null }[];
   /** What screen readers hear after the name; `null` for an empty column. */
   spoken: string | null;
+  /** The name on screen above the value (tiles); screen readers hear it with the value. */
+  label: string | null;
 }) {
   const Icon = RESOURCE_ICONS[kind];
   return (
@@ -39,6 +42,11 @@ function ResourceFact({
       <span className="session-resource-icon" aria-hidden="true">
         <Icon size={11} />
       </span>
+      {label !== null && (
+        <span className="session-resource-label" aria-hidden="true">
+          {label}
+        </span>
+      )}
       {values.map(({ cell, text }, index) => (
         <Fragment key={cell}>
           {/* "30 % · 1.2 GB": the dot only between two values. */}
@@ -61,21 +69,33 @@ function ResourceFact({
  * The third line: CPU, RAM and, where the machine gives GPU numbers, GPU (load and memory). The
  * GPU column stays (empty) for a session without GPU use, so every row keeps the same columns.
  */
-export function SessionLoad({ usage, gpuColumn }: { usage: ResourceParts; gpuColumn: boolean }) {
+export function SessionLoad({
+  usage,
+  gpuColumn,
+  tiles = false,
+}: {
+  usage: ResourceParts;
+  gpuColumn: boolean;
+  /** Each value in a small tile with its name (row style "tiles", rowStyle.ts). */
+  tiles?: boolean;
+}) {
   const t = useT();
+  const label = (name: string) => (tiles ? name : null);
   return (
-    <span className="session-load">
+    <span className={tiles ? "session-load tiles" : "session-load"}>
       <ResourceFact
         kind="cpu"
         name={t("system.cpu")}
         values={[{ cell: "percent", text: usage.cpu }]}
         spoken={usage.cpu}
+        label={label(t("system.cpu"))}
       />
       <ResourceFact
         kind="memory"
         name={t("system.memory")}
         values={[{ cell: "memory", text: usage.memory }]}
         spoken={usage.memory}
+        label={label(t("system.memory"))}
       />
       {(gpuColumn || usage.gpu !== null) && (
         <ResourceFact
@@ -86,6 +106,7 @@ export function SessionLoad({ usage, gpuColumn }: { usage: ResourceParts; gpuCol
             { cell: "memory", text: usage.gpuMemory },
           ]}
           spoken={usage.gpu}
+          label={label(t("system.gpu"))}
         />
       )}
     </span>

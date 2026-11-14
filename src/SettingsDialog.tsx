@@ -23,6 +23,7 @@ import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
+import { RowStyleField } from "./RowStyleSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
 import { instructionsUnavailable } from "./startOptions";
@@ -583,6 +584,13 @@ function AppearanceSection(props: Props) {
           {t("sidebar.groupByHelp")}
         </p>
       </div>
+      <RowStyleField
+        value={settings.rowStyle}
+        language={settings.language}
+        onChange={(rowStyle) => {
+          onChange({ rowStyle });
+        }}
+      />
       <TerminalLookFields {...props} />
       <ViewerThemeFields {...props} />
       <div className="settings-row">

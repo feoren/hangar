@@ -77,6 +77,10 @@ export interface PeekNoteSources {
   queued?: string | null | undefined;
   /** Why the session is marked as an outlier. */
   outlier?: string | null | undefined;
+  /** CPU, RAM and GPU, for a row style that leaves them off the row (rowStyle.ts). */
+  load?: string | null | undefined;
+  /** The context window's use, for a row style that leaves the tokens off the row. */
+  context?: string | null | undefined;
   /** Address of the dev server the session runs. */
   devServer?: string | null | undefined;
   /** The session's program and its version ("PowerShell 7 · 7.6.9"). */
@@ -87,7 +91,8 @@ export interface PeekNoteSources {
 
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
- * then the queued message, the outlier note, the dev server and the program, then the working folder. Empty and repeated texts are left
+ * then the queued message, the outlier note, the load and context a compact row leaves out, the
+ * dev server and the program, then the working folder. Empty and repeated texts are left
  * out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
@@ -98,6 +103,8 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.exit,
     sources.queued,
     sources.outlier,
+    sources.load,
+    sources.context,
     sources.devServer,
     sources.program,
     sources.cwd,

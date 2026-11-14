@@ -37,6 +37,7 @@ describe("parseSettings", () => {
         failed: { color: "#f5a3c7", pulse: "subtle", seconds: 1.6 },
       },
       dotAnimation: "wave",
+      rowStyle: "ring",
       quietSeconds: 10,
       stallMinutes: 12,
       taskbarFlash: false,
@@ -97,6 +98,7 @@ describe("parseSettings", () => {
       gateEnabled: 0,
       commandGuardEnabled: "on",
       dotAnimation: "spin",
+      rowStyle: "fancy",
       sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
@@ -338,6 +340,7 @@ describe("parseSettings", () => {
     expect(parsed.looks.working.color).toBe("#8cc8ff");
     expect(parsed.looks.failed).toEqual(DEFAULT_LOOKS.failed);
     expect(parsed.dotAnimation).toBe("bounce");
+    expect(parsed.rowStyle).toBe("standard");
   });
 
   it("drops invalid looks", () => {

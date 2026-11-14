@@ -68,6 +68,17 @@ describe("peekNotes", () => {
     ).toEqual(["Also changed by #2", "Gate is off", "C:\\work\\app"]);
   });
 
+  it("spells out the load and the context a compact row leaves out, after the outlier", () => {
+    expect(
+      peekNotes({
+        program: "Claude",
+        context: "Context 22% full",
+        load: "CPU 12% · RAM 476 MB",
+        outlier: "Uses a lot",
+      }),
+    ).toEqual(["Uses a lot", "CPU 12% · RAM 476 MB", "Context 22% full", "Claude"]);
+  });
+
   it("leaves out missing, blank and repeated texts", () => {
     expect(peekNotes({})).toEqual([]);
     expect(peekNotes({ overlap: null, gateOff: "  ", cwd: "/home/me" })).toEqual(["/home/me"]);

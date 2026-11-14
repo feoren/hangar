@@ -153,6 +153,20 @@
      every UI language: "Entscheidung" in bold measures 70.3 px in Edge with the UI font, 6.4em is
      73.6 px. */
   --state-word: 6.4em;
+  /* Row styles (rowStyle.ts, "Row styles" below): the program avatar, the context ring, the tint
+     of a pill and of a whole row in the state's color, and the band on top of a row. */
+  --row-avatar: 18px;
+  --row-avatar-card: 24px;
+  --context-ring: 26px;
+  --context-ring-width: 3px;
+  --row-pill-tint: 20%;
+  --row-state-tint: 9%;
+  --row-band: 3px;
+  /* The columns style's cells, in px so the rows' 11 px values and the smaller headings above
+     them share one width: "100 %" is 29.8 px, the run time as wide as --fact-runtime at 11 px. */
+  --column-percent: 34px;
+  --column-context: 38px;
+  --column-runtime: 43px;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -11043,3 +11057,623 @@ body.session-dragging .session-actions {
   color: var(--text);
   background: var(--hover);
 }
+
+/* --- Row styles (rowStyle.ts, SessionRow.tsx) ---
+   The chosen style sits as data-rows on the sidebar's session groups and on the settings'
+   preview. A style changes only the inside of a session row: the row's frame, edge, margins and
+   tree guides stay as they are, so groups, guides and sub-agent rows read alike in every style.
+   "standard" has no rules here. The hover actions keep lying over the row in every style. */
+
+/* Pill (also the card): the state word with its dot in a pill tinted in the state's color. The
+   word keeps the full text color, so the tint never has to carry the contrast. Three classes, so
+   it wins over the active row's quieter state color. */
+[data-rows="pill"] .session .session-state,
+[data-rows="card"] .session .session-state {
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text);
+  background: color-mix(in srgb, var(--edge) var(--row-pill-tint), transparent);
+  border-radius: 999px;
+}
+
+/* In its pill the word keeps its cell of fixed width, centered, so the pills line up. */
+[data-rows="pill"] .session-status,
+[data-rows="card"] .session-status,
+[data-rows="band"] .session-status {
+  text-align: center;
+}
+
+/* Avatar, ring and card: a grid, so the avatar or ring stands beside the first two lines while
+   the load line below takes the row's whole width (it needs all of it in a narrow sidebar). */
+[data-rows="avatar"] .session-text,
+[data-rows="ring"] .session-text,
+[data-rows="card"] .session-text {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+}
+
+[data-rows="card"] .session-text {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+[data-rows="avatar"] .session-title-row,
+[data-rows="ring"] .session-title-row,
+[data-rows="card"] .session-title-row {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+[data-rows="avatar"] .session-meta,
+[data-rows="ring"] .session-meta,
+[data-rows="card"] .session-meta {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+[data-rows="avatar"] .session-detail,
+[data-rows="ring"] .session-detail,
+[data-rows="card"] .session-detail,
+[data-rows="avatar"] .session-context {
+  grid-column: 1 / -1;
+}
+
+/* The program's badge, the state dot on its corner (avatar) or alone (card). */
+.session-avatar {
+  position: relative;
+  display: inline-flex;
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  align-self: start;
+}
+
+.session-avatar .badge {
+  width: var(--row-avatar);
+  height: var(--row-avatar);
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.session-avatar .badge.wide {
+  font-size: 6.5px;
+}
+
+.session-avatar .badge-icon img {
+  width: var(--row-avatar);
+  height: var(--row-avatar);
+}
+
+[data-rows="card"] .session-avatar {
+  align-self: center;
+}
+
+[data-rows="card"] .session-avatar .badge,
+[data-rows="card"] .session-avatar .badge-icon img {
+  width: var(--row-avatar-card);
+  height: var(--row-avatar-card);
+  font-size: 11px;
+}
+
+/* The dot on the badge's corner, cut free by a ring in the sidebar's color. It is the row's state
+   dot (same class), so it takes the state's color and the working dots' motion. */
+.session-avatar .state-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 9px;
+  height: 9px;
+  margin: 0;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* The avatar's corner dot says the state; the word stays, smaller, without a second dot. The
+   program's badge before the title would repeat the avatar. */
+[data-rows="avatar"] .session-state > .state-dot,
+[data-rows="avatar"] .session-title-row > .badge,
+[data-rows="card"] .session-title-row > .badge {
+  display: none;
+}
+
+[data-rows="avatar"] .session-state {
+  font-size: 10.5px;
+}
+
+/* The context as a ring: a conic gradient (ContextLine.tsx) with its middle cut out, the share
+   in the middle. Without numbers a faint empty ring keeps the rows' shape. */
+.session-ring {
+  --ring-fill: var(--accent);
+  --ring-rest: color-mix(in srgb, var(--muted) 30%, transparent);
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  place-items: center;
+  width: var(--context-ring);
+  height: var(--context-ring);
+}
+
+[data-rows="card"] .session-ring {
+  grid-column: 3;
+}
+
+.session-ring.high {
+  --ring-fill: var(--warn);
+}
+
+.session-ring.empty {
+  opacity: 0.55;
+}
+
+.session-ring-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  mask-image: radial-gradient(
+    farthest-side,
+    transparent calc(100% - var(--context-ring-width)),
+    #000 calc(100% - var(--context-ring-width))
+  );
+}
+
+.session-ring-value {
+  position: relative;
+  font-size: 9px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+}
+
+/* Ring and card show the run time at the end of the load line. Where both do not fit (a narrow
+   sidebar), the run time moves to a line of its own instead of cutting a value. */
+[data-rows="ring"] .session-detail,
+[data-rows="card"] .session-detail {
+  height: auto;
+}
+
+.session-detail > .session-runtime {
+  margin-left: auto;
+}
+
+/* Card: the row on a raised background. Hover and the active frame still show over it. */
+[data-rows="card"] .session {
+  background-color: var(--panel-raised);
+}
+
+/* Accordion: a chevron at the row's start folds lines 2 to 4. It is a button beside the row's
+   main button (buttons do not nest), lying over the room the main button leaves for it. */
+[data-rows="accordion"] .session-main {
+  padding-left: 22px;
+}
+
+.session-expander {
+  position: absolute;
+  top: 6px;
+  left: 2px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  color: var(--muted);
+  border-radius: 4px;
+}
+
+.session-expander:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.session-expander:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.session-expander svg {
+  transition: transform 200ms var(--ease-out);
+}
+
+.session.expanded .session-expander svg {
+  transform: rotate(90deg);
+}
+
+/* The folding lines: grid rows from 0fr to 1fr, so they open to their own height. Folded, they
+   are hidden from screen readers too, once the motion has ended. */
+.session-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-width: 0;
+  transition: grid-template-rows 220ms var(--ease-out);
+}
+
+.session-more-inner {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear 220ms;
+}
+
+.session.expanded .session-more {
+  grid-template-rows: 1fr;
+}
+
+.session.expanded .session-more-inner {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+/* Folded, a small context bar on the title line stands in for the fourth line. */
+.session-title-row > .session-context-mini .session-context-bar {
+  flex-basis: 36px;
+  width: 36px;
+}
+
+.session.expanded .session-title-row > .session-context-mini {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-more,
+  .session-more-inner,
+  .session-expander svg {
+    transition: none;
+  }
+}
+
+/* A small context bar (accordion, compact), with the share after it on the compact row. */
+.session-context-mini {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.session-context-mini .session-context-bar {
+  flex: 0 0 46px;
+  width: 46px;
+  min-width: 0;
+}
+
+.session-context-mini.high .session-context-fill {
+  background: var(--warn);
+}
+
+.session-context-mini.high .session-context-share {
+  color: var(--warn);
+}
+
+/* Compact: folder and branch side by side with a dot between them, the small bar at the end. */
+[data-rows="compact"] .session-branch {
+  margin-left: 0;
+}
+
+[data-rows="compact"] .session-path + .session-branch::before {
+  content: "·" / "";
+}
+
+[data-rows="compact"] .session-meta > .session-context-mini {
+  margin-left: auto;
+}
+
+/* Tags: folder and branch as quiet tags, the load as outlined pills, a size smaller so all three
+   still fit the narrowest sidebar (rowStylesCss.test.ts). */
+[data-rows="tags"] .session-path,
+[data-rows="tags"] .session-branch {
+  padding: 0 6px;
+  line-height: 16px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border-radius: 4px;
+}
+
+[data-rows="tags"] .session-detail {
+  column-gap: 3px;
+  margin: 1px 0;
+  font-size: 10px;
+}
+
+[data-rows="tags"] .session-resource {
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+/* Tiles: CPU, RAM and GPU each in a small tile, its name above its value. */
+[data-rows="tiles"] .session-detail {
+  flex-wrap: nowrap;
+  column-gap: 4px;
+  height: auto;
+  margin: 2px 0;
+}
+
+[data-rows="tiles"] .session-resource {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  column-gap: 3px;
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-radius: 5px;
+}
+
+/* An empty GPU tile keeps its name, so the three tiles stay. */
+[data-rows="tiles"] .session-resource.vacant {
+  visibility: visible;
+}
+
+[data-rows="tiles"] .session-resource-label {
+  flex: 1 0 calc(100% - 14px);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+[data-rows="tiles"] .session-value {
+  min-width: 0;
+  color: var(--text);
+  text-align: start;
+}
+
+/* Edge: the whole row tinted in its state's color, layered over any breathing; the word names
+   the state, so its dot steps back. The actions' strip takes the same tint. */
+[data-rows="edge"] .session,
+[data-rows="edge"] .session .session-actions,
+[data-rows="edge"] .session .session-actions::before {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--edge) var(--row-state-tint), transparent),
+    color-mix(in srgb, var(--edge) var(--row-state-tint), transparent)
+  );
+}
+
+[data-rows="edge"] .session-state > .state-dot,
+[data-rows="band"] .session-state > .state-dot {
+  display: none;
+}
+
+/* Band: a thin band in the state's color on top of the row, the state in a solid pill. */
+[data-rows="band"] .session {
+  box-shadow: inset 0 var(--row-band) 0 var(--edge);
+}
+
+[data-rows="band"] .session:hover,
+[data-rows="band"] .session:has(.session-actions :focus-visible) {
+  box-shadow:
+    inset 0 var(--row-band) 0 var(--edge),
+    inset 0 0 0 100vmax var(--row-hover-shade);
+}
+
+[data-rows="band"] .session-main {
+  padding-top: 8px;
+}
+
+[data-rows="band"] .edge-working {
+  --state-solid: var(--look-working-chip-bg);
+  --on-state-solid: var(--look-working-chip-fg);
+}
+
+[data-rows="band"] .edge-idle {
+  --state-solid: var(--look-idle-chip-bg);
+  --on-state-solid: var(--look-idle-chip-fg);
+}
+
+[data-rows="band"] .edge-done {
+  --state-solid: var(--look-done-chip-bg);
+  --on-state-solid: var(--look-done-chip-fg);
+}
+
+[data-rows="band"] .edge-asks {
+  --state-solid: var(--look-asks-chip-bg);
+  --on-state-solid: var(--look-asks-chip-fg);
+}
+
+[data-rows="band"] .edge-failed {
+  --state-solid: var(--look-failed-chip-bg);
+  --on-state-solid: var(--look-failed-chip-fg);
+}
+
+[data-rows="band"] .edge-starting,
+[data-rows="band"] .edge-ended {
+  --state-solid: color-mix(in srgb, var(--muted) 30%, transparent);
+  --on-state-solid: var(--text);
+}
+
+[data-rows="band"] .session .session-state {
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--on-state-solid);
+  background: var(--state-solid);
+  border-radius: 999px;
+}
+
+[data-rows="band"] .session-state .session-status {
+  color: inherit;
+}
+
+/* Segments: the context in ten still cells, like a battery; nothing moves. */
+.session-context-segments {
+  display: flex;
+  flex: 1 1 var(--fact-bar-min);
+  gap: 2px;
+  min-width: var(--fact-bar-min);
+}
+
+.session-context-segments > span {
+  flex: 1 1 0;
+  height: 7px;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 1.5px;
+}
+
+.session-context-segments > .segment-on {
+  background: var(--accent);
+}
+
+.session-context.high .session-context-segments > .segment-on {
+  background: var(--warn);
+}
+
+.session-context-segments + .session-context-share {
+  margin-left: -2px;
+}
+
+/* Counters and columns: the state as its shape before the title instead of a word, so the shape
+   and not the color alone tells the states apart. */
+.session-shape {
+  display: inline-flex;
+  flex: none;
+  order: -1;
+  align-items: center;
+}
+
+.session-shape .status-chip:not(.compact) {
+  padding: 0;
+}
+
+.session-shape .status-chip:not(.compact) svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Counters: the run time where the state word was, in its fixed cell. */
+.session-state-runtime {
+  min-width: var(--fact-runtime);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: end;
+}
+
+/* Counters: the states of a group's sessions beside its count, each as its shape and number. */
+.agent-group-states {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+}
+
+.agent-group-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.agent-group-state .status-chip:not(.compact) {
+  padding: 0;
+}
+
+.agent-group-state .status-chip:not(.compact) svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Columns: CPU, context share and run time in aligned cells at the title line's end; their names
+   once above the list. The list always keeps its scroll bar's room, as the heading above it
+   does, so the columns line up with their names. */
+.session-columns {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-column {
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: end;
+  text-overflow: ellipsis;
+}
+
+.session-column-cpu {
+  width: var(--column-percent);
+}
+
+.session-column-context {
+  width: var(--column-context);
+}
+
+.session-column-runtime {
+  width: var(--column-runtime);
+}
+
+[data-rows="columns"] .session-list {
+  scrollbar-gutter: stable;
+}
+
+/* The columns take room from the title, which may give way a little further than elsewhere. */
+[data-rows="columns"] .session {
+  --title-min: 3em;
+}
+
+/* Starts where a row's text starts and ends where its columns end: the list's 8 px, the tree's
+   indent, the row's border and the main button's padding on each side. */
+.session-columns-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px calc(8px + var(--row-border) + 7px) 4px
+    calc(8px + var(--agent-tree-x) + var(--tree-step) + var(--row-edge) + 5px);
+  overflow: hidden;
+  scrollbar-gutter: stable;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* A name a little wider than its cell reaches into the gap before it rather than being cut. */
+.session-columns-head .session-column {
+  overflow: visible;
+}
+
+.session-columns-head-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Settings: the styles as options that wrap, and below them a preview of a group in the chosen
+   style on the sidebar's background. */
+.row-style-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.row-style-option {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+
+.row-style-preview {
+  width: min(100%, 360px);
+  margin-top: 10px;
+  padding: 2px 0 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.row-style-preview .session-list {
+  overflow: visible;
+}
+
+/* --- End of row styles --- */

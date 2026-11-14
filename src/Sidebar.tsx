@@ -47,9 +47,8 @@ import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
-import { markerColorText, SessionMarker } from "./SessionMarker";
+import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
-import { shortBranch } from "./worktree";
 import type { WorkspaceTemplate } from "./templates";
 import { TemplatesMenu } from "./TemplatesMenu";
 import { revealInvisible } from "./invisible";
@@ -96,8 +95,24 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
-import { SessionLoad } from "./SessionLoad";
-import { ContextLine } from "./ContextLine";
+import { contextHint } from "./contextUsage";
+import {
+  loadSummary,
+  rowExpanded,
+  rowParts,
+  stateCounts,
+  toggleRow,
+  type RowStyle,
+  type StateCount,
+} from "./rowStyle";
+import {
+  GroupStateCounts,
+  RowColumnsHead,
+  RowExpander,
+  SessionRowBody,
+  stateCountsText,
+} from "./SessionRow";
+import { useSessionContext } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionResources } from "./useSessionResources";
@@ -266,6 +281,8 @@ interface Props {
    * opens it again. If the row is not in the list (a folded group), the session is shown instead.
    */
   peekRequest: { id: number; token: number } | null;
+  /** How a session row lays out its facts (rowStyle.ts). */
+  rowStyle: RowStyle;
 }
 
 /** The peek's line about a queued message: when it goes out, then the text. */
@@ -352,6 +369,13 @@ export function Sidebar(props: Props) {
     (peekSession.id === activeId || props.placements.has(peekSession.id));
   /** The peeked session's numbers, for its outlier note; the row itself shows CPU, RAM and GPU. */
   const peekResources = useSessionResources(peekSession?.id ?? -1);
+  const peekContext = useSessionContext(peekSession?.id ?? -1);
+  const parts = rowParts(props.rowStyle);
+  /** Rows of the accordion style folded or unfolded by hand; in memory only. */
+  const [folds, setFolds] = useState<ReadonlyMap<number, boolean>>(() => new Map());
+  const onToggleExpanded = (id: number, active: boolean) => {
+    setFolds((current) => toggleRow(current, id, active));
+  };
   /** Mouse handlers of a session row for the peek. */
   const peekHandlers = (id: number): PeekEvents => ({
     onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
@@ -536,6 +560,21 @@ export function Sidebar(props: Props) {
           exit: exitDetail(peekSession, t),
           queued: queuedNote(props.queued.get(peekSession.id), chipOf(peekSession) === "asks", t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
+          // Styles that leave load and tokens off the row spell them out here.
+          ...(parts.peekFacts
+            ? {
+                load:
+                  peekResources === undefined || peekSession.status === "exited"
+                    ? null
+                    : loadSummary(resourceParts(peekResources, props.language), {
+                        cpu: t("system.cpu"),
+                        memory: t("system.memory"),
+                        gpu: t("system.gpu"),
+                      }),
+                context:
+                  peekContext === undefined ? null : contextHint(peekContext, props.language, t),
+              }
+            : {}),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
           cwd: peekSession.cwd,
@@ -878,6 +917,7 @@ export function Sidebar(props: Props) {
           hasRows={groupRows.length > 0}
           hiddenWaiting={hiddenWaiting}
           holdsActive={!open && agents.sessions.some((s) => s.id === activeId)}
+          counts={parts.counters ? stateCounts(agents.sessions.map(chipOf)) : []}
           onToggle={props.onToggleAgentGroup}
           onMenu={openGroupingMenu}
         >
@@ -910,6 +950,8 @@ export function Sidebar(props: Props) {
                   onRestart={onRestart}
                   onRenameStart={onRename}
                   onRowKey={onRowKey}
+                  expanded={rowExpanded(folds, session.id, session.id === activeId)}
+                  onToggleExpanded={onToggleExpanded}
                 />
                 {/* The tree belongs to the row above it; as its own item, the row's layout stays.
                     Below a middle row, the program group's guide line runs on past it. */}
@@ -962,7 +1004,8 @@ export function Sidebar(props: Props) {
 
       {/* One group per program or project folder, top to bottom; together they take the free
           height and scroll. */}
-      <div className="session-groups">
+      <div className="session-groups" data-rows={props.rowStyle}>
+        {parts.runtime === "columns" && sessions.length > 0 && <RowColumnsHead />}
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul
           className="session-list"
@@ -1249,7 +1292,7 @@ function GroupSection({
  * sessions it hides and whether the active session is among them. Right click or the context
  * menu key on the header offers the other grouping.
  */
-function AgentGroupSection({
+export function AgentGroupSection({
   groupKey,
   name,
   look,
@@ -1259,6 +1302,7 @@ function AgentGroupSection({
   hasRows,
   hiddenWaiting,
   holdsActive,
+  counts,
   onToggle,
   onMenu,
   children,
@@ -1276,6 +1320,8 @@ function AgentGroupSection({
   hiddenWaiting: number;
   /** Folded with the active session inside: the header stands in for its row. */
   holdsActive: boolean;
+  /** Sessions per state (counters style); empty in the other styles. */
+  counts: readonly StateCount[];
   onToggle: (key: string) => void;
   onMenu: (event: React.MouseEvent<HTMLElement>) => void;
   children: React.ReactNode;
@@ -1302,6 +1348,7 @@ function AgentGroupSection({
             path ?? "",
             holdsActive ? activeText : "",
             hiddenWaiting > 0 ? waitingText : "",
+            stateCountsText(counts, t),
           ]
             .filter(Boolean)
             .join("\n")}
@@ -1323,6 +1370,7 @@ function AgentGroupSection({
             {count}
           </span>
           <span className="sr-only">{countText}</span>
+          <GroupStateCounts counts={counts} />
           {holdsActive && <span className="sr-only">{activeText}</span>}
           {hiddenWaiting > 0 && (
             <span className="group-waiting agent-group-waiting">
@@ -1519,6 +1567,10 @@ interface ItemProps extends Props {
   /** Where the session is shown in a split layout; `null` in single view or when hidden. */
   placement: PanePlacement | null;
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
+  /** A folding row (accordion style) shows its details. */
+  expanded: boolean;
+  /** The chevron of a folding row: shows or hides its details. */
+  onToggleExpanded: (id: number, active: boolean) => void;
 }
 
 function SessionItem({
@@ -1555,8 +1607,17 @@ function SessionItem({
   profiles,
   reasons,
   onAgentCommand,
+  rowStyle,
+  badgeFor,
+  expanded,
+  onToggleExpanded,
 }: ItemProps) {
   const t = useT();
+  const parts = rowParts(rowStyle);
+  const moreId = useId();
+  // Read here rather than in the context line: the ring and the small bars show it too. Only this
+  // row re-renders when this session's numbers change.
+  const context = useSessionContext(session.id);
   const exited = session.status === "exited";
   const waiting = state === "attention";
   const line = lines.status;
@@ -1566,6 +1627,9 @@ function SessionItem({
   const inProject = badge !== null;
   const name = inProject ? projectRowName(label, session.title) : (label?.primary ?? session.title);
   const place = detailPlace(label, where.folder);
+  // A team session's worktree branch, with its short name on screen.
+  const teamBranch =
+    session.worktree && isTeamSession(session) ? (where.branch ?? session.worktree.branch) : null;
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
@@ -1586,6 +1650,7 @@ function SessionItem({
     lookClass(rowLook(session, state, chip)),
     edgeClass(rowEdge(session, state, chip)),
     last ? "tree-last" : "",
+    parts.expander ? (expanded ? "expanded" : "folded") : "",
     dragClass,
   ]
     .filter(Boolean)
@@ -1646,36 +1711,26 @@ function SessionItem({
             openSessionMenu(event, session.id, onSessionMenu);
           }}
         >
-          <span className="session-text">
-            {/* First line: the title in the middle, its state as one word at the right edge (in
-                line with the branch below and the last value of the lines below), the small signs
-                in front of the title. The DOM keeps title, then state, then the signs, so screen
-                readers hear them in that order; CSS `order` puts the signs before the title
-                (styles.css, "First line"). Only the title gives way. */}
-            <span className="session-title-row">
-              {badge !== null && <Badge look={badge} />}
-              <SessionMarker marker={session.marker} tooltip={false} />
-              <span className="session-title">{name}</span>
-              {/* One word in a cell of fixed width; the whole sentence with the program and how
-                  long ("Claude Code has been working for 3 min") is for screen readers here and
-                  for everyone in the peek. */}
-              <span className="session-state">
-                <span className="state-dot" aria-hidden="true" />
-                <span
-                  className={
-                    waiting
-                      ? "session-status attention-text"
-                      : line.stalled === true
-                        ? "session-status stalled"
-                        : "session-status"
-                  }
-                  aria-hidden="true"
-                >
-                  {line.word}
-                </span>
-                <span className="sr-only">{line.full}</span>
-              </span>
-              {(gateOff !== null ||
+          <SessionRowBody
+            parts={parts}
+            name={name}
+            badge={badge}
+            program={badgeFor(session.profileId)}
+            marker={session.marker}
+            line={line}
+            waiting={waiting}
+            chip={chip}
+            place={place}
+            branch={teamBranch ?? where.branch}
+            team={teamBranch !== null}
+            usage={usage}
+            gpuColumn={gpuColumn}
+            runtime={where.runtime}
+            context={context}
+            language={language}
+            moreId={moreId}
+            signs={
+              (gateOff !== null ||
                 overlap !== undefined ||
                 outlier !== null ||
                 queued ||
@@ -1720,64 +1775,19 @@ function SessionItem({
                   )}
                   {session.worktree && <RepoTeammates sessionId={session.id} />}
                 </span>
-              )}
-            </span>
-            {/* Second line: where it runs, the folder at the start and the branch at the right
-                edge. The folder gives way first, then the branch, both with an ellipsis
-                (styles.css, "Second line"). */}
-            <span className="session-meta">
-              {(place !== null ||
-                where.branch !== null ||
-                (session.worktree !== undefined && isTeamSession(session))) && (
-                <span className="session-where">
-                  {place !== null && (
-                    <span className="session-path">
-                      <span className="session-path-icon" aria-hidden="true">
-                        <FolderIcon size={11} />
-                      </span>
-                      <span className="session-path-name">{place}</span>
-                    </span>
-                  )}
-                  {session.worktree && isTeamSession(session) ? (
-                    <span className="session-branch worktree">
-                      <TeamIcon size={11} />
-                      <span className="sr-only">
-                        {t("worktree.sessionHint", {
-                          branch: revealInvisible(where.branch ?? session.worktree.branch),
-                        })}
-                      </span>
-                      {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
-                      <span className="session-branch-name" aria-hidden="true">
-                        <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
-                      </span>
-                    </span>
-                  ) : (
-                    where.branch !== null && (
-                      <span className="session-branch">
-                        <BranchIcon size={11} />
-                        <span className="sr-only">
-                          {t("session.branch", { branch: revealInvisible(where.branch) })}
-                        </span>
-                        <span className="session-branch-name" aria-hidden="true">
-                          <Revealed text={where.branch} />
-                        </span>
-                      </span>
-                    )
-                  )}
-                </span>
-              )}
-            </span>
-            {/* Third line: the tree's load (while the setting is on), each value in a column of
-                fixed width; fourth line: run time and context window. Each line exists only with
-                its numbers, so a row never keeps an empty line (styles.css, "Third line"). */}
-            {usage !== null && (
-              <span className="session-detail">
-                <SessionLoad usage={usage} gpuColumn={gpuColumn} />
-              </span>
-            )}
-            <ContextLine sessionId={session.id} runtime={where.runtime} language={language} />
-          </span>
+              )
+            }
+          />
         </button>
+      )}
+      {parts.expander && !editing && (
+        <RowExpander
+          expanded={expanded}
+          controls={moreId}
+          onToggle={() => {
+            onToggleExpanded(session.id, active);
+          }}
+        />
       )}
       <div className="session-actions">
         {!editing && (

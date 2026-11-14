@@ -4942,6 +4942,7 @@ export function App() {
           queued={queuedById}
           stalls={stalls}
           peekRequest={peekRequest}
+          rowStyle={settings.rowStyle}
           peekLines={(id) => {
             // A session on screen needs no peek; its own terminal shows more.
             if (shownRef.current.has(id)) return null;

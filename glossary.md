@@ -35,6 +35,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Aussehen je Status                              | state look                        | color, pulse strength and duration per state, `stateLook.ts`                        |
 | Pause (Session läuft, ruhig)                    | pause                             | UI name of the `idle` state of a running session                                    |
 | Status-Chip                                     | status chip                       | state pill at the end of a session row's title line                                 |
+| Session-Zeile (Stil)                            | row style                         | how a sidebar session row lays out its facts, `rowStyle.ts`                         |
 | fragt (Glocke, BEL)                             | asks (bell)                       | waiting reason after BEL, `AttentionReason`                                         |
 | Hinweiston                                      | chime                             | synthesized two-tone sound, `chime.ts`                                              |
 | Taskleiste blinken                              | taskbar flash                     |                                                                                     |
