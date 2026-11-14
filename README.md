@@ -46,11 +46,12 @@ your own accounts, on your own machine. The desktop app is open source under the
   consistent style. PowerShell, Command Prompt, WSL and any other command work the same way.
 - **Sessions that keep running.** Every session runs in the background while you work in another
   one, and comes back with its history after Hangar restarts. The house button in the sidebar puts
-  them aside and shows a calm home view with a calendar of your commits over the last year.
+  them aside and shows a calm home view: one card per repository with its sessions, open changes,
+  newest commits and dev servers, and a calendar of your commits over the last year.
 - **Sessions you recognize.** The sidebar groups sessions by program or by project folder, and an
   agent session takes its name from your first prompt, so several sessions in one project stay
-  apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use. Hovering a
-  row shows that session's last lines in their colors without switching to it.
+  apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use in aligned
+  columns. Hovering a row shows that session's last lines in their colors without switching to it.
 - **A terminal that feels like an editor.** A click in the prompt line moves the cursor there, and
   Shift+Enter starts a new line in an agent's prompt instead of sending it. Web addresses and
   existing files and folders in the output open with one click; with Shift held, each folder of a
@@ -59,6 +60,11 @@ your own accounts, on your own machine. The desktop app is open source under the
   to every agent that accepts extra instructions (Claude Code, Codex CLI, Aider), without touching
   your repository. An agent started in a fresh worktree first checks for new upstream commits and
   asks before pulling them.
+- **Agent commands in one click.** The session menu and quick access send an agent's own commands
+  such as `/compact`, `/clear` or `/model`, and commands that start over ask first. Add your own
+  commands to a profile.
+- **Queue the next message.** Write your next instruction while an agent works; Hangar sends it as
+  soon as the agent is done and holds it back while the agent asks you something.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
 - **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every
@@ -84,13 +90,22 @@ your own accounts, on your own machine. The desktop app is open source under the
   the GPU, GPU load and memory (GPU numbers on Windows); a mark flags a session that keeps a whole
   core busy or holds a lot of memory.
 - **Context at a glance.** Claude Code sessions show how full their context window is right in
-  their row, for example `12 % · 123k / 1M`.
+  their row, for example `12 % · 123k / 1M`. From 80 % a compact button on the row sends the
+  agent's compact command.
+- **A hint when nothing moves.** When a working agent has shown nothing new for a while, its row
+  says so quietly, and the session menu offers its last lines and Ctrl+C. No sound, no alarm.
 - **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
   strength and pulse duration, previewed live in the settings.
 - **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
   with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
   terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
-  line between them to give either side more room.
+  line between them to give either side more room, and close finished ones with one click.
+- **Session reports.** Export a Claude Code session as a Markdown report with its prompts, the
+  agent's answers, one line per tool call, sub-agent runs with their tokens, the open changes and
+  the commits made meanwhile.
+- **A daily review.** See what your sessions worked on each day, per project, with times, commits
+  and changed files, built from a local work log that never stores terminal content or prompts.
+  Copy it as Markdown or save it as a note.
 
 ### Changes and files
 
@@ -113,6 +128,11 @@ your own accounts, on your own machine. The desktop app is open source under the
   sessions; the gate was measured live for each of them.
 - **Remembered answers.** Tell the gate "always" or "never" for a file or folder of a project, and it
   answers for you from then on, with a visible log.
+- **A guard for risky commands.** In team sessions the gate also asks before a shell command such
+  as a force push, a hard reset, a forced clean or a recursive delete outside the project. The
+  rules live in a plain file you can edit. It is a safety net against mistakes, not a sandbox.
+- **Worktree cleanup.** One dialog lists the worktrees Hangar created with their state and size and
+  removes the safe ones. A worktree with changes, ignored files or unmerged commits stays.
 - **Overlap warnings.** Hangar notices when two sessions change the same file or even the same
   lines, also across worktrees of the same repository.
 
@@ -148,6 +168,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Your look.** Fourteen terminal color schemes, each in light and dark and readable in both, and
   seven bundled coding fonts, every one shown in its own colors and typeface. Switch between light
   and dark with one click.
+- **Easy on the battery.** On battery Hangar polls less often and holds its animations still; a
+  small leaf in the system bar shows that saving is on (Windows and Linux).
 - **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
   Polish, Russian, Turkish, Greek, Japanese and Chinese.
 - **Always up to date.** Hangar updates itself with signed updates. It looks for new versions of
