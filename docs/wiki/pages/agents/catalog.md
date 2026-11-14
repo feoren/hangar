@@ -2,9 +2,9 @@
 title: Agent catalog
 type: agent
 tags: [agents, catalog, installation]
-sources: ["[[agent-clis-research]]", "[[agent-icons]]"]
+sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # Agent catalog
@@ -29,6 +29,18 @@ copies the install command, which Hangar itself never runs.
   Mini-Kode (learning project), nori-cli (niche).
 - `resume_args` (resuming after a Hangar restart) only with evidence; values and sources in [[resume]].
 - `latest` and `update_hint` (showing a newer version) only with evidence; values and sources in [[updates]].
+
+## Agent commands
+`agent_commands` lists the slash commands the session menu, quick access and the compact button
+offer for a running session ([[agent-commands]]). Only commands found in the installed program or
+its docs ([[agent-commands-measurement]]):
+
+- Claude Code 2.1.325: `/compact`, `/context`, `/usage` (`/cost` is an alias), `/model`, `/clear`
+  (asks first).
+- Codex CLI 0.169.0: `/compact`, `/status`, `/model`, `/new` (asks first).
+- Gemini CLI (docs only, not installed): `/compress`, `/stats`, `/model`, `/clear` (asks first).
+
+All other catalog agents have none until a measurement; a test requires that.
 
 ## Icons
 Every catalog entry has a bundled icon, `src/assets/agent-icons/<id>.svg`: a rounded 24 × 24 tile

@@ -74,6 +74,9 @@ pub struct CatalogAgent {
     /// How the program takes a first prompt (see [`Prompting::prompt_args`]).
     #[serde(default)]
     pub prompt_args: Option<Vec<String>>,
+    /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
+    #[serde(default)]
+    pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
 }
 
 /// How Hangar hands a program its global instructions and a first prompt
@@ -408,6 +411,9 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         ) {
             return Err(invalid(problem));
         }
+        if let Err(problem) = crate::agent_commands::check(&agent.agent_commands) {
+            return Err(invalid(problem));
+        }
         if let Err(problem) = crate::instructions::check_args(
             agent.instruction_args.as_deref(),
             agent.prompt_args.as_deref(),
@@ -526,6 +532,7 @@ impl Agent {
                 update_hint: agent.update_hint,
                 packages: agent.packages,
                 self_update: agent.self_update,
+                agent_commands: agent.agent_commands,
             },
             source: Source::Catalog,
             candidates: agent.commands,
@@ -593,6 +600,7 @@ impl Agent {
                 self.prompting.instruction_args.as_deref(),
                 resolved.as_ref().map(|r| r.program.as_path()),
             ),
+            agent_commands: self.profile.agent_commands.clone(),
         }
     }
 }
@@ -637,6 +645,8 @@ pub struct ProfileView {
     pub team_block: Option<TeamBlock>,
     /// Whether `HANGAR.md` reaches the program as it is found on this machine.
     pub instructions: crate::instructions::InstructionsReach,
+    /// Commands the session menu offers for running sessions of the program, catalog first.
+    pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -684,6 +694,11 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
                     // The hooks belong to the program, like its session options.
                     agent.capabilities = from_catalog.capabilities;
+                    // So do its commands; the profile's own come after them.
+                    agent.profile.agent_commands = crate::agent_commands::merge(
+                        &from_catalog.profile.agent_commands,
+                        &agent.profile.agent_commands,
+                    );
                     agent.prompting.clone_from(&from_catalog.prompting);
                 }
                 // Same program, same packages and self-updater.
@@ -784,6 +799,7 @@ mod tests {
             update_hint: None,
             packages: None,
             self_update: None,
+            agent_commands: Vec::new(),
         }
     }
 
@@ -809,6 +825,7 @@ mod tests {
             capabilities: Capabilities::default(),
             instruction_args: None,
             prompt_args: None,
+            agent_commands: Vec::new(),
         }
     }
 
@@ -858,6 +875,107 @@ mod tests {
                 assert_eq!(resume.first(), Some(first), "{}", agent.id);
             }
         }
+    }
+
+    #[test]
+    fn agent_commands_in_builtin_catalog() {
+        use crate::agent_commands::LabelKey;
+        let agents = builtin().unwrap();
+        let texts = |id: &str| -> Vec<String> {
+            agents
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{id} missing"))
+                .agent_commands
+                .iter()
+                .map(|c| c.text.clone())
+                .collect()
+        };
+        // Evidence: docs/wiki/pages/sources/agent-commands-measurement.md
+        assert_eq!(
+            texts("claude"),
+            ["/compact", "/context", "/usage", "/model", "/clear"]
+        );
+        assert_eq!(texts("codex"), ["/compact", "/status", "/model", "/new"]);
+        assert_eq!(texts("gemini"), ["/compress", "/stats", "/model", "/clear"]);
+        for agent in &agents {
+            let compact = agent
+                .agent_commands
+                .iter()
+                .filter(|c| c.label_key == Some(LabelKey::Compact))
+                .count();
+            assert!(compact <= 1, "{} has {compact} compact commands", agent.id);
+            if !["claude", "codex", "gemini"].contains(&agent.id.as_str()) {
+                assert!(
+                    agent.agent_commands.is_empty(),
+                    "{} has no evidence",
+                    agent.id
+                );
+            }
+            // Commands that start over ask first.
+            for command in &agent.agent_commands {
+                let starts_over =
+                    matches!(command.label_key, Some(LabelKey::Clear | LabelKey::New));
+                assert_eq!(
+                    command.confirm, starts_over,
+                    "{} {}",
+                    agent.id, command.text
+                );
+                assert!(command.submit, "{} {}", agent.id, command.text);
+            }
+        }
+    }
+
+    #[test]
+    fn agent_commands_belong_to_the_program() {
+        let agents = builtin().unwrap();
+        let own = crate::agent_commands::AgentCommand {
+            label_key: None,
+            label: Some("Review".into()),
+            text: "/review".into(),
+            submit: true,
+            confirm: false,
+        };
+        let mut same = user("claude", "claude");
+        same.agent_commands = vec![own.clone()];
+        let mut wrapper = user("claude", "my-claude");
+        wrapper.agent_commands = vec![own.clone()];
+        let texts = |agent: &Agent| -> Vec<String> {
+            agent
+                .view(None, None)
+                .agent_commands
+                .into_iter()
+                .map(|c| c.text)
+                .collect()
+        };
+        let merged = merge(vec![same], agents.clone());
+        assert_eq!(
+            texts(&merged[0]),
+            ["/compact", "/context", "/usage", "/model", "/clear", "/review"]
+        );
+        // Another program behind the catalog id keeps only its own commands.
+        let merged = merge(vec![wrapper], agents.clone());
+        assert_eq!(texts(&merged[0]), ["/review"]);
+        // Catalog entries without a user profile show the catalog's; plain profiles none.
+        let merged = merge(vec![user("tool", "tool")], agents);
+        assert!(texts(&merged[0]).is_empty());
+        let codex = merged.iter().find(|a| a.id() == "codex").unwrap();
+        assert_eq!(texts(codex)[0], "/compact");
+    }
+
+    #[test]
+    fn invalid_agent_commands_in_the_catalog_are_refused() {
+        let src = "[[agent]]
+id='x'
+name='X'
+commands=['x']
+homepage='https://example.org'
+                   agent_commands=[{ text='/x' }]
+";
+        assert!(matches!(
+            parse(src),
+            Err(CatalogError::Invalid { agent, .. }) if agent == "x"
+        ));
     }
 
     #[test]

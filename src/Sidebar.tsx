@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 
-import type { Profile } from "./api";
+import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -98,6 +98,8 @@ import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { SessionLoad } from "./SessionLoad";
 import { SessionRun } from "./SessionRun";
+import { CompactAction } from "./CompactAction";
+import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionResources } from "./useSessionResources";
 import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
@@ -222,6 +224,8 @@ interface Props {
   onRename: (id: number, title: string) => void;
   /** Right click or context menu key on a session: the session menu at this point. */
   onSessionMenu: (id: number, x: number, y: number) => void;
+  /** The compact button of a row: types the program's compact command into that session. */
+  onAgentCommand: (id: number, command: AgentCommand) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
   drag: { id: number; line: DropLine | null } | null;
   /** Mouse down on a session row: may become a drag (useSessionDrag). */
@@ -1548,6 +1552,9 @@ function SessionItem({
   onOpenDevServer,
   language,
   queued: queuedMessages,
+  profiles,
+  reasons,
+  onAgentCommand,
 }: ItemProps) {
   const t = useT();
   const exited = session.status === "exited";
@@ -1758,6 +1765,14 @@ function SessionItem({
         </button>
       )}
       <div className="session-actions">
+        {!editing && (
+          <CompactAction
+            sessionId={session.id}
+            commands={sessionCommands(session, profiles)}
+            busy={commandBusy(state, reasons.get(session.id) ?? null)}
+            onRun={onAgentCommand}
+          />
+        )}
         {openDevServer !== null && !editing && (
           <IconButton
             label={openDevServer}

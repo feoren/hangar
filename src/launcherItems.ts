@@ -4,7 +4,8 @@
 
 import type { ReactNode } from "react";
 
-import type { NoteFolder, PathEntry, Profile } from "./api";
+import { commandLauncherItems } from "./agentCommands";
+import type { AgentCommand, NoteFolder, PathEntry, Profile } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
 import { folderName } from "./folders";
 import { teamCapable } from "./startMode";
@@ -143,6 +144,16 @@ export interface LauncherContext {
    * edits it; `null` hides the entry (no working agent session, or attention off).
    */
   queue: { offer: QueueOffer; open: () => void } | null;
+  /**
+   * The active session's agent commands (agentCommands.ts `sessionCommands`); `null` when it
+   * offers none. `run` sends one, asking first where the command says so.
+   */
+  agentCommands: {
+    commands: readonly AgentCommand[];
+    sessionTitle: string;
+    programName: string;
+    run: (command: AgentCommand) => void;
+  } | null;
   /** Opens the Settings dialog on this section. */
   openSettings: (section: SettingsSection) => void;
   /** The app menu: its working entries become commands, so every action can be found here. */
@@ -296,6 +307,17 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       keywords: "queue next later message prompt",
       run: queue.open,
     });
+  }
+  const agentCommands = ctx.agentCommands;
+  if (agentCommands !== null) {
+    items.push(
+      ...commandLauncherItems(
+        agentCommands.commands,
+        { sessionTitle: agentCommands.sessionTitle, programName: agentCommands.programName },
+        t,
+        agentCommands.run,
+      ),
+    );
   }
   items.push({
     key: "changes",

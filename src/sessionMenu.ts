@@ -10,6 +10,7 @@ import { canExportReport } from "./sessionReport";
 export type SessionAction =
   | "rename"
   | "marker"
+  | "commands"
   | "report"
   | "subAgents"
   | "queue"
@@ -59,12 +60,15 @@ export function stallOffer(stalled: boolean, onScreen: boolean): StallOffer | nu
 export interface SessionMenuExtras {
   queue: QueueOffer;
   stall: StallOffer | null;
+  /** The session offers program commands (agentCommands.ts), so "Commands" opens them. */
+  commands?: boolean;
 }
 
 const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
 
 /**
- * Rename, marker, export as report (only for programs whose transcript Hangar reads), then show
+ * Rename, marker, then the program's commands (only while the session offers some,
+ * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), then show
  * or hide the sub-agents (only for sessions that have them), then the stall hint's help (last
  * lines, Ctrl+C) and the queued message, then restart (ended) or end process (running), then
  * close. `subAgentsShown`: the sub-agent view of this session is open, so the entry hides it.
@@ -113,6 +117,9 @@ export function sessionMenuEntries(
   return [
     { type: "action", key: "rename", label: t("session.rename") },
     { type: "action", key: "marker", label: t("menu.marker") },
+    ...(extras.commands === true
+      ? [{ type: "action", key: "commands", label: t("agentCommand.menu") } as const]
+      : []),
     ...(canExportReport(session)
       ? [{ type: "action", key: "report", label: t("session.exportReport") } as const]
       : []),

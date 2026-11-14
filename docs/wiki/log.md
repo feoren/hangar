@@ -751,3 +751,12 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-14] schema | Command guard: third security review
 ADR 0010 refined: a wildcard needs five letters of its own outside a plain extension to stand for one of Hangar's names, bracket classes count as wildcards, a wildcard right below the app settings folders counts, `start` unwrapping counts toward the depth limit, a single plain string in PowerShell parentheses is read as that string.
 Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] ingest | Agent commands and compacting from the context meter
+Read the slash command tables of the installed Claude Code 2.1.325 and Codex CLI 0.169.0
+executables and Gemini CLI's command reference (not installed). The catalog gets `agent_commands`
+for the three; profiles can add their own. The session menu, quick access and a compact button in
+the row actions (from 80 % context use, hidden while the agent works) send them like "Send to
+several". Binary strings also show that Codex refuses such commands during a turn and Claude
+Code queues them; the compact button therefore also hides after a bell or during a gate decision.
+Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [[catalog]], index.

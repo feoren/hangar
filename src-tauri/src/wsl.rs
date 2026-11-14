@@ -99,6 +99,7 @@ pub fn agent(distro: &str) -> Agent {
             update_hint: None,
             packages: None,
             self_update: None,
+            agent_commands: Vec::new(),
         },
         source: Source::Catalog,
         candidates: vec![command],

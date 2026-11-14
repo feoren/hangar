@@ -25,6 +25,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Fokus (Sub-Agent)                               | focus                             | the one sub-agent whose activity log is streamed, `focus_sub_agent`                 |
 | Schließen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay                       |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `SessionRun.tsx`                 |
+| Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                |
+| Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`             |
 | Notiz                                           | note                              |                                                                                     |
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                                              |
 | Papierkorb                                      | trash                             |                                                                                     |
