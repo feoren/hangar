@@ -413,6 +413,12 @@ export const api = {
    */
   gitBranches: (paths: string[]) => invoke<unknown>("git_branches", { paths }),
   /**
+   * Repository place per folder (at most 64, read from `.git`, no process): the checkout and the
+   * repository's main folder (a linked worktree names its repository), or `null` outside one.
+   * Check with `parseRepoPlaces` (projectCards.ts).
+   */
+  gitRepoPlaces: (paths: string[]) => invoke<unknown>("git_repo_places", { paths }),
+  /**
    * Changes of a working folder against HEAD (at most 2 MiB of diff text). Check with
    * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
    */

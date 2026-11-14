@@ -10339,3 +10339,280 @@ body.session-dragging .session-actions {
   align-items: center;
   justify-content: center;
 }
+
+/* Project overview in the home view: one quiet card per project folder, above the calendar. */
+.projects {
+  width: 100%;
+  max-width: 1040px;
+  margin-top: 24px;
+  text-align: left;
+}
+
+.projects-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.projects-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.projects-title:focus,
+.projects-empty-title:focus {
+  outline: none;
+}
+
+.projects-title:focus-visible,
+.projects-empty-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.projects-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 420px;
+  text-align: center;
+}
+
+.projects-empty-title {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.projects-empty .primary-button {
+  margin-top: 12px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.project-card p {
+  margin: 0;
+}
+
+.project-head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.project-name {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-path {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-sessions,
+.project-commits,
+.project-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-sessions {
+  margin: 0 -6px;
+}
+
+.project-session {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  border-radius: 5px;
+}
+
+.project-session:hover {
+  background: var(--hover);
+}
+
+.project-session[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* The session's state in its color; the words beside it say the same. */
+.project-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--edge, var(--muted));
+  border-radius: 50%;
+}
+
+.project-session .badge,
+.project-session .badge-icon img {
+  width: 16px;
+  height: 16px;
+  font-size: 7.5px;
+  border-radius: 4px;
+}
+
+.project-session-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-session-status {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-changes {
+  align-self: flex-start;
+  font-size: 12.5px;
+}
+
+.project-link {
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+.project-link:hover {
+  text-decoration: underline;
+}
+
+.project-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.project-commits li,
+.project-tasks li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.project-commit-subject,
+.project-task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-commit-age,
+.project-task-holder {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.project-tasks .project-more {
+  font-size: 11.5px;
+}
+
+.project-teammates {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.project-avatars {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  align-items: center;
+}
+
+.project-teammate-names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-servers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.project-server {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.project-server:hover {
+  color: var(--text);
+  background: var(--hover);
+}

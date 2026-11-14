@@ -719,3 +719,7 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Project overview in the home view
+New synthesis for the project overview: how folders become projects, the new `git_repo_places` command and why the existing commands did not fit, what a card shows and when git is asked. Measured with git 2.56.0.windows.4 that a linked worktree's `.git` file names an absolute git folder and its `commondir` holds `../..`.
+Pages changed: [[project-overview]], [[git-worktree-commondir-measurement]].

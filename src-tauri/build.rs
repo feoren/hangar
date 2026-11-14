@@ -60,6 +60,7 @@ const COMMANDS: &[&str] = &[
     "push_test",
     "push_session",
     "git_branches",
+    "git_repo_places",
     "git_diff",
     "git_changed_count",
     "git_activity",

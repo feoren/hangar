@@ -197,6 +197,103 @@ pub fn parse_head(content: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Repository places without a process
+
+/// Where a folder sits in git, for the project overview: `work_tree` is the folder that holds the
+/// `.git` entry above it, `root` the main folder of its repository. For a linked worktree the two
+/// differ; a plain repository and a submodule are their own root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPlace {
+    pub root: String,
+    pub work_tree: String,
+}
+
+/// Repository place per folder (`None` outside a repository). Keys are the folders exactly as
+/// passed in. Reads only `.git` files and `commondir`, like [`branches`].
+pub fn repo_places(paths: &[String]) -> Result<HashMap<String, Option<RepoPlace>>, GitError> {
+    if paths.len() > MAX_BRANCH_PATHS {
+        return Err(GitError::TooManyPaths);
+    }
+    Ok(paths
+        .iter()
+        .map(|path| (path.clone(), repo_place_of(Path::new(path), None)))
+        .collect())
+}
+
+/// The repository place of `start`; the walk up stops after `ceiling` (tests stay in their folder).
+pub fn repo_place_of(start: &Path, ceiling: Option<&Path>) -> Option<RepoPlace> {
+    if !start.is_absolute() {
+        return None;
+    }
+    for dir in start.ancestors() {
+        let dot_git = dir.join(".git");
+        match fs::metadata(&dot_git) {
+            Ok(meta) if meta.is_dir() => return Some(place(dir, dir)),
+            Ok(meta) if meta.is_file() => {
+                let content = read_limited(&dot_git, MAX_HEAD_BYTES).ok()??;
+                let target = parse_gitdir_file(&String::from_utf8_lossy(&content))?;
+                let git_dir = lexical(&dir.join(target));
+                if !gitdir_allowed(start, &git_dir) || !git_dir.is_dir() {
+                    return None;
+                }
+                let root = main_folder(start, &git_dir).unwrap_or_else(|| dir.to_path_buf());
+                return Some(place(&root, dir));
+            }
+            _ => {}
+        }
+        if ceiling == Some(dir) {
+            break;
+        }
+    }
+    None
+}
+
+fn place(root: &Path, work_tree: &Path) -> RepoPlace {
+    RepoPlace {
+        root: root.to_string_lossy().into_owned(),
+        work_tree: work_tree.to_string_lossy().into_owned(),
+    }
+}
+
+/// The main folder of a linked worktree's repository: the worktree's git folder names the common
+/// git folder in `commondir` (git writes `../..`), and when that one is a `.git` folder, its parent
+/// is the main folder. `None` for a submodule (no `commondir`) or a bare repository.
+fn main_folder(start: &Path, git_dir: &Path) -> Option<PathBuf> {
+    let content = read_limited(&git_dir.join("commondir"), MAX_HEAD_BYTES).ok()??;
+    let text = String::from_utf8_lossy(&content);
+    let common = text
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())?;
+    let common = lexical(&git_dir.join(common));
+    if !gitdir_allowed(start, &common) || !common.is_dir() {
+        return None;
+    }
+    if common.file_name() != Some(OsStr::new(".git")) {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
+}
+
+/// `.` and `..` resolved by the text alone; enough for git's own `commondir` and `gitdir` values,
+/// which name folders git created.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
 // Running git
 
 /// Result of one git call. `truncated`: stdout exceeded the limit, git was stopped there.
@@ -1045,6 +1142,103 @@ pub(crate) mod tests {
         let broken = root.join("broken");
         write(&broken.join(".git"), "gitdir: does-not-exist\n");
         assert_eq!(branch_of(&broken, ceiling), None);
+    }
+
+    #[test]
+    fn repo_places_from_git_files() {
+        let tmp = TempDir::new("git-repo-places");
+        let root = tmp.path();
+        let ceiling = Some(root);
+        let text = |path: &Path| path.to_string_lossy().into_owned();
+
+        // A plain repository, asked from its root and from a subfolder.
+        let repo = root.join("repo with space");
+        write(&repo.join(".git/HEAD"), "ref: refs/heads/main\n");
+        fs::create_dir_all(repo.join("src/deep")).unwrap();
+        let own = RepoPlace {
+            root: text(&repo),
+            work_tree: text(&repo),
+        };
+        assert_eq!(repo_place_of(&repo, ceiling), Some(own.clone()));
+        assert_eq!(repo_place_of(&repo.join("src/deep"), ceiling), Some(own));
+
+        // A linked worktree (relative gitdir, `commondir` as git writes it) belongs to the repo.
+        write(
+            &repo.join(".git/worktrees/feature/HEAD"),
+            "ref: refs/heads/hangar/feature-1a2b3c\n",
+        );
+        write(&repo.join(".git/worktrees/feature/commondir"), "../..\n");
+        let linked = root.join("wt");
+        write(
+            &linked.join(".git"),
+            "gitdir: ../repo with space/.git/worktrees/feature\n",
+        );
+        fs::create_dir_all(linked.join("src")).unwrap();
+        let place = repo_place_of(&linked.join("src"), ceiling).unwrap();
+        assert_eq!(lexical(Path::new(&place.root)), lexical(&repo));
+        assert_eq!(place.work_tree, text(&linked));
+
+        // A submodule (no `commondir`) is its own root.
+        write(
+            &repo.join(".git/modules/lib/HEAD"),
+            "ref: refs/heads/main\n",
+        );
+        let module = repo.join("lib");
+        write(&module.join(".git"), "gitdir: ../.git/modules/lib\n");
+        assert_eq!(
+            repo_place_of(&module, ceiling),
+            Some(RepoPlace {
+                root: text(&module),
+                work_tree: text(&module),
+            })
+        );
+
+        // No repository, a relative path, a `.git` file pointing nowhere.
+        let plain = root.join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        assert_eq!(repo_place_of(&plain, ceiling), None);
+        assert_eq!(repo_place_of(Path::new("relative/path"), None), None);
+        let broken = root.join("broken");
+        write(&broken.join(".git"), "gitdir: does-not-exist\n");
+        assert_eq!(repo_place_of(&broken, ceiling), None);
+    }
+
+    /// A local `.git` file or `commondir` that names a share is refused before it is touched.
+    #[cfg(windows)]
+    #[test]
+    fn repo_places_never_follow_a_local_folder_to_a_share() {
+        let tmp = TempDir::new("git-repo-places-share");
+        let root = tmp.path();
+        let ceiling = Some(root);
+
+        let linked = root.join("to-share");
+        write(
+            &linked.join(".git"),
+            "gitdir: \\\\marker-host\\share\\repo\\.git\\worktrees\\x\n",
+        );
+        assert_eq!(repo_place_of(&linked, ceiling), None);
+
+        // The worktree's git folder is local, its `commondir` names a share: the checkout stays
+        // its own root instead of following the share.
+        let repo = root.join("repo");
+        write(&repo.join(".git/worktrees/y/HEAD"), "ref: refs/heads/y\n");
+        write(
+            &repo.join(".git/worktrees/y/commondir"),
+            "\\\\marker-host\\share\\repo\\.git\n",
+        );
+        let wt = root.join("wt");
+        write(&wt.join(".git"), "gitdir: ../repo/.git/worktrees/y\n");
+        let place = repo_place_of(&wt, ceiling).unwrap();
+        assert_eq!(place.root, wt.to_string_lossy());
+        assert_eq!(place.work_tree, wt.to_string_lossy());
+    }
+
+    #[test]
+    fn repo_places_limits_the_number_of_paths() {
+        let paths: Vec<String> = (0..=MAX_BRANCH_PATHS).map(|i| format!("p{i}")).collect();
+        assert!(matches!(repo_places(&paths), Err(GitError::TooManyPaths)));
+        let result = repo_places(&paths[..2]).unwrap();
+        assert_eq!(result.get("p1"), Some(&None));
     }
 
     #[test]
