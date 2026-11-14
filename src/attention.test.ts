@@ -350,3 +350,87 @@ describe("reason", () => {
     expect(tracker.reason).toBeNull();
   });
 });
+
+describe("why a working phase ended", () => {
+  /** `endedBy` as the change listener sees it, read at the moment of each change. */
+  const endings = (): (string | null)[] => {
+    const seen: (string | null)[] = [];
+    tracker = new AttentionTracker(
+      clock,
+      { enabled: true, quietMs: QUIET },
+      () => watched,
+      () => {
+        seen.push(tracker.endedBy);
+      },
+    );
+    return seen;
+  };
+
+  it("says quiet when the program went quiet, also while watched", () => {
+    const seen = endings();
+    watched = true;
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("idle");
+    expect(seen).toEqual([null, "quiet"]);
+  });
+
+  it("says bell for a bell, also while watched, where the state is only idle", () => {
+    const seen = endings();
+    watched = true;
+    tracker.output(BIG);
+    tracker.bell();
+    expect(tracker.state).toBe("idle");
+    expect(seen.at(-1)).toBe("bell");
+  });
+
+  it("says exit for an exit and nothing for a stop by the user", () => {
+    const seen = endings();
+    tracker.output(BIG);
+    tracker.exited();
+    expect(seen.at(-1)).toBe("exit");
+    tracker.reset();
+    tracker.output(BIG);
+    tracker.stopRequested();
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it("says nothing when the user interrupted the work (Ctrl+C, Escape)", () => {
+    const seen = endings();
+    tracker.output(BIG);
+    tracker.interrupted();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("attention");
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it("forgets an interruption once the next working phase starts", () => {
+    const seen = endings();
+    tracker.output(BIG);
+    tracker.interrupted();
+    clock.advance(QUIET);
+    tracker.seen();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(seen.at(-1)).toBe("quiet");
+  });
+
+  it("ignores an interruption outside of work", () => {
+    const seen = endings();
+    tracker.interrupted();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(seen.at(-1)).toBe("quiet");
+  });
+
+  it("forgets the ending once new work starts", () => {
+    const seen = endings();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    tracker.seen();
+    tracker.output(BIG);
+    expect(tracker.state).toBe("working");
+    expect(seen.at(-1)).toBeNull();
+  });
+});

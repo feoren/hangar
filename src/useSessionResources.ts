@@ -14,6 +14,8 @@ import {
 
 let sessions: ReadonlyMap<number, SessionResources> = new Map();
 const listeners = new Set<() => void>();
+/** Readers outside React (stall.ts); unlike the rows, they never make the store ask. */
+const observers = new Set<(readings: ReadonlyMap<number, SessionResources>) => void>();
 let enabled = false;
 let timer: number | null = null;
 let watchingVisibility = false;
@@ -21,6 +23,20 @@ let watchingVisibility = false;
 function publish(next: ReadonlyMap<number, SessionResources>): void {
   sessions = next;
   for (const listener of listeners) listener();
+  for (const observer of observers) observer(next);
+}
+
+/**
+ * Every new reading, for logic outside React. Only receives what the rows already cause to be
+ * read; observing alone starts no polling.
+ */
+export function observeResources(
+  observer: (readings: ReadonlyMap<number, SessionResources>) => void,
+): () => void {
+  observers.add(observer);
+  return () => {
+    observers.delete(observer);
+  };
 }
 
 function accept(value: unknown): void {

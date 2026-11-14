@@ -73,6 +73,8 @@ export interface PeekNoteSources {
   gateOff?: string | null | undefined;
   /** Exit code of a session that failed (format.ts exitDetail). */
   exit?: string | null | undefined;
+  /** The queued message (messageQueue.ts), with when it goes out. */
+  queued?: string | null | undefined;
   /** Why the session is marked as an outlier. */
   outlier?: string | null | undefined;
   /** Address of the dev server the session runs. */
@@ -85,7 +87,7 @@ export interface PeekNoteSources {
 
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
- * then the outlier note, the dev server and the program, then the working folder. Empty and repeated texts are left
+ * then the queued message, the outlier note, the dev server and the program, then the working folder. Empty and repeated texts are left
  * out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
@@ -94,6 +96,7 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.overlap,
     sources.gateOff,
     sources.exit,
+    sources.queued,
     sources.outlier,
     sources.devServer,
     sources.program,

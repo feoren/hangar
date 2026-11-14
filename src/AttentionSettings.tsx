@@ -34,6 +34,7 @@ import {
   type LookState,
   type PulseStrength,
 } from "./stateLook";
+import { clampStallMinutes, STALL_MINUTES } from "./stall";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
 import type { ChipKind } from "./sessionChip";
@@ -145,6 +146,22 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ quietSeconds: clampQuietSeconds(value) });
           }}
         />
+        <RangeField
+          id="stall-minutes"
+          label={t("settings.stallTime")}
+          value={settings.stallMinutes}
+          min={STALL_MINUTES.min}
+          max={STALL_MINUTES.max}
+          display={
+            settings.stallMinutes === 0
+              ? t("settings.stallOff")
+              : t("settings.minutes", { count: settings.stallMinutes })
+          }
+          onChange={(value) => {
+            onChange({ stallMinutes: clampStallMinutes(value) });
+          }}
+        />
+        <p className="muted settings-help">{t("settings.stallHelp")}</p>
 
         <CheckField
           id="taskbar-flash"

@@ -719,3 +719,11 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] query | Queued messages and the stall hint
+Filed how a queued message decides when to go out (the tracker's new `endedBy`, armed and disarmed messages, no send after a restore) and how the stall hint tells progress from a ticking spinner. Noted why the texts live beside `workspace.json` instead of in it (`deny_unknown_fields`).
+Pages changed: [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Agent prompt strings and the queue's question guard
+Read short phrases from the installed Claude Code 2.1.325 and Codex 0.169.0 executables (nothing run) and how Claude Code picks its notification channel: `auto` rings no bell in Hangar's terminal, so a permission dialog ends quietly. The queue now checks the screen for a question before sending.
+Pages changed: [[agent-prompt-strings-reading]], [[agent-prompt-shapes]], [[queued-messages-and-stall-hint]].

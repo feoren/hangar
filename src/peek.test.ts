@@ -74,6 +74,12 @@ describe("peekNotes", () => {
     expect(peekNotes({ overlap: "same", gateOff: "same" })).toEqual(["same"]);
   });
 
+  it("spells out the queued message after the exit and before the program", () => {
+    expect(
+      peekNotes({ queued: "Queued: run the tests", exit: "Exit code 1", program: "Claude" }),
+    ).toEqual(["Exit code 1", "Queued: run the tests", "Claude"]);
+  });
+
   it("names the program before the folder", () => {
     expect(
       peekNotes({ program: "PowerShell 7 · 7.6.9", devServer: "http://localhost:5173", cwd: "/a" }),
