@@ -137,15 +137,22 @@
   --agent-elbow-y: 16px;
   /* Cells of a session row's third line (11 px text), each wide enough for its widest realistic
      value in every UI language, so the columns line up from row to row. Measured in Edge with the
-     UI font and tabular digits, plus about 7 % for other platforms' fonts: "100 %" 2.71em,
-     "12,3 GB" and "999 MB" 3.37em, "199.9k / 200k" 5.92em, the run time (59 min, 23 h, 1 and 99
-     days) 3.36em at most ("99 days"), wider in three languages below. A value beyond them widens
-     its cell rather than being cut. */
+     UI font and tabular digits, plus some room for other platforms' fonts: "100 %" 2.71em,
+     "12,3 GB" and "999 MB" 3.37em, "199.9k / 200k" 5.92em, the run time 3.79em at most up to a
+     day ("23 godz.") and up to nine days in every language ("9 ημέρες" 3.89em). A value beyond
+     them ("99 giorni") widens its cell rather than being cut. */
   --fact-percent: 2.9em;
-  --fact-memory: 3.6em;
-  --fact-runtime: 3.6em;
-  --fact-bar: 3.6em;
+  --fact-memory: 3.5em;
+  --fact-runtime: 3.9em;
   --fact-tokens: 6.3em;
+  /* The context bar takes the line's free width, down to this. */
+  --fact-bar-min: 24px;
+  /* A session title keeps at least this much (of its 13 px text). */
+  --title-min: 4em;
+  /* The one-word state on a session's title line (11.5 px text), as wide as the widest word in
+     every UI language: "Entscheidung" in bold measures 70.3 px in Edge with the UI font, 6.4em is
+     73.6 px. */
+  --state-word: 6.4em;
   /* Background of the terminal color scheme; the app sets it at runtime (terminalLook.ts). */
   --terminal-bg: var(--bg);
   color-scheme: dark;
@@ -168,19 +175,6 @@
     --row-border-drawn: max(var(--device-px), round(down, var(--row-border), var(--device-px)));
     --tree-dot: max(var(--device-px), round(down, 1px, var(--device-px)));
   }
-}
-
-/* Run times that need more room: "99 giorni" 3.93em, "23 godz." 3.79em, "99 ημέρες" 4.43em. */
-:root:lang(it) {
-  --fact-runtime: 4.2em;
-}
-
-:root:lang(pl) {
-  --fact-runtime: 4.1em;
-}
-
-:root:lang(el) {
-  --fact-runtime: 4.7em;
 }
 
 :root[data-theme="light"] {
@@ -656,7 +650,9 @@ h2 .beta-badge {
 /* A little lighter (dark) or darker (light) than elsewhere, so the status lines keep 4.5:1 on the
    tint's strongest point. */
 .session.active .session-meta,
-.session.active .session-detail {
+.session.active .session-state,
+.session.active .session-detail,
+.session.active .session-context:not(.high) {
   color: color-mix(in srgb, var(--muted) 75%, var(--text));
 }
 
@@ -695,6 +691,10 @@ h2 .beta-badge {
   font-weight: 500;
 }
 
+/* First line: badge and marker, the small signs, the title, and the state as one word in a cell
+   of fixed width at the right edge (the hover actions lie over it and take none). The DOM order
+   is title, state, signs, for screen readers; `order` puts badge, marker and signs in front.
+   Only the title gives way, down to --title-min. */
 .session-title-row {
   display: flex;
   align-items: center;
@@ -702,19 +702,41 @@ h2 .beta-badge {
   min-width: 0;
 }
 
-.session-title-row .session-title {
-  min-width: 0;
+.session-title-row > .badge,
+.session-title-row > .session-marker {
+  order: -2;
 }
 
-/* The end of the title line: teammates, layout glyph and status chip, right-aligned. It stretches
-   to the line's height, so the chip takes exactly that height and never makes the row taller. */
-.session-title-end {
+/* From no width up, the title takes what the signs and the state leave, so the state keeps its
+   full width while the title can still give way; only at --title-min does the state shrink. */
+.session-title-row .session-title {
+  flex: 1 1 0;
+  min-width: var(--title-min);
+}
+
+/* Problem signs, layout glyph, dev server and teammates before the title, never shrinking. */
+.session-signs {
+  display: inline-flex;
+  flex: none;
+  order: -1;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-signs:empty {
+  display: none;
+}
+
+/* The state at the right end of the title line, in the quieter size of the lines below. */
+.session-state {
   display: inline-flex;
   flex: none;
   align-items: center;
-  align-self: stretch;
-  gap: 6px;
+  gap: 5px;
   margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 /* Teammates in the same repository (worktree rows): overlapping mini avatars, quiet. */
@@ -776,6 +798,10 @@ h2 .beta-badge {
   color: var(--muted);
 }
 
+/* Second line: where the session runs, across the row's whole width (the hover actions lie over
+   it and take none): the folder at the start, the branch at the right edge, in line with the
+   state above. The folder gives way first (down to its minimum), then the branch, both with an
+   ellipsis. Without either the line is gone. */
 .session-meta {
   display: flex;
   align-items: center;
@@ -785,48 +811,44 @@ h2 .beta-badge {
   color: var(--muted);
 }
 
-.session-status {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.session-meta:empty {
+  display: none;
 }
 
-/* Where the session runs, after its state on the second line: quieter than the state and the
-   first to give way (its shrink weight dwarfs the state's), the folder before the branch. */
+/* One word in a cell of fixed width, so the titles end at the same place in every row. */
+.session-status {
+  flex: none;
+  min-width: var(--state-word);
+  white-space: nowrap;
+}
+
+/* Where the session runs: quieter than the state, the whole line. */
 .session-where {
-  display: inline-flex;
-  flex: 0 1000 auto;
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
   opacity: 0.85;
 }
 
-/* How long it has been working or resting: never cut, the sentence before it gives way. */
-.session-status-duration {
-  display: inline-flex;
-  flex: none;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-/* Third line: the process tree's load and the session's run time and context, quieter than the
-   status above it. Two groups, the load (CPU, RAM, GPU) and the session (run time, context bar
-   and share, tokens), each in cells of fixed width (--fact-* in :root) with right-aligned tabular
-   digits, so every column sits at the same place in every row; the columns themselves separate
-   the values. Side by side when both groups fit; otherwise the session group wraps onto a fourth
-   line at the same left edge and the row grows by that line. Without any of them (setting off,
-   ended session) the line is gone rather than an empty gap. */
-.session-detail {
+/* Third line: the process tree's CPU, RAM and GPU (load and memory), with full units and an icon
+   each, quieter than the status above. Every value sits in a cell of fixed width (--fact-* in
+   :root) with right-aligned tabular digits, so the columns line up from row to row. The line
+   exists only while the setting is on and the session runs (Sidebar.tsx). At 11 px: CPU 46.9 px,
+   RAM 53.5 px, GPU 93.8 px with its "·", 206.2 px with the gaps, so all of it fits the narrowest
+   sidebar's 210 px of text with the list's scroll bar showing (224 px without). Narrower than
+   that (zoom), cells that do not fit wrap onto a second line that the fixed height hides: a cell
+   shows whole or not at all. */
+.session-detail,
+.session-context {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  column-gap: 12px;
-  row-gap: 0;
+  column-gap: 6px;
   min-width: 0;
+  height: 1lh;
   overflow: hidden;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -835,35 +857,11 @@ h2 .beta-badge {
   opacity: 0.85;
 }
 
-.session-detail:empty {
-  display: none;
+.session-load {
+  display: contents;
 }
 
-/* A group never wraps inside: it moves as a whole. Only when it alone is wider than the row (after
-   the giving-way steps below) do its last cells wrap onto a line that the fixed height hides, so
-   a cell shows whole or not at all, never cut mid-text. */
-.session-load,
-.session-run {
-  display: flex;
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: 8px;
-  min-width: 0;
-  height: 1lh;
-  overflow: hidden;
-}
-
-/* The session group always claims its full width, also without context numbers yet, so every row
-   decides alike whether it moves to the fourth line and its columns stay in place. The 20 px are
-   its gaps: 8 after the run time, 4 between bar and share, 8 before the tokens. */
-.session-run {
-  flex-basis: calc(
-    var(--fact-runtime) + var(--fact-bar) + var(--fact-percent) + var(--fact-tokens) + 20px
-  );
-}
-
-/* "CPU 12 %", "RAM 340 MB", "GPU 30 % 1.2 GB": the name, then each value in its fixed cell. */
+/* An icon for CPU, RAM and GPU, then each value in its fixed cell. */
 .session-resource {
   display: inline-flex;
   flex: none;
@@ -871,7 +869,8 @@ h2 .beta-badge {
   gap: 4px;
 }
 
-/* A column without a value yet keeps its width, so the columns after it stay in place. */
+/* A column without a value yet keeps its width, so the columns after it stay in place; empty
+   rather than a faded icon, the calmer of the two. */
 .session-resource.vacant {
   visibility: hidden;
 }
@@ -893,55 +892,94 @@ h2 .beta-badge {
   min-width: var(--fact-memory);
 }
 
+/* The GPU's "·" between load and memory, close to both; it keeps its place when one of them is
+   missing. */
+.session-value-sep {
+  flex: none;
+  min-width: 0.4em;
+  margin: 0 -2px;
+  text-align: center;
+}
+
+/* The run time at the start of the fourth line, never cut. */
 .session-runtime {
   min-width: var(--fact-runtime);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .session-context-tokens {
   min-width: var(--fact-tokens);
 }
 
-.session-resource-icon {
-  display: none;
-}
-
 .session-resource-icon svg {
   display: block;
 }
 
-/* --- Context meter of a session row (SessionRun.tsx) ---
-   A bar of fixed width, the share and the tokens used of the window, as cells of the session
-   group (the wrapper adds no box of its own). As quiet as the rest of the line; from 80 % the bar
-   and numbers take the warning color. */
-.session-context {
-  display: contents;
-}
-
+/* --- Fourth line of a session row (ContextLine.tsx): run time and context meter ---
+   The run time in its cell of fixed width, a striped bar across the free width, then the share and
+   the tokens used of the window in cells of fixed width at the right edge: 42.9 px, 24 px at the
+   least and 101.2 px with the gaps, 184.1 px. A row without context numbers keeps the run time
+   alone, in the same place. As quiet as the lines above; from 80 % the bar and the numbers take
+   the warning color. */
 .session-context-bar {
   position: relative;
-  flex: none;
-  width: var(--fact-bar);
-  height: 3px;
+  flex: 1 1 var(--fact-bar-min);
+  min-width: var(--fact-bar-min);
+  height: 6px;
   overflow: hidden;
   background: color-mix(in srgb, var(--muted) 30%, transparent);
   border-radius: 999px;
 }
 
 /* The share sits close to its bar, as one value. */
-.session-context-share {
-  margin-left: -4px;
+.session-context-bar + .session-context-share {
+  margin-left: -2px;
 }
 
 .session-context-fill {
+  /* One stripe and one gap of 4 px across the 45° stripes: 8 px times the square root of two
+     along the bar. */
+  --stripe-period: 11.3137px;
   position: absolute;
   inset: 0 auto 0 0;
   min-width: 2px;
+  overflow: hidden;
   background: var(--accent);
   border-radius: inherit;
   transition: width 0.4s ease;
 }
 
-.session-context.high {
+/* The stripes: a layer one period wider than the fill, moved by exactly one period, so the loop
+   is seamless. Only its transform animates, which the compositor does without repainting; the
+   fill clips it. The stripes take the window's background, darker on the dark theme, lighter on
+   the light one. */
+.session-context-fill::after {
+  position: absolute;
+  inset: 0 auto 0 calc(-1 * var(--stripe-period));
+  width: calc(100% + var(--stripe-period));
+  content: "";
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--bg) 32%, transparent) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+/* They move only while the session works; resting, waiting and ended rows keep them still. */
+.session.look-working .session-context-fill::after {
+  animation: context-stripes 0.9s linear infinite;
+}
+
+/* The period as a number, not var(--stripe-period): fixed keyframes stay on the compositor. */
+@keyframes context-stripes {
+  to {
+    transform: translateX(11.3137px);
+  }
+}
+
+.session-context.high .session-context-share,
+.session-context.high .session-context-tokens {
   color: var(--warn);
 }
 
@@ -953,72 +991,30 @@ h2 .beta-badge {
   .session-context-fill {
     transition: none;
   }
+
+  .session.look-working .session-context-fill::after {
+    animation: none;
+  }
+}
+
+/* Power saving (set on the root while on battery): no endless motion. */
+:root.power-saving .session.look-working .session-context-fill::after {
+  animation: none;
 }
 
 /* --- End of context meter --- */
 
-/* Third line in a very narrow row: when a group alone does not fit the room (.session-text), it
-   gives way in steps instead of moving. The widths follow from the cells at 11 px (--fact-*), the
-   widest names ("CPU" 1.87em, "RAM" 2.14em, "GPU" 1.93em) and the gaps:
-   load with GPU 18.94em + 32 px = 241 px, then the names give way to icons (205 px);
-   load without GPU 10.51em + 16 px = 132 px, the same step;
-   session with the widest run time ("99 ημέρες") 17.5em + 20 px = 213 px, then the token count
-   goes, and at 136 px the bar shrinks to a stub. Below the last step whole cells wrap out of sight
-   from the end of their group. */
-@container session-text (max-width: 241px) {
-  .session-load:has(.session-resource-gpu) .session-resource-name {
-    display: none;
-  }
-
-  .session-load:has(.session-resource-gpu) .session-resource-icon {
-    display: block;
-  }
-}
-
-@container session-text (max-width: 132px) {
-  .session-load .session-resource-name {
-    display: none;
-  }
-
-  .session-load .session-resource-icon {
-    display: block;
-  }
-}
-
-@container session-text (max-width: 213px) {
-  .session-run .session-context-tokens {
-    display: none;
-  }
-}
-
-@container session-text (max-width: 136px) {
-  .session-run .session-context-bar {
-    width: 12px;
-  }
-}
-
+/* The branch ("hangar/review-auth-flow-1a2b") at the right edge, once the folder has given way:
+   its shrink weight is small against the folder's, so it ellipsizes only once the folder is at
+   its minimum. It keeps its icon. */
 .session-branch {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-}
-
-/* The branch may be long ("hangar/review-auth-flow-1a2b"); it yields first but keeps its icon and
-   an ellipsis, the folder keeps up to half of the line and yields after it, the run time stays
-   whole. */
-.session-branch {
-  flex: 0 1 auto;
   min-width: 30px;
+  margin-left: auto;
   overflow: hidden;
-}
-
-/* The branch gives way before the folder: the folder keeps its width up to 60 % of the space
-   (beyond that it ellipsizes), so a short folder ("hangar") is never cut by a long branch. */
-.session-where .session-path {
-  flex: 0 0 auto;
-  max-width: 60%;
 }
 
 .session-branch svg {
@@ -1031,11 +1027,19 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
+/* The folder with its icon: the middle of the line, the first to give way, down to the icon and
+   a letter or two; the icon stays whole. */
 .session-path {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 1000 auto;
+  align-items: center;
   gap: 4px;
-  min-width: 0;
+  min-width: 34px;
+}
+
+.session-path-icon {
+  display: inline-flex;
+  flex: none;
 }
 
 .session-path-name {
@@ -1155,8 +1159,8 @@ h2 .beta-badge {
   --row-ring-pulse: var(--look-asks-ring-pulse);
 }
 
-/* The row breathes in its state's color, its edge (.edge-*) carries the same color, and the status
-   chip at the right end names the state. The tint is mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
+/* The row breathes in its state's color, its edge (.edge-*) carries the same color, and the word
+   at the right end of the title line names the state. The tint is mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
    working and pause then look plain. Single class on purpose: hover and the active row still win over the still tint. */
 @keyframes row-breathe {
   0%,
@@ -1224,9 +1228,8 @@ h2 .beta-badge {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
-/* Status chip: one shape per state, a compact pill at the end of the title line with that line's
-   height (it stretches in .session-title-end). The actions take its place on hover and keyboard
-   focus; it steps out of sight but keeps its width, so the title does not shift. */
+/* Status chip: one shape per state, a compact pill (the collapsed sidebar's rail and the working
+   dots' choice in the settings; a session row says its state in words instead). */
 .status-chip {
   display: inline-flex;
   flex: none;
@@ -1241,16 +1244,7 @@ h2 .beta-badge {
   white-space: nowrap;
 }
 
-.session-title-end .status-chip {
-  align-self: stretch;
-}
-
-.session:hover .session-title-end .status-chip,
-.session:has(.session-actions :focus-visible) .session-title-end .status-chip {
-  visibility: hidden;
-}
-
-/* In a row the chip is the bare icon at the top right, in its state's color: no pill, no word. The
+/* Outside the rail (settings) the chip is the bare icon in its state's color: no pill, no word. The
    strong look colors keep 3 : 1 on the sidebar, enough for a shape. */
 .status-chip:not(.compact) {
   padding: 0 4px;
@@ -1594,6 +1588,14 @@ h2 .beta-badge {
   animation: state-dot-blink var(--row-seconds, 2s) ease-in-out infinite;
 }
 
+/* A working row's dot moves like the working dots in the rail, as the settings choose (data-dots
+   on the root, a dots-* class in their previews): one dot instead of three, with a smaller lift
+   for its size. */
+.look-working .state-dot {
+  --dots-lift: 2px;
+  animation: var(--dots-name) var(--dots-time) var(--dots-ease) infinite both;
+}
+
 @keyframes state-dot-blink {
   0%,
   100% {
@@ -1606,7 +1608,8 @@ h2 .beta-badge {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .look .state-dot {
+  .look .state-dot,
+  .look-working .state-dot {
     animation: none;
   }
 }

@@ -1,6 +1,7 @@
-// How the three dots of a working session move (status chip in the sidebar and the rail). The
-// choice is stored in the settings; styles.css draws each style from `data-dots` on the root, and a
-// `dots-<style>` class overrides it locally (the previews in the settings). Pure.
+// How a working session shows motion: the three dots of the rail's status chip and the dot before
+// a row's state word. The choice is stored in the settings; styles.css draws each style from
+// `data-dots` on the root, and a `dots-<style>` class overrides it locally (the previews in the
+// settings). Pure.
 
 /**
  * - `bounce`: each dot hops and lands softly, one after the other (default)

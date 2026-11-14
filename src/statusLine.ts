@@ -4,7 +4,7 @@
 
 import type { AttentionReason, AttentionState } from "./attention";
 import { folderName } from "./folders";
-import { PHRASES, statusPhrase, type StatusPhrase } from "./format";
+import { SHORT_PHRASES, statusPhrase, type StatusPhrase } from "./format";
 import type { MessageKey, Translate } from "./i18n";
 import type { SessionView } from "./sessions";
 
@@ -55,21 +55,19 @@ const AGENT_PHRASES: Record<StatusPhrase, MessageKey> = {
   exitedByUser: "status.agent.exitedByUser",
 };
 
-/** The status line in its parts, so the row can keep the duration whole while the rest ellipsizes. */
+/** A session's state twice: one word for the row, the whole sentence for the peek. */
 export interface StatusLine {
-  /** Short sentence without the duration: "Claude Code is working". */
-  sentence: string;
-  /** How long it has been working or resting ("3 min"); `null` below a minute and otherwise. */
-  duration: string | null;
-  /** The whole sentence for tooltips: "Claude Code has been working for 3 min". */
+  /** One word for the row's title line: "working", "question". */
+  word: string;
+  /** The whole sentence for the peek and screen readers: "Claude Code has been working for 3 min". */
   full: string;
 }
 
 /**
- * The row's status line: a short phrase ("working") plus "3 min", and for tooltips the whole
- * sentence with the program as its subject ("Claude Code has been working for 3 min").
- * Working and resting say for how long once that is a minute or more; waiting and ended sessions
- * keep the plain phrase (the exit detail lives in the tooltip).
+ * The row's state as one word ("working"), and for the peek the whole sentence with the program as
+ * its subject ("Claude Code has been working for 3 min"). Working and resting say for how long
+ * once that is a minute or more; waiting and ended sessions keep the plain phrase (the exit detail
+ * lives in the peek).
  */
 export function statusLine(
   agent: string,
@@ -85,14 +83,14 @@ export function statusLine(
   const since =
     phrase === "working" ? activity.workingSince : phrase === "idle" ? activity.lastOutput : null;
   const duration = since === null ? null : formatDuration(now - since, language);
-  // The agent group's header above the row already names the program; the row keeps it short.
-  const sentence = t(PHRASES[phrase]);
-  if (duration === null) return { sentence, duration, full: t(AGENT_PHRASES[phrase], { agent }) };
+  // The title and the group header already name the program; the row says only the state.
+  const word = t(SHORT_PHRASES[phrase]);
+  if (duration === null) return { word, full: t(AGENT_PHRASES[phrase], { agent }) };
   const full =
     phrase === "working"
       ? t("status.agent.workingFor", { agent, duration })
       : t("status.agent.idleFor", { agent, duration });
-  return { sentence, duration, full };
+  return { word, full };
 }
 
 export interface DetailLine {

@@ -36,7 +36,6 @@ import {
 } from "./stateLook";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
-import type { ChipKind } from "./sessionChip";
 import type { Theme } from "./theme";
 
 interface Props {
@@ -77,13 +76,13 @@ const COLOR_NAMES: Record<LookPresetId, MessageKey> = {
   pink: "color.pink",
 };
 
-/** What the preview row says and shows, exactly like a session in the sidebar. */
-const PREVIEWS: Record<LookState, { status: MessageKey; chip: ChipKind }> = {
-  working: { status: "status.working", chip: "working" },
-  done: { status: "status.attention", chip: "done" },
-  asks: { status: "status.asks", chip: "asks" },
-  idle: { status: "status.idle", chip: "paused" },
-  failed: { status: "status.failed", chip: "failed" },
+/** What the preview row says, exactly like a session in the sidebar. */
+const PREVIEWS: Record<LookState, MessageKey> = {
+  working: "status.short.working",
+  done: "status.short.attention",
+  asks: "status.short.asks",
+  idle: "status.short.idle",
+  failed: "status.short.failed",
 };
 
 const PREVIEW_BADGE: BadgeLook = { kind: "letters", text: "C", color: badgeColor("claude") };
@@ -423,16 +422,18 @@ function LookCard({
             <span className="session-main">
               <Badge look={PREVIEW_BADGE} />
               <span className="session-text">
-                <span className="session-title">{t("settings.preview")}</span>
-                <span className="session-meta">
-                  <span className="state-dot" aria-hidden="true" />
-                  <span className={waits ? "session-status attention-text" : "session-status"}>
-                    {t(preview.status)}
+                {/* Like a session row's first line: the title, its state at the right edge. */}
+                <span className="session-title-row">
+                  <span className="session-title">{t("settings.preview")}</span>
+                  <span className="session-state">
+                    <span className="state-dot" aria-hidden="true" />
+                    <span className={waits ? "session-status attention-text" : "session-status"}>
+                      {t(preview)}
+                    </span>
                   </span>
                 </span>
               </span>
             </span>
-            <StatusChip kind={preview.chip} />
           </span>
         </div>
       </div>

@@ -1,6 +1,8 @@
-// The load half of a session row's third line: CPU, RAM and, where the machine gives GPU
+// The third line of a session row: CPU, RAM and, where the machine gives GPU
 // numbers, GPU of the session's process tree, each value in a cell of fixed width (styles.css,
 // "Third line"). Pure: the row passes the formatted numbers (resources.ts).
+
+import { Fragment } from "react";
 
 import { useT } from "./i18n";
 import { CpuIcon, GpuIcon, MemoryIcon } from "./icons";
@@ -9,11 +11,11 @@ import type { ResourceParts } from "./resources";
 const RESOURCE_ICONS = { cpu: CpuIcon, memory: MemoryIcon, gpu: GpuIcon } as const;
 
 /**
- * One column of the third line, "CPU 12 %": the name, then each value in a cell of fixed width,
- * right-aligned, so the columns line up from row to row (styles.css, "Third line"). In a very
- * narrow row the name gives way to a small icon (CSS); screen readers always hear the name. A
- * column without any value yet (CPU before the second reading, GPU while the tree leaves it alone)
- * keeps its width but shows nothing and says nothing.
+ * One column of the third line: a small icon for CPU, RAM or GPU, then each value in a cell of
+ * fixed width, right-aligned, so the columns line up from row to row (styles.css, "Third line").
+ * Screen readers hear the name ("CPU 12 %") instead of the icon. A column without any value yet
+ * (CPU before the second reading, GPU while the tree leaves it alone) keeps its width but shows
+ * nothing and says nothing.
  */
 function ResourceFact({
   kind,
@@ -34,16 +36,21 @@ function ResourceFact({
       className={`session-resource session-resource-${kind}${spoken === null ? " vacant" : ""}`}
       aria-hidden={spoken === null ? true : undefined}
     >
-      <span className="session-resource-name" aria-hidden="true">
-        {name}
-      </span>
       <span className="session-resource-icon" aria-hidden="true">
-        <Icon size={10} />
+        <Icon size={11} />
       </span>
-      {values.map(({ cell, text }) => (
-        <span key={cell} className={`session-value session-value-${cell}`} aria-hidden="true">
-          {text}
-        </span>
+      {values.map(({ cell, text }, index) => (
+        <Fragment key={cell}>
+          {/* "30 % · 1.2 GB": the dot only between two values. */}
+          {index > 0 && (
+            <span className="session-value-sep" aria-hidden="true">
+              {values.every((value) => value.text !== null) ? "·" : ""}
+            </span>
+          )}
+          <span className={`session-value session-value-${cell}`} aria-hidden="true">
+            {text}
+          </span>
+        </Fragment>
       ))}
       {spoken !== null && <span className="sr-only">{`${name} ${spoken}`}</span>}
     </span>
@@ -51,8 +58,8 @@ function ResourceFact({
 }
 
 /**
- * The load half of the third line: CPU, RAM and, where the machine gives GPU numbers, GPU. The
- * GPU column stays (empty) for a session without GPU use, so the run time after it does not move.
+ * The third line: CPU, RAM and, where the machine gives GPU numbers, GPU (load and memory). The
+ * GPU column stays (empty) for a session without GPU use, so every row keeps the same columns.
  */
 export function SessionLoad({ usage, gpuColumn }: { usage: ResourceParts; gpuColumn: boolean }) {
   const t = useT();

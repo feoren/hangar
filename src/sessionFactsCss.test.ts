@@ -3,22 +3,25 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// The third line of a session row lines its values up in columns of fixed width and moves the
-// session group onto a fourth line when both groups do not fit side by side (styles.css, "Third
-// line"). These tests keep the cells, the wrap and the giving-way steps consistent.
+// A session row has up to four lines: title and state; folder and branch; the load; run time and
+// context (styles.css, "First line" to "Fourth line"). Values sit in columns of fixed width
+// that line up from row to row. These tests keep the cells, the lines and the stripes consistent.
 
 const CSS = readFileSync(new URL("./styles.css", import.meta.url), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
   "",
 );
 
-/** Font size of the line; the --fact-* tokens are in em of it. */
+/** Font size of the load line; the --fact-* tokens are in em of it. */
 const LINE_PX = 11;
-/** Widest names measured with the UI font (em): "CPU", "RAM", "GPU". */
-const NAME_EM = { cpu: 1.87, memory: 2.14, gpu: 1.93 };
-const ICON_PX = 10;
-const NAME_GAP_PX = 4;
-const CELL_GAP_PX = 8;
+/** The icons for CPU, RAM and GPU (SessionLoad.tsx). */
+const ICON_PX = 11;
+/** After an icon and around the GPU's dot. */
+const NEAR_PX = 4;
+const CELL_GAP_PX = 6;
+/** The narrowest sidebar's text width (305 px sidebar) with the list's scroll bar, measured in
+ * Edge at 125 %. */
+const NARROWEST_TEXT_PX = 210;
 
 /** Declarations of every top level rule whose selector list contains `selector`. */
 function declarations(selector: string, css = CSS): Map<string, string> {
@@ -34,23 +37,12 @@ function declarations(selector: string, css = CSS): Map<string, string> {
   return found;
 }
 
-/** A --fact-* token in em, from the given selector (`:root` or a language override). */
-function token(name: string, selector = ":root"): number {
-  const value = declarations(selector).get(name);
+/** A --fact-* token in em from :root. */
+function token(name: string): number {
+  const value = declarations(":root").get(name);
   const em = /^(\d+(?:\.\d+)?)em$/.exec(value ?? "");
-  if (em?.[1] === undefined)
-    throw new Error(`${name} on ${selector} is not in em: ${String(value)}`);
+  if (em?.[1] === undefined) throw new Error(`${name} is not in em: ${String(value)}`);
   return Number(em[1]);
-}
-
-/** The max-width of the session-text container query that holds a rule for `selector`. */
-function stepFor(selector: string): number {
-  for (const match of CSS.matchAll(
-    /@container session-text \(max-width: (\d+)px\) \{([\s\S]*?)\n\}/g,
-  )) {
-    if (declarations(selector, match[2] ?? "").size > 0) return Number(match[1]);
-  }
-  throw new Error(`no giving-way step for ${selector}`);
 }
 
 describe("cells of fixed width", () => {
@@ -60,19 +52,15 @@ describe("cells of fixed width", () => {
     expect(declarations(".session-value-memory").get("min-width")).toBe("var(--fact-memory)");
     expect(declarations(".session-runtime").get("min-width")).toBe("var(--fact-runtime)");
     expect(declarations(".session-context-tokens").get("min-width")).toBe("var(--fact-tokens)");
-    expect(declarations(".session-context-bar").get("width")).toBe("var(--fact-bar)");
   });
 
   it("sizes the cells for the widest measured value with some room", () => {
-    // Measured in Edge at 11 px with tabular digits: "100 %", "12,3 GB", "199.9k / 200k", "99 days".
+    // Measured in Edge at 11 px with tabular digits: "100 %", "12,3 GB", "199.9k / 200k", and the
+    // run time up to nine days in every language ("9 ημέρες").
     expect(token("--fact-percent")).toBeGreaterThanOrEqual(2.71);
     expect(token("--fact-memory")).toBeGreaterThanOrEqual(3.37);
     expect(token("--fact-tokens")).toBeGreaterThanOrEqual(5.92);
-    expect(token("--fact-runtime")).toBeGreaterThanOrEqual(3.36);
-    // "99 giorni", "23 godz.", "99 ημέρες".
-    expect(token("--fact-runtime", ":root:lang(it)")).toBeGreaterThanOrEqual(3.93);
-    expect(token("--fact-runtime", ":root:lang(pl)")).toBeGreaterThanOrEqual(3.79);
-    expect(token("--fact-runtime", ":root:lang(el)")).toBeGreaterThanOrEqual(4.43);
+    expect(token("--fact-runtime")).toBeGreaterThanOrEqual(3.89);
   });
 
   it("right-aligns the numbers in steady digits", () => {
@@ -85,54 +73,160 @@ describe("cells of fixed width", () => {
   it("keeps the place of a column without a value", () => {
     expect(declarations(".session-resource.vacant").get("visibility")).toBe("hidden");
   });
+
+  it("lets the context bar take the free width, down to its minimum", () => {
+    const bar = declarations(".session-context-bar");
+    expect(bar.get("flex")).toBe("1 1 var(--fact-bar-min)");
+    expect(bar.get("min-width")).toBe("var(--fact-bar-min)");
+    expect(declarations(":root").get("--fact-bar-min")).toBe("24px");
+  });
 });
 
-describe("two groups, side by side or on two lines", () => {
-  it("lets the session group wrap onto a fourth line", () => {
-    const line = declarations(".session-detail");
-    expect(line.get("display")).toBe("flex");
-    expect(line.get("flex-wrap")).toBe("wrap");
-    expect(declarations(".session-detail:empty").get("display")).toBe("none");
-  });
-
-  it("never cuts a group mid-text: cells that do not fit go whole, out of sight", () => {
-    for (const group of [".session-load", ".session-run"]) {
-      const rule = declarations(group);
+describe("the third and fourth line", () => {
+  it("keeps each to one line and never cuts a cell mid-text", () => {
+    for (const line of [".session-detail", ".session-context"]) {
+      const rule = declarations(line);
+      expect(rule.get("display")).toBe("flex");
+      // Cells that do not fit (below the narrowest sidebar) wrap whole out of sight.
       expect(rule.get("flex-wrap")).toBe("wrap");
       expect(rule.get("height")).toBe("1lh");
       expect(rule.get("overflow")).toBe("hidden");
-      expect(rule.get("min-width")).toBe("0");
     }
-    // Every row decides alike whether the session group moves: it claims its full width.
-    expect(declarations(".session-run").get("flex-basis")?.replace(/\s+/g, " ")).toBe(
-      "calc( var(--fact-runtime) + var(--fact-bar) + var(--fact-percent) + var(--fact-tokens) + 20px )",
-    );
-    // The context meter's parts are cells of the session group itself.
-    expect(declarations(".session-context").get("display")).toBe("contents");
+    expect(declarations(".session-load").get("display")).toBe("contents");
   });
 
-  it("gives way only once a group alone no longer fits", () => {
-    const percent = token("--fact-percent");
-    const memory = token("--fact-memory");
-    const loadWithGpu =
-      (NAME_EM.cpu + percent + NAME_EM.memory + memory + NAME_EM.gpu + percent + memory) * LINE_PX +
-      4 * NAME_GAP_PX +
-      2 * CELL_GAP_PX;
-    expect(stepFor(".session-load:has(.session-resource-gpu) .session-resource-name")).toBe(
-      Math.ceil(loadWithGpu),
-    );
-    const load = (NAME_EM.cpu + percent + NAME_EM.memory + memory) * LINE_PX + 2 * NAME_GAP_PX;
-    expect(stepFor(".session-load .session-resource-name")).toBe(Math.ceil(load + CELL_GAP_PX));
-    // With icons instead of names the load group still fits the narrowest sidebar's rows.
-    const iconsWithGpu =
-      loadWithGpu - (NAME_EM.cpu + NAME_EM.memory + NAME_EM.gpu) * LINE_PX + 3 * ICON_PX;
-    expect(iconsWithGpu).toBeLessThan(220);
+  it("drops nothing any more: no giving-way steps", () => {
+    expect(CSS).not.toMatch(/@container session-text/);
+  });
 
-    const runtime = token("--fact-runtime", ":root:lang(el)");
-    const session =
-      (runtime + token("--fact-bar") + percent + token("--fact-tokens")) * LINE_PX +
-      3 * CELL_GAP_PX -
-      NAME_GAP_PX;
-    expect(stepFor(".session-run .session-context-tokens")).toBe(Math.ceil(session));
+  it("fits the whole load with units into the narrowest sidebar", () => {
+    const percent = token("--fact-percent") * LINE_PX;
+    const memory = token("--fact-memory") * LINE_PX;
+    const dot = 0.4 * LINE_PX;
+    const cpu = ICON_PX + NEAR_PX + percent;
+    const ram = ICON_PX + NEAR_PX + memory;
+    const gpu = ICON_PX + NEAR_PX + percent + NEAR_PX + dot + NEAR_PX + memory - 4;
+    expect(cpu + ram + gpu + 2 * CELL_GAP_PX).toBeLessThanOrEqual(NARROWEST_TEXT_PX);
+    expect(declarations(".session-value-sep").get("min-width")).toBe("0.4em");
+    expect(declarations(".session-value-sep").get("margin")).toBe("0 -2px");
+  });
+
+  it("gives the context bar the free width, share and tokens their cells", () => {
+    const bar = declarations(".session-context-bar");
+    expect(bar.get("flex")).toBe("1 1 var(--fact-bar-min)");
+    expect(bar.get("height")).toBe("6px");
+    const runtime = token("--fact-runtime") * LINE_PX;
+    const share = token("--fact-percent") * LINE_PX;
+    const tokens = token("--fact-tokens") * LINE_PX;
+    // Run time, bar at its minimum, share close to the bar, tokens.
+    const line = runtime + CELL_GAP_PX + 24 + NEAR_PX + share + CELL_GAP_PX + tokens;
+    expect(line).toBeLessThanOrEqual(NARROWEST_TEXT_PX);
+  });
+});
+
+describe("the striped context bar", () => {
+  it("draws the stripes on a layer one period wider than the fill, clipped by it", () => {
+    const fill = declarations(".session-context-fill");
+    expect(fill.get("overflow")).toBe("hidden");
+    expect(fill.get("--stripe-period")).toBe("11.3137px");
+    // 4 px stripe and 4 px gap across 45° stripes: 8 px times the square root of two.
+    expect(8 * Math.SQRT2).toBeCloseTo(11.3137, 3);
+    const stripes = declarations(".session-context-fill::after");
+    expect(stripes.get("width")).toBe("calc(100% + var(--stripe-period))");
+    expect(stripes.get("background")?.replace(/\s+/g, " ")).toContain(
+      "repeating-linear-gradient( 45deg",
+    );
+  });
+
+  it("moves them only while the session works, by transform alone", () => {
+    const moving =
+      /\.session\.look-working \.session-context-fill::after \{\s*animation: context-stripes [^;]+ infinite;\s*\}/;
+    expect(CSS).toMatch(moving);
+    const keyframes = /@keyframes context-stripes \{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? "";
+    expect(keyframes).toContain("transform: translateX(11.3137px)");
+    expect(keyframes).not.toMatch(/background|width|left/);
+    // No other rule animates the stripes.
+    expect(CSS.match(/animation: context-stripes/g)).toHaveLength(1);
+  });
+
+  it("stops them for reduced motion and while saving power", () => {
+    const reduced = [...CSS.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+    expect(
+      declarations(".session.look-working .session-context-fill::after", reduced).get("animation"),
+    ).toBe("none");
+    expect(
+      declarations(":root.power-saving .session.look-working .session-context-fill::after").get(
+        "animation",
+      ),
+    ).toBe("none");
+  });
+});
+
+describe("the first line: signs, title, state", () => {
+  it("puts the one-word state in a fixed cell at the right edge; only the title gives way", () => {
+    const state = declarations(".session-state");
+    expect(state.get("margin-left")).toBe("auto");
+    expect(state.get("flex")).toBe("none");
+    const status = declarations(".session-status");
+    expect(status.get("flex")).toBe("none");
+    expect(status.get("min-width")).toBe("var(--state-word)");
+    // "Entscheidung" in bold, the widest word in every language: 70.3 px at 11.5 px.
+    const em = /^(\d+(?:\.\d+)?)em$/.exec(declarations(":root").get("--state-word") ?? "");
+    expect(Number(em?.[1]) * 11.5).toBeGreaterThanOrEqual(70.3);
+    const title = declarations(".session-title-row .session-title");
+    expect(title.get("flex")).toBe("1 1 0");
+    expect(title.get("min-width")).toBe("var(--title-min)");
+    expect(declarations(":root").get("--title-min")).toBe("4em");
+  });
+
+  it("shows the signs before the title, never shrinking", () => {
+    const signs = declarations(".session-signs");
+    expect(signs.get("order")).toBe("-1");
+    expect(signs.get("flex")).toBe("none");
+    expect(declarations(".session-title-row > .badge").get("order")).toBe("-2");
+  });
+
+  it("moves a working row's dot as the dot animation setting chooses, still without motion", () => {
+    const moving =
+      /\n\.look-working \.state-dot \{[^}]*animation: var\(--dots-name\) var\(--dots-time\) var\(--dots-ease\) infinite both;/;
+    expect(CSS).toMatch(moving);
+    const reduced = [...CSS.matchAll(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)]
+      .map((match) => match[1] ?? "")
+      .join("\n");
+    expect(declarations(".look-working .state-dot", reduced).get("animation")).toBe("none");
+  });
+
+  it("keeps title, state and signs in that order for screen readers", () => {
+    const row = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
+    const title = row.indexOf('<span className="session-title">{name}</span>');
+    const state = row.indexOf('<span className="session-state">', title);
+    const signs = row.indexOf('<span className="session-signs">', state);
+    expect(title).toBeGreaterThan(0);
+    expect(state).toBeGreaterThan(title);
+    expect(signs).toBeGreaterThan(state);
+    // A row says its state in words; the status chip stays for the rail only.
+    expect(row).not.toContain("<StatusChip kind={chip} />");
+  });
+});
+
+describe("the second line: folder at the start, branch at the right", () => {
+  it("lets folder and branch fill the line, the branch at the right edge", () => {
+    const where = declarations(".session-where");
+    expect(where.get("flex")).toBe("1 1 0");
+    expect(declarations(".session-branch").get("margin-left")).toBe("auto");
+    expect(declarations(".session-meta:empty").get("display")).toBe("none");
+  });
+
+  it("gives way with the folder first, then the branch, each down to a minimum", () => {
+    const path = declarations(".session-path");
+    const branch = declarations(".session-branch");
+    expect(path.get("flex")).toBe("0 1000 auto");
+    expect(path.get("min-width")).toBe("34px");
+    expect(branch.get("flex")).toBe("0 1 auto");
+    expect(branch.get("min-width")).toBe("30px");
+    // The folder's icon stays whole while the name gives way.
+    expect(declarations(".session-path-icon").get("flex")).toBe("none");
   });
 });

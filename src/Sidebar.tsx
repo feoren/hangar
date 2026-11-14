@@ -95,7 +95,7 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { SessionLoad } from "./SessionLoad";
-import { SessionRun } from "./SessionRun";
+import { ContextLine } from "./ContextLine";
 import { useSessionResources } from "./useSessionResources";
 import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
@@ -1597,70 +1597,85 @@ function SessionItem({
           }}
         >
           <span className="session-text">
+            {/* First line: the title in the middle, its state as one word at the right edge (in
+                line with the branch below and the last value of the lines below), the small signs
+                in front of the title. The DOM keeps title, then state, then the signs, so screen
+                readers hear them in that order; CSS `order` puts the signs before the title
+                (styles.css, "First line"). Only the title gives way. */}
             <span className="session-title-row">
               {badge !== null && <Badge look={badge} />}
               <SessionMarker marker={session.marker} tooltip={false} />
               <span className="session-title">{name}</span>
-              {overlap !== undefined && (
-                <span className="session-overlap">
-                  <OverlapIcon size={12} />
-                  <span className="sr-only">{overlap}</span>
+              {/* One word in a cell of fixed width; the whole sentence with the program and how
+                  long ("Claude Code has been working for 3 min") is for screen readers here and
+                  for everyone in the peek. */}
+              <span className="session-state">
+                <span className="state-dot" aria-hidden="true" />
+                <span
+                  className={waiting ? "session-status attention-text" : "session-status"}
+                  aria-hidden="true"
+                >
+                  {line.word}
                 </span>
-              )}
-              {outlier !== null && (
-                <span className="session-outlier">
-                  <GaugeIcon size={12} />
-                  <span className="sr-only">{outlier}</span>
-                </span>
-              )}
-              {/* Rare and lasting (no endpoint, unusable data path): visible, but quiet. */}
-              {gateOff !== null && (
-                <span className="session-gate-off">
-                  <AlertIcon size={12} />
-                  <span className="sr-only">{gateOff}</span>
-                </span>
-              )}
-              {/* Right-aligned at the end of the title line, so the two lines below keep the
-                  full width; the title ellipsizes first. */}
-              <span className="session-title-end">
-                {session.worktree && <RepoTeammates sessionId={session.id} />}
-                {/* A quiet sign that a dev server runs; the globe in the actions opens it. */}
-                {devServer !== undefined && (
-                  <span className="session-dev-server" aria-hidden="true">
-                    <GlobeIcon size={12} />
-                  </span>
-                )}
-                {placement !== null && <LayoutGlyph placement={placement} />}
-                {chip !== null && <StatusChip kind={chip} />}
+                <span className="sr-only">{line.full}</span>
               </span>
+              {(gateOff !== null ||
+                overlap !== undefined ||
+                outlier !== null ||
+                placement !== null ||
+                devServer !== undefined ||
+                session.worktree !== undefined) && (
+                <span className="session-signs">
+                  {/* Problems first: no state reports (rare, lasting), then work overlapping
+                      another session's files, then a load outlier; after them where it shows,
+                      a running dev server and the teammates in the same repository. */}
+                  {gateOff !== null && (
+                    <span className="session-gate-off">
+                      <AlertIcon size={12} />
+                      <span className="sr-only">{gateOff}</span>
+                    </span>
+                  )}
+                  {overlap !== undefined && (
+                    <span className="session-overlap">
+                      <OverlapIcon size={12} />
+                      <span className="sr-only">{overlap}</span>
+                    </span>
+                  )}
+                  {outlier !== null && (
+                    <span className="session-outlier">
+                      <GaugeIcon size={12} />
+                      <span className="sr-only">{outlier}</span>
+                    </span>
+                  )}
+                  {placement !== null && <LayoutGlyph placement={placement} />}
+                  {/* A quiet sign that a dev server runs; the globe in the actions opens it. */}
+                  {devServer !== undefined && (
+                    <span className="session-dev-server" aria-hidden="true">
+                      <GlobeIcon size={12} />
+                    </span>
+                  )}
+                  {session.worktree && <RepoTeammates sessionId={session.id} />}
+                </span>
+              )}
             </span>
-            {/* Second line: the short state ("working") and how long, then where it runs. The
-                program is already named by the title or the group, so the state stays short;
-                the folder and branch give way first, the duration stays whole. */}
+            {/* Second line: where it runs, the folder at the start and the branch at the right
+                edge. The folder gives way first, then the branch, both with an ellipsis
+                (styles.css, "Second line"). */}
             <span className="session-meta">
-              <span className="state-dot" aria-hidden="true" />
-              <span className={waiting ? "session-status attention-text" : "session-status"}>
-                {line.sentence}
-              </span>
-              {line.duration !== null && (
-                <span className="session-status-duration">
-                  <span aria-hidden="true">·</span>
-                  {line.duration}
-                </span>
-              )}
               {(place !== null ||
                 where.branch !== null ||
                 (session.worktree !== undefined && isTeamSession(session))) && (
                 <span className="session-where">
                   {place !== null && (
                     <span className="session-path">
-                      <span aria-hidden="true">·</span>
+                      <span className="session-path-icon" aria-hidden="true">
+                        <FolderIcon size={11} />
+                      </span>
                       <span className="session-path-name">{place}</span>
                     </span>
                   )}
                   {session.worktree && isTeamSession(session) ? (
                     <span className="session-branch worktree">
-                      <span aria-hidden="true">·</span>
                       <TeamIcon size={11} />
                       <span className="sr-only">
                         {t("worktree.sessionHint", {
@@ -1675,7 +1690,6 @@ function SessionItem({
                   ) : (
                     where.branch !== null && (
                       <span className="session-branch">
-                        <span aria-hidden="true">·</span>
                         <BranchIcon size={11} />
                         <span className="sr-only">
                           {t("session.branch", { branch: revealInvisible(where.branch) })}
@@ -1689,14 +1703,15 @@ function SessionItem({
                 </span>
               )}
             </span>
-            {/* Third line: the tree's load (while the setting is on), then the run time and the
-                context meter, each value in a column of fixed width. When both halves do not fit
-                side by side, the second moves to a fourth line; without any of them (CSS :empty)
-                the row keeps no empty line (styles.css, "Third line"). */}
-            <span className="session-detail">
-              {usage !== null && <SessionLoad usage={usage} gpuColumn={gpuColumn} />}
-              <SessionRun sessionId={session.id} runtime={where.runtime} language={language} />
-            </span>
+            {/* Third line: the tree's load (while the setting is on), each value in a column of
+                fixed width; fourth line: run time and context window. Each line exists only with
+                its numbers, so a row never keeps an empty line (styles.css, "Third line"). */}
+            {usage !== null && (
+              <span className="session-detail">
+                <SessionLoad usage={usage} gpuColumn={gpuColumn} />
+              </span>
+            )}
+            <ContextLine sessionId={session.id} runtime={where.runtime} language={language} />
           </span>
         </button>
       )}
