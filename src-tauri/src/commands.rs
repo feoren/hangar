@@ -1500,6 +1500,15 @@ pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
         .map_err(|error| GitError::Task(error.to_string()))?
 }
 
+/// How many files `git_diff` would list for `cwd` (`None`: no repository), for the notice when a
+/// session is done; costs one `git status` instead of the whole diff.
+#[tauri::command]
+pub async fn git_changed_count(cwd: PathBuf) -> Result<Option<u32>, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::changed_count(&Git::locate()?, &cwd))
+        .await
+        .map_err(|error| GitError::Task(error.to_string()))?
+}
+
 /// The user's own commits in the repositories of `folders`, for the activity calendar
 /// (git_activity.rs). Folders that are no repository are skipped, not reported.
 #[tauri::command]

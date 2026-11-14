@@ -73,6 +73,7 @@
     "allow-push-session",
     "allow-git-branches",
     "allow-git-diff",
+    "allow-git-changed-count",
     "allow-git-activity",
     "allow-git-log",
     "allow-git-commit-diff",

@@ -763,23 +763,7 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
         )?
         .success;
 
-    let status = git.run(
-        &root,
-        neutral.iter().map(String::as_str).chain([
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=normal",
-            "--ignore-submodules=all",
-        ]),
-        deadline,
-        MAX_LIST_BYTES,
-    )?;
-    if !status.usable() {
-        return Err(status.failure());
-    }
-    let mut truncated = status.truncated;
-    let mut files = parse_status(&status.stdout);
+    let (mut files, mut truncated) = status_files(git, &root, &neutral, deadline)?;
 
     // A repository without commits has no HEAD to compare with: staged changes plus the work
     // tree instead.
@@ -844,6 +828,46 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
         diff: cut_text(text, truncated),
         truncated,
     })
+}
+
+/// The changed files of the work tree at `root` (`git status`, untracked files included, renames
+/// once) and whether the list was cut. `neutral` are the [`filter_overrides`].
+fn status_files(
+    git: &Git,
+    root: &Path,
+    neutral: &[String],
+    deadline: Instant,
+) -> Result<(Vec<FileChange>, bool), GitError> {
+    let status = git.run(
+        root,
+        neutral.iter().map(String::as_str).chain([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+            "--ignore-submodules=all",
+        ]),
+        deadline,
+        MAX_LIST_BYTES,
+    )?;
+    if !status.usable() {
+        return Err(status.failure());
+    }
+    Ok((parse_status(&status.stdout), status.truncated))
+}
+
+/// How many files [`diff`] would list for `cwd`, without the diff itself: toplevel, filter
+/// overrides (a config read, runs nothing) and one `git status`. `None` when `cwd` is no work
+/// tree. A list cut at [`MAX_LIST_BYTES`] counts what fit, like `diff`.
+pub fn changed_count(git: &Git, cwd: &Path) -> Result<Option<u32>, GitError> {
+    check_folder(cwd)?;
+    let deadline = Instant::now() + TIMEOUT;
+    let Some(root) = toplevel(git, cwd, deadline)? else {
+        return Ok(None);
+    };
+    let neutral = filter_overrides(git, &root, deadline)?;
+    let (files, _truncated) = status_files(git, &root, &neutral, deadline)?;
+    Ok(Some(u32::try_from(files.len()).unwrap_or(u32::MAX)))
 }
 
 /// A cut diff ends at the last whole line, so no half UTF-8 character or half line remains.
@@ -1499,6 +1523,55 @@ pub(crate) mod tests {
         let overrides = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
         assert!(overrides.contains(&"filter.with.dot.clean=".to_owned()));
         assert!(overrides.contains(&"filter.marker.required=false".to_owned()));
+    }
+
+    #[test]
+    fn changed_count_matches_the_diff_file_list() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-changed-count");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let count = |cwd: &Path| changed_count(&git, cwd).unwrap();
+        let listed = |cwd: &Path| diff(&git, cwd).unwrap().files.len() as u32;
+
+        // Without commits.
+        assert_eq!(count(&repo), Some(0));
+        write(&repo.join("staged.txt"), "one\n");
+        git_ok(&git, &repo, &["add", "staged.txt"]);
+        write(&repo.join("loose.txt"), "x\n");
+        assert_eq!(count(&repo), Some(2));
+        assert_eq!(count(&repo), Some(listed(&repo)));
+
+        // Modified, added, untracked (also in a new folder), renamed and deleted.
+        write(&repo.join("keep.txt"), "keep\n");
+        write(&repo.join("old name.txt"), "rename me\nsecond line\n");
+        write(&repo.join("gone.txt"), "gone\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        assert_eq!(count(&repo), Some(0));
+        write(&repo.join("keep.txt"), "changed\n");
+        write(&repo.join("added.txt"), "new\n");
+        git_ok(&git, &repo, &["add", "added.txt"]);
+        write(&repo.join("untracked.txt"), "u\n");
+        write(&repo.join("new folder").join("inner.txt"), "u\n");
+        git_ok(&git, &repo, &["mv", "old name.txt", "new name.txt"]);
+        fs::remove_file(repo.join("gone.txt")).unwrap();
+        let files = diff(&git, &repo).unwrap().files;
+        let statuses: Vec<&str> = files.iter().map(|f| f.status.as_str()).collect();
+        assert!(statuses.contains(&"R "), "{statuses:?}");
+        assert!(statuses.contains(&" D"), "{statuses:?}");
+        // keep, added, untracked, new folder/, renamed (once), gone.
+        assert_eq!(files.len(), 6, "{files:?}");
+        assert_eq!(count(&repo), Some(6));
+        fs::create_dir_all(repo.join("sub")).unwrap();
+        assert_eq!(count(&repo.join("sub")), Some(listed(&repo.join("sub"))));
+
+        // No work tree, and paths the window must not name.
+        assert_eq!(count(&repo.join(".git")), None);
+        assert!(matches!(
+            changed_count(&git, Path::new("relative")),
+            Err(GitError::InvalidPath(_))
+        ));
     }
 
     #[test]

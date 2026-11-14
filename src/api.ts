@@ -418,6 +418,12 @@ export const api = {
    */
   gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
   /**
+   * Number of changed files of a working folder, the same as the file list of `gitDiff`, without
+   * reading the diff itself; `null` outside a repository. Check with `parseChangedCount`; rejects
+   * with a text like `gitDiff`.
+   */
+  gitChangedCount: (cwd: string) => invoke<unknown>("git_changed_count", { cwd }),
+  /**
    * The user's own commits of about the last year in the repositories of these folders (at most
    * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
    */

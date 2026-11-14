@@ -3,7 +3,6 @@
 // tested without the app.
 
 import type { AttentionReason, AttentionState } from "./attention";
-import { parseGitDiff } from "./gitDiff";
 
 /** How long the notice stays when nobody touches it. */
 export const DONE_NOTICE_MS = 8000;
@@ -26,10 +25,20 @@ export function finishedWork(
   return previous === "working" && next !== "working" && reason !== "gate";
 }
 
-/** Changed files in the answer of `git_diff`; 0 outside a repository or for a malformed answer. */
-export function changedFileCount(answer: unknown): number {
-  const diff = parseGitDiff(answer);
-  return diff?.isRepo === true ? diff.files.length : 0;
+/** Changed files in the answer of `git_changed_count`; 0 outside a repository or when malformed. */
+export function parseChangedCount(answer: unknown): number {
+  return typeof answer === "number" && Number.isSafeInteger(answer) && answer > 0 ? answer : 0;
+}
+
+/**
+ * Changed files in `cwd` for the notice, asked through `count` (`api.gitChangedCount`). Rejects
+ * when git fails, so the caller shows nothing, as before.
+ */
+export async function doneFileCount(
+  cwd: string,
+  count: (cwd: string) => Promise<unknown>,
+): Promise<number> {
+  return parseChangedCount(await count(cwd));
 }
 
 /**

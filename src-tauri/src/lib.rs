@@ -383,6 +383,7 @@ pub fn run() -> tauri::Result<()> {
             commands::push_session,
             commands::git_branches,
             commands::git_diff,
+            commands::git_changed_count,
             commands::git_activity,
             commands::git_log,
             commands::git_commit_diff,

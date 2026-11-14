@@ -143,7 +143,7 @@ import { setResourcesEnabled } from "./useSessionResources";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
 import {
-  changedFileCount,
+  doneFileCount,
   DONE_NOTICE_MS,
   finishedWork,
   offersDoneNotice,
@@ -1594,13 +1594,11 @@ export function App() {
     if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     if (profile === undefined || shellKind(profile.command) !== "agent") return;
-    api
-      .gitDiff(session.cwd)
-      .then((answer) => {
+    doneFileCount(session.cwd, api.gitChangedCount)
+      .then((count) => {
         const terminal = terminals.get(id);
         const current = stateRef.current.sessions.find((s) => s.id === id);
         if (terminal === undefined || current === undefined) return;
-        const count = changedFileCount(answer);
         const offer = offersDoneNotice({
           count,
           sessionId: id,
