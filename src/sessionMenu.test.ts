@@ -26,6 +26,15 @@ describe("sessionMenuEntries", () => {
     expect(close?.type === "action" ? close.label : "").toBe(t("session.close"));
   });
 
+  it("offers the commands entry only when the session has commands", () => {
+    const keys = (hasCommands: boolean) =>
+      sessionMenuEntries({ status: "running" }, t, false, hasCommands).map((entry) => entry.key);
+    expect(keys(false)).not.toContain("commands");
+    expect(keys(true)).toEqual(["rename", "marker", "commands", "sep", "kill", "close"]);
+    const entry = sessionMenuEntries({ status: "running" }, t, false, true)[2];
+    expect(entry?.type === "action" ? entry.label : "").toBe("Commands …");
+  });
+
   it("offers the sub-agents only for sessions that have them", () => {
     const keys = (subAgents: boolean | undefined, shown = false) =>
       sessionMenuEntries(

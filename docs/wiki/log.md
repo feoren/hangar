@@ -719,3 +719,12 @@ Pages changed: [[release-rollout]].
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
 Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Agent commands and compacting from the context meter
+Read the slash command tables of the installed Claude Code 2.1.325 and Codex CLI 0.169.0
+executables and Gemini CLI's command reference (not installed). The catalog gets `agent_commands`
+for the three; profiles can add their own. The session menu, quick access and a compact button in
+the row actions (from 80 % context use, hidden while the agent works) send them like "Send to
+several". Binary strings also show that Codex refuses such commands during a turn and Claude
+Code queues them; the compact button therefore also hides after a bell or during a gate decision.
+Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [[catalog]], index.

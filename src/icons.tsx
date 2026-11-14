@@ -404,6 +404,17 @@ export function GaugeIcon(props: IconProps) {
   );
 }
 
+/** Two arrows pressing on a line: compact the agent's context. */
+export function CompactIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 8h10" />
+      <path d="M8 2v3.5M6 3.5l2 2 2-2" />
+      <path d="M8 14v-3.5M6 12.5l2-2 2 2" />
+    </Svg>
+  );
+}
+
 /** Gear: settings. */
 export function GearIcon(props: IconProps) {
   return (

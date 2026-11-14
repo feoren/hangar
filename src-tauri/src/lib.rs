@@ -4,6 +4,7 @@ pub mod account;
 pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
+pub mod agent_commands;
 pub mod avatar;
 pub mod batch;
 pub mod child_env;

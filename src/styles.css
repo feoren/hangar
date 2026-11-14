@@ -1224,6 +1224,11 @@ h2 .beta-badge {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
 
+/* Compact context: in the warning color of the context meter it answers, so the two read as one. */
+.session-actions .session-compact {
+  color: var(--warn);
+}
+
 /* Status chip: one shape per state, a compact pill at the end of the title line with that line's
    height (it stretches in .session-title-end). The actions take its place on hover and keyboard
    focus; it steps out of sight but keeps its width, so the title does not shift. */

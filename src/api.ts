@@ -57,6 +57,27 @@ export interface Profile {
    * (`launcher`: an npm cmd.exe launcher that cannot carry the text). Older backends send none.
    */
   instructions?: InstructionsReach;
+  /**
+   * Rust `AgentCommand` list (agent_commands.rs): what the session menu can type into a running
+   * session of the program, the catalog's first. Older backends send none.
+   */
+  agentCommands?: AgentCommand[];
+}
+
+/** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */
+export type AgentCommandLabel =
+  "compact" | "clear" | "new" | "model" | "usage" | "context" | "status" | "stats";
+
+/** Rust `AgentCommand`: exactly one of `labelKey` and `label` is set. */
+export interface AgentCommand {
+  labelKey?: AgentCommandLabel;
+  label?: string;
+  /** Typed into the session as a bracketed paste. */
+  text: string;
+  /** Enter follows the text. */
+  submit: boolean;
+  /** Ask before sending (the command throws the conversation away). */
+  confirm: boolean;
 }
 
 export type InstructionsReach = "none" | "yes" | "launcher";

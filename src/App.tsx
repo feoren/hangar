@@ -25,6 +25,7 @@ import {
   parseExportResult,
   TRAY_QUIT,
   parsePathIndex,
+  type AgentCommand,
   type NoteFolder,
   type Profile,
   type SessionInfo,
@@ -86,6 +87,15 @@ import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
+import {
+  awaitsAnswer,
+  commandBusy,
+  commandMenuEntries,
+  compactRepeated,
+  sendCommand,
+  sessionCommands,
+} from "./agentCommands";
+import { AgentCommandConfirm } from "./AgentCommandConfirm";
 import {
   newSnippetId,
   usableSnippets,
@@ -602,6 +612,12 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** The commands submenu of a session (session menu, "Commands …"), at the menu's place. */
+  const [commandMenu, setCommandMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** A command with `confirm` that waits for the answer of its dialog. */
+  const [commandAsk, setCommandAsk] = useState<{ id: number; command: AgentCommand } | null>(null);
+  /** When each session last got a compact from its row button (`performance.now()`). */
+  const compactSentAt = useRef(new Map<number, number>());
   /**
    * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
    * is the active one; switching sessions or arranging the panes ends the view.
@@ -965,8 +981,9 @@ export function App() {
       closingId !== null ||
       markerId !== null ||
       templateDialog !== null ||
-      snippetDraft !== null;
-  }, [dialog, closingId, markerId, templateDialog, snippetDraft]);
+      snippetDraft !== null ||
+      commandAsk !== null;
+  }, [dialog, closingId, markerId, templateDialog, snippetDraft, commandAsk]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -1272,6 +1289,13 @@ export function App() {
   if (sessionMenu !== null && !state.sessions.some((s) => s.id === sessionMenu.id)) {
     setSessionMenu(null);
   }
+  // The same for the commands submenu and its question, also once the session's process ended
+  // or it may show a question (agentCommands.ts `awaitsAnswer`).
+  const commandsGone = (id: number) =>
+    !state.sessions.some((s) => s.id === id && s.status === "running") ||
+    awaitsAnswer(reasons.get(id) ?? null);
+  if (commandMenu !== null && commandsGone(commandMenu.id)) setCommandMenu(null);
+  if (commandAsk !== null && commandsGone(commandAsk.id)) setCommandAsk(null);
   // The sub-agent view belongs to the active session: another one becoming active, or the
   // session closing, ends it (and with it the watch).
   if (subAgentsOf !== null && subAgentsOf !== state.activeId) setSubAgentsOf(null);
@@ -3361,6 +3385,39 @@ export function App() {
     return null;
   };
 
+  /**
+   * An agent command into one running session, sent like "Send to several" (agentCommands.ts);
+   * that session shows afterwards, so its answer is in view.
+   */
+  const sendAgentCommand = (id: number, command: AgentCommand) => {
+    const session = state.sessions.find((s) => s.id === id);
+    const terminal = terminals.get(id);
+    if (session?.status !== "running" || !terminal || awaitsAnswer(reasons.get(id) ?? null)) return;
+    void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS));
+    dispatch({ type: "activated", id });
+    focusTerminal();
+  };
+
+  /** From the menu or quick access: commands that throw the conversation away ask first. */
+  const runAgentCommand = (id: number, command: AgentCommand) => {
+    if (command.confirm) setCommandAsk({ id, command });
+    else sendAgentCommand(id, command);
+  };
+
+  /**
+   * The row's compact button. It is hidden while the agent is busy; should the agent get busy
+   * between render and click, nothing is sent (agentCommands.ts `commandBusy`).
+   */
+  const compactFromRow = (id: number, command: AgentCommand) => {
+    if (commandBusy(attention.get(id) ?? "idle", reasons.get(id) ?? null)) return;
+    // The button stays until the agent's answer marks it as working; a double click in between
+    // would otherwise queue a second compact.
+    const now = performance.now();
+    if (compactRepeated(compactSentAt.current.get(id), now)) return;
+    compactSentAt.current.set(id, now);
+    runAgentCommand(id, command);
+  };
+
   const setMarker = (id: number, marker: Marker) => {
     dispatch({ type: "marked", id, marker });
   };
@@ -4135,6 +4192,9 @@ export function App() {
       case "marker":
         setMarkerId(id);
         break;
+      case "commands":
+        if (sessionMenu !== null) setCommandMenu({ ...sessionMenu, id });
+        break;
       case "subAgents":
         toggleSubAgents(id);
         break;
@@ -4152,22 +4212,65 @@ export function App() {
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id).map(
-          (entry): PopupItem => {
-            if (entry.type === "separator") return entry;
-            const action = entry.key;
-            const id = menuSession.id;
-            return {
-              ...entry,
-              run: () => {
-                runSessionAction(action, id);
-              },
-            };
-          },
-        );
+      : sessionMenuEntries(
+          menuSession,
+          t,
+          subAgentsOf === menuSession.id,
+          sessionCommands(menuSession, profiles).length > 0 &&
+            !awaitsAnswer(reasons.get(menuSession.id) ?? null),
+        ).map((entry): PopupItem => {
+          if (entry.type === "separator") return entry;
+          const action = entry.key;
+          const id = menuSession.id;
+          return {
+            ...entry,
+            run: () => {
+              runSessionAction(action, id);
+            },
+          };
+        });
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
+  // A session that ended (or went) meanwhile offers no commands: its menu and question go too.
+  const commandMenuSession =
+    commandMenu === null ? undefined : state.sessions.find((s) => s.id === commandMenu.id);
+  const commandItems: PopupItem[] =
+    commandMenuSession === undefined
+      ? []
+      : commandMenuEntries(
+          sessionCommands(commandMenuSession, profiles),
+          commandMenuSession.title,
+          t,
+        ).map((entry): PopupItem => {
+          if (entry.type === "heading") return entry;
+          const { command, ...item } = entry;
+          const id = commandMenuSession.id;
+          return {
+            ...item,
+            run: () => {
+              runAgentCommand(id, command);
+            },
+          };
+        });
+  const commandAskSession =
+    commandAsk === null ? undefined : state.sessions.find((s) => s.id === commandAsk.id);
+
+  /** The active session's agent commands for quick access, `null` when it offers none. */
+  const launcherCommands = () => {
+    if (activeSession === undefined) return null;
+    const commands = sessionCommands(activeSession, profiles);
+    if (commands.length === 0 || awaitsAnswer(reasons.get(activeSession.id) ?? null)) return null;
+    const id = activeSession.id;
+    return {
+      commands,
+      sessionTitle: activeSession.title,
+      programName: profileById.get(activeSession.profileId)?.name ?? "",
+      run: (command: AgentCommand) => {
+        runAgentCommand(id, command);
+      },
+    };
+  };
 
   /** Entries of quick access; built only while it is open. */
   const launcherItems = () =>
@@ -4212,6 +4315,7 @@ export function App() {
               },
             }
           : null,
+      agentCommands: launcherCommands(),
       openSettings,
       menu,
       skipLabels: [t("menu.launcher")],
@@ -4399,6 +4503,7 @@ export function App() {
           onSessionMenu={(id, x, y) => {
             setSessionMenu({ id, x, y });
           }}
+          onAgentCommand={compactFromRow}
           drag={
             sessionDragView === null
               ? null
@@ -5113,6 +5218,31 @@ export function App() {
             onClose={() => {
               setSessionMenu(null);
               focusActive();
+            }}
+          />
+        )}
+        {commandMenu !== null && commandMenuSession !== undefined && (
+          <PopupMenu
+            items={commandItems}
+            label={t("agentCommand.menuFor", { session: commandMenuSession.title })}
+            position={commandMenu}
+            onClose={() => {
+              setCommandMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {commandAsk !== null && commandAskSession !== undefined && (
+          <AgentCommandConfirm
+            command={commandAsk.command}
+            sessionTitle={commandAskSession.title}
+            onCancel={() => {
+              setCommandAsk(null);
+              focusActive();
+            }}
+            onConfirm={() => {
+              setCommandAsk(null);
+              sendAgentCommand(commandAsk.id, commandAsk.command);
             }}
           />
         )}
