@@ -44,12 +44,17 @@ export const PASTE_END_LIMIT_MS = 2_000;
 
 /**
  * The program did not take its input for [`BUSY_LIMIT_MS`]; what was not sent is dropped. Carries
- * no display text: the window names it in its own words (`errorText`).
+ * no display text: the window names it in its own words (`errorText`). `dropped` marks a write
+ * that never got its turn because an earlier one of the same session stalled (`inputQueue`); the
+ * stall itself is reported once, by the write that waited.
  */
 export class InputStalled extends Error {
-  constructor() {
+  readonly dropped: boolean;
+
+  constructor(dropped = false) {
     super("InputStalled");
     this.name = "InputStalled";
+    this.dropped = dropped;
   }
 }
 
@@ -87,6 +92,8 @@ export async function writeInput(
     if (!(await sendPatiently(send, piece, BUSY_LIMIT_MS, timing))) {
       if (
         text.startsWith(PASTE_START) &&
+        // Only a paste the program saw start needs an end; a lone end would arrive as keys.
+        sentUnits >= PASTE_START.length &&
         text.lastIndexOf(PASTE_END) + PASTE_END.length > sentUnits
       ) {
         // Best effort: the stall is reported either way.
@@ -113,21 +120,41 @@ export function settleStalled(write: Promise<unknown>): Promise<void> {
 
 /**
  * One chain of writes per session, so a piece waiting for a full queue is never overtaken by a
- * keystroke typed after it. A failed write does not block the ones after it.
+ * keystroke typed after it. A failed write does not block the ones after it, with one exception:
+ * when a write stalls (`InputStalled`), every write of that session queued before the stall was
+ * known is dropped as well. Otherwise keys typed while the program did not read would arrive with
+ * a gap: the `n` of `n` and Enter lost, the Enter delivered on its own. Writes queued after the
+ * stall go out as usual.
  */
 export function inputQueue(
   send: (id: number, piece: string) => Promise<boolean>,
   timing: InputTiming = realTiming,
 ): (id: number, text: string) => Promise<void> {
   const chains = new Map<number, Promise<void>>();
+  /** Per session: the number of the last write queued so far. */
+  const queued = new Map<number, number>();
+  /** Per session: writes up to this number are dropped, they were queued before a stall. */
+  const dropThrough = new Map<number, number>();
   return (id, text) => {
+    const number = (queued.get(id) ?? 0) + 1;
+    queued.set(id, number);
+    const write = async () => {
+      if (number <= (dropThrough.get(id) ?? 0)) throw new InputStalled(true);
+      try {
+        await writeInput((piece) => send(id, piece), text, timing);
+      } catch (error) {
+        if (error instanceof InputStalled) dropThrough.set(id, queued.get(id) ?? number);
+        throw error;
+      }
+    };
     const previous = chains.get(id) ?? Promise.resolve();
-    const next = previous
-      .catch(() => undefined)
-      .then(() => writeInput((piece) => send(id, piece), text, timing));
+    const next = previous.catch(() => undefined).then(write);
     chains.set(id, next);
     const forget = () => {
-      if (chains.get(id) === next) chains.delete(id);
+      if (chains.get(id) !== next) return;
+      chains.delete(id);
+      queued.delete(id);
+      dropThrough.delete(id);
     };
     next.then(forget, forget);
     return next;

@@ -71,6 +71,24 @@ describe("pasteFromClipboard", () => {
     expect(agreed.written).toEqual(["echo one\necho two"]);
   });
 
+  it("asks again when bracketed paste went off while the question was open", async () => {
+    const session = target({ bracketed: true, answer: true });
+    let bracketed = true;
+    session.bracketedPaste = () => bracketed;
+    const asked: PasteWarning[] = [];
+    session.confirmPaste = (warning) => {
+      asked.push(warning);
+      bracketed = false;
+      return Promise.resolve(asked.length === 1);
+    };
+    await expect(pasteFromClipboard(session, "x\u202e\nrm y", noImage)).resolves.toBe("declined");
+    expect(asked).toEqual([
+      { runsLines: false, hidden: true },
+      { runsLines: true, hidden: true },
+    ]);
+    expect(session.written).toEqual([]);
+  });
+
   it("asks before text with hidden characters, even with bracketed paste", async () => {
     const session = target({ bracketed: true });
     await pasteFromClipboard(session, "marker\u202eetxt", noImage);

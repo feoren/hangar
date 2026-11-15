@@ -4,6 +4,7 @@
 import { pasteWarning } from "./appPaste";
 import { shellKind } from "./pathQuote";
 import type { SessionView } from "./sessions";
+import { sanitizePaste } from "./termSafety";
 
 type Candidate = Pick<SessionView, "id" | "profileId" | "status" | "kind">;
 
@@ -46,16 +47,24 @@ export function blockedFor(target: Pick<BroadcastTarget, "bracketedPaste">, text
   return !target.bracketedPaste() && pasteWarning(text, false) !== null;
 }
 
+/** Whether anything is left to send once control characters are stripped (`sanitizePaste`). */
+function hasContent(text: string): boolean {
+  return sanitizePaste(text).trim() !== "";
+}
+
 /**
  * Pastes into all targets at once; each gets Enter only after its own paste has reached the
  * backend and `pause` has passed, so a TUI does not take the Enter as part of the paste.
- * Resolves to the targets left out (`blockedFor`), so the caller can say so.
+ * Resolves to the targets left out (`blockedFor`), so the caller can say so. Text that is blank
+ * once control characters are stripped sends nothing at all: the paste would be empty and the
+ * Enter alone would submit whatever the program had in its input.
  */
 export async function sendToTargets<T extends BroadcastTarget>(
   targets: readonly T[],
   text: string,
   pause: () => Promise<void>,
 ): Promise<T[]> {
+  if (!hasContent(text)) return [];
   const blocked = targets.filter((target) => blockedFor(target, text));
   await Promise.all(
     targets
@@ -69,7 +78,10 @@ export async function sendToTargets<T extends BroadcastTarget>(
   return blocked;
 }
 
-/** Text can be sent when it is not blank and at least one session is chosen. */
+/**
+ * Text can be sent when it is not blank, also not once control characters are stripped, and at
+ * least one session is chosen.
+ */
 export function canBroadcast(text: string, targets: readonly number[]): boolean {
-  return text.trim() !== "" && targets.length > 0;
+  return hasContent(text) && targets.length > 0;
 }

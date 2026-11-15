@@ -143,7 +143,14 @@ Capabilities:
   bracketed paste that line runs as it arrives. Windows Terminal warns before a multi-line paste
   too. The setting "Warn before pasting several lines" (`warnMultilinePaste`, on by default)
   turns the question off for the clipboard; text without anything to warn about still pastes
-  synchronously. The editor marks invisible characters with CodeMirror's
+  synchronously. After a yes, the warning is computed again with the current mode
+  (`askBeforePaste`): a program that turned bracketed paste off while the question was open gets
+  a second question with the new warning, and the text is dropped if the mode changes again.
+  Residual risk: the mode is xterm's view (`term.modes.bracketedPasteMode`), set when xterm
+  parses the program's DECSET 2004 output. A program that turns the mode off in output still in
+  flight (written by the PTY, not yet parsed by xterm) can receive the paste unbracketed; no
+  terminal can close that gap, because the program can change the mode at any time after the
+  paste was sent. The editor marks invisible characters with CodeMirror's
   `highlightSpecialChars`, extended by the bidi embeddings, U+2068 and U+2060 to U+2064.
 - While detached, the main window shows no right panel (the terminal gets the space); the
   sidebar buttons, the menu entries and the shortcuts for notes, changes and files bring the

@@ -84,6 +84,7 @@ import { formatShortTime, statusText } from "./format";
 import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon, TemplateIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
+import { LinkAddress } from "./LinkAddress";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { queueOffer, sessionMenuEntries, stallOffer, type SessionAction } from "./sessionMenu";
@@ -154,7 +155,7 @@ import {
   type SendTarget,
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
-import { dropText, hasControl, insertPathText, shellKind, type TreePath } from "./pathQuote";
+import { dropText, insertPathText, shellKind, unsafeDropPath, type TreePath } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
@@ -2983,7 +2984,7 @@ export function App() {
       if (!target || !terminal) return;
       const profile = profilesRef.current.find((p) => p.id === target.profileId);
       const text = dropText(event.paths, shellKind(profile?.command ?? ""));
-      if (event.paths.some(hasControl)) {
+      if (event.paths.some(unsafeDropPath)) {
         setStartHint(createTranslator(settingsRef.current.language)("paste.dropSkipped"));
       }
       if (text === "") return;
@@ -5671,7 +5672,7 @@ export function App() {
             {link !== null && (
               <div className={link.ask ? "link-notice link-check" : "link-notice"} role="status">
                 <span>{t(link.ask ? "link.checkTarget" : "link.notice")}</span>
-                <span className="link-url selectable">{link.url}</span>
+                <LinkAddress url={link.url} />
                 <div className="link-actions">
                   {link.ask && (
                     <button type="button" className="primary-button" onClick={openCheckedLink}>

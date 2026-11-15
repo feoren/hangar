@@ -2,7 +2,7 @@
 // image but no text (a screenshot) has nothing to type, so the backend saves the image as a file
 // and its path goes in, quoted like a dropped file: agent CLIs attach image paths they read.
 
-import { pasteWarning, type PasteWarning } from "./appPaste";
+import { askBeforePaste, pasteWarning, type PasteWarning } from "./appPaste";
 import { dropText, type ShellKind } from "./pathQuote";
 import { sanitizePaste } from "./termSafety";
 
@@ -51,7 +51,11 @@ export async function pasteFromClipboard(
 ): Promise<ClipboardPasteResult> {
   if (sanitizePaste(text) !== "") {
     const warning = target.warnsBeforePaste() ? pasteWarning(text, target.bracketedPaste()) : null;
-    if (warning !== null && !(await target.confirmPaste(warning))) return "declined";
+    if (warning !== null) {
+      const ask = (shown: PasteWarning) => target.confirmPaste(shown);
+      const bracketed = () => target.bracketedPaste();
+      if (!(await askBeforePaste(text, warning, bracketed, ask))) return "declined";
+    }
     target.pasteText(text);
     return "text";
   }

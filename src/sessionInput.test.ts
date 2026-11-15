@@ -117,18 +117,38 @@ describe("writeInput", () => {
   });
 
   it("still reports the stall when the end marker is refused too", async () => {
-    const sent: string[] = [];
+    const tried: string[] = [];
+    let first = true;
     await expect(
       writeInput(
         (piece) => {
-          sent.push(piece);
+          tried.push(piece);
+          // The first piece with the paste start arrives, then nothing more.
+          const taken = first;
+          first = false;
+          return Promise.resolve(taken);
+        },
+        PASTE_START + "v".repeat(PIECE_UNITS) + PASTE_END,
+        fakeTiming(),
+      ),
+    ).rejects.toThrow(InputStalled);
+    expect(tried.at(-1)).toBe(PASTE_END);
+  });
+
+  it("sends no paste end when not even the paste start arrived", async () => {
+    const tried: string[] = [];
+    await expect(
+      writeInput(
+        (piece) => {
+          tried.push(piece);
           return Promise.resolve(false);
         },
         PASTE_START + "v" + PASTE_END,
         fakeTiming(),
       ),
     ).rejects.toThrow(InputStalled);
-    expect(sent.at(-1)).toBe(PASTE_END);
+    expect(tried.length).toBeGreaterThan(0);
+    expect(tried.every((piece) => piece !== PASTE_END)).toBe(true);
   });
 
   it("sends a large paste completely and in order", async () => {
@@ -173,6 +193,58 @@ describe("inputQueue", () => {
     await expect(write(1, "broken")).rejects.toThrow();
     await write(1, "after");
     expect(sent).toEqual(["after"]);
+  });
+
+  it("drops the keys queued behind a stalled one instead of sending them with a gap", async () => {
+    // The program reads nothing for 40 s: `n` stalls after 30 s and is dropped. The Enter typed
+    // right after it must not arrive alone, or it would confirm whatever the prompt defaults to.
+    const timing = fakeTiming();
+    const sent: string[] = [];
+    const write = inputQueue((id, piece) => {
+      if (timing.now() < 40_000) return Promise.resolve(false);
+      sent.push(`${String(id)}:${piece}`);
+      return Promise.resolve(true);
+    }, timing);
+    const key = write(1, "n");
+    const enter = write(1, "\r");
+    await expect(key).rejects.toThrow(InputStalled);
+    await expect(enter).rejects.toThrow(InputStalled);
+    expect(await enter.catch((error: unknown) => error)).toMatchObject({ dropped: true });
+    expect(await key.catch((error: unknown) => error)).toMatchObject({ dropped: false });
+    expect(sent).toEqual([]);
+    // Typed after the stall was known: goes out once the program reads again.
+    await write(1, "x");
+    expect(sent).toEqual(["1:x"]);
+  });
+
+  it("keeps keys typed during a slow paste that arrives in the end", async () => {
+    // The program reads slowly, but within the limit: nothing is dropped, nothing reordered.
+    const timing = fakeTiming();
+    const sent: string[] = [];
+    const write = inputQueue((_id, piece) => {
+      if (timing.now() < BUSY_LIMIT_MS - 1_000) return Promise.resolve(false);
+      sent.push(piece);
+      return Promise.resolve(true);
+    }, timing);
+    const paste = PASTE_START + "p".repeat(PIECE_UNITS + 10) + PASTE_END;
+    const writes = [write(1, paste), write(1, "a"), write(1, "b"), write(1, "\r")];
+    await Promise.all(writes);
+    expect(sent.join("")).toBe(paste + "ab\r");
+  });
+
+  it("keeps other sessions' writes when one session stalls", async () => {
+    const timing = fakeTiming();
+    const sent: string[] = [];
+    const write = inputQueue((id, piece) => {
+      if (id === 1 && timing.now() < 40_000) return Promise.resolve(false);
+      sent.push(`${String(id)}:${piece}`);
+      return Promise.resolve(true);
+    }, timing);
+    const stalled = write(1, "n");
+    const other = write(2, "y");
+    await expect(stalled).rejects.toThrow(InputStalled);
+    await other;
+    expect(sent).toEqual(["2:y"]);
   });
 });
 

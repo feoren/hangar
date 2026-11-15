@@ -816,3 +816,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] lint | Payload-free team and account signals after the security merge
 The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
 Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].
+
+## [2026-11-15] ingest | Second security round for links, paste and session input
+OSC 8 link text is now judged as the whole word around the link (also through wrapped rows), word by word without punctuation, after NFKC and with ideographic dots; invisible characters, bare file names of another target and addresses with a user name ask or are refused. The file viewer's Markdown links get the same check. The paste question is asked again when bracketed paste went off meanwhile (residual mode lag documented), blank text sends no lone Enter, a stall drops the writes queued behind it, and dropped paths with bidi controls or line and paragraph separators are left out (zero-width joiners stay allowed for Persian, Indic and emoji file names).
+Pages changed: [[terminal-links]], [[notes]], [[queued-messages-and-stall-hint]], [[process-launch-hardening]], [[agent-workflow-features]].

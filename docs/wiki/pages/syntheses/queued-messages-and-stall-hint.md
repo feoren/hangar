@@ -49,6 +49,15 @@ listener), editor in `src/QueueDialog.tsx`.
   program has no bracketed paste on and the text has a line break or invisible characters
   (`blockedFor` in `src/broadcast.ts`), nothing is sent: the message stays queued and a notice
   says why. "Send to several" and agent commands follow the same rule.
+- Text that is blank once control characters are stripped (`sanitizePaste`, for example only
+  `ESC ESC`) sends nothing at all: the paste would be empty and the Enter alone would submit
+  whatever the program had in its input. "Send to several" stays disabled for such text
+  (`canBroadcast`).
+- When a write to a session stalls (`InputStalled` after 30 s), every write of that session
+  queued before the stall was known is dropped too (`inputQueue` in `src/sessionInput.ts`), with
+  one terminal notice. Otherwise a key could be lost while the Enter typed after it arrives on
+  its own. Writes queued after the stall go out as usual. The end of a bracketed paste is sent
+  after a stall only when its start had reached the program.
 - The "done" that sends the message raises no chime, flash, desktop notification, phone push or
   done notice: the session goes on working.
 - Persistence: `localStorage` key `hangar.queuedMessages`, an object of session key to text,

@@ -5,8 +5,9 @@
 // click would navigate the WebView itself away from Hangar. In notes they stay highlighted,
 // copyable text with the address in the tooltip. In the file viewer an http(s) link becomes a
 // focusable span with the address in `data-href`; the viewer hands a click to the backend, which
-// checks the address again and opens it in the browser. Images are not loaded but shown as their
-// alt text; the CSP forbids external images anyway.
+// checks the address again and opens it in the browser. When the link's text claims another
+// address than it leads to, the viewer shows the real one first (viewerLink.ts). Images are not
+// loaded but shown as their alt text; the CSP forbids external images anyway.
 //
 // Task items (`- [ ]`, `- [x]`) become real checkboxes with `data-line`, the 0-based source line,
 // so a click in a note can tick the task in the text (toggleTaskAtLine). The file viewer is
@@ -14,11 +15,16 @@
 
 import MarkdownIt from "markdown-it";
 
+import { safeLinkUrl } from "./termSafety";
+
 const TASK = /^\[([ xX])\]\s+/;
 
-/** Addresses the file viewer opens in the browser; everything else stays text. */
+/**
+ * Addresses the file viewer opens in the browser; everything else stays text. An address with a
+ * user name (`https://github.com@example.net/`) hides its real host and stays text too.
+ */
 export function isWebLink(href: string): boolean {
-  return /^https?:\/\/[^/\s]/i.test(href);
+  return /^https?:\/\/[^/\s]/i.test(href) && safeLinkUrl(href) !== null;
 }
 
 function createRenderer(options: { openLinks: boolean; editableTasks: boolean }) {

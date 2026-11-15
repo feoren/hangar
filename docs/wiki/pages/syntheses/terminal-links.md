@@ -27,11 +27,34 @@ Web addresses and existing file or folder paths in a session's output are links.
   Shift+click still opens.
 - Address: default browser (`open_web_url`, plain http(s) without credentials). OSC 8 links open
   the same way, with one guard (security audit 2026-11-15): their visible text can claim another
-  address than they lead to. Hovering shows the real target in a tip; a click whose visible text
-  names another host (with a scheme, or a bare host such as `github.com/org`, `localhost:3000`,
-  an IPv4 address) or looks like a path shows the real address with an Open button first
-  (`osc8Decision` in `src/termSafety.ts`). Plain words, versions (`v0.8.0`) and bare file names
-  (`README.md`: a common file ending and no path or port) claim no host and open at once.
+  address than they lead to. Hovering shows the real target in a tip, its host in bold; a click
+  whose visible text misleads shows the real address (host in bold) with an Open button first
+  (`osc8Decision` in `src/termSafety.ts`). An OSC 8 target with a user name or password
+  (`https://github.com@example.net/`) is no link at all (`safeLinkUrl`).
+- What counts as the visible text (second audit round): the link's cells plus every non-blank
+  cell touching them, on the same row and through wrapped rows in both directions
+  (`linkWord` in `src/terminalLinkWord.ts`; wide CJK and emoji cells count once). So plain
+  `https://github.com/` printed right before a link whose own text is `acme` counts as
+  `https://github.com/acme`. The text is read word by word (split at white space), each word
+  without the brackets, quotes and sentence punctuation around it, so `(github.com).`,
+  `see github.com/org` and `Open https://github.com/org` all claim GitHub.
+- A click asks when the text holds any `Default_Ignorable_Code_Point` (zero-width space, soft
+  hyphen, word joiner, bidi marks and overrides; a variation selector or joiner inside an emoji
+  is fine), when a word names another host (with a scheme, a bare host such as
+  `github.com/org`, `localhost:3000`, an IPv4 address or a bracketed IPv6 address; read after
+  NFKC with U+3002, U+FF0E and U+FF61 as dots, and with `github .com` joined), when a word looks
+  like a path, and when a word is a bare file name (`install.sh`, `update.zip`, `README.md`)
+  unless the target's last path name is that very file (also with a line and column:
+  `app.ts:42` on a link to `.../app.ts#L42`). A leading `www.` names the same site as the bare
+  host (`example.com` on `https://www.example.com/`). Plain words, issue and PR numbers
+  (`PR #123`) and versions (`v0.8.0`) open at once; `src/termSafety.test.ts` keeps a table of
+  common agent link texts that must not ask.
+- Known limits: `github. com` (space only after the dot) and short IPv4 forms (`127.1`) are not
+  read as hosts; a link text such as `Node.js` reads like a file name, so a link to `nodejs.org` asks before it
+  opens.
+- The file viewer's Markdown preview applies the same check to its links (`src/viewerLink.ts`):
+  `[github.com/org](https://example.net/)` shows the real address with Open and Cancel (focused,
+  also Escape) before anything opens; links with a user name stay plain text.
 - Link trimming walks back from the end once, with the brackets counted in one pass; the former
   loop was quadratic and took about 30 ms for a line of 4,000 closing brackets.
 - File inside the session's folder: Hangar's viewer, unless the viewer could only show "binary";
