@@ -98,11 +98,47 @@ pub fn changes_with(
     out
 }
 
+/// Prefix of the variables VS Code's git extension sets in its integrated terminal (the askpass
+/// helper's IPC handle among them).
+const VSCODE_GIT_PREFIX: &str = "VSCODE_GIT_";
+
+/// Names among `inherited` that belong to an editor Hangar was started from (VS Code and its
+/// forks): its git credential helper and IPC handles. A session would otherwise ask that editor
+/// for git credentials, or reach into it, and the editor need not even run any more. Exact names
+/// such as `VSCODE_IPC_HOOK_CLI` are in [`INHERITED_SESSION_MARKERS`]; this covers the prefix
+/// and `GIT_ASKPASS` when it points into the editor's git extension (the user's own helper stays).
+pub fn ide_variables<'a>(inherited: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    inherited
+        .into_iter()
+        .filter(|(name, value)| {
+            let upper = name.to_ascii_uppercase();
+            upper.starts_with(VSCODE_GIT_PREFIX)
+                || (upper == "GIT_ASKPASS" && is_editor_askpass(value))
+        })
+        .map(|(name, _)| name.to_owned())
+        .collect()
+}
+
+/// The askpass script of VS Code's built-in git extension, in any of its installations
+/// (`…/resources/app/extensions/git/dist/askpass.sh`, also in Cursor, VSCodium and the like).
+fn is_editor_askpass(value: &str) -> bool {
+    let normalized = value.replace('\\', "/").to_ascii_lowercase();
+    normalized.contains("/extensions/git/dist/askpass")
+}
+
 pub fn apply(
     target: &mut impl Target,
     profile_env: &BTreeMap<String, String>,
     no_cwd_lookup: bool,
 ) {
+    // Names and values that are not UTF-8 are no editor's variables.
+    let inherited: Vec<(String, String)> = std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    // First, so a profile can still set one of them on purpose.
+    for name in ide_variables(inherited.iter().map(|(n, v)| (n.as_str(), v.as_str()))) {
+        target.remove(&name);
+    }
     for change in changes(profile_env, no_cwd_lookup) {
         match change {
             Change::Set(key, value) => target.set(key, value),
@@ -163,6 +199,76 @@ mod tests {
         assert!(outside.contains(&Change::Remove(crate::gate::TOKEN_ENV)));
         assert!(outside.contains(&Change::Remove(crate::hook_recipes::HELPER_ENV)));
         assert!(!outside.contains(&Change::Remove(crate::hook_recipes::GEMINI_SETTINGS_ENV)));
+    }
+
+    #[test]
+    fn editor_variables_are_found() {
+        let inherited = [
+            ("VSCODE_GIT_IPC_HANDLE", "\\\\.\\pipe\\vscode-git-marker"),
+            ("vscode_git_askpass_main", "marker"),
+            (
+                "GIT_ASKPASS",
+                r"C:\Users\x\AppData\Local\Programs\Microsoft VS Code\resources\app\extensions\git\dist\askpass.sh",
+            ),
+            ("PATH", "/usr/bin"),
+            ("VSCODE_PID", "1"),
+        ];
+        assert_eq!(
+            ide_variables(inherited),
+            [
+                "VSCODE_GIT_IPC_HANDLE",
+                "vscode_git_askpass_main",
+                "GIT_ASKPASS"
+            ]
+        );
+        // The user's own credential helper stays.
+        let own = [("GIT_ASKPASS", "/usr/lib/ssh/x11-ssh-askpass")];
+        assert!(ide_variables(own).is_empty());
+        let cursor = [(
+            "GIT_ASKPASS",
+            "/Applications/Cursor.app/Contents/Resources/app/extensions/git/dist/askpass.sh",
+        )];
+        assert_eq!(ide_variables(cursor), ["GIT_ASKPASS"]);
+    }
+
+    #[test]
+    fn exact_editor_variables_are_removed_like_session_markers() {
+        let none = BTreeMap::new();
+        let all = changes(&none, false);
+        for name in ["VSCODE_IPC_HOOK_CLI", "CLAUDE_CODE_SSE_PORT"] {
+            assert!(all.contains(&Change::Remove(name)), "{name}: {all:?}");
+        }
+    }
+
+    #[derive(Default)]
+    struct Recorded(Vec<String>);
+
+    impl Target for Recorded {
+        fn set(&mut self, key: &str, value: &str) {
+            self.0.push(format!("set {key}={value}"));
+        }
+        fn remove(&mut self, key: &str) {
+            self.0.push(format!("remove {key}"));
+        }
+    }
+
+    #[test]
+    fn apply_removes_editor_variables_before_the_profile() {
+        // The variable is only read here; no other test depends on it.
+        std::env::set_var("VSCODE_GIT_HANGAR_TEST_MARKER", "1");
+        let profile = env(&[("VSCODE_GIT_HANGAR_TEST_MARKER", "again")]);
+        let mut target = Recorded::default();
+        apply(&mut target, &profile, false);
+        std::env::remove_var("VSCODE_GIT_HANGAR_TEST_MARKER");
+        let removed = target
+            .0
+            .iter()
+            .position(|c| c == "remove VSCODE_GIT_HANGAR_TEST_MARKER");
+        let set = target
+            .0
+            .iter()
+            .position(|c| c == "set VSCODE_GIT_HANGAR_TEST_MARKER=again");
+        assert!(removed.is_some() && removed < set, "{:?}", target.0);
     }
 
     #[test]

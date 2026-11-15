@@ -20,8 +20,12 @@ right panel. Code: `src-tauri/src/git_history.rs` (parsers, rules and tests), co
 
 | Command | Arguments | Result |
 |---|---|---|
-| `git_log` | `cwd: string`, `skip: number`, `limit: number` (clamped to 1..=100) | `GitLog` |
-| `git_commit_diff` | `cwd: string`, `sha: string` (7 to 64 hex characters) | `GitCommitDiff` |
+| `git_log` | `id: SessionId`, `skip: number`, `limit: number` (clamped to 1..=100), `root?: boolean` (the repository's main folder instead of the session's) | `GitLog` |
+| `git_commit_diff` | `id: SessionId`, `sha: string` (7 to 64 hex characters) | `GitCommitDiff` |
+
+Since 2026-11-15 the reads name a session like the git actions; the backend finds the folder, an
+unknown id answers "Unknown session N" ([[process-launch-hardening]]). `git_diff` and
+`git_changed_count` take `id: SessionId` as well.
 
 ```ts
 interface CommitSummary {

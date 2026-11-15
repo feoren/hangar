@@ -258,7 +258,7 @@ const project: Project<{ id: number }> = {
 
 describe("loadProjectGit", () => {
   it("counts the changes per work tree and takes the newest commits of the root", async () => {
-    const changedCount = vi.fn((cwd: string) => Promise.resolve(cwd === REPO ? 2 : 3));
+    const changedCount = vi.fn((id: number) => Promise.resolve(id === 1 ? 2 : 3));
     const log = vi.fn(() =>
       Promise.resolve({
         isRepo: true,
@@ -269,7 +269,9 @@ describe("loadProjectGit", () => {
       }),
     );
     const git = await loadProjectGit(project, { changedCount, log });
-    expect(log).toHaveBeenCalledWith(REPO, 0, COMMITS_SHOWN);
+    // The root's commits through a session of the repository, never through a folder.
+    expect(log).toHaveBeenCalledWith(1, 0, COMMITS_SHOWN, true);
+    expect(changedCount.mock.calls).toEqual([[1], [4]]);
     expect(git.changes).toEqual([
       { path: REPO, count: 2 },
       { path: "E:\\wt\\fix", count: 3 },
@@ -280,8 +282,7 @@ describe("loadProjectGit", () => {
 
   it("leaves out what git could not answer", async () => {
     const git = await loadProjectGit(project, {
-      changedCount: (cwd) =>
-        cwd === REPO ? Promise.reject(new Error("no git")) : Promise.resolve(1),
+      changedCount: (id) => (id === 1 ? Promise.reject(new Error("no git")) : Promise.resolve(1)),
       log: () => Promise.resolve("garbage"),
     });
     expect(git.changes).toEqual([{ path: "E:\\wt\\fix", count: 1 }]);

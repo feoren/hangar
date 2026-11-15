@@ -173,8 +173,9 @@ Detection uses the resolved path and file existence only, no process ([[update-i
   the remaining parts as arguments, no shell. `.cmd` tools (npm, pnpm, scoop) go through the
   cmd.exe checks of [[cmd-launcher]]. The profile's environment
   (`env`) applies here too; `TERM`, `COLORTERM` and the removal of inherited session markers work as for agents.
-- Working folder: the profile's fixed folder, otherwise the home folder, never the one selected
-  in the sidebar. Reason (measurement from the security review, 2026-11-08): `npm.cmd` calls `node`
+- Working folder: always the home folder (since 2026-11-15 also for profiles with a fixed folder,
+  where npm and pip would read a project's `.npmrc` or `pip.conf`, [[process-launch-hardening]]),
+  never the one selected in the sidebar. Reason (measurement from the security review, 2026-11-08): `npm.cmd` calls `node`
   through cmd.exe, and cmd.exe looks for programs in the current folder first; a foreign project with
   its own `node.cmd` would otherwise run along with the update.
 - On Windows, Hangar additionally sets `NoDefaultCurrentDirectoryInExePath=1` for update sessions

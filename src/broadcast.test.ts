@@ -103,3 +103,23 @@ describe("sendToTargets", () => {
     await expect(sendToTargets([], "hi", () => Promise.resolve())).resolves.toBeUndefined();
   });
 });
+
+describe("sendToTargets with a stalled paste", () => {
+  it("sends no Enter where the paste did not arrive and rejects", async () => {
+    const events: string[] = [];
+    const target = (name: string, arrived: Promise<void>): BroadcastTarget => ({
+      pasteAndWait: () => arrived,
+      submit: () => {
+        events.push(`enter ${name}`);
+      },
+    });
+    const done = sendToTargets(
+      [target("a", Promise.resolve()), target("b", Promise.reject(new Error("stalled")))],
+      "hi",
+      () => Promise.resolve(),
+    );
+    await expect(done).rejects.toThrow("stalled");
+    await Promise.resolve();
+    expect(events).toEqual(["enter a"]);
+  });
+});

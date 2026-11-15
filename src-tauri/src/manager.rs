@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -47,6 +47,11 @@ const READ_BUFFER: usize = 64 * 1024;
 /// At most this many read buffers sit between PTY and batcher; beyond that reading blocks
 /// and the child process is slowed down when it writes.
 const CHANNEL_DEPTH: usize = 64;
+/// Input messages waiting for the PTY at most; beyond that a write is answered with
+/// [`ManagerError::Busy`] and the window sends it again.
+const INPUT_DEPTH: usize = 16;
+/// Largest input of one write; the window splits a larger paste.
+pub const MAX_WRITE: usize = 1024 * 1024;
 /// At most this many unacknowledged bytes are in flight to the frontend.
 const HIGH_WATER: usize = 2 * 1024 * 1024;
 const FLOW_STALL: Duration = Duration::from_secs(5);
@@ -73,14 +78,18 @@ pub const INHERITED_SESSION_MARKERS: &[&str] = &[
     "CLAUDE_CODE_MESSAGING_TOKEN",
     "CLAUDE_CODE_SESSION_ATTENDED",
     "CLAUDE_CODE_SESSION_ID",
+    // The IDE connection of the calling Claude Code: a child would talk to that editor.
+    "CLAUDE_CODE_SSE_PORT",
     "CLAUDE_EFFORT",
     "CLAUDE_PID",
+    // VS Code's handle for its `code` command inside its terminal; the git extension's own
+    // variables are found by prefix (`child_env::ide_variables`).
+    "VSCODE_IPC_HOOK_CLI",
 ];
 
 /// Windows: while the variable is set, the program search (`NeedCurrentDirectoryForExePath`,
-/// used by cmd.exe among others) no longer looks in the current folder. Set for update sessions
-/// and for every session whose program is a `.cmd`/`.bat` ([`batch::is_batch`]); an empty value
-/// in the profile `env` removes it.
+/// used by cmd.exe among others) no longer looks in the current folder. Set as
+/// [`no_cwd_lookup`] says; an empty value in the profile `env` removes it.
 pub const NO_CWD_IN_EXE_PATH: &str = "NoDefaultCurrentDirectoryInExePath";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -180,11 +189,25 @@ pub struct TermSize {
     pub rows: u16,
 }
 
+/// Largest terminal Hangar hands to a PTY. A window never gets near it; a larger request would
+/// only make ConPTY and the programs allocate screen buffers for nothing.
+pub const MAX_COLS: u16 = 4096;
+pub const MAX_ROWS: u16 = 2048;
+
 impl TermSize {
+    /// Within 1..=[`MAX_COLS`] and 1..=[`MAX_ROWS`].
+    pub fn clamped(self) -> Self {
+        Self {
+            cols: self.cols.clamp(1, MAX_COLS),
+            rows: self.rows.clamp(1, MAX_ROWS),
+        }
+    }
+
     fn to_pty(self) -> PtySize {
+        let size = self.clamped();
         PtySize {
-            rows: self.rows.max(1),
-            cols: self.cols.max(1),
+            rows: size.rows,
+            cols: size.cols,
             pixel_width: 0,
             pixel_height: 0,
         }
@@ -205,6 +228,14 @@ pub enum ManagerError {
     CommandNotFound(String),
     #[error("Working folder '{0}' does not exist")]
     BadCwd(PathBuf),
+    #[error(
+        "Working folder '{0}' is a network share or device path; sessions start in local folders only"
+    )]
+    RemoteCwd(PathBuf),
+    #[error("Session {0} is not reading its input; try again in a moment")]
+    Busy(SessionId),
+    #[error("At most {max} bytes can be sent to a session at once, not {len}")]
+    InputTooLarge { len: usize, max: usize },
     #[error("The title must not be empty")]
     EmptyTitle,
     #[error("{0} cannot be a team session yet: Hangar cannot pause its edits")]
@@ -246,15 +277,77 @@ pub enum ManagerError {
     Transition(#[from] TransitionError),
 }
 
-/// Errors reach the frontend as readable text.
+impl ManagerError {
+    /// A stable code for errors the window shows in its own words (`backendError.ts`); the
+    /// English text after it is only the fallback, so its wording may change freely.
+    fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::BadCwd(_) => Some("bad_cwd"),
+            Self::RemoteCwd(_) => Some("remote_cwd"),
+            _ => None,
+        }
+    }
+}
+
+/// Errors reach the frontend as readable text, prefixed with `[code] ` when they have a code.
 impl Serialize for ManagerError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.code() {
+            Some(code) => serializer.serialize_str(&format!("[{code}] {self}")),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 
 fn pty_error(error: impl std::fmt::Display) -> ManagerError {
     ManagerError::Pty(error.to_string())
+}
+
+/// A failed process start, named by the program and the OS error code only. portable-pty's own
+/// text carries the whole command line, which may hold a first prompt or the instructions, and
+/// errors reach the window and its logs.
+fn spawn_failed(program: &Path, error: &(dyn std::error::Error + 'static)) -> ManagerError {
+    let code = std::iter::successors(Some(error), |e| e.source())
+        .find_map(|e| {
+            e.downcast_ref::<io::Error>()
+                .and_then(io::Error::raw_os_error)
+        })
+        .or_else(|| os_error_code(&error.to_string()));
+    let program = program.display();
+    ManagerError::Pty(match code {
+        Some(code) => format!("'{program}' could not be started (OS error {code})"),
+        None => format!("'{program}' could not be started"),
+    })
+}
+
+/// The code of the last "(os error N)" in a text, as `io::Error` writes it.
+fn os_error_code(text: &str) -> Option<i32> {
+    const MARK: &str = "(os error ";
+    let start = text.rfind(MARK)? + MARK.len();
+    let rest = &text[start..];
+    rest[..rest.find(')')?].parse().ok()
+}
+
+/// Windows network shares (`\\host\share`, `\\?\UNC\...`) and device or verbatim namespaces
+/// (`\\.\...`, `\\?\...` other than a drive). Checked before the folder is touched at all: even
+/// asking a share whether a folder exists hands the user's credentials to its host.
+pub fn is_network_or_device(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix)) if matches!(
+            prefix.kind(),
+            Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(_) | Prefix::Verbatim(_)
+        )
+    )
+}
+
+/// Whether the child must not find programs in its working folder (Windows,
+/// [`NO_CWD_IN_EXE_PATH`]): update sessions, every agent from the catalog and every
+/// `.cmd`/`.bat` launcher. Only the user's own profiles keep the lookup: those are the shells
+/// (cmd.exe, PowerShell, WSL), where calling a program in the folder is what the user means.
+pub fn no_cwd_lookup(kind: SessionKind, source: Source, batch: bool) -> bool {
+    kind == SessionKind::Update || source == Source::Catalog || batch
 }
 
 enum Message {
@@ -269,7 +362,9 @@ type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 /// (on Windows through the Job Object) every descendant still alive.
 struct Runtime {
     master: SharedMaster,
-    input: Sender<Vec<u8>>,
+    /// Bounded ([`INPUT_DEPTH`]): a program that stops reading cannot make Hangar queue
+    /// input without end.
+    input: SyncSender<Vec<u8>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// Shared so the resources can be read outside the session lock (`tree_usages`).
     tree: Option<Arc<ProcTree>>,
@@ -281,7 +376,7 @@ struct Runtime {
 impl Runtime {
     fn kill(&self) -> io::Result<()> {
         if let Some(tree) = &self.tree {
-            if tree.terminate().is_ok() {
+            if tree.terminate_tree().is_ok() {
                 return Ok(());
             }
         }
@@ -1144,6 +1239,7 @@ impl SessionManager {
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
         let Start { kind, mode } = start;
+        let size = size.clamped();
         let profile = &agent.profile;
         // A folder fixed in the profile wins over the one chosen in the sidebar.
         let cwd = profile
@@ -1151,6 +1247,10 @@ impl SessionManager {
             .clone()
             .or(cwd)
             .unwrap_or_else(|| self.home.clone());
+        // Before anything touches the folder: see is_network_or_device.
+        if is_network_or_device(&cwd) {
+            return Err(ManagerError::RemoteCwd(cwd));
+        }
         // A relative folder would be resolved against Hangar's own working folder, which is
         // nothing the user chose.
         if !cwd.is_absolute() || !cwd.is_dir() {
@@ -1255,7 +1355,7 @@ impl SessionManager {
             entry.info.mark_restarting()?;
             entry.info.resumed = false;
             entry.generation += 1;
-            entry.size = size;
+            entry.size = size.clamped();
             entry.kill_requested = false;
             // A fresh conversation under a new id: the old id may already name one.
             let plan = Plan::normal(&entry.agent.profile, None);
@@ -1291,16 +1391,28 @@ impl SessionManager {
         }
     }
 
+    /// Queues `data` for the session's input thread without waiting. A full queue (the program
+    /// does not read) is [`ManagerError::Busy`]; more than [`MAX_WRITE`] bytes are refused.
     pub fn write(&self, id: SessionId, data: &str) -> Result<(), ManagerError> {
+        if data.len() > MAX_WRITE {
+            return Err(ManagerError::InputTooLarge {
+                len: data.len(),
+                max: MAX_WRITE,
+            });
+        }
         let sessions = lock(&self.shared.sessions);
         let runtime = running(&sessions, id)?;
         runtime
             .input
-            .send(data.as_bytes().to_vec())
-            .map_err(|_| ManagerError::NotRunning(id))
+            .try_send(data.as_bytes().to_vec())
+            .map_err(|error| match error {
+                TrySendError::Full(_) => ManagerError::Busy(id),
+                TrySendError::Disconnected(_) => ManagerError::NotRunning(id),
+            })
     }
 
     pub fn resize(&self, id: SessionId, size: TermSize) -> Result<(), ManagerError> {
+        let size = size.clamped();
         let master = {
             let mut sessions = lock(&self.shared.sessions);
             let master = Arc::clone(&running(&sessions, id)?.master);
@@ -1559,9 +1671,7 @@ fn spawn(
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     command.cwd(cwd);
-    // No program lookup in the working folder for update sessions and `.cmd`/`.bat` launchers.
-    // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
-    let no_cwd_lookup = launch.kind == SessionKind::Update || batch;
+    let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch);
     crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
     // Straight into the child's environment; the values are not kept anywhere else.
     for (name, value) in
@@ -1574,7 +1684,10 @@ fn spawn(
         command.env(name, value.as_str());
     }
     let started = Instant::now();
-    let mut child = pair.slave.spawn_command(command).map_err(pty_error)?;
+    let mut child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| spawn_failed(&program, error.as_ref()))?;
     // Close our end of the slave side, otherwise EOF never arrives on Unix.
     drop(pair.slave);
 
@@ -1599,7 +1712,7 @@ fn spawn(
     let master: SharedMaster = Arc::new(Mutex::new(Some(pair.master)));
     let flow = Arc::new(Flow::new(HIGH_WATER, FLOW_STALL));
     let (tx, rx) = sync_channel(CHANNEL_DEPTH);
-    let (input_tx, input_rx) = mpsc::channel();
+    let (input_tx, input_rx) = sync_channel(INPUT_DEPTH);
     if launch.kind == SessionKind::Update {
         // The exact argv, dimmed, before any output of the update: the user sees what runs.
         // Through the batcher like program output, so flow control counts it too.
@@ -1615,8 +1728,13 @@ fn spawn(
     })?;
 
     let master_wait = Arc::clone(&master);
+    let tree_wait = tree.clone();
     spawn_thread(format!("pty-wait-{id}"), move || {
         let code = child.wait().ok().map(|status| status.exit_code());
+        // From now on the child's id may name another process (Unix): no more signals to it.
+        if let Some(tree) = &tree_wait {
+            tree.mark_reaped();
+        }
         // Measured here, not in the batcher: there backpressure can delay the report.
         let at = Instant::now();
         // ConPTY closes the output only once the pseudo console is closed. Without this
@@ -1900,6 +2018,139 @@ mod tests {
         assert_eq!(
             shown_team_block(&free, Some(TeamBlock::NoHooks)),
             Some(TeamBlock::NoHooks)
+        );
+    }
+
+    #[test]
+    fn only_the_users_own_profiles_keep_the_program_lookup_in_the_folder() {
+        use SessionKind::{Agent as A, Update as U};
+        // (kind, source, batch) -> protected
+        let table = [
+            (A, Source::User, false, false),
+            (A, Source::User, true, true),
+            (A, Source::Catalog, false, true),
+            (A, Source::Catalog, true, true),
+            (U, Source::User, false, true),
+            (U, Source::Catalog, false, true),
+        ];
+        for (kind, source, batch, expected) in table {
+            assert_eq!(
+                no_cwd_lookup(kind, source, batch),
+                expected,
+                "{kind:?} {source:?} batch={batch}"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_sizes_are_clamped() {
+        let huge = TermSize {
+            cols: u16::MAX,
+            rows: u16::MAX,
+        };
+        assert_eq!(
+            huge.clamped(),
+            TermSize {
+                cols: MAX_COLS,
+                rows: MAX_ROWS
+            }
+        );
+        let pty = huge.to_pty();
+        assert_eq!((pty.cols, pty.rows), (4096, 2048));
+        let zero = TermSize { cols: 0, rows: 0 }.to_pty();
+        assert_eq!((zero.cols, zero.rows), (1, 1));
+        let normal = TermSize {
+            cols: 120,
+            rows: 40,
+        };
+        assert_eq!(normal.clamped(), normal);
+    }
+
+    #[test]
+    fn a_failed_start_names_the_program_and_the_code_only() {
+        let program = Path::new(r"C:\tools\agent.exe");
+        // The shape of portable-pty's ConPTY error: the whole command line, then the OS error.
+        let text = "CreateProcessW `\"agent.exe\" HANGAR-SECRET-MARKER` in cwd `None` failed: \
+                    The system cannot find the file specified. (os error 2)";
+        let error: Box<dyn std::error::Error> = text.into();
+        let shown = spawn_failed(program, error.as_ref()).to_string();
+        assert!(!shown.contains("HANGAR-SECRET-MARKER"), "{shown}");
+        assert!(shown.contains(r"C:\tools\agent.exe"), "{shown}");
+        assert!(shown.contains("OS error 2"), "{shown}");
+        // An io::Error in the chain gives its code directly.
+        let io = io::Error::from_raw_os_error(13);
+        let shown = spawn_failed(program, &io).to_string();
+        assert!(shown.contains("OS error 13"), "{shown}");
+        let plain: Box<dyn std::error::Error> = "HANGAR-SECRET-MARKER broke".into();
+        let shown = spawn_failed(program, plain.as_ref()).to_string();
+        assert!(!shown.contains("HANGAR-SECRET-MARKER"), "{shown}");
+        assert_eq!(os_error_code("x (os error 5) y (os error 32)"), Some(32));
+        assert_eq!(os_error_code("no code"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn network_and_device_folders_are_recognized() {
+        for remote in [
+            r"\\host\share\project",
+            r"\\?\UNC\host\share\project",
+            r"\\.\PhysicalDrive0",
+            r"\\?\GLOBALROOT\Device",
+        ] {
+            assert!(is_network_or_device(Path::new(remote)), "{remote}");
+        }
+        for local in [r"C:\work", r"\\?\C:\work", r"D:\", r"relative\folder"] {
+            assert!(!is_network_or_device(Path::new(local)), "{local}");
+        }
+    }
+
+    #[test]
+    fn local_unix_paths_are_never_network_paths() {
+        assert!(!is_network_or_device(Path::new("/home/user/work")));
+        assert!(!is_network_or_device(Path::new("work")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_network_folder_is_refused_before_it_is_touched() {
+        let manager = SessionManager::new(
+            Vec::new(),
+            crate::agent_catalog::parse(
+                "[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['hangar-not-needed']\n",
+            )
+            .unwrap(),
+            std::env::temp_dir(),
+        );
+        let size = TermSize { cols: 80, rows: 24 };
+        // The host name is reserved (RFC 2606); the check comes before any lookup.
+        let error = manager
+            .create(
+                "p",
+                Some(PathBuf::from(r"\\hangar-test.invalid\share")),
+                size,
+                |_| {},
+            )
+            .unwrap_err();
+        assert!(matches!(error, ManagerError::RemoteCwd(_)), "{error}");
+    }
+
+    #[test]
+    fn folder_errors_carry_a_stable_code_for_the_window() {
+        let text = |error: ManagerError| serde_json::to_value(error).unwrap();
+        let remote = text(ManagerError::RemoteCwd(PathBuf::from(r"\\server\share")));
+        assert!(
+            remote.as_str().unwrap().starts_with("[remote_cwd] "),
+            "{remote}"
+        );
+        let missing = text(ManagerError::BadCwd(PathBuf::from("/gone")));
+        assert!(
+            missing.as_str().unwrap().starts_with("[bad_cwd] "),
+            "{missing}"
+        );
+        // Errors without a code stay plain text.
+        assert_eq!(
+            text(ManagerError::EmptyTitle),
+            "The title must not be empty"
         );
     }
 

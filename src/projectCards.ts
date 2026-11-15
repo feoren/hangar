@@ -205,23 +205,35 @@ export interface ProjectGit {
   commits: CommitSummary[];
 }
 
+/**
+ * The git reads name a session, never a folder: the backend finds the session's folder (`root`:
+ * the main folder of its repository).
+ */
 export interface GitCalls {
-  changedCount: (cwd: string) => Promise<unknown>;
-  log: (cwd: string, skip: number, limit: number) => Promise<unknown>;
+  changedCount: (sessionId: number) => Promise<unknown>;
+  log: (sessionId: number, skip: number, limit: number, root: boolean) => Promise<unknown>;
 }
 
 /**
- * What git says about a card: changed files per checkout (one `git status` each) and the newest
- * commits of the main folder. Whatever fails is left out; a plain folder asks nothing.
+ * What git says about a card: changed files per checkout (one `git status` each, through the
+ * checkout's first session) and the newest commits of the main folder (through any session of
+ * the repository). Whatever fails is left out; a plain folder asks nothing.
  */
 export async function loadProjectGit(
   project: Pick<Project<unknown>, "repo" | "root" | "workTrees">,
   git: GitCalls,
 ): Promise<ProjectGit> {
   if (!project.repo) return { changes: [], commits: [] };
+  const count = (tree: WorkTree): Promise<unknown> => {
+    const id = tree.sessionIds[0];
+    return id === undefined ? Promise.reject(new Error("no session")) : git.changedCount(id);
+  };
+  const anySession = project.workTrees.flatMap((tree) => tree.sessionIds)[0];
   const [counted, log] = await Promise.all([
-    Promise.allSettled(project.workTrees.map((tree) => git.changedCount(tree.path))),
-    git.log(project.root, 0, COMMITS_SHOWN).then(parseGitLog, () => null),
+    Promise.allSettled(project.workTrees.map(count)),
+    anySession === undefined
+      ? Promise.resolve(null)
+      : git.log(anySession, 0, COMMITS_SHOWN, true).then(parseGitLog, () => null),
   ]);
   const changes: TreeChanges[] = [];
   counted.forEach((result, index) => {

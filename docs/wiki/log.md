@@ -780,3 +780,11 @@ Pages changed: [[agent-commands]].
 ## [2026-11-14] query | Stall hint on battery
 The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
 Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-15] query | Hardening of process launch, command surface and update chain
+Filed the security review's findings and their fixes: no program lookup in the working folder for every catalog agent, Unix close escalates to SIGKILL and never signals a reaped child, bounded session input (Busy, 1 MiB, frontend pieces and retry) and resize, update sessions always in the home folder, editor variables stripped, UNC and device folders refused, relative program paths refused, NUL in env values refused, package names start alphanumeric, git reads by session id, payload-free gate-changed, no listening in file viewers, CSP additions, requireSignedVersion, release key-id check and the Tauri CLI through node. Job Object assignment after spawn documented as accepted.
+Pages changed: [[process-launch-hardening]], [[cmd-launcher]], [[program-updates]], [[commit-history]], [[0001-foundation]], [[release-rollout]].
+
+## [2026-11-15] ingest | Stalled session input and folder errors in the user's language
+A write that stalls for 30 s now throws `InputStalled`, still ends an abandoned bracketed paste, shows a translated terminal notice and keeps "Send to several" from sending Enter. `ManagerError` serializes `RemoteCwd` and `BadCwd` with a stable `[code]` prefix that the window translates.
+Pages changed: [[process-launch-hardening]].

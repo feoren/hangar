@@ -25,6 +25,8 @@ import { Revealed } from "./Revealed";
 import { useClock } from "./useClock";
 
 interface Props {
+  /** The active session, whose folder git reads; the parent remounts this view for another. */
+  sessionId: number;
   /** The active session's folder; the parent remounts this view for another folder. */
   cwd: string;
   /** Changes when the list should be read again (attention state, "Refresh"). */
@@ -54,7 +56,7 @@ const MINUTE_MS = 60_000;
  * panel. Commits the upstream lacks come first. A click opens a commit in place with its message
  * and its files, shown like the work tree's changes; each commit's diff is read once per panel.
  */
-export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: Props) {
+export function CommitHistory({ sessionId, cwd, reload, language, onBusy, focus = null }: Props) {
   const t = useT();
   const now = useClock(MINUTE_MS);
   const body = useRef<HTMLDivElement>(null);
@@ -76,7 +78,7 @@ export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: P
       setAnswer({ key: reload, load });
       setMore({ kind: "idle" });
     };
-    readLog((skip, limit) => api.gitLog(cwd, skip, limit), shown.current)
+    readLog((skip, limit) => api.gitLog(sessionId, skip, limit), shown.current)
       .then((log) => {
         settle(
           log === null ? { kind: "error", message: t("error.unknown") } : { kind: "done", log },
@@ -87,7 +89,7 @@ export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: P
       });
     // `t` only changes with the language; a new language needs no new git call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, reload]);
+  }, [sessionId, cwd, reload]);
 
   const load: ListLoad = answer?.load ?? { kind: "loading" };
   const busy = answer?.key !== reload || more.kind === "loading";
@@ -109,7 +111,7 @@ export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: P
     const key = reload;
     setMore({ kind: "loading" });
     api
-      .gitLog(cwd, log.commits.length, COMMIT_PAGE)
+      .gitLog(sessionId, log.commits.length, COMMIT_PAGE)
       .then((value) => {
         if (latest.current !== key) return;
         const page = parseGitLog(value);
@@ -135,7 +137,7 @@ export function CommitHistory({ cwd, reload, language, onBusy, focus = null }: P
       setDetails((current) => new Map(current).set(sha, detail));
     };
     api
-      .gitCommitDiff(cwd, sha)
+      .gitCommitDiff(sessionId, sha)
       .then((value) => {
         const result = parseCommitDiff(value);
         settle(

@@ -45,7 +45,10 @@ collects its items under that same version without a date. `src/versionSync.test
      `pnpm tauri signer sign --app-version <X.Y.Z+Build>` with `%USERPROFILE%\.tauri\hangar.key`.
      The `.sig` is the same as from `tauri build` (trusted comment
      `timestamp:...<TAB>file:<installer>.exe<TAB>version:<X.Y.Z+Build>`, measured with Tauri CLI 2.12.4
-     and a throwaway key); the script warns when the key is used without a password
+     and a throwaway key); the script warns when the key is used without a password, and aborts
+     when the key id in the `.sig` differs from the `pubkey` in `tauri.conf.json`. The CLI runs as
+     `node.exe node_modules/@tauri-apps/cli/tauri.js`, not through `pnpm.cmd`; the app requires the
+     signed version (`requireSignedVersion`, [[process-launch-hardening]])
    - creates `release/0.2.0-31/` containing `Hangar_0.2.0-31_x64-setup.exe`, `Hangar-Setup.exe`,
      `SHA256SUMS.txt`, `latest.json` (its download URL points to the GitHub release `v0.2.0`) and
      `release-notes.md`

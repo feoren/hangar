@@ -9,6 +9,8 @@ import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
+import { backendErrorText } from "./backendError";
+import { InputStalled, inputQueue } from "./sessionInput";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -208,6 +210,9 @@ export const NO_START_OPTIONS: StartOptions = { instructions: false, startPrompt
 
 export { Channel };
 
+/** `write_session` answers `false` while the session's input queue is full. */
+const writeSession = inputQueue((id, data) => invoke<boolean>("write_session", { id, data }));
+
 export const api = {
   listProfiles: () => invoke<Profile[]>("list_profiles"),
   defaultCwd: () => invoke<string>("default_cwd"),
@@ -254,7 +259,11 @@ export const api = {
       onEvent,
       ...(expectedPlan === null ? {} : { expectedPlan }),
     }),
-  write: (id: number, data: string) => invoke<null>("write_session", { id, data }),
+  /**
+   * Input to a session, in order per session; a large paste goes in pieces below the backend's
+   * limit, and a full input queue is waited out (sessionInput.ts).
+   */
+  write: (id: number, data: string) => writeSession(id, data),
   resize: (id: number, size: TermSize) => invoke<null>("resize_session", { id, size }),
   ack: (id: number, bytes: number) => invoke<null>("ack_session", { id, bytes }),
   kill: (id: number) => invoke<null>("kill_session", { id }),
@@ -462,16 +471,17 @@ export const api = {
    */
   gitRepoPlaces: (paths: string[]) => invoke<unknown>("git_repo_places", { paths }),
   /**
-   * Changes of a working folder against HEAD (at most 2 MiB of diff text). Check with
-   * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
+   * Changes of a session's folder against HEAD (at most 2 MiB of diff text); the backend finds
+   * the folder. Check with `parseGitDiff`; rejects with a text when git is missing, the folder is
+   * refused or the session is unknown.
    */
-  gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
+  gitDiff: (id: number) => invoke<unknown>("git_diff", { id }),
   /**
-   * Number of changed files of a working folder, the same as the file list of `gitDiff`, without
-   * reading the diff itself; `null` outside a repository. Check with `parseChangedCount`; rejects
-   * with a text like `gitDiff`.
+   * Number of changed files of a session's folder, the same as the file list of `gitDiff`,
+   * without reading the diff itself; `null` outside a repository. Check with
+   * `parseChangedCount`; rejects with a text like `gitDiff`.
    */
-  gitChangedCount: (cwd: string) => invoke<unknown>("git_changed_count", { cwd }),
+  gitChangedCount: (id: number) => invoke<unknown>("git_changed_count", { id }),
   /**
    * The user's own commits of about the last year in the repositories of these folders (at most
    * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
@@ -484,16 +494,17 @@ export const api = {
   /** One local day `[start, end)` in Unix ms. Check with `parseDailyReview` (dailyReview.ts). */
   dailyReview: (start: number, end: number) => invoke<unknown>("daily_review", { start, end }),
   /**
-   * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
-   * 1..=100. Check with `parseGitLog` (gitHistory.ts).
+   * One page of the commits reachable from HEAD of a session's folder, newest first; with
+   * `root`, of its repository's main folder. The backend clamps `limit` to 1..=100. Check with
+   * `parseGitLog` (gitHistory.ts).
    */
-  gitLog: (cwd: string, skip: number, limit: number) =>
-    invoke<unknown>("git_log", { cwd, skip, limit }),
+  gitLog: (id: number, skip: number, limit: number, root = false) =>
+    invoke<unknown>("git_log", { id, skip, limit, root }),
   /**
    * Header and changes of one commit against its first parent, shaped like `git_diff`. Pass only
    * full ids from `git_log`. Check with `parseCommitDiff` (gitHistory.ts).
    */
-  gitCommitDiff: (cwd: string, sha: string) => invoke<unknown>("git_commit_diff", { cwd, sha }),
+  gitCommitDiff: (id: number, sha: string) => invoke<unknown>("git_commit_diff", { id, sha }),
   /**
    * Git actions on the repository of a session's folder; the backend finds the folder. `paths`
    * are relative to the repository root, exactly as `gitDiff` lists them. Each rejects with a
@@ -697,7 +708,7 @@ export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
 export const POWER_CHANGED = "power-changed";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
-/** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */
+/** Signal without a payload: the gate changed; read it with `api.gateSnapshot`. */
 export const GATE_CHANGED = "gate-changed";
 /** Event with the newest account state (`parseAccountView` in account.ts). */
 export const ACCOUNT_CHANGED = "account-changed";
@@ -932,9 +943,13 @@ export function parseExportResult(value: unknown): string | null {
   throw new Error(t("error.unknown"));
 }
 
-/** Errors from `invoke` arrive from the backend as strings (ManagerError serialized as text). */
+/**
+ * Errors from `invoke` arrive from the backend as strings (ManagerError serialized as text); a
+ * leading `[code]` is shown in the window's own words (backendError.ts).
+ */
 export function errorText(error: unknown): string {
-  if (typeof error === "string") return error;
+  if (error instanceof InputStalled) return t("terminal.inputStalled");
+  if (typeof error === "string") return backendErrorText(error);
   if (error instanceof Error) return error.message;
   return t("error.unknown");
 }

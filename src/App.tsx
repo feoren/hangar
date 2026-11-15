@@ -1787,7 +1787,7 @@ export function App() {
     if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     if (profile === undefined || shellKind(profile.command) !== "agent") return;
-    doneFileCount(session.cwd, api.gitChangedCount)
+    doneFileCount(id, api.gitChangedCount)
       .then((count) => {
         const terminal = terminals.get(id);
         const current = stateRef.current.sessions.find((s) => s.id === id);
@@ -3570,7 +3570,7 @@ export function App() {
           break;
         }
         case "diff": {
-          const diff = parseGitDiff(await api.gitDiff(cwd).catch(() => null));
+          const diff = parseGitDiff(await api.gitDiff(id).catch(() => null));
           if (diff?.isRepo === true && diff.diff.trim() !== "") {
             values.diff = capDiff(diff.diff, (count) => t("snippets.diffCut", { count }));
           }
@@ -3610,10 +3610,14 @@ export function App() {
     });
   };
 
-  /** Pastes filled text into one session and sends Enter after it (broadcast.ts). */
+  /**
+   * Pastes filled text into one session and sends Enter after it (broadcast.ts). A paste the
+   * program did not take gets no Enter; the terminal itself says so (`InputStalled`).
+   */
   const submitText = (id: number, text: string) => {
     const terminal = terminals.get(id);
-    if (terminal) void sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS));
+    if (!terminal) return;
+    sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS)).catch(() => undefined);
   };
 
   /**
@@ -3669,7 +3673,8 @@ export function App() {
     const session = state.sessions.find((s) => s.id === id);
     const terminal = terminals.get(id);
     if (session?.status !== "running" || !terminal || withholdCommand(id, command)) return;
-    void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS));
+    // A stalled paste is reported in the terminal itself.
+    sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS)).catch(() => undefined);
     dispatch({ type: "activated", id });
     focusTerminal();
   };
@@ -4746,7 +4751,7 @@ export function App() {
             );
       },
       async () => {
-        const log = parseGitLog(await api.gitLog(session.cwd, 0, COMMIT_PAGE));
+        const log = parseGitLog(await api.gitLog(session.id, 0, COMMIT_PAGE));
         return log === null || !log.isRepo
           ? []
           : commitItems(log.commits, openCommit, t, commitIcon);

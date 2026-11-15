@@ -2,6 +2,7 @@
 
 Run: py -3 -m unittest discover tools
 """
+import base64
 import json
 import os
 import shutil
@@ -162,7 +163,7 @@ class BuildCommandTest(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
 
         environ = dict(os.environ, **(environ or {}))
-        with mock.patch.object(release.shutil, "which", return_value="pnpm"), mock.patch.object(
+        with mock.patch.object(release.shutil, "which", return_value=NODE), mock.patch.object(
             release.subprocess, "run", side_effect=fake_run
         ), mock.patch.dict(release.os.environ, environ, clear=True):
             release.build(signing)
@@ -171,14 +172,14 @@ class BuildCommandTest(unittest.TestCase):
 
     def test_unsigned_only_switches_off_updater_artifacts(self):
         command, config, config_path, _ = self.run_build(None)
-        self.assertEqual(command[:3], ["pnpm", "tauri", "build"])
+        self.assertEqual(command[:3], [NODE, str(release.TAURI_JS), "build"])
         self.assertEqual(config, {"bundle": {"createUpdaterArtifacts": False}})
         self.assertFalse(config_path.exists())
 
     def test_signed_via_config_file_deleted_afterwards(self):
         signing = release.windows_signing_config({"HANGAR_CERT_THUMBPRINT": THUMB})
         command, config, config_path, _ = self.run_build(signing)
-        self.assertEqual(command[:3], ["pnpm", "tauri", "build"])
+        self.assertEqual(command[:3], [NODE, str(release.TAURI_JS), "build"])
         self.assertEqual(config["bundle"]["windows"], signing["bundle"]["windows"])
         self.assertIs(config["bundle"]["createUpdaterArtifacts"], False)
         self.assertNotIn(THUMB.upper(), " ".join(command))
@@ -193,6 +194,71 @@ class BuildCommandTest(unittest.TestCase):
         self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
 
 
+NODE = r"C:\Program Files\nodejs\node.exe"
+
+
+def minisign_text(comment, key_id, payload_length):
+    """A throwaway minisign public key or signature in Tauri's base64 form: only the shape and the
+    key id are real, the key material is random bytes."""
+    blob = b"Ed" + key_id + os.urandom(payload_length)
+    text = "untrusted comment: %s\n%s\n" % (comment, base64.b64encode(blob).decode("ascii"))
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def throwaway_key_pair(folder, key_id):
+    """Public key text and the file a signature made with it would have, under tests/.tmp."""
+    public = minisign_text("minisign public key", key_id, 32)
+    (folder / "throwaway.pub").write_text(public, encoding="utf-8")
+    signature = minisign_text("signature from tauri secret key", key_id, 64)
+    return public, signature
+
+
+class TauriCommandTest(unittest.TestCase):
+    def test_the_cli_runs_through_node_never_through_a_cmd_shim(self):
+        with mock.patch.object(release.shutil, "which", return_value=NODE):
+            command = release.tauri_command("build")
+        self.assertEqual(command, [NODE, str(release.TAURI_JS), "build"])
+        self.assertNotIn(Path(command[0]).suffix.lower(), (".cmd", ".bat"))
+
+    def test_a_node_that_is_a_cmd_script_is_refused(self):
+        for shim in (r"C:\tools\node.cmd", r"C:\tools\NODE.BAT"):
+            with mock.patch.object(release.shutil, "which", return_value=shim):
+                with self.assertRaises(SystemExit):
+                    release.tauri_command("build")
+
+    def test_the_real_node_is_no_cmd_script(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        self.assertNotIn(Path(node).suffix.lower(), (".cmd", ".bat"))
+
+
+class SignatureKeyTest(unittest.TestCase):
+    def setUp(self):
+        self.folder = test_folder(self, "release key ")
+
+    def test_the_key_id_is_read_from_both_forms(self):
+        public, signature = throwaway_key_pair(self.folder, bytes.fromhex("0102030405060708"))
+        self.assertEqual(release.minisign_key_id(public), "0102030405060708")
+        self.assertEqual(release.minisign_key_id(signature), "0102030405060708")
+        self.assertIsNone(release.signature_key_problem(signature, public))
+
+    def test_the_shipped_key_is_readable(self):
+        self.assertEqual(release.minisign_key_id(release.updater_pubkey()), "C815B1C58F164CE3")
+
+    def test_another_key_is_refused(self):
+        public, _ = throwaway_key_pair(self.folder, bytes.fromhex("0102030405060708"))
+        _, other = throwaway_key_pair(self.folder, bytes.fromhex("1112131415161718"))
+        problem = release.signature_key_problem(other, public)
+        self.assertIn("1112131415161718", problem)
+
+    def test_garbage_is_refused(self):
+        public, _ = throwaway_key_pair(self.folder, bytes(8))
+        for text in ("signature-marker", "", base64.b64encode(b"one line").decode()):
+            self.assertIsNotNone(release.signature_key_problem(text, public))
+        self.assertIsNone(release.minisign_key_id("not base64 !"))
+
+
 class UpdaterSigningTest(unittest.TestCase):
     """sign_update(): a process of its own, the only one that gets the key."""
 
@@ -202,14 +268,15 @@ class UpdaterSigningTest(unittest.TestCase):
         self.key.write_text("key-content-marker\n", encoding="utf-8")
         self.setup = self.folder / "Hangar_0.2.0+31_x64-setup.exe"
         self.setup.write_bytes(b"installer")
+        self.public, self.signature = throwaway_key_pair(self.folder, bytes.fromhex("A1A2A3A4A5A6A7A8"))
 
-    def run_sign(self, environ=None, writes_signature=True, returncode=0):
+    def run_sign(self, environ=None, writes_signature=True, returncode=0, signature=None):
         calls = []
 
         def fake_run(command, **kwargs):
             calls.append((command, kwargs.get("env")))
             if writes_signature:
-                Path(command[-1] + ".sig").write_text("signature-marker", encoding="utf-8")
+                Path(command[-1] + ".sig").write_text(signature or self.signature, encoding="utf-8")
             return subprocess.CompletedProcess(command, returncode)
 
         clean = {
@@ -218,9 +285,11 @@ class UpdaterSigningTest(unittest.TestCase):
             if not name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")
         }
         clean.update(environ or {})
-        with mock.patch.object(release.shutil, "which", return_value="pnpm"), mock.patch.object(
+        with mock.patch.object(release.shutil, "which", return_value=NODE), mock.patch.object(
             release.subprocess, "run", side_effect=fake_run
-        ), mock.patch.dict(release.os.environ, clean, clear=True):
+        ), mock.patch.dict(release.os.environ, clean, clear=True), mock.patch.object(
+            release, "updater_pubkey", return_value=self.public
+        ):
             signature = release.sign_update(self.key, self.setup, "0.2.0+31")
         self.assertEqual(len(calls), 1)
         return calls[0], signature
@@ -228,7 +297,8 @@ class UpdaterSigningTest(unittest.TestCase):
     def test_signs_the_installer_bound_to_the_version(self):
         (command, env), signature = self.run_sign()
         self.assertEqual(
-            command, ["pnpm", "tauri", "signer", "sign", "--app-version", "0.2.0+31", str(self.setup)]
+            command,
+            [NODE, str(release.TAURI_JS), "signer", "sign", "--app-version", "0.2.0+31", str(self.setup)],
         )
         self.assertEqual(signature, self.setup.with_name(self.setup.name + ".sig"))
         self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY"], "key-content-marker")
@@ -260,6 +330,12 @@ class UpdaterSigningTest(unittest.TestCase):
     def test_a_failed_signer_aborts(self):
         with self.assertRaises(SystemExit):
             self.run_sign(returncode=1)
+
+    def test_a_signature_of_another_key_aborts_and_is_removed(self):
+        _, foreign = throwaway_key_pair(self.folder, bytes.fromhex("B1B2B3B4B5B6B7B8"))
+        with self.assertRaises(SystemExit):
+            self.run_sign(signature=foreign)
+        self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
 
 
 TAURI_CONF_TEXT = """{

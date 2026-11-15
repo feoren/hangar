@@ -2,7 +2,7 @@
 // session's folder, read-only, with line numbers and highlighting as in a code editor, a preview
 // for Markdown and images, and the file's changes against the last commit. It may only read its
 // own file (`file_viewer_content`, `file_viewer_stamp`, `file_viewer_diff`), open a checked web
-// link (`file_viewer_open_link`), listen to events and copy text. The file is read again when it
+// link (`file_viewer_open_link`) and copy text; it may not listen to events. The file is read again when it
 // changes on disk (live refresh, `pollStamps`). Language, app theme, viewer theme and font come
 // from the settings in localStorage, which it shares with the main window; the `storage` event
 // brings changes over while it is open.
