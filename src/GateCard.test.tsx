@@ -105,4 +105,12 @@ describe("GateCard for a held shell command", () => {
     expect(html).toContain("Allow for this file");
     expect(html).not.toContain("gate-command");
   });
+
+  it("shows its answers as not yet clickable right after it appears", () => {
+    // The pause itself (useArmDelay.ts) is tested with fake timers; here only that the card
+    // starts in it and shows that.
+    const html = render(held);
+    expect(html).toMatch(/aria-disabled="true"[^>]*>Allow once</u);
+    expect(html).toMatch(/aria-disabled="true"[^>]*>Block</u);
+  });
 });

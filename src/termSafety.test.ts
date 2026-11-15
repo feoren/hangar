@@ -230,3 +230,126 @@ describe("osc8Decision on common agent output", () => {
     expect(osc8Decision(shown, target)).toBe("confirm");
   });
 });
+
+describe("osc8Decision finds a host anywhere in the shown word", () => {
+  const target = "https://evil.example/x";
+  it.each([
+    // Markup and punctuation glued to the address.
+    "*https://github.com/acme*",
+    "|https://github.com/acme|",
+    "**github.com/acme**",
+    "|github.com/acme|",
+    "_github.com/acme_",
+    "•github.com/acme",
+    "→github.com/acme",
+    "~github.com/acme",
+    "url=github.com/acme",
+    "@github.com/acme",
+    "+github.com/acme",
+    "$github.com/acme",
+    "¡github.com/acme",
+    "x;github.com/acme",
+    "github.com:acme",
+    "acme@github.com",
+    "github.com…",
+    // scp form of git addresses.
+    "git@github.com:acme/repo.git",
+    "github.com:acme/repo",
+    // Combining marks inside the host.
+    "github.c̲om/acme",
+    "github.̣com/acme",
+    "githu̥b.com/acme",
+    "https://githu̥b.com/acme",
+    // Look-alikes of the slash and the dot.
+    "github.com∕acme",
+    "github.com⁄acme",
+    "github.com⧸acme",
+    "githubꓸcom/acme",
+    "github٠com/acme",
+    "github۰com/acme",
+    "github・com/acme",
+    "github･com/acme",
+    "github·com/acme",
+    "github‧com/acme",
+    "github∙com/acme",
+    "github⋅com/acme",
+    "github․com/acme",
+    // Any other sign between two letters may pass for a dot.
+    "github⸱com/acme",
+    // Letters of other scripts.
+    "גithub.com/acme",
+    "gіthub.com/acme",
+    "\u{1D420}ithub.com/acme",
+    "github.com/" + "a".repeat(3000),
+  ])("asks for %j", (shown) => {
+    expect(osc8Decision(shown, target)).toBe("confirm");
+  });
+
+  it("opens the same words when they name the target's own site", () => {
+    expect(osc8Decision("**github.com/acme**", "https://github.com/acme")).toBe("open");
+    expect(osc8Decision("github.com:acme/app", "https://github.com/acme/app")).toBe("open");
+    expect(osc8Decision("githu̥b.com/acme", "https://github.com/acme")).toBe("open");
+    expect(osc8Decision("github・com/acme", "https://github.com/acme")).toBe("open");
+  });
+
+  it("reads names in the path behind the target's host as its pages, not as hosts", () => {
+    expect(osc8Decision("git@github.com:acme/app.git", "https://github.com/acme/app")).toBe("open");
+    expect(osc8Decision("github.com/vercel/next.js", "https://github.com/vercel/next.js")).toBe(
+      "open",
+    );
+    // Only behind the target's own host, and never another scheme or host after `://`.
+    expect(osc8Decision("evil.example/github.com", "https://github.com/")).toBe("confirm");
+    expect(osc8Decision("github.com:evil.example/x", "https://github.com/")).toBe("confirm");
+    expect(osc8Decision("github.com/https://evil.example", "https://github.com/")).toBe("confirm");
+    expect(osc8Decision("github.com/http://github.com", "https://github.com/")).toBe("confirm");
+  });
+
+  it("opens prose and markup that names no host", () => {
+    const target = "https://example.com/pr/1";
+    for (const shown of [
+      "**PR #123**",
+      "|docs|",
+      "→ details",
+      "你好、世界",
+      "v1.2.3-beta.1",
+      "i.e. the fix",
+      "and/or",
+    ]) {
+      expect(osc8Decision(shown, target), shown).toBe("open");
+    }
+  });
+
+  it("asks when a non-ASCII character touches a dot of the claimed host", () => {
+    expect(osc8Decision("café.com", "https://xn--caf-dma.com/")).toBe("confirm");
+    expect(osc8Decision("github.çom", "https://github.com/")).toBe("confirm");
+  });
+});
+
+describe("osc8Decision compares the named port and scheme", () => {
+  it.each([
+    ["localhost:3000", "http://localhost:6666/"],
+    ["github.com:8443/acme", "https://github.com/acme"],
+    ["github.com:443/acme", "http://github.com/acme"],
+    ["http://github.com/acme", "https://github.com/acme"],
+    ["https://localhost:3000", "http://localhost:3000/"],
+    ["127.0.0.1:3000", "http://127.0.0.1:4000/"],
+    ["[::1]:3000", "http://[::1]:4000/"],
+  ])("asks for %j pointing to %s", (shown, target) => {
+    expect(osc8Decision(shown, target)).toBe("confirm");
+  });
+
+  it.each([
+    ["github.com:443/acme", "https://github.com/acme"],
+    ["localhost:8080", "http://localhost:8080/x"],
+    ["[::1]:3000", "http://[::1]:3000/"],
+    ["https://github.com", "https://github.com/acme"],
+  ])("opens %j pointing to %s", (shown, target) => {
+    expect(osc8Decision(shown, target)).toBe("open");
+  });
+
+  it("always asks for an internationalized target host", () => {
+    expect(osc8Decision("Open", "https://xn--gthub-n4a.com/acme")).toBe("confirm");
+    expect(osc8Decision("gіthub.com/acme", "https://gіthub.com/acme")).toBe("confirm");
+    expect(osc8Decision("docs", "https://docs.xn--bcher-kva.example/")).toBe("confirm");
+  });
+});

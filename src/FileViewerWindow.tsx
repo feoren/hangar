@@ -58,7 +58,7 @@ import { loadSettings } from "./settings";
 import { fontStack } from "./terminalLook";
 import { applyDocumentTheme, resolveTheme, subscribeSystemTheme, systemPrefersDark } from "./theme";
 import type { FileView } from "./viewerEditor";
-import { viewerLinkAction } from "./viewerLink";
+import { viewerLinkAction, wordAround } from "./viewerLink";
 import { ViewerLinkCheck } from "./ViewerLinkCheck";
 import { viewerCssVariables, viewerPalette } from "./viewerThemes";
 
@@ -461,6 +461,23 @@ function FileViewer({ language }: { language: string }) {
   );
 }
 
+/** Elements that hold one block of rendered Markdown; a link's word never runs past them. */
+const MARKDOWN_BLOCK = "p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, pre, dt, dd";
+
+/**
+ * What a link reads like on the page: its text with the text touching it in the same block,
+ * including code and neighbouring links (viewerLink.ts `wordAround`).
+ */
+function shownAround(link: HTMLElement): string {
+  const block = link.parentElement?.closest(MARKDOWN_BLOCK) ?? link.parentElement;
+  if (block === null) return link.textContent;
+  const before = document.createRange();
+  before.selectNodeContents(block);
+  before.setEndBefore(link);
+  const start = before.toString().length;
+  return wordAround(block.textContent, start, start + link.textContent.length);
+}
+
 /**
  * The rendered Markdown of the file; http(s) links open in the browser through the backend.
  * `onOpenLink` gets the address and the link's visible text, which may claim another one.
@@ -494,7 +511,7 @@ function MarkdownView(props: {
     const element = target.closest<HTMLElement>("[data-href]");
     const href = element?.dataset.href;
     if (element === null || href === undefined) return null;
-    return { href, shown: element.textContent, element };
+    return { href, shown: shownAround(element), element };
   };
 
   if (failed) {

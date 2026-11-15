@@ -18,13 +18,15 @@ class FakeTerminal implements LinkTerminal {
   modes = { mouseTrackingMode: "none" };
   readonly buffer: LinkTerminal["buffer"];
 
-  constructor(lines: readonly string[]) {
+  /** `hiddenFrom`: cells from this column on are drawn invisible (SGR 8). */
+  constructor(lines: readonly string[], hiddenFrom = Infinity) {
     const bufferLines: LinkLine[] = lines.map((text) => ({
       isWrapped: false,
       length: text.length,
       getCell: (x: number) => {
         const chars = text.charAt(x);
-        return { getChars: () => chars, getWidth: () => 1 };
+        const invisible = x >= hiddenFrom ? 1 : 0;
+        return { getChars: () => chars, getWidth: () => 1, isInvisible: () => invisible };
       },
     }));
     this.buffer = { active: { getLine: (y: number) => bufferLines[y] } };
@@ -204,5 +206,58 @@ describe("TerminalLinks", () => {
     click((await term.links(1))?.[0]);
     expect(opened).toEqual([{ kind: "url", url: "https://example.com/x" }]);
     expect(calls).toBe(0);
+  });
+
+  it("ends an address where the visible text ends", async () => {
+    // `https://example.com/` shows, `.evil.example/x` is printed invisible right after it.
+    const line = "open https://example.com.evil.example/x";
+    const term = new FakeTerminal([line], "open https://example.com".length);
+    const opened: LinkRequest[] = [];
+    new TerminalLinks(term, {
+      cwd: () => "/repo",
+      checker: checker({}),
+      open: (r) => opened.push(r),
+    });
+    const links = await term.links(1);
+    expect(links?.map((link) => link.text)).toEqual(["https://example.com"]);
+    click(links?.[0]);
+    expect(opened).toEqual([{ kind: "url", url: "https://example.com" }]);
+  });
+
+  it("shows where an address leads on hover and hides it on leave", async () => {
+    const term = new FakeTerminal(["open https://example.com/x now"]);
+    const tips: string[] = [];
+    new TerminalLinks(term, {
+      cwd: () => "/repo",
+      checker: checker({}),
+      open: () => undefined,
+      hover: (_event, url) => tips.push(url),
+      leave: () => tips.push("left"),
+    });
+    const found = (await term.links(1))?.[0];
+    const move = new Event("mouseup");
+    if (found?.hover === undefined || found.leave === undefined || !isMouse(move)) {
+      throw new Error("no link");
+    }
+    found.hover(move, found.text);
+    found.leave(move, found.text);
+    expect(tips).toEqual(["https://example.com/x", "left"]);
+  });
+
+  it("shows no address tip for a path", async () => {
+    const term = new FakeTerminal(["see docs/a.md"]);
+    const tips: string[] = [];
+    new TerminalLinks(term, {
+      cwd: () => "/repo",
+      checker: checker({ "/repo/docs/a.md": "file" }),
+      open: () => undefined,
+      hover: (_event, url) => tips.push(url),
+      leave: () => undefined,
+    });
+    const found = (await term.links(1))?.[0];
+    const move = new Event("mouseup");
+    if (found?.hover === undefined || !isMouse(move)) throw new Error("no link");
+    found.hover(move, found.text);
+    expect(tips).toEqual([]);
   });
 });
