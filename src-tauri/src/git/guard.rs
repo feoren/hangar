@@ -840,8 +840,34 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
-    /// Config text whose include names a share. Only its text is ever looked at.
-    const SHARE_INCLUDE: &str = "[core]\n\tbare = true\n[include]\n\tpath = //192.0.2.1/share/x\n";
+    /// A folder whose lookup would leave this machine, as a path for a config or pointer file to
+    /// name. On Windows a share by its text. Unix has no share paths (`//host/x` is a local path
+    /// there), so a link in `tmp` to `//192.0.2.1/share` stands in for one: the walk refuses it
+    /// ([`crate::no_links`]), and creating it never touches the target.
+    fn off_machine(tmp: &Path) -> String {
+        #[cfg(windows)]
+        {
+            let _ = tmp;
+            "//192.0.2.1/share".to_owned()
+        }
+        #[cfg(unix)]
+        {
+            let link = tmp.join("off-machine");
+            if fs::symlink_metadata(&link).is_err() {
+                std::os::unix::fs::symlink("//192.0.2.1/share", &link).unwrap();
+            }
+            link.to_string_lossy().into_owned()
+        }
+    }
+
+    /// Config text whose include names a file off this machine ([`off_machine`]). Only its text
+    /// is ever looked at, and on Unix the link that leads there.
+    fn share_include(tmp: &Path) -> String {
+        format!(
+            "[core]\n\tbare = true\n[include]\n\tpath = \"{}/x\"\n",
+            off_machine(tmp)
+        )
+    }
 
     fn deadline() -> Instant {
         Instant::now() + crate::git::TIMEOUT
@@ -851,10 +877,11 @@ mod tests {
         matches!(check(git, start, deadline()), Err(GitError::RemoteGitDir))
     }
 
-    /// A git folder of its own: HEAD, `objects`, `refs` and a config that includes a share.
-    fn share_repo(dir: &Path) {
+    /// A git folder of its own: HEAD, `objects`, `refs` and a config that includes a file off
+    /// this machine.
+    fn share_repo(tmp: &Path, dir: &Path) {
         put(&dir.join("HEAD"), b"ref: refs/heads/main\n");
-        put(&dir.join("config"), SHARE_INCLUDE.as_bytes());
+        put(&dir.join("config"), share_include(tmp).as_bytes());
         fs::create_dir_all(dir.join("objects")).unwrap();
         fs::create_dir_all(dir.join("refs")).unwrap();
     }
@@ -879,7 +906,7 @@ mod tests {
         let Some(git) = git() else { return };
         let tmp = TempDir::new("git-guard-embedded-commondir");
         let common = tmp.path().join("c");
-        share_repo(&common);
+        share_repo(tmp.path(), &common);
         fs::remove_file(common.join("HEAD")).unwrap();
         let x = tmp.path().join("x");
         put(&x.join("HEAD"), b"ref: refs/heads/main\n");
@@ -896,7 +923,7 @@ mod tests {
         let tmp = TempDir::new("git-guard-embedded-files");
         let y = tmp.path().join("y");
         put(&y.join("HEAD"), b"ref: refs/heads/main\n");
-        put(&y.join("config"), SHARE_INCLUDE.as_bytes());
+        put(&y.join("config"), share_include(tmp.path()).as_bytes());
         put(&y.join("objects"), b"");
         put(&y.join("refs"), b"");
         let start = y.join("sub");
@@ -909,7 +936,7 @@ mod tests {
     fn padded_or_oversized_git_files_are_not_skipped() {
         let Some(git) = git() else { return };
         let tmp = TempDir::new("git-guard-padded-gitfile");
-        share_repo(&tmp.path().join("real.git"));
+        share_repo(tmp.path(), &tmp.path().join("real.git"));
         let padded = |target: &str, pad: usize| {
             let mut content = format!("gitdir: {target}").into_bytes();
             content.extend(std::iter::repeat_n(b'\n', pad));
@@ -920,7 +947,8 @@ mod tests {
         assert!(refused(&git, &w));
 
         let to_share = tmp.path().join("to-share");
-        put(&to_share.join(".git"), &padded("//192.0.2.1/share/x", 5000));
+        let target = format!("{}/x", off_machine(tmp.path()));
+        put(&to_share.join(".git"), &padded(&target, 5000));
         assert!(refused(&git, &to_share));
         assert!(matches!(
             crate::git::check_git_links(&to_share),
@@ -944,7 +972,7 @@ mod tests {
     fn padded_or_irregular_commondir_is_not_skipped() {
         let Some(git) = git() else { return };
         let tmp = TempDir::new("git-guard-padded-commondir");
-        share_repo(&tmp.path().join("evil"));
+        share_repo(tmp.path(), &tmp.path().join("evil"));
         let linked = tmp.path().join("linked-git");
         put(&linked.join("HEAD"), b"ref: refs/heads/main\n");
         let mut commondir = b"../evil".to_vec();
@@ -954,10 +982,13 @@ mod tests {
         put(&w.join(".git"), b"gitdir: ../linked-git\n");
         assert!(refused(&git, &w));
 
-        let mut to_share = b"//192.0.2.1/share/.git".to_vec();
+        let mut to_share = format!("{}/.git", off_machine(tmp.path())).into_bytes();
         to_share.extend(std::iter::repeat_n(b'\n', 5000));
         put(&linked.join("commondir"), &to_share);
         assert!(refused(&git, &w));
+        // `check_git_links` compares the text only; on Unix the path is local by its text and
+        // only the walk of the guard above finds the link off the machine.
+        #[cfg(windows)]
         assert!(matches!(
             crate::git::check_git_links(&w),
             Err(GitError::RemoteGitDir)
@@ -998,7 +1029,7 @@ mod tests {
             alternates(&objects, &next.to_string_lossy());
             objects = next;
         }
-        alternates(&objects, "//192.0.2.1/share/objects");
+        alternates(&objects, &format!("{}/objects", off_machine(tmp.path())));
         assert!(refused(&git, &repo));
     }
 
