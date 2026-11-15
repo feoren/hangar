@@ -187,7 +187,7 @@ describe("CrewColumn", () => {
 
   it("uses the same accessible name in the strip", () => {
     mount("strip");
-    const text = host.querySelector(".crew-chip-text")?.textContent ?? "";
+    const text = host.querySelector(".crew-chip-say")?.textContent ?? "";
     expect(text).not.toBe("");
     expect(buttons()[0]?.getAttribute("aria-label")).toBe(`Explore, Arbeitet, ${text}`);
   });
@@ -205,6 +205,17 @@ describe("CrewColumn", () => {
     expect(host.querySelector(".crew-item")?.classList.contains("state-working")).toBe(true);
     expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Arbeitet");
     expect(host.querySelector(".crew-chip-text")).toBeNull();
+  });
+
+  it("shows which sub-agent it is under the plinth", () => {
+    mount("column");
+    expect(host.querySelector(".crew-name")?.textContent).toBe("Explore");
+  });
+
+  it("puts the sub-agent's name before its text in the strip", () => {
+    mount("strip");
+    expect(host.querySelector(".crew-chip-name")?.textContent).toBe("Explore");
+    expect(host.querySelector(".crew-name")).toBeNull();
   });
 
   it("shows the plinth word of a finished sub-agent", () => {

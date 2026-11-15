@@ -162,12 +162,16 @@ function CrewItem({
             <span className="crew-plinth" aria-hidden="true">
               <span className="crew-plinth-label">{stateLabel}</span>
             </span>
+            <span className="crew-name" aria-hidden="true">
+              {name}
+            </span>
           </>
         ) : (
           <>
             <AgentFigure figure={figure} size={26} crop="head" />
             <span className="crew-chip-text" aria-hidden="true">
-              {text}
+              <span className="crew-chip-name">{name}</span>{" "}
+              <span className="crew-chip-say">{text}</span>
             </span>
           </>
         )}
