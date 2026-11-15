@@ -4,7 +4,7 @@ type: synthesis
 tags: [updates, contract, network]
 sources: ["[[update-sources]]", "[[update-installers]]", "[[github-conditional-requests]]", "[[app-execution-alias]]"]
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Showing and running program updates (contract)
@@ -80,7 +80,10 @@ command are the same.
 
 ### Event `program-update-result`
 After an update session exits (also after a restart of it), the backend clears the version cache,
-sends `exit`, then reads the version again on a thread of its own and emits
+sends `exit`, then reads the version again on a thread of its own, keeps the result (at most 32,
+oldest dropped) and emits `program-update-result` without payload: a listener of any window
+receives events emitted to the main one, and `copies` names program paths. The main window then
+calls `take_update_results` (main window only), which hands out each waiting result once:
 
 ```ts
 type UpdateOutcome = {
@@ -173,8 +176,9 @@ Detection uses the resolved path and file existence only, no process ([[update-i
   the remaining parts as arguments, no shell. `.cmd` tools (npm, pnpm, scoop) go through the
   cmd.exe checks of [[cmd-launcher]]. The profile's environment
   (`env`) applies here too; `TERM`, `COLORTERM` and the removal of inherited session markers work as for agents.
-- Working folder: the profile's fixed folder, otherwise the home folder, never the one selected
-  in the sidebar. Reason (measurement from the security review, 2026-11-08): `npm.cmd` calls `node`
+- Working folder: always the home folder (since 2026-11-15 also for profiles with a fixed folder,
+  where npm and pip would read a project's `.npmrc` or `pip.conf`, [[process-launch-hardening]]),
+  never the one selected in the sidebar. Reason (measurement from the security review, 2026-11-08): `npm.cmd` calls `node`
   through cmd.exe, and cmd.exe looks for programs in the current folder first; a foreign project with
   its own `node.cmd` would otherwise run along with the update.
 - On Windows, Hangar additionally sets `NoDefaultCurrentDirectoryInExePath=1` for update sessions

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-message-queue"
+description = "Enables the save_message_queue command without any pre-configured scope."
+commands.allow = ["save_message_queue"]
+
+[[permission]]
+identifier = "deny-save-message-queue"
+description = "Denies the save_message_queue command without any pre-configured scope."
+commands.deny = ["save_message_queue"]

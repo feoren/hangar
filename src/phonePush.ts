@@ -20,6 +20,10 @@ export type PushEvents = Record<PushEvent, boolean>;
 /** What the backend shows: the settings and whether each secret is stored, never a secret. */
 export interface PushView {
   provider: PushProvider;
+  /**
+   * The stored ntfy address with its topic masked (the topic lives in the keychain); sent back
+   * unchanged, it keeps the stored address.
+   */
   ntfyUrl: string;
   /** The message names the session by its name (which may hold the first prompt). */
   includeTitle: boolean;
@@ -99,6 +103,14 @@ export function isNtfyUrl(text: string): boolean {
   }
   const topic = url.pathname.split("/").pop() ?? "";
   return /^[A-Za-z0-9_-]{1,64}$/.test(topic);
+}
+
+/**
+ * Whether the address field still shows the stored address as the backend masked it: saving
+ * keeps the stored one, which the backend checked when it was entered.
+ */
+export function keepsStoredUrl(view: Pick<PushView, "ntfyUrl">, address: string): boolean {
+  return view.ntfyUrl !== "" && address.trim() === view.ntfyUrl;
 }
 
 /** Without an access token, anyone who knows the topic reads along: it must be this long. */

@@ -644,3 +644,270 @@ new files counted, the test command split into argv (no shell, PATH only, time l
 ended), taking the winner over through `git apply` plus copied new files with refusal on files the
 project folder changed, and forced removal only for confirmed arena worktrees. No cost column yet.
 Pages changed: [[agent-arena]] (new), index.
+## [2026-11-13] ingest | Notes panel split into Private and Shared
+The notes panel's two groups (Shared, Only on this computer) became a segmented switch
+Private | Shared with counts above the list, shown only where the project can have shared notes.
+New notes and quick notes go to the chosen side, captured terminal output always to the private
+notes; the choice is remembered in `localStorage`.
+Pages changed: [[notes]], [[0006-encrypted-project-notes]].
+
+## [2026-11-13] query | Account details and profile picture
+The window could stay without the signed-in person's name for a whole run: `/me` was loaded once
+and `account_status` retried it only when it read the keychain itself. Documented the background
+load with retries, the view revision, and the profile picture contract (`avatar_url`,
+`avatar_etag`, `GET /me/avatar`) with the backend's download rules and cache.
+Pages changed: [[hangar-account-api]].
+
+## [2026-11-13] query | GPU per session and memory amounts in the system bar
+Session rows got three lines (state, duration, folder and branch; then CPU, RAM, GPU, run time
+and context meter). The GPU numbers per session tree come from a PDH reading shared with the
+system bar (gpu.rs: engine utilization, process and adapter dedicated memory), Windows only. The
+system bar adds RAM and GPU memory amounts from 340 px and in the tooltip.
+Pages changed: [[session-resources-and-phone-push]], index.
+
+## [2026-11-13] query | Session row third line and system bar amounts at narrow widths
+Measured the session row's third line and the system bar in Edge at 305 to 505 px; the line now
+gives way in a fixed order (token count, bar, names to icons, whole parts wrap away) and the
+system bar shows RAM and GPU amounts from 305 px.
+Pages changed: [[session-resources-and-phone-push]]; raw: 2026-11-13-session-row-layout-measurement.md.
+
+## [2026-11-13] ingest | HANGAR.md and the upstream check of worktree sessions
+Filed the own measurement of the instruction and first prompt options of Claude Code 2.1.323,
+Codex CLI 0.169.0 and Aider 0.86.2 (help texts, Codex binary strings; Gemini CLI not installed)
+and the contract of HANGAR.md (catalog fields `instruction_args`, `prompt_args`, `[start_prompts]`,
+length limit, cmd.exe launchers) and of the first prompt of a fresh worktree session.
+Pages changed: [[agent-instruction-flags-measurement]] (new), [[agent-instructions]] (new), index.
+
+## [2026-11-13] ingest | HANGAR.md: launchers, command line length, secrets
+Filed the npm shim chain of Codex 0.169.0 (`codex.cmd` runs `node codex.js`, which resolves and
+spawns the platform package's `codex.exe` with its own environment) and Claude Code 2.1.323
+accepting `--append-system-prompt=<value>`. The text is never handed to a cmd.exe launcher and
+Settings names such programs; the length check covers the fully quoted command line with the gate
+options; the template and the Settings help warn against secrets.
+Pages changed: [[agent-instruction-flags-measurement]], [[agent-instructions]].
+
+## [2026-11-13] ingest | Terminal links
+Read xterm.js 6.0.0's Linkifier and RenderService (line cache, re-query on viewport render,
+reply map reset with late callbacks) and measured Windows dropping trailing dots and spaces
+from file names. Filed the terminal links behavior and the allowlist decision for opening
+clicked files.
+Pages changed: [[xterm-linkifier]] (new), [[windows-path-normalization-measurement]] (new),
+[[terminal-links]] (new), index.
+## [2026-11-13] query | Files tab inserts paths per session program
+Right click and drag from the Files tab now type the path the way the target session's program reads it: an @ mention for agents, quoted native paths for PowerShell and cmd, POSIX paths for Git Bash (`/c/...`) and WSL (`/mnt/c/...`); relative inside the session's folder, absolute outside, so any pane takes a drop. Paths with control characters insert nothing.
+Pages changed: [[file-viewer]].
+## [2026-11-13] ingest | Own names for the color schemes
+Filed ADR 0009: the terminal color schemes and file viewer themes no longer carry third-party
+product names (Harbor, Meridian, Studio, Anvil, Sundial, Velvet, Ember, Nocturne, Fjord, Ochre,
+Neon, Heather); every 0.6.0 key migrates. Read the license files of all palette origins (MIT,
+Apache-2.0 for Darcula and Tokyo Night, MIT/X11 for gruvbox) and the Monokai Pro license, which
+forbids redistribution; Ember is now drawn from the classic 2006 Monokai values. Origins and
+licenses in THIRD_PARTY_NOTICES.md. A trademark registry search for the new names is still open.
+Pages changed: [[0009-own-color-scheme-names]] (new), [[file-viewer]], [[agent-workflow-features]], index.
+
+## [2026-11-13] query | Session peek without CPU and RAM
+The session row's third line shows CPU, RAM and GPU, so the peek no longer repeats them; it
+keeps the outlier note. `resourceText` and the texts `session.resources` and
+`session.resourcesMemory` are gone.
+Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] query | Changes list opens collapsed
+The changes list in the right panel (and a commit's files in the history) no longer opens the
+last file with a diff by itself; every file starts closed and keeps the user's choice.
+Pages changed: [[commit-history]].
+
+## [2026-11-14] lint | Mask a personal path in a raw source
+A history scan for secrets and private data found the local user name in the npm folder of `raw/2026-11-07-update-sources-measurement.md`. Masked it as `%APPDATA%\npm` under the masking rule and translated a leftover German note; the measurement itself is unchanged.
+
+## [2026-11-14] ingest | Updater signing outside the build
+`tools/release.py` no longer hands the updater key to `pnpm tauri build`: the build runs with `bundle.createUpdaterArtifacts: false`, and `tauri signer sign --app-version` signs the installer afterwards as the only process with the key. Measured with Tauri CLI 2.12.4 and a throwaway key that the signer writes `<file>.sig` with the same trusted comment as the build (`timestamp`, `file`, `version`) and accepts an empty password variable without asking.
+Pages changed: [[release-rollout]], [[tauri-updater-and-nsis]].
+
+## [2026-11-14] lint | Audit fixes reflected in the pages
+Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
+Pages changed: [[terminal-links]], [[hangar-account-api]], [[agent-workflow-features]].
+
+## [2026-11-14] ingest | Transcript fields for the session report
+Measured (key names and counts only) which Claude Code main transcript fields carry prompts, slash commands, tool calls, sub-agent runs, times and the branch, and that Codex 0.169.0 still has no flag that fixes the thread id. Filed the contract of `export_report` ("Export as report", Claude Code only).
+Pages changed: [[session-report-transcripts]] (new), [[agent-workflow-features]].
+
+## [2026-11-14] query | Queued messages and the stall hint
+Filed how a queued message decides when to go out (the tracker's new `endedBy`, armed and disarmed messages, no send after a restore) and how the stall hint tells progress from a ticking spinner. Noted why the texts live beside `workspace.json` instead of in it (`deny_unknown_fields`).
+Pages changed: [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Agent prompt strings and the queue's question guard
+Read short phrases from the installed Claude Code 2.1.325 and Codex 0.169.0 executables (nothing run) and how Claude Code picks its notification channel: `auto` rings no bell in Hangar's terminal, so a permission dialog ends quietly. The queue now checks the screen for a question before sending.
+Pages changed: [[agent-prompt-strings-reading]], [[agent-prompt-shapes]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-14] ingest | Worktree cleanup
+A dialog lists the worktrees Hangar created (its own layout only, found below the worktrees folder and in the records of the repositories Hangar knows) with state, size and last change, and removes the safe ones after the backend checked the state again; a branch goes only when merged into the default branch, deleted against the checked commit. Measured with git 2.56 that `worktree remove` on a folder deleted by hand takes away only that record, so the removal after closing a session no longer runs `worktree prune`. Causes of an entry that cannot be checked are codes the window words itself; worktrees created in this run count as in use until their session starts; ignored files keep a worktree on purpose.
+Pages changed: [[agent-workflow-features]], [[worktree-remove-missing-measurement]].
+
+## [2026-11-14] schema | Command guard decided and built
+ADR 0010: the agent gate asks before a team session's agent runs a shell command that matches a rule of `command-guard.toml` (written with commented defaults on first use). Claude Code's matcher gains `Bash|PowerShell`, the Pi and OpenCode extensions send `bash` calls; Codex and private sessions stay uncovered with the reasons. Remembered answers are gate rules with scope `command`; no answer within 10 minutes denies. Shell tool input shapes are not measured live and are marked so.
+Pages changed: [[0010-command-guard]], [[gate-rules]], [[agent-gate-adapters]].
+
+## [2026-11-14] ingest | Shell tool input shapes; command guard reworked after review
+Read the installed agents for their shell tool inputs (Claude Code transcripts, Pi 1.5.2 `bash.js` and `powershell.js`, OpenCode 1.19.5 binary strings) and filed them as a source. ADR 0010 reworked after the security and acceptance review: one lexer per dialect, every matching rule counts, built-in rules for commands too complex, read from stdin, too long or naming Hangar's own settings, a full queue denies, `cwd` problems no longer fail open, OpenCode's `workdir`, translated wording of Hangar's own rules, the residual risk stated.
+Pages changed: [[shell-tool-input-shapes]], [[0010-command-guard]], [[agent-gate-adapters]].
+
+## [2026-11-14] schema | Command guard: second security review
+ADR 0010 updated: brace expansion capped at 8 braces and the hook threads given an 8 MiB stack (a deep expansion overflowed the stack), `hangar-config` narrowed to the config folder, `<local data>/gate` and the two settings files (Hangar's own worktrees in the data folder are ordinary projects), redirection targets checked, wildcards and 8.3 names against the protected names, shell options with values, PowerShell arguments in parentheses, `wsl` without `-e`, `start` and `Start-Process` unwrapped, empty special parameters, `--version` and `--help` no stdin scripts, a bad `cwd` dropped for edit tools too.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] schema | Command guard: third security review
+ADR 0010 refined: a wildcard needs five letters of its own outside a plain extension to stand for one of Hangar's names, bracket classes count as wildcards, a wildcard right below the app settings folders counts, `start` unwrapping counts toward the depth limit, a single plain string in PowerShell parentheses is read as that string.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-14] ingest | Agent commands and compacting from the context meter
+Read the slash command tables of the installed Claude Code 2.1.325 and Codex CLI 0.169.0
+executables and Gemini CLI's command reference (not installed). The catalog gets `agent_commands`
+for the three; profiles can add their own. The session menu, quick access and a compact button in
+the row actions (from 80 % context use, hidden while the agent works) send them like "Send to
+several". Binary strings also show that Codex refuses such commands during a turn and Claude
+Code queues them; the compact button therefore also hides after a bell or during a gate decision.
+Pages changed: [[agent-commands-measurement]] (new), [[agent-commands]] (new), [[catalog]], index.
+
+## [2026-11-14] ingest | Power detection for the power saving mode
+Saved Microsoft's `SYSTEM_POWER_STATUS` reference and the kernel's `sysfs-class-power` ABI to raw, with one own reading of a Windows 11 desktop (AC 1, battery flag 128). The power saving mode maps them to `noBattery`, `ac`, `battery`, `saver` or `unknown`; laptops on battery and Linux are not measured yet.
+Pages changed: [[power-status-sources]], [[power-detection]].
+
+## [2026-11-14] ingest | Project overview in the home view
+New synthesis for the project overview: how folders become projects, the new `git_repo_places` command and why the existing commands did not fit, what a card shows and when git is asked. Measured with git 2.56.0.windows.4 that a linked worktree's `.git` file names an absolute git folder and its `commondir` holds `../..`.
+Pages changed: [[project-overview]], [[git-worktree-commondir-measurement]].
+
+## [2026-11-14] query | Work log and daily review
+Decision on the work log behind the daily review: what is stored per session (key, title, program, folder, repository, worktree flag, times), UTC day files, 90 days, size limits, never terminal content or prompts; how the review computes run and active time as unions and which git calls collect the day's commits and files.
+Pages changed: [[0011-work-log-and-daily-review]].
+
+## [2026-11-14] query | Agent commands use the queue's question guard
+After merging the queued message and the agent commands, commands also check the screen for a question or choice list (`asksQuestion` on top of `looksLikeQuestion`): the menu and quick access hide them, every send checks again, and the compact button's click into a question sends nothing and says why.
+Pages changed: [[agent-commands]].
+
+## [2026-11-14] query | Stall hint on battery
+The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
+Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-15] query | Frontend security fixes from the audit
+OSC 8 links show their real target on hover; a click whose visible text names another host or looks like a path shows the address with an Open button first (`osc8Decision`). Ctrl+V and Shift+Insert ask before text that would run line by line or hides characters (setting `warnMultilinePaste`, on by default). Broadcasts, queued messages and agent commands skip a program without bracketed paste when the text has a line break or invisible characters. Dropped paths with control characters are left out, Aider's `(Y)es/(N)o` prompt counts as a question ([UNVERIFIED]), and link trimming is a single pass.
+Pages changed: [[notes]], [[queued-messages-and-stall-hint]], [[terminal-links]].
+
+## [2026-11-15] update | Git hooks off by default, capped reads, more redaction
+Every git call now passes `core.hooksPath` below the git program file and `hook.<event>.enabled=false`
+for every event (config-defined hooks of git 2.54+), so no repository hook runs
+(shared notes staged conflicts with `git add` and could run `post-index-change`); only the commit
+of the Changes panel opts in. Files below `.git`, notes and the file viewer read regular files
+only, capped, without following a final link or blocking on a FIFO. The work log no longer
+follows a `.git` file to another share, and the daily review asks a repository on a share only for
+sessions on that share. The excerpt filter masks `.netrc` passwords, XML secret elements,
+multi-word `password:` values and Slack and Discord webhook URLs. Worktree cleanup compares
+resolved paths too.
+Pages changed: [[agent-workflow-features]], [[commit-history]], [[0011-work-log-and-daily-review]], [[file-viewer]].
+
+## [2026-11-15] query | Third team security review: membership, admission, key change
+An owner's or admin's device reads the website's member list (`GET /api/v1/projects/{id}/members`, not offered by the website yet) and removes members it no longer names from the log, which makes the next epoch leave their devices out; roles follow the website on the owner's device. A newcomer shares nothing until the person confirms the admitting device's and the log's safety numbers (stored with the head, `StoredKeys` v2), and the log's owner must be the website's `owner_id`. A member device seals nothing while a rotation is due. Relay-triggered website checks at most every 30 s, overlaps capped per teammate device with details only under a signed status, teammate texts without control or reordering characters, plain http only to literal loopback addresses in release builds, the ntfy address in the keychain, and the first `welcome` must name the signed-in account. `account-changed` and `team-changed` are payload-free signals now (Tauri also delivers `emit_to` events to any-target listeners in other webviews); the main window reads `account_status` and the new `team_snapshot`.
+Pages changed: [[team-crypto]], [[team-service-v1]], [[session-resources-and-phone-push]], [[hangar-account-api]].
+
+## [2026-11-15] query | Hardening of process launch, command surface and update chain
+Filed the security review's findings and their fixes: no program lookup in the working folder for every catalog agent, Unix close escalates to SIGKILL and never signals a reaped child, bounded session input (Busy, 1 MiB, frontend pieces and retry) and resize, update sessions always in the home folder, editor variables stripped, UNC and device folders refused, relative program paths refused, NUL in env values refused, package names start alphanumeric, git reads by session id, payload-free gate-changed, no listening in file viewers, CSP additions, requireSignedVersion, release key-id check and the Tauri CLI through node. Job Object assignment after spawn documented as accepted.
+Pages changed: [[process-launch-hardening]], [[cmd-launcher]], [[program-updates]], [[commit-history]], [[0001-foundation]], [[release-rollout]].
+
+## [2026-11-15] ingest | Stalled session input and folder errors in the user's language
+A write that stalls for 30 s now throws `InputStalled`, still ends an abandoned bracketed paste, shows a translated terminal notice and keeps "Send to several" from sending Enter. `ManagerError` serializes `RemoteCwd` and `BadCwd` with a stable `[code]` prefix that the window translates.
+Pages changed: [[process-launch-hardening]].
+
+## [2026-11-15] decision | Command guard hardening after an audit
+The command guard reads POSIX here-documents and PowerShell here-strings, brace expansion in every word, `$IFS` and default values, cmd substring expansions, abbreviated long options, `.`/`source` and `/dev/stdin` scripts, PowerShell `-Path:` values and pipelines into `Remove-Item`, more wrappers, `find -exec` and `trap`, and keeps the working folder before a `cd`. Claude Code's hook matcher is `*`; any tool with a command that is no edit is checked. An unreadable edit path asks instead of failing open; links into Hangar's folder are resolved; the extensions block a shell command they cannot ask about; silent connections cannot crowd out hooks, a burst of parallel hooks is never cut, and a session over its 32 connections is denied unread instead of left unanswered. A quote or `)` in a here-document inside `$(...)` no longer ends the substitution.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] lint | Payload-free team and account signals after the security merge
+The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
+Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].
+
+## [2026-11-15] decision | Release tool: programs only from PATH, real signature verification
+`tools/release.py` runs git, node, cargo and PowerShell only as absolute `.exe` programs from `PATH` outside the repository and the working folder, sets `NoDefaultCurrentDirectoryInExePath=1`, checks the installed Tauri CLI version against `pnpm-lock.yaml` and gives the signer a reduced environment without Node settings. After signing, `src-tauri/examples/verify_update_sig.rs` verifies the signature with the same `minisign-verify` call as `tauri-plugin-updater` 2.14.1, including the signed version; the key id is printed in minisign's order. The main window's updater permissions are narrowed to `allow-check` and `allow-download-and-install`; CI checks out without persisted credentials, builds with `--locked` and takes the pnpm version from `packageManager` only (pnpm/action-setup README at the pinned commit). Residual risk documented: `node_modules` is not integrity-checked.
+Pages changed: [[release-rollout]], [[tauri-updater-and-nsis]].
+
+## [2026-11-15] ingest | Second security round for links, paste and session input
+OSC 8 link text is now judged as the whole word around the link (also through wrapped rows), word by word without punctuation, after NFKC and with ideographic dots; invisible characters, bare file names of another target and addresses with a user name ask or are refused. The file viewer's Markdown links get the same check. The paste question is asked again when bracketed paste went off meanwhile (residual mode lag documented), blank text sends no lone Enter, a stall drops the writes queued behind it, and dropped paths with bidi controls or line and paragraph separators are left out (zero-width joiners stay allowed for Persian, Indic and emoji file names).
+Pages changed: [[terminal-links]], [[notes]], [[queued-messages-and-stall-hint]], [[process-launch-hardening]], [[agent-workflow-features]].
+
+## [2026-11-15] update | Second security round on teams, accounts and crypto
+Membership log capped at 8192 entries with 64 places kept for removing a member and rotating; a due rotation that only removes devices added after the epoch began is deferred to at most one per 10 minutes and holds no sharing; refused rotations are bounded per connection; a website promotion to admin waits for the owner's confirmation while demotions follow at once; the admission confirmation is bound to the numbers shown and armed with a delay; no binding before `/me` is known; no trust without a website owner for devices not admitted before; reports of other devices no longer stop the team; the `v1` keys migration needs an epoch secret; text cleaning drops invisible characters and line separators. Recovery derivation without team salt accepted with reasoning; relay rate limit filed as a server requirement.
+Pages changed: [[team-crypto]].
+
+## [2026-11-15] update | A full team log stays visible and names its way out
+A log that reached its reserved places no longer goes unnoticed: every device reports it without stopping, requests that no longer fit stay listed as such, and owners and admins are told the way out that exists (remove the member on the website, a new project for new devices). A website without a project owner now stops new devices with its own reason, `NoWebsiteOwner`.
+Pages changed: [[team-crypto]].
+
+## [2026-11-15] update | Second security review of process launch and the command surface
+The program lookup in the working folder is now decided on the resolved program (only shells keep it, also for user profiles that start an agent); the app's end sends SIGKILL synchronously on Unix; Linux session signals respect the reaping; working folders, git folders and shared notes are placed without a lookup leaving the machine (links included; a mapped network drive named directly stays allowed); the security switches and queued messages moved from `localStorage` into a main-window-only backend store; `claims-changed` and `program-update-result` became payload-free signals; the panel window reaches only the session the main window handed it; folders and Hangar's files open through ShellExecute; placeholders are filled in one pass; JetBrains askpass helpers are removed from the children's environment. The file viewer's InPrivate mode was investigated (Tauri 2.12.5, wry 0.57.1) and documented, not built.
+Pages changed: [[process-launch-hardening]], [[program-updates]], [[queued-messages-and-stall-hint]], [[team-service-v1]], [[0007-detachable-side-panel]].
+
+## [2026-11-15] decision | Repository config guard, worktree checkout, redaction and report fixes after an audit
+Before every git call Hangar now reads the repository's config files and all their include targets itself (any `includeIf` condition, `git config --file --no-includes` started outside every repository, since git opens the repository's config with includes at startup even for `--file`, measured with git 2.56), refuses includes, `core.excludesFile`, `core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`, alternates and linked entries that lead to another share, and switches off the union of filter drivers and config hook names found; cached per git folder by size, modification time and link state. A worktree is added with `--no-checkout` and checked out with `reset --hard` inside it, so an `onbranch:hangar/**` smudge filter cannot run. No caller names its own `core.hooksPath` any more. Redaction covers escaped and URL-encoded JSON, qualifiers after the secret word, fullwidth separators, YAML block scalars, commas inside values, `ConvertTo-SecureString` switches first and URL passwords with `/`, and keeps numbers, booleans and calls. Reports escape `![` and `](` outside code. Project notes read files only as regular files on the open handle; a placeholder's second open goes through `ReOpenFile`, only for content tags.
+Pages changed: [[agent-workflow-features]].
+
+## [2026-11-15] decision | Command guard fails closed after a second audit
+The command guard asks instead of guessing where it does not model a construct (here-document delimiters with `$`, backticks or CR, open `${`, brace expansions and nesting past their caps), reads `#` comments and `case` patterns inside `$(...)` and arithmetic contexts as bash 5.3 does, ends PowerShell words at script block braces, reads PowerShell parameters with every dash and `:value`, wrapper options as getopt does, cmd `if` conditions and `for` sets, every change of folder, Windows path parts of dots and spaces, SQL behind comments and `psql -f -`, git's value options before the subcommand in code for every git rule, `$_` in a piped `ForEach-Object` block as the listed items (only a listing call's paths count for a piped delete). No built-in rule can be remembered; an unreadable hook request of a known session is denied instead of refused; a connection whose head is read cannot be closed for a newcomer.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] update | Stage, unstage and discard create no hooks folder
+The commands no longer create the empty `git-no-hooks` folder below the local data folder or take a path to it; git switches hooks off for them like for every other call, so a file left in that folder no longer blocks staging. The `.no-hooks` constant of the worktree folder is gone too; a dot name stays no valid slug.
+Pages changed: [[commit-history]], [[agent-workflow-features]].
+
+## [2026-11-15] update | Release script: key password prompt, build input check, verifier built first
+`tools/release.py` asks for the updater key password at the console and refuses an empty one unless `--allow-unencrypted-key` is passed, and refuses to run while `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is set in the environment. It aborts when an ignored Tauri config override, Cargo config, toolchain file or `.npmrc` would change the build; git runs without fsmonitor, hooks, filters and updater key variables; the signature verifier is built before `tauri build`, and the installer SHA-256 noted after signing must match the copies under `release/`. Measured with Tauri CLI 2.12.4 and throwaway keys: a key generated with an empty password is still scrypt-encrypted, and re-encrypting it with a new password keeps the key id. The page now gives a stdlib-only re-encryption script (getpass, decrypted key only in memory, writes `<key>.new`), verified on a throwaway key: wrong current password writes nothing, the new key signs with the new password only and keeps its key id. `tauri signer sign` never prompts; without the password variable it assumes an empty password. The page also recommends releasing from a fresh `git clone --no-local`.
+Pages changed: [[release-rollout]].
+
+## [2026-11-15] update | Third security round: link decision inverted, hidden cells, gate arm delay
+`osc8Decision` (terminal OSC 8 links and the file viewer's Markdown links) no longer lists signs that may surround a host; it searches every host-like run in each word and opens at once only when there is none or each is the target's site, with a named port and scheme matching. Combining marks are dropped and UTS 39 look-alikes of the dot and slash are read as such; an internationalized target host always asks. The visible word now follows a hard line break that looks like a wrap and treats invisible or same-color cells as gaps; printed addresses end where the visible text ends and show their target on hover. The viewer judges a link with the text touching it in its block. Gate cards ignore answer clicks for 600 ms after they appear. An OSC 52 write counts as the program's selection only while the program tracks the mouse.
+Pages changed: [[terminal-links]], [[gate-rules]].
+
+## [2026-11-15] update | Third security round on team membership freshness
+A new member always joins the log as a member; a higher website role becomes the owner's own role change confirmation. Every admitted device reads the website's member list: when the log still names a member the list left out for 10 minutes, a device that cannot remove members stops sealing with its own notice, and without a list nothing changes. A deferred rotation no owner or admin makes stops sealing on other devices after 10 minutes. A teammate's signed newer log head the relay does not hand over shows as held back history. Paged member and project lists count as no answer. The last log place is kept for the rotation a removal makes due (crate rule, relay and clients agree), and only people the website lists are offered for admission. The 256 entry bound of rejected confirmations is documented as accepted.
+Pages changed: [[team-crypto]].
+
+## [2026-11-15] update | Third security review of the command surface
+The panel and file viewer windows hold no `core:window:*` permission any more (the window plugin's commands take any window's label); the panel closes and ends itself through `close_panel_window` and `destroy_panel_window`, which act on the calling window only. `PanelScope` keeps the handed session's working folder: from the panel, shared notes are reachable only for that folder and text only for that session. The paste warning, automatic updates, HANGAR.md, the snippets and the workspace templates moved from `localStorage` into the main-window-only backend store, migrated once and stored even when empty. `answer_gate` and `command_guard_info` run off the main thread. Git and the file manager no longer inherit session markers, the gate's token or an editor's git variables (`child_env::scrub`). Folders open through the shell's `Folder` class. Bounds for session titles, note reorders and the daily review's window. The file viewer's InPrivate mode was evaluated again and not built.
+Pages changed: [[process-launch-hardening]], [[0007-detachable-side-panel]], [[notes]], [[file-viewer]].
+
+## [2026-11-15] decision | Repository config guard and redaction after a third audit
+The guard now takes every folder git's `is_git_directory` would accept on the way up (a `HEAD` entry, then `objects` and `refs` of any kind in the folder `commondir` names; Windows ignores `X_OK`), reads `.git` files and `commondir` up to 1 MiB whole with only trailing line breaks removed, as git does, and refuses one it cannot read or check instead of skipping it (also in `check_git_links`); alternates files are read to depth 5 inclusive, as git reads them, with at most 256 entries; every file it opens is looked up by a walk that follows only links to local fixed drives, so a folder linked to a share in the middle of a path is refused. Redaction covers whole `.env` values, `=>`, `:=`, `<-`, subscripts, `SetEnvironmentVariable`, `setx`, fish `set -x`, Dockerfile `ENV`, name-and-token lines, YAML values on the next line, `.NET` `<add key value>` entries, more Slack and AWS prefixes, Teams webhooks, spaced key blocks, PuTTY private lines and `Your API key is <token>`.
+Pages changed: [[agent-workflow-features]].
+
+## [2026-11-15] decision | Command guard reads as the shells do after a third audit
+Claude Code's `PreToolUse` hook now carries `"onFailure": "block"` for an installed Claude Code 2.1.295 or later (older or unknown versions keep the earlier settings), so a hook that cannot connect, times out or gets an error blocks the tool call; with the gate off the endpoint answers every tool hook "no decision" instead of an error. The guard reads multi-word inline scripts joined as the shell joins them, PowerShell assignments, `return`, `throw`, the call operator, backtick escapes, literal subexpressions and comma lists, cmd blocks, carets, `start` titles and glued switches, more wrappers, positional parameters of inline scripts, substitutions in bash builtins that evaluate subscripts, wildcard option words, `.git` wildcards and short names, glued SQL values and database shell escapes, git configuration naming a program; new default rules `git-push-delete`, `dropdb`, `mysqladmin-drop`. The Pi and OpenCode extensions block a shell command when their own handler fails and check any tool with a `command`. The audit's 925 inputs (350 of them passed before) and 393 everyday commands are test data under `src-tauri/tests/data/`.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] decision | Team removals in a full log, overdue scope and release binding after a fourth review
+The first half of the membership log's reserved places takes remove device entries as well, so a stolen device can be removed when the log is full, while the last 32 places stay for removing members and changing the key; a refused removal reads `logFull`. Only a removal of a device's own member's devices makes a deferred key change overdue on that device, so one member's churn no longer pauses everybody's sharing. A member who left a log at its last place shows the new waiting reason `logFull` with the new project way out. An admission without numbers cannot be confirmed. Hangar removes the variables of a calling agent session, its gate and an editor from its own environment at startup, so programs Windows' shell opens for it inherit none of them. The release script hashes the installer right after the Authenticode check, requires that hash around the updater signer and verifies the uploaded copy against the signature text `latest.json` gets.
+Pages changed: [[team-crypto]], [[release-rollout]], [[process-launch-hardening]].
+
+## [2026-11-15] decision | Repository config guard and redaction after a fourth audit
+The guard now also checks the back-links of linked worktrees: git 2.56 opens the folder each `worktrees/<id>/gitdir` of the common git folder names on `worktree list`, `add`, `remove` and on a commit (an SMB contact was measured), so a back-link to another share or device refuses the call before git runs; relative targets resolve against `worktrees/<id>`, more than 256 entries refuse the call, and the `worktrees` folder and each `gitdir` file are stamped for the cache. Every git call gets `-c submodule.recurse=false`, so a repository setting cannot take a restore into submodules whose filters were never read. The project notes check the main worktree's path text before touching it. Redaction covers `.pgpass` lines, XML entries named by a `key` or `name` attribute, config commands that set a secret key, Markdown table rows, fallback literals of secret variables, the password flags of `redis-cli`, `ldap*`, `smbclient`, `net use`, `openssl` and `twine`, `echo ... | ... --password-stdin`, and the prefixes `pypi-AgE`, `whsec_`, `AGE-SECRET-KEY-1`, `glsa_`, `HRKU-` and Telegram bot tokens.
+Pages changed: [[agent-workflow-features]].
+
+## [2026-11-15] update | Fourth security round on link judgment and main window state
+Terminal and viewer links are judged by their own text and the word around them; a click opens at once only when neither misleads. Digits glued to a host's last label (also superscript, circled and subscript ones) no longer hide it. File endings that are delegated TLDs (`java`, `md`, `py`, `rs`, `sh`, `zip`) make a host unless the name is in clear file form and the target's file. The dot look-alikes come from `confusables.txt` (prototypes U+002E, U+00B7, U+0323, U+0971), mapped before NFKC, letters and marks only between ASCII letters or digits; modifier letters between them count as a dot. `cellHidden` resolves default and palette colors through the active scheme, inverse and dim, and needs both a low contrast and close channels. The discard question in the Changes panel keeps the session and folder it was asked for, names the folder and closes on a switch. Start mode, last program, folders, session restore and the notice settings moved into the main-window-only store (`main-prefs.json`), migrated once; the panel's window prefs are read strictly.
+Pages changed: [[terminal-links]], [[process-launch-hardening]].
+
+## [2026-11-15] decision | Command guard after a fourth audit
+The guard now strips a cmd `@` in front of any command (also after `do`/`if`/`else`) and reads a literal `for` set as placing the loop variable (`for %d in (.git) do rd /s /q "%d"`, recursive `/r` roots too); reads `find -exec {}` as `<start>/.git` as well when the entries are not limited to a non-`.git` name; unwraps program launchers and container exec (`docker|podman|kubectl exec`, `docker run|compose`, `su -c`, `runuser --`, `npx`, `pnpm|yarn exec|dlx`, `uv|poetry|pipenv run`, `conda run`, `mise exec`, `direnv exec`, `dotenv`, `cross-env`, `op|doppler|infisical run`, `aws-vault exec`, `nix-shell --run`, `nix develop -c`, `systemd-run`, `xvfb-run`, `strace`, `gsudo`, `gtimeout`); asks about writes into the folder that holds Hangar's settings folder (the parent or an app-data root) when another argument names the identifier or a settings file, and always for extractors and mirror tools pointed there; protects Claude Code's `.claude/settings.json` and `settings.local.json` (project and home) like Hangar's own settings, in commands and edits; reads a leading `*` as able to reach `.git` under `dotglob`. False alarms removed: `git push --dry-run --force`/`-nf` (a `none` option, lifted only on a definite match that is no option's value and not negated by `--no-dry-run`), and literal `for`/`foreach`/`ForEach-Object` loops over in-project folder names. A failed Claude Code version probe is no longer cached as `None`, so the gate's fail-closed `onFailure` step is retried. New ASK and PASS rows under `src-tauri/tests/data/command_guard_audit.txt`.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] decision | Command guard rework after the fourth audit review
+Hardened the fourth audit, fail-closed. A `for`/`foreach` loop variable is placed in its body only when the whole command writes it exactly once (its own literal header) and runs no inline script; a second write anywhere (another loop, `d=`/`+=`, `export`, `read`, `printf -v`, `mapfile`, `getopts`, PowerShell `$d =`, `$d++`, `Set-Variable`) leaves it unplaced, which `command_split` tracks by recording every write in the raw words (also after `do`/`then`, PowerShell names ignoring case, scope and braces, list assignments, bare words naming a variable to a cmdlet; a dot-sourced script or `declare -n` binds nothing). Claude Code hook settings are recognized through an NTFS data stream, a Windows 8.3 short name, a wildcard, and a split source/`.claude` folder (`cp settings.json .claude/`); any touch asks, reads included, because the content is not visible. Extractors into the config parent now also match an old-style `tar xf`, a glued `-C<dir>`/`-o<dir>`/`--directory=<dir>`, `xcopy`, a wildcard beside the parent, and the working folder being the parent. Launchers are read at every offset past their global options (`docker -H`/`--context`/`container`, compose `-f`/`-p`, `kubectl -n`, `uv --directory`, `pnpm -C`, `poetry -C`, `gsudo -u`, `strace -o`, `su --command=`/`-c<glued>`), so an unknown option cannot hide the inner command; a pipe into a container shell is a stdin script, while a lone interactive shell is not. A failed version probe is kept in a 60 s negative cache (`version::NEGATIVE_TTL`) instead of being dropped, so a hanging `--version` does not block every profile list while the gate's fail-closed step still returns after the window. New rows under `src-tauri/tests/data/command_guard_audit.txt`.
+Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] update | Session rows built by the user instead of fourteen fixed styles
+Settings > Appearance > "Session row" is a row builder now: four lines with a left and a right part, ten elements (title, state, program, signs, folder, branch, load, run time, context, tokens), a form per element where it makes sense, card frame and compact density. The layout is parsed strictly, planned once per layout, and stored as `rowLayout` with the other appearance settings; a stored `rowStyle` becomes its preset once. Accordion, counters and columns map to their closest layouts (no chevron, no counts on the group header, no column heading). Groups, tree guides and sub-agent rows are unchanged.
+Pages changed: [[session-row-layout]].
+
+## [2026-11-15] update | Row builder acceptance measurements
+Tree guide geometry of all presets compared against main in Edge 157 headless (identical), editor drag, keyboard and focus driven over the DevTools protocol; arrow buttons at an edge are now `aria-disabled`.
+Pages changed: [[session-row-layout]].
+
+## [2026-11-15] update | Agent arena on the hardened worktree code
+After merging the security rounds the arena follows the worktree rules of main: worktrees are added with `--no-checkout` and checked out inside, discarding names no `core.hooksPath` of its own and takes a hand-deleted folder's record with `worktree remove` instead of `worktree prune`, `arena_create` refuses share and device paths and marks its worktrees as pending for the cleanup, and arena sessions get no upstream check. Taking over now requires the project folder to be the top of the repository that lists the contestant's worktree.
+Pages changed: [[agent-arena]].

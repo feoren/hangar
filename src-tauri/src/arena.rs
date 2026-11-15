@@ -448,6 +448,27 @@ fn dirty_files(
         .collect())
 }
 
+/// The project folder must be the top of the repository that lists the contestant's worktree, so
+/// the changes land where the arena started and paths line up (git applies a patch relative to
+/// the folder it runs in, a copy would too).
+fn check_owner(git: &Git, worktree: &Worktree, deadline: Instant) -> Result<(), ArenaError> {
+    let target = &worktree.repo_root;
+    let top = git::toplevel(git, target, deadline)?.ok_or(WorktreeError::NotARepo)?;
+    if git::path_key(&top) != git::path_key(target) {
+        return Err(WorktreeError::OutsideFolder.into());
+    }
+    let listed = worktree::list(git, target, deadline)?;
+    let wanted = git::path_key(&worktree.path);
+    if listed
+        .iter()
+        .any(|entry| git::path_key(&entry.path) == wanted)
+    {
+        Ok(())
+    } else {
+        Err(WorktreeError::OutsideFolder.into())
+    }
+}
+
 /// Takes the contestant's changes over into the project folder (`worktree.repoRoot`) as
 /// uncommitted changes: tracked changes as a patch through `git apply` (all or nothing), new files
 /// copied. Refuses, before touching anything, when the project folder has its own changes in any
@@ -463,6 +484,7 @@ pub fn apply(
     let target = &worktree.repo_root;
     git::check_folder(target)?;
     let deadline = Instant::now() + GIT_TIMEOUT;
+    check_owner(git, worktree, deadline)?;
     let neutral = git::filter_overrides(git, &worktree.path, deadline)?;
     let (tracked, cut) = tracked_stats(git, &worktree.path, &neutral, base_commit, deadline)?;
     let (untracked, cut_untracked) = untracked_files(git, &worktree.path, &neutral, deadline)?;
@@ -590,7 +612,9 @@ fn copy_new_files(
 
 /// Removes a contestant's worktree and branch with everything in it, after the user confirmed
 /// it in the arena (unlike [`worktree::remove`], which never forces). Only arena branches; no
-/// hook or filter of the repository runs.
+/// hook (switched off by [`Git`] itself) and no filter of the repository runs. A folder deleted by
+/// hand leaves only git's record, which `worktree remove` takes away for this one worktree;
+/// `worktree prune` would also take the records of the user's own worktrees.
 pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaError> {
     worktree::check_shape(worktree)?;
     worktree::check_managed(base, &worktree.path, &worktree.repo_root)?;
@@ -601,35 +625,34 @@ pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaE
     git::check_git_links(&worktree.path)?;
     let deadline = Instant::now() + GIT_TIMEOUT;
     let root = &worktree.repo_root;
-    let hooks = format!(
-        "core.hooksPath={}",
-        worktree::empty_hooks_dir(base)?.display()
-    );
-    if worktree.path.exists() {
-        let neutral = git::filter_overrides(git, &worktree.path, deadline)?;
-        let args: Vec<&OsStr> = neutral
-            .iter()
-            .map(OsStr::new)
-            .chain([
-                OsStr::new("-c"),
-                OsStr::new(&hooks),
-                OsStr::new("worktree"),
-                OsStr::new("remove"),
-                OsStr::new("--force"),
-                worktree.path.as_os_str(),
-            ])
-            .collect();
-        let output = git.run(root, args, deadline, 64 * 1024)?;
-        if !output.success {
+    let existed = worktree.path.exists();
+    let neutral = if existed {
+        git::filter_overrides(git, &worktree.path, deadline)?
+    } else {
+        git::filter_overrides(git, root, deadline)?
+    };
+    let args: Vec<&OsStr> = neutral
+        .iter()
+        .map(OsStr::new)
+        .chain([
+            OsStr::new("worktree"),
+            OsStr::new("remove"),
+            OsStr::new("--force"),
+            worktree.path.as_os_str(),
+        ])
+        .collect();
+    let output = git.run(root, args, deadline, 64 * 1024)?;
+    if !output.success {
+        // Folder and record both gone already (deleted by hand, then pruned): nothing is left.
+        let gone = !existed
+            && worktree::list(git, root, deadline).is_ok_and(|listed| {
+                !listed
+                    .iter()
+                    .any(|entry| git::path_key(&entry.path) == git::path_key(&worktree.path))
+            });
+        if !gone {
             return Err(output.failure().into());
         }
-    } else {
-        let _ = git.run(
-            root,
-            ["-c", &hooks, "worktree", "prune"],
-            deadline,
-            64 * 1024,
-        );
     }
     if let Some(parent) = worktree.path.parent() {
         // Only succeeds when no other worktree of this repository is left.
@@ -637,7 +660,7 @@ pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaE
     }
     let output = git.run(
         root,
-        ["-c", &hooks, "branch", "-D", worktree.branch.as_str()],
+        ["branch", "-D", worktree.branch.as_str()],
         deadline,
         64 * 1024,
     )?;
@@ -1094,6 +1117,33 @@ mod tests {
         );
         fs::remove_dir_all(repo.join("src")).unwrap();
 
+        // Only into the repository the worktree belongs to, at its top: a subfolder or another
+        // repository with a record edited to match is refused before anything changes.
+        fs::create_dir_all(repo.join("sub")).unwrap();
+        let other = tmp.path().join("other");
+        init_repo(&git, &other);
+        for root in [repo.join("sub"), other.clone()] {
+            let moved = Worktree {
+                path: base
+                    .join(worktree::repo_dir_name(&root))
+                    .join(winner.path.file_name().unwrap_or_default()),
+                branch: winner.branch.clone(),
+                repo_root: root.clone(),
+            };
+            fs::create_dir_all(&moved.path).unwrap();
+            let refused = apply(&git, &base, &moved, &base_commit);
+            assert!(
+                matches!(
+                    refused,
+                    Err(ArenaError::Worktree(WorktreeError::OutsideFolder))
+                ),
+                "{}: {refused:?}",
+                root.display()
+            );
+            fs::remove_dir_all(&moved.path).unwrap();
+        }
+        assert!(!repo.join("src").exists());
+
         // Clean project folder: the changes arrive, uncommitted, HEAD unchanged.
         let outcome = apply(&git, &base, winner, &base_commit).unwrap();
         assert_eq!(
@@ -1160,6 +1210,35 @@ mod tests {
         assert!(!branches.contains(&loser.branch), "{branches}");
         assert!(branches.contains(&winner.branch), "{branches}");
 
+        // Only a full commit id counts as the base, never a ref name.
+        assert!(matches!(
+            diff_stat(&git, &base, winner, "HEAD"),
+            Err(ArenaError::Git(GitError::InvalidCommit))
+        ));
+
+        // A folder deleted by hand: git's record of it and the branch still go, nothing else.
+        let plain_kept = worktree::create(&git, &base, &repo, "kept").unwrap();
+        fs::remove_dir_all(&winner.path).unwrap();
+        discard(&git, &base, winner).unwrap();
+        let listed = worktree::list(&git, &repo, Instant::now() + Duration::from_secs(30)).unwrap();
+        let keys: Vec<String> = listed
+            .iter()
+            .map(|entry| git::path_key(&entry.path))
+            .collect();
+        assert!(!keys.contains(&git::path_key(&winner.path)), "{keys:?}");
+        assert!(keys.contains(&git::path_key(&plain_kept.path)), "{keys:?}");
+        let branches = git
+            .run(
+                &repo,
+                ["branch", "--list", "hangar/*"],
+                Instant::now() + Duration::from_secs(30),
+                1 << 20,
+            )
+            .unwrap();
+        let branches = String::from_utf8_lossy(&branches.stdout).into_owned();
+        assert!(!branches.contains(&winner.branch), "{branches}");
+        assert!(branches.contains(&plain_kept.branch), "{branches}");
+
         // A worktree that is not an arena's is never discarded by force.
         let plain = worktree::create(&git, &base, &repo, "plain").unwrap();
         assert!(matches!(
@@ -1171,9 +1250,5 @@ mod tests {
             Err(ArenaError::NotArena)
         ));
         assert!(plain.path.exists());
-        assert!(matches!(
-            diff_stat(&git, &base, winner, "HEAD"),
-            Err(ArenaError::Git(GitError::InvalidCommit))
-        ));
     }
 }

@@ -10,6 +10,7 @@ import {
   DEFAULT_PUSH_VIEW,
   isNtfyUrl,
   isWeakTopic,
+  keepsStoredUrl,
   needsTokenAgain,
   parsePushView,
   PUSH_EVENTS,
@@ -102,13 +103,14 @@ export function PhonePushSettings({ disabled }: { disabled: boolean }) {
     PUSH_EVENTS.some((event) => events[event] !== view.events[event]) ||
     Object.values(secrets).some((value) => value.trim() !== "") ||
     Object.values(removed).some(Boolean);
-  const urlInvalid = ntfyUrl.trim() !== "" && !isNtfyUrl(ntfyUrl);
+  const keptUrl = keepsStoredUrl(view, ntfyUrl);
+  const urlInvalid = !keptUrl && ntfyUrl.trim() !== "" && !isNtfyUrl(ntfyUrl);
   const tokenTyped = secrets.ntfyToken.trim() !== "";
   // The stored token is bound to its server: another one needs it again (or its removal).
   const tokenAgain =
     provider === "ntfy" && needsTokenAgain(view, ntfyUrl, tokenTyped, removed.ntfyToken);
   const hasToken = tokenTyped || (view.ntfyToken && !removed.ntfyToken && !tokenAgain);
-  const weakTopic = provider === "ntfy" && isWeakTopic(ntfyUrl, hasToken);
+  const weakTopic = provider === "ntfy" && !keptUrl && isWeakTopic(ntfyUrl, hasToken);
   const blocked = urlInvalid || tokenAgain || weakTopic;
 
   const input = (): PushInput => {
@@ -256,7 +258,9 @@ export function PhonePushSettings({ disabled }: { disabled: boolean }) {
                   ? "push.error.invalidUrl"
                   : weakTopic
                     ? "push.error.weakTopic"
-                    : "push.ntfyUrlHelp",
+                    : keptUrl
+                      ? "push.ntfyUrlStored"
+                      : "push.ntfyUrlHelp",
               )}
             </p>
             <button

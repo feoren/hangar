@@ -4,8 +4,9 @@
 //! Branches are read from the files under `.git` without starting a process, because the sidebar
 //! asks for them every 15 seconds. Everything else runs `git` from PATH as an argv array, with
 //! optional locks off (a status in the background must not block the agent's own git calls),
-//! no prompts, no pager, no fsmonitor, no external diff or textconv, and a time limit after which
-//! the whole process tree is killed.
+//! no prompts, no pager, no fsmonitor, no external diff or textconv, no repository hooks (only a
+//! commit opts in, [`Git::with_repo_hooks`]), and a time limit after which the whole process tree
+//! is killed.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -19,8 +20,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Serialize, Serializer};
 
+use crate::no_links::FolderPlace;
 use crate::persist::read_limited;
 use crate::proctree::ProcTree;
+
+mod guard;
+pub(crate) use guard::RepoConfig;
 
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper limit of the unified diff handed to the window.
@@ -103,8 +108,9 @@ pub fn branches(paths: &[String]) -> Result<HashMap<String, Option<String>>, Git
 /// `ref: refs/heads/x` gives `x`, a detached HEAD the first 7 hex characters, no repository
 /// `None`. The walk up stops after `ceiling` (tests use it to stay inside their folder).
 pub fn branch_of(start: &Path, ceiling: Option<&Path>) -> Option<String> {
-    // A relative path would be resolved against Hangar's own working folder.
-    if !start.is_absolute() {
+    // A relative path would be resolved against Hangar's own working folder; a share is not
+    // even asked whether it holds a `.git`.
+    if !readable_start(start) {
         return None;
     }
     let git_dir = find_git_dir(start, ceiling)?;
@@ -120,8 +126,8 @@ fn find_git_dir(start: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
         match fs::metadata(&dot_git) {
             Ok(meta) if meta.is_dir() => return Some(dot_git),
             Ok(meta) if meta.is_file() => {
-                let content = read_limited(&dot_git, MAX_HEAD_BYTES).ok()??;
-                let target = parse_gitdir_file(&String::from_utf8_lossy(&content))?;
+                let content = read_limited(&dot_git, MAX_POINTER_BYTES).ok()??;
+                let target = gitdir_target(&pointer_text(&content)?)?;
                 // A relative gitdir is relative to the folder holding the `.git` file.
                 let git_dir = dir.join(target);
                 return gitdir_allowed(start, &git_dir).then_some(git_dir);
@@ -182,6 +188,33 @@ pub fn parse_gitdir_file(content: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// git reads a `.git` file up to 1 MiB (`read_gitfile_gently`) and `commondir` whole. Both are
+/// read up to this size here; a larger one is refused before git runs, never skipped.
+pub(crate) const MAX_POINTER_BYTES: usize = 1 << 20;
+
+/// The text of a `.git` file or `commondir` as git takes it: the whole content with the line
+/// breaks at its end removed. `None` when a line break or NUL remains inside, or the text is no
+/// UTF-8: no folder git could open has such a name, and guessing which part git uses is not safe.
+pub(crate) fn pointer_text(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .rposition(|b| !matches!(b, b'\n' | b'\r'))
+        .map_or(0, |at| at + 1);
+    let text = &bytes[..end];
+    if text.iter().any(|b| matches!(b, b'\n' | b'\r' | 0)) {
+        return None;
+    }
+    String::from_utf8(text.to_vec()).ok()
+}
+
+/// The folder a `.git` file names, from its [`pointer_text`]: `gitdir: <path>`.
+pub(crate) fn gitdir_target(text: &str) -> Option<PathBuf> {
+    text.strip_prefix("gitdir:")
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(PathBuf::from)
+}
+
 pub fn parse_head(content: &str) -> Option<String> {
     let content = content.trim();
     if let Some(reference) = content.strip_prefix("ref:") {
@@ -194,6 +227,99 @@ pub fn parse_head(content: &str) -> Option<String> {
     }
     let hex = content.len() >= 7 && content.bytes().all(|b| b.is_ascii_hexdigit());
     hex.then(|| content[..7].to_ascii_lowercase())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Repository places without a process
+
+/// Where a folder sits in git, for the project overview: `work_tree` is the folder that holds the
+/// `.git` entry above it, `root` the main folder of its repository. For a linked worktree the two
+/// differ; a plain repository and a submodule are their own root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoPlace {
+    pub root: String,
+    pub work_tree: String,
+}
+
+/// Repository place per folder (`None` outside a repository). Keys are the folders exactly as
+/// passed in. Reads only `.git` files and `commondir`, like [`branches`].
+pub fn repo_places(paths: &[String]) -> Result<HashMap<String, Option<RepoPlace>>, GitError> {
+    if paths.len() > MAX_BRANCH_PATHS {
+        return Err(GitError::TooManyPaths);
+    }
+    Ok(paths
+        .iter()
+        .map(|path| (path.clone(), repo_place_of(Path::new(path), None)))
+        .collect())
+}
+
+/// The repository place of `start`; the walk up stops after `ceiling` (tests stay in their folder).
+pub fn repo_place_of(start: &Path, ceiling: Option<&Path>) -> Option<RepoPlace> {
+    if !readable_start(start) {
+        return None;
+    }
+    for dir in start.ancestors() {
+        let dot_git = dir.join(".git");
+        match fs::metadata(&dot_git) {
+            Ok(meta) if meta.is_dir() => return Some(place(dir, dir)),
+            Ok(meta) if meta.is_file() => {
+                let content = read_limited(&dot_git, MAX_POINTER_BYTES).ok()??;
+                let target = gitdir_target(&pointer_text(&content)?)?;
+                let git_dir = lexical(&dir.join(target));
+                if !gitdir_allowed(start, &git_dir) || !git_dir.is_dir() {
+                    return None;
+                }
+                let root = main_folder(start, &git_dir).unwrap_or_else(|| dir.to_path_buf());
+                return Some(place(&root, dir));
+            }
+            _ => {}
+        }
+        if ceiling == Some(dir) {
+            break;
+        }
+    }
+    None
+}
+
+fn place(root: &Path, work_tree: &Path) -> RepoPlace {
+    RepoPlace {
+        root: root.to_string_lossy().into_owned(),
+        work_tree: work_tree.to_string_lossy().into_owned(),
+    }
+}
+
+/// The main folder of a linked worktree's repository: the worktree's git folder names the common
+/// git folder in `commondir` (git writes `../..`), and when that one is a `.git` folder, its parent
+/// is the main folder. `None` for a submodule (no `commondir`) or a bare repository.
+fn main_folder(start: &Path, git_dir: &Path) -> Option<PathBuf> {
+    let content = read_limited(&git_dir.join("commondir"), MAX_POINTER_BYTES).ok()??;
+    let text = pointer_text(&content)?;
+    let common = Some(text.trim()).filter(|line| !line.is_empty())?;
+    let common = lexical(&git_dir.join(common));
+    if !gitdir_allowed(start, &common) || !common.is_dir() {
+        return None;
+    }
+    if common.file_name() != Some(OsStr::new(".git")) {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
+}
+
+/// `.` and `..` resolved by the text alone; enough for git's own `commondir` and `gitdir` values,
+/// which name folders git created.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -238,12 +364,43 @@ pub fn message(stderr: &[u8]) -> String {
     joined.chars().take(MAX_MESSAGE_CHARS).collect()
 }
 
+/// Every hook event git knows (githooks(5) of git 2.56); only a hook for one of these runs
+/// without an explicit `git hook run`, which Hangar never calls.
+const HOOK_EVENTS: [&str; 24] = [
+    "applypatch-msg",
+    "pre-applypatch",
+    "post-applypatch",
+    "pre-commit",
+    "pre-merge-commit",
+    "prepare-commit-msg",
+    "commit-msg",
+    "post-commit",
+    "pre-rebase",
+    "post-checkout",
+    "post-merge",
+    "pre-push",
+    "pre-receive",
+    "update",
+    "proc-receive",
+    "post-receive",
+    "post-update",
+    "reference-transaction",
+    "push-to-checkout",
+    "pre-auto-gc",
+    "post-rewrite",
+    "sendemail-validate",
+    "fsmonitor-watchman",
+    "post-index-change",
+];
+
 /// The `git` program found on PATH.
 #[derive(Debug, Clone)]
 pub struct Git {
     program: PathBuf,
     /// Transports and lazy fetches allowed; only test setups (cloning a fixture) need them.
     network: bool,
+    /// The repository's hooks run; only a commit the user asked for opts in.
+    repo_hooks: bool,
 }
 
 impl Git {
@@ -255,6 +412,7 @@ impl Git {
             .map(|program| Self {
                 program,
                 network: false,
+                repo_hooks: false,
             })
             .ok_or(GitError::NotFound)
     }
@@ -263,8 +421,17 @@ impl Git {
     #[cfg(test)]
     pub(crate) fn with_network(&self) -> Self {
         Self {
-            program: self.program.clone(),
             network: true,
+            ..self.clone()
+        }
+    }
+
+    /// The same git with the repository's hooks, for the one call where the user expects them
+    /// to run as in the terminal: a commit.
+    pub fn with_repo_hooks(&self) -> Self {
+        Self {
+            repo_hooks: true,
+            ..self.clone()
         }
     }
 
@@ -275,12 +442,50 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        self.command_with(cwd, args, stdin, &std::collections::BTreeSet::new())
+    }
+
+    /// [`Self::command`] that also switches off the hooks the repository's config names under
+    /// `config_hooks` (`hook.<name>.command`), for events git may add after [`HOOK_EVENTS`].
+    fn command_with<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        stdin: bool,
+        config_hooks: &std::collections::BTreeSet<String>,
+    ) -> Command
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         let mut command = Command::new(&self.program);
         command
             .arg("--no-pager")
             .args(["-c", "core.fsmonitor=false"])
             .args(["-c", "core.quotepath=false"])
             .args(["-c", "color.ui=false"])
+            // A restore or checkout would otherwise also run in the submodules a repository's
+            // `submodule.recurse` names, with filters the guard never read there.
+            .args(["-c", "submodule.recurse=false"]);
+        if !self.repo_hooks {
+            // A hook path below a regular file (git itself) can never exist, so git finds no
+            // hook at all. Unlike an empty folder it needs no writable place that something
+            // could later fill. Callers never name a `core.hooksPath` of their own: a later
+            // `-c` would replace this one with a folder that can be filled.
+            let mut hooks = std::ffi::OsString::from("core.hooksPath=");
+            hooks.push(self.program.as_os_str());
+            command.arg("-c").arg(hooks);
+            // Hooks named in the config (git 2.54 and later) are not found through the hooks
+            // folder; switching off each event stops them and the folder's hooks alike. Older
+            // git ignores these keys, and the command line wins over every config file.
+            for event in HOOK_EVENTS {
+                command.arg("-c").arg(format!("hook.{event}.enabled=false"));
+            }
+            for name in config_hooks {
+                command.arg("-c").arg(format!("hook.{name}.enabled=false"));
+            }
+        }
+        command
             .args(args)
             .current_dir(cwd)
             .stdin(if stdin { Stdio::piped() } else { Stdio::null() })
@@ -291,11 +496,10 @@ impl Git {
                 command.env_remove(&key);
             }
         }
-        // A calling agent session's identifiers would reach the repository's hooks and helpers
-        // (manager.rs explains why sessions never get them either).
-        for key in crate::manager::INHERITED_SESSION_MARKERS {
-            command.env_remove(key);
-        }
+        // A calling agent session's identifiers, the gate's token and an editor's git helpers
+        // would reach the repository's hooks and helpers (manager.rs explains why sessions never
+        // get them either).
+        crate::child_env::scrub(&mut command);
         // Replace refs (`git replace`, `refs/replace/`) let a clone show another history than
         // its objects hold, such as another root commit, the repository's identity in the team.
         command
@@ -358,7 +562,32 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = self.command(cwd, args, input.is_some());
+        // Before git opens the repository: its config must not lead to another share, and the
+        // hooks it names are switched off by name (guard.rs).
+        let config = guard::check(self, cwd, deadline)?;
+        let command = self.command_with(cwd, args, input.is_some(), &config.hooks);
+        self.execute(command, input, deadline, limit)
+    }
+
+    /// The repository's filter drivers and hook names for a call in `cwd`, read from its config
+    /// files and everything they include, whatever the include's condition (guard.rs). Fails
+    /// like a git call there would.
+    pub(crate) fn repo_config(
+        &self,
+        cwd: &Path,
+        deadline: Instant,
+    ) -> Result<RepoConfig, GitError> {
+        guard::check(self, cwd, deadline)
+    }
+
+    /// Starts a prepared command and collects its output (see [`Self::run`]).
+    fn execute(
+        &self,
+        mut command: Command,
+        input: Option<Vec<u8>>,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Output, GitError> {
         let mut child = command.spawn().map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 GitError::NotFound
@@ -449,6 +678,20 @@ impl Git {
             stderr,
             truncated,
         })
+    }
+}
+
+#[cfg(test)]
+impl Git {
+    /// The argv a call in `cwd` would get, with the hooks the repository's config names.
+    pub(crate) fn test_argv(&self, cwd: &Path, args: &[&str]) -> Vec<String> {
+        let config = self
+            .repo_config(cwd, Instant::now() + TIMEOUT)
+            .unwrap_or_default();
+        self.command_with(cwd, args, false, &config.hooks)
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
     }
 }
 
@@ -593,33 +836,50 @@ pub fn check_work_tree(cwd: &Path, top: &Path, git_dirs: &[&Path]) -> Result<(),
 /// Folder argument from the frontend: absolute, an existing folder, and a repository whose git
 /// folder git may open ([`check_git_links`]).
 pub fn check_folder(path: &Path) -> Result<(), GitError> {
-    if !path.is_absolute() {
-        return Err(GitError::InvalidPath("not an absolute path"));
-    }
-    if !path.is_dir() {
-        return Err(GitError::InvalidPath("not a folder"));
+    // The place first: `is_dir` alone would follow a link to a share and contact its host.
+    match crate::no_links::folder_place(path) {
+        FolderPlace::Local => {}
+        FolderPlace::Remote => {
+            return Err(GitError::InvalidPath("a network share or device path"));
+        }
+        FolderPlace::NotAFolder if !path.is_absolute() => {
+            return Err(GitError::InvalidPath("not an absolute path"));
+        }
+        FolderPlace::NotAFolder => return Err(GitError::InvalidPath("not a folder")),
     }
     check_git_links(path)
+}
+
+/// A folder the window names for a read without a process (`branches`, `repo_places`): absolute
+/// and not a share or device path, by the text only (a mapped drive the user chose stays
+/// readable, like a session folder there); the reads themselves never follow `.git` files off
+/// the machine ([`gitdir_allowed`]).
+fn readable_start(start: &Path) -> bool {
+    start.is_absolute() && !is_remote(start)
 }
 
 /// The rule of [`gitdir_allowed`], applied before git runs: the `.git` file of a linked
 /// worktree or submodule, and the `commondir` file of the git folder it names, must not lead
 /// from a local folder to a network share or a device, where git would hand the user's
 /// credentials to another host. Only the paths are compared; nothing on a share is touched.
-/// A folder outside any repository passes (git then finds none). Includes, alternates and other
-/// paths inside the repository's config are not followed (contract: agent-workflow-features.md,
-/// "Git").
+/// A folder outside any repository passes (git then finds none). A `.git` file or `commondir`
+/// that git would read but this cannot (too large, unreadable, a folder) is refused, not skipped.
+/// Includes, alternates and other paths inside the repository's config are checked before every
+/// git call (guard.rs).
 pub fn check_git_links(start: &Path) -> Result<(), GitError> {
     for dir in start.ancestors() {
         let dot_git = dir.join(".git");
+        if !guard::link_allowed(start, &dot_git) {
+            return Err(GitError::RemoteGitDir);
+        }
         let git_dir = match fs::metadata(&dot_git) {
             Ok(meta) if meta.is_dir() => dot_git,
             Ok(meta) if meta.is_file() => {
-                // Unreadable, too large or no `gitdir:` line: git cannot use it either.
-                let Ok(Some(content)) = read_limited(&dot_git, MAX_HEAD_BYTES) else {
-                    return Ok(());
+                let Some(text) = guard::read_pointer(start, &dot_git)? else {
+                    continue;
                 };
-                let Some(target) = parse_gitdir_file(&String::from_utf8_lossy(&content)) else {
+                // No `gitdir:` line: git cannot use the file and stops there.
+                let Some(target) = gitdir_target(&text) else {
                     return Ok(());
                 };
                 let git_dir = dir.join(target);
@@ -631,8 +891,7 @@ pub fn check_git_links(start: &Path) -> Result<(), GitError> {
             _ => continue,
         };
         // A linked worktree's git folder names the main one in `commondir`, relative to itself.
-        if let Ok(Some(content)) = read_limited(&git_dir.join("commondir"), MAX_HEAD_BYTES) {
-            let common = String::from_utf8_lossy(&content);
+        if let Some(common) = guard::read_pointer(start, &git_dir.join("commondir"))? {
             let common = common.trim();
             if !common.is_empty() && !gitdir_allowed(start, &git_dir.join(common)) {
                 return Err(GitError::RemoteGitDir);
@@ -687,45 +946,86 @@ pub(crate) const DIFF_ARGS: &[&str] = &[
 /// Filters git must not run for Hangar. `status` and `diff` run a repository's clean filter on
 /// files whose stat data changed, and a filter is any program the repository's config names
 /// (a cloned repository with a planted `.git/config`, or a `[include]` from it). Reading the
-/// config runs nothing.
-const FILTER_KEYS: &str = r"^filter\..*\.(clean|smudge|process)$";
+/// config runs nothing. Hooks the config names by a friendly name are read along.
+const OVERRIDE_KEYS: &str = r"^(filter\..*\.(clean|smudge|process)|hook\..*\.command)$";
 
 /// `-c` arguments that switch off every clean, smudge and process filter configured for the
 /// repository at `root`: git skips a filter whose command is empty, and `required=false` keeps
 /// it from failing the call instead. Must come before the subcommand.
+///
+/// The drivers are the union of what git reads now (every scope, the includes whose condition
+/// holds) and what the repository's own config files and all their include targets name, any
+/// condition ignored (guard.rs). An `[includeIf "onbranch:..."]` therefore cannot switch a
+/// filter on for a call that runs on another branch than the one the overrides were read on.
+/// Hooks the config names by a friendly name are switched off as well, unless `git` runs the
+/// repository's hooks.
 pub fn filter_overrides(
     git: &Git,
     root: &Path,
     deadline: Instant,
 ) -> Result<Vec<String>, GitError> {
+    let repo = git.repo_config(root, deadline)?;
     let output = git.run(
         root,
-        ["config", "-z", "--get-regexp", FILTER_KEYS],
+        ["config", "-z", "--get-regexp", OVERRIDE_KEYS],
         deadline,
         MAX_LIST_BYTES,
     )?;
     if output.truncated {
         return Err(GitError::UnsafeFilters);
     }
-    if !output.success {
+    let (mut drivers, mut hooks) = if output.success {
+        config_names(&output.stdout).ok_or(GitError::UnsafeFilters)?
+    } else if output.code == Some(1) {
         // 1: no such key, which is the normal case.
-        return match output.code {
-            Some(1) => Ok(Vec::new()),
-            _ => Err(output.failure()),
-        };
-    }
-    let drivers = filter_drivers(&output.stdout).ok_or(GitError::UnsafeFilters)?;
-    if drivers.len() > MAX_FILTER_DRIVERS {
+        Default::default()
+    } else {
+        return Err(output.failure());
+    };
+    drivers.extend(repo.filters);
+    hooks.extend(repo.hooks);
+    if drivers.len() > MAX_FILTER_DRIVERS || hooks.len() > MAX_FILTER_DRIVERS {
         return Err(GitError::UnsafeFilters);
     }
-    Ok(drivers
+    let mut overrides: Vec<String> = drivers
         .iter()
         .flat_map(|name| {
             ["clean=", "smudge=", "process=", "required=false"]
                 .into_iter()
                 .flat_map(move |setting| ["-c".to_owned(), format!("filter.{name}.{setting}")])
         })
-        .collect())
+        .collect();
+    if !git.repo_hooks {
+        for name in hooks {
+            overrides.push("-c".to_owned());
+            overrides.push(format!("hook.{name}.enabled=false"));
+        }
+    }
+    Ok(overrides)
+}
+
+type NameSet = std::collections::BTreeSet<String>;
+
+/// Filter driver names and hook names from `git config -z --get-regexp` over
+/// [`OVERRIDE_KEYS`]. `None` when a name could not be passed back through `-c`.
+fn config_names(output: &[u8]) -> Option<(NameSet, NameSet)> {
+    let mut filters = Vec::new();
+    let mut hooks = NameSet::new();
+    for record in output.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        let key = record.split(|b| *b == b'\n').next().unwrap_or_default();
+        if let Some(rest) = key.strip_prefix(b"hook.") {
+            let rest = std::str::from_utf8(rest).ok()?;
+            let (name, _variable) = rest.rsplit_once('.')?;
+            if name.is_empty() || name.contains(['=', '\n', '\0']) {
+                return None;
+            }
+            hooks.insert(name.to_owned());
+        } else {
+            filters.extend_from_slice(record);
+            filters.push(0);
+        }
+    }
+    Some((filter_drivers(&filters)?, hooks))
 }
 
 /// Driver names from `git config -z --get-regexp`: records `filter.<name>.<key>\n<value>\0`; a
@@ -763,23 +1063,7 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
         )?
         .success;
 
-    let status = git.run(
-        &root,
-        neutral.iter().map(String::as_str).chain([
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=normal",
-            "--ignore-submodules=all",
-        ]),
-        deadline,
-        MAX_LIST_BYTES,
-    )?;
-    if !status.usable() {
-        return Err(status.failure());
-    }
-    let mut truncated = status.truncated;
-    let mut files = parse_status(&status.stdout);
+    let (mut files, mut truncated) = status_files(git, &root, &neutral, deadline)?;
 
     // A repository without commits has no HEAD to compare with: staged changes plus the work
     // tree instead.
@@ -844,6 +1128,51 @@ pub fn diff(git: &Git, cwd: &Path) -> Result<GitDiff, GitError> {
         diff: cut_text(text, truncated),
         truncated,
     })
+}
+
+/// The changed files of the work tree at `root` (`git status`, untracked files included, renames
+/// once) and whether the list was cut. `neutral` are the [`filter_overrides`].
+pub(crate) fn status_files(
+    git: &Git,
+    root: &Path,
+    neutral: &[String],
+    deadline: Instant,
+) -> Result<(Vec<FileChange>, bool), GitError> {
+    let status = git.run(
+        root,
+        neutral.iter().map(String::as_str).chain([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+            "--ignore-submodules=all",
+        ]),
+        deadline,
+        MAX_LIST_BYTES,
+    )?;
+    if !status.usable() {
+        return Err(status.failure());
+    }
+    Ok((parse_status(&status.stdout), status.truncated))
+}
+
+/// How many files [`diff`] would list for `cwd`, without the diff itself: toplevel, filter
+/// overrides (a config read, runs nothing) and one `git status`. `None` when `cwd` is no work
+/// tree. A list cut at [`MAX_LIST_BYTES`] counts what fit, like `diff`.
+pub fn changed_count(git: &Git, cwd: &Path) -> Result<Option<u32>, GitError> {
+    Ok(changed_files(git, cwd)?.map(|(files, _)| u32::try_from(files.len()).unwrap_or(u32::MAX)))
+}
+
+/// The files [`diff`] would list for `cwd` (status codes only, no line counts) and whether the
+/// list was cut, without the diff itself. `None` when `cwd` is no work tree.
+pub fn changed_files(git: &Git, cwd: &Path) -> Result<Option<(Vec<FileChange>, bool)>, GitError> {
+    check_folder(cwd)?;
+    let deadline = Instant::now() + TIMEOUT;
+    let Some(root) = toplevel(git, cwd, deadline)? else {
+        return Ok(None);
+    };
+    let neutral = filter_overrides(git, &root, deadline)?;
+    status_files(git, &root, &neutral, deadline).map(Some)
 }
 
 /// A cut diff ends at the last whole line, so no half UTF-8 character or half line remains.
@@ -919,6 +1248,30 @@ pub fn parse_numstat(output: &[u8]) -> Vec<(String, u64, u64)> {
 pub(crate) mod tests {
     use super::*;
     use crate::test_support::TempDir;
+
+    /// Folders a window names on a share are refused by their text: no lookup, no git call.
+    #[cfg(windows)]
+    #[test]
+    fn share_folders_are_refused_before_they_are_touched() {
+        let started = Instant::now();
+        let shares = [
+            r"\\hangar-test.invalid\share\project".to_owned(),
+            "//hangar-test.invalid/share/project".to_owned(),
+        ];
+        for share in &shares {
+            let path = Path::new(share);
+            assert!(
+                matches!(check_folder(path), Err(GitError::InvalidPath(_))),
+                "{share}"
+            );
+            assert_eq!(branch_of(path, None), None, "{share}");
+            assert_eq!(repo_place_of(path, None), None, "{share}");
+        }
+        assert!(branches(&shares).unwrap().values().all(Option::is_none));
+        assert!(repo_places(&shares).unwrap().values().all(Option::is_none));
+        // A name lookup or SMB connection attempt would take seconds.
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 
     #[test]
     fn head_contents() {
@@ -1021,6 +1374,103 @@ pub(crate) mod tests {
         let broken = root.join("broken");
         write(&broken.join(".git"), "gitdir: does-not-exist\n");
         assert_eq!(branch_of(&broken, ceiling), None);
+    }
+
+    #[test]
+    fn repo_places_from_git_files() {
+        let tmp = TempDir::new("git-repo-places");
+        let root = tmp.path();
+        let ceiling = Some(root);
+        let text = |path: &Path| path.to_string_lossy().into_owned();
+
+        // A plain repository, asked from its root and from a subfolder.
+        let repo = root.join("repo with space");
+        write(&repo.join(".git/HEAD"), "ref: refs/heads/main\n");
+        fs::create_dir_all(repo.join("src/deep")).unwrap();
+        let own = RepoPlace {
+            root: text(&repo),
+            work_tree: text(&repo),
+        };
+        assert_eq!(repo_place_of(&repo, ceiling), Some(own.clone()));
+        assert_eq!(repo_place_of(&repo.join("src/deep"), ceiling), Some(own));
+
+        // A linked worktree (relative gitdir, `commondir` as git writes it) belongs to the repo.
+        write(
+            &repo.join(".git/worktrees/feature/HEAD"),
+            "ref: refs/heads/hangar/feature-1a2b3c\n",
+        );
+        write(&repo.join(".git/worktrees/feature/commondir"), "../..\n");
+        let linked = root.join("wt");
+        write(
+            &linked.join(".git"),
+            "gitdir: ../repo with space/.git/worktrees/feature\n",
+        );
+        fs::create_dir_all(linked.join("src")).unwrap();
+        let place = repo_place_of(&linked.join("src"), ceiling).unwrap();
+        assert_eq!(lexical(Path::new(&place.root)), lexical(&repo));
+        assert_eq!(place.work_tree, text(&linked));
+
+        // A submodule (no `commondir`) is its own root.
+        write(
+            &repo.join(".git/modules/lib/HEAD"),
+            "ref: refs/heads/main\n",
+        );
+        let module = repo.join("lib");
+        write(&module.join(".git"), "gitdir: ../.git/modules/lib\n");
+        assert_eq!(
+            repo_place_of(&module, ceiling),
+            Some(RepoPlace {
+                root: text(&module),
+                work_tree: text(&module),
+            })
+        );
+
+        // No repository, a relative path, a `.git` file pointing nowhere.
+        let plain = root.join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        assert_eq!(repo_place_of(&plain, ceiling), None);
+        assert_eq!(repo_place_of(Path::new("relative/path"), None), None);
+        let broken = root.join("broken");
+        write(&broken.join(".git"), "gitdir: does-not-exist\n");
+        assert_eq!(repo_place_of(&broken, ceiling), None);
+    }
+
+    /// A local `.git` file or `commondir` that names a share is refused before it is touched.
+    #[cfg(windows)]
+    #[test]
+    fn repo_places_never_follow_a_local_folder_to_a_share() {
+        let tmp = TempDir::new("git-repo-places-share");
+        let root = tmp.path();
+        let ceiling = Some(root);
+
+        let linked = root.join("to-share");
+        write(
+            &linked.join(".git"),
+            "gitdir: \\\\marker-host\\share\\repo\\.git\\worktrees\\x\n",
+        );
+        assert_eq!(repo_place_of(&linked, ceiling), None);
+
+        // The worktree's git folder is local, its `commondir` names a share: the checkout stays
+        // its own root instead of following the share.
+        let repo = root.join("repo");
+        write(&repo.join(".git/worktrees/y/HEAD"), "ref: refs/heads/y\n");
+        write(
+            &repo.join(".git/worktrees/y/commondir"),
+            "\\\\marker-host\\share\\repo\\.git\n",
+        );
+        let wt = root.join("wt");
+        write(&wt.join(".git"), "gitdir: ../repo/.git/worktrees/y\n");
+        let place = repo_place_of(&wt, ceiling).unwrap();
+        assert_eq!(place.root, wt.to_string_lossy());
+        assert_eq!(place.work_tree, wt.to_string_lossy());
+    }
+
+    #[test]
+    fn repo_places_limits_the_number_of_paths() {
+        let paths: Vec<String> = (0..=MAX_BRANCH_PATHS).map(|i| format!("p{i}")).collect();
+        assert!(matches!(repo_places(&paths), Err(GitError::TooManyPaths)));
+        let result = repo_places(&paths[..2]).unwrap();
+        assert_eq!(result.get("p1"), Some(&None));
     }
 
     #[test]
@@ -1142,6 +1592,7 @@ pub(crate) mod tests {
         let git = Git {
             program: PathBuf::from("git"),
             network: false,
+            repo_hooks: false,
         };
         let command = git.command(Path::new("."), ["status"], false);
         let envs: HashMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
@@ -1153,8 +1604,12 @@ pub(crate) mod tests {
             envs.get(OsStr::new("GIT_ALLOW_PROTOCOL")),
             Some(&Some(OsStr::new("none")))
         );
-        // A calling agent session's markers never reach git or its hooks.
-        for key in crate::manager::INHERITED_SESSION_MARKERS {
+        // A calling agent session's markers and the gate's variables never reach git or its
+        // hooks.
+        for key in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
             assert_eq!(envs.get(OsStr::new(key)), Some(&None), "{key}");
         }
         let fixture = git
@@ -1163,6 +1618,93 @@ pub(crate) mod tests {
         assert!(!fixture
             .get_envs()
             .any(|(key, _)| key == OsStr::new("GIT_ALLOW_PROTOCOL")));
+    }
+
+    /// A repository's `submodule.recurse=true` would take a restore or checkout into its
+    /// submodules, whose own filters the guard never read; every call switches it off, also with
+    /// the repository's hooks or transports allowed.
+    #[test]
+    fn calls_never_recurse_into_submodules() {
+        let git = Git {
+            program: PathBuf::from("git"),
+            network: false,
+            repo_hooks: false,
+        };
+        for git in [git.clone(), git.with_repo_hooks(), git.with_network()] {
+            let args: Vec<String> = git
+                .command(Path::new("."), ["restore", "x"], false)
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let at = args
+                .iter()
+                .position(|arg| arg == "submodule.recurse=false")
+                .expect("submodule recursion is switched off");
+            assert_eq!(args.get(at - 1).map(String::as_str), Some("-c"));
+            assert!(at < args.iter().position(|arg| arg == "restore").unwrap());
+        }
+    }
+
+    #[test]
+    fn calls_run_no_repository_hook_unless_asked() {
+        let git = Git {
+            program: PathBuf::from("git"),
+            network: false,
+            repo_hooks: false,
+        };
+        let args = |git: &Git| -> Vec<String> {
+            git.command(Path::new("."), ["status"], false)
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        };
+        let default = args(&git);
+        let at = default
+            .iter()
+            .position(|arg| arg == "core.hooksPath=git")
+            .expect("hooks are switched off");
+        assert_eq!(default.get(at - 1).map(String::as_str), Some("-c"));
+        assert!(at < default.iter().position(|arg| arg == "status").unwrap());
+        for event in HOOK_EVENTS {
+            let off = format!("hook.{event}.enabled=false");
+            assert!(default.contains(&off), "{off}");
+        }
+        assert!(!args(&git.with_repo_hooks())
+            .iter()
+            .any(|arg| arg.starts_with("core.hooksPath") || arg.starts_with("hook.")));
+        assert!(args(&git.with_network())
+            .iter()
+            .any(|arg| arg.starts_with("core.hooksPath")));
+    }
+
+    /// Since git 2.54 a hook can also live in the repository's config (`hook.<name>.command`
+    /// with `hook.<name>.event`), where `core.hooksPath` does not reach it.
+    #[test]
+    fn hooks_named_in_the_repository_config_do_not_run_either() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-config-hooks");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let marker = tmp.path().join("config-hook-ran");
+        let command = format!(
+            "echo hit > '{}'",
+            marker.to_string_lossy().replace('\\', "/")
+        );
+        git_ok(&git, &repo, &["config", "hook.probe.command", &command]);
+        git_ok(
+            &git,
+            &repo,
+            &["config", "hook.probe.event", "post-index-change"],
+        );
+        fs::write(repo.join("a.txt"), "a\n").unwrap();
+
+        git_ok(&git, &repo, &["add", "a.txt"]);
+        assert!(!marker.exists(), "a hook from the repository config ran");
+
+        git_ok(&git.with_repo_hooks(), &repo, &["reset", "--quiet"]);
+        if !marker.exists() {
+            eprintln!("this git has no config-defined hooks, the opt-in case is skipped");
+        }
     }
 
     /// A partial clone whose config names a marker as its upload program: reading a missing
@@ -1499,6 +2041,299 @@ pub(crate) mod tests {
         let overrides = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
         assert!(overrides.contains(&"filter.with.dot.clean=".to_owned()));
         assert!(overrides.contains(&"filter.marker.required=false".to_owned()));
+    }
+
+    /// Appends raw text to a config file, without git (setting an include through git would
+    /// already make git read it).
+    pub(crate) fn append(path: &Path, text: &str) {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+    }
+
+    /// Config text that defines `filter.marker` running `marker_filter`.
+    pub(crate) fn marker_filter_config(marker: &Path) -> String {
+        let filter = marker_filter(marker)
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        format!("[filter \"marker\"]\n\tclean = \"{filter}\"\n\tsmudge = \"{filter}\"\n")
+    }
+
+    /// An include whose condition does not hold on the branch the overrides are read on still
+    /// counts: the call that follows may run on a branch where it holds.
+    #[test]
+    fn repository_filters_never_run_from_a_conditional_include() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-filter-onbranch");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        write(&repo.join(".gitattributes"), "*.txt filter=marker\n");
+        write(&repo.join("a.txt"), "one\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        let marker = tmp.path().join("marker-smudge");
+        write(
+            &repo.join(".git").join("evil.cfg"),
+            &marker_filter_config(&marker),
+        );
+        append(
+            &repo.join(".git").join("config"),
+            "[includeIf \"onbranch:hangar/**\"]\n\tpath = evil.cfg\n",
+        );
+
+        let deadline = Instant::now() + TIMEOUT;
+        let neutral = filter_overrides(&git, &repo, deadline).unwrap();
+        assert!(
+            neutral.contains(&"filter.marker.clean=".to_owned()),
+            "{neutral:?}"
+        );
+
+        // HEAD moves to a branch where the include holds after the overrides were read.
+        git_ok(
+            &git,
+            &repo,
+            &["checkout", "--quiet", "-b", "hangar/x-1a2b3c"],
+        );
+        let file = fs::File::options()
+            .write(true)
+            .open(repo.join("a.txt"))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        drop(file);
+        git_ok(&git, &repo, &["status", "--porcelain"]);
+        assert!(marker.exists(), "git did not run the filter; test is void");
+        fs::remove_file(&marker).unwrap();
+        let file = fs::File::options()
+            .write(true)
+            .open(repo.join("a.txt"))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(7200))
+            .unwrap();
+        drop(file);
+
+        status_files(&git, &repo, &neutral, deadline).unwrap();
+        assert!(!marker.exists(), "a filter from a conditional include ran");
+        diff(&git, &repo).unwrap();
+        assert!(!marker.exists(), "a filter from a conditional include ran");
+    }
+
+    /// Hooks named in the config for an event Hangar does not know yet are switched off by
+    /// their name, also when an include defines them.
+    #[test]
+    fn hooks_for_unknown_events_are_switched_off_by_name() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-future-hook");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        append(
+            &repo.join(".git").join("config"),
+            "[hook \"probe\"]\n\tevent = future-event\n\tcommand = touch marker-hook\n\
+             [includeIf \"onbranch:hangar/**\"]\n\tpath = more.cfg\n",
+        );
+        write(
+            &repo.join(".git").join("more.cfg"),
+            "[hook \"later.one\"]\n\tevent = future-event\n\tcommand = touch marker-hook\n",
+        );
+        let argv = git.test_argv(&repo, &["status"]);
+        let status = argv.iter().position(|arg| arg == "status").unwrap();
+        for name in ["probe", "later.one"] {
+            let off = format!("hook.{name}.enabled=false");
+            let at = argv.iter().position(|arg| *arg == off);
+            assert!(at.is_some_and(|at| at < status), "{off}: {argv:?}");
+        }
+        let neutral = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(neutral.contains(&"hook.probe.enabled=false".to_owned()));
+        // A commit the user asked for keeps them.
+        let neutral =
+            filter_overrides(&git.with_repo_hooks(), &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(!neutral.iter().any(|arg| arg.starts_with("hook.")));
+        let argv = git.with_repo_hooks().test_argv(&repo, &["status"]);
+        assert!(!argv.iter().any(|arg| arg.starts_with("hook.")));
+    }
+
+    /// An include target that cannot be read is no reason to run git with its filters unknown.
+    #[test]
+    fn an_unreadable_include_is_refused() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-include-folder");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        fs::create_dir_all(repo.join(".git").join("a-folder")).unwrap();
+        append(
+            &repo.join(".git").join("config"),
+            "[include]\n\tpath = a-folder\n",
+        );
+        assert!(matches!(
+            changed_count(&git, &repo),
+            Err(GitError::UnsafeFilters)
+        ));
+        // A missing target is skipped, as git skips it.
+        fs::remove_dir(repo.join(".git").join("a-folder")).unwrap();
+        assert_eq!(changed_count(&git, &repo).unwrap(), Some(0));
+    }
+
+    /// Includes and paths in the repository's config that lead to a share are refused before
+    /// git opens the repository, also when a local include names them.
+    #[cfg(windows)]
+    #[test]
+    fn config_paths_to_a_share_are_refused_before_git_runs() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-config-unc");
+        let cases = [
+            "[include]\n\tpath = \\\\\\\\192.0.2.1\\\\share\\\\x\n",
+            "[include]\n\tpath = //192.0.2.1/share/x\n",
+            "[includeIf \"gitdir:/nowhere/\"]\n\tpath = \\\\\\\\192.0.2.1\\\\share\\\\x\n",
+            "[includeIf \"onbranch:hangar/**\"]\n\tpath = //192.0.2.1/share/x\n",
+            "[core]\n\texcludesFile = //192.0.2.1/share/x\n",
+            "[core]\n\tattributesFile = //192.0.2.1/share/x\n",
+            "[core]\n\tworktree = //192.0.2.1/share/x\n",
+            "[mailmap]\n\tfile = //192.0.2.1/share/x\n",
+            "[diff]\n\torderFile = //192.0.2.1/share/x\n",
+            "[include]\n\tpath = local.cfg\n",
+        ];
+        for (i, text) in cases.iter().enumerate() {
+            let repo = tmp.path().join(format!("repo{i}"));
+            init_repo(&git, &repo);
+            write(
+                &repo.join(".git").join("local.cfg"),
+                "[include]\n\tpath = //192.0.2.1/share/nested\n",
+            );
+            append(&repo.join(".git").join("config"), text);
+            let started = Instant::now();
+            assert!(
+                matches!(changed_count(&git, &repo), Err(GitError::RemoteGitDir)),
+                "{text}"
+            );
+            // An SMB attempt to the unroutable address would take seconds.
+            assert!(started.elapsed() < Duration::from_secs(5), "{text}");
+        }
+        // Alternates in the object folder.
+        let repo = tmp.path().join("alternates");
+        init_repo(&git, &repo);
+        write(
+            &repo
+                .join(".git")
+                .join("objects")
+                .join("info")
+                .join("alternates"),
+            "\\\\192.0.2.1\\share\\objects\n",
+        );
+        assert!(matches!(
+            changed_count(&git, &repo),
+            Err(GitError::RemoteGitDir)
+        ));
+        // A local alternate is fine.
+        write(
+            &repo
+                .join(".git")
+                .join("objects")
+                .join("info")
+                .join("alternates"),
+            "../../elsewhere/objects\n",
+        );
+        assert_eq!(changed_count(&git, &repo).unwrap(), Some(0));
+    }
+
+    /// git opens the folder each `worktrees/<id>/gitdir` of the common git folder names on
+    /// `worktree list`, `add`, `remove` and a commit. A back-link to a share is refused before
+    /// git runs, also once a local one was checked and cached.
+    #[cfg(windows)]
+    #[test]
+    fn worktree_back_links_to_a_share_are_refused_before_git_runs() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-worktree-unc");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let entry = repo.join(".git").join("worktrees").join("x");
+        write(&entry.join("HEAD"), "ref: refs/heads/main\n");
+        write(&entry.join("commondir"), "../..\n");
+        let deadline = || Instant::now() + Duration::from_secs(30);
+        let refused = |at: &Path| {
+            let started = Instant::now();
+            let result = crate::worktree::list(&git, at, deadline());
+            // An SMB attempt to the unreachable host would take seconds.
+            assert!(started.elapsed() < Duration::from_secs(5));
+            matches!(result, Err(GitError::RemoteGitDir))
+        };
+
+        write(&entry.join("gitdir"), "//host.invalid/share/x/.git\n");
+        assert!(refused(&repo));
+        write(&entry.join("gitdir"), "\\\\host.invalid\\share\\x\\.git\n");
+        assert!(refused(&repo));
+
+        // A local back-link, absolute or relative to the entry, works.
+        let local = tmp.path().join("wt").join(".git");
+        write(&entry.join("gitdir"), &format!("{}\n", local.display()));
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+        write(&entry.join("gitdir"), "../../../../wt/.git\n");
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+
+        // Turned towards a share after the check was cached: noticed.
+        write(&entry.join("gitdir"), "//host.invalid/share/x/.git\n");
+        assert!(refused(&repo));
+
+        // An entry added later, next to the checked one.
+        write(&entry.join("gitdir"), "../../../../wt/.git\n");
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+        let added = repo.join(".git").join("worktrees").join("y");
+        write(&added.join("HEAD"), "ref: refs/heads/main\n");
+        write(&added.join("commondir"), "../..\n");
+        write(&added.join("gitdir"), "//host.invalid/share/y/.git\n");
+        assert!(refused(&repo));
+    }
+
+    #[test]
+    fn changed_count_matches_the_diff_file_list() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-changed-count");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let count = |cwd: &Path| changed_count(&git, cwd).unwrap();
+        let listed = |cwd: &Path| diff(&git, cwd).unwrap().files.len() as u32;
+
+        // Without commits.
+        assert_eq!(count(&repo), Some(0));
+        write(&repo.join("staged.txt"), "one\n");
+        git_ok(&git, &repo, &["add", "staged.txt"]);
+        write(&repo.join("loose.txt"), "x\n");
+        assert_eq!(count(&repo), Some(2));
+        assert_eq!(count(&repo), Some(listed(&repo)));
+
+        // Modified, added, untracked (also in a new folder), renamed and deleted.
+        write(&repo.join("keep.txt"), "keep\n");
+        write(&repo.join("old name.txt"), "rename me\nsecond line\n");
+        write(&repo.join("gone.txt"), "gone\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        assert_eq!(count(&repo), Some(0));
+        write(&repo.join("keep.txt"), "changed\n");
+        write(&repo.join("added.txt"), "new\n");
+        git_ok(&git, &repo, &["add", "added.txt"]);
+        write(&repo.join("untracked.txt"), "u\n");
+        write(&repo.join("new folder").join("inner.txt"), "u\n");
+        git_ok(&git, &repo, &["mv", "old name.txt", "new name.txt"]);
+        fs::remove_file(repo.join("gone.txt")).unwrap();
+        let files = diff(&git, &repo).unwrap().files;
+        let statuses: Vec<&str> = files.iter().map(|f| f.status.as_str()).collect();
+        assert!(statuses.contains(&"R "), "{statuses:?}");
+        assert!(statuses.contains(&" D"), "{statuses:?}");
+        // keep, added, untracked, new folder/, renamed (once), gone.
+        assert_eq!(files.len(), 6, "{files:?}");
+        assert_eq!(count(&repo), Some(6));
+        fs::create_dir_all(repo.join("sub")).unwrap();
+        assert_eq!(count(&repo.join("sub")), Some(listed(&repo.join("sub"))));
+
+        // No work tree, and paths the window must not name.
+        assert_eq!(count(&repo.join(".git")), None);
+        assert!(matches!(
+            changed_count(&git, Path::new("relative")),
+            Err(GitError::InvalidPath(_))
+        ));
     }
 
     #[test]

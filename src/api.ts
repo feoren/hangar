@@ -7,8 +7,13 @@ import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
+import type { MainPrefs } from "./mainStore";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
+import type { ProtectedSettings, SecuritySwitches } from "./settings";
+import { backendErrorText } from "./backendError";
+import { InputStalled, inputQueue } from "./sessionInput";
+import type { WorkspaceTemplate } from "./templates";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -52,7 +57,35 @@ export interface Profile {
    * its own folder). Older backends send none.
    */
   teamBlock?: TeamBlock | null;
+  /**
+   * Rust `InstructionsReach`: whether HANGAR.md reaches the program as found on this machine
+   * (`launcher`: an npm cmd.exe launcher that cannot carry the text). Older backends send none.
+   */
+  instructions?: InstructionsReach;
+  /**
+   * Rust `AgentCommand` list (agent_commands.rs): what the session menu can type into a running
+   * session of the program, the catalog's first. Older backends send none.
+   */
+  agentCommands?: AgentCommand[];
 }
+
+/** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */
+export type AgentCommandLabel =
+  "compact" | "clear" | "new" | "model" | "usage" | "context" | "status" | "stats";
+
+/** Rust `AgentCommand`: exactly one of `labelKey` and `label` is set. */
+export interface AgentCommand {
+  labelKey?: AgentCommandLabel;
+  label?: string;
+  /** Typed into the session as a bracketed paste. */
+  text: string;
+  /** Enter follows the text. */
+  submit: boolean;
+  /** Ask before sending (the command throws the conversation away). */
+  confirm: boolean;
+}
+
+export type InstructionsReach = "none" | "yes" | "launcher";
 
 /**
  * Rust `TeamBlock` (agent_catalog.rs). `noHooks` and `notMeasured` come from the catalog; the
@@ -163,7 +196,25 @@ export interface TermSize {
   rows: number;
 }
 
+/** Rust `StartPrompt`: a first prompt by name; its text lives in the backend's agent catalog. */
+export type StartPrompt = "worktree";
+
+/**
+ * Rust `StartRequest`: what a new agent session gets besides its program's arguments, where the
+ * program takes it (startOptions.ts).
+ */
+export interface StartOptions {
+  /** Hand the agent HANGAR.md. */
+  instructions: boolean;
+  startPrompt: StartPrompt | null;
+}
+
+export const NO_START_OPTIONS: StartOptions = { instructions: false, startPrompt: null };
+
 export { Channel };
+
+/** `write_session` answers `false` while the session's input queue is full. */
+const writeSession = inputQueue((id, data) => invoke<boolean>("write_session", { id, data }));
 
 export const api = {
   listProfiles: () => invoke<Profile[]>("list_profiles"),
@@ -177,6 +228,7 @@ export const api = {
     resume = false,
     cliSessionId: string | null = null,
     mode: SessionMode = "private",
+    options: StartOptions = NO_START_OPTIONS,
   ) =>
     invoke<SessionInfo>("create_session", {
       profileId,
@@ -186,7 +238,11 @@ export const api = {
       resume,
       cliSessionId,
       mode,
+      instructions: options.instructions,
+      startPrompt: options.startPrompt,
     }),
+  /** Opens HANGAR.md in the default editor; the backend creates it from a template if missing. */
+  openHangarMd: () => invoke<null>("open_hangar_md"),
   /**
    * Starts the program update as a session of its own. Only the backend picks the command, from
    * its update plan; useful only when `ProgramUpdate.plan` is "run". `expectedPlan` is the
@@ -206,7 +262,11 @@ export const api = {
       onEvent,
       ...(expectedPlan === null ? {} : { expectedPlan }),
     }),
-  write: (id: number, data: string) => invoke<null>("write_session", { id, data }),
+  /**
+   * Input to a session, in order per session; a large paste goes in pieces below the backend's
+   * limit, and a full input queue is waited out (sessionInput.ts).
+   */
+  write: (id: number, data: string) => writeSession(id, data),
   resize: (id: number, size: TermSize) => invoke<null>("resize_session", { id, size }),
   ack: (id: number, bytes: number) => invoke<null>("ack_session", { id, bytes }),
   kill: (id: number) => invoke<null>("kill_session", { id }),
@@ -320,8 +380,52 @@ export const api = {
     invoke<null>("open_panel_window", { alwaysOnTop, bounds }),
   /** Panel window only: keeps itself above other windows or not. */
   setPanelOnTop: (onTop: boolean) => invoke<null>("set_panel_on_top", { onTop }),
+  /** Panel window only: closes itself; its close handler saves input, then destroys it. */
+  closePanelWindow: () => invoke<null>("close_panel_window"),
+  /** Panel window only: ends itself once pending input is saved. */
+  destroyPanelWindow: () => invoke<null>("destroy_panel_window"),
   /** Panel window only: the one way to ask something of the main window (panelBridge.ts). */
   panelToMain: (message: PanelMessage) => invoke<null>("panel_to_main", { message }),
+  /**
+   * Main window only: the one session the panel window may address from now on (its git,
+   * file tree and viewer commands answer any other id as unknown); `null`: none. Called before
+   * the panel gets its context.
+   */
+  setPanelSession: (id: number | null) => invoke<null>("set_panel_session", { id }),
+
+  // Main window only, kept by the backend rather than in localStorage, which the panel and file
+  // viewer windows share (mainStore.ts).
+  /** The stored security switches, `null` before the first save; check with `parseSwitches`. */
+  securitySwitches: () => invoke<unknown>("security_switches"),
+  saveSecuritySwitches: (switches: SecuritySwitches) =>
+    invoke<null>("save_security_switches", { switches }),
+  /**
+   * Paste warning, automatic updates, HANGAR.md and snippets, `null` before the first save;
+   * check with `parseProtected`.
+   */
+  protectedSettings: () => invoke<unknown>("protected_settings"),
+  saveProtectedSettings: (settings: ProtectedSettings) =>
+    invoke<null>("save_protected_settings", { settings }),
+  /**
+   * Start mode, last program, folders, session restore and notices, `null` before the first
+   * save; check with `parseMainPrefs`.
+   */
+  mainPrefs: () => invoke<unknown>("main_prefs"),
+  saveMainPrefs: (prefs: MainPrefs) => invoke<null>("save_main_prefs", { prefs }),
+  /** The workspace templates, `null` before the first save; check with `parseTemplates`. */
+  loadTemplates: () => invoke<unknown>("load_templates"),
+  saveTemplates: (templates: readonly WorkspaceTemplate[]) =>
+    invoke<null>("save_templates", { templates }),
+  /** Queued message texts per session key, `null` before the first save. */
+  loadMessageQueue: () => invoke<unknown>("load_message_queue"),
+  /** Replaces the stored queued messages; keys are session keys (UUIDs). */
+  saveMessageQueue: (entries: Record<string, string>) =>
+    invoke<null>("save_message_queue", { entries }),
+  /**
+   * The results of finished update sessions not taken yet, each once; the payload-free
+   * `program-update-result` says one waits. Check each with `parseUpdateOutcome`.
+   */
+  takeUpdateResults: () => invoke<unknown>("take_update_results"),
 
   /**
    * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
@@ -330,6 +434,26 @@ export const api = {
    */
   exportSession: (format: "text" | "html", content: string, suggestedName: string) =>
     invoke<unknown>("export_session", { format, content, suggestedName }),
+  /**
+   * Saves the session's conversation as a Markdown report, read by the backend from the agent's
+   * own transcript (only for sessions with `subAgents`, see `canExportReport`). The backend
+   * renders it, opens the save dialog itself and writes at most 32 MiB. Check with
+   * `parseExportResult`.
+   */
+  exportReport: (
+    sessionId: number,
+    title: string,
+    suggestedName: string,
+    utcOffsetMinutes: number,
+    labels: ReportLabels,
+  ) =>
+    invoke<unknown>("export_report", {
+      sessionId,
+      title,
+      suggestedName,
+      utcOffsetMinutes,
+      labels,
+    }),
   /**
    * Saves the clipboard's image as a PNG in the app's cache folder (removed after a week): its
    * path, `noImage`, or `busy` while another paste runs. Rejects with a message when reading or
@@ -348,6 +472,8 @@ export const api = {
   sessionResources: () => invoke<unknown>("session_resources"),
   /** CPU, memory and GPU of the whole machine in percent (systemUsage.ts parses it). */
   systemUsage: () => invoke<unknown>("system_usage"),
+  /** Battery or AC, read afresh (power.ts parses it). */
+  powerState: () => invoke<unknown>("power_state"),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
   pushSettings: () => invoke<unknown>("push_settings"),
   /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */
@@ -368,31 +494,64 @@ export const api = {
    */
   openLocalUrl: (url: string) => invoke<null>("open_local_url", { url }),
   /**
+   * Terminal links (terminalLinks.ts): "file", "dir" or `null` for each of at most 64 local
+   * absolute paths; UNC and device paths are always `null`. Check with `parsePathKinds`.
+   */
+  statPaths: (paths: string[]) => invoke<unknown>("stat_paths", { paths }),
+  /**
+   * Opens a local absolute path clicked in the terminal: a folder in the file manager, a file in
+   * its default program only for harmless types (text, code, images, PDF); anything else is
+   * only shown selected. Main window, focused.
+   */
+  openPath: (path: string) => invoke<unknown>("open_path", { path }),
+  /** Opens a plain http(s) address clicked in the terminal in the default browser. */
+  openWebUrl: (url: string) => invoke<null>("open_web_url", { url }),
+  /**
    * Branch per folder (at most 64, read from `.git`, no process): branch name, the short hash of
    * a detached HEAD, or `null` outside a repository. Check with `parseBranches`.
    */
   gitBranches: (paths: string[]) => invoke<unknown>("git_branches", { paths }),
   /**
-   * Changes of a working folder against HEAD (at most 2 MiB of diff text). Check with
-   * `parseGitDiff`; rejects with a text when git is missing or the folder is refused.
+   * Repository place per folder (at most 64, read from `.git`, no process): the checkout and the
+   * repository's main folder (a linked worktree names its repository), or `null` outside one.
+   * Check with `parseRepoPlaces` (projectCards.ts).
    */
-  gitDiff: (cwd: string) => invoke<unknown>("git_diff", { cwd }),
+  gitRepoPlaces: (paths: string[]) => invoke<unknown>("git_repo_places", { paths }),
+  /**
+   * Changes of a session's folder against HEAD (at most 2 MiB of diff text); the backend finds
+   * the folder. Check with `parseGitDiff`; rejects with a text when git is missing, the folder is
+   * refused or the session is unknown.
+   */
+  gitDiff: (id: number) => invoke<unknown>("git_diff", { id }),
+  /**
+   * Number of changed files of a session's folder, the same as the file list of `gitDiff`,
+   * without reading the diff itself; `null` outside a repository. Check with
+   * `parseChangedCount`; rejects with a text like `gitDiff`.
+   */
+  gitChangedCount: (id: number) => invoke<unknown>("git_changed_count", { id }),
   /**
    * The user's own commits of about the last year in the repositories of these folders (at most
    * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
    */
   gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
+  // Work log and daily review (ADR 0011).
+  /** A working phase of the session ended; times in Unix ms. The backend adds the details. */
+  logWorkPhase: (id: number, from: number, to: number) =>
+    invoke<null>("log_work_phase", { id, from, to }),
+  /** One local day `[start, end)` in Unix ms. Check with `parseDailyReview` (dailyReview.ts). */
+  dailyReview: (start: number, end: number) => invoke<unknown>("daily_review", { start, end }),
   /**
-   * One page of the commits reachable from HEAD, newest first; the backend clamps `limit` to
-   * 1..=100. Check with `parseGitLog` (gitHistory.ts).
+   * One page of the commits reachable from HEAD of a session's folder, newest first; with
+   * `root`, of its repository's main folder. The backend clamps `limit` to 1..=100. Check with
+   * `parseGitLog` (gitHistory.ts).
    */
-  gitLog: (cwd: string, skip: number, limit: number) =>
-    invoke<unknown>("git_log", { cwd, skip, limit }),
+  gitLog: (id: number, skip: number, limit: number, root = false) =>
+    invoke<unknown>("git_log", { id, skip, limit, root }),
   /**
    * Header and changes of one commit against its first parent, shaped like `git_diff`. Pass only
    * full ids from `git_log`. Check with `parseCommitDiff` (gitHistory.ts).
    */
-  gitCommitDiff: (cwd: string, sha: string) => invoke<unknown>("git_commit_diff", { cwd, sha }),
+  gitCommitDiff: (id: number, sha: string) => invoke<unknown>("git_commit_diff", { id, sha }),
   /**
    * Git actions on the repository of a session's folder; the backend finds the folder. `paths`
    * are relative to the repository root, exactly as `gitDiff` lists them. Each rejects with a
@@ -455,8 +614,24 @@ export const api = {
   arenaRunTests: (worktree: Worktree, command: string) =>
     invoke<unknown>("arena_run_tests", { worktree, command }),
   /**
+   * The worktrees Hangar created, with their state; `folders` add their repositories to the
+   * search (at most 64). Check with `parseCleanupEntries` (worktreeCleanup.ts).
+   */
+  listHangarWorktrees: (folders: string[]) => invoke<unknown>("list_hangar_worktrees", { folders }),
+  /** Bounded size of one listed worktree folder; check with `parseWorktreeSize`. */
+  hangarWorktreeSize: (path: string) => invoke<unknown>("hangar_worktree_size", { path }),
+  /**
+   * Removes a listed worktree after the backend checked its state again; check with
+   * `parseCleanupOutcome`.
+   */
+  removeHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("remove_hangar_worktree", { path, repoRoot }),
+  /** Drops git's record of a worktree whose folder is gone, after checking again. */
+  pruneHangarWorktree: (path: string, repoRoot: string) =>
+    invoke<unknown>("prune_hangar_worktree", { path, repoRoot }),
+  /**
    * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
-   * While on, the backend emits `claims-changed` with every new snapshot.
+   * While on, the backend signals `claims-changed` (no payload) on every new snapshot.
    */
   configureClaims: (enabled: boolean) => invoke<null>("configure_claims", { enabled }),
   /** The newest claims snapshot; check with `parseClaimsSnapshot`. */
@@ -474,6 +649,13 @@ export const api = {
   gateRules: () => invoke<unknown>("gate_rules"),
   /** `false`: no rule has that id (deleted meanwhile). */
   deleteGateRule: (id: number) => invoke<boolean>("delete_gate_rule", { id }),
+  /**
+   * Turns the command guard (backend command_guard.rs) on or off; it applies to running team
+   * sessions at once, and turning it off lets every held shell command go on.
+   */
+  configureCommandGuard: (enabled: boolean) => invoke<null>("configure_command_guard", { enabled }),
+  /** The guard's rules file, rules and problems; check with `parseGuardInfo`. */
+  commandGuardInfo: () => invoke<unknown>("command_guard_info"),
 
   // Profiles in Settings (profile_edit.rs) and secret variables (secrets.rs).
   /** Inserts or replaces a profile in profiles.toml; returns the new list. */
@@ -501,6 +683,8 @@ export const api = {
   accountSignOut: () => invoke<unknown>("account_sign_out"),
   /** The account's projects, fresh from the server. */
   accountProjects: () => invoke<unknown>("account_projects"),
+  /** The signed-in person's picture as a `data:` URL, `null` without one. */
+  accountAvatar: () => invoke<unknown>("account_avatar"),
   /** `null`: the official service. Rejects when the address is not https (or loopback http). */
   accountSetBaseUrl: (baseUrl: string | null) =>
     invoke<unknown>("account_set_base_url", { baseUrl }),
@@ -517,6 +701,14 @@ export const api = {
   teamPendingConfirmations: () => invoke<unknown>("team_pending_confirmations"),
   teamConfirm: (request: string) => invoke<unknown>("team_confirm", { request }),
   teamReject: (request: string) => invoke<unknown>("team_reject", { request }),
+  /** Every team's connection, the pending confirmations and the repositories to link. */
+  teamSnapshot: () => invoke<unknown>("team_snapshot"),
+  /** This device joined the team the person expected (they compared the safety numbers). */
+  teamConfirmAdmission: (projectId: string, logIndex: number, safetyNumber: readonly string[]) =>
+    invoke<unknown>("team_confirm_admission", { projectId, logIndex, safetyNumber }),
+  /** Removes another device of the signed-in person from the team (a lost one). */
+  teamRemoveDevice: (projectId: string, device: string) =>
+    invoke<unknown>("team_remove_device", { projectId, device }),
   /** What each session does (team.ts `sessionStates`), for the team's presence. */
   teamSessionStates: (states: { sessionId: number; state: SessionState }[]) =>
     invoke<undefined>("team_session_states", { states }),
@@ -548,6 +740,25 @@ export const api = {
     invoke<null>("configure_tray", { enabled, labels }),
 };
 
+/** Headings of a session report in the window's language (Rust: `Labels` in report/mod.rs). */
+export interface ReportLabels {
+  program: string;
+  folder: string;
+  branch: string;
+  started: string;
+  lastActivity: string;
+  duration: string;
+  conversation: string;
+  subAgent: string;
+  /** Holds `{count}`. */
+  tokens: string;
+  compacted: string;
+  earlierLeftOut: string;
+  changedFiles: string;
+  commits: string;
+  none: string;
+}
+
 /** Menu texts and tooltip of the notification area icon (Rust: `TrayLabels` in tray.rs). */
 export interface TrayLabels {
   open: string;
@@ -561,13 +772,21 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
-/** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
+/** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */
+export const POWER_CHANGED = "power-changed";
+/**
+ * Signal without payload: the claims changed; the main window reads `claimsSnapshot` (any window
+ * could listen to a payload).
+ */
 export const CLAIMS_CHANGED = "claims-changed";
-/** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */
+/** Signal without a payload: the gate changed; read it with `api.gateSnapshot`. */
 export const GATE_CHANGED = "gate-changed";
-/** Event with the newest account state (`parseAccountView` in account.ts). */
+/**
+ * Signal without payload: the account state changed; read it with `accountStatus`. Other webviews
+ * may hear it too, so it carries nothing.
+ */
 export const ACCOUNT_CHANGED = "account-changed";
-/** Event with every project's team connection and the pending confirmations (`parseTeamSnapshot`). */
+/** Signal without payload: the team snapshot changed; read it with `teamSnapshot`. */
 export const TEAM_CHANGED = "team-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
@@ -798,9 +1017,13 @@ export function parseExportResult(value: unknown): string | null {
   throw new Error(t("error.unknown"));
 }
 
-/** Errors from `invoke` arrive from the backend as strings (ManagerError serialized as text). */
+/**
+ * Errors from `invoke` arrive from the backend as strings (ManagerError serialized as text); a
+ * leading `[code]` is shown in the window's own words (backendError.ts).
+ */
 export function errorText(error: unknown): string {
-  if (typeof error === "string") return error;
+  if (error instanceof InputStalled) return t("terminal.inputStalled");
+  if (typeof error === "string") return backendErrorText(error);
   if (error instanceof Error) return error.message;
   return t("error.unknown");
 }

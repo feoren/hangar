@@ -347,8 +347,8 @@ pub fn parse_status(bytes: &[u8]) -> Option<PeerStatus> {
             let unread = u32::try_from(total - files.len()).unwrap_or(u32::MAX);
             PeerSession {
                 key: s.key,
-                agent: cut(&s.agent),
-                title: cut(&s.title),
+                agent: plain(&s.agent),
+                title: plain(&s.title),
                 state: s.state,
                 repo: s.repo,
                 files,
@@ -357,7 +357,7 @@ pub fn parse_status(bytes: &[u8]) -> Option<PeerStatus> {
         })
         .collect();
     Some(PeerStatus {
-        name: cut(&doc.name),
+        name: plain(&doc.name),
         sessions,
     })
 }
@@ -464,9 +464,9 @@ pub fn parse_detail(bytes: &[u8]) -> Option<OtherDetail> {
         })
         .collect();
     Some(OtherDetail {
-        name: cut(&doc.name),
-        agent: cut(&doc.agent),
-        title: cut(&doc.title),
+        name: plain(&doc.name),
+        agent: plain(&doc.agent),
+        title: plain(&doc.title),
         base,
         claims,
     })
@@ -602,6 +602,38 @@ pub struct TeamActivity {
     pub sessions: Vec<SessionId>,
     /// The repository of each of `sessions`, to match the teammates' sessions ([`PeerSession`]).
     pub session_repos: Vec<SessionRepo>,
+    /// The signed-in person's devices the verified log lists, this one first: their safety
+    /// numbers (a newcomer compares the admitting device's), and the others can be removed.
+    pub devices: Vec<OwnDevice>,
+    /// The verified log's safety number at its head, for a newcomer to compare.
+    pub log: Option<LogSafety>,
+    /// The log has room only for removing members and changing the key
+    /// (`TeamState::log_full`): no device or member can be admitted any more, everything else
+    /// goes on.
+    pub log_full: bool,
+    /// A teammate's signed record named a newer membership log than the relay hands this device,
+    /// also after fetching it again: the relay holds back log entries.
+    pub history_withheld: bool,
+}
+
+/// One of the signed-in person's devices in the verified log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnDevice {
+    pub device: String,
+    /// This computer's device.
+    pub this: bool,
+    /// The offline device of a recovery code.
+    pub recovery: bool,
+    pub safety_number: Vec<String>,
+}
+
+/// The log safety number at one entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogSafety {
+    pub index: u64,
+    pub safety_number: Vec<String>,
 }
 
 /// One of this device's shared sessions and the root commit of its repository.
@@ -658,6 +690,21 @@ pub fn who(name: &str, agent: &str) -> String {
 
 fn cut(text: &str) -> String {
     text.chars().take(MAX_LABEL_CHARS).collect()
+}
+
+/// A teammate's text as this device shows and passes it on (names, agents, titles): without
+/// control, invisible or reordering characters, which could hide or reorder what the person
+/// reads next to it, and without line or paragraph separators, which would break the label;
+/// then cut like any label.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|&c| {
+            !c.is_control()
+                && !crate::text::is_invisible(c)
+                && !matches!(c, '\u{2028}' | '\u{2029}')
+        })
+        .take(MAX_LABEL_CHARS)
+        .collect()
 }
 
 #[cfg(test)]
@@ -731,6 +778,40 @@ mod tests {
             parse_status(doc.as_bytes()).unwrap().name.len(),
             MAX_LABEL_CHARS
         );
+    }
+
+    #[test]
+    fn teammate_texts_lose_control_and_reordering_characters() {
+        let status = serde_json::json!({
+            "v": 1,
+            "name": "An\u{202E}na\u{7}",
+            "sessions": [{
+                "key": "k1",
+                "agent": "Cl\u{200B}aude",
+                "title": "fix\u{202E}\u{2066} login\n",
+                "state": "working",
+                "repo": "a".repeat(40),
+                "files": [],
+                "moreFiles": 0,
+            }],
+        });
+        let parsed = parse_status(status.to_string().as_bytes()).unwrap();
+        assert_eq!(parsed.name, "Anna");
+        assert_eq!(parsed.sessions[0].agent, "Claude");
+        assert_eq!(parsed.sessions[0].title, "fix login");
+        let detail = serde_json::json!({
+            "v": 1,
+            "name": "\u{202E}evil",
+            "agent": "x\u{2067}y\u{2028}",
+            "title": "t\u{0}\u{2029}",
+            "base": null,
+            "files": [],
+            "truncated": false,
+        });
+        let parsed = parse_detail(detail.to_string().as_bytes()).unwrap();
+        assert_eq!(parsed.name, "evil");
+        assert_eq!(parsed.agent, "xy");
+        assert_eq!(parsed.title, "t");
     }
 
     #[test]

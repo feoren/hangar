@@ -64,7 +64,7 @@ describe("terminal mouse", () => {
     });
     element.dispatchEvent(press("mousedown", 0));
     program.selection = "selected output";
-    selection.clipboardWritten(program.selection);
+    selection.clipboardWritten(program.selection, true);
 
     element.dispatchEvent(press("mousedown", 2));
     element.dispatchEvent(press("mouseup", 2));

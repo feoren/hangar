@@ -404,6 +404,17 @@ export function GaugeIcon(props: IconProps) {
   );
 }
 
+/** Two arrows pressing on a line: compact the agent's context. */
+export function CompactIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 8h10" />
+      <path d="M8 2v3.5M6 3.5l2 2 2-2" />
+      <path d="M8 14v-3.5M6 12.5l2-2 2 2" />
+    </Svg>
+  );
+}
+
 /** Gear: settings. */
 export function GearIcon(props: IconProps) {
   return (
@@ -552,6 +563,52 @@ export function HomeIcon(props: IconProps) {
     <Svg {...props}>
       <path d="M2.5 7.5 8 3l5.5 4.5" />
       <path d="M4 6.5v6.5h3v-3.5h2V13h3V6.5" />
+    </Svg>
+  );
+}
+
+/** Processor chip: the CPU share in a session row. */
+export function CpuIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="8" height="8" rx="1.2" />
+      <path d="M6.5 1.5V4M9.5 1.5V4M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5" />
+    </Svg>
+  );
+}
+
+/** Memory module: the RAM in use in a session row. */
+export function MemoryIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.5" y="4" width="13" height="7" rx="1" />
+      <path d="M4.5 11v2.5M8 11v2.5M11.5 11v2.5M5 6.5v2M8 6.5v2M11 6.5v2" />
+    </Svg>
+  );
+}
+
+/**
+ * Graphics card seen from the side: the bracket on the left reaching past the card, one fan and
+ * the edge connector below; the GPU in a session row. Asymmetric, unlike the chip
+ * (pins all round) and the memory module (contacts in a row).
+ */
+export function GpuIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2 2v12" />
+      <rect x="2" y="3.5" width="12.5" height="7.5" rx="1" />
+      <circle cx="9.25" cy="7.25" r="2.25" />
+      <path d="M6 11v2.5h6V11" />
+    </Svg>
+  );
+}
+
+/** Power saving on battery (system bar). */
+export function LeafIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 12.5C3.5 7 7 3.5 12.5 3.5c0 5.5-3.5 9-9 9z" />
+      <path d="M3.5 12.5l4.5-4.5" />
     </Svg>
   );
 }

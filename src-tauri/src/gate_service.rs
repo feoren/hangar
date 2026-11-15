@@ -16,19 +16,29 @@
 //! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
 //! own under `<data>/gate/sessions/`, removed when the session's process ends.
 //!
+//! Shell commands: Claude Code's hook (matcher `*`, every tool) and the extensions' shell tool
+//! reach the same route with the command line instead of a path. A known shell tool, or any
+//! other tool with a string `tool_input.command` that is no edit tool, goes to the command guard
+//! (`command_guard.rs`, rules in `command-guard.toml`), which decides whether the person is
+//! asked; a held command that gets no answer in time is denied (fail safe). Other tools that are
+//! no edits pass at once.
+//!
 //! Connections: one thread each. Until its head is read and its token known, a connection holds
 //! one of [`MAX_UNAUTHENTICATED`] slots and has [`Limits::head`] in total for the head, however
-//! slowly it sends; a known session then moves to one of [`MAX_CONNECTIONS`] slots with
-//! [`Limits::body`] for its body. The accept thread never reads or writes: a connection over the
-//! limit is closed at once. A held request checks every [`WAIT_TICK`] whether the agent still
-//! waits, so an interrupted agent does not leave a card behind.
+//! slowly it sends; when all slots are taken, the oldest of them is closed for the newcomer
+//! once it waited [`Limits::grace`] for its head (a hook sends its head at once, so a burst of
+//! hooks is never cut), and past [`MAX_HEAD_THREADS`] busy head threads with none of them
+//! silent that long a new connection is closed at once. A known session then moves to one of [`MAX_CONNECTIONS`]
+//! slots, at most [`MAX_PER_SESSION`] of them its own, with [`Limits::body`] for its body. The
+//! accept thread never reads or blocks. A held request checks every [`WAIT_TICK`] whether the
+//! agent still waits, so an interrupted agent does not leave a card behind.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -38,10 +48,13 @@ use zeroize::Zeroizing;
 
 use crate::agent_catalog::{Agent, HookFormat};
 use crate::claims::WorktreeClaims;
+use crate::command_guard::{
+    self, Hit, Place, RuleProblem, RuleSet, RuleSummary, Style, RULE_HANGAR_CONFIG, RULE_TOO_LONG,
+};
 use crate::gate::{
-    self, Answer, EditRequest, Gate, GateSnapshot, Opened, Outcome, Waiting, DECISION_TIMEOUT,
-    ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON, ROUTE_USER_PROMPT_SUBMIT,
-    ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
+    self, Answer, AskRule, CommandConflict, CommandText, EditRequest, Gate, GateSnapshot, Opened,
+    Outcome, Waiting, DECISION_TIMEOUT, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON,
+    ROUTE_USER_PROMPT_SUBMIT, ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
 use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
 use crate::hook_http::{self, Head, Status};
@@ -57,12 +70,28 @@ use crate::team_tasks::TeamTask;
 
 /// Event to the main window with the newest [`GateSnapshot`].
 pub const EVENT: &str = "gate-changed";
-/// Connections of known sessions handled at the same time; one more is answered 503 (Claude
-/// Code then carries on as without the hook).
-pub const MAX_CONNECTIONS: usize = 64;
-/// Connections whose token is not known yet. Small, so a flood of slow connections cannot hold
-/// the threads; it only delays new hooks, which then fail open.
+/// Connections of known sessions handled at the same time. One more is denied while the gate
+/// is on (`Inner::overloaded`): an unanswered hook would let its call go ahead unchecked.
+pub const MAX_CONNECTIONS: usize = 128;
+/// Connections whose token is not known yet that may stay silent. With more open, a new one
+/// closes the oldest once that has waited [`HEAD_GRACE`] for its head: a hook sends its head at
+/// once, so silent clients cannot keep the hooks out, and a burst of parallel hooks is not cut.
 pub const MAX_UNAUTHENTICATED: usize = 8;
+/// Threads reading a head at once, closed connections that have not noticed yet included; over
+/// it a new connection is closed unanswered unless a silent one makes room. Bounds what a flood
+/// of connections costs; well above the hooks an agent sends at once.
+pub const MAX_HEAD_THREADS: usize = 128;
+/// How long a connection may wait for its head before a newer one may take its place. A hook's
+/// head arrives with the connection, so only a client that holds it silently is closed.
+const HEAD_GRACE: Duration = Duration::from_secs(1);
+/// Connections one known session holds at once, so one session cannot take every slot. Well
+/// above what an agent opens: Claude Code hooks every tool and runs several tools and
+/// sub-agents at once, and a quick hook holds its connection for milliseconds only.
+pub const MAX_PER_SESSION: usize = 32;
+/// How often a connection reading its head looks whether a newer one took its slot.
+const HEAD_POLL: Duration = Duration::from_millis(100);
+/// Stack of each connection thread (see `accept_loop`).
+const CONNECTION_STACK: usize = 8 * 1024 * 1024;
 /// How often a held request checks whether the agent still waits.
 const WAIT_TICK: Duration = Duration::from_millis(500);
 /// After the answer: how much the client may still send before the close.
@@ -78,6 +107,8 @@ const SESSIONS_DIR: &str = "sessions";
 struct Limits {
     /// Request line and headers.
     head: Duration,
+    /// How long a connection may wait silently for its head before a newer one may close it.
+    grace: Duration,
     /// The body of a known session.
     body: Duration,
     /// Reading what the client still sends after the answer.
@@ -90,6 +121,7 @@ struct Limits {
 
 const LIMITS: Limits = Limits {
     head: Duration::from_secs(5),
+    grace: HEAD_GRACE,
     body: Duration::from_secs(30),
     linger: Duration::from_secs(2),
     write: Duration::from_secs(5),
@@ -110,7 +142,6 @@ struct Inner {
     gate: Mutex<Gate<Waiter>>,
     /// Port of the endpoint once it runs.
     port: Mutex<Option<u16>>,
-    unauthenticated: Arc<AtomicUsize>,
     connections: Arc<AtomicUsize>,
     limits: Limits,
     /// Where the hook settings for cmd.exe launchers go (no secret in them).
@@ -131,6 +162,52 @@ struct Inner {
     starts: AtomicUsize,
     /// The person's gate rules (`gate_rules.rs`) and the file they live in.
     rules: Mutex<Rules>,
+    /// The command guard's rules.
+    guard: Mutex<Guard>,
+    /// The command guard's setting (on by default). Not under a lock, so `ask_command` can read
+    /// it while it holds the gate's.
+    guard_enabled: AtomicBool,
+    /// Connections whose head is still being read, oldest first.
+    heads: Arc<Mutex<Heads>>,
+    /// Connections each known session holds.
+    per_session: Arc<Mutex<HashMap<SessionId, usize>>>,
+}
+
+/// The command guard: on by default; its rules come from the file, read again when it changed.
+struct Guard {
+    /// `command-guard.toml` in Hangar's config folder; without one (tests) the default rules.
+    file: Option<PathBuf>,
+    /// Modification time and length of the file the rules were read from.
+    stamp: Option<(Option<SystemTime>, u64)>,
+    /// Whether Hangar already tried to write the default file in this run.
+    wrote_default: bool,
+    rules: Arc<RuleSet>,
+}
+
+impl Default for Guard {
+    fn default() -> Self {
+        Self {
+            file: None,
+            stamp: None,
+            wrote_default: false,
+            rules: Arc::new(command_guard::default_rules()),
+        }
+    }
+}
+
+/// What Settings shows of the command guard (command `command_guard_info`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardInfo {
+    pub enabled: bool,
+    /// Where the rules live, for the person to edit; empty without a file.
+    pub file: String,
+    pub rules: Vec<RuleSummary>,
+    pub problems: Vec<RuleProblem>,
+    /// The file could not be read, so the default rules apply.
+    pub defaults: bool,
+    /// How many rules Hangar ships, so Settings can say when the file holds fewer.
+    pub default_count: usize,
 }
 
 /// The rule book and where it is saved; without a file (tests, before `load_rules`) rules live
@@ -185,7 +262,6 @@ impl GateService {
             inner: Arc::new(Inner {
                 gate: Mutex::new(Gate::default()),
                 port: Mutex::new(None),
-                unauthenticated: Arc::new(AtomicUsize::new(0)),
                 connections: Arc::new(AtomicUsize::new(0)),
                 limits,
                 settings_dir,
@@ -198,6 +274,10 @@ impl GateService {
                 session_dirs: Mutex::new(HashMap::new()),
                 starts: AtomicUsize::new(0),
                 rules: Mutex::new(Rules::default()),
+                guard: Mutex::new(Guard::default()),
+                guard_enabled: AtomicBool::new(true),
+                heads: Arc::new(Mutex::new(Heads::default())),
+                per_session: Arc::new(Mutex::new(HashMap::new())),
             }),
         }
     }
@@ -247,13 +327,24 @@ impl GateService {
     /// gate rule ([`Answer::rule`]) saves it for the decision's project and answers the
     /// other waiting decisions it covers at once.
     pub fn answer(&self, id: u64, answer: Answer) -> bool {
-        let rule = answer
+        // Checked before any rule is saved: an answer the decision does not take sets nothing.
+        if !lock(&self.inner.gate).accepts(id, answer) {
+            return false;
+        }
+        let rules = answer
             .rule()
-            .and_then(|(effect, scope)| self.add_rule_for(id, effect, scope));
+            .map(|(effect, scope)| self.add_rules_for(id, effect, scope))
+            .unwrap_or_default();
         let resolved = lock(&self.inner.gate).answer(id, answer);
         let found = resolved.is_some();
         deliver(resolved.into_iter().flatten());
-        let settled = rule.is_some_and(|rule| self.inner.settle_waiting(&rule));
+        let mut settled = false;
+        for rule in rules.iter().filter(|rule| rule.scope != RuleScope::Command) {
+            settled |= self.inner.settle_waiting(rule);
+        }
+        if rules.iter().any(|rule| rule.scope == RuleScope::Command) {
+            settled |= self.inner.settle_commands();
+        }
         if found || settled {
             self.inner.publish();
         }
@@ -277,6 +368,45 @@ impl GateService {
         };
     }
 
+    /// Where the command guard's rules live; read on first use, written with the commented
+    /// defaults when missing.
+    pub fn load_command_guard(&self, file: PathBuf) {
+        let mut guard = lock(&self.inner.guard);
+        guard.file = Some(file);
+        guard.stamp = None;
+    }
+
+    /// The window's setting. Turning it off lets every held shell command go on.
+    pub fn configure_command_guard(&self, enabled: bool) {
+        let changed = self.inner.guard_enabled.swap(enabled, Ordering::SeqCst) != enabled;
+        if !changed || enabled {
+            return;
+        }
+        let released = lock(&self.inner.gate).release_commands();
+        if !released.is_empty() {
+            deliver(released);
+            self.inner.publish();
+        }
+    }
+
+    /// The guard's setting, file, rules and problems, the file read again if it changed.
+    pub fn command_guard_info(&self) -> GuardInfo {
+        let set = self.inner.guard_rules();
+        let guard = lock(&self.inner.guard);
+        GuardInfo {
+            enabled: self.inner.guard_enabled.load(Ordering::SeqCst),
+            file: guard
+                .file
+                .as_ref()
+                .map(|file| file.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            rules: set.summaries(),
+            problems: set.problems.clone(),
+            defaults: set.defaults,
+            default_count: command_guard::default_rules().rules.len(),
+        }
+    }
+
     /// Every gate rule, in the order they were set.
     pub fn rules(&self) -> Vec<GateRule> {
         lock(&self.inner.rules).book.rules().to_vec()
@@ -292,27 +422,41 @@ impl GateService {
         removed
     }
 
-    /// The rule an answer sets for decision `id`: its file, or the file's folder, in the project
-    /// of the waiting session. `None` when the decision no longer waits, the session is in no
-    /// known repository, or the path cannot be a rule (a folder rule for a file at the top).
-    fn add_rule_for(&self, id: u64, effect: RuleEffect, scope: RuleScope) -> Option<GateRule> {
-        let waiting = lock(&self.inner.gate).waiting(id)?;
+    /// The rules an answer sets for decision `id`: its file, or the file's folder, or each guard
+    /// rule a held command matched (except those [`command_guard::rememberable`] refuses), in the
+    /// project of the waiting session. Empty when the decision no longer waits, the session is in
+    /// no known repository, or the path cannot be a rule (a folder rule for a file at the top).
+    fn add_rules_for(&self, id: u64, effect: RuleEffect, scope: RuleScope) -> Vec<GateRule> {
+        let Some(waiting) = lock(&self.inner.gate).waiting(id) else {
+            return Vec::new();
+        };
         let worktrees = (self.inner.worktrees)();
-        let project = worktrees
+        let Some(project) = worktrees
             .iter()
-            .find(|w| w.sessions.contains(&waiting.session))?
-            .repo
-            .clone();
-        let path = match scope {
-            RuleScope::File => waiting.path.clone(),
-            RuleScope::Folder => gate_rules::folder_of(&waiting.path)?,
+            .find(|w| w.sessions.contains(&waiting.session))
+            .map(|w| w.repo.clone())
+        else {
+            return Vec::new();
+        };
+        let paths: Vec<String> = match (scope, &waiting.command_rules) {
+            (RuleScope::Command, Some(ids)) => ids
+                .iter()
+                .filter(|id| command_guard::rememberable(id))
+                .cloned()
+                .collect(),
+            (RuleScope::File, None) => vec![waiting.path.clone()],
+            (RuleScope::Folder, None) => gate_rules::folder_of(&waiting.path).into_iter().collect(),
+            _ => Vec::new(),
         };
         let mut rules = lock(&self.inner.rules);
-        let rule = rules
-            .book
-            .add(&project, &path, scope, effect, now_millis())?;
-        rules.save();
-        Some(rule)
+        let added: Vec<GateRule> = paths
+            .iter()
+            .filter_map(|path| rules.book.add(&project, path, scope, effect, now_millis()))
+            .collect();
+        if !added.is_empty() {
+            rules.save();
+        }
+        added
     }
 
     /// Hangar quits: waiting edits are denied, no token works any more.
@@ -349,10 +493,12 @@ impl GateService {
         port: u16,
         context: bool,
         program: &Path,
+        version: Option<&str>,
     ) -> Result<Vec<String>, GateStatus> {
-        let settings = gate::claude_settings(port, context);
+        let block = gate::claude_blocks_on_failure(version);
+        let settings = gate::claude_settings(port, context, block);
         let argument = if crate::batch::is_batch(program) {
-            self.settings_file(port, context, &settings)
+            self.settings_file(port, context, block, &settings)
                 .ok_or(GateStatus::Launcher)?
         } else {
             settings
@@ -363,8 +509,21 @@ impl GateService {
     /// The hook settings as a file, for a cmd.exe launcher: Hangar refuses `"` in such a
     /// launcher's arguments (batch.rs), so the JSON cannot go inline. `None` when the file's path
     /// holds a character cmd.exe would interpret or the file cannot be written.
-    fn settings_file(&self, port: u16, context: bool, settings: &str) -> Option<String> {
-        let suffix = if context { "-context" } else { "" };
+    fn settings_file(
+        &self,
+        port: u16,
+        context: bool,
+        block: bool,
+        settings: &str,
+    ) -> Option<String> {
+        // One file per content, so sessions of Claude Code versions on both sides of
+        // `CLAUDE_ON_FAILURE_SINCE` never rewrite each other's file.
+        let suffix = match (context, block) {
+            (true, true) => "-context-block",
+            (true, false) => "-context",
+            (false, true) => "-block",
+            (false, false) => "",
+        };
         let path = self
             .inner
             .settings_dir
@@ -437,6 +596,7 @@ impl GateService {
     /// What one start of a program with `format` gets, without the token: arguments before and
     /// after the user's, environment, and whether the token goes to the helper
     /// ([`HELPER_ENV`]) instead of an HTTP hook header ([`TOKEN_ENV`]).
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
     fn install(
         &self,
         format: HookFormat,
@@ -445,12 +605,13 @@ impl GateService {
         context: bool,
         program: &Path,
         user_args: &[String],
+        version: Option<&str>,
     ) -> Result<Install, GateStatus> {
         let batch = crate::batch::is_batch(program);
         let path_text = |path: &Path| path.to_string_lossy().into_owned();
         let install = match format {
             HookFormat::ClaudeSettings => Install {
-                args: self.claude_args(port, context, program)?,
+                args: self.claude_args(port, context, program, version)?,
                 ..Install::default()
             },
             HookFormat::QwenSystemSettings => {
@@ -697,6 +858,7 @@ impl LaunchGate for GateService {
         agent: &Agent,
         program: &Path,
         args: &[String],
+        version: Option<&str>,
     ) -> GatePlan {
         let Some(format) = agent.capabilities.gate_format() else {
             return GatePlan::Skip;
@@ -713,7 +875,7 @@ impl LaunchGate for GateService {
         };
         let context = agent.capabilities.context_inject;
         // Each program takes its hooks in its own format; the endpoint and token are the same.
-        let install = match self.install(format, session, port, context, program, args) {
+        let install = match self.install(format, session, port, context, program, args, version) {
             Ok(install) => install,
             Err(status) => {
                 self.remove_dirs(session);
@@ -801,6 +963,30 @@ fn deliver(outcomes: impl IntoIterator<Item = (Waiter, Outcome)>) {
     for (waiter, outcome) in outcomes {
         let _ = waiter.try_send(outcome);
     }
+}
+
+/// The default rules with a problem that names why the file could not be read.
+fn file_problem(reason: &str) -> RuleSet {
+    let mut set = command_guard::default_rules();
+    set.defaults = true;
+    set.problems.insert(
+        0,
+        RuleProblem {
+            rule: None,
+            id: None,
+            line: None,
+            message: reason.to_owned(),
+        },
+    );
+    set
+}
+
+/// The user's home folder, where `~` and `$HOME` in a command lead.
+fn home_folder() -> Option<PathBuf> {
+    let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn now_millis() -> u64 {
@@ -913,11 +1099,130 @@ impl Drop for Slot {
     }
 }
 
+/// Connections whose head is still being read.
+#[derive(Default)]
+struct Heads {
+    next: u64,
+    /// The ones holding a slot, oldest first: id, a handle to close it, its cancel flag, when
+    /// it was accepted.
+    open: VecDeque<(u64, TcpStream, Arc<AtomicBool>, Instant)>,
+    /// Threads still reading a head, the closed ones that have not noticed yet included.
+    alive: usize,
+}
+
+/// A connection reading its head: one of [`MAX_UNAUTHENTICATED`] slots until the head is read
+/// or a newer connection takes the slot.
+struct HeadSlot {
+    heads: Arc<Mutex<Heads>>,
+    id: u64,
+    cancel: Arc<AtomicBool>,
+}
+
+impl HeadSlot {
+    /// A slot for `stream`. With [`MAX_UNAUTHENTICATED`] or more open, or every head thread
+    /// busy, the oldest connection is closed for this one once it waited `grace` for its head: a hook sends its head at once, a client that holds a slot silently does not,
+    /// so silent clients cannot keep the hooks out, while a burst of hooks arriving together
+    /// is never cut. `None` (closed unanswered) only when [`MAX_HEAD_THREADS`] threads are busy
+    /// and none of them has been silent that long. Each thread over that limit closed a silent
+    /// one, which ends within [`HEAD_POLL`], so the threads stay bounded.
+    fn take(heads: &Arc<Mutex<Heads>>, stream: &TcpStream, grace: Duration) -> Option<HeadSlot> {
+        let handle = stream.try_clone().ok()?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let now = Instant::now();
+        let (id, evicted) = {
+            let mut list = lock(heads);
+            let crowded = list.open.len() >= MAX_UNAUTHENTICATED || list.alive >= MAX_HEAD_THREADS;
+            let silent = list
+                .open
+                .front()
+                .is_some_and(|(_, _, _, since)| now.saturating_duration_since(*since) >= grace);
+            let evicted = if crowded && silent {
+                list.open.pop_front()
+            } else {
+                None
+            };
+            if evicted.is_none() && list.alive >= MAX_HEAD_THREADS {
+                return None;
+            }
+            let id = list.next;
+            list.next = list.next.wrapping_add(1);
+            list.open.push_back((id, handle, Arc::clone(&cancel), now));
+            list.alive += 1;
+            (id, evicted)
+        };
+        if let Some((_, oldest, flag, _)) = evicted {
+            flag.store(true, Ordering::SeqCst);
+            // Wakes its reader where the platform does; the flag ends it within HEAD_POLL.
+            let _ = oldest.shutdown(Shutdown::Both);
+        }
+        Some(HeadSlot {
+            heads: Arc::clone(heads),
+            id,
+            cancel,
+        })
+    }
+}
+
+impl HeadSlot {
+    /// The head is read: this connection leaves the slots a newer one may take, under the lock,
+    /// before its request is looked at, so it is never closed while it is answered. `false`
+    /// when a newer one took its slot first (its stream is closed then).
+    fn head_read(&self) -> bool {
+        let mut list = lock(&self.heads);
+        let before = list.open.len();
+        list.open.retain(|(id, _, _, _)| *id != self.id);
+        before != list.open.len() && !self.cancel.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for HeadSlot {
+    fn drop(&mut self) {
+        let mut list = lock(&self.heads);
+        list.open.retain(|(id, _, _, _)| *id != self.id);
+        list.alive = list.alive.saturating_sub(1);
+    }
+}
+
+/// One of [`MAX_PER_SESSION`] connections of a known session.
+struct SessionSlot {
+    sessions: Arc<Mutex<HashMap<SessionId, usize>>>,
+    session: SessionId,
+}
+
+impl SessionSlot {
+    fn take(sessions: &Arc<Mutex<HashMap<SessionId, usize>>>, session: SessionId) -> Option<Self> {
+        let mut counts = lock(sessions);
+        let count = counts.entry(session).or_insert(0);
+        if *count >= MAX_PER_SESSION {
+            return None;
+        }
+        *count += 1;
+        Some(SessionSlot {
+            sessions: Arc::clone(sessions),
+            session,
+        })
+    }
+}
+
+impl Drop for SessionSlot {
+    fn drop(&mut self) {
+        let mut counts = lock(&self.sessions);
+        if let Some(count) = counts.get_mut(&self.session) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(&self.session);
+            }
+        }
+    }
+}
+
 /// Reads with one deadline for all reads together: each read may take only the time left, so a
 /// client sending a byte now and then cannot stretch a limit meant for the whole request.
 struct Deadline<'a> {
     stream: &'a TcpStream,
     until: Instant,
+    /// Set when a newer connection took this one's slot: reading stops within [`HEAD_POLL`].
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> Deadline<'a> {
@@ -925,24 +1230,47 @@ impl<'a> Deadline<'a> {
         Self {
             stream,
             until: Instant::now() + limit,
+            cancel: None,
         }
     }
 
     /// A fresh total from now, for the next part of the request.
     fn restart(&mut self, limit: Duration) {
         self.until = Instant::now() + limit;
+        self.cancel = None;
     }
 }
 
 impl Read for Deadline<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let left = self.until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Err(io::ErrorKind::TimedOut.into());
+        loop {
+            if self
+                .cancel
+                .as_ref()
+                .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+            {
+                return Err(io::ErrorKind::ConnectionAborted.into());
+            }
+            let left = self.until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            let slice = match self.cancel {
+                Some(_) => left.min(HEAD_POLL),
+                None => left,
+            };
+            self.stream.set_read_timeout(Some(slice))?;
+            let mut stream = self.stream;
+            match stream.read(buf) {
+                Err(error)
+                    if self.cancel.is_some()
+                        && matches!(
+                            error.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                        ) => {}
+                other => return other,
+            }
         }
-        self.stream.set_read_timeout(Some(left))?;
-        let mut stream = self.stream;
-        stream.read(buf)
     }
 }
 
@@ -963,37 +1291,49 @@ fn accept_loop(inner: &Arc<Inner>, listener: &TcpListener) {
         if !loopback {
             continue;
         }
-        // Over the limit: closed unanswered, without a read or a write that could block this
-        // thread. Claude Code treats that as a failed hook and goes on.
-        let Some(slot) = Slot::take(&inner.unauthenticated, MAX_UNAUTHENTICATED) else {
+        // No thread left for heads: closed unanswered, without a read or a write that could
+        // block this thread. Claude Code treats that as a failed hook and goes on.
+        let Some(slot) = HeadSlot::take(&inner.heads, &stream, inner.limits.grace) else {
             continue;
         };
         let worker = Arc::clone(inner);
-        // A failed spawn drops the closure with its slot and stream.
+        // A failed spawn drops the closure with its slot and stream. The stack is set rather
+        // than left to the platform default: the command guard splits text the agent wrote, and
+        // a stack overflow here would abort the whole app with every session in it. Its
+        // recursion is bounded (`command_split::MAX_DEPTH`, `command_guard::MAX_BRACE_GROUPS`);
+        // this is the margin on top.
         let _ = thread::Builder::new()
             .name("gate-conn".to_owned())
+            .stack_size(CONNECTION_STACK)
             .spawn(move || serve(&worker, &stream, slot));
     }
 }
 
-fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: Slot) {
+fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
     let _ = stream.set_write_timeout(Some(inner.limits.write));
-    let mut reader = BufReader::new(Deadline::new(stream, inner.limits.head));
+    let mut deadline = Deadline::new(stream, inner.limits.head);
+    deadline.cancel = Some(Arc::clone(&unauthenticated.cancel));
+    let mut reader = BufReader::new(deadline);
     // Held until the connection closes, once the session is known.
     let mut _authenticated = None;
     let (status, body) = match hook_http::read_head(&mut reader) {
         Err(error) => match error.status() {
-            Some(status) => (status, String::new()),
-            None => return,
+            Some(status) if !unauthenticated.cancel.load(Ordering::SeqCst) => {
+                (status, String::new())
+            }
+            _ => return,
         },
+        Ok(_) if !unauthenticated.head_read() => return,
         Ok(head) => match inner.admit(&head) {
             Err(status) => (status, String::new()),
             Ok(session) => {
                 drop(unauthenticated);
-                match Slot::take(&inner.connections, MAX_CONNECTIONS) {
-                    None => (Status::Unavailable, String::new()),
-                    Some(slot) => {
-                        _authenticated = Some(slot);
+                let slots = Slot::take(&inner.connections, MAX_CONNECTIONS)
+                    .zip(SessionSlot::take(&inner.per_session, session));
+                match slots {
+                    None => inner.overloaded(&head),
+                    Some(slots) => {
+                        _authenticated = Some(slots);
                         reader.get_mut().restart(inner.limits.body);
                         inner.route(session, &head, &mut reader, stream)
                     }
@@ -1061,12 +1401,13 @@ impl Inner {
                     .iter()
                     .find(|tree| tree.sessions.contains(&w.session))
                     .is_some_and(|tree| {
-                        gate_rules::rule_matches(
-                            rule,
-                            &tree.repo,
-                            &w.key,
-                            gate_rules::CASE_INSENSITIVE,
-                        )
+                        w.command_rules.is_none()
+                            && gate_rules::rule_matches(
+                                rule,
+                                &tree.repo,
+                                &w.key,
+                                gate_rules::CASE_INSENSITIVE,
+                            )
                     })
             })
             .collect();
@@ -1083,9 +1424,180 @@ impl Inner {
         any
     }
 
+    /// Answers the held shell commands the remembered answers now cover: any deny for one of a
+    /// command's rules blocks it, an allow for every one of them lets it go on. `true` when any.
+    fn settle_commands(&self) -> bool {
+        let waiting: Vec<Waiting> = lock(&self.gate)
+            .all_waiting()
+            .into_iter()
+            .filter(|w| w.command_rules.is_some())
+            .collect();
+        if waiting.is_empty() {
+            return false;
+        }
+        let worktrees = (self.worktrees)();
+        let titles = (self.titles)();
+        let mut settled: Vec<(Waiting, RuleEffect, Vec<GateRule>)> = Vec::new();
+        {
+            let rules = lock(&self.rules);
+            for w in waiting {
+                let Some(tree) = worktrees.iter().find(|t| t.sessions.contains(&w.session)) else {
+                    continue;
+                };
+                let ids = w.command_rules.clone().unwrap_or_default();
+                let found: Vec<Option<GateRule>> = ids
+                    .iter()
+                    .map(|id| {
+                        rules
+                            .book
+                            .find_command(&tree.repo, id)
+                            .filter(|_| command_guard::rememberable(id))
+                            .cloned()
+                    })
+                    .collect();
+                if let Some(deny) = found
+                    .iter()
+                    .flatten()
+                    .find(|rule| rule.effect == RuleEffect::Deny)
+                {
+                    let deny = deny.clone();
+                    settled.push((w, RuleEffect::Deny, vec![deny]));
+                } else if found.iter().all(Option::is_some) {
+                    let all = found.into_iter().flatten().collect();
+                    settled.push((w, RuleEffect::Allow, all));
+                }
+            }
+        }
+        let mut gate = lock(&self.gate);
+        let mut any = false;
+        for (w, effect, used) in settled {
+            let Some(outcomes) = gate.settle(w.id, effect) else {
+                continue;
+            };
+            deliver(outcomes);
+            for rule in &used {
+                gate.record(log_entry(rule, w.session, &titles, &rule.path));
+            }
+            any = true;
+        }
+        any
+    }
+
     fn publish(&self) {
         let snapshot = lock(&self.gate).snapshot();
         (self.emit)(&snapshot);
+    }
+
+    /// The guard's rules, read again when the file changed (one look at its metadata per call,
+    /// taken from the opened file so the check and the read see the same file). A missing file
+    /// is written once per run with the commented defaults. The disk is never touched under the
+    /// guard's lock.
+    fn guard_rules(&self) -> Arc<RuleSet> {
+        let (file, stamp, wrote_default, cached) = {
+            let guard = lock(&self.guard);
+            (
+                guard.file.clone(),
+                guard.stamp,
+                guard.wrote_default,
+                Arc::clone(&guard.rules),
+            )
+        };
+        let Some(file) = file else {
+            return cached;
+        };
+        let mut opened = std::fs::File::open(&file);
+        if matches!(&opened, Err(error) if error.kind() == io::ErrorKind::NotFound) {
+            if !wrote_default {
+                lock(&self.guard).wrote_default = true;
+                let written = file
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| {
+                        crate::persist::write_atomic(&file, command_guard::DEFAULT_RULES.as_bytes())
+                    });
+                if let Err(error) = written {
+                    eprintln!("hangar: {} not written: {error}", file.display());
+                }
+            }
+            opened = std::fs::File::open(&file);
+        }
+        let mut handle = match opened {
+            Ok(handle) => handle,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Arc::new(command_guard::default_rules());
+            }
+            Err(error) => return Arc::new(file_problem(&format!("not readable: {error}"))),
+        };
+        let Ok(meta) = handle.metadata() else {
+            return Arc::new(file_problem("its size could not be read"));
+        };
+        let now = (meta.modified().ok(), meta.len());
+        if stamp == Some(now) {
+            return cached;
+        }
+        let limit = command_guard::MAX_FILE_BYTES as u64;
+        let mut bytes = Vec::new();
+        let set = if meta.len() > limit {
+            file_problem("the file is larger than 1 MiB")
+        } else {
+            match (&mut handle).take(limit + 1).read_to_end(&mut bytes) {
+                Err(error) => file_problem(&format!("not readable: {error}")),
+                Ok(_) if bytes.len() as u64 > limit => {
+                    file_problem("the file is larger than 1 MiB")
+                }
+                Ok(_) => match String::from_utf8(bytes) {
+                    Ok(text) => command_guard::parse_rules(&text),
+                    Err(_) => file_problem("the file is not UTF-8 text"),
+                },
+            }
+        };
+        let set = Arc::new(set);
+        let mut guard = lock(&self.guard);
+        guard.stamp = Some(now);
+        guard.rules = Arc::clone(&set);
+        set
+    }
+
+    /// Hangar's own folders: the config folder (the guard's file) and the local data folder (the
+    /// remembered answers, the hook folders).
+    /// Only the folders that hold settings or gate state: the config folder (the guard's rules,
+    /// the profiles) and the gate's own folder (hook settings, the extensions' session folders).
+    /// Not the local data folder as a whole, where the team sessions' worktrees live.
+    fn protected_folders(&self) -> Vec<PathBuf> {
+        let config = lock(&self.guard)
+            .file
+            .as_ref()
+            .and_then(|file| file.parent().map(Path::to_path_buf));
+        config
+            .into_iter()
+            .chain(std::iter::once(self.settings_dir.clone()))
+            .collect()
+    }
+
+    /// The settings files themselves, wherever they lie: the guard's rules and the remembered
+    /// answers (in the local data folder).
+    fn protected_files(&self) -> Vec<PathBuf> {
+        let guard = lock(&self.guard).file.clone();
+        let rules = lock(&self.rules).file.clone();
+        [guard, rules].into_iter().flatten().collect()
+    }
+
+    /// Where a shell command or an edit of `session` runs, for the guard's checks. Without a
+    /// usable working folder from the hook, relative paths stay unplaceable (asked about).
+    fn place_for(&self, cwd: Option<&str>, own: Option<&WorktreeClaims>) -> Place {
+        let key = |path: &Path| crate::git::path_key(path);
+        let protected: Vec<String> = self.protected_folders().iter().map(|p| key(p)).collect();
+        // The identifier of the config folder; the data folder has the same name, which is why
+        // names only count for paths outside the session's project.
+        let names: Vec<&str> = protected.first().map(String::as_str).into_iter().collect();
+        Place {
+            cwd: cwd.map(Path::new).filter(|cwd| cwd.is_absolute()).map(key),
+            project: own.map(|own| own.root_key.clone()),
+            home: home_folder().as_deref().map(key),
+            protected_names: command_guard::protected_names(&names),
+            protected_files: self.protected_files().iter().map(|p| key(p)).collect(),
+            protected,
+        }
     }
 
     /// Who sent the request. A browser page (`Origin`, `Sec-Fetch-*`) or another `Host` than the
@@ -1100,6 +1612,29 @@ impl Inner {
             .as_deref()
             .and_then(|token| lock(&self.gate).session_for(token))
             .ok_or(Status::Unauthorized)
+    }
+
+    /// The answer to a known session's request that finds no free slot, without reading its
+    /// body. A tool hook is denied while the gate is on: an unanswered one (503, closed) lets
+    /// the call go ahead unchecked, so a session flooding the endpoint could wave a command
+    /// past the guard. With the gate off it gets "no decision": Claude Code's hook blocks the
+    /// call on an error (`onFailure: "block"`). The prompt hook only adds context and may go
+    /// without.
+    fn overloaded(&self, head: &Head) -> (Status, String) {
+        let tool_hook = matches!(
+            head.path.as_str(),
+            ROUTE_PRE_TOOL_USE | ROUTE_PRE_TOOL_USE_JSON
+        );
+        if !tool_hook {
+            return (Status::Unavailable, String::new());
+        }
+        if lock(&self.gate).enabled() {
+            (Status::Ok, Outcome::Deny(gate::busy_reason()).body())
+        } else if head.path == ROUTE_PRE_TOOL_USE_JSON {
+            (Status::Ok, gate::EMPTY_JSON.to_owned())
+        } else {
+            (Status::Ok, String::new())
+        }
     }
 
     fn route(
@@ -1127,7 +1662,15 @@ impl Inner {
                         Status::Ok,
                         filled(self.decide(session, request, stream).body()),
                     ),
-                    Err(_) => (Status::BadRequest, String::new()),
+                    // A known session's call Hangar cannot read is blocked while the gate is on,
+                    // with a reason (a refused request lets Claude Code's hooks older than
+                    // `onFailure` go on). With the gate off it goes ahead: "no decision", since
+                    // an error now blocks the call (`onFailure: "block"`).
+                    Err(_) if lock(&self.gate).enabled() => (
+                        Status::Ok,
+                        Outcome::Deny(gate::unreadable_call_reason()).body(),
+                    ),
+                    Err(_) => (Status::Ok, filled(String::new())),
                 }
             }
             ROUTE_USER_PROMPT_SUBMIT | ROUTE_USER_PROMPT_SUBMIT_JSON => {
@@ -1199,15 +1742,43 @@ impl Inner {
         if !lock(&self.gate).enabled() {
             return Outcome::Allow;
         }
+        if let Some(command) = request.command.clone() {
+            return self.decide_command(session, &request, command, stream);
+        }
+        // Claude Code sends every tool (matcher `*`); only edits are looked at here.
+        if !gate::is_edit_tool(&request.tool) {
+            return Outcome::Allow;
+        }
+        let worktrees = (self.worktrees)();
+        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
+        // A path the gate cannot read is asked about: refusing the request would let it through.
+        if let Some(start) = &request.unreadable_path {
+            let text = format!("{}: {start}", request.tool);
+            let hit = Hit::builtin(RULE_TOO_LONG, String::new());
+            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
+        }
         let Some(path) = request.path.as_deref() else {
             return Outcome::Allow;
         };
-        let worktrees = (self.worktrees)();
+        // An edit of Hangar's own settings is held like a risky command, whatever collides; also
+        // through a link inside the project that leads there.
+        let place = self.place_for(request.cwd.as_deref(), own);
+        let candidates = own
+            .map(|own| path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key)))
+            .unwrap_or_default();
+        if command_guard::edit_touches_hangar(path, &place, Style::HOST)
+            || candidates
+                .iter()
+                .any(|key| command_guard::edit_touches_hangar(key, &place, Style::HOST))
+        {
+            let text = format!("{}: {path}", request.tool);
+            let hit = Hit::builtin(RULE_HANGAR_CONFIG, text.clone());
+            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
+        }
         // A session outside every known worktree cannot collide; its path is not even looked at.
-        let Some(own) = worktrees.iter().find(|w| w.sessions.contains(&session)) else {
+        let Some(own) = own else {
             return Outcome::Allow;
         };
-        let candidates = path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key));
         let teammates = self.teammates_of(session, &worktrees);
         let tasks = self.tasks_of(session, &worktrees);
         let Some(conflict) =
@@ -1270,6 +1841,157 @@ impl Inner {
             Opened::Full => return Outcome::Ask(gate::full_reason(&shown_path, &named)),
         };
         self.publish();
+        self.hold(id, ticket, &rx, stream)
+    }
+
+    /// Answers one shell command: at once when no guard rule matches it, by the person's
+    /// remembered answers for the rules in this project, or once the person decided. With the
+    /// guard switched off only Hangar's own settings are still asked about.
+    fn decide_command(
+        &self,
+        session: SessionId,
+        request: &EditRequest,
+        command: CommandText,
+        stream: &TcpStream,
+    ) -> Outcome {
+        let guard_on = self.guard_enabled.load(Ordering::SeqCst);
+        let worktrees = (self.worktrees)();
+        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
+        let place = self.place_for(request.cwd.as_deref(), own);
+        let (text, hits) = match command {
+            CommandText::TooLong(start) => {
+                (start, vec![Hit::builtin(RULE_TOO_LONG, String::new())])
+            }
+            CommandText::Text(text) => {
+                let rules = self.guard_rules();
+                let dialects = command_guard::dialects_of(&request.tool);
+                let hits = command_guard::check(&rules.rules, &text, dialects, &place, Style::HOST);
+                (text, hits)
+            }
+        };
+        let hits = hits
+            .into_iter()
+            .filter(|hit| guard_on || hit.rule_id == RULE_HANGAR_CONFIG)
+            .collect();
+        self.ask_command(session, &request.tool, own, text, hits, stream, true)
+    }
+
+    /// The person's decision about `hits` of one command (or an edit of Hangar's settings): a
+    /// remembered deny for any rule blocks it, rules with a remembered allow drop out, and the
+    /// rest are asked about on one card. Allowed at once when nothing is left. `guarded`: the
+    /// hits come from the command guard, so switching it off before the card opens drops all
+    /// but Hangar's own settings.
+    #[allow(clippy::too_many_arguments)]
+    fn ask_command(
+        &self,
+        session: SessionId,
+        tool: &str,
+        own: Option<&WorktreeClaims>,
+        text: String,
+        hits: Vec<Hit>,
+        stream: &TcpStream,
+        guarded: bool,
+    ) -> Outcome {
+        if hits.is_empty() {
+            return Outcome::Allow;
+        }
+        let mut remaining = Vec::new();
+        let mut remembered = Vec::new();
+        {
+            let rules = lock(&self.rules);
+            for hit in hits {
+                let rule = own.and_then(|own| {
+                    rules
+                        .book
+                        .find_command(&own.repo, &hit.rule_id)
+                        .filter(|_| command_guard::rememberable(&hit.rule_id))
+                        .cloned()
+                });
+                match rule {
+                    Some(rule) => remembered.push((rule, hit)),
+                    None => remaining.push(hit),
+                }
+            }
+        }
+        if !remembered.is_empty() {
+            let titles = (self.titles)();
+            let shown = command_guard::shown(&text, gate_rules::LOG_COMMAND_CHARS);
+            {
+                let mut gate = lock(&self.gate);
+                if !gate.enabled() {
+                    return Outcome::Allow;
+                }
+                for (rule, _) in &remembered {
+                    gate.record(log_entry(rule, session, &titles, &shown));
+                }
+            }
+            self.publish();
+        }
+        if let Some((_, hit)) = remembered
+            .iter()
+            .find(|(rule, _)| rule.effect == RuleEffect::Deny)
+        {
+            return Outcome::Deny(gate::command_rule_denied_reason(&[AskRule::new(
+                &hit.rule_id,
+                &hit.description,
+            )]));
+        }
+        if remaining.is_empty() {
+            return Outcome::Allow;
+        }
+        let (tx, rx) = sync_channel(1);
+        let (opened, rules) = {
+            let mut gate = lock(&self.gate);
+            if !gate.enabled() {
+                return Outcome::Allow;
+            }
+            // Read under the gate's lock: `configure_command_guard` clears the flag before it
+            // takes this lock to release held commands, so a card opened here after that sees
+            // it, and one opened before is released there.
+            if guarded && !self.guard_enabled.load(Ordering::SeqCst) {
+                remaining.retain(|hit| hit.rule_id == RULE_HANGAR_CONFIG);
+                if remaining.is_empty() {
+                    return Outcome::Allow;
+                }
+            }
+            let call = remaining
+                .iter()
+                .find(|hit| !hit.call.is_empty())
+                .map(|hit| hit.call.clone())
+                .unwrap_or_default();
+            let rules: Vec<AskRule> = remaining
+                .iter()
+                .map(|hit| AskRule::new(&hit.rule_id, &hit.description))
+                .collect();
+            let conflict = CommandConflict {
+                rules: rules.clone(),
+                call,
+                text,
+            };
+            (
+                gate.open_command(session, tool, conflict, now_millis(), tx),
+                rules,
+            )
+        };
+        let (id, ticket) = match opened {
+            Opened::Waiting { id, ticket } => (id, ticket),
+            Opened::Allowed => return Outcome::Allow,
+            // Not the agent's own prompt: in an unattended mode it may answer itself.
+            Opened::Full => return Outcome::Deny(gate::command_full_reason(&rules)),
+        };
+        self.publish();
+        self.hold(id, ticket, &rx, stream)
+    }
+
+    /// Waits for the outcome of decision `id`: the person's answer, a rule set meanwhile, the
+    /// expiry after the decision time, or the agent closing the connection.
+    fn hold(
+        &self,
+        id: u64,
+        ticket: u64,
+        rx: &std::sync::mpsc::Receiver<Outcome>,
+        stream: &TcpStream,
+    ) -> Outcome {
         let deadline = Instant::now() + self.limits.decision;
         loop {
             match rx.recv_timeout(WAIT_TICK.min(self.limits.decision)) {
@@ -1337,6 +2059,7 @@ mod tests {
     fn limits(decision: Duration) -> Limits {
         Limits {
             head: Duration::from_millis(1500),
+            grace: Duration::from_millis(300),
             body: Duration::from_secs(5),
             linger: Duration::from_millis(500),
             write: Duration::from_secs(5),
@@ -1347,7 +2070,14 @@ mod tests {
     /// Session 1 in `root`, session 2 in another worktree of the same repository that changes
     /// `src/shared.rs` lines 10 to 12.
     fn fixture(decision: Duration) -> Fixture {
-        let root = std::env::current_dir().unwrap().join("repo-under-test");
+        fixture_at(
+            std::env::current_dir().unwrap().join("repo-under-test"),
+            decision,
+        )
+    }
+
+    /// [`fixture`] with session 1's worktree at `root`.
+    fn fixture_at(root: PathBuf, decision: Duration) -> Fixture {
         let root_key = crate::git::path_key(&root);
         let worktrees = Arc::new(vec![
             WorktreeClaims {
@@ -1414,6 +2144,7 @@ mod tests {
             &claude(),
             Path::new("claude.exe"),
             &[],
+            None,
         ));
         let token = launch.env[0].1.to_string();
         (fixture.service.port().unwrap(), token)
@@ -1557,16 +2288,18 @@ mod tests {
         let program = Path::new("claude.exe");
         // Off by default: nothing added, no endpoint.
         assert!(matches!(
-            fixture.service.prepare(1, &claude(), program, &[]),
+            fixture.service.prepare(1, &claude(), program, &[], None),
             GatePlan::Skip
         ));
         assert_eq!(fixture.service.port(), None);
         fixture.service.configure(true);
         assert!(matches!(
-            fixture.service.prepare(1, &plain_agent(), program, &[]),
+            fixture
+                .service
+                .prepare(1, &plain_agent(), program, &[], None),
             GatePlan::Skip
         ));
-        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[], None));
         assert_eq!(launch.args[0], "--settings");
         assert!(launch.args[1].contains(&format!("127.0.0.1:{}", fixture.service.port().unwrap())));
         assert_eq!(launch.env[0].0, TOKEN_ENV);
@@ -1577,8 +2310,26 @@ mod tests {
             context_inject: false,
             ..no_context.capabilities
         };
-        let launch = launched(fixture.service.prepare(2, &no_context, program, &[]));
+        let launch = launched(fixture.service.prepare(2, &no_context, program, &[], None));
         assert!(!launch.args[1].contains("UserPromptSubmit"));
+    }
+
+    #[test]
+    fn only_a_claude_code_that_knows_on_failure_gets_it() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let program = Path::new("claude.exe");
+        let hook_of = |version: Option<&str>| -> serde_json::Value {
+            let launch = launched(fixture.service.prepare(1, &claude(), program, &[], version));
+            let json: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
+            json["hooks"]["PreToolUse"][0]["hooks"][0].clone()
+        };
+        for version in [None, Some("2.1.294"), Some("unknown")] {
+            assert!(hook_of(version).get("onFailure").is_none(), "{version:?}");
+        }
+        for version in ["2.1.295", "2.1.325"] {
+            assert_eq!(hook_of(Some(version))["onFailure"], "block", "{version}");
+        }
     }
 
     #[test]
@@ -1589,17 +2340,17 @@ mod tests {
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
         let program = Path::new(r"C:\npm\claude.cmd");
-        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[], None));
         let path = PathBuf::from(&launch.args[1]);
         assert!(path.starts_with(fixture.settings.path()), "{path:?}");
         // What cmd.exe passes on unchanged, as the manager checks before the start.
         assert_eq!(crate::batch::check(program, &launch.args), Ok(()));
         let text = std::fs::read_to_string(&path).unwrap();
         let port = fixture.service.port().unwrap();
-        assert_eq!(text, gate::claude_settings(port, true));
+        assert_eq!(text, gate::claude_settings(port, true, false));
         assert!(!text.contains(launch.env[0].1.as_str()));
         // A second start reuses the file.
-        let again = launched(fixture.service.prepare(2, &claude(), program, &[]));
+        let again = launched(fixture.service.prepare(2, &claude(), program, &[], None));
         assert_eq!(again.args[1], launch.args[1]);
     }
 
@@ -1648,12 +2399,12 @@ mod tests {
         );
         service.configure(true);
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd"), &[]),
+            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd"), &[], None),
             GatePlan::Unavailable(GateStatus::Launcher)
         ));
         // A real program file still gets the gate inline.
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new("claude.exe"), &[]),
+            service.prepare(1, &claude(), Path::new("claude.exe"), &[], None),
             GatePlan::Launch(_)
         ));
     }
@@ -1671,7 +2422,8 @@ mod tests {
         near.push('x');
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&near), &body).0, 401);
         assert_eq!(post(port, "/v1/other", Some(&token), &body).0, 404);
-        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 400);
+        // A body Hangar cannot read is blocked, not refused: a refused hook lets the call go on.
+        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 200);
         // A session's token stops working when the session ends.
         fixture.service.ended(1);
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body).0, 401);
@@ -1785,7 +2537,7 @@ mod tests {
     }
 
     #[test]
-    fn idle_connections_cannot_lock_out_the_endpoint() {
+    fn idle_connections_do_not_block_a_new_hook() {
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
         let (port, token) = launch(&fixture, 1);
@@ -1797,19 +2549,18 @@ mod tests {
             thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
         };
         let id = next_pending(&fixture.events).pending[0].id;
-        // Silent connections fill every slot for unknown clients and many more wait beyond.
-        let idle: Vec<TcpStream> = (0..MAX_UNAUTHENTICATED + MAX_CONNECTIONS)
-            .map(|_| connect(port))
-            .collect();
-        // The accept thread is not blocked by them: one over the limit is closed at once.
+        // Silent connections take every slot for unknown clients, and more come after them.
+        let mut idle: Vec<TcpStream> = (0..MAX_UNAUTHENTICATED).map(|_| connect(port)).collect();
+        let grace = limits(DECISION_TIMEOUT).grace;
+        thread::sleep(grace + Duration::from_millis(200));
+        let oldest = idle.remove(0);
         let started = Instant::now();
-        let extra = connect(port);
-        let took = closed_after(extra, started);
-        assert!(took < Duration::from_secs(1), "{took:?}");
-        assert!(fixture.service.answer(id, Answer::AllowOnce));
-        assert_eq!(waiting.join().unwrap(), (200, String::new()));
-        // Once the head limit closed them, a new request is served again.
-        thread::sleep(limits(DECISION_TIMEOUT).head + Duration::from_millis(500));
+        idle.push(connect(port));
+        // The newcomer takes the slot of the oldest, silent past its grace: that one is closed
+        // at once, long before the head limit (another second away).
+        let took = closed_after(oldest, started);
+        assert!(took < Duration::from_millis(600), "{took:?}");
+        // A hook sent while silent clients hold every slot is served right away.
         let started = Instant::now();
         assert_eq!(
             post(
@@ -1820,8 +2571,329 @@ mod tests {
             ),
             (200, String::new())
         );
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(
+            started.elapsed() < limits(DECISION_TIMEOUT).head,
+            "{:?}",
+            started.elapsed()
+        );
+        // A burst of many more does not lock the endpoint out either.
+        let burst: Vec<TcpStream> = (0..3 * MAX_HEAD_THREADS).map(|_| connect(port)).collect();
+        thread::sleep(grace + Duration::from_millis(200));
+        let started = Instant::now();
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &edit(&fixture.root, "src/own.rs")
+            ),
+            (200, String::new())
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(fixture.service.answer(id, Answer::AllowOnce));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
         drop(idle);
+        drop(burst);
+    }
+
+    #[test]
+    fn one_session_cannot_take_every_slot() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let (_, other) = launch(&fixture, 2);
+        let head = format!(
+            "POST {ROUTE_PRE_TOOL_USE} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: 100\r\n\r\n"
+        );
+        // Session 1 holds as many connections as it may, each waiting for its body.
+        let hold = || {
+            let mut stream = connect(port);
+            stream.write_all(head.as_bytes()).unwrap();
+            stream
+        };
+        // Session 1 has all but one of its connections open, each still sending its body.
+        let mut held: Vec<TcpStream> = (0..MAX_PER_SESSION - 1).map(|_| hold()).collect();
+        thread::sleep(Duration::from_millis(300));
+        // Its shell command in the last free slot is still checked by the guard.
+        let risky = bash(&fixture.root, "git push --force");
+        let waiting = {
+            let (token, risky) = (token.clone(), risky.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky))
+        };
+        let snapshot = next_pending(&fixture.events);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        // With every slot taken, one more of session 1 is denied unread, never left
+        // unanswered: an unanswered hook would let the command run unchecked.
+        held.push(hold());
+        thread::sleep(Duration::from_millis(300));
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky);
+        assert_eq!(code, 200);
+        assert_eq!(
+            decision_of(&answer),
+            ("deny".to_owned(), gate::busy_reason())
+        );
+        // The prompt hook only adds context; it may go without.
+        assert_eq!(
+            post(port, ROUTE_USER_PROMPT_SUBMIT, Some(&token), "{}").0,
+            503
+        );
+        // Another session is still served.
+        let started = Instant::now();
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&other),
+                &edit(&fixture.root, "src/own.rs")
+            ),
+            (200, String::new())
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // With the gate off the overflow gets "no decision", not an error: Claude Code's hook
+        // blocks a call whose hook fails (`onFailure: "block"`).
+        fixture.service.configure(false);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), &risky),
+            (200, gate::EMPTY_JSON.to_owned())
+        );
+        fixture.service.configure(true);
+        // Once the held connections close, session 1 is checked as before.
+        drop(held);
+        thread::sleep(Duration::from_millis(300));
+        let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky));
+        let snapshot = next_pending(&fixture.events);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn a_risky_command_among_a_storm_of_parallel_reads_is_never_waved_through() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let read = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Read",
+            "tool_input": { "file_path": fixture.root.join("src").join("shared.rs") },
+        })
+        .to_string();
+        // Far more parallel reads than one session may hold, and a force push among them.
+        let reads: Vec<_> = (0..3 * MAX_PER_SESSION)
+            .map(|_| {
+                let (token, read) = (token.clone(), read.clone());
+                thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &read))
+            })
+            .collect();
+        let risky = bash(&fixture.root, "git push --force");
+        let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky));
+        // Either the guard holds it for the person, or the session was too busy and it is
+        // denied unread; it never comes back as an empty "go ahead".
+        let started = Instant::now();
+        while !waiting.is_finished() {
+            if let Some(pending) = fixture.service.snapshot().pending.first() {
+                fixture.service.answer(pending.id, Answer::Deny);
+            }
+            assert!(started.elapsed() < Duration::from_secs(20));
+            thread::sleep(Duration::from_millis(20));
+        }
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(decision_of(&answer).0, "deny");
+        // Every read is answered: let through, or denied while the session was too busy.
+        for read in reads {
+            let (code, answer) = read.join().unwrap();
+            assert_eq!(code, 200);
+            if !answer.is_empty() {
+                assert_eq!(
+                    decision_of(&answer),
+                    ("deny".to_owned(), gate::busy_reason())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_hundred_hooks_of_tools_that_change_nothing_are_answered_quickly() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let tools = [
+            (
+                "Read",
+                serde_json::json!({ "file_path": fixture.root.join("src/shared.rs") }),
+            ),
+            ("Glob", serde_json::json!({ "pattern": "**/*.rs" })),
+            (
+                "Grep",
+                serde_json::json!({ "pattern": "fn main", "path": fixture.root }),
+            ),
+            (
+                "WebFetch",
+                serde_json::json!({ "url": "https://example.com/", "prompt": "x" }),
+            ),
+        ];
+        let started = Instant::now();
+        for round in 0..100 {
+            let (tool, input) = &tools[round % tools.len()];
+            let body = serde_json::json!({
+                "cwd": fixture.root, "tool_name": tool, "tool_input": input,
+            })
+            .to_string();
+            assert_eq!(
+                post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+                (200, String::new()),
+                "{tool}"
+            );
+        }
+        // A local round trip each, no disk work and no lock held for long: well under 10 ms
+        // per hook even in a debug build on a loaded machine.
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn an_edit_path_hangar_cannot_read_is_asked_about() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = fixture.root.join("a".repeat(gate::MAX_FIELD_BYTES + 1));
+        let body = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Write",
+            "tool_input": { "file_path": long, "content": "x" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert_eq!(rules[0].id, RULE_TOO_LONG);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        let (code, answer) = held.join().unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(decision_of(&answer).0, "deny");
+    }
+
+    #[test]
+    fn every_tool_reaches_the_endpoint_but_only_edits_and_commands_are_checked() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // A read of a file another session changes is no edit: it goes ahead at once.
+        let read = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Read",
+            "tool_input": { "file_path": fixture.root.join("src").join("shared.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &read),
+            (200, String::new())
+        );
+        // A tool Hangar does not know by name but with a command is read as a shell command.
+        let run = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "mcp__box__run",
+            "tool_input": { "command": "git push --force" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &run));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert!(
+            rules.iter().any(|rule| rule.id == "git-push-force"),
+            "{rules:?}"
+        );
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&held.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn a_command_found_before_the_guard_was_switched_off_opens_no_card() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let _ = launch(&fixture, 1);
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let hit = |id: &str| Hit {
+            rule_id: id.to_owned(),
+            description: "d".into(),
+            call: "git push --force".into(),
+        };
+        // The hits were found while the guard was on; it is switched off before the card opens.
+        fixture.service.configure_command_guard(false);
+        let outcome = fixture.service.inner.ask_command(
+            1,
+            "Bash",
+            None,
+            "git push --force".into(),
+            vec![hit("git-push-force")],
+            &server,
+            true,
+        );
+        assert_eq!(outcome, Outcome::Allow);
+        assert!(fixture.service.snapshot().pending.is_empty());
+        drop(client);
+    }
+
+    #[test]
+    fn an_edit_through_a_link_into_hangars_folder_is_asked_about() {
+        let project = TempDir::new("gate-link-project");
+        let fixture = fixture_at(project.path().to_path_buf(), DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // A link inside the project that leads into the gate's own folder.
+        let target = fixture.settings.path().join("linked");
+        std::fs::create_dir_all(&target).unwrap();
+        let link = project.path().join("innocent");
+        if !make_dir_link(&link, &target) {
+            eprintln!("no directory link could be made; the test is skipped");
+            return;
+        }
+        let body = serde_json::json!({
+            "cwd": project.path(), "tool_name": "Write",
+            "tool_input": { "file_path": link.join("hooks.json"), "content": "x" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert_eq!(rules[0].id, RULE_HANGAR_CONFIG);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&held.join().unwrap().1).0, "deny");
+        // The same file name in an ordinary folder of the project goes ahead.
+        let (_, token) = launch(&fixture, 1);
+        std::fs::create_dir_all(project.path().join("plain")).unwrap();
+        let plain = serde_json::json!({
+            "cwd": project.path(), "tool_name": "Write",
+            "tool_input": { "file_path": project.path().join("plain").join("hooks.json") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &plain),
+            (200, String::new())
+        );
+        let _ = std::fs::remove_dir(&link);
+    }
+
+    /// A directory junction (Windows, no privilege needed) or symlink at `link` to `target`.
+    fn make_dir_link(link: &Path, target: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
     }
 
     #[test]
@@ -1979,6 +3051,551 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    fn bash(root: &Path, command: &str) -> String {
+        serde_json::json!({
+            "session_id": "x", "cwd": root, "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": command, "description": "run it" },
+        })
+        .to_string()
+    }
+
+    fn decision_of(answer: &str) -> (String, String) {
+        let json: serde_json::Value = serde_json::from_str(answer).unwrap();
+        let output = &json["hookSpecificOutput"];
+        (
+            output["permissionDecision"].as_str().unwrap().to_owned(),
+            output["permissionDecisionReason"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        )
+    }
+
+    #[test]
+    fn a_risky_command_waits_for_the_person_and_harmless_ones_pass() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // Harmless commands, and ones the rules allow inside the project, go ahead at once.
+        for command in [
+            "git push",
+            "rm -rf ./node_modules",
+            "git reset --soft HEAD~1",
+            "ls",
+        ] {
+            assert_eq!(
+                post(
+                    port,
+                    ROUTE_PRE_TOOL_USE,
+                    Some(&token),
+                    &bash(&fixture.root, command)
+                ),
+                (200, String::new()),
+                "{command}"
+            );
+        }
+        // A force push waits; the card names the rule and shows the command as sent.
+        let command = "git push --force origin main\u{1b}[2J";
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, command));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.clone().unwrap();
+        assert_eq!(ask.rules.len(), 1);
+        assert_eq!(ask.rules[0].id, "git-push-force");
+        assert!(ask.rules[0].builtin);
+        assert_eq!(ask.call, "git push --force origin main\u{1b}[2J");
+        assert_eq!(ask.text, command);
+        assert!(decision.path.is_empty() && decision.other_sessions.is_empty());
+        // A file answer does not fit a command; the card stays.
+        assert!(!fixture.service.answer(decision.id, Answer::AllowFile));
+        assert_eq!(fixture.service.snapshot().pending.len(), 1);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("\"git-push-force\""), "{reason}");
+        assert!(reason.contains("did not allow"), "{reason}");
+        // Switched off in Settings, the same command goes ahead without a card.
+        fixture.service.configure_command_guard(false);
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, command)
+            ),
+            (200, String::new())
+        );
+        assert!(!fixture.service.command_guard_info().enabled);
+    }
+
+    #[test]
+    fn a_remembered_answer_covers_the_rule_in_the_project() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture.settings.path().join("gate-rules.json");
+        fixture.service.load_rules(file.clone());
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let first = bash(&fixture.root, "git reset --hard");
+        let waiting = {
+            let (token, body) = (token.clone(), first.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let id = next_pending(&fixture.events).pending[0].id;
+        assert!(fixture.service.answer(id, Answer::AlwaysCommand));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        let rules = fixture.service.rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            (
+                rules[0].project.as_str(),
+                rules[0].path.as_str(),
+                rules[0].scope
+            ),
+            ("repo", "git-reset-hard", RuleScope::Command)
+        );
+        assert_eq!(
+            RuleBook::parse(&std::fs::read(&file).unwrap()).rules(),
+            rules.as_slice()
+        );
+        // Another command matching the same rule: allowed by the rule, logged, no card.
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git -C . reset --hard HEAD~2")
+            ),
+            (200, String::new())
+        );
+        let snapshot = fixture.service.snapshot();
+        assert!(snapshot.pending.is_empty());
+        assert_eq!(snapshot.log[0].path, "git -C . reset --hard HEAD~2");
+        assert_eq!(snapshot.log[0].rule_path, "git-reset-hard");
+        // A command rule never answers an edit, and an edit rule never a command.
+        assert!(lock(&fixture.service.inner.rules)
+            .book
+            .find("repo", "git-reset-hard")
+            .is_none());
+        // "Always block" turns the same rule into a deny.
+        {
+            let mut rules = lock(&fixture.service.inner.rules);
+            rules
+                .book
+                .add(
+                    "repo",
+                    "git-reset-hard",
+                    RuleScope::Command,
+                    RuleEffect::Deny,
+                    1,
+                )
+                .unwrap();
+        }
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &first);
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("standing answer"), "{reason}");
+    }
+
+    #[test]
+    fn a_command_nobody_answers_is_blocked() {
+        let fixture = fixture(Duration::from_millis(300));
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let (code, answer) = post(
+            port,
+            ROUTE_PRE_TOOL_USE,
+            Some(&token),
+            &bash(&fixture.root, "rm -rf ~"),
+        );
+        assert_eq!(code, 200);
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!(verdict, "deny");
+        assert!(reason.contains("no answer"), "{reason}");
+        assert!(reason.contains("rm-outside-project"), "{reason}");
+    }
+
+    #[test]
+    fn switching_the_guard_off_lets_a_held_command_go_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, "diskpart"));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        next_pending(&fixture.events);
+        fixture.service.configure_command_guard(false);
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn an_overlong_command_is_asked_about_not_handed_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = "x".repeat(command_guard::MAX_COMMAND_BYTES + 1);
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &long));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        assert_eq!(ask.rules[0].id, command_guard::RULE_TOO_LONG);
+        assert_eq!(ask.text.chars().count(), gate::MAX_SHOWN_COMMAND);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!((code, decision_of(&answer).0.as_str()), (200, "deny"));
+        // An edit tool keeps its `command` field to itself (Codex's patch text); any other tool
+        // with a command is read as a shell command
+        // (`every_tool_reaches_the_endpoint_but_only_edits_and_commands_are_checked`).
+        let other = serde_json::json!({
+            "tool_name": "apply_patch", "cwd": fixture.root,
+            "tool_input": { "command": "git push --force" },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &other),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn a_working_folder_hangar_cannot_use_still_asks() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        for cwd in [
+            "a".repeat(gate::MAX_FIELD_BYTES + 1),
+            "C:/x\u{0}y".to_owned(),
+        ] {
+            let body = serde_json::json!({
+                "tool_name": "Bash", "cwd": cwd,
+                "tool_input": { "command": "rm -rf build" },
+            })
+            .to_string();
+            let waiting = {
+                let token = token.clone();
+                thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+            };
+            let decision = next_pending(&fixture.events).pending.remove(0);
+            assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+            assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        }
+    }
+
+    #[test]
+    fn an_edit_with_a_working_folder_hangar_cannot_use_is_still_checked() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture
+            .settings
+            .path()
+            .join("com.example.hangar")
+            .join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = "a".repeat(gate::MAX_FIELD_BYTES + 1);
+        // An ordinary edit goes ahead instead of being refused.
+        let body = serde_json::json!({
+            "tool_name": "Edit", "cwd": long,
+            "tool_input": { "file_path": fixture.root.join("src").join("own.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+            (200, String::new())
+        );
+        // An edit of the rules file is still held.
+        let body = serde_json::json!({
+            "tool_name": "Write", "cwd": long,
+            "tool_input": { "file_path": file, "content": "" },
+        })
+        .to_string();
+        let waiting = {
+            let token = token.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn hangars_worktrees_in_its_data_folder_are_not_its_settings() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        // Next to the gate's folder, as the app has it (the fixture's gate folder is its root).
+        let data_dir = TempDir::new("gate-data-folder");
+        let data = data_dir.path().to_path_buf();
+        fixture.service.load_command_guard(
+            fixture
+                .settings
+                .path()
+                .join("config")
+                .join(command_guard::FILE_NAME),
+        );
+        fixture.service.load_rules(data.join(gate_rules::FILE_NAME));
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // The session's own folder holds nothing of Hangar's; an edit and a command pass.
+        let edit = serde_json::json!({
+            "tool_name": "Edit", "cwd": fixture.root,
+            "tool_input": { "file_path": fixture.root.join("src").join("main.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &edit),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git status")
+            ),
+            (200, String::new())
+        );
+        // The remembered answers' file is protected, the data folder around it is not.
+        let slashed = |path: &Path| path.display().to_string().replace('\\', "/");
+        let protected = format!("rm {}", slashed(&data.join(gate_rules::FILE_NAME)));
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &protected));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+        waiting.join().unwrap();
+        let elsewhere = format!("ls {}", slashed(&data.join("notes")));
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, &elsewhere)
+            ),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn every_rule_of_a_command_counts_and_only_the_unanswered_ones_are_shown() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        lock(&fixture.service.inner.rules)
+            .book
+            .add(
+                "repo",
+                "git-reset-hard",
+                RuleScope::Command,
+                RuleEffect::Allow,
+                1,
+            )
+            .unwrap();
+        // The remembered allow for the reset does not carry the delete of the home folder.
+        let chained = bash(&fixture.root, "git reset --hard && rm -rf ~");
+        let waiting = {
+            let (token, body) = (token.clone(), chained.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        let ids: Vec<&str> = ask.rules.iter().map(|rule| rule.id.as_str()).collect();
+        assert_eq!(ids, ["rm-outside-project"]);
+        assert_eq!(ask.call, "rm -rf ~");
+        // "Always allow" remembers the rules shown.
+        assert!(fixture.service.answer(decision.id, Answer::AlwaysCommand));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        let remembered: Vec<String> = fixture
+            .service
+            .rules()
+            .into_iter()
+            .map(|rule| rule.path)
+            .collect();
+        assert_eq!(remembered, ["git-reset-hard", "rm-outside-project"]);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &chained),
+            (200, String::new())
+        );
+        // A remembered deny for any rule blocks the whole command.
+        lock(&fixture.service.inner.rules)
+            .book
+            .add(
+                "repo",
+                "rm-outside-project",
+                RuleScope::Command,
+                RuleEffect::Deny,
+                2,
+            )
+            .unwrap();
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &chained);
+        assert_eq!((code, decision_of(&answer).0.as_str()), (200, "deny"));
+    }
+
+    #[test]
+    fn a_full_queue_blocks_a_command_instead_of_handing_it_on() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let mut held = Vec::new();
+        for n in 0..gate::MAX_PENDING_PER_SESSION {
+            let body = bash(&fixture.root, &format!("rm -rf /tmp/x{n}"));
+            let token = token.clone();
+            held.push(thread::spawn(move || {
+                post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body)
+            }));
+            loop {
+                if next_pending(&fixture.events).pending.len() == n + 1 {
+                    break;
+                }
+            }
+        }
+        let (code, answer) = post(
+            port,
+            ROUTE_PRE_TOOL_USE,
+            Some(&token),
+            &bash(&fixture.root, "rm -rf /tmp/more"),
+        );
+        let (verdict, reason) = decision_of(&answer);
+        assert_eq!((code, verdict.as_str()), (200, "deny"));
+        assert!(reason.contains("too many decisions"), "{reason}");
+        fixture.service.ended(1);
+        for waiting in held {
+            assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        }
+    }
+
+    #[test]
+    fn hangars_own_settings_are_asked_about_even_with_the_guard_off() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let config = fixture.settings.path().join("com.example.hangar");
+        let file = config.join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        fixture.service.configure(true);
+        fixture.service.configure_command_guard(false);
+        let (port, token) = launch(&fixture, 1);
+        // An edit of the rules file.
+        let body = serde_json::json!({
+            "tool_name": "Write", "cwd": fixture.root,
+            "tool_input": { "file_path": file, "content": "" },
+        })
+        .to_string();
+        let waiting = {
+            let token = token.clone();
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        let ask = decision.command.unwrap();
+        assert_eq!(ask.rules[0].id, command_guard::RULE_HANGAR_CONFIG);
+        assert!(!ask.rememberable);
+        // It cannot be allowed for good, and switching the guard off does not release it.
+        assert!(!fixture.service.answer(decision.id, Answer::AlwaysCommand));
+        fixture.service.configure_command_guard(true);
+        fixture.service.configure_command_guard(false);
+        assert_eq!(fixture.service.snapshot().pending.len(), 1);
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        assert!(fixture.service.rules().is_empty());
+        // A command that names the folder.
+        // Forward slashes: in a POSIX command a backslash escapes.
+        let command = format!(
+            "cp x {}",
+            config
+                .join("profiles.toml")
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        );
+        let waiting = {
+            let (token, body) = (token.clone(), bash(&fixture.root, &command));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert_eq!(
+            decision.command.unwrap().rules[0].id,
+            command_guard::RULE_HANGAR_CONFIG
+        );
+        assert!(fixture.service.answer(decision.id, Answer::AllowOnce));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
+        // Other commands pass while the guard is off.
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &bash(&fixture.root, "git push -f")
+            ),
+            (200, String::new())
+        );
+    }
+
+    #[test]
+    fn the_rules_file_is_written_once_and_read_again_when_it_changes() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let file = fixture
+            .settings
+            .path()
+            .join("config")
+            .join(command_guard::FILE_NAME);
+        fixture.service.load_command_guard(file.clone());
+        let info = fixture.service.command_guard_info();
+        assert!(info.enabled);
+        assert_eq!(info.file, file.to_string_lossy());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            command_guard::DEFAULT_RULES
+        );
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
+        assert!(info.problems.is_empty());
+        // The person's edit applies to the next command, with its problems reported.
+        std::fs::write(
+            &file,
+            "[[rule]]\nid = 'only'\ndescription = 'any ls'\nprogram = ['ls']\n\n\
+             [[rule]]\nid = 'broken'\ndescription = 'x'\nprogram = ['x']\nanny = ['-f']\n",
+        )
+        .unwrap();
+        let info = fixture.service.command_guard_info();
+        let ids: Vec<&str> = info.rules.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["only"]);
+        assert_eq!(info.problems.len(), 1);
+        assert_eq!(info.problems[0].id.as_deref(), Some("broken"));
+        // A file that is no TOML keeps the defaults and says why.
+        std::fs::write(&file, "[[rule]\n").unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(info.defaults);
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
+        // An oversized file is reported, and the defaults apply.
+        std::fs::write(&file, "#".repeat(command_guard::MAX_FILE_BYTES + 1)).unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(info.defaults);
+        assert!(
+            info.problems[0].message.contains("1 MiB"),
+            "{:?}",
+            info.problems
+        );
+        assert_eq!(info.default_count, info.rules.len());
+        // Deleted, it is not written again in the same run; the defaults apply.
+        std::fs::remove_file(&file).unwrap();
+        let info = fixture.service.command_guard_info();
+        assert!(!file.exists());
+        assert_eq!(info.rules.len(), command_guard::default_rules().rules.len());
     }
 
     #[test]
@@ -2293,6 +3910,7 @@ mod tests {
             &agent_in("qwen_system_settings", true),
             Path::new("qwen.exe"),
             &[],
+            None,
         ));
         let port = fixture.service.port().unwrap();
         assert!(launch.prepend.is_empty() && launch.args.is_empty());
@@ -2328,6 +3946,7 @@ mod tests {
             &agent_in("gemini_system_settings", false),
             Path::new("gemini.exe"),
             &[],
+            None,
         ));
         let file = PathBuf::from(env_of(&launch, recipes::GEMINI_SETTINGS_ENV).unwrap());
         let settings: serde_json::Value =
@@ -2364,6 +3983,7 @@ mod tests {
             &agent_in("copilot_plugin", false),
             Path::new("copilot.exe"),
             &["--continue".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend[0], "--plugin-dir");
         let plugin = PathBuf::from(&launch.prepend[1]);
@@ -2397,6 +4017,7 @@ mod tests {
             &codex,
             Path::new("codex.exe"),
             &["resume".to_owned(), "--last".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend.len(), 3);
         assert_eq!(launch.prepend[0], recipes::CODEX_TRUST_FLAG);
@@ -2420,6 +4041,7 @@ mod tests {
             &codex,
             Path::new("codex.exe"),
             &[recipes::CODEX_TRUST_FLAG.to_owned()],
+            None,
         ));
         assert_eq!(own.prepend[0], "-c");
     }
@@ -2435,11 +4057,11 @@ mod tests {
         let shim = Path::new(r"C:\npm\codex.cmd");
         fixture.service.set_helper(helper_exe(true));
         assert!(matches!(
-            fixture.service.prepare(1, &codex, shim, &[]),
+            fixture.service.prepare(1, &codex, shim, &[], None),
             GatePlan::Unavailable(GateStatus::InstallPath)
         ));
         fixture.service.set_helper(helper_exe(false));
-        let launch = launched(fixture.service.prepare(1, &codex, shim, &[]));
+        let launch = launched(fixture.service.prepare(1, &codex, shim, &[], None));
         // What the manager checks before starting a cmd.exe launcher.
         assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
     }
@@ -2461,9 +4083,13 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    fixture
-                        .service
-                        .prepare(1, &agent_in(format, false), Path::new("x.exe"), &[]),
+                    fixture.service.prepare(
+                        1,
+                        &agent_in(format, false),
+                        Path::new("x.exe"),
+                        &[],
+                        None
+                    ),
                     GatePlan::Unavailable(GateStatus::InstallPath)
                 ),
                 "{format}"
@@ -2486,6 +4112,7 @@ mod tests {
                 &agent_in(format, false),
                 Path::new("x.exe"),
                 &[],
+                None,
             ));
         }
     }
@@ -2500,6 +4127,7 @@ mod tests {
                 &agent_in(format, false),
                 Path::new("pi.exe"),
                 &["--continue".to_owned()],
+                None,
             ));
             assert_eq!(launch.prepend.len(), 2, "{format}");
             assert_eq!(launch.prepend[0], "-e");
@@ -2535,6 +4163,7 @@ mod tests {
             &agent_in("opencode_plugin", false),
             Path::new("opencode.exe"),
             &["--continue".to_owned()],
+            None,
         ));
         assert!(launch.prepend.is_empty() && launch.args.is_empty());
         let config: serde_json::Value =
@@ -2570,6 +4199,7 @@ mod tests {
             &agent_in("droid_settings", false),
             Path::new("droid.exe"),
             &["--resume".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend[0], "--settings");
         assert_eq!(launch.prepend.len(), 2);
@@ -2606,6 +4236,7 @@ mod tests {
             &agent_in("pi_extension", false),
             shim,
             &[],
+            None,
         ));
         // What the manager checks before starting a cmd.exe launcher.
         assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
@@ -2671,6 +4302,7 @@ mod tests {
                 &agent_in(format, true),
                 Path::new("x.exe"),
                 &[],
+                None,
             ));
             for (name, _) in &launch.env {
                 assert!(
@@ -2704,6 +4336,7 @@ mod tests {
             &agent_in("qwen_system_settings", false),
             Path::new("qwen.exe"),
             &[],
+            None,
         ));
         let file = PathBuf::from(env_of(&launch, recipes::QWEN_SETTINGS_ENV).unwrap());
         assert!(!file.starts_with(&planted), "{file:?}");
@@ -2737,5 +4370,73 @@ mod tests {
         let left: Vec<bool> = names.iter().map(|n| dir.path().join(n).exists()).collect();
         assert_eq!(left, [true, false]);
         drop(held);
+    }
+
+    #[test]
+    fn a_connection_whose_head_is_read_is_never_closed_for_a_newcomer() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Heads::default()));
+        let mut clients = Vec::new();
+        let mut accepted = || {
+            clients.push(connect(port));
+            listener.accept().unwrap().0
+        };
+        let first_stream = accepted();
+        let first = HeadSlot::take(&heads, &first_stream, Duration::ZERO).unwrap();
+        assert!(first.head_read());
+        // Every slot taken and then some, with no grace: each newcomer closes the oldest one
+        // still reading its head, never the one being answered.
+        let mut others = Vec::new();
+        for _ in 0..2 * MAX_UNAUTHENTICATED {
+            let stream = accepted();
+            others.push(HeadSlot::take(&heads, &stream, Duration::ZERO).unwrap());
+        }
+        assert!(!first.cancel.load(Ordering::SeqCst));
+        assert!(others.iter().any(|slot| slot.cancel.load(Ordering::SeqCst)));
+        // One that lost its slot before its head was read says so.
+        let evicted = others
+            .iter()
+            .find(|slot| slot.cancel.load(Ordering::SeqCst))
+            .unwrap();
+        assert!(!evicted.head_read());
+    }
+
+    #[test]
+    fn a_tool_call_hangar_cannot_read_is_blocked_not_refused() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let root = fixture.root.to_string_lossy().replace('\\', "/");
+        for body in [
+            "{".to_owned(),
+            r#"{"tool_name":"Bash","tool_input":{"command":"echo \udc00; git push --force"}}"#
+                .to_owned(),
+            format!(
+                r#"{{"tool_name":"Bash","cwd":"{root}/a\udc00","tool_input":{{"command":"git push --force"}}}}"#
+            ),
+            format!(
+                r#"{{"tool_name":"Edit","tool_input":{{"file_path":"{root}/src/a\udc00.rs"}}}}"#
+            ),
+            r#"{"tool_name":"Ba\udc00sh","tool_input":{"command":"git push --force"}}"#.to_owned(),
+        ] {
+            for route in [ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON] {
+                let (status, answer) = post(port, route, Some(&token), &body);
+                assert_eq!(status, 200, "{body}");
+                assert!(answer.contains("\"deny\""), "{body}: {answer}");
+                assert!(answer.contains("could not read"), "{answer}");
+            }
+        }
+        // With the gate off nothing is held: "no decision", not an error, since Claude Code's
+        // hook blocks the call on any error (`onFailure`).
+        fixture.service.configure(false);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{"),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), "{"),
+            (200, gate::EMPTY_JSON.to_owned())
+        );
     }
 }

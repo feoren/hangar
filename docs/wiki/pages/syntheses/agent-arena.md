@@ -4,7 +4,7 @@ type: synthesis
 tags: [arena, worktree, git, agents]
 sources: []
 created: 2026-11-13
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # Agent arena
@@ -22,8 +22,12 @@ result; "Take over" brings the winner's changes into the project folder as uncom
 2. `arena_create` reads HEAD once (`rev-parse --verify HEAD^{commit}`) and creates one worktree per
    agent with `worktree::create_at` from that commit id, branch `hangar/arena-<6 hex>-<agent>`
    (the same agent twice gets `-2`). If one fails, the clean ones already made are removed again.
+   A share or device path is refused as for `create_worktree`, and each new worktree counts as in
+   use for the worktree cleanup until its session works in it (`PendingWorktrees`).
 3. Each agent starts as a private session in its worktree (`start` with a prepared worktree), title
-   `Arena · <program>`, and the sessions show side by side in the split view.
+   `Arena · <program>`, and the sessions show side by side in the split view. No upstream check
+   goes in as the first prompt ([[agent-instructions]]): the worktree sits at the arena's commit on
+   purpose and the task follows; HANGAR.md applies as for every session.
 4. The task goes in per session as a bracketed paste followed by Enter (as "Send to several"), once
    the session's output has been quiet for 2 s, never before 3 s and at the latest after 45 s
    (`promptReady`). The dialog says so before the start, because Hangar presses Enter for the user.
@@ -55,7 +59,9 @@ files such as build output stay out) and are counted by lines in Hangar (a NUL b
 8 MB counts as binary, 0 lines). Filters are switched off (`filter_overrides`), and `DIFF_ARGS`
 keeps external diff and textconv off.
 
-**Taking over:** refused before anything changes when a file the winner changed is modified,
+**Taking over:** the project folder (`repoRoot` of the record) must be the top of the repository
+whose `git worktree list` names the contestant's worktree; otherwise nothing happens. It is then
+refused before anything changes when a file the winner changed is modified,
 staged or untracked in the project folder (`git status --untracked-files=all`, compared without
 case on Windows and macOS) or a new file's path already exists there; the answer lists those
 files. Otherwise tracked changes go through `git diff --binary --full-index --no-renames <base>`
@@ -65,8 +71,11 @@ refused. If the project folder's HEAD moved away from the base commit, `git appl
 message is shown. Nothing is ever committed.
 
 **Discarding:** only after the user's confirmation and only for arena branches:
-`worktree remove --force` and `branch -D`, with `core.hooksPath` on Hangar's empty folder and
-filters off. Plain session worktrees keep the never-force rule of `worktree::remove`.
+`worktree remove --force` and `branch -D`, with filters off; no repository hook runs, because
+`Git` switches them off for every call (no caller names its own `core.hooksPath`). A folder
+deleted by hand leaves git's record, which `worktree remove` takes away for this one worktree
+(never `worktree prune`, which would also take the records of the user's own worktrees). Plain
+session worktrees keep the never-force rule of `worktree::remove`.
 
 ## Test command: argv, not a shell
 

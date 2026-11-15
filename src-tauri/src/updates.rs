@@ -170,8 +170,9 @@ fn not_runnable(agent: &Agent, plan: &UpdatePlan) -> CommandError {
 /// ([`crate::install_source::plan`]): the install command never runs, it is often a shell
 /// pipeline (`irm … | iex`) and meant for reading only. A bare program name (from an
 /// `update_hint`) is looked up on the PATH; planned tools are already absolute. The profile's
-/// environment and fixed working folder stay, so that a custom npm prefix from `env`, for
-/// example, also applies to the update.
+/// environment stays, so that a custom npm prefix from `env`, for example, also applies to the
+/// update. Its fixed working folder does not: an update runs in the user's home folder, since
+/// npm and pip read project configuration (`.npmrc`, `pip.conf`) from the folder they start in.
 pub fn update_agent(agent: &Agent, plan: &UpdatePlan) -> Result<Agent, CommandError> {
     let Action::Run { program, args } = &plan.action else {
         return Err(not_runnable(agent, plan));
@@ -190,6 +191,7 @@ pub fn update_agent(agent: &Agent, plan: &UpdatePlan) -> Result<Agent, CommandEr
     // The update command needs no API keys of the agent.
     updater.profile.secret_env.clear();
     updater.cwd_flag = None;
+    updater.profile.cwd = None;
     updater.candidates = vec![command];
     Ok(updater)
 }
@@ -201,9 +203,13 @@ pub enum Source {
     Github { repo: String, tag_prefix: String },
 }
 
+/// Names and scope parts start with a letter or digit: a leading `-` would be read as an option
+/// by the installer, a leading `.` or `_` is refused by the registries themselves.
 pub(crate) fn npm_name_ok(name: &str) -> bool {
     let part = |p: &str| {
-        !p.is_empty()
+        p.bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
             && p.bytes().all(|b| {
                 b.is_ascii_lowercase()
                     || b.is_ascii_digit()
@@ -214,14 +220,15 @@ pub(crate) fn npm_name_ok(name: &str) -> bool {
         Some(scoped) => scoped
             .split_once('/')
             .is_some_and(|(scope, pkg)| part(scope) && part(pkg)),
-        None => part(name) && !name.starts_with('.'),
+        None => part(name),
     }
 }
 
+/// See [`npm_name_ok`]: the first character is a letter or digit.
 pub(crate) fn plain_name_ok(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
+    name.bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphanumeric())
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
@@ -987,6 +994,31 @@ mod tests {
     }
 
     #[test]
+    fn package_names_start_with_a_letter_or_digit() {
+        for good in ["x", "aider-chat", "@openai/codex", "@1x/y2", "a.b_c-d"] {
+            assert!(
+                npm_name_ok(&good.to_ascii_lowercase()) || plain_name_ok(good),
+                "{good}"
+            );
+        }
+        assert!(npm_name_ok("@openai/codex"));
+        assert!(plain_name_ok("Aider-Chat"));
+        for bad in [
+            "-g", "--prefix", ".hidden", "_x", "@-x/y", "@x/-y", "@x/.y", "@_x/y", "@/y", "@x/",
+            "", "~x",
+        ] {
+            assert!(!npm_name_ok(bad), "npm {bad}");
+        }
+        for bad in ["-r", "--index-url", ".x", "_x", "", ".", ".."] {
+            assert!(!plain_name_ok(bad), "plain {bad}");
+        }
+        let github = latest(r#"latest = { github = "-x/repo" }"#);
+        assert!(github.source().is_err());
+        let github = latest(r#"latest = { github = "owner/-repo" }"#);
+        assert!(github.source().is_err());
+    }
+
+    #[test]
     fn fields_are_read_and_validated() {
         let npm = latest(r#"latest = { npm = "@openai/codex" }"#);
         assert_eq!(npm.source(), Ok(Source::Npm("@openai/codex".into())));
@@ -1232,6 +1264,9 @@ mod tests {
             packages: None,
             self_update: None,
             capabilities: Default::default(),
+            instruction_args: None,
+            prompt_args: None,
+            agent_commands: Vec::new(),
         });
         agent
             .profile
@@ -1273,6 +1308,11 @@ mod tests {
         assert_eq!(updater.id(), "x");
         // The profile's environment applies to the update as well.
         assert_eq!(updater.profile.env, agent.profile.env);
+        // Its fixed folder does not: a project's .npmrc must not steer the update.
+        let mut fixed = agent.clone();
+        fixed.profile.cwd = Some(std::path::PathBuf::from("/work/project"));
+        let updater = update_agent(&fixed, &plan_of(&fixed)).unwrap();
+        assert_eq!(updater.profile.cwd, None);
 
         // Without update_hint and without an install the install command is never run, not
         // even a harmless one.

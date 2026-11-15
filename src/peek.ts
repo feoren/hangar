@@ -73,10 +73,14 @@ export interface PeekNoteSources {
   gateOff?: string | null | undefined;
   /** Exit code of a session that failed (format.ts exitDetail). */
   exit?: string | null | undefined;
-  /** "CPU 12 % · 340 MB" (resources.ts resourceText). */
-  resources?: string | null | undefined;
+  /** The queued message (messageQueue.ts), with when it goes out. */
+  queued?: string | null | undefined;
   /** Why the session is marked as an outlier. */
   outlier?: string | null | undefined;
+  /** CPU, RAM and GPU, for a row layout that leaves them off the row (rowLayout.ts). */
+  load?: string | null | undefined;
+  /** The context window's use, for a row layout that leaves the context or tokens off the row. */
+  context?: string | null | undefined;
   /** Address of the dev server the session runs. */
   devServer?: string | null | undefined;
   /** The session's program and its version ("PowerShell 7 · 7.6.9"). */
@@ -87,7 +91,8 @@ export interface PeekNoteSources {
 
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
- * then the load, the dev server and the program, then the working folder. Empty and repeated texts are left
+ * then the queued message, the outlier note, the load and context a compact row leaves out, the
+ * dev server and the program, then the working folder. Empty and repeated texts are left
  * out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
@@ -96,8 +101,10 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.overlap,
     sources.gateOff,
     sources.exit,
+    sources.queued,
     sources.outlier,
-    sources.resources,
+    sources.load,
+    sources.context,
     sources.devServer,
     sources.program,
     sources.cwd,
@@ -113,11 +120,6 @@ export function peekNotes(sources: PeekNoteSources): string[] {
  * Whether a peek shows: one with terminal lines once it has some, one without (the session is on
  * screen anyway) always, for its title, status and notes.
  */
-export function peekShows(withLines: boolean, lines: readonly string[] | null): boolean {
+export function peekShows(withLines: boolean, lines: readonly unknown[] | null): boolean {
   return !withLines || (lines !== null && lines.length > 0);
-}
-
-export function sameLines(a: readonly string[] | null, b: readonly string[] | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.length === b.length && a.every((line, index) => line === b[index]);
 }

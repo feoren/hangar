@@ -4,7 +4,7 @@ type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
 sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]"]
 created: 2026-11-09
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Team service version 1: research results and build plan
@@ -210,8 +210,8 @@ and timing: [[claims-rescan-measurement]].
   still names it. When the removal fails or keeps the worktree, `ClaimsService::unrelease` gives
   it back and its sessions keep their overlap warnings.
 - **Interface:** commands `configure_claims(enabled)` and `claims_snapshot()` (main window only),
-  event `claims-changed` with `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps:
-  Overlap[] }`; each overlap is listed from both sides (`sessionId`, `otherId`), at most 200 per
+  the payload-free signal `claims-changed` (the main window then reads `claims_snapshot`, which
+  answers `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps: Overlap[] }`); each overlap is listed from both sides (`sessionId`, `otherId`), at most 200 per
   session (worst first), with `overlapCount` and `overlapsTruncated` per session. Types mirror in
   `src/claims.ts`.
 - **UI:** a warm overlap icon in the session row and, in the collapsed rail, in the badge's top
@@ -316,8 +316,9 @@ let the edit through. The setting's help text says so.
   change. `SessionStart` takes no http hooks (measured), so it is the first prompt rather than
   the start.
 - **Interface:** commands `configure_gate(enabled)`, `gate_snapshot()` and
-  `answer_gate(id, answer: "allowOnce" | "allowFile" | "deny") -> bool` (main window only), event
-  `gate-changed` with `GateSnapshot { enabled, pending: PendingDecision[] }`,
+  `answer_gate(id, answer: "allowOnce" | "allowFile" | "deny") -> bool` (main window only), the
+  payload-free event `gate-changed` (since the process launch review), after which the main window
+  reads `gate_snapshot() -> GateSnapshot { enabled, pending: PendingDecision[] }`,
   `PendingDecision { id, sessionId, tool, path, otherSessions, level, lines, createdAt }`.
   Types mirror in `src/gate.ts`.
 - **UI:** the waiting session takes the attention look with the reason `gate` (sidebar pulse,
@@ -561,15 +562,17 @@ real relay yet; tested against an in-test relay built from both crates.
   device, or (for `member.removed` naming this member, and 4404) when the website no longer lists
   the project. `member.role_changed` only rereads the project list; the role comes from the
   website. Every wipe also turns sharing off, so the next start does not register a new identity
-  unasked. `remove_member` and `remove_device` exist in the service (removal through
-  `device.remove` with its signed entry) but are not commands yet.
+  unasked. Members leave the log from the website's member list on an owner's or admin's
+  device; a person removes a lost device of their own with `team_remove_device` (the signed
+  entry in `device.remove`). Details and the admission check in [[team-crypto]] (third review).
 - **Account changes:** the team service subscribes to the account (`AccountService::subscribe`).
   A sign-out (or a sign-in the server ended) stops the running teams at once with "signed out",
   instead of at the next ticket renewal; a sign-in restarts them; a server change stops and
   forgets the old server's workers and starts the new server's enabled ones.
 - **Interface:** commands `team_status(projectId)`, `team_enable(projectId)`,
   `team_disable(projectId)`, `team_pending_confirmations()`, `team_confirm(request)`,
-  `team_reject(request)` (main window only); event `team-changed` with `TeamSnapshot { teams:
+  `team_reject(request)`, `team_confirm_admission(projectId)`,
+  `team_remove_device(projectId, device)`, `team_snapshot()` (main window only; `team-changed` is a payload-free signal, since other webviews may hear it, and the window fetches the snapshot); event `team-changed` with `TeamSnapshot { teams:
   { projectId, status }[], pending: PendingConfirmation[] }`; `TeamStatus` is `off`,
   `connecting { retrying }`, `connected { epoch, members, devices }`, `waitingForConfirmation
   { safetyNumber }` (six groups of five digits), `needsAttention { reason }` (`historyMismatch`,
@@ -766,7 +769,7 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
   network folders or, on Windows, drives that are not fixed, such as a mapped `Z:`; the lookup runs before the gate's lock is taken), else in the teammate's spelling cut to 200 characters (`literal` cuts further
   and marks control, invisible and reordering characters, also in the names).
 - **Interface:** commands `team_session_states(states: {sessionId, state}[])` and
-  `team_link_repo(projectId, root, folder or null, on)` (main window only); `team-changed` adds per team
+  `team_link_repo(projectId, root, folder or null, on)` (main window only); `team_snapshot` adds per team
   `activity { linked: {root, folder or null, name}[], peers: PeerView[], overlaps:
   TeammateOverlap[], divergent: {member, device, name}[] }` and `repos: {root, folder, name}[]` (the running sessions' repository
   folders). `PeerView { member, device, name, own, presence, sessions: {key, agent, title, state,

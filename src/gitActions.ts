@@ -25,6 +25,43 @@ export function stageAction(state: StageState): "stage" | "unstage" {
   return state === "staged" ? "unstage" : "stage";
 }
 
+/** Paths per stage or unstage call; the backend refuses more (`MAX_PATHS` in git_actions.rs). */
+export const GIT_MAX_PATHS = 10_000;
+
+/** The box over the file list that stages or unstages every file: its look and its click. */
+export interface StageAllBox {
+  /** Checked: every file fully staged; mixed: some changes staged; empty: none. */
+  state: StageState;
+  action: "stage" | "unstage";
+  /** The files the click stages or unstages. */
+  paths: string[];
+}
+
+/**
+ * The header box of the changes list; `null` without files. Anything not fully staged makes a
+ * click stage the rest, untracked files included (the user picks "all", unlike the commit
+ * button's `git commit -a`); only when everything is staged does a click unstage everything.
+ */
+export function stageAllBox(files: readonly FileChange[]): StageAllBox | null {
+  if (files.length === 0) return null;
+  const states = files.map((file) => stageState(file.status));
+  if (states.every((state) => state === "staged")) {
+    return { state: "staged", action: "unstage", paths: files.map((file) => file.path) };
+  }
+  const state = states.every((each) => each === "unstaged") ? "unstaged" : "partial";
+  const paths = files.filter((_, index) => states[index] !== "staged").map((file) => file.path);
+  return { state, action: "stage", paths };
+}
+
+/** Paths in calls of at most `size` each, so a huge list stays within the backend's limit. */
+export function pathBatches(paths: readonly string[], size = GIT_MAX_PATHS): string[][] {
+  const batches: string[][] = [];
+  for (let start = 0; start < paths.length; start += Math.max(1, size)) {
+    batches.push(paths.slice(start, start + Math.max(1, size)));
+  }
+  return batches;
+}
+
 /**
  * What the commit button does: commit the staged files, or (nothing staged) stage the changed and
  * deleted tracked files and then commit, like `git commit -a`, said so on the button. New files

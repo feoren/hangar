@@ -292,9 +292,23 @@ fn serve(mut stream: TcpStream, state: &Mutex<AccountMock>) {
             );
         }
         ("GET", "/api/v1/projects") => {
-            let role = user.and_then(|u| guard(state).roles.get(&u).copied());
+            let mock = guard(state);
+            let role = user.and_then(|u| mock.roles.get(&u).copied());
+            let owner = mock
+                .roles
+                .iter()
+                .find(|(_, role)| **role == "owner")
+                .map(|(user, _)| user.clone());
+            drop(mock);
             let projects: Vec<_> = role
-                .map(|role| serde_json::json!({"id": PROJECT, "name": "Project", "role": role}))
+                .map(|role| {
+                    serde_json::json!({
+                        "id": PROJECT,
+                        "name": "Project",
+                        "role": role,
+                        "owner_id": owner,
+                    })
+                })
                 .into_iter()
                 .collect();
             respond(
@@ -302,6 +316,21 @@ fn serve(mut stream: TcpStream, state: &Mutex<AccountMock>) {
                 200,
                 &serde_json::json!({ "projects": projects }),
             );
+        }
+        ("GET", "/api/v1/projects/p1/members") => {
+            let mock = guard(state);
+            if user.as_ref().is_some_and(|u| mock.roles.contains_key(u)) {
+                let members: Vec<_> = mock
+                    .roles
+                    .iter()
+                    .map(|(user, role)| serde_json::json!({"id": user, "role": role}))
+                    .collect();
+                drop(mock);
+                respond(&mut stream, 200, &serde_json::json!({ "members": members }));
+            } else {
+                drop(mock);
+                respond(&mut stream, 404, &serde_json::json!({"code": "not_found"}));
+            }
         }
         ("POST", "/api/v1/relay-ticket") => {
             let mut mock = guard(state);
@@ -1123,6 +1152,8 @@ fn timing() -> Timing {
         backoff_unit: Duration::from_millis(20),
         stable_after: Duration::from_secs(30),
         lock_retry: Duration::from_millis(50),
+        website_every: Duration::from_millis(200),
+        members_every: Duration::from_secs(600),
     }
 }
 
@@ -1237,13 +1268,31 @@ impl Device {
         }
     }
 
+    /// Waits for the connection; a device another one admitted asks the person first, who
+    /// compares the safety numbers and confirms (checked on its own in the first test).
     async fn connected(&self, epoch: u32, members: usize, devices: usize) {
         let want = TeamStatus::Connected {
             epoch,
             members,
             devices,
         };
-        self.until(&format!("{want:?}"), |s| *s == want).await;
+        let status = self
+            .until(&format!("{want:?}"), |s| {
+                *s == want || matches!(s, TeamStatus::ConfirmAdmission { .. })
+            })
+            .await;
+        if let TeamStatus::ConfirmAdmission {
+            log_index,
+            safety_number,
+            ..
+        } = status
+        {
+            self.team
+                .confirm_admission(PROJECT, log_index, safety_number)
+                .await
+                .unwrap();
+            self.until(&format!("{want:?}"), |s| *s == want).await;
+        }
     }
 
     async fn waiting(&self) -> Vec<String> {
@@ -1325,7 +1374,52 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
         assert_eq!(pending[0].member, "alice");
         assert_eq!(pending[0].safety_number, shown);
         a1.team.confirm(&pending[0].id).await.unwrap();
+        // Before it shares anything, the new device shows who admitted it: the person compares
+        // the admitting device's safety number and the log's with that device.
+        let admission = a2
+            .until("the admission to confirm", |s| {
+                matches!(s, TeamStatus::ConfirmAdmission { .. })
+            })
+            .await;
+        let TeamStatus::ConfirmAdmission {
+            member,
+            device,
+            safety_number,
+            log_index,
+            log_safety_number,
+        } = admission
+        else {
+            unreachable!()
+        };
+        assert!(a2.keys().is_some_and(|k| !k.admitted));
+        until("the first device's view", || {
+            activity(&a1).is_some_and(|a| a.log.is_some())
+        })
+        .await;
+        let first = activity(&a1).unwrap();
+        let this = first.devices.iter().find(|d| d.this).unwrap();
+        assert_eq!(
+            (member.as_str(), device.as_str()),
+            ("alice", this.device.as_str())
+        );
+        assert_eq!(
+            this.safety_number, safety_number,
+            "the same number on both screens"
+        );
+        let log = first.log.unwrap();
+        assert_eq!(
+            (log.index, log.safety_number),
+            (log_index, log_safety_number)
+        );
+        a2.team
+            .confirm_admission(PROJECT, log_index, safety_number)
+            .await
+            .unwrap();
         a2.connected(1, 1, 2).await;
+        assert!(
+            a2.keys().is_some_and(|k| k.admitted),
+            "stored with the head"
+        );
         assert_eq!(
             a2.keys().unwrap().epochs.get(&Epoch(1)),
             a1.keys().unwrap().epochs.get(&Epoch(1)),
@@ -1345,10 +1439,13 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
         b1.connected(1, 2, 3).await;
         a1.connected(1, 2, 3).await;
 
-        // Bob is removed on the website, then from the log: the owner's device rotates; bob's
-        // device sees the removal confirmed by the website, wipes his keys and stops sharing.
+        // Bob is removed on the website and the relay says so: the owner's device reads the
+        // website's member list, removes bob from the log and rotates; bob's device sees the
+        // removal confirmed by the website, wipes his keys and stops sharing.
         guard(&website.state).roles.remove("bob");
-        a1.team.remove_member(PROJECT, "bob").await.unwrap();
+        relay.broadcast(ServerMessage::MemberRemoved(MemberRemoved {
+            member: MemberId::new("bob").unwrap(),
+        }));
         b1.until("bob removed", |s| *s == TeamStatus::Removed).await;
         a1.connected(2, 1, 2).await;
         a2.connected(2, 1, 2).await;

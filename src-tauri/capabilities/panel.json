@@ -1,14 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "panel",
-  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, staging, unstaging, discarding and committing the files of a session's repository (by session ID), listing a session's folder (one folder at a time, and a bounded index of its paths for the filter) and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top (its own command only), focusing and closing it (close, then destroy once pending input is saved). The git actions name a session by ID and change only that session's repository; no commands that start, write to, resize or end sessions, and text reaches a session only as a validated paste through the main window (panel_to_main)",
+  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, staging, unstaging, discarding and committing the files of a session's repository (by session ID), listing a session's folder (one folder at a time, and a bounded index of its paths for the filter) and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top and closing itself (its own commands only, close, then destroy once pending input is saved; no core:window permission, whose commands take any window's label). The git actions name a session by ID and change only that session's repository; no commands that start, write to, resize or end sessions, and text reaches only the session the main window handed it, as a validated paste through the main window (panel_to_main); shared notes only of that session's folder",
   "windows": ["panel"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "core:window:allow-close",
-    "core:window:allow-destroy",
-    "core:window:allow-set-focus",
     "clipboard-manager:allow-write-text",
     "allow-list-note-folders",
     "allow-list-notes",
@@ -44,6 +41,8 @@
     "allow-reveal-session-folder",
     "allow-open-file-viewer",
     "allow-panel-to-main",
-    "allow-set-panel-on-top"
+    "allow-set-panel-on-top",
+    "allow-close-panel-window",
+    "allow-destroy-panel-window"
   ]
 }

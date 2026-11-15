@@ -6,11 +6,14 @@ import {
   MIN_PANE_SHARE,
   minShare,
   parsePaneRatios,
+  parseSubAgentRatios,
   ratioBounds,
   ratiosFor,
   sameRatios,
   setRatio,
   stepRatio,
+  SUB_AGENT_LAYOUT,
+  subAgentRatios,
   withoutRatios,
   withRatios,
 } from "./paneRatios";
@@ -193,5 +196,27 @@ describe("parsePaneRatios", () => {
     expect(parsePaneRatios(null)).toEqual({});
     expect(parsePaneRatios("wide")).toEqual({});
     expect(parsePaneRatios([0.5])).toEqual({});
+  });
+});
+
+describe("sub-agent view ratios", () => {
+  it("uses the two-column preset until a position is stored", () => {
+    expect(subAgentRatios(null)).toEqual(DEFAULT_RATIOS[SUB_AGENT_LAYOUT]);
+    expect(subAgentRatios([0.65])).toEqual([0.65]);
+  });
+
+  it("keeps the terminal and the view at least 240 px wide", () => {
+    const area = { width: 1200, height: 800 };
+    expect(setRatio(SUB_AGENT_LAYOUT, [0.5], 0, 0.95, area)).toEqual([1 - 240 / 1200]);
+    expect(setRatio(SUB_AGENT_LAYOUT, [0.5], 0, 0.05, area)).toEqual([240 / 1200]);
+    expect(setRatio(SUB_AGENT_LAYOUT, [0.5], 0, 0.6, area)).toEqual([0.6]);
+  });
+
+  it("parses a stored position and drops unusable ones", () => {
+    expect(parseSubAgentRatios([0.7])).toEqual([0.7]);
+    expect(parseSubAgentRatios([0.99])).toBeNull();
+    expect(parseSubAgentRatios([0.4, 0.6])).toBeNull();
+    expect(parseSubAgentRatios(["wide"])).toBeNull();
+    expect(parseSubAgentRatios(undefined)).toBeNull();
   });
 });

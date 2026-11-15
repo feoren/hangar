@@ -6,7 +6,7 @@ superseded_by:
 tags: [notes, e2e, git, teams, keychain, xchacha20poly1305, hkdf]
 sources: ["[[note-gitattributes-measurement]]"]
 created: 2026-11-10
-updated: 2026-11-10
+updated: 2026-11-13
 ---
 
 # ADR 0006: Encrypted project notes in the repository
@@ -230,7 +230,8 @@ crate, with test vectors in `test_vectors.py` like the other formats; the app pa
   repository") and **Only on this computer** (today's notes). "All" and search include unlocked
   shared notes with the same icon. Each group has its own "+"; a note's More menu gets "Move to
   shared notes" and "Move to this computer". Decrypted notes are never written to disk; search
-  decrypts in memory.
+  decrypts in memory. *Amended 2026-11-13:* the two groups became a **Private | Shared** switch
+  above the list; see [[notes]].
 - **First-time setup in one step:** in a Git repository without `.hangar/notes`, the Shared group
   shows one line: "Share notes with everyone who has this repository, encrypted." and a button
   **Turn on**. One dialog: in a team project (owner or admin) it says who will be able to read

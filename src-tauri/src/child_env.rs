@@ -1,8 +1,13 @@
 //! The environment of every program Hangar starts: sessions in a PTY (`manager.rs`) and the
-//! version query (`version.rs`). One rule for both, so a protection added for one cannot be
-//! missing in the other.
+//! version query (`version.rs`) get [`apply`]; helper programs (git in `git.rs`, the file manager
+//! and opened files in `desktop.rs`) get [`scrub`], the same removals without the terminal and
+//! profile settings. One rule for all, so a protection added for one cannot be missing in the
+//! other. Programs Windows starts for Hangar through `ShellExecuteW` (`desktop.rs`) inherit
+//! Hangar's own environment with no way to change it per call, so [`scrub_own_environment`]
+//! takes the same removals out of Hangar's own process once at startup.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use crate::manager::{INHERITED_SESSION_MARKERS, NO_CWD_IN_EXE_PATH};
 
@@ -43,10 +48,19 @@ impl Target for portable_pty::CommandBuilder {
 /// profile's `env`. That comes after the protection so a profile can change it deliberately; an
 /// empty value for the variable removes it (only its presence counts, not its value).
 pub fn changes(profile_env: &BTreeMap<String, String>, no_cwd_lookup: bool) -> Vec<Change<'_>> {
-    let inside_gate = [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some());
-    changes_with(profile_env, no_cwd_lookup, inside_gate)
+    changes_with(profile_env, no_cwd_lookup, inside_gate())
+}
+
+/// Whether Hangar started inside a gated session (it inherited a gate token), as its environment
+/// said on the first call. [`scrub_own_environment`] asks first, before it removes the token, so
+/// the answer stays what Hangar inherited.
+fn inside_gate() -> bool {
+    static INSIDE_GATE: OnceLock<bool> = OnceLock::new();
+    *INSIDE_GATE.get_or_init(|| {
+        [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
+            .iter()
+            .any(|name| std::env::var_os(name).is_some())
+    })
 }
 
 /// [`changes`] with `inside_gate`: Hangar itself runs inside a gated session (it inherited a
@@ -98,16 +112,113 @@ pub fn changes_with(
     out
 }
 
+/// Prefix of the variables VS Code's git extension sets in its integrated terminal (the askpass
+/// helper's IPC handle among them).
+const VSCODE_GIT_PREFIX: &str = "VSCODE_GIT_";
+
+/// Names among `inherited` that belong to an editor Hangar was started from (VS Code and its
+/// forks): its git credential helper and IPC handles. A session would otherwise ask that editor
+/// for git credentials, or reach into it, and the editor need not even run any more. Exact names
+/// such as `VSCODE_IPC_HOOK_CLI` are in [`INHERITED_SESSION_MARKERS`]; this covers the prefix
+/// and `GIT_ASKPASS` or `SSH_ASKPASS` when it points to an editor's askpass helper (the user's
+/// own helper stays).
+pub fn ide_variables<'a>(inherited: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    inherited
+        .into_iter()
+        .filter(|(name, value)| {
+            let upper = name.to_ascii_uppercase();
+            upper.starts_with(VSCODE_GIT_PREFIX)
+                || (matches!(upper.as_str(), "GIT_ASKPASS" | "SSH_ASKPASS")
+                    && is_editor_askpass(value))
+        })
+        .map(|(name, _)| name.to_owned())
+        .collect()
+}
+
+/// An editor's askpass helper: the script of VS Code's built-in git extension in any of its
+/// installations (`…/resources/app/extensions/git/dist/askpass.sh`, also in Cursor, VSCodium and
+/// the like), and the scripts JetBrains IDEs write into their temporary folder
+/// (`intellij-git-askpass-local.sh`, `intellij-ssh-askpass-local.sh`, `.bat` on Windows).
+fn is_editor_askpass(value: &str) -> bool {
+    let normalized = value.replace('\\', "/").to_ascii_lowercase();
+    let file = normalized.rsplit('/').next().unwrap_or_default();
+    normalized.contains("/extensions/git/dist/askpass")
+        || file.starts_with("intellij-git-askpass")
+        || file.starts_with("intellij-ssh-askpass")
+}
+
+/// Hangar's own environment as `(name, value)` pairs; names and values that are not UTF-8 are no
+/// editor's variables.
+fn inherited() -> Vec<(String, String)> {
+    std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .collect()
+}
+
 pub fn apply(
     target: &mut impl Target,
     profile_env: &BTreeMap<String, String>,
     no_cwd_lookup: bool,
 ) {
+    let inherited = inherited();
+    // First, so a profile can still set one of them on purpose.
+    for name in ide_variables(inherited.iter().map(|(n, v)| (n.as_str(), v.as_str()))) {
+        target.remove(&name);
+    }
     for change in changes(profile_env, no_cwd_lookup) {
         match change {
             Change::Set(key, value) => target.set(key, value),
             Change::Remove(key) => target.remove(key),
         }
+    }
+}
+
+/// The names a helper program must not inherit: the calling agent session's markers, the gate's
+/// token and helper variables (every gate variable when Hangar itself runs in a gated session)
+/// and an editor's git and IPC variables among `inherited`. A repository's hooks and helpers, or
+/// a program a clicked file opens in, would otherwise reach that session's gate or editor.
+pub fn removals<'a>(
+    inherited: impl IntoIterator<Item = (&'a str, &'a str)>,
+    inside_gate: bool,
+) -> Vec<String> {
+    let mut names = ide_variables(inherited);
+    names.extend(
+        changes_with(&BTreeMap::new(), false, inside_gate)
+            .into_iter()
+            .filter_map(|change| match change {
+                Change::Remove(name) => Some(name.to_owned()),
+                Change::Set(..) => None,
+            }),
+    );
+    names
+}
+
+/// Removes [`removals`] from a helper program's environment. Sets nothing: helpers need neither
+/// a terminal type nor a profile's variables.
+pub fn scrub(target: &mut impl Target) {
+    let inherited = inherited();
+    for name in removals(
+        inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        inside_gate(),
+    ) {
+        target.remove(&name);
+    }
+}
+
+/// Removes [`removals`] from Hangar's own process environment. Called once at the start of
+/// [`crate::run`], while the process has a single thread: changing the environment while another
+/// thread reads it is undefined behavior on Unix (`setenv`/`getenv` are not thread safe), which
+/// is why edition 2024 marks `remove_var` unsafe. Afterwards a program Windows' shell starts
+/// for Hangar (an opened file, page or folder) inherits nothing of a calling agent session, its
+/// gate or an editor, like every program Hangar starts itself.
+pub fn scrub_own_environment() {
+    let inside_gate = inside_gate();
+    let inherited = inherited();
+    for name in removals(
+        inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        inside_gate,
+    ) {
+        std::env::remove_var(name);
     }
 }
 
@@ -163,6 +274,172 @@ mod tests {
         assert!(outside.contains(&Change::Remove(crate::gate::TOKEN_ENV)));
         assert!(outside.contains(&Change::Remove(crate::hook_recipes::HELPER_ENV)));
         assert!(!outside.contains(&Change::Remove(crate::hook_recipes::GEMINI_SETTINGS_ENV)));
+    }
+
+    #[test]
+    fn editor_variables_are_found() {
+        let inherited = [
+            ("VSCODE_GIT_IPC_HANDLE", "\\\\.\\pipe\\vscode-git-marker"),
+            ("vscode_git_askpass_main", "marker"),
+            (
+                "GIT_ASKPASS",
+                r"C:\Users\x\AppData\Local\Programs\Microsoft VS Code\resources\app\extensions\git\dist\askpass.sh",
+            ),
+            ("PATH", "/usr/bin"),
+            ("VSCODE_PID", "1"),
+        ];
+        assert_eq!(
+            ide_variables(inherited),
+            [
+                "VSCODE_GIT_IPC_HANDLE",
+                "vscode_git_askpass_main",
+                "GIT_ASKPASS"
+            ]
+        );
+        // The user's own credential helper stays.
+        let own = [("GIT_ASKPASS", "/usr/lib/ssh/x11-ssh-askpass")];
+        assert!(ide_variables(own).is_empty());
+        let cursor = [(
+            "GIT_ASKPASS",
+            "/Applications/Cursor.app/Contents/Resources/app/extensions/git/dist/askpass.sh",
+        )];
+        assert_eq!(ide_variables(cursor), ["GIT_ASKPASS"]);
+    }
+
+    #[test]
+    fn jetbrains_askpass_helpers_are_found() {
+        let inherited = [
+            (
+                "GIT_ASKPASS",
+                r"C:\Users\x\AppData\Local\JetBrains\IntelliJIdea2025.2\tmp\intellij-git-askpass-local.bat",
+            ),
+            (
+                "SSH_ASKPASS",
+                "/home/x/.cache/JetBrains/PyCharm2025.2/tmp/intellij-ssh-askpass-local.sh",
+            ),
+            (
+                "Git_AskPass",
+                "/Applications/Cursor.app/x/extensions/git/dist/askpass.sh",
+            ),
+        ];
+        assert_eq!(
+            ide_variables(inherited),
+            ["GIT_ASKPASS", "SSH_ASKPASS", "Git_AskPass"]
+        );
+        // A helper of the user's own with a similar word in its folder stays.
+        let own = [("SSH_ASKPASS", "/opt/intellij-tools/bin/my-askpass")];
+        assert!(ide_variables(own).is_empty());
+    }
+
+    #[test]
+    fn exact_editor_variables_are_removed_like_session_markers() {
+        let none = BTreeMap::new();
+        let all = changes(&none, false);
+        for name in ["VSCODE_IPC_HOOK_CLI", "CLAUDE_CODE_SSE_PORT"] {
+            assert!(all.contains(&Change::Remove(name)), "{name}: {all:?}");
+        }
+    }
+
+    #[derive(Default)]
+    struct Recorded(Vec<String>);
+
+    impl Target for Recorded {
+        fn set(&mut self, key: &str, value: &str) {
+            self.0.push(format!("set {key}={value}"));
+        }
+        fn remove(&mut self, key: &str) {
+            self.0.push(format!("remove {key}"));
+        }
+    }
+
+    /// Held by every test here that changes or reads the process environment: the startup scrub
+    /// removes every `VSCODE_GIT_` variable, the markers of the other tests included.
+    static PROCESS_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn startup_takes_the_removals_out_of_hangars_own_environment() {
+        let _env = crate::lock(&PROCESS_ENV);
+        // Names only this test uses; an unrelated variable stays.
+        std::env::set_var("VSCODE_GIT_HANGAR_STARTUP_MARKER", "1");
+        std::env::set_var("HANGAR_STARTUP_KEEP_MARKER", "1");
+        let gated = inside_gate();
+        scrub_own_environment();
+        assert!(std::env::var_os("VSCODE_GIT_HANGAR_STARTUP_MARKER").is_none());
+        assert_eq!(
+            std::env::var_os("HANGAR_STARTUP_KEEP_MARKER").as_deref(),
+            Some(std::ffi::OsStr::new("1"))
+        );
+        std::env::remove_var("HANGAR_STARTUP_KEEP_MARKER");
+        for name in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
+            assert!(std::env::var_os(name).is_none(), "{name} stayed");
+        }
+        // What Hangar inherited stays remembered after its token is gone.
+        assert_eq!(inside_gate(), gated);
+    }
+
+    #[test]
+    fn apply_removes_editor_variables_before_the_profile() {
+        // The variable is only read here; the startup scrub test waits for the lock.
+        let _env = crate::lock(&PROCESS_ENV);
+        std::env::set_var("VSCODE_GIT_HANGAR_TEST_MARKER", "1");
+        let profile = env(&[("VSCODE_GIT_HANGAR_TEST_MARKER", "again")]);
+        let mut target = Recorded::default();
+        apply(&mut target, &profile, false);
+        std::env::remove_var("VSCODE_GIT_HANGAR_TEST_MARKER");
+        let removed = target
+            .0
+            .iter()
+            .position(|c| c == "remove VSCODE_GIT_HANGAR_TEST_MARKER");
+        let set = target
+            .0
+            .iter()
+            .position(|c| c == "set VSCODE_GIT_HANGAR_TEST_MARKER=again");
+        assert!(removed.is_some() && removed < set, "{:?}", target.0);
+    }
+
+    #[test]
+    fn helpers_lose_markers_gate_and_editor_variables() {
+        let inherited = [
+            ("VSCODE_GIT_IPC_HANDLE", "marker"),
+            ("PATH", "/usr/bin"),
+            ("CLAUDE_CODE_USE_BEDROCK", "1"),
+        ];
+        let outside = removals(inherited, false);
+        for name in [
+            "VSCODE_GIT_IPC_HANDLE",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "VSCODE_IPC_HOOK_CLI",
+            crate::gate::TOKEN_ENV,
+            crate::hook_recipes::HELPER_ENV,
+        ] {
+            assert!(outside.iter().any(|n| n == name), "{name}: {outside:?}");
+        }
+        // The user's own settings stay; nothing is set.
+        for kept in ["PATH", "CLAUDE_CODE_USE_BEDROCK", "TERM"] {
+            assert!(!outside.iter().any(|n| n == kept), "{kept}");
+        }
+        let inside = removals(inherited, true);
+        for name in crate::hook_recipes::GATE_ENV_NAMES {
+            assert!(inside.iter().any(|n| n == name), "{name}: {inside:?}");
+        }
+    }
+
+    #[test]
+    fn scrub_only_removes() {
+        let mut target = Recorded::default();
+        scrub(&mut target);
+        assert!(
+            target.0.iter().all(|c| c.starts_with("remove ")),
+            "{:?}",
+            target.0
+        );
+        assert!(target
+            .0
+            .contains(&format!("remove {}", crate::gate::TOKEN_ENV)));
     }
 
     #[test]

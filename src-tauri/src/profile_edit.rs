@@ -361,6 +361,13 @@ command = \"cmd\"
     }
 
     #[test]
+    fn an_env_value_with_nul_is_refused() {
+        let mut change = input("own");
+        change.env = [("MARK".to_owned(), "hangar\0marker".to_owned())].into();
+        assert!(upsert(FILE, &change, &[]).is_err());
+    }
+
+    #[test]
     fn unchanged_input_leaves_the_file_byte_for_byte() {
         let same = ProfileInput {
             id: "own".into(),

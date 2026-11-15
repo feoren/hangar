@@ -4,7 +4,7 @@ type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
 sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid
@@ -80,6 +80,13 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
   `--trusted-extension` (refused next to `-e`), OpenCode with a profile's
   `OPENCODE_CONFIG_CONTENT`, Droid with the user's own `--settings`. A variable counts whether
   the profile keeps it plain (`env`) or in the keychain (`secret_env`).
+
+> [!note] Shell commands
+> Since [[0010-command-guard]] Claude Code's matcher also names `Bash` and `PowerShell`; the Pi
+> extension sends `bash` as `Bash` and `powershell` as `PowerShell`, the OpenCode plugin `bash` as
+> `Bash` (on Windows as `Shell`) with its `workdir`, each with `tool_input.command`
+> ([[shell-tool-input-shapes]]). The other recipes, Codex's included, still match edit tools only;
+> the reasons are in the ADR.
 
 ## Recipe per CLI
 

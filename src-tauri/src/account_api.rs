@@ -13,8 +13,8 @@ use reqwest::{Method, StatusCode};
 use zeroize::Zeroizing;
 
 use crate::account::{
-    self, BaseUrl, DeviceAuthorization, Me, OAuthCode, PollResponse, Problem, Project, RelayTicket,
-    TokenSet,
+    self, BaseUrl, DeviceAuthorization, Me, OAuthCode, PollResponse, Problem, Project,
+    ProjectMember, RelayTicket, TokenSet,
 };
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -48,6 +48,21 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    /// For the log: the HTTP status and the problem's machine code, never the server's text
+    /// (a problem's `detail` may name the person).
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Status { status, problem } => {
+                match problem.as_ref().and_then(|p| p.code.as_deref()) {
+                    Some(code) => format!("HTTP {status} ({})", account::clean_text(code)),
+                    None => format!("HTTP {status}"),
+                }
+            }
+            Self::OAuth(code, _) => format!("OAuth error {code:?}"),
+            other => other.to_string(),
+        }
+    }
+
     /// Worth asking again later: network trouble, rate limits, server errors.
     pub fn is_transient(&self) -> bool {
         match self {
@@ -83,6 +98,22 @@ enum Body {
     Json(serde_json::Value),
     /// `application/x-www-form-urlencoded`, already encoded; may hold a token.
     Form(Zeroizing<String>),
+}
+
+/// What `GET` of the profile picture gave.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AvatarAnswer {
+    /// 304 on `If-None-Match`: the cached picture is current.
+    NotModified,
+    /// 404: the person has no picture (any more).
+    Missing,
+    /// The picture, already checked for type and size (`avatar::image_type`).
+    Image {
+        mime: &'static str,
+        bytes: Vec<u8>,
+        /// The `ETag` header, when it is a valid etag.
+        etag: Option<String>,
+    },
 }
 
 struct Answer {
@@ -149,19 +180,7 @@ impl AccountApi {
         }
         let mut response = request.send().await.map_err(map_reqwest)?;
         let status = response.status();
-        if response
-            .content_length()
-            .is_some_and(|length| length > RESPONSE_LIMIT as u64)
-        {
-            return Err(ApiError::TooLarge);
-        }
-        let mut body = Zeroizing::new(Vec::new());
-        while let Some(chunk) = response.chunk().await.map_err(map_reqwest)? {
-            if body.len() + chunk.len() > RESPONSE_LIMIT {
-                return Err(ApiError::TooLarge);
-            }
-            body.extend_from_slice(&chunk);
-        }
+        let body = read_limited(&mut response, RESPONSE_LIMIT).await?;
         Ok(Answer { status, body })
     }
 
@@ -269,9 +288,79 @@ impl AccountApi {
         serde_json::from_slice(&body).map_err(|_| ApiError::Malformed)
     }
 
+    /// `GET` of the profile picture `/me` named. `url` must lie on the base's own origin and
+    /// below its API path ([`BaseUrl::same_api`]; the token goes nowhere else). A 401 is a plain
+    /// status error here: a refused picture must never end the sign-in; `cached` is the etag of the picture already on disk, sent as
+    /// `If-None-Match`. At most [`crate::avatar::MAX_BYTES`]; only PNG, JPEG and WebP whose
+    /// bytes match the `Content-Type` header.
+    pub async fn avatar(
+        &self,
+        url: &str,
+        access: &str,
+        cached: Option<&str>,
+    ) -> Result<AvatarAnswer, ApiError> {
+        let url = self.base.same_api(url).ok_or(ApiError::Malformed)?;
+        let mut request = self
+            .client
+            .get(url)
+            .header(reqwest::header::ACCEPT, crate::avatar::ACCEPT)
+            .bearer_auth(access);
+        if let Some(etag) = cached {
+            request = request.header(reqwest::header::IF_NONE_MATCH, format!("\"{etag}\""));
+        }
+        let mut response = request.send().await.map_err(map_reqwest)?;
+        let status = response.status();
+        match status {
+            StatusCode::NOT_MODIFIED => return Ok(AvatarAnswer::NotModified),
+            StatusCode::NOT_FOUND => return Ok(AvatarAnswer::Missing),
+            _ => {}
+        }
+        let header = |name| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value: &reqwest::header::HeaderValue| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let content_type = header(reqwest::header::CONTENT_TYPE);
+        let etag = header(reqwest::header::ETAG)
+            .as_deref()
+            .and_then(crate::avatar::etag_from_header);
+        let limit = if status.is_success() {
+            crate::avatar::MAX_BYTES
+        } else {
+            RESPONSE_LIMIT
+        };
+        let body = read_limited(&mut response, limit).await?;
+        if !status.is_success() {
+            return Err(ApiError::Status {
+                status: status.as_u16(),
+                problem: Problem::parse(&body).map(Box::new),
+            });
+        }
+        let mime =
+            crate::avatar::image_type(content_type.as_deref(), &body).ok_or(ApiError::Malformed)?;
+        Ok(AvatarAnswer::Image {
+            mime,
+            bytes: body.to_vec(),
+            etag,
+        })
+    }
+
     pub async fn projects(&self, access: &str) -> Result<Vec<Project>, ApiError> {
         let body = self.get("projects", access).await?;
         Project::parse_list(&body, &self.base).ok_or(ApiError::Malformed)
+    }
+
+    /// `GET /projects/{id}/members`: the project's members and their roles, for a project the
+    /// person is a member of. The id is percent-encoded as one path segment.
+    pub async fn project_members(
+        &self,
+        access: &str,
+        project_id: &str,
+    ) -> Result<Vec<ProjectMember>, ApiError> {
+        let body = self.get(&members_path(project_id), access).await?;
+        ProjectMember::parse_list(&body).ok_or(ApiError::Malformed)
     }
 
     /// `POST /relay-ticket` for a project the person is a member of (404 otherwise).
@@ -285,8 +374,29 @@ impl AccountApi {
             .send(Method::POST, "relay-ticket", Some(access), Body::Json(body))
             .await?;
         let body = checked(answer)?;
-        RelayTicket::parse(&body).ok_or(ApiError::Malformed)
+        RelayTicket::parse(&body, &self.base).ok_or(ApiError::Malformed)
     }
+}
+
+/// The body, at most `limit` bytes (by the announced length and while reading).
+async fn read_limited(
+    response: &mut reqwest::Response,
+    limit: usize,
+) -> Result<Zeroizing<Vec<u8>>, ApiError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(ApiError::TooLarge);
+    }
+    let mut body = Zeroizing::new(Vec::new());
+    while let Some(chunk) = response.chunk().await.map_err(map_reqwest)? {
+        if body.len() + chunk.len() > limit {
+            return Err(ApiError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn checked(answer: Answer) -> Result<Zeroizing<Vec<u8>>, ApiError> {
@@ -331,6 +441,14 @@ fn form_encode(out: &mut String, value: &str) {
     }
 }
 
+/// `projects/<id>/members`, the id percent-encoded so it stays one segment whatever it holds.
+fn members_path(project_id: &str) -> String {
+    let mut path = String::from("projects/");
+    form_encode(&mut path, project_id);
+    path.push_str("/members");
+    path
+}
+
 fn map_reqwest(error: reqwest::Error) -> ApiError {
     if error.is_timeout() {
         ApiError::Timeout
@@ -348,5 +466,11 @@ mod tests {
         let mut out = String::new();
         form_encode(&mut out, "hgrt_a-b.c*d~e+f=g&h%i j/\u{e4}");
         assert_eq!(out, "hgrt_a-b.c*d%7Ee%2Bf%3Dg%26h%25i%20j%2F%C3%A4");
+    }
+
+    #[test]
+    fn a_project_id_stays_one_path_segment() {
+        assert_eq!(members_path("42"), "projects/42/members");
+        assert_eq!(members_path("../me"), "projects/..%2Fme/members");
     }
 }

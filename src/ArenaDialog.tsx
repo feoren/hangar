@@ -70,7 +70,7 @@ const STATE_TEXT: Record<ContestantState, MessageKey> = {
 
 type Stats = ReadonlyMap<number, DiffStat | "error">;
 
-/** After "Übernehmen": the result, and for a success the offer to close the others. */
+/** After "Take over": the result, and for a success the offer to close the others. */
 type Applied =
   | { kind: "applied"; winnerId: number }
   | { kind: "conflict"; files: string[] }

@@ -4,7 +4,7 @@ type: synthesis
 tags: [gate, rules, team, catalog, ui]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Gate rules and why an agent is not team-capable
@@ -23,6 +23,10 @@ answer goes to the waiting edit at once and becomes a gate rule.
   parsing), `gate_service.rs` (`decide` applies rules, `answer` saves them, `load_rules`,
   `delete_rule`), `gate.rs` (`Answer::AlwaysFile` and siblings, `Gate::settle`, `Gate::record`, the
   snapshot's `log`). Window: `GateCard.tsx`, `GateRulesSettings.tsx`, `useRuleNotes.ts`, `gate.ts`.
+- **Arm delay.** The card's answer buttons ignore clicks for 600 ms after the card appears or its
+  decision changes (`useArmDelay.ts`, security audit round 3): a click meant for what was under
+  the mouse a moment before must not answer a question nobody read. Meanwhile they are dimmed
+  (`aria-disabled`), then fade in; with reduced motion without the fade.
 - **Project.** A rule belongs to the repository's git common folder (`WorktreeClaims::repo`), so
   every worktree of one repository shares it, and a team session's fresh worktree is covered.
   The path is relative to the worktree's top, as git prints it.
@@ -50,6 +54,11 @@ answer goes to the waiting edit at once and becomes a gate rule.
   block is hidden while there is no rule and no automatic answer.
 - **Agent's reason.** A deny by rule tells the agent that the user's standing rule for the project
   does not allow the edit while another session changes the file (`gate::rule_denied_reason`).
+- **Command rules.** The command guard ([[0010-command-guard]]) keeps its remembered answers in
+  the same book and log: scope `command`, `path` the guard rule's id (checked like an id, not a
+  path), one per project and guard rule. A command rule never answers an edit and a file rule
+  never a command. The log names the command (cut to 200 characters); Settings shows the rule as
+  "command rule <id>". An older Hangar skips such entries and drops them on its next save.
 
 ## Why an agent is not team-capable
 

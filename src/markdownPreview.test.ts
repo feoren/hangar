@@ -52,6 +52,8 @@ describe("renderViewerMarkdown", () => {
     expect(isWebLink("https://")).toBe(false);
     expect(isWebLink("ftp://example.com")).toBe(false);
     expect(isWebLink("example.com")).toBe(false);
+    expect(isWebLink("https://github.com@evil.example/")).toBe(false);
+    expect(isWebLink("https://user:secret@example.com/")).toBe(false);
   });
 });
 

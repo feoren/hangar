@@ -4,8 +4,9 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal, type IMarker } from "@xterm/xterm";
+import { Terminal, type IBufferRange } from "@xterm/xterm";
 
+import type { PasteWarning } from "./appPaste";
 import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
 import {
   AttentionTracker,
@@ -26,10 +27,13 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
-import { promptWorthShowing } from "./lastPrompt";
+import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
+import { PtySizeSync } from "./ptySize";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
+import { tailLines } from "./overview";
+import { PEEK_COLUMNS, plainLines, styledTail, type PeekContent, type PeekLine } from "./peekStyle";
 import { bufferText, htmlDocument, type BufferRow } from "./sessionExport";
 import {
   columnOf,
@@ -41,7 +45,10 @@ import {
 } from "./sessionSearch";
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
+import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
+import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
+import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
 import {
   createFontLoader,
@@ -52,7 +59,7 @@ import {
   searchColors,
   type TerminalLook,
 } from "./terminalLook";
-import { safeLinkUrl, sanitizePaste } from "./termSafety";
+import { addressParts, safeLinkUrl, sanitizePaste } from "./termSafety";
 import { MINIMUM_CONTRAST, type Theme } from "./theme";
 import { newSessionKey, trimScrollback } from "./workspace";
 
@@ -66,6 +73,9 @@ const RESTORE_ERASE_GRACE_MS = 1500;
 
 /** Shared by all terminals, so each bundled font loads once. */
 const fontLoader = createFontLoader((query) => document.fonts.load(query));
+
+/** Shared by all terminals: a path printed in two sessions is looked up once. */
+const pathChecker = new PathChecker((paths) => api.statPaths(paths));
 
 export interface TerminalOptions {
   fontSize?: number;
@@ -125,8 +135,14 @@ export class SessionTerminal {
    * stay empty.
    */
   private pendingInput = "";
-  /** Last write to the backend; broadcast waits for it before sending Enter. */
+  /** Last write to the backend (may reject); broadcast waits for it before sending Enter. */
   private lastWrite: Promise<unknown> = Promise.resolve();
+  /** New terminal sizes for the PTY, once a drag rests (ptySize.ts). */
+  private readonly ptySize = new PtySizeSync((id, size) => {
+    // The program redraws for the resize; that output is not work (attention.ts).
+    this.attention.resized();
+    api.resize(id, size).catch(ignore);
+  });
   private opened = false;
   private disposed = false;
   /** `undefined`: still running. Set as soon as the exit event arrives. */
@@ -138,8 +154,19 @@ export class SessionTerminal {
    */
   fallback: SessionFallback | undefined = undefined;
   onFallback: ((fallback: SessionFallback) => void) | null = null;
-  /** Click on a link (OSC 8) with an allowed address; only http and https get this far. */
-  onLink: ((url: string) => void) | null = null;
+  /**
+   * Click on a link (OSC 8) with an allowed address; only http and https get this far. `shown`
+   * holds the link's own visible text and the word around it in the terminal, either of which
+   * may claim another address (termSafety.ts `osc8DecisionOf`).
+   */
+  onLink: ((url: string, shown: LinkTexts) => void) | null = null;
+  /** The real target of the OSC 8 link under the mouse; inside the xterm element. */
+  private linkTip: HTMLElement | null = null;
+  /** Click on an address or existing path in the output (terminalLinkProvider.ts). */
+  onOpenLink: ((request: LinkRequest) => void) | null = null;
+  /** The session's folder, for relative paths in the output; the app knows the session. */
+  cwd: () => string | null = () => null;
+  private readonly links: TerminalLinks;
   /** The clipboard held an image but no text, and saving the image failed. */
   onImagePasteFailed: (() => void) | null = null;
   /**
@@ -148,12 +175,6 @@ export class SessionTerminal {
    */
   onPromptLine: ((line: string) => void) | null = null;
   private readonly promptLines = new PromptLineTracker();
-  /** Own tracker for the last prompt bar: it runs for the whole session, not just the first line. */
-  private readonly lastPromptLines = new PromptLineTracker();
-  /** The user's last prompt and a marker on the line it was sent from (lastPrompt.ts). */
-  private lastPromptEntry: { text: string; marker: IMarker | undefined } | null = null;
-  private lastPromptSnapshot: { text: string; reachable: boolean } | null = null;
-  private readonly lastPromptListeners = new Set<() => void>();
   /**
    * The newest local dev server address in the current process's output changed (devServer.ts);
    * `null` when the process ended or started again. Called on changes only, never per chunk.
@@ -166,6 +187,10 @@ export class SessionTerminal {
   shellKind: () => ShellKind = () => "agent";
   /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
   imagePasteInFlight = false;
+  /** Whether Ctrl+V asks before text that would run lines or hides characters (a setting). */
+  warnsBeforePaste: () => boolean = () => true;
+  /** Asks the user about such a paste; the app shows the question. Until then nothing goes in. */
+  confirmPaste: (warning: PasteWarning) => Promise<boolean> = () => Promise.resolve(false);
   /** Active session in a focused window; the app sets it as soon as the ID is known. */
   isWatched: () => boolean = () => false;
   readonly attention: AttentionTracker;
@@ -210,13 +235,37 @@ export class SessionTerminal {
       minimumContrastRatio: MINIMUM_CONTRAST[theme],
       // Replaces xterm's default, which asks via confirm() and opened the address in the WebView
       // via window.open. xterm does not even let schemes other than http and https through here.
+      // An OSC 8 link's visible text can claim another address than it leads to: hovering shows
+      // the real target, and the click hands both to the app (termSafety.ts `osc8Decision`).
       linkHandler: {
-        activate: (event, text) => {
+        activate: (event, text, range) => {
           event.preventDefault();
+          this.hideLinkTip();
           const url = safeLinkUrl(text);
-          if (url !== null) this.onLink?.(url);
+          if (url !== null) this.onLink?.(url, this.linkTexts(range));
+        },
+        hover: (event, text) => {
+          const url = safeLinkUrl(text);
+          if (url !== null) this.showLinkTip(event, url);
+        },
+        leave: () => {
+          this.hideLinkTip();
         },
         allowNonHttpProtocols: false,
+      },
+    });
+    this.links = new TerminalLinks(this.term, {
+      cwd: () => this.cwd(),
+      checker: pathChecker,
+      open: (request) => {
+        this.onOpenLink?.(request);
+      },
+      // A printed address shows where it leads, like an OSC 8 link.
+      hover: (event, url) => {
+        this.showLinkTip(event, url);
+      },
+      leave: () => {
+        this.hideLinkTip();
       },
     });
     this.term.loadAddon(this.fitAddon);
@@ -229,9 +278,10 @@ export class SessionTerminal {
     });
 
     this.term.onData((data) => {
+      // Ctrl+C or a lone Escape interrupts an agent's turn; its end is then no finished task.
+      if (data === "\x03" || data === "\x1b") this.attention.interrupted();
       this.send(data);
       this.trackPrompt(data);
-      this.trackLastPrompt(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
@@ -240,10 +290,12 @@ export class SessionTerminal {
       this.programSelection.keyTyped();
     });
     // xterm has no OSC 52 handler: the clipboard write is only read here, not carried out, and
-    // `false` leaves it to any later handler.
+    // `false` leaves it to any later handler. Only a program that tracks the mouse can have
+    // selected something itself.
     this.term.parser.registerOscHandler(52, (data) => {
       const text = clipboardWriteText(data);
-      if (text !== null) this.programSelection.clipboardWritten(text);
+      const tracking = this.term.modes.mouseTrackingMode !== "none";
+      if (text !== null) this.programSelection.clipboardWritten(text, tracking);
       return false;
     });
     this.term.onBell(() => {
@@ -251,7 +303,7 @@ export class SessionTerminal {
     });
     this.term.onResize(({ cols, rows }) => {
       this.attention.resized();
-      if (this.id !== null) api.resize(this.id, { cols, rows }).catch(ignore);
+      this.ptySize.resized({ cols, rows });
     });
     this.term.attachCustomKeyEventHandler((event) => this.handleKey(event));
   }
@@ -294,10 +346,19 @@ export class SessionTerminal {
       api.ack(id, this.pendingAck).catch(ignore);
       this.pendingAck = 0;
     }
+    this.ptySize.attach(id);
   }
 
   size(): TermSize {
     return { cols: this.term.cols, rows: this.term.rows };
+  }
+
+  /**
+   * The size a new process starts with (create, restart); by default the terminal's own. The PTY
+   * then has it, so a resize to the same size is not sent again.
+   */
+  startSize(size: TermSize = this.size()): TermSize {
+    return this.ptySize.started(size);
   }
 
   mount(host: HTMLElement): void {
@@ -324,6 +385,7 @@ export class SessionTerminal {
           this.term.focus();
         });
         this.watchClicks(this.term.element);
+        this.links.watch(this.term.element);
       }
     } else if (this.term.element && this.term.element.parentElement !== host) {
       host.appendChild(this.term.element);
@@ -338,6 +400,7 @@ export class SessionTerminal {
   private watchClicks(element: HTMLElement): void {
     let press: { x: number; y: number } | null = null;
     element.addEventListener("mousedown", (event) => {
+      this.links.takeOpened();
       press =
         event.button === 0 && event.detail === 1 ? { x: event.clientX, y: event.clientY } : null;
     });
@@ -348,6 +411,8 @@ export class SessionTerminal {
       if (Math.abs(event.clientX - start.x) > 3 || Math.abs(event.clientY - start.y) > 3) return;
       const modifier = event.altKey || event.shiftKey || event.ctrlKey || event.metaKey;
       const { clientX, clientY } = event;
+      // A click that opened a link (xterm handled it before this listener) moves nothing.
+      if (this.links.takeOpened()) return;
       // xterm settles its selection in its own mouseup handling; read it afterwards.
       setTimeout(() => {
         this.moveCursorToClick(clientX, clientY, modifier);
@@ -487,6 +552,40 @@ export class SessionTerminal {
   }
 
   /**
+   * The last `count` rows with content in their colors, for the session peek. Falls back to plain
+   * text when the cells cannot be read.
+   */
+  peekContent(count: number): PeekContent {
+    const colors = schemeColors(this.look.scheme, this.theme);
+    let lines: PeekLine[];
+    try {
+      lines = styledTail(
+        this.term.buffer.active,
+        count,
+        colors,
+        PEEK_COLUMNS,
+        MINIMUM_CONTRAST[this.theme],
+      );
+    } catch {
+      lines = plainLines(tailLines(this.rowSource(), count));
+    }
+    return { lines, background: colors.background, foreground: colors.foreground };
+  }
+
+  /**
+   * The rows on screen as plain text (the bottom of the buffer, not where the user scrolled to),
+   * for the stall hint's fingerprint (stall.ts). Read every few seconds, never per output chunk.
+   */
+  screenLines(): string[] {
+    const buffer = this.term.buffer.active;
+    const lines: string[] = [];
+    for (let row = buffer.baseY; row < buffer.baseY + this.term.rows; row += 1) {
+      lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
+    }
+    return lines;
+  }
+
+  /**
    * The visible buffer as rows for the search across sessions and the overview. Reads lazily: the
    * caller decides how many rows to touch and when to pause.
    */
@@ -552,6 +651,69 @@ export class SessionTerminal {
     this.term.selectAll();
   }
 
+  /**
+   * The visible word a link sits in: its cells plus the cells touching them without a space, also
+   * across wrapped rows (terminalLinkWord.ts). xterm's ranges are 1 based, `end.x` inclusive.
+   */
+  private linkTexts(range: IBufferRange): LinkTexts {
+    const buffer = this.term.buffer.active;
+    const contrast = this.term.options.minimumContrastRatio ?? 1;
+    // Colors resolve as the terminal draws them: default and palette colors through the scheme.
+    const colors = schemeColors(this.look.scheme, this.theme);
+    return linkTexts(
+      (y) => {
+        const line = buffer.getLine(y);
+        if (line === undefined) return undefined;
+        return {
+          isWrapped: line.isWrapped,
+          length: line.length,
+          cell: (x) => {
+            const cell = line.getCell(x);
+            return cell === undefined
+              ? undefined
+              : {
+                  chars: cell.getChars(),
+                  width: cell.getWidth(),
+                  hidden: cellHidden(cell, contrast, colors),
+                };
+          },
+        };
+      },
+      { x: range.start.x - 1, y: range.start.y - 1 },
+      { x: range.end.x - 1, y: range.end.y - 1 },
+    );
+  }
+
+  /**
+   * Shows the link's real address next to the mouse. The `xterm-hover` class keeps xterm from
+   * treating the mouse over the tip as leaving the link or clicking the cells below it.
+   */
+  private showLinkTip(event: MouseEvent, url: string): void {
+    const host = this.term.element;
+    if (host === undefined) return;
+    const tip = this.linkTip ?? document.createElement("div");
+    tip.className = "xterm-hover terminal-link-tip";
+    tip.setAttribute("role", "tooltip");
+    fillAddress(tip, t("link.leadsTo", { url: ADDRESS_SLOT }), url);
+    const box = host.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    // Towards the roomier side, so a long address stays inside the terminal.
+    const right = x > box.width / 2;
+    const below = y < box.height / 2;
+    tip.style.left = right ? "" : `${String(Math.max(4, x))}px`;
+    tip.style.right = right ? `${String(Math.max(4, box.width - x))}px` : "";
+    tip.style.top = below ? `${String(y + 18)}px` : "";
+    tip.style.bottom = below ? "" : `${String(box.height - y + 8)}px`;
+    if (tip.parentElement !== host) host.appendChild(tip);
+    this.linkTip = tip;
+  }
+
+  private hideLinkTip(): void {
+    this.linkTip?.remove();
+    this.linkTip = null;
+  }
+
   copySelection(): void {
     const text = this.selectionText();
     if (text) writeClipboard(text).catch(ignore);
@@ -570,7 +732,10 @@ export class SessionTerminal {
       .catch(ignore);
   }
 
-  /** Text pastes synchronously, before the first await; only the image path waits. */
+  /**
+   * Text without anything to warn about pastes synchronously, before the first await; text that
+   * would run lines or hides characters waits for the user's answer (clipboardPaste.ts).
+   */
   private async pasteClipboardContent(text: string): Promise<void> {
     const result = await pasteFromClipboard(this, text, () => api.pasteClipboardImage());
     if (result === "failed") this.onImagePasteFailed?.();
@@ -596,11 +761,15 @@ export class SessionTerminal {
 
   /**
    * Like `pasteText`, but resolves once the backend has the text. Used by "Send to several",
-   * which sends Enter afterwards as a separate write.
+   * which sends Enter afterwards as a separate write; rejects when the program did not take the
+   * text (`InputStalled`), so no Enter follows a paste that did not arrive.
    */
   pasteAndWait(text: string): Promise<void> {
+    const before = this.lastWrite;
     this.pasteText(text);
-    return this.lastWrite.then(ignore, ignore);
+    // Nothing sent (blank text, or before the ID is known): an earlier write's fate is not ours.
+    if (this.lastWrite === before) return Promise.resolve();
+    return settleStalled(this.lastWrite);
   }
 
   /** Enter, as if typed: runs what was pasted before. */
@@ -609,7 +778,6 @@ export class SessionTerminal {
     this.typedSinceTaken = true;
     this.send("\r");
     this.trackPrompt("\r");
-    this.trackLastPrompt("\r");
   }
 
   /**
@@ -622,67 +790,15 @@ export class SessionTerminal {
     return typed;
   }
 
+  /** Like `takeTyped`, without resetting: whether the work that starts now follows input. */
+  hasTyped(): boolean {
+    return this.typedSinceTaken;
+  }
+
   /** Only while the app listens; typed input is small, so this costs nothing measurable. */
   private trackPrompt(data: string): void {
     if (this.onPromptLine === null) return;
     for (const line of this.promptLines.feed(data)) this.emitPromptLine(line);
-  }
-
-  /** Agent sessions only: a shell's command line is no prompt to come back to. */
-  private trackLastPrompt(data: string): void {
-    const lines = this.lastPromptLines.feed(data);
-    if (lines.length === 0 || this.shellKind() !== "agent") return;
-    let changed = false;
-    for (const line of lines) {
-      const text = promptWorthShowing(line);
-      if (text === null) continue;
-      this.lastPromptEntry?.marker?.dispose();
-      // The cursor still stands on the prompt's line: the program has not answered yet.
-      this.lastPromptEntry = { text, marker: this.term.registerMarker(0) };
-      changed = true;
-    }
-    if (changed) for (const listener of this.lastPromptListeners) listener();
-  }
-
-  /** The bar above the terminal reads this; `null` until the user sent a prompt. Stable object. */
-  lastPrompt(): { text: string; reachable: boolean } | null {
-    const entry = this.lastPromptEntry;
-    if (entry === null) return null;
-    const reachable = entry.marker !== undefined && !entry.marker.isDisposed;
-    const snapshot = this.lastPromptSnapshot;
-    if (snapshot?.text !== entry.text || snapshot.reachable !== reachable) {
-      this.lastPromptSnapshot = { text: entry.text, reachable };
-    }
-    return this.lastPromptSnapshot;
-  }
-
-  subscribeLastPrompt(listener: () => void): () => void {
-    this.lastPromptListeners.add(listener);
-    return () => {
-      this.lastPromptListeners.delete(listener);
-    };
-  }
-
-  /**
-   * Scrolls back to the line the last prompt was sent from, with a short highlight, and gives the
-   * keyboard back to the terminal. `false` when the line has left the scrollback.
-   */
-  revealLastPrompt(): boolean {
-    const marker = this.lastPromptEntry?.marker;
-    if (marker === undefined || marker.isDisposed) return false;
-    // One line of context above it.
-    this.term.scrollToLine(Math.max(0, marker.line - 1));
-    const decoration = this.term.registerDecoration({ marker, width: this.term.cols });
-    if (decoration) {
-      decoration.onRender((element) => {
-        element.classList.add("prompt-flash");
-      });
-      setTimeout(() => {
-        decoration.dispose();
-      }, 1600);
-    }
-    this.term.focus();
-    return true;
   }
 
   /** Read anew per line: the listener may stop itself after the first one. */
@@ -699,7 +815,14 @@ export class SessionTerminal {
       this.pendingInput += data;
       return;
     }
-    this.lastWrite = api.write(this.id, data).catch(ignore);
+    const write = api.write(this.id, data);
+    this.lastWrite = write;
+    write.catch((error: unknown) => {
+      // One notice per stall: writes dropped behind it (`dropped`) say nothing more.
+      if (error instanceof InputStalled && !error.dropped && !this.disposed) {
+        this.writeNotice(`[${t("terminal.inputStalled")}]`);
+      }
+    });
   }
 
   private handlePaste(event: ClipboardEvent): void {
@@ -793,13 +916,15 @@ export class SessionTerminal {
     this.onExit = null;
     this.onFallback = null;
     this.onLink = null;
+    this.hideLinkTip();
+    this.onOpenLink = null;
+    this.links.dispose();
     this.onImagePasteFailed = null;
     this.onPromptLine = null;
-    this.lastPromptEntry?.marker?.dispose();
-    this.lastPromptListeners.clear();
     this.onDevServer = null;
     this.attentionListener = null;
     this.searchListener = null;
+    this.ptySize.dispose();
     this.attention.dispose();
     this.term.dispose();
   }
@@ -858,7 +983,12 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    const action = terminalKeyAction(event, this.term.hasSelection(), focusCycleActive);
+    const action = terminalKeyAction(
+      event,
+      this.term.hasSelection(),
+      focusCycleActive,
+      this.shellKind() === "agent",
+    );
     switch (action.kind) {
       case "app":
         // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
@@ -871,6 +1001,15 @@ export class SessionTerminal {
       case "paste":
         // No preventDefault: the native paste event reaches handlePaste. Reading the clipboard
         // from script here failed silently in WebView2, so Ctrl+V pasted nothing.
+        return false;
+      case "newline":
+        // Also keeps the browser from putting a line break into xterm's hidden textarea.
+        event.preventDefault();
+        if (action.send !== null) {
+          this.typedSinceTaken = true;
+          this.attention.typed();
+          this.send(action.send);
+        }
         return false;
       case "terminal":
         return true;
@@ -891,3 +1030,25 @@ export function setFocusCycleActive(active: boolean): void {
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */
 export const terminals = new Map<number, SessionTerminal>();
+
+/** Stands for the address in a translated sentence, so the address can be built as elements. */
+const ADDRESS_SLOT = "\u0000";
+
+/**
+ * Fills `element` with `sentence`, its `ADDRESS_SLOT` replaced by `url` with the host in bold:
+ * the part of an address that decides where it leads.
+ */
+function fillAddress(element: HTMLElement, sentence: string, url: string): void {
+  const { before, host, after } = addressParts(url);
+  const at = sentence.indexOf(ADDRESS_SLOT);
+  // A translation without the slot still shows the address, after its text.
+  const head = at < 0 ? `${sentence} ` : sentence.slice(0, at);
+  const tail = at < 0 ? "" : sentence.slice(at + ADDRESS_SLOT.length);
+  const address = document.createElement("span");
+  address.className = "link-url";
+  const strong = document.createElement("strong");
+  strong.className = "link-host";
+  strong.textContent = host;
+  address.append(before, strong, after);
+  element.replaceChildren(head, address, tail);
+}

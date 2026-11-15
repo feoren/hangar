@@ -1,10 +1,13 @@
 // Git branch per working folder, refreshed every BRANCH_REFRESH_MS while the window is visible and
-// at once when it comes back. Errors are swallowed: the status line then simply shows no branch.
+// at once when it comes back, less often while saving energy on battery (power.ts). Errors are
+// swallowed: the status line then simply shows no branch.
 
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "./api";
-import { BRANCH_REFRESH_MS, parseBranches, sameBranches } from "./gitBranches";
+import { parseBranches, sameBranches } from "./gitBranches";
+import { pollInterval } from "./power";
+import { usePowerSaving } from "./usePower";
 
 const NO_BRANCHES: ReadonlyMap<string, string | null> = new Map();
 
@@ -12,6 +15,7 @@ const NO_BRANCHES: ReadonlyMap<string, string | null> = new Map();
 export function useGitBranches(paths: readonly string[]): ReadonlyMap<string, string | null> {
   const [branches, setBranches] = useState(NO_BRANCHES);
   const key = paths.join("\n");
+  const saving = usePowerSaving();
   const pathsRef = useRef(paths);
   useEffect(() => {
     pathsRef.current = paths;
@@ -41,7 +45,7 @@ export function useGitBranches(paths: readonly string[]): ReadonlyMap<string, st
         });
     };
     refresh();
-    const timer = window.setInterval(refresh, BRANCH_REFRESH_MS);
+    const timer = window.setInterval(refresh, pollInterval("branches", saving));
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -50,7 +54,7 @@ export function useGitBranches(paths: readonly string[]): ReadonlyMap<string, st
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [key]);
+  }, [key, saving]);
 
   return branches;
 }

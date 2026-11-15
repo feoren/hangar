@@ -27,8 +27,11 @@ import {
   avatarStack,
   buildMarks,
   CHANGE_LETTERS,
+  filterDelay,
   filteredStep,
+  filterHighlight,
   filterTree,
+  filterWords,
   folderKeyOf,
   folderPeople,
   foldersToRefresh,
@@ -37,7 +40,7 @@ import {
   loadedPaths,
   onChangePath,
   revealFolders,
-  rowMention,
+  rowTreePath,
   startsFilter,
   treeKey,
   treeReducer,
@@ -53,6 +56,7 @@ import {
   type TreeRow,
   type TreeState,
 } from "./fileTree";
+import type { TreePath } from "./pathQuote";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
@@ -70,7 +74,8 @@ import {
   RevealFolderIcon,
   SearchIcon,
 } from "./icons";
-import { revealInvisible } from "./invisible";
+import { highlightRuns } from "./fuzzy";
+import { hasInvisible, revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { beyondThreshold } from "./sessionDrag";
 import { clockTime, personName, personTag, type TeamActivity } from "./team";
@@ -93,6 +98,8 @@ const OPEN_ERROR_MS = 6000;
 const MAX_SAVED_TREES = 24;
 /** A revealed row is focused once it shows, if that happens within this time. */
 const REVEAL_FOCUS_MS = 3000;
+/** Typing pause after which screen readers hear the filter's result. */
+const FILTER_ANNOUNCE_MS = 700;
 /** One replay step of the activity map, and the calmer pace with reduced motion. */
 const PLAY_STEP_MS = 450;
 const PLAY_STEP_CALM_MS = 1200;
@@ -114,12 +121,12 @@ let heatPrefs: { on: boolean; window: HeatWindow } = { on: false, window: "today
  * A tree row dragged with the mouse: `move` while it travels, then `drop` where it was let go or
  * `cancel` (Escape, the pointer lost). Coordinates are CSS pixels of the window.
  */
-export interface MentionDrag {
+export interface PathDrag {
   phase: "move" | "drop" | "cancel";
   x: number;
   y: number;
-  /** The row's mention, as the right click types it (`rowMention`). */
-  text: string;
+  /** The dragged row; the target session's program decides how it is typed (`insertPathText`). */
+  item: TreePath;
 }
 
 /** The path index for the filter, read once per filter. */
@@ -158,13 +165,16 @@ interface Props {
   nameOf: (id: number) => string;
   /** Goes up when the tree should take the focus (opened from the session row). */
   focusToken: number;
-  /** Right click on a row: this text (`@path `) goes into the active session's terminal. */
-  onMention: (text: string) => void;
+  /**
+   * Right click on a row: its path goes into the active session's terminal, typed for the
+   * session's program (`insertPathText`: an @ mention for agents, a quoted path for shells).
+   */
+  onInsertPath: (item: TreePath) => void;
   /**
    * Rows can be dragged onto a terminal pane (main window only; the detached panel has no
    * panes). Without it, rows do not drag.
    */
-  onDragMention?: (drag: MentionDrag) => void;
+  onDragPath?: (drag: PathDrag) => void;
 }
 
 /**
@@ -301,10 +311,23 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
     if (!filtering) return null;
     return indexLoad.kind === "ready" ? indexLoad.index.entries : loadedPaths({ folders });
   }, [filtering, indexLoad, folders]);
+  // A large index is searched after a short typing pause, so keys never wait for the search.
+  const delay = filterDelay(source?.length ?? 0);
+  const [settled, setSettled] = useState(query);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSettled(query);
+    }, delay);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [query, delay]);
+  const searched = delay === 0 || settled.trim() === "" ? query : settled;
   const filtered = useMemo(
-    () => (source === null ? null : filterTree(source, query)),
-    [source, query],
+    () => (source === null ? null : filterTree(source, searched)),
+    [source, searched],
   );
+  const words = useMemo(() => filterWords(searched), [searched]);
   const rows: TreeRow[] = useMemo(() => filtered?.rows ?? visibleRows(state), [filtered, state]);
 
   /** A row revealed from the filter takes the focus once it shows (its folders may still load). */
@@ -331,8 +354,13 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
     }, REVEAL_FOCUS_MS);
   };
 
-  const { canDrag, startDrag, justDropped, ghost, ghostRef } = useRowDrag(props.onDragMention);
-  const windows = folderKeyOf(state.root ?? session.cwd).windows;
+  /** The tree's folder, which the rows' paths are relative to. */
+  const treeRoot = state.root ?? session.cwd;
+  const { canDrag, startDrag, justDropped, ghost, ghostRef } = useRowDrag(
+    props.onDragPath,
+    treeRoot,
+  );
+  const windows = folderKeyOf(treeRoot).windows;
   const log = useEventLog();
   const sessions = props.sessions;
   const project = useMemo(() => {
@@ -532,8 +560,11 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       return;
     }
     if (event.key === "ArrowDown" || event.key === "Enter") {
-      // Into the results: the first match (or the tree's first row).
-      const first = itemRows.find((row) => row.context !== true) ?? itemRows[0];
+      // Into the results: Enter to the best match, ArrowDown to the first one on screen (or the
+      // tree's first row).
+      const bestPath = event.key === "Enter" ? (filtered?.best ?? null) : null;
+      const best = bestPath === null ? undefined : itemRows.find((row) => row.path === bestPath);
+      const first = best ?? itemRows.find((row) => row.context !== true) ?? itemRows[0];
       if (first === undefined) return;
       event.preventDefault();
       wantFocus.current = true;
@@ -551,12 +582,30 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       : filtered.matched === 0
         ? indexLoad.kind === "loading"
           ? t("files.filterSearching")
-          : t("files.filterNone")
+          : t("files.filterNone", { query: searched.trim() })
         : filtered.matched > filtered.rows.filter((row) => row.context !== true).length
           ? t("files.filterMore")
           : indexLoad.kind === "ready" && indexLoad.index.truncated
             ? t("files.filterPartial")
             : null;
+  // Screen readers hear the result once typing pauses, not after every key.
+  const announcement =
+    filtered === null
+      ? ""
+      : filtered.matched === 0
+        ? (filterNote ?? "")
+        : [t("files.filterCount", { count: filtered.matched }), filterNote]
+            .filter((part) => part !== null)
+            .join(". ");
+  const [announced, setAnnounced] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAnnounced(announcement);
+    }, FILTER_ANNOUNCE_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [announcement]);
   return (
     <div ref={panel} tabIndex={-1} className="changes files">
       <div className="changes-header">
@@ -625,7 +674,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
             type="text"
             className="files-filter-input"
             value={query}
-            placeholder={t("files.filter")}
+            placeholder={t("files.filterPlaceholder")}
             aria-label={t("files.filter")}
             spellCheck={false}
             autoComplete="off"
@@ -642,6 +691,14 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
               if (event.currentTarget.value === "") setFilterOpen(false);
             }}
           />
+          {filtered !== null && filtered.matched > 0 && (
+            <span
+              className="files-filter-count"
+              title={t("files.filterCount", { count: filtered.matched })}
+            >
+              <span aria-hidden="true">{filtered.matched}</span>
+            </span>
+          )}
           {query !== "" && (
             <button
               type="button"
@@ -675,11 +732,10 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
           {openError}
         </p>
       )}
-      {filterNote !== null && (
-        <p className="changes-message files-filter-note" role="status">
-          {filterNote}
-        </p>
-      )}
+      {filterNote !== null && <p className="changes-message files-filter-note">{filterNote}</p>}
+      <p className="sr-only" role="status">
+        {announced}
+      </p>
       {!filtering && root?.kind === "failed" ? (
         <p className="changes-message error-text selectable" role="alert">
           {t("files.failed", { error: root.message })}
@@ -707,6 +763,9 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 fileMark={marks.files.get(treeKey(row.path, windows)) ?? null}
                 folderMark={marks.folders.get(treeKey(row.path, windows)) ?? null}
                 heat={heatOn ? rowHeat(heat, row, windows) : null}
+                highlight={
+                  filtering && row.context !== true ? filterHighlight(row.name, words) : null
+                }
                 nameOf={nameOf}
                 sessionOf={sessionOf}
                 canDrag={canDrag}
@@ -725,9 +784,9 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
                 onOpen={() => {
                   openFile(row.path);
                 }}
-                onMention={() => {
+                onInsert={() => {
                   dispatch({ type: "focus", path: row.path });
-                  props.onMention(rowMention(row));
+                  props.onInsertPath(rowTreePath(treeRoot, row));
                 }}
                 onPointerDown={(event) => {
                   startDrag(event, row);
@@ -756,7 +815,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   );
 }
 
-/** Offset of the dragged mention from the pointer, so it never hides the drop point. */
+/** Offset of the dragged path from the pointer, so it never hides the drop point. */
 const GHOST_OFFSET_X = 14;
 const GHOST_OFFSET_Y = 16;
 
@@ -767,7 +826,7 @@ const GHOST_OFFSET_Y = 16;
  * capture, so no terminal sees mouse motion with a pressed button. Without a drop target (the
  * detached panel window) nothing drags.
  */
-function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
+function useRowDrag(onDrag: ((drag: PathDrag) => void) | undefined, root: string) {
   const [ghost, setGhost] = useState<{ text: string; x: number; y: number } | null>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   /** Set from the drop until the click that follows it has passed. */
@@ -787,7 +846,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
     const pointer = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
-    const text = rowMention(row);
+    const item = rowTreePath(root, row);
     let active = false;
 
     const finish = (phase: "drop" | "cancel", x: number, y: number) => {
@@ -803,7 +862,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
       window.setTimeout(() => {
         dropped.current = false;
       }, 0);
-      onDrag({ phase, x, y, text });
+      onDrag({ phase, x, y, item });
     };
     const move = (moved: PointerEvent) => {
       if (moved.pointerId !== pointer) return;
@@ -816,7 +875,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
           // The pointer is already gone; the drag ends with its pointerup or pointercancel.
         }
         setGhost({
-          text: text.trim(),
+          text: item.folder ? `${item.path}/` : item.path,
           x: moved.clientX + GHOST_OFFSET_X,
           y: moved.clientY + GHOST_OFFSET_Y,
         });
@@ -825,7 +884,7 @@ function useRowDrag(onDrag: ((drag: MentionDrag) => void) | undefined) {
       if (node) {
         node.style.transform = `translate(${String(moved.clientX + GHOST_OFFSET_X)}px, ${String(moved.clientY + GHOST_OFFSET_Y)}px)`;
       }
-      onDrag({ phase: "move", x: moved.clientX, y: moved.clientY, text });
+      onDrag({ phase: "move", x: moved.clientX, y: moved.clientY, item });
     };
     const up = (released: PointerEvent) => {
       if (released.pointerId === pointer) finish("drop", released.clientX, released.clientY);
@@ -984,6 +1043,28 @@ function TreeHint({ row }: { row: HintRow }) {
   );
 }
 
+/** A row's name, the filter's matches marked; invisible characters show as placeholders. */
+function RowName({ name, highlight }: { name: string; highlight: readonly number[] | null }) {
+  // Placeholders change the text's length, so a name with them is shown without marks.
+  if (highlight === null || highlight.length === 0 || hasInvisible(name)) {
+    return <Revealed text={name} />;
+  }
+  return (
+    <>
+      {highlightRuns(name, highlight).map((run, index) =>
+        // Runs never move for this name and highlight.
+        run.match ? (
+          <mark key={index} className="tree-match">
+            {run.text}
+          </mark>
+        ) : (
+          <span key={index}>{run.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 /** Left padding of a row: the indentation plus the chevron's column for hints. */
 function rowIndent(depth: number): number {
   return 8 + depth * INDENT + 16;
@@ -997,6 +1078,8 @@ function TreeItem(props: {
   folderMark: FolderMark | null;
   /** The row's share of the activity map; `null` while the map is off. */
   heat: RowHeat | null;
+  /** Filtered tree: the characters of the name the filter matched. */
+  highlight: readonly number[] | null;
   nameOf: (id: number) => string;
   sessionOf: (id: number) => LocalSession | undefined;
   /** Rows can be dragged onto a terminal. */
@@ -1005,8 +1088,8 @@ function TreeItem(props: {
   onClick: () => void;
   /** Double click on a file: show it in the viewer. */
   onOpen: () => void;
-  /** Right click: the row's path as an @ mention into the terminal. */
-  onMention: () => void;
+  /** Right click: the row's path into the terminal (`insertPathText`). */
+  onInsert: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLLIElement>) => void;
 }) {
   const { row, focused, selected, fileMark, folderMark, heat, setRef, onClick, onOpen } = props;
@@ -1047,7 +1130,7 @@ function TreeItem(props: {
       onDoubleClick={kind === "file" ? onOpen : undefined}
       onContextMenu={(event) => {
         event.preventDefault();
-        props.onMention();
+        props.onInsert();
       }}
       onPointerDown={props.onPointerDown}
     >
@@ -1069,7 +1152,7 @@ function TreeItem(props: {
         )}
       </span>
       <span className="tree-name">
-        <Revealed text={row.name} />
+        <RowName name={row.name} highlight={props.highlight} />
       </span>
       {notes.length > 0 && <span className="sr-only">{notes.join(". ")}</span>}
       <span className="tree-marks" aria-hidden="true">

@@ -1,12 +1,14 @@
 // The gate (team service step B): before Claude Code edits a file that another of the user's
 // running sessions is changing, the backend holds the agent's hook request open and the person
-// decides in Hangar. This module checks the backend's snapshot of pending decisions, picks the one
-// to show, builds the card's texts and tells which decisions are new (chime, notification).
+// decides in Hangar. The command guard holds a risky shell command of a team session the same way
+// (backend command_guard.rs). This module checks the backend's snapshot of pending decisions,
+// picks the one to show, builds the card's texts and tells which decisions are new (chime,
+// notification).
 
 import type { GateStatus } from "./api";
 import type { AttentionReason, AttentionState } from "./attention";
 import { field, formatLines, isCount, list, parseRange, type LineRange } from "./claims";
-import type { Translate } from "./i18n";
+import type { MessageKey, Translate } from "./i18n";
 import { revealInvisible } from "./invisible";
 
 /** `sameArea`: only a teammate's reserved folder covers the file. */
@@ -14,13 +16,24 @@ export type GateLevel = "sameArea" | "sameFile" | "overlappingLines";
 
 /**
  * `alwaysFile`, `alwaysFolder`, `neverFile`, `neverFolder` answer this edit and set a gate
- * rule for the project, which the backend applies to later asks without a card.
+ * rule for the project, which the backend applies to later asks without a card. A held shell
+ * command takes `allowOnce`, `deny`, `alwaysCommand` and `neverCommand` (for its guard rule in
+ * the project).
  */
 export type GateAnswer =
-  "allowOnce" | "allowFile" | "deny" | "alwaysFile" | "alwaysFolder" | "neverFile" | "neverFolder";
+  | "allowOnce"
+  | "allowFile"
+  | "deny"
+  | "alwaysFile"
+  | "alwaysFolder"
+  | "neverFile"
+  | "neverFolder"
+  | "alwaysCommand"
+  | "neverCommand";
 
 export type RuleEffect = "allow" | "deny";
-export type RuleScope = "file" | "folder";
+/** `command`: the rule's `path` is a command guard rule's id. */
+export type RuleScope = "file" | "folder" | "command";
 
 /** One edit a gate rule answered without asking (Rust: `RuleAnswer` in gate_rules.rs). */
 export interface RuleAnswer {
@@ -32,7 +45,7 @@ export interface RuleAnswer {
   /** The session's title when the rule answered. */
   session: string;
   projectName: string;
-  /** The edited file, relative to the worktree. */
+  /** The edited file, relative to the worktree; for a command the command, cut short. */
   path: string;
   ruleId: number;
   rulePath: string;
@@ -52,7 +65,64 @@ export interface GateRule {
   createdAt: number;
 }
 
-/** One edit waiting for the person's answer (Rust: `PendingDecision`). */
+/** A guard rule a held command matched (Rust: `AskRule`). */
+export interface AskRule {
+  /** The rule's id in command-guard.toml, or one of Hangar's built-in ids. */
+  id: string;
+  /** As the backend has it: the file's text, English for Hangar's own rules. */
+  description: string;
+  /** Hangar's own wording: shown in the person's language (`ruleText`). */
+  builtin: boolean;
+}
+
+/** A shell command the command guard holds (Rust: `CommandAsk`). */
+export interface CommandAsk {
+  /** At least one; each without a remembered answer. */
+  rules: AskRule[];
+  /** The program call that matched first, joined; may be empty. */
+  call: string;
+  /** The command as sent, cut; control and invisible characters are still in it. */
+  text: string;
+  /** Characters of the command not in `text`. */
+  hidden: number;
+  /** Whether "always allow" may be remembered (never for Hangar's own settings). */
+  rememberable: boolean;
+}
+
+/** The translation key of each rule Hangar ships, built-in and default. */
+const RULE_KEYS: Readonly<Record<string, MessageKey>> = {
+  "git-push-force": "guardRule.gitPushForce",
+  "git-push-delete": "guardRule.gitPushDelete",
+  "git-reset-hard": "guardRule.gitResetHard",
+  "git-clean-force": "guardRule.gitCleanForce",
+  "rm-outside-project": "guardRule.rmOutsideProject",
+  "remove-item-outside-project": "guardRule.removeItemOutsideProject",
+  "del-outside-project": "guardRule.delOutsideProject",
+  "sql-drop": "guardRule.sqlDrop",
+  dropdb: "guardRule.dropdb",
+  "mysqladmin-drop": "guardRule.mysqladminDrop",
+  "format-disk": "guardRule.formatDisk",
+  "hangar-too-complex": "guardRule.tooComplex",
+  "hangar-stdin-script": "guardRule.stdinScript",
+  "hangar-too-long": "guardRule.tooLong",
+  "hangar-config": "guardRule.hangarConfig",
+};
+
+/** Whether `id` names one of the rules Hangar ships (its file defaults and its built-in rules). */
+export function isShippedRule(id: string): boolean {
+  return Object.hasOwn(RULE_KEYS, id);
+}
+
+/**
+ * What a rule says, for the card: Hangar's own rules in the person's language, a rule the user
+ * wrote (or whose shipped wording the user changed) verbatim with invisible characters shown.
+ */
+export function ruleText(rule: AskRule, t: Translate): string {
+  const key = rule.builtin ? RULE_KEYS[rule.id] : undefined;
+  return key === undefined ? revealInvisible(rule.description) : t(key);
+}
+
+/** One edit or shell command waiting for the person's answer (Rust: `PendingDecision`). */
 export interface PendingDecision {
   /** Unique per app run. */
   id: number;
@@ -73,9 +143,11 @@ export interface PendingDecision {
   lines: LineRange[];
   /** Unix ms. */
   createdAt: number;
+  /** Set for a held shell command; `path` is empty then and nobody else is named. */
+  command: CommandAsk | null;
 }
 
-/** Payload of `gate-changed` and answer of `gate_snapshot`. */
+/** Answer of `gate_snapshot`, read after each payload-free `gate-changed`. */
 export interface GateSnapshot {
   enabled: boolean;
   /** Oldest first (by id). */
@@ -87,7 +159,7 @@ export interface GateSnapshot {
 export const EMPTY_GATE: GateSnapshot = { enabled: false, pending: [], log: [] };
 
 const EFFECTS: readonly RuleEffect[] = ["allow", "deny"];
-const SCOPES: readonly RuleScope[] = ["file", "folder"];
+const SCOPES: readonly RuleScope[] = ["file", "folder", "command"];
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
@@ -162,8 +234,12 @@ export function freshRuleAnswers(
     .sort((a, b) => a.id - b.id);
 }
 
-/** "src/auth/" for a folder rule, the path itself for a file rule. */
-export function rulePathLabel(path: string, scope: RuleScope): string {
+/**
+ * "src/auth/" for a folder rule, the path itself for a file rule, "command rule <id>" for a
+ * command rule.
+ */
+export function rulePathLabel(path: string, scope: RuleScope, t: Translate): string {
+  if (scope === "command") return t("gate.commandRuleName", { id: revealInvisible(path) });
   return scope === "folder" ? `${revealInvisible(path)}/` : revealInvisible(path);
 }
 
@@ -171,7 +247,7 @@ export function rulePathLabel(path: string, scope: RuleScope): string {
 export function ruleAnswerText(entry: RuleAnswer, t: Translate): string {
   return t(entry.effect === "allow" ? "gate.ruleAllowed" : "gate.ruleDenied", {
     path: revealInvisible(entry.path),
-    rule: rulePathLabel(entry.rulePath, entry.scope),
+    rule: rulePathLabel(entry.rulePath, entry.scope, t),
   });
 }
 
@@ -182,6 +258,27 @@ function parseReserved(item: unknown): { who: string; title: string } | null {
   const title = field(item, "title");
   if (typeof who !== "string" || typeof title !== "string" || title === "") return null;
   return { who, title };
+}
+
+function parseAskRule(value: unknown): AskRule | null {
+  const id = text(field(value, "id"));
+  const description = field(value, "description");
+  const builtin = field(value, "builtin");
+  if (id === null || typeof description !== "string" || typeof builtin !== "boolean") return null;
+  return { id, description, builtin };
+}
+
+function parseCommand(value: unknown): CommandAsk | null {
+  const rules = list(field(value, "rules"), parseAskRule);
+  const call = field(value, "call");
+  const commandText = text(field(value, "text"));
+  const hidden = field(value, "hidden");
+  const rememberable = field(value, "rememberable");
+  if (rules === null || rules.length === 0 || commandText === null) return null;
+  if (typeof call !== "string" || !isCount(hidden) || typeof rememberable !== "boolean") {
+    return null;
+  }
+  return { rules, call, text: commandText, hidden, rememberable };
 }
 
 function parseDecision(value: unknown): PendingDecision | null {
@@ -202,7 +299,28 @@ function parseDecision(value: unknown): PendingDecision | null {
   const level = LEVELS.find((entry) => entry === field(value, "level"));
   const lines = list(field(value, "lines"), parseRange);
   const createdAt = field(value, "createdAt");
+  const commandValue = field(value, "command");
+  const command =
+    commandValue === undefined || commandValue === null ? null : parseCommand(commandValue);
   if (!isCount(id) || !isCount(sessionId) || typeof tool !== "string") return null;
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0) return null;
+  // A held shell command names its rule and command, no file and nobody else.
+  if (commandValue !== undefined && commandValue !== null) {
+    if (command === null || level === undefined || lines === null) return null;
+    return {
+      id,
+      sessionId,
+      tool,
+      path: "",
+      otherSessions: [],
+      teammates: [],
+      reserved: [],
+      level,
+      lines: [],
+      createdAt,
+      command,
+    };
+  }
   if (typeof path !== "string" || path === "" || level === undefined || lines === null) {
     return null;
   }
@@ -210,7 +328,6 @@ function parseDecision(value: unknown): PendingDecision | null {
   // teammate, at least one.
   if (otherSessions === null || teammates === null || reserved === null) return null;
   if (otherSessions.length === 0 && teammates.length === 0 && reserved.length === 0) return null;
-  if (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0) return null;
   return {
     id,
     sessionId,
@@ -222,6 +339,7 @@ function parseDecision(value: unknown): PendingDecision | null {
     level,
     lines,
     createdAt,
+    command: null,
   };
 }
 
@@ -292,6 +410,12 @@ export function decisionText(
   nameOf: (id: number) => string,
   t: Translate,
 ): DecisionText {
+  if (decision.command !== null) {
+    return {
+      title: t("gate.commandTitle", { session: nameOf(decision.sessionId) }),
+      detail: decision.command.rules.map((rule) => ruleText(rule, t)).join(" · "),
+    };
+  }
   const others = [...decision.otherSessions.map(nameOf), ...decision.teammates].join(", ");
   const tasks = decision.reserved
     .map((entry) =>

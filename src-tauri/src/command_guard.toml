@@ -1,0 +1,123 @@
+# Hangar: rules of the command guard.
+#
+# In a team session, before the agent runs a shell command that matches one of these rules, Hangar
+# asks you, the same way it asks before an agent edits a file another session is changing. Hangar
+# wrote this file with its default rules; edit it as you like, changes apply to the next command.
+# Delete the file to get the defaults back.
+#
+# This is a safety net, not a sandbox: a command can be written so that no rule recognizes it
+# (scripts, variables, aliases, other programs). Hangar reads the command as text and never runs it.
+#
+# Hangar splits a command at ";", "&&", "||", "|", "&" and line breaks, looks inside "sh -c",
+# "bash -c", "pwsh -Command", "powershell -EncodedCommand", "cmd /c", "eval", "Invoke-Expression"
+# and "wsl", and skips "sudo", "doas", "env", "nohup", "nice", "time", "command", "exec" and
+# variable assignments in front of a program. A rule matches one such program call.
+#
+# Fields of a rule (only `id`, `description` and `program` are required; every condition given
+# must hold):
+#   id              lowercase letters, digits, "-", "_" or "."; unique; remembered answers use it
+#   description     what the command does, shown when Hangar asks
+#   program         program names, without folder or ".exe"; "*" matches any characters
+#   subcommand      the first argument that is not an option must be one of these
+#   value_options   options that take the next argument as their value (so it is not taken for
+#                   the subcommand or a path); git's own ones before its subcommand ("-C",
+#                   "-c", "--git-dir", ...) Hangar always knows
+#   any             at least one of these options is given
+#   all             every one of these options is given
+#   none            none of these options is given
+#   words           one of these word sequences appears in an argument, ignoring case
+#   outside_project true: only when an argument names a path outside the session's project
+#                   folder, the project's .git, a drive root or the home folder (also a path Hangar
+#                   cannot place, such as one built from a variable)
+#
+# How options are compared:
+#   "--force"  exactly, also "--force=value"
+#   "-f"       also inside a group of short options, such as "-fd"; case counts
+#   "-Recurse" PowerShell style: ignoring case, also abbreviated ("-r", "-rec") or "-Recurse:$true"
+#   "/s"       cmd style: ignoring case
+
+version = 1
+
+[[rule]]
+id = "git-push-force"
+description = "git push --force overwrites the branch on the remote"
+program = ["git"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
+subcommand = ["push"]
+any = ["--force", "-f"]
+# "--dry-run" (also "-n") only shows what would happen, so it is not asked about; not when it
+# is the value of an option ("-o -n") or switched back off ("--no-dry-run").
+none = ["-n", "--dry-run"]
+
+[[rule]]
+id = "git-push-delete"
+description = "git push --delete, --mirror or --prune deletes branches or tags on the remote"
+program = ["git"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
+subcommand = ["push"]
+# A refspec "+main" counts as --force and ":main" as --delete.
+any = ["--delete", "-d", "--mirror", "--prune"]
+# "--dry-run" (also "-n") only shows what would happen, so it is not asked about; not when it
+# is the value of an option ("-o -n") or switched back off ("--no-dry-run").
+none = ["-n", "--dry-run"]
+
+[[rule]]
+id = "git-reset-hard"
+description = "git reset --hard throws away uncommitted changes"
+program = ["git"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
+subcommand = ["reset"]
+any = ["--hard"]
+
+[[rule]]
+id = "git-clean-force"
+description = "git clean -f deletes untracked files"
+program = ["git"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
+subcommand = ["clean"]
+any = ["-f", "--force"]
+none = ["-n", "--dry-run"]
+
+[[rule]]
+id = "rm-outside-project"
+description = "rm -r deletes a folder outside the project, a drive root or the home folder"
+program = ["rm"]
+# "-Recurse": PowerShell's rm is Remove-Item.
+any = ["-r", "-R", "--recursive", "-Recurse"]
+outside_project = true
+
+[[rule]]
+id = "remove-item-outside-project"
+description = "Remove-Item -Recurse deletes a folder outside the project, a drive root or the home folder"
+program = ["remove-item", "ri", "del", "erase", "rd", "rmdir"]
+any = ["-Recurse"]
+outside_project = true
+
+[[rule]]
+id = "del-outside-project"
+description = "del /s or rd /s deletes files outside the project, a drive root or the home folder"
+program = ["del", "erase", "rd", "rmdir"]
+any = ["/s"]
+outside_project = true
+
+[[rule]]
+id = "sql-drop"
+description = "DROP or TRUNCATE through a database client deletes tables or databases"
+program = ["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "duckdb", "clickhouse-client", "invoke-sqlcmd"]
+words = ["DROP TABLE", "DROP DATABASE", "DROP SCHEMA", "TRUNCATE"]
+
+[[rule]]
+id = "dropdb"
+description = "dropdb deletes a PostgreSQL database"
+program = ["dropdb"]
+
+[[rule]]
+id = "mysqladmin-drop"
+description = "mysqladmin drop deletes a database"
+program = ["mysqladmin"]
+words = ["DROP"]
+
+[[rule]]
+id = "format-disk"
+description = "format, diskpart or mkfs erases a drive"
+program = ["format", "diskpart", "mkfs", "mkfs.*", "format-volume", "clear-disk"]

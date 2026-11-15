@@ -24,7 +24,8 @@ function dayTitle(day: ActivityDay, date: Intl.DateTimeFormat, t: Translate): st
 
 /**
  * The user's own commits of the last year in the folders Hangar knows, as a calendar of days.
- * Loads once when shown; renders nothing while loading, on failure or without any commit.
+ * Always shown on the home view: while loading, on failure or without any commit it shows the
+ * empty year. Loads again when the set of folders changes (they can arrive after the first render).
  */
 export function ActivityCalendar({
   folders,
@@ -34,38 +35,37 @@ export function ActivityCalendar({
   language: Language;
 }) {
   const t = useT();
-  const [times, setTimes] = useState<number[] | null>(null);
+  const [times, setTimes] = useState<readonly number[]>([]);
   const [width, setWidth] = useState(0);
   const box = useRef<HTMLElement | null>(null);
-  // The folders at the moment the empty window appeared; later changes do not reload.
-  const initialFolders = useRef(folders);
+  // One string per folder set, so a new array with the same folders does not reload.
+  const folderKey = folders.join("\n");
 
   useEffect(() => {
-    if (initialFolders.current.length === 0) return;
+    const list = folderKey === "" ? [] : folderKey.split("\n");
+    if (list.length === 0) return;
     let alive = true;
     api
-      .gitActivity([...initialFolders.current])
+      .gitActivity(list)
       .then((value) => {
-        if (alive) setTimes(parseGitActivity(value));
+        if (alive) setTimes(parseGitActivity(value) ?? []);
       })
       .catch(() => {
-        // No git or no readable repository: the empty window simply has no calendar.
+        // No git or no readable repository: the calendar stays as it is.
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [folderKey]);
 
   const calendar = useMemo(
-    () =>
-      times === null ? null : buildCalendar(times, new Date(), firstDayOfWeek(navigator.language)),
+    () => buildCalendar(times, new Date(), firstDayOfWeek(navigator.language)),
     [times],
   );
-  const shown = calendar !== null && calendar.total > 0;
 
   useLayoutEffect(() => {
     const element = box.current;
-    if (!shown || element === null) return;
+    if (element === null) return;
     setWidth(element.clientWidth);
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -75,9 +75,8 @@ export function ActivityCalendar({
     return () => {
       observer.disconnect();
     };
-  }, [shown]);
+  }, []);
 
-  if (calendar === null || !shown) return null;
   const weeks = recentWeeks(calendar, weeksThatFit(width, CELL, GAP));
   const dateFormat = new Intl.DateTimeFormat(language, {
     day: "numeric",
@@ -87,9 +86,11 @@ export function ActivityCalendar({
   const columns = { gridTemplateColumns: `repeat(${String(weeks.length)}, ${String(CELL)}px)` };
   const monthFormat = new Intl.DateTimeFormat(language, { month: "short" });
   const total =
-    calendar.total === 1
-      ? t("activity.totalOne")
-      : t("activity.totalMany", { count: calendar.total.toLocaleString(language) });
+    calendar.total === 0
+      ? t("activity.totalNone")
+      : calendar.total === 1
+        ? t("activity.totalOne")
+        : t("activity.totalMany", { count: calendar.total.toLocaleString(language) });
 
   return (
     <section className="activity" ref={box}>
