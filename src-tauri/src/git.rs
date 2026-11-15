@@ -126,8 +126,8 @@ fn find_git_dir(start: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
         match fs::metadata(&dot_git) {
             Ok(meta) if meta.is_dir() => return Some(dot_git),
             Ok(meta) if meta.is_file() => {
-                let content = read_limited(&dot_git, MAX_HEAD_BYTES).ok()??;
-                let target = parse_gitdir_file(&String::from_utf8_lossy(&content))?;
+                let content = read_limited(&dot_git, MAX_POINTER_BYTES).ok()??;
+                let target = gitdir_target(&pointer_text(&content)?)?;
                 // A relative gitdir is relative to the folder holding the `.git` file.
                 let git_dir = dir.join(target);
                 return gitdir_allowed(start, &git_dir).then_some(git_dir);
@@ -188,6 +188,33 @@ pub fn parse_gitdir_file(content: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// git reads a `.git` file up to 1 MiB (`read_gitfile_gently`) and `commondir` whole. Both are
+/// read up to this size here; a larger one is refused before git runs, never skipped.
+pub(crate) const MAX_POINTER_BYTES: usize = 1 << 20;
+
+/// The text of a `.git` file or `commondir` as git takes it: the whole content with the line
+/// breaks at its end removed. `None` when a line break or NUL remains inside, or the text is no
+/// UTF-8: no folder git could open has such a name, and guessing which part git uses is not safe.
+pub(crate) fn pointer_text(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .rposition(|b| !matches!(b, b'\n' | b'\r'))
+        .map_or(0, |at| at + 1);
+    let text = &bytes[..end];
+    if text.iter().any(|b| matches!(b, b'\n' | b'\r' | 0)) {
+        return None;
+    }
+    String::from_utf8(text.to_vec()).ok()
+}
+
+/// The folder a `.git` file names, from its [`pointer_text`]: `gitdir: <path>`.
+pub(crate) fn gitdir_target(text: &str) -> Option<PathBuf> {
+    text.strip_prefix("gitdir:")
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(PathBuf::from)
+}
+
 pub fn parse_head(content: &str) -> Option<String> {
     let content = content.trim();
     if let Some(reference) = content.strip_prefix("ref:") {
@@ -237,8 +264,8 @@ pub fn repo_place_of(start: &Path, ceiling: Option<&Path>) -> Option<RepoPlace> 
         match fs::metadata(&dot_git) {
             Ok(meta) if meta.is_dir() => return Some(place(dir, dir)),
             Ok(meta) if meta.is_file() => {
-                let content = read_limited(&dot_git, MAX_HEAD_BYTES).ok()??;
-                let target = parse_gitdir_file(&String::from_utf8_lossy(&content))?;
+                let content = read_limited(&dot_git, MAX_POINTER_BYTES).ok()??;
+                let target = gitdir_target(&pointer_text(&content)?)?;
                 let git_dir = lexical(&dir.join(target));
                 if !gitdir_allowed(start, &git_dir) || !git_dir.is_dir() {
                     return None;
@@ -266,13 +293,9 @@ fn place(root: &Path, work_tree: &Path) -> RepoPlace {
 /// git folder in `commondir` (git writes `../..`), and when that one is a `.git` folder, its parent
 /// is the main folder. `None` for a submodule (no `commondir`) or a bare repository.
 fn main_folder(start: &Path, git_dir: &Path) -> Option<PathBuf> {
-    let content = read_limited(&git_dir.join("commondir"), MAX_HEAD_BYTES).ok()??;
-    let text = String::from_utf8_lossy(&content);
-    let common = text
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())?;
+    let content = read_limited(&git_dir.join("commondir"), MAX_POINTER_BYTES).ok()??;
+    let text = pointer_text(&content)?;
+    let common = Some(text.trim()).filter(|line| !line.is_empty())?;
     let common = lexical(&git_dir.join(common));
     if !gitdir_allowed(start, &common) || !common.is_dir() {
         return None;
@@ -837,19 +860,24 @@ fn readable_start(start: &Path) -> bool {
 /// worktree or submodule, and the `commondir` file of the git folder it names, must not lead
 /// from a local folder to a network share or a device, where git would hand the user's
 /// credentials to another host. Only the paths are compared; nothing on a share is touched.
-/// A folder outside any repository passes (git then finds none). Includes, alternates and other
-/// paths inside the repository's config are checked before every git call (guard.rs).
+/// A folder outside any repository passes (git then finds none). A `.git` file or `commondir`
+/// that git would read but this cannot (too large, unreadable, a folder) is refused, not skipped.
+/// Includes, alternates and other paths inside the repository's config are checked before every
+/// git call (guard.rs).
 pub fn check_git_links(start: &Path) -> Result<(), GitError> {
     for dir in start.ancestors() {
         let dot_git = dir.join(".git");
+        if !guard::link_allowed(start, &dot_git) {
+            return Err(GitError::RemoteGitDir);
+        }
         let git_dir = match fs::metadata(&dot_git) {
             Ok(meta) if meta.is_dir() => dot_git,
             Ok(meta) if meta.is_file() => {
-                // Unreadable, too large or no `gitdir:` line: git cannot use it either.
-                let Ok(Some(content)) = read_limited(&dot_git, MAX_HEAD_BYTES) else {
-                    return Ok(());
+                let Some(text) = guard::read_pointer(start, &dot_git)? else {
+                    continue;
                 };
-                let Some(target) = parse_gitdir_file(&String::from_utf8_lossy(&content)) else {
+                // No `gitdir:` line: git cannot use the file and stops there.
+                let Some(target) = gitdir_target(&text) else {
                     return Ok(());
                 };
                 let git_dir = dir.join(target);
@@ -861,8 +889,7 @@ pub fn check_git_links(start: &Path) -> Result<(), GitError> {
             _ => continue,
         };
         // A linked worktree's git folder names the main one in `commondir`, relative to itself.
-        if let Ok(Some(content)) = read_limited(&git_dir.join("commondir"), MAX_HEAD_BYTES) {
-            let common = String::from_utf8_lossy(&content);
+        if let Some(common) = guard::read_pointer(start, &git_dir.join("commondir"))? {
             let common = common.trim();
             if !common.is_empty() && !gitdir_allowed(start, &git_dir.join(common)) {
                 return Err(GitError::RemoteGitDir);
