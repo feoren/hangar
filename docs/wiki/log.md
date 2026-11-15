@@ -911,3 +911,14 @@ filters, sparse entries, folders and ignored files in the way before the undo po
 snapshots go after a successful close, on quit without restore, and at start for keys not in the
 workspace.
 Pages changed: [[work-tree-timeline]] (new), index.
+
+## [2026-11-15] ingest | Timeline security rework
+Measured the git behavior the jump back now relies on (`checkout-index --prefix` into a staging
+folder, assume-unchanged entries, `gc` with an alternate, `File::try_lock` per handle) and filed it
+as [[timeline-restore-measurement]]. The contract now describes staging plus installing each file
+with a canonical check right before the write, the last look before writing (working states read
+again, tree built again), symbolic link entries refused, assume-unchanged bits cleared, blob sizes
+checked again, the cross-process lock for the clean-up, `gc`, the 2 GiB cap, side repositories of
+missing drives kept, coded refusals, the view offered only where snapshots are taken, the prompt
+kept only from the waiting state, and the residual risks.
+Pages changed: [[work-tree-timeline]], [[timeline-restore-measurement]] (new), index.

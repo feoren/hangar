@@ -1059,6 +1059,29 @@ const de = {
   "timeline.restoreFailed": "Zurückspringen ging nicht: {error}",
   "timeline.restoreIncomplete":
     "Zurückspringen brach mittendrin ab: {error}. Der Stand davor ist oben in der Zeitleiste gesichert.",
+  "timeline.detectionOff":
+    "Hangar sichert Schritte nur, wenn die Erkennung des Arbeitsstatus an ist. Schalte dafür in den Einstellungen „Wartende Sessions hervorheben“ ein.",
+  "timeline.restoreRoot": "Ordner: {path}",
+  "timeline.restoreHeadMoved":
+    "Seit diesem Stand wurde ein anderer Commit ausgecheckt, zum Beispiel durch einen Branchwechsel. Zurückspringen stellt nur die Dateien her, nicht den Commit.",
+  "timeline.errorWorking":
+    "Zurückspringen geht nicht, solange in diesem Ordner ein Agent arbeitet oder sich dabei Dateien ändern. Versuch es noch mal, sobald alle fertig sind.",
+  "timeline.errorFolderInTheWay":
+    "Zurückspringen geht nicht: Wo eine Datei hin soll, steht ein Ordner mit anderen Dateien: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Zurückspringen geht nicht: Eine ignorierte Datei würde überschrieben: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Zurückspringen geht nicht: Der jetzige Stand ließ sich vorher nicht sichern, deshalb wurde nichts geändert. Git meldet: {reason}",
+  "timeline.errorLinked":
+    "Zurückspringen geht nicht: Dieser Pfad führt über eine Verknüpfung (symbolischer Link oder Junction): {path}",
+  "timeline.errorFiltered":
+    "Zurückspringen geht nicht: Eine Datei nutzt einen Git-Filter, zum Beispiel Git LFS.",
+  "timeline.errorSymlink":
+    "Zurückspringen geht nicht: Der Stand enthält hier einen symbolischen Link, den Hangar nicht schreibt: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Zurückspringen geht nicht: Ein Ordner ist zu groß, um ihn auf Verknüpfungen zu prüfen: {path}",
+  "timeline.errorOutside":
+    "Zurückspringen geht nicht: Dieser Pfad führt aus dem Arbeitsordner hinaus oder in einen Git-Ordner: {path}",
   "profile.edit": "Bearbeiten",
   "profile.customize": "Anpassen",
   "profile.editFor": "{name} bearbeiten",
@@ -2759,6 +2782,29 @@ const en: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Going back did not work: {error}",
   "timeline.restoreIncomplete":
     "Going back stopped part way: {error}. The state before was saved at the top of the timeline.",
+  "timeline.detectionOff":
+    "Hangar saves steps only while working state detection is on. Turn on “Highlight waiting sessions” in the settings.",
+  "timeline.restoreRoot": "Folder: {path}",
+  "timeline.restoreHeadMoved":
+    "Another commit was checked out since this state, for example by switching branches. Going back restores the files only, not the commit.",
+  "timeline.errorWorking":
+    "Going back is not possible while an agent works in this folder or files change meanwhile. Try again once all are done.",
+  "timeline.errorFolderInTheWay":
+    "Going back is not possible: a folder with other files stands where a file goes: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Going back is not possible: an ignored file would be overwritten: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Going back is not possible: the current state could not be saved first, so nothing was changed. Git says: {reason}",
+  "timeline.errorLinked":
+    "Going back is not possible: this path leads through a link (symbolic link or junction): {path}",
+  "timeline.errorFiltered":
+    "Going back is not possible: a file uses a Git filter, for example Git LFS.",
+  "timeline.errorSymlink":
+    "Going back is not possible: the state holds a symbolic link here, which Hangar does not write: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Going back is not possible: a folder is too large to check for links: {path}",
+  "timeline.errorOutside":
+    "Going back is not possible: this path leads outside the work tree or into a Git folder: {path}",
   "profile.edit": "Edit",
   "profile.customize": "Customize",
   "profile.editFor": "Edit {name}",
@@ -4471,6 +4517,29 @@ const el: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Η επιστροφή δεν έγινε: {error}",
   "timeline.restoreIncomplete":
     "Η επιστροφή σταμάτησε στη μέση: {error}. Η προηγούμενη κατάσταση αποθηκεύτηκε στην κορυφή του χρονολογίου.",
+  "timeline.detectionOff":
+    "Το Hangar αποθηκεύει βήματα μόνο όταν η αναγνώριση της κατάστασης εργασίας είναι ενεργή. Ενεργοποίησε το «Επισήμανση συνεδριών σε αναμονή» στις ρυθμίσεις.",
+  "timeline.restoreRoot": "Φάκελος: {path}",
+  "timeline.restoreHeadMoved":
+    "Από αυτή την κατάσταση έγινε checkout άλλου commit, για παράδειγμα με αλλαγή branch. Η επιστροφή επαναφέρει μόνο τα αρχεία, όχι το commit.",
+  "timeline.errorWorking":
+    "Η επιστροφή δεν γίνεται όσο ένας agent δουλεύει σε αυτόν τον φάκελο ή αλλάζουν αρχεία στο μεταξύ. Δοκίμασε ξανά μόλις τελειώσουν όλοι.",
+  "timeline.errorFolderInTheWay":
+    "Η επιστροφή δεν γίνεται: εκεί που πάει ένα αρχείο υπάρχει φάκελος με άλλα αρχεία: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Η επιστροφή δεν γίνεται: ένα αγνοημένο αρχείο θα αντικαθίστατο: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Η επιστροφή δεν γίνεται: η τρέχουσα κατάσταση δεν αποθηκεύτηκε πρώτα, οπότε δεν άλλαξε τίποτα. Το Git αναφέρει: {reason}",
+  "timeline.errorLinked":
+    "Η επιστροφή δεν γίνεται: αυτή η διαδρομή περνά από σύνδεσμο (συμβολικό σύνδεσμο ή junction): {path}",
+  "timeline.errorFiltered":
+    "Η επιστροφή δεν γίνεται: ένα αρχείο χρησιμοποιεί φίλτρο Git, για παράδειγμα Git LFS.",
+  "timeline.errorSymlink":
+    "Η επιστροφή δεν γίνεται: η κατάσταση περιέχει εδώ συμβολικό σύνδεσμο, που το Hangar δεν γράφει: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Η επιστροφή δεν γίνεται: ένας φάκελος είναι πολύ μεγάλος για έλεγχο συνδέσμων: {path}",
+  "timeline.errorOutside":
+    "Η επιστροφή δεν γίνεται: αυτή η διαδρομή βγαίνει έξω από τον φάκελο εργασίας ή μπαίνει σε φάκελο Git: {path}",
   "profile.edit": "Επεξεργασία",
   "profile.customize": "Προσαρμογή",
   "profile.editFor": "Επεξεργασία: {name}",
@@ -6191,6 +6260,29 @@ const es: Record<MessageKey, string> = {
   "timeline.restoreFailed": "No se pudo volver atrás: {error}",
   "timeline.restoreIncomplete":
     "La vuelta atrás se detuvo a medias: {error}. El estado anterior se guardó arriba en la línea de tiempo.",
+  "timeline.detectionOff":
+    "Hangar solo guarda pasos mientras la detección del estado de trabajo está activada. Activa «Resaltar sesiones en espera» en los ajustes.",
+  "timeline.restoreRoot": "Carpeta: {path}",
+  "timeline.restoreHeadMoved":
+    "Desde este estado se hizo checkout de otro commit, por ejemplo al cambiar de rama. Volver restaura solo los archivos, no el commit.",
+  "timeline.errorWorking":
+    "No se puede volver mientras un agente trabaja en esta carpeta o cambian archivos entretanto. Inténtalo de nuevo cuando todos terminen.",
+  "timeline.errorFolderInTheWay":
+    "No se puede volver: donde va un archivo hay una carpeta con otros archivos: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "No se puede volver: se sobrescribiría un archivo ignorado: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "No se puede volver: no se pudo guardar antes el estado actual, así que no se cambió nada. Git dice: {reason}",
+  "timeline.errorLinked":
+    "No se puede volver: esta ruta pasa por un enlace (enlace simbólico o junction): {path}",
+  "timeline.errorFiltered":
+    "No se puede volver: un archivo usa un filtro de Git, por ejemplo Git LFS.",
+  "timeline.errorSymlink":
+    "No se puede volver: el estado contiene aquí un enlace simbólico, que Hangar no escribe: {path}",
+  "timeline.errorTooLargeToCheck":
+    "No se puede volver: una carpeta es demasiado grande para comprobar enlaces: {path}",
+  "timeline.errorOutside":
+    "No se puede volver: esta ruta sale de la carpeta de trabajo o entra en una carpeta de Git: {path}",
   "profile.edit": "Editar",
   "profile.customize": "Personalizar",
   "profile.editFor": "Editar {name}",
@@ -7913,6 +8005,29 @@ const fr: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Le retour en arrière a échoué : {error}",
   "timeline.restoreIncomplete":
     "Le retour en arrière s’est arrêté en cours de route : {error}. L’état d’avant est enregistré en haut de la chronologie.",
+  "timeline.detectionOff":
+    "Hangar n’enregistre les étapes que si la détection de l’état de travail est activée. Active « Mettre en évidence les sessions en attente » dans les paramètres.",
+  "timeline.restoreRoot": "Dossier : {path}",
+  "timeline.restoreHeadMoved":
+    "Un autre commit a été extrait depuis cet état, par exemple en changeant de branche. Revenir en arrière ne restaure que les fichiers, pas le commit.",
+  "timeline.errorWorking":
+    "Impossible de revenir en arrière tant qu’un agent travaille dans ce dossier ou que des fichiers changent entre-temps. Réessaie quand tous ont fini.",
+  "timeline.errorFolderInTheWay":
+    "Impossible de revenir en arrière : un dossier contenant d’autres fichiers se trouve là où va un fichier : {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Impossible de revenir en arrière : un fichier ignoré serait écrasé : {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Impossible de revenir en arrière : l’état actuel n’a pas pu être enregistré d’abord, rien n’a donc été modifié. Git indique : {reason}",
+  "timeline.errorLinked":
+    "Impossible de revenir en arrière : ce chemin passe par un lien (lien symbolique ou jonction) : {path}",
+  "timeline.errorFiltered":
+    "Impossible de revenir en arrière : un fichier utilise un filtre Git, par exemple Git LFS.",
+  "timeline.errorSymlink":
+    "Impossible de revenir en arrière : l’état contient ici un lien symbolique, que Hangar n’écrit pas : {path}",
+  "timeline.errorTooLargeToCheck":
+    "Impossible de revenir en arrière : un dossier est trop grand pour vérifier ses liens : {path}",
+  "timeline.errorOutside":
+    "Impossible de revenir en arrière : ce chemin sort du dossier de travail ou mène dans un dossier Git : {path}",
   "profile.edit": "Modifier",
   "profile.customize": "Personnaliser",
   "profile.editFor": "Modifier {name}",
@@ -9633,6 +9748,29 @@ const it: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Il ritorno non è riuscito: {error}",
   "timeline.restoreIncomplete":
     "Il ritorno si è interrotto a metà: {error}. Lo stato precedente è salvato in cima alla cronologia.",
+  "timeline.detectionOff":
+    "Hangar salva i passi solo se il rilevamento dello stato di lavoro è attivo. Attiva «Evidenzia le sessioni in attesa» nelle impostazioni.",
+  "timeline.restoreRoot": "Cartella: {path}",
+  "timeline.restoreHeadMoved":
+    "Da questo stato è stato fatto il checkout di un altro commit, per esempio cambiando branch. Tornare indietro ripristina solo i file, non il commit.",
+  "timeline.errorWorking":
+    "Non puoi tornare indietro mentre un agente lavora in questa cartella o nel frattempo cambiano dei file. Riprova quando tutti hanno finito.",
+  "timeline.errorFolderInTheWay":
+    "Non puoi tornare indietro: dove va un file c’è una cartella con altri file: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Non puoi tornare indietro: un file ignorato verrebbe sovrascritto: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Non puoi tornare indietro: non è stato possibile salvare prima lo stato attuale, quindi non è cambiato nulla. Git dice: {reason}",
+  "timeline.errorLinked":
+    "Non puoi tornare indietro: questo percorso passa per un collegamento (link simbolico o junction): {path}",
+  "timeline.errorFiltered":
+    "Non puoi tornare indietro: un file usa un filtro Git, per esempio Git LFS.",
+  "timeline.errorSymlink":
+    "Non puoi tornare indietro: lo stato contiene qui un link simbolico, che Hangar non scrive: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Non puoi tornare indietro: una cartella è troppo grande per controllarne i collegamenti: {path}",
+  "timeline.errorOutside":
+    "Non puoi tornare indietro: questo percorso esce dalla cartella di lavoro o entra in una cartella Git: {path}",
   "profile.edit": "Modifica",
   "profile.customize": "Personalizza",
   "profile.editFor": "Modifica {name}",
@@ -11346,6 +11484,27 @@ const ja: Record<MessageKey, string> = {
   "timeline.restoreFailed": "戻せませんでした: {error}",
   "timeline.restoreIncomplete":
     "戻す途中で止まりました: {error}。戻す前の状態はタイムラインの一番上に保存されています。",
+  "timeline.detectionOff":
+    "Hangar がステップを保存するのは、作業状態の検出がオンのときだけです。設定で「待機中のセッションを強調表示」をオンにしてください。",
+  "timeline.restoreRoot": "フォルダー: {path}",
+  "timeline.restoreHeadMoved":
+    "この状態の後に別のコミットがチェックアウトされました (ブランチの切り替えなど)。戻すとファイルだけが復元され、コミットは戻りません。",
+  "timeline.errorWorking":
+    "このフォルダーでエージェントが作業中か、途中でファイルが変わったため戻せません。すべて終わってからもう一度試してください。",
+  "timeline.errorFolderInTheWay":
+    "戻せません: ファイルを置く場所に、ほかのファイルを含むフォルダーがあります: {path}",
+  "timeline.errorIgnoredInTheWay": "戻せません: 無視されたファイルが上書きされます: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "戻せません: 現在の状態を先に保存できなかったため、何も変更していません。Git のメッセージ: {reason}",
+  "timeline.errorLinked":
+    "戻せません: このパスはリンク (シンボリックリンクまたはジャンクション) を経由しています: {path}",
+  "timeline.errorFiltered": "戻せません: Git フィルター (Git LFS など) を使うファイルがあります。",
+  "timeline.errorSymlink":
+    "戻せません: この状態にはここにシンボリックリンクがあり、Hangar はそれを書き込みません: {path}",
+  "timeline.errorTooLargeToCheck":
+    "戻せません: フォルダーが大きすぎてリンクを確認できません: {path}",
+  "timeline.errorOutside":
+    "戻せません: このパスは作業フォルダーの外か Git フォルダーの中を指しています: {path}",
   "profile.edit": "編集",
   "profile.customize": "カスタマイズ",
   "profile.editFor": "{name} を編集",
@@ -13044,6 +13203,27 @@ const pl: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Powrót się nie udał: {error}",
   "timeline.restoreIncomplete":
     "Powrót przerwał się w połowie: {error}. Poprzedni stan zapisano na górze osi czasu.",
+  "timeline.detectionOff":
+    "Hangar zapisuje kroki tylko wtedy, gdy wykrywanie stanu pracy jest włączone. Włącz w ustawieniach „Wyróżniaj oczekujące sesje”.",
+  "timeline.restoreRoot": "Folder: {path}",
+  "timeline.restoreHeadMoved":
+    "Od tego stanu wybrano inny commit, na przykład przez zmianę gałęzi. Powrót przywraca tylko pliki, nie commit.",
+  "timeline.errorWorking":
+    "Nie można wrócić, dopóki w tym folderze pracuje agent albo w międzyczasie zmieniają się pliki. Spróbuj ponownie, gdy wszyscy skończą.",
+  "timeline.errorFolderInTheWay":
+    "Nie można wrócić: tam, gdzie ma trafić plik, jest folder z innymi plikami: {path}",
+  "timeline.errorIgnoredInTheWay": "Nie można wrócić: ignorowany plik zostałby nadpisany: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Nie można wrócić: nie udało się najpierw zapisać obecnego stanu, więc nic nie zmieniono. Git podaje: {reason}",
+  "timeline.errorLinked":
+    "Nie można wrócić: ta ścieżka prowadzi przez łącze (dowiązanie symboliczne lub junction): {path}",
+  "timeline.errorFiltered": "Nie można wrócić: plik używa filtra Git, na przykład Git LFS.",
+  "timeline.errorSymlink":
+    "Nie można wrócić: ten stan zawiera tu dowiązanie symboliczne, którego Hangar nie zapisuje: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Nie można wrócić: folder jest za duży, by sprawdzić go pod kątem łączy: {path}",
+  "timeline.errorOutside":
+    "Nie można wrócić: ta ścieżka wychodzi poza folder roboczy lub prowadzi do folderu Git: {path}",
   "profile.edit": "Edytuj",
   "profile.customize": "Dostosuj",
   "profile.editFor": "Edytuj {name}",
@@ -14747,6 +14927,29 @@ const pt: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Não foi possível voltar: {error}",
   "timeline.restoreIncomplete":
     "A volta parou no meio: {error}. O estado anterior foi salvo no topo da linha do tempo.",
+  "timeline.detectionOff":
+    "O Hangar só salva etapas enquanto a detecção do estado de trabalho está ativada. Ative “Destacar sessões em espera” nas configurações.",
+  "timeline.restoreRoot": "Pasta: {path}",
+  "timeline.restoreHeadMoved":
+    "Desde este estado foi feito checkout de outro commit, por exemplo ao trocar de branch. Voltar restaura só os arquivos, não o commit.",
+  "timeline.errorWorking":
+    "Não dá para voltar enquanto um agente trabalha nesta pasta ou arquivos mudam no meio tempo. Tente de novo quando todos terminarem.",
+  "timeline.errorFolderInTheWay":
+    "Não dá para voltar: onde vai um arquivo há uma pasta com outros arquivos: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Não dá para voltar: um arquivo ignorado seria sobrescrito: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Não dá para voltar: não foi possível salvar antes o estado atual, então nada foi alterado. O Git diz: {reason}",
+  "timeline.errorLinked":
+    "Não dá para voltar: este caminho passa por um link (link simbólico ou junction): {path}",
+  "timeline.errorFiltered":
+    "Não dá para voltar: um arquivo usa um filtro do Git, por exemplo Git LFS.",
+  "timeline.errorSymlink":
+    "Não dá para voltar: o estado contém aqui um link simbólico, que o Hangar não grava: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Não dá para voltar: uma pasta é grande demais para verificar links: {path}",
+  "timeline.errorOutside":
+    "Não dá para voltar: este caminho sai da pasta de trabalho ou entra numa pasta do Git: {path}",
   "profile.edit": "Editar",
   "profile.customize": "Personalizar",
   "profile.editFor": "Editar {name}",
@@ -16445,6 +16648,27 @@ const ru: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Вернуться не удалось: {error}",
   "timeline.restoreIncomplete":
     "Возврат прервался на середине: {error}. Прежнее состояние сохранено в начале хронологии.",
+  "timeline.detectionOff":
+    "Hangar сохраняет шаги, только когда включено распознавание рабочего состояния. Включи в настройках «Выделять ожидающие сеансы».",
+  "timeline.restoreRoot": "Папка: {path}",
+  "timeline.restoreHeadMoved":
+    "После этого состояния был выбран другой коммит, например при смене ветки. Возврат восстанавливает только файлы, не коммит.",
+  "timeline.errorWorking":
+    "Вернуться нельзя, пока в этой папке работает агент или тем временем меняются файлы. Попробуй снова, когда все закончат.",
+  "timeline.errorFolderInTheWay":
+    "Вернуться нельзя: там, где должен быть файл, стоит папка с другими файлами: {path}",
+  "timeline.errorIgnoredInTheWay": "Вернуться нельзя: был бы перезаписан игнорируемый файл: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Вернуться нельзя: текущее состояние не удалось сначала сохранить, поэтому ничего не изменено. Git сообщает: {reason}",
+  "timeline.errorLinked":
+    "Вернуться нельзя: этот путь проходит через ссылку (символическую ссылку или junction): {path}",
+  "timeline.errorFiltered": "Вернуться нельзя: файл использует фильтр Git, например Git LFS.",
+  "timeline.errorSymlink":
+    "Вернуться нельзя: в этом состоянии здесь символическая ссылка, которую Hangar не записывает: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Вернуться нельзя: папка слишком большая, чтобы проверить её на ссылки: {path}",
+  "timeline.errorOutside":
+    "Вернуться нельзя: этот путь ведёт за пределы рабочей папки или в папку Git: {path}",
   "profile.edit": "Изменить",
   "profile.customize": "Настроить",
   "profile.editFor": "Изменить {name}",
@@ -18132,6 +18356,28 @@ const tr: Record<MessageKey, string> = {
   "timeline.restoreFailed": "Geri dönülemedi: {error}",
   "timeline.restoreIncomplete":
     "Geri dönüş yarıda kaldı: {error}. Önceki durum zaman çizelgesinin en üstüne kaydedildi.",
+  "timeline.detectionOff":
+    "Hangar adımları yalnızca çalışma durumu algılaması açıkken kaydeder. Ayarlarda “Bekleyen oturumları vurgula” seçeneğini aç.",
+  "timeline.restoreRoot": "Klasör: {path}",
+  "timeline.restoreHeadMoved":
+    "Bu durumdan sonra başka bir commit’e geçildi, örneğin dal değiştirilerek. Geri dönmek yalnızca dosyaları geri getirir, commit’i değil.",
+  "timeline.errorWorking":
+    "Bu klasörde bir ajan çalışırken veya bu sırada dosyalar değişirken geri dönülemez. Hepsi bitince yeniden dene.",
+  "timeline.errorFolderInTheWay":
+    "Geri dönülemiyor: bir dosyanın gideceği yerde başka dosyalar içeren bir klasör var: {path}",
+  "timeline.errorIgnoredInTheWay":
+    "Geri dönülemiyor: yok sayılan bir dosyanın üzerine yazılırdı: {path}",
+  "timeline.errorCannotSaveCurrent":
+    "Geri dönülemiyor: mevcut durum önce kaydedilemedi, bu yüzden hiçbir şey değişmedi. Git diyor ki: {reason}",
+  "timeline.errorLinked":
+    "Geri dönülemiyor: bu yol bir bağlantıdan (sembolik bağlantı veya junction) geçiyor: {path}",
+  "timeline.errorFiltered": "Geri dönülemiyor: bir dosya Git filtresi kullanıyor, örneğin Git LFS.",
+  "timeline.errorSymlink":
+    "Geri dönülemiyor: bu durum burada Hangar’ın yazmadığı bir sembolik bağlantı içeriyor: {path}",
+  "timeline.errorTooLargeToCheck":
+    "Geri dönülemiyor: bir klasör bağlantılar için denetlenemeyecek kadar büyük: {path}",
+  "timeline.errorOutside":
+    "Geri dönülemiyor: bu yol çalışma klasörünün dışına veya bir Git klasörüne gidiyor: {path}",
   "profile.edit": "Düzenle",
   "profile.customize": "Özelleştir",
   "profile.editFor": "{name} düzenle",
@@ -19772,6 +20018,22 @@ const zh: Record<MessageKey, string> = {
   "timeline.alreadyThere": "文件已处于此状态。",
   "timeline.restoreFailed": "无法返回：{error}",
   "timeline.restoreIncomplete": "返回中途停止：{error}。之前的状态已保存在时间线顶部。",
+  "timeline.detectionOff":
+    "只有开启工作状态识别时，Hangar 才会保存步骤。请在设置中开启“突出显示等待中的会话”。",
+  "timeline.restoreRoot": "文件夹：{path}",
+  "timeline.restoreHeadMoved":
+    "此状态之后检出了另一个提交，例如切换了分支。回退只恢复文件，不恢复提交。",
+  "timeline.errorWorking":
+    "此文件夹中有代理正在工作，或期间有文件发生变化，因此无法回退。请等所有代理完成后再试。",
+  "timeline.errorFolderInTheWay": "无法回退：文件要放的位置有一个包含其他文件的文件夹：{path}",
+  "timeline.errorIgnoredInTheWay": "无法回退：一个被忽略的文件会被覆盖：{path}",
+  "timeline.errorCannotSaveCurrent":
+    "无法回退：未能先保存当前状态，因此没有做任何更改。Git 提示：{reason}",
+  "timeline.errorLinked": "无法回退：此路径经过一个链接（符号链接或连接点）：{path}",
+  "timeline.errorFiltered": "无法回退：有文件使用了 Git 过滤器，例如 Git LFS。",
+  "timeline.errorSymlink": "无法回退：该状态在此处包含一个符号链接，Hangar 不会写入它：{path}",
+  "timeline.errorTooLargeToCheck": "无法回退：文件夹太大，无法检查其中的链接：{path}",
+  "timeline.errorOutside": "无法回退：此路径通向工作文件夹之外或 Git 文件夹之内：{path}",
   "profile.edit": "编辑",
   "profile.customize": "自定义",
   "profile.editFor": "编辑 {name}",

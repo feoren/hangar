@@ -10,13 +10,14 @@ import { Dialog } from "./Dialog";
 import { folderName } from "./folders";
 import { commitMode, discardDeletes, lineComment, pathBatches, stageAllPaths } from "./gitActions";
 import { parseGitDiff, splitPath, type ChangeEntry, type GitDiff } from "./gitDiff";
-import { CHANGES_VIEWS, type ChangesView, type CommitFocus } from "./gitHistory";
+import type { ChangesView, CommitFocus } from "./gitHistory";
 import { useT, type MessageKey } from "./i18n";
 import { RestartIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { askFor, stillAsked, type SessionQuestion } from "./sessionQuestion";
 import type { TeammateOverlap } from "./team";
+import { changesViews, shownChangesView, type TimelineAvailability } from "./timeline";
 import { TimelineView } from "./TimelineView";
 
 interface Props {
@@ -46,6 +47,11 @@ interface Props {
   /** Uncommitted changes or the commit history; kept by the window while the tab is closed. */
   view: ChangesView;
   onView: (view: ChangesView) => void;
+  /**
+   * Whether the timeline is offered (timelineAvailability): hidden where no snapshot is ever
+   * taken, a hint while working-state detection is off.
+   */
+  timeline: TimelineAvailability;
   /** A commit to open in the history (quick access); a new token opens it again. */
   focusCommit?: CommitFocus | null;
   /** UI language, for relative times and dates. */
@@ -77,7 +83,8 @@ type Load =
  * diffs show a page of lines per file, more on request.
  */
 export function ChangesPanel(props: Props) {
-  const { cwd, trigger, view } = props;
+  const { cwd, trigger } = props;
+  const view = shownChangesView(props.view, props.timeline);
   const t = useT();
   const [manual, setManual] = useState(0);
   const [historyBusy, setHistoryBusy] = useState(false);
@@ -251,7 +258,7 @@ export function ChangesPanel(props: Props) {
         </button>
       </div>
       <div className="changes-views segmented" role="radiogroup" aria-label={t("changes.view")}>
-        {CHANGES_VIEWS.map((option) => (
+        {changesViews(props.timeline).map((option) => (
           <label key={option} className="segment">
             <input
               type="radio"
@@ -310,6 +317,8 @@ export function ChangesPanel(props: Props) {
         </>
       ) : cwd === null || props.sessionId === null ? (
         <p className="changes-message">{t("changes.noSession")}</p>
+      ) : view === "timeline" && props.timeline === "detectionOff" ? (
+        <p className="changes-message">{t("timeline.detectionOff")}</p>
       ) : view === "timeline" ? (
         <TimelineView
           key={props.sessionId}

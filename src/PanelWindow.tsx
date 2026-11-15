@@ -39,6 +39,7 @@ import { focusCycleStep, matchShortcut, nextFocusZone } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
 import { teammateOverlapsBySession, type TeammateOverlap } from "./team";
 import { applyDocumentTheme, resolveTheme, subscribeSystemTheme, systemPrefersDark } from "./theme";
+import { takesSnapshots, timelineAvailability } from "./timeline";
 
 /** Moving or resizing saves the place after this quiet time. */
 const BOUNDS_SAVE_MS = 400;
@@ -385,6 +386,11 @@ export function PanelWindow() {
               focusToken={changesFocusToken}
               view={changesView}
               onView={setChangesView}
+              timeline={timelineAvailability(
+                activeId !== null &&
+                  takesSnapshots(activeId, panelSessionIsAgent(sessions, activeId)),
+                settings.attentionEnabled,
+              )}
               language={settings.language}
             />
           }
