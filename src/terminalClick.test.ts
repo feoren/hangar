@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   arrowsToColumn,
+  arrowsToPoint,
   clickMovesCursor,
   inputEnd,
   inputStart,
+  joinWrappedRows,
+  lineOffset,
   promptEditable,
+  rowSelectionDeleteKeys,
   selectionDeleteKeys,
   suggestionStart,
   type ClickCell,
@@ -187,5 +191,165 @@ describe("selectionDeleteKeys", () => {
     ).toBeNull();
     // Empty.
     expect(selectionDeleteKeys(typed, 5, { start: 3, end: 3 }, false)).toBeNull();
+  });
+});
+
+/** Screen rows `width` cells wide, as xterm stores a soft-wrapped line: never written cells are "". */
+function wrappedRows(text: string, width = 8): ClickCell[][] {
+  const rows: ClickCell[][] = [];
+  for (let at = 0; at < text.length || rows.length === 0; at += width) {
+    const part = Array.from(text.slice(at, at + width), (char) => cell(char));
+    rows.push([...part, ...Array.from({ length: width - part.length }, () => cell(""))]);
+  }
+  return rows;
+}
+
+describe("wrapped lines", () => {
+  // "> hello world, bye" on rows of 8: "> hello " | "world, b" | "ye".
+  const rows = wrappedRows("> hello world, bye");
+  const end = { row: 2, col: 2 };
+
+  it("joins the rows into one line and maps row points onto it", () => {
+    const line = joinWrappedRows(rows);
+    expect(line.cells).toHaveLength(24);
+    expect(line.rowStarts).toEqual([0, 8, 16]);
+    expect(lineOffset(line, { row: 1, col: 3 })).toBe(11);
+    // The exclusive end at a row's right edge is the next row's start.
+    expect(lineOffset(line, { row: 0, col: 8 })).toBe(8);
+    expect(lineOffset(line, { row: 0, col: 30 })).toBe(8);
+    expect(lineOffset(line, { row: 3, col: 0 })).toBeNull();
+    expect(lineOffset(line, { row: -1, col: 0 })).toBeNull();
+  });
+
+  it("deletes a selection on another row of the line", () => {
+    // "world" (row 1, cols 0 to 5): five Left presses from the end, five deletes.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 1, col: 0 }, end: { row: 1, col: 5 } },
+        false,
+      ),
+    ).toBe(CL.repeat(5) + BS.repeat(5));
+  });
+
+  it("deletes a selection that spans the wrap", () => {
+    // "hello world" from row 0 col 2 to row 1 col 5.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 0, col: 2 }, end: { row: 1, col: 5 } },
+        false,
+      ),
+    ).toBe(CL.repeat(5) + BS.repeat(11));
+    // "hello " up to the right edge of row 0.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 0, col: 2 }, end: { row: 0, col: 8 } },
+        false,
+      ),
+    ).toBe(CL.repeat(10) + BS.repeat(6));
+  });
+
+  it("moves right across rows when the cursor sits before the selection", () => {
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        { row: 0, col: 4 },
+        { start: { row: 2, col: 0 }, end: { row: 2, col: 2 } },
+        false,
+      ),
+    ).toBe(CR.repeat(14) + BS.repeat(2));
+  });
+
+  it("drops the cell a wide character left blank at a row's end", () => {
+    // "> abcde" and one never written cell, then 中 wrapped onto the next row, then "f".
+    const padded = [
+      [...Array.from("> abcde", (char) => cell(char)), cell("")],
+      [...wide("中"), cell("f"), ...Array.from({ length: 5 }, () => cell(""))],
+    ];
+    expect(joinWrappedRows(padded).rowStarts).toEqual([0, 7]);
+    // "e中" selected, the cursor after "f": one Left, two deletes (not three).
+    expect(
+      rowSelectionDeleteKeys(
+        padded,
+        { row: 1, col: 3 },
+        { start: { row: 0, col: 6 }, end: { row: 1, col: 2 } },
+        false,
+      ),
+    ).toBe(CL + BS.repeat(2));
+  });
+
+  it("keeps a blank cell at a row's end that no wide character explains", () => {
+    const line = joinWrappedRows([
+      [cell("a"), cell("")],
+      [cell("b"), cell("")],
+    ]);
+    expect(line.cells).toHaveLength(4);
+  });
+
+  it("leaves selections that reach beyond the line to the usual key", () => {
+    // From the row above the line (a real line break, not wrapped onto it).
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: -1, col: 4 }, end: { row: 1, col: 5 } },
+        false,
+      ),
+    ).toBeNull();
+    // Into the row below it.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 1, col: 0 }, end: { row: 3, col: 1 } },
+        false,
+      ),
+    ).toBeNull();
+    // Into the blank space after the text on the last row.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 2, col: 0 }, end: { row: 2, col: 5 } },
+        false,
+      ),
+    ).toBeNull();
+    // Over the prompt mark on the first row.
+    expect(
+      rowSelectionDeleteKeys(
+        rows,
+        end,
+        { start: { row: 0, col: 0 }, end: { row: 1, col: 2 } },
+        false,
+      ),
+    ).toBeNull();
+  });
+
+  it("moves the cursor to a click on another row of the line", () => {
+    expect(arrowsToPoint(rows, end, { row: 1, col: 2 }, false)).toBe(CL.repeat(8));
+    expect(arrowsToPoint(rows, { row: 0, col: 2 }, { row: 2, col: 1 }, false)).toBe(CR.repeat(15));
+    // A click past the text on the last row stops at its end.
+    expect(arrowsToPoint(rows, { row: 0, col: 2 }, { row: 2, col: 6 }, false)).toBe(CR.repeat(16));
+    expect(arrowsToPoint(rows, end, { row: 3, col: 0 }, false)).toBe("");
+  });
+
+  it("behaves like the single-line rules on one row", () => {
+    const single = [line("> hello world")];
+    expect(
+      rowSelectionDeleteKeys(
+        single,
+        { row: 0, col: 13 },
+        { start: { row: 0, col: 2 }, end: { row: 0, col: 7 } },
+        false,
+      ),
+    ).toBe(selectionDeleteKeys(line("> hello world"), 13, { start: 2, end: 7 }, false));
+    expect(arrowsToPoint(single, { row: 0, col: 13 }, { row: 0, col: 3 }, false)).toBe(
+      arrowsToColumn(line("> hello world"), 13, 3, false),
+    );
   });
 });

@@ -4,7 +4,8 @@
 // A terminal has no caret the mouse can place: the agent's input line reads keys only. So, like
 // iTerm2's Option+click, Hangar turns a click on the cursor's own line into Left or Right arrow
 // presses, and a selection on that line into arrows to its end plus one Backspace per character.
-// Only on that line: Up and Down would page through the agent's prompt history. Never for plain
+// Only on that line, which takes in the rows the terminal wrapped it onto (`joinWrappedRows`):
+// Up and Down would page through the agent's prompt history. Never for plain
 // shells (they get xterm's own Alt+click), never while the program tracks the mouse itself, and
 // a click never when the press became a selection.
 //
@@ -183,4 +184,134 @@ function characters(cells: readonly ClickCell[], from: number, to: number): numb
 /** A click on the right half of a wide character means that character. */
 function startOfCharacter(cells: readonly ClickCell[], col: number): number {
   return col > 0 && cells[col]?.width === 0 ? col - 1 : col;
+}
+
+/**
+ * A point on one of a wrapped line's rows: `row` indexes the rows passed in (0 is the line's
+ * first row), `col` is the cell column on that row.
+ */
+export interface RowPoint {
+  row: number;
+  col: number;
+}
+
+/** A selection over a wrapped line's rows, `end` exclusive like xterm's selection range. */
+export interface RowRange {
+  start: RowPoint;
+  end: RowPoint;
+}
+
+/** The columns of a row where the cursor stands on exactly one text position, both included. */
+export interface CursorColumns {
+  min: number;
+  max: number;
+}
+
+/** One logical line built from screen rows: the cells in order and where each row begins. */
+export interface WrappedLine {
+  cells: readonly ClickCell[];
+  /** The index into `cells` of each row's first cell. */
+  rowStarts: readonly number[];
+  /**
+   * Screen cells at the start of each row that are no text (the indent of a continuation row);
+   * a point left of them means the row's first character. Absent: none.
+   */
+  rowSkips?: readonly number[];
+  /**
+   * Per row the cursor columns that name one text position. A cursor outside them (two text
+   * positions look the same there) makes every rule return nothing, so no key is sent on a guess.
+   * Absent: any cursor column is fine.
+   */
+  cursorColumns?: readonly CursorColumns[];
+}
+
+/**
+ * Joins rows the terminal wrapped itself (xterm's `isWrapped`) into one line of cells. Such rows
+ * hold one line the program wrote without a line break, so its line editor moves through them
+ * with Left and Right as through one line. A wide character that did not fit at a row's end left
+ * one never written cell there (xterm clears the rest of the row before it wraps); that cell is no
+ * character and is dropped, so the arrow and Backspace counts stay exact.
+ */
+export function joinWrappedRows(rows: readonly (readonly ClickCell[])[]): WrappedLine {
+  const cells: ClickCell[] = [];
+  const rowStarts: number[] = [];
+  rows.forEach((row, index) => {
+    rowStarts.push(cells.length);
+    const next = rows[index + 1];
+    const last = row[row.length - 1];
+    const padded =
+      next !== undefined && last !== undefined && last.text === "" && next[0]?.width === 2;
+    cells.push(...(padded ? row.slice(0, -1) : row));
+  });
+  return { cells, rowStarts };
+}
+
+/** The index into the joined cells of a point on a row; null for a row outside the line. */
+export function lineOffset(line: WrappedLine, point: RowPoint): number | null {
+  const start = line.rowStarts[point.row];
+  if (start === undefined) return null;
+  const end = line.rowStarts[point.row + 1] ?? line.cells.length;
+  const col = point.col - (line.rowSkips?.[point.row] ?? 0);
+  return start + Math.min(Math.max(col, 0), end - start);
+}
+
+/** `lineOffset` for the cursor; null as well where the cursor does not name one text position. */
+export function cursorOffset(line: WrappedLine, cursor: RowPoint): number | null {
+  const columns = line.cursorColumns?.[cursor.row];
+  if (columns !== undefined && (cursor.col < columns.min || cursor.col > columns.max)) return null;
+  return lineOffset(line, cursor);
+}
+
+/**
+ * `arrowsToColumn` over a line of joined rows: the click may be on any of its rows. Empty when the
+ * click or the cursor lies on a row outside the line.
+ */
+export function arrowsToLinePoint(
+  line: WrappedLine,
+  cursor: RowPoint,
+  click: RowPoint,
+  applicationCursor: boolean,
+): string {
+  const from = cursorOffset(line, cursor);
+  const to = lineOffset(line, click);
+  if (from === null || to === null) return "";
+  return arrowsToColumn(line.cells, from, to, applicationCursor);
+}
+
+/**
+ * `selectionDeleteKeys` over a line of joined rows: the selection may span its rows. Null when the
+ * selection or the cursor reaches a row outside the line, so a selection over a real line break
+ * the rules cannot place always goes to the usual key.
+ */
+export function lineSelectionDeleteKeys(
+  line: WrappedLine,
+  cursor: RowPoint,
+  selection: RowRange,
+  applicationCursor: boolean,
+): string | null {
+  const from = cursorOffset(line, cursor);
+  const start = lineOffset(line, selection.start);
+  const end = lineOffset(line, selection.end);
+  if (from === null || start === null || end === null) return null;
+  return selectionDeleteKeys(line.cells, from, { start, end }, applicationCursor);
+}
+
+/** `arrowsToLinePoint` over rows the terminal wrapped itself. */
+export function arrowsToPoint(
+  rows: readonly (readonly ClickCell[])[],
+  cursor: RowPoint,
+  click: RowPoint,
+  applicationCursor: boolean,
+): string {
+  return arrowsToLinePoint(joinWrappedRows(rows), cursor, click, applicationCursor);
+}
+
+/** `lineSelectionDeleteKeys` over rows the terminal wrapped itself. */
+export function rowSelectionDeleteKeys(
+  rows: readonly (readonly ClickCell[])[],
+  cursor: RowPoint,
+  selection: RowRange,
+  applicationCursor: boolean,
+): string | null {
+  return lineSelectionDeleteKeys(joinWrappedRows(rows), cursor, selection, applicationCursor);
 }
