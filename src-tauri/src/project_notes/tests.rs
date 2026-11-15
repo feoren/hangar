@@ -1150,9 +1150,9 @@ fn share_folders_are_refused_before_they_are_touched() {
     let started = std::time::Instant::now();
     #[cfg(windows)]
     let shares = [
-        r"\hangar-test.invalid\share\project",
+        r"\\hangar-test.invalid\share\project",
         "//hangar-test.invalid/share/project",
-        r"\?\UNC\hangar-test.invalid\share",
+        r"\\?\UNC\hangar-test.invalid\share",
     ];
     #[cfg(not(windows))]
     let shares: [&str; 0] = [];
