@@ -46,6 +46,7 @@ import {
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
+import { linkWord } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
@@ -58,7 +59,7 @@ import {
   searchColors,
   type TerminalLook,
 } from "./terminalLook";
-import { safeLinkUrl, sanitizePaste } from "./termSafety";
+import { addressParts, safeLinkUrl, sanitizePaste } from "./termSafety";
 import { MINIMUM_CONTRAST, type Theme } from "./theme";
 import { newSessionKey, trimScrollback } from "./workspace";
 
@@ -240,7 +241,7 @@ export class SessionTerminal {
           event.preventDefault();
           this.hideLinkTip();
           const url = safeLinkUrl(text);
-          if (url !== null) this.onLink?.(url, this.rangeText(range));
+          if (url !== null) this.onLink?.(url, this.linkText(range));
         },
         hover: (event, text) => {
           const url = safeLinkUrl(text);
@@ -640,16 +641,30 @@ export class SessionTerminal {
     this.term.selectAll();
   }
 
-  /** The visible text of a link's cells; xterm's ranges are 1 based, `end.x` inclusive. */
-  private rangeText(range: IBufferRange): string {
+  /**
+   * The visible word a link sits in: its cells plus the cells touching them without a space, also
+   * across wrapped rows (terminalLinkWord.ts). xterm's ranges are 1 based, `end.x` inclusive.
+   */
+  private linkText(range: IBufferRange): string {
     const buffer = this.term.buffer.active;
-    let text = "";
-    for (let y = range.start.y; y <= range.end.y; y += 1) {
-      const from = y === range.start.y ? range.start.x - 1 : 0;
-      const to = y === range.end.y ? range.end.x : undefined;
-      text += buffer.getLine(y - 1)?.translateToString(true, from, to) ?? "";
-    }
-    return text;
+    return linkWord(
+      (y) => {
+        const line = buffer.getLine(y);
+        if (line === undefined) return undefined;
+        return {
+          isWrapped: line.isWrapped,
+          length: line.length,
+          cell: (x) => {
+            const cell = line.getCell(x);
+            return cell === undefined
+              ? undefined
+              : { chars: cell.getChars(), width: cell.getWidth() };
+          },
+        };
+      },
+      { x: range.start.x - 1, y: range.start.y - 1 },
+      { x: range.end.x - 1, y: range.end.y - 1 },
+    );
   }
 
   /**
@@ -662,7 +677,7 @@ export class SessionTerminal {
     const tip = this.linkTip ?? document.createElement("div");
     tip.className = "xterm-hover terminal-link-tip";
     tip.setAttribute("role", "tooltip");
-    tip.textContent = t("link.leadsTo", { url });
+    fillAddress(tip, t("link.leadsTo", { url: ADDRESS_SLOT }), url);
     const box = host.getBoundingClientRect();
     const x = event.clientX - box.left;
     const y = event.clientY - box.top;
@@ -786,7 +801,8 @@ export class SessionTerminal {
     const write = api.write(this.id, data);
     this.lastWrite = write;
     write.catch((error: unknown) => {
-      if (error instanceof InputStalled && !this.disposed) {
+      // One notice per stall: writes dropped behind it (`dropped`) say nothing more.
+      if (error instanceof InputStalled && !error.dropped && !this.disposed) {
         this.writeNotice(`[${t("terminal.inputStalled")}]`);
       }
     });
@@ -997,3 +1013,25 @@ export function setFocusCycleActive(active: boolean): void {
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */
 export const terminals = new Map<number, SessionTerminal>();
+
+/** Stands for the address in a translated sentence, so the address can be built as elements. */
+const ADDRESS_SLOT = "\u0000";
+
+/**
+ * Fills `element` with `sentence`, its `ADDRESS_SLOT` replaced by `url` with the host in bold:
+ * the part of an address that decides where it leads.
+ */
+function fillAddress(element: HTMLElement, sentence: string, url: string): void {
+  const { before, host, after } = addressParts(url);
+  const at = sentence.indexOf(ADDRESS_SLOT);
+  // A translation without the slot still shows the address, after its text.
+  const head = at < 0 ? `${sentence} ` : sentence.slice(0, at);
+  const tail = at < 0 ? "" : sentence.slice(at + ADDRESS_SLOT.length);
+  const address = document.createElement("span");
+  address.className = "link-url";
+  const strong = document.createElement("strong");
+  strong.className = "link-host";
+  strong.textContent = host;
+  address.append(before, strong, after);
+  element.replaceChildren(head, address, tail);
+}

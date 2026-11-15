@@ -65,6 +65,9 @@ describe("canBroadcast", () => {
     expect(canBroadcast("Write tests", [1])).toBe(true);
     expect(canBroadcast("   ", [1])).toBe(false);
     expect(canBroadcast("Write tests", [])).toBe(false);
+    // Control characters are stripped before sending: what is left is blank.
+    expect(canBroadcast("\x1b\x1b", [1])).toBe(false);
+    expect(canBroadcast(" \x1b[A ", [1])).toBe(true);
   });
 });
 
@@ -130,6 +133,14 @@ describe("sendToTargets", () => {
     const events: string[] = [];
     const raw = recorder("b", false, events);
     await expect(sendToTargets([raw], "marker\u202etxt", noPause)).resolves.toEqual([raw]);
+    expect(events).toEqual([]);
+  });
+
+  it("sends no lone Enter when nothing is left of the text after sanitizing", async () => {
+    const events: string[] = [];
+    const fake = recorder("a", true, events);
+    await expect(sendToTargets([fake], "\x1b\x1b", noPause)).resolves.toEqual([]);
+    await expect(sendToTargets([fake], " \x07 \n", noPause)).resolves.toEqual([]);
     expect(events).toEqual([]);
   });
 

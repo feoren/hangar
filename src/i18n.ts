@@ -617,9 +617,10 @@ const de = {
   "link.copied": "Kopiert.",
   "link.openFailed": "Das ließ sich nicht öffnen: {error}",
   "link.leadsTo": "Führt zu {url}",
-  "link.checkTarget": "Dieser Link zeigt eine andere Adresse, als er öffnet. Er führt wirklich zu:",
+  "link.checkTarget": "Der Text dieses Links passt nicht zu seinem Ziel. Er führt zu:",
   "link.open": "Öffnen",
-  "paste.dropSkipped": "Ein Pfad mit Zeilenumbruch oder Steuerzeichen wurde ausgelassen.",
+  "paste.dropSkipped":
+    "Ein Pfad mit Zeilenumbruch, Steuerzeichen oder unsichtbaren Zeichen wurde ausgelassen.",
   "send.blocked":
     "Nicht gesendet an {sessions}: Der Text hat mehrere Zeilen oder unsichtbare Zeichen, und das Programm dort würde jede Zeile sofort ausführen.",
   "settings.warnMultilinePaste": "Vor mehrzeiligem Einfügen warnen",
@@ -2218,9 +2219,10 @@ const en: Record<MessageKey, string> = {
   "link.copied": "Copied.",
   "link.openFailed": "That could not be opened: {error}",
   "link.leadsTo": "Leads to {url}",
-  "link.checkTarget": "This link shows a different address than it opens. It really leads to:",
+  "link.checkTarget": "This link’s text does not match where it leads. It goes to:",
   "link.open": "Open",
-  "paste.dropSkipped": "A path with a line break or control character was left out.",
+  "paste.dropSkipped":
+    "A path with a line break, a control character or an invisible character was left out.",
   "send.blocked":
     "Not sent to {sessions}: the text has several lines or hidden characters, and the program there would run each line at once.",
   "settings.warnMultilinePaste": "Warn before pasting several lines",
@@ -3812,9 +3814,10 @@ const el: Record<MessageKey, string> = {
   "link.openFailed": "Δεν ήταν δυνατό να ανοίξει: {error}",
   "link.leadsTo": "Οδηγεί σε {url}",
   "link.checkTarget":
-    "Αυτός ο σύνδεσμος δείχνει άλλη διεύθυνση από αυτή που ανοίγει. Στην πραγματικότητα οδηγεί σε:",
+    "Το κείμενο αυτού του συνδέσμου δεν ταιριάζει με τον προορισμό του. Οδηγεί σε:",
   "link.open": "Άνοιγμα",
-  "paste.dropSkipped": "Παραλείφθηκε μια διαδρομή με αλλαγή γραμμής ή χαρακτήρα ελέγχου.",
+  "paste.dropSkipped":
+    "Παραλείφθηκε μια διαδρομή με αλλαγή γραμμής, χαρακτήρα ελέγχου ή αόρατο χαρακτήρα.",
   "send.blocked":
     "Δεν στάλθηκε σε {sessions}: το κείμενο έχει πολλές γραμμές ή αόρατους χαρακτήρες και το πρόγραμμα εκεί θα εκτελούσε κάθε γραμμή αμέσως.",
   "settings.warnMultilinePaste": "Προειδοποίηση πριν από επικόλληση πολλών γραμμών",
@@ -5431,10 +5434,10 @@ const es: Record<MessageKey, string> = {
   "link.copied": "Copiado.",
   "link.openFailed": "No se pudo abrir: {error}",
   "link.leadsTo": "Lleva a {url}",
-  "link.checkTarget":
-    "Este enlace muestra una dirección distinta de la que abre. En realidad lleva a:",
+  "link.checkTarget": "El texto de este enlace no coincide con su destino. Lleva a:",
   "link.open": "Abrir",
-  "paste.dropSkipped": "Se omitió una ruta con un salto de línea o un carácter de control.",
+  "paste.dropSkipped":
+    "Se omitió una ruta con un salto de línea, un carácter de control o un carácter invisible.",
   "send.blocked":
     "No se envió a {sessions}: el texto tiene varias líneas o caracteres ocultos, y el programa de allí ejecutaría cada línea al instante.",
   "settings.warnMultilinePaste": "Avisar antes de pegar varias líneas",
@@ -7042,11 +7045,10 @@ const fr: Record<MessageKey, string> = {
   "link.copied": "Copié.",
   "link.openFailed": "Impossible d’ouvrir cet élément : {error}",
   "link.leadsTo": "Mène à {url}",
-  "link.checkTarget":
-    "Ce lien affiche une autre adresse que celle qu’il ouvre. Il mène en réalité à :",
+  "link.checkTarget": "Le texte de ce lien ne correspond pas à sa destination. Il mène à :",
   "link.open": "Ouvrir",
   "paste.dropSkipped":
-    "Un chemin contenant un saut de ligne ou un caractère de contrôle a été ignoré.",
+    "Un chemin contenant un saut de ligne, un caractère de contrôle ou un caractère invisible a été ignoré.",
   "send.blocked":
     "Non envoyé à {sessions} : le texte a plusieurs lignes ou des caractères invisibles, et le programme là-bas exécuterait chaque ligne aussitôt.",
   "settings.warnMultilinePaste": "Avertir avant de coller plusieurs lignes",
@@ -8663,10 +8665,10 @@ const it: Record<MessageKey, string> = {
   "link.copied": "Copiato.",
   "link.openFailed": "Impossibile aprirlo: {error}",
   "link.leadsTo": "Porta a {url}",
-  "link.checkTarget":
-    "Questo link mostra un indirizzo diverso da quello che apre. In realtà porta a:",
+  "link.checkTarget": "Il testo di questo link non corrisponde alla sua destinazione. Porta a:",
   "link.open": "Apri",
-  "paste.dropSkipped": "Un percorso con un a capo o un carattere di controllo è stato escluso.",
+  "paste.dropSkipped":
+    "Un percorso con un a capo, un carattere di controllo o un carattere invisibile è stato escluso.",
   "send.blocked":
     "Non inviato a {sessions}: il testo ha più righe o caratteri invisibili, e il programma lì eseguirebbe subito ogni riga.",
   "settings.warnMultilinePaste": "Avvisa prima di incollare più righe",
@@ -10269,9 +10271,9 @@ const ja: Record<MessageKey, string> = {
   "link.copied": "コピーしました。",
   "link.openFailed": "開けませんでした: {error}",
   "link.leadsTo": "リンク先: {url}",
-  "link.checkTarget": "このリンクは、開く先とは別のアドレスを表示しています。実際のリンク先:",
+  "link.checkTarget": "このリンクの表示テキストはリンク先と一致しません。実際のリンク先:",
   "link.open": "開く",
-  "paste.dropSkipped": "改行や制御文字を含むパスを除外しました。",
+  "paste.dropSkipped": "改行、制御文字、または見えない文字を含むパスを除外しました。",
   "send.blocked":
     "{sessions} には送信しませんでした: テキストに複数の行または見えない文字があり、そこのプログラムは各行をすぐに実行してしまいます。",
   "settings.warnMultilinePaste": "複数行を貼り付ける前に警告する",
@@ -11871,9 +11873,10 @@ const pl: Record<MessageKey, string> = {
   "link.copied": "Skopiowano.",
   "link.openFailed": "Nie udało się tego otworzyć: {error}",
   "link.leadsTo": "Prowadzi do {url}",
-  "link.checkTarget": "Ten link pokazuje inny adres niż ten, który otwiera. Naprawdę prowadzi do:",
+  "link.checkTarget": "Tekst tego linku nie pasuje do jego celu. Prowadzi do:",
   "link.open": "Otwórz",
-  "paste.dropSkipped": "Pominięto ścieżkę z podziałem wiersza lub znakiem sterującym.",
+  "paste.dropSkipped":
+    "Pominięto ścieżkę z podziałem wiersza, znakiem sterującym lub niewidocznym znakiem.",
   "send.blocked":
     "Nie wysłano do {sessions}: tekst ma kilka wierszy lub niewidoczne znaki, a tamten program wykonałby każdy wiersz od razu.",
   "settings.warnMultilinePaste": "Ostrzegaj przed wklejeniem kilku wierszy",
@@ -13464,10 +13467,10 @@ const pt: Record<MessageKey, string> = {
   "link.copied": "Copiado.",
   "link.openFailed": "Não foi possível abrir: {error}",
   "link.leadsTo": "Leva a {url}",
-  "link.checkTarget": "Este link mostra um endereço diferente do que abre. Na verdade leva a:",
+  "link.checkTarget": "O texto deste link não corresponde ao destino. Leva a:",
   "link.open": "Abrir",
   "paste.dropSkipped":
-    "Um caminho com quebra de linha ou caractere de controle foi deixado de fora.",
+    "Um caminho com quebra de linha, caractere de controle ou caractere invisível foi deixado de fora.",
   "send.blocked":
     "Não enviado para {sessions}: o texto tem várias linhas ou caracteres ocultos, e o programa ali executaria cada linha na hora.",
   "settings.warnMultilinePaste": "Avisar antes de colar várias linhas",
@@ -15063,10 +15066,9 @@ const ru: Record<MessageKey, string> = {
   "link.copied": "Скопировано.",
   "link.openFailed": "Не удалось открыть: {error}",
   "link.leadsTo": "Ведёт на {url}",
-  "link.checkTarget":
-    "Эта ссылка показывает другой адрес, чем открывает. На самом деле она ведёт на:",
+  "link.checkTarget": "Текст этой ссылки не совпадает с её целью. Она ведёт на:",
   "link.open": "Открыть",
-  "paste.dropSkipped": "Путь с переводом строки или управляющим символом пропущен.",
+  "paste.dropSkipped": "Путь с переводом строки, управляющим или невидимым символом пропущен.",
   "send.blocked":
     "Не отправлено в {sessions}: в тексте несколько строк или невидимые символы, а программа там выполнила бы каждую строку сразу.",
   "settings.warnMultilinePaste": "Предупреждать перед вставкой нескольких строк",
@@ -16647,9 +16649,10 @@ const tr: Record<MessageKey, string> = {
   "link.copied": "Kopyalandı.",
   "link.openFailed": "Açılamadı: {error}",
   "link.leadsTo": "{url} adresine gider",
-  "link.checkTarget": "Bu bağlantı, açtığından farklı bir adres gösteriyor. Aslında şuraya gider:",
+  "link.checkTarget": "Bu bağlantının metni, gittiği yerle uyuşmuyor. Şuraya gider:",
   "link.open": "Aç",
-  "paste.dropSkipped": "Satır sonu veya denetim karakteri içeren bir yol atlandı.",
+  "paste.dropSkipped":
+    "Satır sonu, denetim karakteri veya görünmez karakter içeren bir yol atlandı.",
   "send.blocked":
     "{sessions} oturumuna gönderilmedi: metinde birden çok satır veya görünmez karakter var ve oradaki program her satırı hemen çalıştırırdı.",
   "settings.warnMultilinePaste": "Birden çok satır yapıştırmadan önce uyar",
@@ -18204,9 +18207,9 @@ const zh: Record<MessageKey, string> = {
   "link.copied": "已复制。",
   "link.openFailed": "无法打开：{error}",
   "link.leadsTo": "指向 {url}",
-  "link.checkTarget": "此链接显示的地址与它实际打开的不同。它真正指向:",
+  "link.checkTarget": "此链接的文字与它的目标不符。它指向:",
   "link.open": "打开",
-  "paste.dropSkipped": "已跳过一个含有换行符或控制字符的路径。",
+  "paste.dropSkipped": "已跳过一个含有换行符、控制字符或不可见字符的路径。",
   "send.blocked": "未发送到 {sessions}:文本有多行或隐藏字符,那里的程序会立即执行每一行。",
   "settings.warnMultilinePaste": "粘贴多行前发出警告",
   "settings.warnMultilinePasteHelp":

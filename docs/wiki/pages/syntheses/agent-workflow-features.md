@@ -463,6 +463,12 @@ request). Right click opens the menu. No window capability is needed for hiding;
 11. **Drag and drop**: files from Explorer onto a pane insert their quoted paths as bracketed paste
     (`onDragDropEvent`, pane under the cursor). Quoting per program: PowerShell `'...'` with `''`,
     cmd `"..."`, POSIX shells and WSL `'...'` with `'\''`, agent CLIs `"..."` when needed.
+    A path with a control character (a line break, ESC) or a reordering character (bidi
+    embeddings, overrides and isolates U+202A to U+202E and U+2066 to U+2069, the marks U+200E,
+    U+200F and U+061C, the separators U+2028 and U+2029) is left out with a hint
+    (`unsafeDropPath` in `src/pathQuote.ts`): `invoice<U+202E>txt.sh` would show as
+    `invoicehs.txt`. Zero-width joiners and non-joiners (U+200C, U+200D) stay allowed, Persian
+    and Indic file names and emoji need them.
 12. **Terminal look**: color scheme (Hangar, Catppuccin, Solarized, each with light and dark variant
     following the app theme), font (Cascadia Code, Cascadia Mono, JetBrains Mono, Fira Code,
     Consolas; installed ones only), cursor style and blink. Ligatures are left out for now

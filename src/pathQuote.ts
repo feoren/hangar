@@ -203,14 +203,31 @@ export function hasControl(path: string): boolean {
 }
 
 /**
+ * Bidi embeddings, overrides and isolates, the direction marks, the Arabic letter mark and the
+ * line and paragraph separators: they reorder or break what the terminal shows. Zero-width
+ * joiners and non-joiners stay allowed: Persian and Indic file names and emoji need them, and
+ * they change no reading order.
+ */
+const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c\u2028\u2029]/u;
+
+/**
+ * A dropped path no quoting makes safe: a control character (a line break, ESC), or a character
+ * that makes the path read otherwise than it is, such as `invoice<U+202E>txt.sh` showing as
+ * `invoicehs.txt`.
+ */
+export function unsafeDropPath(path: string): boolean {
+  return hasControl(path) || REORDERING.test(path);
+}
+
+/**
  * Text inserted for dropped paths: quoted, separated by spaces, with a trailing space so the
- * next drop or word does not stick to it. Empty for no paths. Paths with control characters are
- * left out, as in `insertPathText`: a program without bracketed paste would run what follows a
- * line break.
+ * next drop or word does not stick to it. Empty for no paths. Unsafe paths (`unsafeDropPath`) are
+ * left out: a program without bracketed paste would run what follows a line break, and a path
+ * with hidden characters is not the one the user saw.
  */
 export function dropText(paths: readonly string[], kind: ShellKind): string {
   const quoted = paths
-    .filter((path) => path !== "" && !hasControl(path))
+    .filter((path) => path !== "" && !unsafeDropPath(path))
     .map((path) => quotePath(path, kind));
   return quoted.length === 0 ? "" : `${quoted.join(" ")} `;
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dropText,
   hasControl,
+  unsafeDropPath,
   insertPathText,
   isShellKind,
   quotePath,
@@ -161,6 +162,21 @@ describe("dropText", () => {
     expect(dropText(["/tmp/a\nb", "/tmp/ok"], "posix")).toBe("/tmp/ok ");
     expect(dropText(["C:\\a\u001b[201~b.txt"], "powershell")).toBe("");
   });
+
+  it("leaves out paths with bidi controls, which read otherwise than they are", () => {
+    expect(dropText(["/tmp/invoice\u202etxt.sh"], "posix")).toBe("");
+    expect(dropText(["C:\\a\u200fb.txt", "C:\\ok.txt"], "powershell")).toBe("C:\\ok.txt ");
+    expect(dropText(["/tmp/x\u2066y"], "agent")).toBe("");
+  });
+
+  it("keeps Persian, Indic and emoji file names with zero-width joiners", () => {
+    const persian = "/tmp/\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645.txt";
+    expect(dropText([persian], "posix")).toBe(`'${persian}' `);
+    const devanagari = "/tmp/\u0915\u094d\u200d\u0937.md";
+    expect(dropText([devanagari], "agent")).toBe(`${devanagari} `);
+    const emoji = "/tmp/\u{1F468}\u200d\u{1F4BB} notes.md";
+    expect(dropText([emoji], "agent")).toBe(`"${emoji}" `);
+  });
 });
 
 describe("hasControl", () => {
@@ -168,6 +184,17 @@ describe("hasControl", () => {
     expect(hasControl("/tmp/a\rb")).toBe(true);
     expect(hasControl("C:\\a\u009bb")).toBe(true);
     expect(hasControl("C:\\Users\\Jane Doe\\ä.txt")).toBe(false);
+  });
+});
+
+describe("unsafeDropPath", () => {
+  it("finds control and bidi characters and separators, nothing else", () => {
+    expect(unsafeDropPath("/tmp/a\nb")).toBe(true);
+    expect(unsafeDropPath("/tmp/a\u202eb")).toBe(true);
+    expect(unsafeDropPath("/tmp/a\u2029b")).toBe(true);
+    expect(unsafeDropPath("/tmp/a\u061cb")).toBe(true);
+    expect(unsafeDropPath("/tmp/\u0645\u06cc\u200c\u0631\u0648\u0645")).toBe(false);
+    expect(unsafeDropPath("C:\\Users\\Jane Doe\\Übersicht 日本.txt")).toBe(false);
   });
 });
 

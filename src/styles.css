@@ -6282,6 +6282,12 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
+/* The host decides where an address leads: set apart in the notices and the link tip. */
+.link-host {
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* An OSC 8 link whose text claimed another address: the warn edge, as for the paste question. */
 .link-notice.link-check {
   border-color: color-mix(in srgb, var(--warn) 60%, transparent);
@@ -8092,6 +8098,21 @@ body.resizing-horizontal * {
   font-size: 12px;
   background: color-mix(in srgb, var(--viewer-accent) 12%, var(--viewer-bg));
   border-bottom: 1px solid var(--viewer-border);
+}
+
+/* A Markdown link whose text claimed another address (ViewerLinkCheck.tsx): the warn edge. */
+.viewer-link-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  border-left: 3px solid color-mix(in srgb, var(--warn) 60%, transparent);
+}
+
+.viewer-link-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .viewer-code {
