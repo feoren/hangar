@@ -479,7 +479,12 @@ impl Shared {
         }
     }
 
-    fn attach(&self, id: SessionId, runtime: Runtime) -> Result<SessionInfo, ManagerError> {
+    fn attach(
+        &self,
+        id: SessionId,
+        generation: u64,
+        runtime: Runtime,
+    ) -> Result<SessionInfo, ManagerError> {
         let mut sessions = lock(&self.sessions);
         let Some(entry) = sessions.get_mut(&id) else {
             // Closed during startup. On Unix, Drop does not end the process, hence
@@ -488,6 +493,16 @@ impl Shared {
             let _ = runtime.kill();
             return Err(ManagerError::UnknownSession(id));
         };
+        // A newer process took over before this one was attached: a resume attempt that failed
+        // so fast that its fallback started first. This process has exited and was reaped (no
+        // kill: its pid may belong to another process by now); installing its runtime would
+        // replace the live one's, whose own attach would then drop it.
+        if entry.generation != generation {
+            let info = entry.info.clone();
+            drop(sessions);
+            runtime.flow.close();
+            return Ok(info);
+        }
         entry.info.gate = runtime.gate;
         // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
         if entry.info.status == Status::Starting {
@@ -559,7 +574,7 @@ impl Shared {
             Ok(runtime) => {
                 // If the session is gone by now, `attach` has already cleaned up; the batch thread
                 // of the new process reports its exit itself.
-                let _ = self.attach(id, runtime);
+                let _ = self.attach(id, next, runtime);
             }
             Err(error) => {
                 eprintln!("hangar: session {id}: normal start after resume failed: {error}");
@@ -1346,7 +1361,7 @@ impl SessionManager {
             size,
             Arc::new(sink),
         ) {
-            Ok(runtime) => self.shared.attach(id, runtime),
+            Ok(runtime) => self.shared.attach(id, 0, runtime),
             Err(error) => {
                 let mut sessions = lock(&self.shared.sessions);
                 sessions.remove(&id);
@@ -1408,7 +1423,7 @@ impl SessionManager {
             size,
             Arc::new(sink),
         ) {
-            Ok(runtime) => self.shared.attach(id, runtime),
+            Ok(runtime) => self.shared.attach(id, generation, runtime),
             Err(error) => {
                 if let Some(entry) = lock(&self.shared.sessions).get_mut(&id) {
                     let _ = entry.info.mark_exited(None);
@@ -2138,8 +2153,18 @@ mod tests {
     #[test]
     fn only_shells_of_the_users_own_profiles_keep_the_program_lookup_in_the_folder() {
         use SessionKind::{Agent as A, Update as U};
-        let shell = Path::new(r"C:\Windows\System32\cmd.exe");
-        let agent = Path::new(r"C:\Users\x\.local\bin\claude.exe");
+        // The resolved program is a native path; a Windows path has no file name on Unix.
+        let (shell, agent) = if cfg!(windows) {
+            (
+                Path::new(r"C:\Windows\System32\cmd.exe"),
+                Path::new(r"C:\Users\x\.local\bin\claude.exe"),
+            )
+        } else {
+            (
+                Path::new("/bin/bash"),
+                Path::new("/home/x/.local/bin/claude"),
+            )
+        };
         // (kind, source, batch, program) -> protected
         let table = [
             (A, Source::User, false, shell, false),
@@ -2163,27 +2188,45 @@ mod tests {
 
     #[test]
     fn shells_are_known_by_their_file_name() {
-        for shell in [
-            r"C:\Windows\System32\cmd.exe",
-            r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE",
-            r"C:\Program Files\PowerShell\7\pwsh.exe",
-            r"C:\Windows\System32\wsl.exe",
-            r"C:\Program Files\Git\bin\bash.exe",
-            r"C:\Program Files\Git\git-bash.exe",
-            r"C:\tools\nu.exe",
-            "/bin/sh",
-            "/usr/bin/zsh",
-            "/usr/local/bin/fish",
-        ] {
+        // Paths as the platform resolves them: `\` separates folders on Windows only.
+        #[cfg(windows)]
+        let (shells, programs) = (
+            [
+                r"C:\Windows\System32\cmd.exe",
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE",
+                r"C:\Program Files\PowerShell\7\pwsh.exe",
+                r"C:\Windows\System32\wsl.exe",
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files\Git\git-bash.exe",
+                r"C:\tools\nu.exe",
+            ],
+            [
+                r"C:\Users\x\.local\bin\claude.exe",
+                r"C:\tools\cmd-agent.exe",
+                r"C:\tools\bash.cmd",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (shells, programs) = (
+            [
+                "/bin/bash",
+                "/usr/bin/pwsh",
+                "/opt/homebrew/bin/nu",
+                "/usr/local/bin/PowerShell",
+            ],
+            [
+                "/home/x/.local/bin/claude",
+                "/opt/tools/cmd-agent",
+                "/opt/tools/bash.cmd",
+            ],
+        );
+        for shell in shells
+            .into_iter()
+            .chain(["/bin/sh", "/usr/bin/zsh", "/usr/local/bin/fish"])
+        {
             assert!(is_interactive_shell(Path::new(shell)), "{shell}");
         }
-        for program in [
-            r"C:\Users\x\.local\bin\claude.exe",
-            r"C:\tools\cmd-agent.exe",
-            r"C:\tools\bash.cmd",
-            "/usr/bin/codex",
-            "",
-        ] {
+        for program in programs.into_iter().chain(["/usr/bin/codex", ""]) {
             assert!(!is_interactive_shell(Path::new(program)), "{program}");
         }
     }

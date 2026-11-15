@@ -383,16 +383,24 @@ pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
         // On a regular file O_NONBLOCK changes nothing.
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(path)?;
+    let file = match options.open(path) {
+        Ok(file) => file,
+        // O_NOFOLLOW fails the open of a link with ELOOP (Linux, macOS): the same refusal as for
+        // any other entry that is no regular file, which callers tell apart from a failed read.
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => return Err(not_a_regular_file()),
+        Err(error) => return Err(error),
+    };
     if !file.metadata()?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
+        return Err(not_a_regular_file());
     }
     #[cfg(windows)]
     let file = windows_reparse::through_placeholder(file, path)?;
     Ok(file)
+}
+
+fn not_a_regular_file() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
 }
 
 /// A regular file that is still a reparse point on Windows: a cloud placeholder (OneDrive), a
@@ -410,6 +418,8 @@ mod windows_reparse {
     use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
     use std::os::windows::io::AsRawHandle as _;
     use std::path::Path;
+
+    use super::not_a_regular_file;
 
     use std::os::windows::io::FromRawHandle as _;
 
@@ -445,7 +455,7 @@ mod windows_reparse {
         }
         let tag = reparse_tag(&file)?;
         if !supplies_content(tag) {
-            return Err(refused());
+            return Err(not_a_regular_file());
         }
         // [UNVERIFIED] whether every content filter supplies the data for a reopened handle as it
         // does for an open by path; where the reopen fails, the path is opened once more.
@@ -458,13 +468,9 @@ mod windows_reparse {
         options.share_mode(0x1 | 0x2 | 0x4);
         let content = options.open(path)?;
         if identity(&content)? != identity(&file)? {
-            return Err(refused());
+            return Err(not_a_regular_file());
         }
         Ok(content)
-    }
-
-    fn refused() -> io::Error {
-        io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
     }
 
     /// The same file opened anew through `file` (`ReOpenFile`), for reading, without
@@ -486,7 +492,7 @@ mod windows_reparse {
         // SAFETY: `handle` is a new, valid handle owned by nobody else; File closes it.
         let reopened = unsafe { File::from_raw_handle(handle) };
         if identity(&reopened)? != identity(file)? || !reopened.metadata()?.is_file() {
-            return Err(refused());
+            return Err(not_a_regular_file());
         }
         Ok(reopened)
     }
@@ -664,7 +670,16 @@ mod tests {
         #[cfg(windows)]
         let made = std::os::windows::fs::symlink_file(&small, &link);
         match made {
-            Ok(()) => assert!(read_limited(&link, 64).is_err(), "a link was followed"),
+            Ok(()) => {
+                assert!(read_limited(&link, 64).is_err(), "a link was followed");
+                // Refused as no regular file on every platform, not as a failed read.
+                let refused = open_regular(&link).map(drop);
+                assert_eq!(
+                    refused.as_ref().map_err(io::Error::kind),
+                    Err(io::ErrorKind::InvalidInput),
+                    "{refused:?}"
+                );
+            }
             Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
         }
     }
