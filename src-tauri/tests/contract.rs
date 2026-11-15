@@ -162,6 +162,8 @@ fn commands_are_registered_allowed_and_wired() {
         "save_message_queue",
         "protected_settings",
         "save_protected_settings",
+        "main_prefs",
+        "save_main_prefs",
         "load_templates",
         "save_templates",
         "set_panel_session",

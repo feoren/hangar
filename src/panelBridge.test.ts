@@ -378,6 +378,24 @@ describe("window prefs", () => {
     ).toBeNull();
   });
 
+  it("drops a place no screen has: sizes and positions out of bounds", () => {
+    // Any window of this origin can write the prefs; the main window reads them strictly.
+    for (const bounds of [
+      { x: 0, y: 0, width: 16_385, height: 400 },
+      { x: 0, y: 0, width: 400, height: 1e9 },
+      { x: -200_000, y: 0, width: 400, height: 400 },
+      { x: 0, y: 1e12, width: 400, height: 400 },
+      { x: 0, y: 0, width: 400, height: 400, extra: 1 },
+    ]) {
+      expect(
+        parseWindowPrefs(JSON.stringify({ bounds })).bounds,
+        JSON.stringify(bounds),
+      ).toBeNull();
+    }
+    const edge = { x: -100_000, y: 100_000, width: 16_384, height: 16_384 };
+    expect(parseWindowPrefs(JSON.stringify({ bounds: edge })).bounds).toEqual(edge);
+  });
+
   it("carries over the notes window prefs from before", () => {
     // `hangar.notesWindow` held { detached, onTop }; the tab and place start fresh.
     expect(parseWindowPrefs(JSON.stringify({ detached: true, onTop: false }))).toEqual({

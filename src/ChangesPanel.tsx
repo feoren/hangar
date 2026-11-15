@@ -15,6 +15,7 @@ import { useT, type MessageKey } from "./i18n";
 import { RestartIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import { askFor, stillAsked, type SessionQuestion } from "./sessionQuestion";
 import type { TeammateOverlap } from "./team";
 
 interface Props {
@@ -89,8 +90,11 @@ export function ChangesPanel(props: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ForFolder | null>(null);
   const [draft, setDraft] = useState<ForFolder | null>(null);
-  /** The file whose changes the user wants to throw away, while the question is open. */
-  const [discarding, setDiscarding] = useState<ChangeEntry | null>(null);
+  /**
+   * The file whose changes the user wants to throw away, while the question is open, with the
+   * session and folder it was asked for: the answer acts there, never on a session switched to.
+   */
+  const [discarding, setDiscarding] = useState<SessionQuestion<ChangeEntry> | null>(null);
   const send = useRef(props.onSendToAgent);
   useEffect(() => {
     send.current = props.onSendToAgent;
@@ -135,17 +139,25 @@ export function ChangesPanel(props: Props) {
   const refreshing = cwd !== null && (view === "open" ? busy || answer?.key !== key : historyBusy);
 
   const { sessionId } = props;
-  /** Runs one action for the active session, shows git's message if it fails, then reads again. */
-  const runAction = (work: (id: number) => Promise<unknown>, done?: () => void) => {
-    if (sessionId === null || cwd === null || busy) return;
+  /**
+   * Runs one action for `target` (the active session unless a question names its own), shows
+   * git's message if it fails, then reads again.
+   */
+  const runAction = (
+    work: (id: number) => Promise<unknown>,
+    done?: () => void,
+    target: { sessionId: number | null; cwd: string | null } = { sessionId, cwd },
+  ) => {
+    const folder = target.cwd;
+    if (target.sessionId === null || folder === null || busy) return;
     setBusy(true);
     setActionError(null);
-    work(sessionId)
+    work(target.sessionId)
       .then(() => {
         done?.();
       })
       .catch((e: unknown) => {
-        setActionError({ cwd, text: errorText(e) });
+        setActionError({ cwd: folder, text: errorText(e) });
       })
       .finally(() => {
         setBusy(false);
@@ -170,7 +182,9 @@ export function ChangesPanel(props: Props) {
               }
             });
           },
-          onDiscard: setDiscarding,
+          onDiscard: (entry) => {
+            setDiscarding(askFor(entry, sessionId, cwd));
+          },
         };
   const onComment = useCallback<LineCommentHandler>((path, line, comment) => {
     const text = lineComment(path, line, comment);
@@ -197,6 +211,11 @@ export function ChangesPanel(props: Props) {
     setDiscarding(null);
     panel.current?.focus();
   };
+  // Asked for one session and folder: shown only while the panel still shows those, and closed
+  // for good on a switch (state adjusted while rendering), so coming back does not bring it up
+  // again.
+  const discardShown = stillAsked(discarding, sessionId, cwd);
+  if (discarding !== null && discardShown === null) setDiscarding(null);
 
   useEffect(() => {
     if (props.focusToken === 0) return;
@@ -300,14 +319,15 @@ export function ChangesPanel(props: Props) {
           focus={props.focusCommit ?? null}
         />
       )}
-      {discarding !== null && (
+      {discardShown !== null && (
         <DiscardDialog
-          entry={discarding}
+          entry={discardShown.item}
+          cwd={discardShown.cwd}
           onCancel={closeDiscard}
           onConfirm={() => {
-            const path = discarding.path;
+            const path = discardShown.item.path;
             closeDiscard();
-            runAction((id) => api.gitDiscard(id, [path]));
+            runAction((id) => api.gitDiscard(id, [path]), undefined, discardShown);
           }}
         />
       )}
@@ -315,13 +335,18 @@ export function ChangesPanel(props: Props) {
   );
 }
 
-/** Asks before a file's changes are thrown away; an untracked or newly added file is deleted. */
-function DiscardDialog({
+/**
+ * Asks before a file's changes are thrown away; an untracked or newly added file is deleted. The
+ * folder it names is the one the question was asked for.
+ */
+export function DiscardDialog({
   entry,
+  cwd,
   onCancel,
   onConfirm,
 }: {
   entry: ChangeEntry;
+  cwd: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -329,11 +354,15 @@ function DiscardDialog({
   const deletes = discardDeletes(entry.status);
   const name = revealInvisible(splitPath(entry.path.replace(/\/$/, "")).name);
   const path = revealInvisible(entry.path);
+  const folder = revealInvisible(folderName(cwd));
   return (
     <Dialog labelledBy="discard-title" onClose={onCancel}>
       <h2 id="discard-title">
         {deletes ? t("changes.deleteTitle", { name }) : t("changes.discardTitle", { name })}
       </h2>
+      <p className="selectable" title={revealInvisible(cwd)}>
+        {t("changes.inFolder", { folder })}
+      </p>
       <p className="muted selectable">
         {deletes ? t("changes.deleteBody", { path }) : t("changes.discardBody", { path })}
       </p>

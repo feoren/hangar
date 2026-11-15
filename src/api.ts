@@ -7,6 +7,7 @@ import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
+import type { MainPrefs } from "./mainStore";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
 import type { ProtectedSettings, SecuritySwitches } from "./settings";
@@ -405,6 +406,12 @@ export const api = {
   protectedSettings: () => invoke<unknown>("protected_settings"),
   saveProtectedSettings: (settings: ProtectedSettings) =>
     invoke<null>("save_protected_settings", { settings }),
+  /**
+   * Start mode, last program, folders, session restore and notices, `null` before the first
+   * save; check with `parseMainPrefs`.
+   */
+  mainPrefs: () => invoke<unknown>("main_prefs"),
+  saveMainPrefs: (prefs: MainPrefs) => invoke<null>("save_main_prefs", { prefs }),
   /** The workspace templates, `null` before the first save; check with `parseTemplates`. */
   loadTemplates: () => invoke<unknown>("load_templates"),
   saveTemplates: (templates: readonly WorkspaceTemplate[]) =>

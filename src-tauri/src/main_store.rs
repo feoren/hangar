@@ -1,14 +1,17 @@
 //! State only the main window may read and write: the security switches (local claims, the agent
 //! gate, the command guard), the queued messages per session, the settings that decide what
 //! reaches an agent or the machine ([`ProtectedSettings`]: the paste warning, automatic updates,
-//! HANGAR.md for every agent, the snippets) and the workspace templates (program and folder of
-//! each session they start).
+//! HANGAR.md for every agent, the snippets), the workspace templates (program and folder of
+//! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
+//! start, the last program, the favorite and recent folders, session restore, and whether and when
+//! a waiting session shows itself).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
 //! off for the next start, queue a message or plant a snippet that Hangar later pastes into an
-//! agent session, switch the paste warning or updates off, or plant a template that starts a
-//! program in a folder of its choice. Here the files sit in the local app data folder, written
+//! agent session, switch the paste warning or updates off, plant a template that starts a
+//! program in a folder of its choice, point the next start at such a folder, start it private
+//! (without the gate), or silence the notices of a session that waits for the person. Here the files sit in the local app data folder, written
 //! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
 //! commands answer the main window only ([`check_main`]).
 //!
@@ -27,6 +30,7 @@ pub const SWITCHES_FILE: &str = "security-switches.json";
 pub const QUEUE_FILE: &str = "queued-messages.json";
 pub const SETTINGS_FILE: &str = "protected-settings.json";
 pub const TEMPLATES_FILE: &str = "workspace-templates.json";
+pub const PREFS_FILE: &str = "main-prefs.json";
 /// Queued messages kept at most, one per session ([`crate::persist::MAX_SESSIONS`]).
 pub const MAX_QUEUED: usize = crate::persist::MAX_SESSIONS;
 /// Length of one queued message in UTF-16 units, as the window counts (`MAX_QUEUED_CHARS`).
@@ -42,6 +46,11 @@ pub const MAX_TEMPLATE_NAME_CHARS: usize = 60;
 pub const MAX_TEMPLATE_TITLE_CHARS: usize = 80;
 pub const MAX_FOLDER_UNITS: usize = 4096;
 pub const MAX_PROFILE_ID_UNITS: usize = 200;
+/// Folder lists of the "Starts in" menu as the window bounds them (`folders.ts`).
+pub const MAX_RECENT_FOLDERS: usize = 8;
+pub const MAX_FAVORITE_FOLDERS: usize = 50;
+/// Minutes in a day: quiet hours start and end before this (`quietHours.ts`).
+const MINUTES_PER_DAY: u16 = 24 * 60;
 /// IDs of snippets and templates: `^[a-z0-9-]{1,40}$`, as the window checks them.
 const MAX_ID_LEN: usize = 40;
 const MAX_SWITCHES_BYTES: usize = 4 * 1024;
@@ -51,6 +60,9 @@ const MAX_QUEUE_BYTES: usize = MAX_QUEUED * (MAX_QUEUED_UNITS * 3 + 128);
 const MAX_SETTINGS_BYTES: usize = MAX_SNIPPETS * (MAX_SNIPPET_UNITS * 6 + 128) + 1024;
 /// Every template at its longest: sessions with long folders dominate.
 const MAX_TEMPLATES_BYTES: usize = MAX_TEMPLATES * MAX_TEMPLATE_SESSIONS * 32 * 1024;
+/// Every folder at its longest in escaped JSON, with room for the program and the flags.
+const MAX_PREFS_BYTES: usize =
+    (MAX_RECENT_FOLDERS + MAX_FAVORITE_FOLDERS) * (MAX_FOLDER_UNITS * 6 + 8) + 4 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MainStoreError {
@@ -62,6 +74,8 @@ pub enum MainStoreError {
     InvalidSetting(&'static str),
     #[error("Invalid workspace template: {0}")]
     InvalidTemplate(&'static str),
+    #[error("Invalid preference: {0}")]
+    InvalidPrefs(&'static str),
     #[error("File {path} cannot be read or written: {source}")]
     Io {
         path: PathBuf,
@@ -271,6 +285,111 @@ pub fn validate_templates(templates: &[WorkspaceTemplate]) -> Result<(), MainSto
     Ok(())
 }
 
+/// How the next session starts (`startMode.ts`): in the folder itself, or as a team session in a
+/// worktree of its own with the agent gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StartMode {
+    #[default]
+    Private,
+    Team,
+}
+
+/// A daily window without taskbar flash, chime and desktop notifications (`quietHours.ts`), in
+/// minutes after local midnight; `to` before `from` crosses midnight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuietHours {
+    pub enabled: bool,
+    pub from: u16,
+    pub to: u16,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            from: 22 * 60,
+            to: 7 * 60,
+        }
+    }
+}
+
+/// Where and how the next session starts, and whether a waiting session shows itself. A damaged
+/// file gives the defaults: private start in the home folder, the first program, sessions
+/// restored, every notice on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MainPrefs {
+    pub start_mode: StartMode,
+    /// The profile ID Ctrl+Shift+T starts; `None`: the first program in the list.
+    pub last_program: Option<String>,
+    /// In the order the person arranged them.
+    pub favorites: Vec<String>,
+    /// Most recent first; the first is where the next session starts without another choice.
+    pub recent: Vec<String>,
+    pub restore_sessions: bool,
+    pub attention_enabled: bool,
+    pub taskbar_flash: bool,
+    pub notify_desktop: bool,
+    pub chime: bool,
+    pub quiet_hours: QuietHours,
+}
+
+impl Default for MainPrefs {
+    fn default() -> Self {
+        Self {
+            start_mode: StartMode::Private,
+            last_program: None,
+            favorites: Vec::new(),
+            recent: Vec::new(),
+            restore_sessions: true,
+            attention_enabled: true,
+            taskbar_flash: true,
+            notify_desktop: true,
+            chime: true,
+            quiet_hours: QuietHours::default(),
+        }
+    }
+}
+
+/// A folder as the window keeps it (`folders.ts` `validPath`): not blank, no control
+/// characters, not too long.
+fn valid_folder(folder: &str) -> bool {
+    !folder.trim().is_empty()
+        && !folder.chars().any(|c| c <= '\u{1f}')
+        && folder.encode_utf16().count() <= MAX_FOLDER_UNITS
+}
+
+/// The bounds the window keeps: a program ID like a template's, folders like the menu's, quiet
+/// hours within a day.
+pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
+    if let Some(program) = &prefs.last_program {
+        if program.trim().is_empty()
+            || has_control(program)
+            || program.encode_utf16().count() > MAX_PROFILE_ID_UNITS
+        {
+            return Err(MainStoreError::InvalidPrefs("program"));
+        }
+    }
+    if prefs.recent.len() > MAX_RECENT_FOLDERS || prefs.favorites.len() > MAX_FAVORITE_FOLDERS {
+        return Err(MainStoreError::InvalidPrefs("too many folders"));
+    }
+    if !prefs
+        .recent
+        .iter()
+        .chain(&prefs.favorites)
+        .all(|folder| valid_folder(folder))
+    {
+        return Err(MainStoreError::InvalidPrefs("folder"));
+    }
+    let hours = prefs.quiet_hours;
+    if hours.from >= MINUTES_PER_DAY || hours.to >= MINUTES_PER_DAY {
+        return Err(MainStoreError::InvalidPrefs("quiet hours"));
+    }
+    Ok(())
+}
+
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> MainStoreError + '_ {
     move |source| MainStoreError::Io {
         path: path.to_owned(),
@@ -360,6 +479,22 @@ impl MainStore {
     pub fn save_templates(&self, templates: Vec<WorkspaceTemplate>) -> Result<(), MainStoreError> {
         validate_templates(&templates)?;
         save(&self.dir.join(TEMPLATES_FILE), &templates)
+    }
+
+    /// `None`: never stored. A damaged file, or one that fails the checks, gives the defaults
+    /// (private start, no remembered program or folders, restore and every notice on).
+    pub fn load_prefs(&self) -> Option<MainPrefs> {
+        let path = self.dir.join(PREFS_FILE);
+        load::<MainPrefs>(&path, MAX_PREFS_BYTES).map(|prefs| {
+            prefs
+                .filter(|prefs| validate_prefs(prefs).is_ok())
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn save_prefs(&self, prefs: MainPrefs) -> Result<(), MainStoreError> {
+        validate_prefs(&prefs)?;
+        save(&self.dir.join(PREFS_FILE), &prefs)
     }
 }
 
@@ -592,5 +727,125 @@ mod tests {
         ] {
             assert!(validate_templates(&bad).is_err(), "{bad:?}");
         }
+    }
+
+    fn prefs() -> MainPrefs {
+        MainPrefs {
+            start_mode: StartMode::Team,
+            last_program: Some("claude".to_owned()),
+            favorites: vec!["C:\\Work\\Repo".to_owned()],
+            recent: vec!["/home/a/repo".to_owned(), "C:\\Work\\Repo".to_owned()],
+            restore_sessions: false,
+            attention_enabled: false,
+            taskbar_flash: false,
+            notify_desktop: false,
+            chime: false,
+            quiet_hours: QuietHours {
+                enabled: true,
+                from: 0,
+                to: 1439,
+            },
+        }
+    }
+
+    #[test]
+    fn main_prefs_round_trip_and_start_unset() {
+        let tmp = TempDir::new("main-store-prefs");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_prefs(), None);
+        store.save_prefs(prefs()).unwrap();
+        assert_eq!(store.load_prefs(), Some(prefs()));
+        assert_eq!(
+            serde_json::to_value(prefs()).unwrap(),
+            serde_json::json!({ "startMode": "team", "lastProgram": "claude",
+                "favorites": ["C:\\Work\\Repo"], "recent": ["/home/a/repo", "C:\\Work\\Repo"],
+                "restoreSessions": false, "attentionEnabled": false, "taskbarFlash": false,
+                "notifyDesktop": false, "chime": false,
+                "quietHours": { "enabled": true, "from": 0, "to": 1439 } })
+        );
+        // The defaults are stored too: the migration ran.
+        store.save_prefs(MainPrefs::default()).unwrap();
+        assert_eq!(store.load_prefs(), Some(MainPrefs::default()));
+        let defaults = MainPrefs::default();
+        assert_eq!(defaults.start_mode, StartMode::Private);
+        assert!(defaults.restore_sessions && defaults.attention_enabled && defaults.chime);
+        assert!(defaults.taskbar_flash && defaults.notify_desktop);
+        // Damaged or foreign content: stored, but the defaults.
+        for foreign in [
+            r#"{"startMode":"root"}"#,
+            r#"{"startMode":"team","lastProgram":null,"favorites":[],"recent":["/a\nb"],"restoreSessions":true,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0}}"#,
+            r#"{"startMode":"team","lastProgram":null,"favorites":[],"recent":[],"restoreSessions":true,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0},"x":1}"#,
+        ] {
+            std::fs::write(tmp.path().join(PREFS_FILE), foreign).unwrap();
+            assert_eq!(store.load_prefs(), Some(MainPrefs::default()), "{foreign}");
+        }
+    }
+
+    #[test]
+    fn main_prefs_are_checked_like_the_window_checks_them() {
+        assert!(validate_prefs(&prefs()).is_ok());
+        let at_limit = MainPrefs {
+            recent: vec!["/r".to_owned(); MAX_RECENT_FOLDERS],
+            favorites: vec!["f".repeat(MAX_FOLDER_UNITS); MAX_FAVORITE_FOLDERS],
+            last_program: Some("p".repeat(MAX_PROFILE_ID_UNITS)),
+            ..prefs()
+        };
+        assert!(validate_prefs(&at_limit).is_ok());
+        let bad = [
+            MainPrefs {
+                last_program: Some(" ".to_owned()),
+                ..prefs()
+            },
+            MainPrefs {
+                last_program: Some("a\u{7}b".to_owned()),
+                ..prefs()
+            },
+            MainPrefs {
+                last_program: Some("p".repeat(MAX_PROFILE_ID_UNITS + 1)),
+                ..prefs()
+            },
+            MainPrefs {
+                recent: vec!["/r".to_owned(); MAX_RECENT_FOLDERS + 1],
+                ..prefs()
+            },
+            MainPrefs {
+                favorites: vec!["/f".to_owned(); MAX_FAVORITE_FOLDERS + 1],
+                ..prefs()
+            },
+            MainPrefs {
+                recent: vec![String::new()],
+                ..prefs()
+            },
+            MainPrefs {
+                favorites: vec!["/a\tb".to_owned()],
+                ..prefs()
+            },
+            MainPrefs {
+                recent: vec!["f".repeat(MAX_FOLDER_UNITS + 1)],
+                ..prefs()
+            },
+            MainPrefs {
+                quiet_hours: QuietHours {
+                    enabled: true,
+                    from: MINUTES_PER_DAY,
+                    to: 0,
+                },
+                ..prefs()
+            },
+            MainPrefs {
+                quiet_hours: QuietHours {
+                    enabled: true,
+                    from: 0,
+                    to: MINUTES_PER_DAY,
+                },
+                ..prefs()
+            },
+        ];
+        for prefs in bad {
+            assert!(validate_prefs(&prefs).is_err(), "{prefs:?}");
+        }
+        let mut team = serde_json::to_value(MainPrefs::default()).unwrap();
+        team["startMode"] = serde_json::json!("Team");
+        assert!(serde_json::from_value::<MainPrefs>(team).is_err());
     }
 }

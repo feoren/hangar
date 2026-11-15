@@ -46,7 +46,7 @@ import {
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
-import { cellHidden, linkWord } from "./terminalLinkWord";
+import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
@@ -156,9 +156,10 @@ export class SessionTerminal {
   onFallback: ((fallback: SessionFallback) => void) | null = null;
   /**
    * Click on a link (OSC 8) with an allowed address; only http and https get this far. `shown`
-   * is the link's visible text in the terminal, which may claim another address.
+   * holds the link's own visible text and the word around it in the terminal, either of which
+   * may claim another address (termSafety.ts `osc8DecisionOf`).
    */
-  onLink: ((url: string, shown: string) => void) | null = null;
+  onLink: ((url: string, shown: LinkTexts) => void) | null = null;
   /** The real target of the OSC 8 link under the mouse; inside the xterm element. */
   private linkTip: HTMLElement | null = null;
   /** Click on an address or existing path in the output (terminalLinkProvider.ts). */
@@ -241,7 +242,7 @@ export class SessionTerminal {
           event.preventDefault();
           this.hideLinkTip();
           const url = safeLinkUrl(text);
-          if (url !== null) this.onLink?.(url, this.linkText(range));
+          if (url !== null) this.onLink?.(url, this.linkTexts(range));
         },
         hover: (event, text) => {
           const url = safeLinkUrl(text);
@@ -654,10 +655,12 @@ export class SessionTerminal {
    * The visible word a link sits in: its cells plus the cells touching them without a space, also
    * across wrapped rows (terminalLinkWord.ts). xterm's ranges are 1 based, `end.x` inclusive.
    */
-  private linkText(range: IBufferRange): string {
+  private linkTexts(range: IBufferRange): LinkTexts {
     const buffer = this.term.buffer.active;
     const contrast = this.term.options.minimumContrastRatio ?? 1;
-    return linkWord(
+    // Colors resolve as the terminal draws them: default and palette colors through the scheme.
+    const colors = schemeColors(this.look.scheme, this.theme);
+    return linkTexts(
       (y) => {
         const line = buffer.getLine(y);
         if (line === undefined) return undefined;
@@ -671,7 +674,7 @@ export class SessionTerminal {
               : {
                   chars: cell.getChars(),
                   width: cell.getWidth(),
-                  hidden: cellHidden(cell, contrast),
+                  hidden: cellHidden(cell, contrast, colors),
                 };
           },
         };

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { osc8DecisionOf } from "./termSafety";
+import { schemeColors } from "./terminalSchemes";
 import {
   cellHidden,
+  linkTexts,
   linkWord,
   type WordCell,
   type WordLine,
@@ -91,6 +94,34 @@ describe("linkWord", () => {
   });
 });
 
+describe("linkTexts", () => {
+  it("gives the link's own cells and the word around them", () => {
+    const source = screen(row("x https://github.com/acme.", 30));
+    expect(linkTexts(source, { x: 21, y: 0 }, { x: 24, y: 0 })).toEqual({
+      own: "acme",
+      word: "https://github.com/acme.",
+    });
+  });
+
+  it("asks for a link at the last column when the next row starts with text", () => {
+    // A hard break that looks like a wrap: `1 file changed` below glues `1` to the host.
+    const cols = 20;
+    const top = row("Docs: github.com".padStart(cols, " "), cols);
+    const source = screen(top, row("1 file changed", cols));
+    const texts = linkTexts(source, { x: cols - 10, y: 0 }, { x: cols - 1, y: 0 });
+    expect(texts).toEqual({ own: "github.com", word: "github.com1" });
+    expect(osc8DecisionOf([texts.own, texts.word], "https://evil.example/")).toBe("confirm");
+  });
+
+  it("reads hidden cells of the link itself as spaces", () => {
+    const cells: WordCell[] = Array.from("ab", (chars) => ({ chars, width: 1 }));
+    const hidden = cells[1];
+    if (hidden !== undefined) hidden.hidden = true;
+    const line: WordLine = { isWrapped: false, length: cells.length, cell: (x) => cells[x] };
+    expect(linkTexts(screen(line), { x: 0, y: 0 }, { x: 1, y: 0 }).own).toBe("a ");
+  });
+});
+
 describe("cellHidden", () => {
   const plain = {
     isInvisible: () => 0,
@@ -136,5 +167,95 @@ describe("cellHidden", () => {
       false,
     );
     expect(cellHidden({})).toBe(false);
+  });
+});
+
+describe("cellHidden with the color scheme", () => {
+  const colors = schemeColors("hangar", "dark");
+  const rgbOf = (color: string) => parseInt(color.slice(1), 16);
+  const base = {
+    isInvisible: () => 0,
+    isBold: () => 0,
+    isDim: () => 0,
+    isInverse: () => 0,
+    getFgColor: () => 0,
+    getBgColor: () => 0,
+    isFgRGB: () => false,
+    isBgRGB: () => false,
+    isFgPalette: () => false,
+    isBgPalette: () => false,
+    isFgDefault: () => true,
+    isBgDefault: () => true,
+  };
+
+  it("hides RGB text in the scheme's background on the default background", () => {
+    const cell = {
+      ...base,
+      isFgDefault: () => false,
+      isFgRGB: () => true,
+      getFgColor: () => rgbOf(colors.background),
+    };
+    expect(cellHidden(cell, 1, colors)).toBe(true);
+    // Where xterm lifts the contrast, it is seen.
+    expect(cellHidden(cell, 4.5, colors)).toBe(false);
+  });
+
+  it("hides a palette color drawn on an RGB background of the same color", () => {
+    const cell = {
+      ...base,
+      isFgDefault: () => false,
+      isBgDefault: () => false,
+      isFgPalette: () => true,
+      isBgRGB: () => true,
+      getFgColor: () => 1,
+      getBgColor: () => rgbOf(colors.red),
+    };
+    expect(cellHidden(cell, 1, colors)).toBe(true);
+  });
+
+  it("hides default text on an RGB background in the scheme's foreground", () => {
+    const cell = {
+      ...base,
+      isBgDefault: () => false,
+      isBgRGB: () => true,
+      getBgColor: () => rgbOf(colors.foreground),
+    };
+    expect(cellHidden(cell, 1, colors)).toBe(true);
+    expect(cellHidden({ ...cell, isInverse: () => 1 }, 1, colors)).toBe(true);
+  });
+
+  it("reads dim text as half way to its background", () => {
+    // Dark gray on black: readable, but its half-way mix is too close to the background.
+    const cell = {
+      ...base,
+      isFgDefault: () => false,
+      isBgDefault: () => false,
+      isFgRGB: () => true,
+      isBgRGB: () => true,
+      getFgColor: () => 0x1c1c1c,
+      getBgColor: () => 0x000000,
+    };
+    expect(cellHidden(cell, 1, colors)).toBe(false);
+    expect(cellHidden({ ...cell, isDim: () => 1 }, 1, colors)).toBe(true);
+  });
+
+  it("keeps text visible that differs in hue though not in lightness", () => {
+    // Red on green of about the same lightness: a contrast near 1, but it reads well.
+    const cell = {
+      ...base,
+      isFgDefault: () => false,
+      isBgDefault: () => false,
+      isFgRGB: () => true,
+      isBgRGB: () => true,
+      getFgColor: () => 0xff0000,
+      getBgColor: () => 0x009a00,
+    };
+    expect(cellHidden(cell, 1, colors)).toBe(false);
+  });
+
+  it("keeps the scheme's own text visible", () => {
+    expect(cellHidden(base, 1, colors)).toBe(false);
+    expect(cellHidden({ ...base, isDim: () => 1 }, 1, colors)).toBe(false);
+    expect(cellHidden({ ...base, isInverse: () => 1 }, 1, colors)).toBe(false);
   });
 });
