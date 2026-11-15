@@ -518,6 +518,15 @@ pub fn busy_reason() -> String {
         .to_owned()
 }
 
+/// Why a tool call was not made, when Hangar could not read its hook request (not JSON of the
+/// expected shape, a text that is no valid Unicode such as a lone surrogate escape). Denied
+/// rather than refused: a refused hook lets the call go ahead unchecked.
+pub fn unreadable_call_reason() -> String {
+    "Hangar: Hangar could not read this tool call, so it was not made. Write it again without \
+     unusual characters (such as a lone surrogate escape) in its command, path or folder."
+        .to_owned()
+}
+
 /// Why an edit was not made, when the session ended or Hangar quit while it waited.
 pub fn ended_reason(path: &str) -> String {
     format!(

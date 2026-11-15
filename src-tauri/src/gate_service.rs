@@ -1145,6 +1145,18 @@ impl HeadSlot {
     }
 }
 
+impl HeadSlot {
+    /// The head is read: this connection leaves the slots a newer one may take, under the lock,
+    /// before its request is looked at, so it is never closed while it is answered. `false`
+    /// when a newer one took its slot first (its stream is closed then).
+    fn head_read(&self) -> bool {
+        let mut list = lock(&self.heads);
+        let before = list.open.len();
+        list.open.retain(|(id, _, _, _)| *id != self.id);
+        before != list.open.len() && !self.cancel.load(Ordering::SeqCst)
+    }
+}
+
 impl Drop for HeadSlot {
     fn drop(&mut self) {
         let mut list = lock(&self.heads);
@@ -1293,6 +1305,7 @@ fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
             }
             _ => return,
         },
+        Ok(_) if !unauthenticated.head_read() => return,
         Ok(head) => match inner.admit(&head) {
             Err(status) => (status, String::new()),
             Ok(session) => {
@@ -1623,6 +1636,13 @@ impl Inner {
                     Ok(request) => (
                         Status::Ok,
                         filled(self.decide(session, request, stream).body()),
+                    ),
+                    // A refused request lets the call go ahead unchecked (Claude Code treats
+                    // any error as "go on"): a known session's call Hangar cannot read is
+                    // blocked while the gate is on.
+                    Err(_) if lock(&self.gate).enabled() => (
+                        Status::Ok,
+                        Outcome::Deny(gate::unreadable_call_reason()).body(),
                     ),
                     Err(_) => (Status::BadRequest, String::new()),
                 }
@@ -2355,7 +2375,8 @@ mod tests {
         near.push('x');
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&near), &body).0, 401);
         assert_eq!(post(port, "/v1/other", Some(&token), &body).0, 404);
-        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 400);
+        // A body Hangar cannot read is blocked, not refused: a refused hook lets the call go on.
+        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 200);
         // A session's token stops working when the session ends.
         fixture.service.ended(1);
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body).0, 401);
@@ -4274,5 +4295,65 @@ mod tests {
         let left: Vec<bool> = names.iter().map(|n| dir.path().join(n).exists()).collect();
         assert_eq!(left, [true, false]);
         drop(held);
+    }
+
+    #[test]
+    fn a_connection_whose_head_is_read_is_never_closed_for_a_newcomer() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Heads::default()));
+        let mut clients = Vec::new();
+        let mut accepted = || {
+            clients.push(connect(port));
+            listener.accept().unwrap().0
+        };
+        let first_stream = accepted();
+        let first = HeadSlot::take(&heads, &first_stream, Duration::ZERO).unwrap();
+        assert!(first.head_read());
+        // Every slot taken and then some, with no grace: each newcomer closes the oldest one
+        // still reading its head, never the one being answered.
+        let mut others = Vec::new();
+        for _ in 0..2 * MAX_UNAUTHENTICATED {
+            let stream = accepted();
+            others.push(HeadSlot::take(&heads, &stream, Duration::ZERO).unwrap());
+        }
+        assert!(!first.cancel.load(Ordering::SeqCst));
+        assert!(others.iter().any(|slot| slot.cancel.load(Ordering::SeqCst)));
+        // One that lost its slot before its head was read says so.
+        let evicted = others
+            .iter()
+            .find(|slot| slot.cancel.load(Ordering::SeqCst))
+            .unwrap();
+        assert!(!evicted.head_read());
+    }
+
+    #[test]
+    fn a_tool_call_hangar_cannot_read_is_blocked_not_refused() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let root = fixture.root.to_string_lossy().replace('\\', "/");
+        for body in [
+            "{".to_owned(),
+            r#"{"tool_name":"Bash","tool_input":{"command":"echo \udc00; git push --force"}}"#
+                .to_owned(),
+            format!(
+                r#"{{"tool_name":"Bash","cwd":"{root}/a\udc00","tool_input":{{"command":"git push --force"}}}}"#
+            ),
+            format!(
+                r#"{{"tool_name":"Edit","tool_input":{{"file_path":"{root}/src/a\udc00.rs"}}}}"#
+            ),
+            r#"{"tool_name":"Ba\udc00sh","tool_input":{"command":"git push --force"}}"#.to_owned(),
+        ] {
+            for route in [ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON] {
+                let (status, answer) = post(port, route, Some(&token), &body);
+                assert_eq!(status, 200, "{body}");
+                assert!(answer.contains("\"deny\""), "{body}: {answer}");
+                assert!(answer.contains("could not read"), "{answer}");
+            }
+        }
+        // With the gate off nothing is held, and the request is refused as before.
+        fixture.service.configure(false);
+        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 400);
     }
 }
