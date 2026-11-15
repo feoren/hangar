@@ -896,3 +896,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] update | Session rows built by the user instead of fourteen fixed styles
 Settings > Appearance > "Session row" is a row builder now: four lines with a left and a right part, ten elements (title, state, program, signs, folder, branch, load, run time, context, tokens), a form per element where it makes sense, card frame and compact density. The layout is parsed strictly, planned once per layout, and stored as `rowLayout` with the other appearance settings; a stored `rowStyle` becomes its preset once. Accordion, counters and columns map to their closest layouts (no chevron, no counts on the group header, no column heading). Groups, tree guides and sub-agent rows are unchanged.
 Pages changed: [[session-row-layout]].
+
+## [2026-11-15] update | Row builder acceptance measurements
+Tree guide geometry of all presets compared against main in Edge 157 headless (identical), editor drag, keyboard and focus driven over the DevTools protocol; arrow buttons at an edge are now `aria-disabled`.
+Pages changed: [[session-row-layout]].

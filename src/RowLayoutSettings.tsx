@@ -577,21 +577,27 @@ function RowChip({
         )}
         {selected && (
           <span className="row-chip-steps">
-            {STEPS.map((direction) => (
-              <button
-                key={direction}
-                type="button"
-                className={`row-chip-step step-${direction}`}
-                data-control={`step-${direction}`}
-                aria-label={t(STEP_NAMES[direction], { element: name })}
-                title={t(STEP_NAMES[direction], { element: name })}
-                onClick={() => {
-                  onStep(direction);
-                }}
-              >
-                <ArrowUpIcon size={11} />
-              </button>
-            ))}
+            {STEPS.map((direction) => {
+              // At an edge the step changes nothing. The button stays focusable (it may hold the
+              // focus right after the move that brought the chip there) and says it is off.
+              const blocked = sameLayout(stepElement(value, element, direction), value);
+              return (
+                <button
+                  key={direction}
+                  type="button"
+                  className={`row-chip-step step-${direction}`}
+                  data-control={`step-${direction}`}
+                  aria-label={t(STEP_NAMES[direction], { element: name })}
+                  aria-disabled={blocked}
+                  title={t(STEP_NAMES[direction], { element: name })}
+                  onClick={() => {
+                    if (!blocked) onStep(direction);
+                  }}
+                >
+                  <ArrowUpIcon size={11} />
+                </button>
+              );
+            })}
           </span>
         )}
         {element !== "title" && (

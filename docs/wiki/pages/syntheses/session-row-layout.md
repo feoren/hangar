@@ -80,6 +80,17 @@ and moved with its four arrow buttons or the arrow keys; focus follows the moved
 live region says where it went. Each chip has its form picker and an "x"; hidden elements come
 back with "+".
 
+## Verification (2026-11-15, acceptance review)
+
+- Tree guides: all fourteen presets rendered with the branch's and with main's `styles.css` in
+  Edge 157 headless at 305 px. Row height, title center (15.5 px, 17.5 px with the band) and the
+  guide's box matched main in every preset; only the title's x moved by the preview's badge.
+- Editor: a production build of `RowLayoutField` driven over the DevTools protocol with real mouse
+  and key input (Chromium, as in WebView2): a drag across parts lands before the chip under the
+  pointer and shows one marker and one drop zone, a drag onto the hidden list hides the element,
+  a press without travel chooses the chip, arrow keys and arrow buttons move it with focus kept
+  and the live region updated, the "x" hands focus to the element's "+", Enter on "+" shows it
+  back. Arrow buttons at an edge are `aria-disabled`.
+
 > [!question] Unverified
-> The look of every preset in the running window, the drag in WebView2 and the compact density's
-> line height have not been checked in the app window yet.
+> The editor and the presets in the app window itself (WebView2, light theme, 720 px window).
