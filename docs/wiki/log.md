@@ -1021,3 +1021,13 @@ prompt row with a real line break, so its prompts are not joined yet. The settin
 is clamped to the window, snaps to device pixels and remembers its size.
 Pages changed: [[prompt-mouse-editing]], [[resizable-dialogs]] (new), [[claude-prompt-wrap-measurement]]
 (new, raw `2026-11-15-claude-prompt-wrap-measurement.md`), index.
+
+## [2026-11-15] update | Prompt editing in Claude Code's own wrapped input block
+Measured Right, Backspace, two blanks at a wrap, a row filled to the edge, a word split inside the word,
+a wide character at the boundary, Shift+Enter and the right margin at 50 and 80 columns with Claude Code
+2.1.325 through ConPTY (screen rebuilt with an emulator, never Enter). Click-to-move and deleting a
+selection now treat Claude Code's input block (mark, indented rows, rules above and below) as one line,
+counting a boundary as one character where the screen is certain and doing nothing where a word split,
+a wide character or the cursor makes two readings possible. Hidden second blank at a wrap is the
+documented residual risk. Gemini CLI is not installed and was not measured.
+Pages changed: [[prompt-mouse-editing]], [[claude-prompt-wrap-measurement]].

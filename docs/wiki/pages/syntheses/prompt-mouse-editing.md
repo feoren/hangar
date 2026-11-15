@@ -12,7 +12,7 @@ updated: 2026-11-15
 An agent CLI's input line reads keys only, so Hangar turns mouse actions in that line into keys.
 Code: `src/terminalClick.ts` (pure rules, tests in `src/terminalClick.test.ts`), `src/terminalKeys.ts`
 (the `deleteSelection` key action), `src/terminal.ts` (`moveCursorToClick`, `selectionDeleteKeys`,
-`cursorLineRows`).
+`editableLine`, `claudeBlockLine`), `src/promptBlock.ts` (Claude Code's input block).
 
 ## When
 
@@ -63,8 +63,9 @@ although its typings say 1-based (read in `node_modules/@xterm/xterm` 6.0.0,
 
 ## Limits
 
-- One logical line only (see above). Rows joined by a real line break are separate lines: a selection
-  across them, or a click on another of them, goes to the program unchanged.
+- One logical line only (see above), or Claude Code's input block. Other rows joined by a real line
+  break are separate lines: a selection across them, or a click on another of them, goes to the program
+  unchanged.
 - Typed text that ends in a box side character, or starts with a prompt mark on a continuation line, is
   partly outside the editable part; a selection over it falls back to the usual key. Safe direction: the
   rule never sends more Backspaces than selected characters.
@@ -74,17 +75,43 @@ although its typings say 1-based (read in `node_modules/@xterm/xterm` 6.0.0,
 > Live behaviour in Claude Code 2.1.325 (faint cells, real cursor position on the prompt line) and in
 > Codex, Gemini and Aider prompts has not been checked in the running window.
 
-## Open: prompts the agent wraps or breaks itself
+## Claude Code's own wrapping and new lines
 
-Measured for Claude Code 2.1.325 through ConPTY ([[claude-prompt-wrap-measurement]]): Claude Code wraps a
-long prompt itself and ends every screen row with a real line break, so its rows carry no `isWrapped` and
-the cross-row rules above do not apply to them. Click and selection delete stay on the cursor's row there.
-Left at the first character of a continuation row does reach the row above: at a word wrap it lands on the
-separating blank, which stays at the end of the upper row; at a break inside a long word there is no
-blank. Continuation rows are indented by two blanks and the block ends at a `─` rule.
+Claude Code 2.1.325 wraps a long prompt itself and writes every row with a real line break, so no row is
+`isWrapped` ([[claude-prompt-wrap-measurement]]). `claudeInputBlock` in `src/promptBlock.ts` therefore
+reads the input block (`claudeBlockLine` in `src/terminal.ts` collects its rows) and joins it into one line
+of text, only when all of this holds:
+
+- the first row starts with `❯` and the row above it is a rule (`─`); the last row of the block is a rule;
+- every row in between starts with exactly as many blanks as `inputStart` gives for the first row
+  (two), then text without a prompt mark or box side, or is empty; nothing is drawn in the two right
+  margin columns (the text area ends two columns before the edge, measured at 50 and 80 columns);
+- at most 64 rows.
+
+A row boundary then stands for characters as follows (Left, Right and Backspace were measured):
+
+| Boundary | Characters | Why |
+| --- | --- | --- |
+| Upper row ends before the edge (word wrap, or Shift+Enter) | 1 | the cursor sits on that cell after the last letter |
+| Empty row (new line on an empty line) | 1 | same |
+| Upper row filled to the edge, last word and next row's first word cannot be one word (together longer than the text width) | 1 | the blank after the word is drawn nowhere |
+| Upper row filled to the edge, together longer than the text width | unknown, nothing is edited | a word longer than a row is split inside the word with 0 characters; the screen looks the same |
+| A wide character in the last word above or the first word below | unknown, nothing is edited | a wide character that does not fit wraps and leaves a column unused, 0 characters |
+
+A new line (Shift+Enter, `AGENT_NEWLINE`) looks like a word wrap and counts the same, so the two never
+need telling apart. After a row filled to the edge the cursor at the start of the lower row names two text
+positions (before and after the blank); a cursor there, or right of an upper row's boundary cell, makes
+every rule return nothing. A click or selection on a row of the block works like on the isWrapped rows;
+the indent counts as no text (a point in it is the row's first character).
+
+> [!warning] Residual risk
+> Blanks at the end of a row are not drawn, so two blanks typed at a wrap (or before a Shift+Enter) look
+> like one (run B1). The boundary is counted as one character; the Backspace count never exceeds the
+> selected characters, but the arrows may stop one character short, so the deletion can be shifted by one
+> in that rare case. Typing a blank twice right at a wrap is the only known trigger.
 
 > [!question] Unverified
-> Still needed before the rules can join such rows, per CLI and version: real new lines (Shift+Enter sends
-> ESC CR, `AGENT_NEWLINE` in `src/terminalKeys.ts`), several blanks or a wide character at a wrap point, a
-> word ending exactly at the text area's right edge, Right arrow and Backspace across a row boundary, and
-> Gemini CLI. A wrong guess sends one Backspace too many, so until then such selections keep the usual key.
+> Live behaviour in the running Hangar window (the real xterm cells for these rows: whether ConPTY leaves
+> the blanks inside the text untouched as measured with the emulator, and the rule under the block through
+> Hangar's own terminal size); other widths below 50; a third blank at a wrap; Gemini CLI (not installed)
+> and other Ink based prompts, which keep to the single row rules.

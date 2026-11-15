@@ -45,12 +45,15 @@ import {
   type RowSource,
 } from "./sessionSearch";
 import {
-  arrowsToPoint,
+  arrowsToLinePoint,
   clickMovesCursor,
+  joinWrappedRows,
+  lineSelectionDeleteKeys,
   promptEditable,
-  rowSelectionDeleteKeys,
   type ClickCell,
+  type WrappedLine,
 } from "./terminalClick";
+import { claudeInputBlock, isRuleRow } from "./promptBlock";
 import { dictationTail, terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
@@ -472,14 +475,14 @@ export class SessionTerminal {
     const row = Math.floor(((clientY - rect.top) / rect.height) * term.rows);
     if (col < 0 || col >= term.cols || row < 0 || row >= term.rows) return;
     const buffer = term.buffer.active;
-    // Only the cursor's own line and the rows the terminal wrapped it onto: other lines would
-    // need Up and Down, which page the history.
-    const line = this.cursorLineRows();
-    if (!line) return;
-    const keys = arrowsToPoint(
-      line.rows,
-      { row: buffer.baseY + buffer.cursorY - line.first, col: buffer.cursorX },
-      { row: buffer.viewportY + row - line.first, col },
+    // Only the cursor's own line (rows the terminal wrapped it onto, or the rows of Claude Code's
+    // input block): other lines would need Up and Down, which page the history.
+    const edit = this.editableLine();
+    if (!edit) return;
+    const keys = arrowsToLinePoint(
+      edit.line,
+      { row: buffer.baseY + buffer.cursorY - edit.first, col: buffer.cursorX },
+      { row: buffer.viewportY + row - edit.first, col },
       term.modes.applicationCursorKeysMode,
     );
     if (keys !== "") this.send(keys);
@@ -487,7 +490,7 @@ export class SessionTerminal {
 
   /**
    * The keys that delete the selection from an agent's prompt (terminalClick.ts), or null when
-   * the selection is not all typed text on the cursor's line and the rows wrapped onto it.
+   * the selection is not all typed text on the cursor's line.
    */
   private selectionDeleteKeys(): string | null {
     const term = this.term;
@@ -495,27 +498,91 @@ export class SessionTerminal {
     // xterm's range is 0-based with an exclusive end column, despite its typings saying 1-based.
     const range = term.getSelectionPosition();
     if (!range) return null;
-    const line = this.cursorLineRows();
-    if (!line) return null;
+    const edit = this.editableLine();
+    if (!edit) return null;
     const buffer = term.buffer.active;
-    return rowSelectionDeleteKeys(
-      line.rows,
-      { row: buffer.baseY + buffer.cursorY - line.first, col: buffer.cursorX },
+    return lineSelectionDeleteKeys(
+      edit.line,
+      { row: buffer.baseY + buffer.cursorY - edit.first, col: buffer.cursorX },
       {
-        start: { row: range.start.y - line.first, col: range.start.x },
-        end: { row: range.end.y - line.first, col: range.end.x },
+        start: { row: range.start.y - edit.first, col: range.start.x },
+        end: { row: range.end.y - edit.first, col: range.end.x },
       },
       term.modes.applicationCursorKeysMode,
     );
   }
 
   /**
-   * The cursor's line as the cells terminalClick.ts reads (width, text, faint and reverse), one
-   * array per screen row: the cursor's row and the rows xterm soft-wrapped it from or onto
-   * (`isWrapped`). `first` is the buffer row of the first one. Null for a line longer than
-   * `MAX_WRAPPED_ROWS`: its start is not known, so nothing is edited there.
+   * The line the cursor is in, as the text the rules of terminalClick.ts work on. `first` is the
+   * buffer row of its first screen row. Claude Code's own input block first (it wraps long prompts
+   * itself, promptBlock.ts), else the rows xterm soft-wrapped (`isWrapped`). Null when neither is
+   * certain, so nothing is edited there.
    */
-  private cursorLineRows(): { first: number; rows: ClickCell[][] } | null {
+  private editableLine(): { first: number; line: WrappedLine } | null {
+    return this.claudeBlockLine() ?? this.wrappedLine();
+  }
+
+  /** The cells of a buffer row as terminalClick.ts reads them: width, text, faint and reverse. */
+  private rowCells(y: number): ClickCell[] | null {
+    const line = this.term.buffer.active.getLine(y);
+    if (!line) return null;
+    const cells: ClickCell[] = [];
+    let cell: IBufferCell | undefined;
+    for (let x = 0; x < line.length; x += 1) {
+      cell = line.getCell(x, cell);
+      cells.push(
+        cell
+          ? {
+              width: cell.getWidth(),
+              text: cell.getChars(),
+              dim: cell.isDim() !== 0,
+              inverse: cell.isInverse() !== 0,
+            }
+          : { width: 1, text: "", dim: false, inverse: false },
+      );
+    }
+    return cells;
+  }
+
+  /** The first character of a buffer row, "" for an empty or missing one. */
+  private rowMark(y: number): string {
+    return this.term.buffer.active.getLine(y)?.getCell(0)?.getChars() ?? "";
+  }
+
+  /**
+   * Claude Code's input block around the cursor: from the nearest row with the input mark above
+   * (below a rule) to the rule under the block, at most `MAX_WRAPPED_ROWS` rows.
+   */
+  private claudeBlockLine(): { first: number; line: WrappedLine } | null {
+    const buffer = this.term.buffer.active;
+    const cursorRow = buffer.baseY + buffer.cursorY;
+    let first = cursorRow;
+    while (this.rowMark(first) !== "❯") {
+      first -= 1;
+      if (first < 1 || cursorRow - first >= MAX_WRAPPED_ROWS) return null;
+    }
+    let last = cursorRow;
+    while (this.rowMark(last) !== "─") {
+      last += 1;
+      if (last > buffer.length - 1 || last - first >= MAX_WRAPPED_ROWS) return null;
+    }
+    const above = this.rowCells(first - 1);
+    if (!above || !isRuleRow(above)) return null;
+    const rows: ClickCell[][] = [];
+    for (let y = first; y <= last; y += 1) {
+      const cells = this.rowCells(y);
+      if (!cells) return null;
+      rows.push(cells);
+    }
+    const line = claudeInputBlock(rows, this.term.cols);
+    return line ? { first, line } : null;
+  }
+
+  /**
+   * The cursor's row and the rows xterm soft-wrapped it from or onto (`isWrapped`). Null for a line
+   * longer than `MAX_WRAPPED_ROWS`: its start is not known, so nothing is edited there.
+   */
+  private wrappedLine(): { first: number; line: WrappedLine } | null {
     const buffer = this.term.buffer.active;
     const cursorRow = buffer.baseY + buffer.cursorY;
     let first = cursorRow;
@@ -529,27 +596,12 @@ export class SessionTerminal {
       if (last - first >= MAX_WRAPPED_ROWS) return null;
     }
     const rows: ClickCell[][] = [];
-    let cell: IBufferCell | undefined;
     for (let y = first; y <= last; y += 1) {
-      const line = buffer.getLine(y);
-      if (!line) return null;
-      const cells: ClickCell[] = [];
-      for (let x = 0; x < line.length; x += 1) {
-        cell = line.getCell(x, cell);
-        cells.push(
-          cell
-            ? {
-                width: cell.getWidth(),
-                text: cell.getChars(),
-                dim: cell.isDim() !== 0,
-                inverse: cell.isInverse() !== 0,
-              }
-            : { width: 1, text: "", dim: false, inverse: false },
-        );
-      }
+      const cells = this.rowCells(y);
+      if (!cells) return null;
       rows.push(cells);
     }
-    return { first, rows };
+    return { first, line: joinWrappedRows(rows) };
   }
 
   fit(): void {

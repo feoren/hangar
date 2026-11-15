@@ -201,11 +201,28 @@ export interface RowRange {
   end: RowPoint;
 }
 
+/** The columns of a row where the cursor stands on exactly one text position, both included. */
+export interface CursorColumns {
+  min: number;
+  max: number;
+}
+
 /** One logical line built from screen rows: the cells in order and where each row begins. */
 export interface WrappedLine {
   cells: readonly ClickCell[];
   /** The index into `cells` of each row's first cell. */
   rowStarts: readonly number[];
+  /**
+   * Screen cells at the start of each row that are no text (the indent of a continuation row);
+   * a point left of them means the row's first character. Absent: none.
+   */
+  rowSkips?: readonly number[];
+  /**
+   * Per row the cursor columns that name one text position. A cursor outside them (two text
+   * positions look the same there) makes every rule return nothing, so no key is sent on a guess.
+   * Absent: any cursor column is fine.
+   */
+  cursorColumns?: readonly CursorColumns[];
 }
 
 /**
@@ -234,41 +251,67 @@ export function lineOffset(line: WrappedLine, point: RowPoint): number | null {
   const start = line.rowStarts[point.row];
   if (start === undefined) return null;
   const end = line.rowStarts[point.row + 1] ?? line.cells.length;
-  return start + Math.min(Math.max(point.col, 0), end - start);
+  const col = point.col - (line.rowSkips?.[point.row] ?? 0);
+  return start + Math.min(Math.max(col, 0), end - start);
+}
+
+/** `lineOffset` for the cursor; null as well where the cursor does not name one text position. */
+export function cursorOffset(line: WrappedLine, cursor: RowPoint): number | null {
+  const columns = line.cursorColumns?.[cursor.row];
+  if (columns !== undefined && (cursor.col < columns.min || cursor.col > columns.max)) return null;
+  return lineOffset(line, cursor);
 }
 
 /**
- * `arrowsToColumn` over a wrapped line: the click may be on any of its rows. Empty when the click
- * or the cursor lies on a row outside the line.
+ * `arrowsToColumn` over a line of joined rows: the click may be on any of its rows. Empty when the
+ * click or the cursor lies on a row outside the line.
  */
-export function arrowsToPoint(
-  rows: readonly (readonly ClickCell[])[],
+export function arrowsToLinePoint(
+  line: WrappedLine,
   cursor: RowPoint,
   click: RowPoint,
   applicationCursor: boolean,
 ): string {
-  const line = joinWrappedRows(rows);
-  const from = lineOffset(line, cursor);
+  const from = cursorOffset(line, cursor);
   const to = lineOffset(line, click);
   if (from === null || to === null) return "";
   return arrowsToColumn(line.cells, from, to, applicationCursor);
 }
 
 /**
- * `selectionDeleteKeys` over a wrapped line: the selection may span its rows. Null when the
+ * `selectionDeleteKeys` over a line of joined rows: the selection may span its rows. Null when the
  * selection or the cursor reaches a row outside the line, so a selection over a real line break
- * (rows the terminal did not wrap itself) always goes to the usual key.
+ * the rules cannot place always goes to the usual key.
  */
+export function lineSelectionDeleteKeys(
+  line: WrappedLine,
+  cursor: RowPoint,
+  selection: RowRange,
+  applicationCursor: boolean,
+): string | null {
+  const from = cursorOffset(line, cursor);
+  const start = lineOffset(line, selection.start);
+  const end = lineOffset(line, selection.end);
+  if (from === null || start === null || end === null) return null;
+  return selectionDeleteKeys(line.cells, from, { start, end }, applicationCursor);
+}
+
+/** `arrowsToLinePoint` over rows the terminal wrapped itself. */
+export function arrowsToPoint(
+  rows: readonly (readonly ClickCell[])[],
+  cursor: RowPoint,
+  click: RowPoint,
+  applicationCursor: boolean,
+): string {
+  return arrowsToLinePoint(joinWrappedRows(rows), cursor, click, applicationCursor);
+}
+
+/** `lineSelectionDeleteKeys` over rows the terminal wrapped itself. */
 export function rowSelectionDeleteKeys(
   rows: readonly (readonly ClickCell[])[],
   cursor: RowPoint,
   selection: RowRange,
   applicationCursor: boolean,
 ): string | null {
-  const line = joinWrappedRows(rows);
-  const from = lineOffset(line, cursor);
-  const start = lineOffset(line, selection.start);
-  const end = lineOffset(line, selection.end);
-  if (from === null || start === null || end === null) return null;
-  return selectionDeleteKeys(line.cells, from, { start, end }, applicationCursor);
+  return lineSelectionDeleteKeys(joinWrappedRows(rows), cursor, selection, applicationCursor);
 }
