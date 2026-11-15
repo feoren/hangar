@@ -784,3 +784,15 @@ Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
 ## [2026-11-15] query | Frontend security fixes from the audit
 OSC 8 links show their real target on hover; a click whose visible text names another host or looks like a path shows the address with an Open button first (`osc8Decision`). Ctrl+V and Shift+Insert ask before text that would run line by line or hides characters (setting `warnMultilinePaste`, on by default). Broadcasts, queued messages and agent commands skip a program without bracketed paste when the text has a line break or invisible characters. Dropped paths with control characters are left out, Aider's `(Y)es/(N)o` prompt counts as a question ([UNVERIFIED]), and link trimming is a single pass.
 Pages changed: [[notes]], [[queued-messages-and-stall-hint]], [[terminal-links]].
+
+## [2026-11-15] update | Git hooks off by default, capped reads, more redaction
+Every git call now passes `core.hooksPath` below the git program file and `hook.<event>.enabled=false`
+for every event (config-defined hooks of git 2.54+), so no repository hook runs
+(shared notes staged conflicts with `git add` and could run `post-index-change`); only the commit
+of the Changes panel opts in. Files below `.git`, notes and the file viewer read regular files
+only, capped, without following a final link or blocking on a FIFO. The work log no longer
+follows a `.git` file to another share, and the daily review asks a repository on a share only for
+sessions on that share. The excerpt filter masks `.netrc` passwords, XML secret elements,
+multi-word `password:` values and Slack and Discord webhook URLs. Worktree cleanup compares
+resolved paths too.
+Pages changed: [[agent-workflow-features]], [[commit-history]], [[0011-work-log-and-daily-review]], [[file-viewer]].

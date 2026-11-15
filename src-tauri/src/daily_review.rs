@@ -242,7 +242,7 @@ pub fn add_git(git: &Git, review: &mut DailyReview, now: i64) {
     for project in review
         .projects
         .iter_mut()
-        .filter(|p| p.is_repo)
+        .filter(|p| p.is_repo && git_reachable(p))
         .take(MAX_GIT_PROJECTS)
     {
         if Instant::now() >= total_end {
@@ -279,6 +279,19 @@ pub fn add_git(git: &Git, review: &mut DailyReview, now: i64) {
         }
     }
     review.commit_count = count(review.projects.iter().map(|p| p.commits.len()).sum());
+}
+
+/// Whether git may run for the project. The log names the repository as found when a session
+/// started, possibly by an older Hangar; a repository on a network share is only asked when one
+/// of the project's sessions worked on that same share, never because a local folder's `.git`
+/// file pointed there (on Windows each access sends the user's NTLM credentials to that host).
+fn git_reachable(project: &ProjectReview) -> bool {
+    let root = Path::new(&project.path);
+    !git::is_remote(root)
+        || project
+            .sessions
+            .iter()
+            .any(|session| git::gitdir_allowed(Path::new(&session.cwd), root))
 }
 
 fn set_commits(project: &mut ProjectReview, commits: Vec<CommitReview>) {
@@ -868,5 +881,49 @@ mod tests {
         )
         .is_none());
         assert!(commits(&git, Path::new("relative"), DAY, DAY + DAY_MS, deadline).is_none());
+    }
+
+    fn project(path: &str, cwds: &[&str]) -> ProjectReview {
+        ProjectReview {
+            path: path.into(),
+            is_repo: true,
+            sessions: cwds
+                .iter()
+                .map(|cwd| SessionReview {
+                    cwd: (*cwd).into(),
+                    ..SessionReview::default()
+                })
+                .collect(),
+            ..ProjectReview::default()
+        }
+    }
+
+    /// A logged repository on a network share is only asked when a session worked on that
+    /// share; a local session never makes Hangar reach out to it (NTLM).
+    #[cfg(windows)]
+    #[test]
+    fn a_share_is_only_asked_for_sessions_on_it() {
+        let share = r"\\example.invalid\share";
+        assert!(!git_reachable(&project(share, &[r"C:\work\linked"])));
+        assert!(!git_reachable(&project(share, &[])));
+        assert!(git_reachable(&project(
+            share,
+            &[r"\\example.invalid\share\src"]
+        )));
+        assert!(git_reachable(&project(
+            share,
+            &[r"C:\work", r"\\EXAMPLE.invalid\share\src"]
+        )));
+        assert!(!git_reachable(&project(share, &[r"\\other.invalid\share"])));
+        assert!(git_reachable(&project(r"C:\work\repo", &[r"C:\work\repo"])));
+    }
+
+    #[test]
+    fn a_local_repository_is_always_asked() {
+        assert!(git_reachable(&project(
+            "/home/me/repo",
+            &["/home/me/repo/src"]
+        )));
+        assert!(git_reachable(&project("/home/me/repo", &[])));
     }
 }

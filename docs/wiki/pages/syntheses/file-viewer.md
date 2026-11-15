@@ -4,7 +4,7 @@ type: synthesis
 tags: [file-tree, window, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # File viewer window (contract)
@@ -32,7 +32,12 @@ bytes. Every folder on the way and the file itself must not be a link (symlink o
 resolved path must lie below the resolved session folder, and the file must be a regular file.
 The same check runs again on every `file_viewer_content`, `file_viewer_stamp` and
 `file_viewer_diff` call, so a file that was deleted, replaced by a folder or swapped for a link
-afterwards is refused.
+afterwards is refused. The read opens the file without following a link at the last component
+and without blocking on a FIFO, and checks the open handle for a regular file
+(`persist::open_regular`), so a swap between the check and the read is refused too. On Windows a
+regular file that is a reparse point without a name surrogate tag (a OneDrive placeholder, a
+deduplicated file) is opened a second time the ordinary way, so its filter supplies the content,
+and read only if both handles name the same file (volume serial and file index).
 
 The viewer window names no path. The backend keeps `label -> { sessionId, root, absolute path,
 relative path }` and looks up the calling window's label; a viewer can read exactly its one file.

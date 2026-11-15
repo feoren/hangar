@@ -4,7 +4,7 @@
 //! so Hangar never keeps the CLI from appending, rotating or deleting it. A byte offset marks what
 //! was read; an incomplete last line waits in a buffer until its newline arrives.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -170,35 +170,12 @@ pub fn first_line(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
 /// elsewhere cannot be told apart from the file. Both need someone who can already write to the
 /// user's Claude folder, that is the same user, who could read the target anyway.
 pub fn open_shared(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-        options.share_mode(0x1 | 0x2 | 0x4);
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // O_NONBLOCK: opening a FIFO for reading would otherwise wait for a writer and hang
-        // the watcher; on a regular file it changes nothing.
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    Ok(file)
+    crate::persist::open_regular(path)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs::OpenOptions;
     use std::io::Write;
 
     use super::*;

@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Agent workflow features (0.3.0)
@@ -85,7 +85,16 @@ like a dropped file. Text on the clipboard always wins over an image.
 
 ### Git
 All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
-`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv. Every inherited
+`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv, and no repository
+hook: every call passes `-c core.hooksPath=<path of the git program>`, a path below a regular
+file that can never exist, so git finds no hook and nothing has to be kept empty; a caller may
+still name its own hooks folder after it. Hooks named in the config (`hook.<name>.command`, git
+2.54 and later) are not found through that folder and still ran (verified with git 2.56), so every
+call also passes `-c hook.<event>.enabled=false` for each of the 24 events of githooks(5); older
+git ignores these keys. Only a commit from the Changes panel opts in
+(`Git::with_repo_hooks`). Files below `.git` (`HEAD`, a `.git` file, `commondir`) are read
+only as regular files of at most 4 KiB, without following a link at the last component and
+without blocking on a FIFO (`persist::read_regular_capped`). Every inherited
 `GIT_*` variable is removed from git's environment before Hangar sets its own. If the process tree
 cannot be put into a Job Object, git is killed and the call fails. `status` and `diff` run without
 the repository's filters: Hangar first reads `git config -z --get-regexp
@@ -201,7 +210,9 @@ worktrees Hangar created and removes the safe ones. Code: `src-tauri/src/worktre
   worktree is no session's folder yet and would count as merged or clean. The backend keeps the
   paths it created in this run in memory (`PendingWorktrees`) and counts them as in use until a
   session's folder lies in one, the worktree is removed, or 10 minutes passed (a start that
-  failed).
+  failed). A session's folder occupies a worktree when it is the worktree or lies below it, by
+  the text or by the resolved paths (a junction, symlink or 8.3 short name on the way); paths on
+  a network share are compared by their text alone.
 - **Ignored files** (decision). A worktree with ignored files stays and says so: they may be
   build output, but also `.env` files or local databases, and `git worktree remove` would delete
   them without asking. A later "remove with build output" may only ever delete a fixed list of
@@ -674,7 +685,16 @@ menu paste uses the clipboard plugin.
       (`https://user:...@host`) and long URL user names, words starting with a known token prefix
       (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`, `glpat-`, `xox?-`, `xapp-`, `AKIA`,
       `AIza`, `npm_`, `hf_`, `SG.`, `dop_v1_`, `shpat_`, `ya29.`, `eyJ` and others, with enough
-      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks. The
+      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks; also
+      the value after `password` or `account` in `.netrc` lines (only when every word of the
+      line is a `machine`, `login`, `password`, `account` or `port` pair, on a line with
+      `machine` or `default` or right after one), the text of XML elements with a secret name
+      (`<password>`, `<apiKey>`, `<ns:Secret attr="x">`, when a closing tag follows; not
+      `<key>`, so plists stay), and the path of Slack (`hooks.slack.com/services/`,
+      `/workflows/`, `/triggers/`) and Discord (`discord.com` or `discordapp.com`
+      `/api/webhooks/`) webhook URLs. An unquoted value after `name:` with a secret name other
+      than the bare loose ones runs to the end of the line or the closing quote of a
+      surrounding argument (`password: two words`). The
       description and every log text (task, text, tool argument, result) are masked the same
       way. Every pass is linear in the text length (a skipped value is passed over as a whole),
       checked by a test with 1 MB lines such as `key:` repeated. Known limits: names written

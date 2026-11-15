@@ -1086,3 +1086,57 @@ fn a_cached_note_does_not_survive_a_vault_change() {
     ));
     assert!(notes.read_note(&folder, &id).is_err());
 }
+
+/// A hook that writes `marker` when it runs; git runs hooks through `sh` (Git for Windows brings
+/// its own).
+fn marker_hook(repo: &Path, name: &str, marker: &Path) {
+    let marker = marker.to_string_lossy().replace('\\', "/");
+    let hook = repo.join(".git/hooks").join(name);
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, format!("#!/bin/sh\necho hit > '{marker}'\n")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[test]
+fn resolving_conflicts_runs_no_repository_hook() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("shared-notes-no-hooks");
+    let (repo, notes, _) = enabled(&g, dir.path());
+    let folder = shared(&repo);
+    notes.enable(&folder, LABEL, UNTITLED).unwrap();
+    let id = notes.create_note(&folder, "Plan").unwrap();
+    notes.write_note(&folder, &id, "base").unwrap();
+    git_ok(&g, &repo, &["add", "-A"]);
+    git_ok(&g, &repo, &["commit", "-qm", "notes"]);
+    git_ok(&g, &repo, &["checkout", "-qb", "other"]);
+    notes.write_note(&folder, &id, "theirs").unwrap();
+    git_ok(&g, &repo, &["commit", "-qam", "theirs"]);
+    git_ok(&g, &repo, &["checkout", "-q", "main"]);
+    std::thread::sleep(Duration::from_millis(5));
+    notes.write_note(&folder, &id, "ours").unwrap();
+    git_ok(&g, &repo, &["commit", "-qam", "ours"]);
+    assert!(!git_try(&g, &repo, &["merge", "other"]));
+    assert_eq!(unmerged_paths(&g, &repo).len(), 1);
+
+    let marker = dir.path().join("hook-ran");
+    marker_hook(&repo, "post-index-change", &marker);
+    let status = notes.status(&folder, LABEL, UNTITLED).unwrap();
+    let SharedStatus::Unlocked { resolved, .. } = status else {
+        panic!("{status:?}");
+    };
+    assert_eq!(resolved.len(), 1, "{resolved:?}");
+    assert!(unmerged_paths(&g, &repo).is_empty(), "nothing was staged");
+    assert!(!marker.exists(), "a repository hook ran while staging");
+
+    // The fixture is sound: git with the repository's hooks runs the marker hook.
+    fs::write(repo.join("scratch.txt"), "x\n").unwrap();
+    git_ok(&g.with_repo_hooks(), &repo, &["add", "scratch.txt"]);
+    assert!(
+        marker.exists(),
+        "git did not run the hook; the test is void"
+    );
+}
