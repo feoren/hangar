@@ -143,6 +143,15 @@ const ACTIVITY = {
   notices: [NOTICE],
   sessions: [3],
   sessionRepos: [{ sessionId: 3, repo: "a".repeat(40) }],
+  devices: [
+    {
+      device: "d-this",
+      this: true,
+      recovery: false,
+      safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"],
+    },
+  ],
+  log: { index: 4, safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"] },
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -208,6 +217,41 @@ describe("parseTeamStatus", () => {
     expect(waiting(["12a45", ...SAFETY.slice(1)])).toBeNull();
     expect(waiting([12345, ...SAFETY.slice(1)])).toBeNull();
     expect(waiting("123451234512345")).toBeNull();
+  });
+
+  it("reads the admission check, the key change and the owner mismatch", () => {
+    const admission = {
+      state: "confirmAdmission",
+      member: "alice",
+      device: "d1",
+      safetyNumber: SAFETY,
+      logIndex: 4,
+      logSafetyNumber: SAFETY,
+    };
+    expect(parseTeamStatus(admission)).toEqual(admission);
+    // Every part is compared by the person: none may be missing.
+    expect(parseTeamStatus({ ...admission, logSafetyNumber: undefined })).toBeNull();
+    expect(parseTeamStatus({ ...admission, member: "" })).toBeNull();
+    expect(parseTeamStatus({ ...admission, logIndex: -1 })).toBeNull();
+    expect(parseTeamStatus({ state: "waitingForKeyChange" })).toEqual({
+      state: "waitingForKeyChange",
+    });
+    expect(parseTeamStatus({ state: "needsAttention", reason: "ownerMismatch" })).toEqual({
+      state: "needsAttention",
+      reason: "ownerMismatch",
+    });
+    const t = createTranslator("en");
+    const admissionStatus = parseTeamStatus(admission);
+    expect(admissionStatus).not.toBeNull();
+    if (admissionStatus === null) return;
+    expect(statusKey(admissionStatus)).toBe("team.status.confirmAdmission");
+    expect(statusTone(admissionStatus)).toBe("busy");
+    expect(statusLine({ state: "waitingForKeyChange" }, t)?.text).toBe(
+      t("team.status.waitingForKeyChange"),
+    );
+    expect(statusKey({ state: "needsAttention", reason: "ownerMismatch" })).toBe(
+      "team.status.ownerMismatch",
+    );
   });
 });
 
@@ -283,6 +327,17 @@ describe("parseTeamSnapshot", () => {
       pending: [],
     });
     expect(parseTeamSnapshot(team({ ...ACTIVITY, peers: null }))).toBeNull();
+    // Own devices and the log's number are compared by the person: malformed is refused.
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, devices: [{ ...ACTIVITY.devices[0], this: "yes" }] })),
+    ).toBeNull();
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, log: { index: 4, safetyNumber: [] } })),
+    ).toBeNull();
+    // An older backend sends neither: no devices, no log number.
+    const noDevices = parseTeamSnapshot(team({ ...ACTIVITY, devices: undefined, log: undefined }));
+    expect(noDevices?.teams[0]?.activity.devices).toEqual([]);
+    expect(noDevices?.teams[0]?.activity.log).toBeNull();
     expect(
       parseTeamSnapshot(team({ ...ACTIVITY, overlaps: [{ ...OVERLAP, sessionId: -1 }] })),
     ).toBeNull();

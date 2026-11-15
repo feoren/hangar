@@ -4,7 +4,7 @@ type: concept
 tags: [collaboration, teams, e2e, ed25519, x25519, hpke, xchacha20poly1305, hkdf, threat-model]
 sources: []
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-15
 ---
 
 # Team crypto
@@ -176,6 +176,35 @@ A.2.1 test.
 - **Safety numbers**: 30 digits (about 99.7 bits) from SHA-256 over holder and both keys, in
   groups of five; the same digits over a log head detect a relay that shows two members
   different logs.
+- **Membership follows the website** (third review, H1). The website decides who belongs to a
+  project; the log follows it on an owner's or admin's device: it reads the project's members
+  over authenticated HTTPS (`GET /api/v1/projects/{id}/members`, see [[hangar-account-api]]) on
+  every new connection, after `member.removed` or `member.role_changed` of anyone (unsigned,
+  so only a cue) and at least every 10 minutes, and appends a remove member entry for a member
+  the list no longer names, one entry at a time. That makes the rotation due, and the next epoch
+  is wrapped only to the devices left. A member the log added after the list was asked for
+  (log index at the moment of asking) is never removed by that list. On the owner's device a
+  role the website changed (admin or member) becomes a change role entry, and a new member gets
+  the website's role (admin only when the owner confirms). The list failing (no answer, an older
+  server without the endpoint) only skips this step; a relay that refuses such an entry stops
+  further ones until the next list. A list that names neither the reading member nor the log's
+  owner (an empty answer, ids of another kind) removes nobody. Members are never removed by hand in the app; a person
+  removes a lost device of their own ("Remove device" in the Team view, `device.remove`).
+- **Admission is confirmed** (third review, H2). A device the log lists but that another device
+  admitted shares nothing (no presence, claims, reservations, confirmations, removals) until the
+  person compares two numbers with the admitting device and confirms: that device's safety
+  number and the log safety number at the head (`TeamStatus::ConfirmAdmission`; the admitting
+  device shows both under People, Your devices). The confirmation is stored with the head in the
+  keychain (`StoredKeys::admitted`, format `v2`; a `v1` entry with a head counts as confirmed,
+  since it was trusted before). The device that created the team admits itself. Independently,
+  the log's owner (entry 1's issuer) must be the project's `owner_id` on the website, else the
+  team stops (`OwnerMismatch`).
+- **A due rotation holds sharing** (third review, M1). While the log says a rotation is due and
+  this device cannot rotate, it seals nothing new (`TeamStatus::WaitingForKeyChange`): the
+  current epoch key may be in the removed device's hands. Receiving goes on.
+- **The relay names the member only once it is the signed-in account** (third review, L5): the
+  first `welcome` binds the device to its member id only when that id is the account `/me`
+  names; otherwise the device stops with `OtherAccount` and binds nothing.
 - **Recovery code**: 128 random bits plus version and a 24-bit checksum, Crockford base32 in
   eight groups of four; HKDF derives an offline device's Ed25519 seed and X25519 key. It is a
   device of the log (`recovery: true`), so every rotation wraps to it. Using it means signing in
@@ -200,6 +229,9 @@ A.2.1 test.
   `memberlog.append`.
 - Rotating a device's own X25519 key is future work (L4): today a device keeps its keys until it
   is removed and added again under a new id.
+- Follow the website's member list on an owner's or admin's device, show the admission check
+  before the first share, and seal nothing while a rotation is due that this device cannot make
+  (decisions above).
 
 ## Trust of relay events in the app
 
@@ -212,7 +244,9 @@ anyway (delay, drop, disconnect), never for deleting keys or raising rights:
 | `key.rotated` with `wrapped` | kept only for epochs above the verified current one, at most 4, dropped on every `hello` |
 | `device.removed`, `member.removed` | a log fetch; keys go only when the verified log removed this device |
 | `member.removed` naming this member, close 4404 | a check of the website's project list (authenticated HTTPS); keys go and sharing turns off only when the project is gone there |
+| `member.removed`, `member.role_changed` of another member | on an owner's or admin's device a read of the website's member list, which may lead to a remove member or change role entry |
 | `member.role_changed` | a reread of the website's project list; the role comes from the website, capped by the log |
+| any event asking for a website check | at most one check per 30 s per team connection; a later wish waits for the next ping after that (a flood of unsigned events costs one request) |
 | close 4403 | stop with "removed", keys kept (a relay can only disconnect) |
 | close 4401, `err forbidden` on `hello` | a fresh ticket; one immediate retry per settled connection |
 | `memberlog.entries` with `more` | only with at least one entry (progress), else the connection ends |
@@ -222,7 +256,8 @@ anyway (delay, drop, disconnect), never for deleting keys or raising rights:
 | `task.released`, `reservation.expired`, handover | accepted risk: not signed by the holder; the relay decides first wins and can end or hand over a hold |
 | notices about reservations | one per event the log vouches for (deduplicated warnings), at most 8 kept; desktop notifications at most once a minute |
 | `notify` | ignored: the events it stands for reach every device of the person through the log |
-| `claim.overlap` | for one of this device's own session keys and a listed device, and only for a session the device's newest signed status lists (without any status: at most "same area", no notice); the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and listed device; desktop notices at most once a minute |
+| `claim.overlap` | for one of this device's own session keys and a listed device, and only for a session the device's newest signed status lists (without any status: at most "same area", no notice, and no detail is opened or kept); the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and teammate device (one device inventing session keys cannot take the others' room); desktop notices at most once a minute |
+| teammates' names, agents, titles (status, detail) | shown and passed on without control, invisible or reordering characters, cut at 120 characters |
 
 ## Threat model
 
@@ -241,7 +276,9 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
   A removed device can still seal records naming an old log head until the next rotation (the
   relay refuses content of an old epoch afterwards). A compromised device has its keys and is out
   of scope.
-- **First contact** is trust on first use unless safety numbers are compared.
+- **First contact** is no longer silent trust on first use: a newcomer checks the admitting
+  device's and the log's safety numbers before it shares, and the log's owner must be the
+  website's. A person who confirms without comparing still trusts the relay.
 
 ## Tests
 
@@ -292,7 +329,11 @@ findings are addressed above; the questions stay open until the external review 
 9. Key reuse across teams: one device key in several teams, while the safety number does not bind
    the team.
 10. Trust on first use: the relay can show a newcomer an entirely invented log from entry 1; how
-    is the owner's identity tied to the website account?
+    is the owner's identity tied to the website account? (Partly answered in the third review:
+    the log's owner must be the website's `owner_id`, and the newcomer confirms the admitting
+    device's and the log's safety numbers before it shares. The owner's member id is still not
+    bound to a key the website vouches for, so a person who confirms without comparing trusts
+    the relay.)
 
 Further questions from the hardening round:
 
@@ -322,6 +363,11 @@ Further questions from the hardening round:
 ## Open
 
 - External cryptographic review before release (questions above).
+- The website must offer `GET /api/v1/projects/{id}/members` (members with their roles, for any
+  member of the project) for the log to follow removals on the website; until it does, a member
+  removed there keeps receiving new epoch keys (server work, outside this repository).
+- Ownership changes on the website stop the team (`OwnerMismatch`) until ownership transfer
+  exists in the log.
 - Ownership transfer is not part of version 1 (L7).
 - Rotating a device's own X25519 key (L4).
 - No persisted `TeamState`: clients and the relay re-verify the log from entry 1 (fine for

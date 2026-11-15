@@ -129,8 +129,12 @@ function scheduleUserRecheck(): void {
 
 async function listenForChanges(): Promise<void> {
   try {
-    await listen(ACCOUNT_CHANGED, (event) => {
-      accept(event.payload);
+    // A signal only: the view comes from the backend, never from the event.
+    await listen(ACCOUNT_CHANGED, () => {
+      api
+        .accountStatus()
+        .then(accept)
+        .catch(() => undefined);
     });
   } catch {
     // Outside Tauri (browser preview) there are no backend events.

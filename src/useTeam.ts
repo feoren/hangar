@@ -75,13 +75,16 @@ function setBusy(id: string, busy: boolean): void {
   update({ busy: next });
 }
 
-function start(): void {
-  if (started) return;
-  started = true;
-  try {
-    listen(TEAM_CHANGED, (event) => {
-      const snapshot = parseTeamSnapshot(event.payload);
-      if (snapshot === null) return;
+/** Reads the team snapshot; an older answer that arrives after a newer one is dropped. */
+let snapshotAsked = 0;
+function loadSnapshot(): void {
+  snapshotAsked += 1;
+  const asked = snapshotAsked;
+  api
+    .teamSnapshot()
+    .then((value) => {
+      const snapshot = parseTeamSnapshot(value);
+      if (snapshot === null || asked !== snapshotAsked) return;
       generation += 1;
       update({
         statuses: statusesOf(snapshot),
@@ -89,10 +92,23 @@ function start(): void {
         repos: snapshot.repos,
         pending: snapshot.pending,
       });
+    })
+    .catch(() => undefined);
+}
+
+function start(): void {
+  if (started) return;
+  started = true;
+  try {
+    // A signal only: the snapshot comes through a command only the main window may call.
+    listen(TEAM_CHANGED, () => {
+      loadSnapshot();
     }).catch(() => undefined);
   } catch {
     // Outside Tauri (browser preview) there are no backend events.
   }
+  // The state of before the listener: a signal sent earlier would otherwise be missed.
+  loadSnapshot();
   const asked = generation;
   api
     .teamPendingConfirmations()
@@ -210,7 +226,24 @@ export const team = {
     taskCommand(projectId, task, () => api.teamAnswerRelease(projectId, task, requester, accept)),
   confirm: (request: string) => answer(request, true),
   reject: (request: string) => answer(request, false),
+  /** The person compared the safety numbers: this device joins and starts sharing. */
+  confirmAdmission: (projectId: string) =>
+    command(projectId, async () => {
+      await api.teamConfirmAdmission(projectId);
+      return true;
+    }),
+  /** Removes another device of the person; the busy key is `deviceKey`. */
+  removeDevice: (projectId: string, device: string) =>
+    command(deviceKey(projectId, device), async () => {
+      await api.teamRemoveDevice(projectId, device);
+      return true;
+    }),
 };
+
+/** The busy key of removing one of the person's devices from a project's team. */
+export function deviceKey(projectId: string, device: string): string {
+  return [projectId, "device", device].join("\u0000");
+}
 
 export function useTeam(): TeamStore {
   useEffect(start, []);

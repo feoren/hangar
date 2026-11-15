@@ -891,6 +891,12 @@
           "markdownDescription": "Enables the team_confirm command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_confirm_admission command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-confirm-admission",
+          "markdownDescription": "Enables the team_confirm_admission command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_disable command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-disable",
@@ -927,6 +933,12 @@
           "markdownDescription": "Enables the team_release_task command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_remove_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-remove-device",
+          "markdownDescription": "Enables the team_remove_device command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_reserve_task command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-reserve-task",
@@ -937,6 +949,12 @@
           "type": "string",
           "const": "allow-team-session-states",
           "markdownDescription": "Enables the team_session_states command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-snapshot",
+          "markdownDescription": "Enables the team_snapshot command without any pre-configured scope."
         },
         {
           "description": "Enables the team_status command without any pre-configured scope.",
@@ -1683,6 +1701,12 @@
           "markdownDescription": "Denies the team_confirm command without any pre-configured scope."
         },
         {
+          "description": "Denies the team_confirm_admission command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-confirm-admission",
+          "markdownDescription": "Denies the team_confirm_admission command without any pre-configured scope."
+        },
+        {
           "description": "Denies the team_disable command without any pre-configured scope.",
           "type": "string",
           "const": "deny-team-disable",
@@ -1719,6 +1743,12 @@
           "markdownDescription": "Denies the team_release_task command without any pre-configured scope."
         },
         {
+          "description": "Denies the team_remove_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-remove-device",
+          "markdownDescription": "Denies the team_remove_device command without any pre-configured scope."
+        },
+        {
           "description": "Denies the team_reserve_task command without any pre-configured scope.",
           "type": "string",
           "const": "deny-team-reserve-task",
@@ -1729,6 +1759,12 @@
           "type": "string",
           "const": "deny-team-session-states",
           "markdownDescription": "Denies the team_session_states command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-snapshot",
+          "markdownDescription": "Denies the team_snapshot command without any pre-configured scope."
         },
         {
           "description": "Denies the team_status command without any pre-configured scope.",

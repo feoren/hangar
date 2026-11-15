@@ -137,8 +137,11 @@ pub fn run() -> tauri::Result<()> {
                     account::KEYCHAIN_SERVICE,
                 )),
                 std::sync::Arc::new(|url: &reqwest::Url| desktop::open_url(url)),
-                std::sync::Arc::new(move |view: &account::AccountView| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, view);
+                // A signal without payload: Tauri also hands events sent to one window to
+                // listeners of other webviews that listen to any target, so the account view
+                // stays behind `account_status`, which only the main window may call.
+                std::sync::Arc::new(move |_: &account::AccountView| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, ());
                 }),
                 account_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -154,8 +157,10 @@ pub fn run() -> tauri::Result<()> {
                     .inner()
                     .clone(),
                 std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
-                std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, snapshot);
+                // A signal without payload, as for the account: the snapshot (teammates, safety
+                // numbers, tasks) comes through `team_snapshot`, a main window command.
+                std::sync::Arc::new(move |_: &team::TeamSnapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, ());
                 }),
                 team_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -480,6 +485,9 @@ pub fn run() -> tauri::Result<()> {
             commands::team_pending_confirmations,
             commands::team_confirm,
             commands::team_reject,
+            commands::team_snapshot,
+            commands::team_confirm_admission,
+            commands::team_remove_device,
             commands::team_session_states,
             commands::team_link_repo,
             commands::team_reserve_task,

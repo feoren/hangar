@@ -2408,6 +2408,33 @@ pub async fn team_reject(team: State<'_, TeamService>, request: String) -> Resul
     team.reject(&request).await
 }
 
+/// Every team's connection, the pending confirmations and the repositories to link: what the
+/// payload-free `team-changed` signal asks the main window to fetch.
+#[tauri::command]
+pub fn team_snapshot(team: State<'_, TeamService>) -> crate::team::TeamSnapshot {
+    team.snapshot()
+}
+
+/// This device joined the team the person expected: they compared the admitting device's and
+/// the log's safety numbers. Only then does the device share anything.
+#[tauri::command]
+pub async fn team_confirm_admission(
+    team: State<'_, TeamService>,
+    project_id: String,
+) -> Result<(), TeamError> {
+    team.confirm_admission(&project_id).await
+}
+
+/// Removes another device of the signed-in person from the team (a lost one, for example).
+#[tauri::command]
+pub async fn team_remove_device(
+    team: State<'_, TeamService>,
+    project_id: String,
+    device: String,
+) -> Result<(), TeamError> {
+    team.remove_device(&project_id, &device).await
+}
+
 /// What a session is doing, as the window's attention logic says.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

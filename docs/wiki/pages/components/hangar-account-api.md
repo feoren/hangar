@@ -7,7 +7,7 @@ version: "API v1 (base /api/v1), as of 2026-11-09"
 license: "service API; client code in this repository is MIT"
 repo: "website of the official service (not public); client in src-tauri/src/account*.rs"
 created: 2026-11-09
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Hangar account API (sign-in, account, projects)
@@ -48,6 +48,7 @@ Base `/api/v1`, default `https://hangar.feoren.com/api/v1`. All answers JSON wit
 | `GET /me/avatar` | Bearer | the person's own picture (see Profile picture); 404 problem document without one |
 | `GET /users/{id}/avatar` | Bearer | the picture of a person sharing at least one project with the caller (or the caller); 404 otherwise, also when not allowed. `{id}` is the `id` of `/me`. Not used by the app yet |
 | `GET /projects` | Bearer | `{"projects":[...]}`: `id`, `name`, `role` (owner, admin, member), `owner_id`, `plan`, `seats_account_total`, `seats_account_used` (the owner's account), `pending_invitations` (owner and admin only), `invite_url` |
+| `GET /projects/{id}/members` | Bearer | needed by the app, not offered by the website yet (2026-11-15): `{"members":[{"id","role"}]}` for a member of the project (`id` as in `/me` and `owner_id`; the list includes the owner and the caller, or the app ignores it), 404 otherwise. An owner's or admin's device removes members the list does not name from the team's log ([[team-crypto]]); without the endpoint that step is skipped |
 | `POST /relay-ticket` | Bearer | `{"project_id"}` -> `{"ticket","expires_at","relay_url"}`; 404 for non-members and unknown projects |
 | `GET /keys` | none | public Ed25519 keys (not used by the app yet) |
 | `GET/POST /devices` | none | reserved, 501 |
@@ -95,7 +96,8 @@ app has no upload path).
   documents, polling rules, the window's view), `account_api.rs` (reqwest client),
   `account_service.rs` (state machine, tokens, single-flight refresh, keychain), commands in
   `commands.rs`. Types mirror in `src/account.ts`.
-- **Server address:** https, or http only on `localhost`, `127.0.0.1` or `[::1]`; no user info,
+- **Server address:** https, or http only on `127.0.0.1` or `[::1]` (and `localhost` in debug
+  builds only: a name may resolve elsewhere); no user info,
   query or fragment; at most 512 characters. Stored in `account.json` in the config folder. The
   official address is the default; Settings can change it for self-hosting.
 - **State machine** (`AccountState`): `idle` (optional notice `signedOut`, `signedOutLocally`

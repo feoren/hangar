@@ -95,8 +95,8 @@ use crate::team::{
     TeamStatus,
 };
 use crate::team_share::{
-    self, DivergentDevice, LocalShare, OtherDetail, PeerStatus, PeerView, SessionRepo,
-    SessionState, TeamActivity, TeammateFile, TeammateOverlap,
+    self, DivergentDevice, LocalShare, LogSafety, OtherDetail, OwnDevice, PeerStatus, PeerView,
+    SessionRepo, SessionState, TeamActivity, TeammateFile, TeammateOverlap,
 };
 use crate::team_tasks::{
     self, AttemptState, AttemptView, NoticeKind, RequestView, TaskNote, TaskNotice, TaskView,
@@ -123,11 +123,13 @@ pub enum Effect {
     /// The membership log was fetched and checked on this connection for the first time: the
     /// connection proved itself (the reconnect policy starts over).
     Settled,
-    /// Read the person's projects on the website again (authenticated HTTPS) and hand the role
-    /// to [`Engine::set_website_role`], or end the connection when the project is gone there.
-    /// The answer to relay events only the website can confirm (`member.removed` of this
-    /// member, `member.role_changed`).
-    CheckWebsite,
+    /// Read the person's projects on the website again (authenticated HTTPS) and hand role and
+    /// owner, with `members` also the project's member list, to [`Engine::set_website`]; end the
+    /// connection when the project is gone there (with `removal`, the relay said this member was
+    /// removed: the keys go too). The answer to relay events only the website can confirm
+    /// (`member.removed`, `member.role_changed`), at most once per [`WEBSITE_CHECK_EVERY_MS`],
+    /// and on an owner's or admin's device the regular member check.
+    CheckWebsite { removal: bool, members: bool },
     /// Status or pending confirmations changed.
     Changed,
     /// End this connection.
@@ -174,6 +176,42 @@ const MAX_TASK_QUEUE: usize = 1024;
 /// Heartbeats for this device's reservations go out at most this often while its agents change
 /// files.
 const HEARTBEAT_EVERY_MS: u64 = 60_000;
+
+/// Website checks the relay's events ask for go out at most this often; one that comes sooner
+/// waits for the next ping after this span (the relay's events are unsigned and may come in
+/// floods).
+pub const WEBSITE_CHECK_EVERY_MS: u64 = 30_000;
+
+/// An owner's or admin's device compares the log's members with the website's this often, also
+/// without any relay event (the relay may withhold `member.removed`).
+pub const MEMBERS_CHECK_EVERY_MS: u64 = 10 * 60 * 1_000;
+
+/// A member as the website lists it for the project: its role there, `None` for a role this
+/// Hangar does not know (it still counts as a member, but its log role is left as it is).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebsiteMember {
+    pub member: MemberId,
+    pub role: Option<Role>,
+}
+
+/// What the website said about the project (authenticated HTTPS).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Website {
+    /// The person's role (the ticket's role); caps the log role.
+    pub role: Role,
+    /// The project's owner, when the website names one.
+    pub owner: Option<MemberId>,
+    /// The project's members, when they were asked for and the website answered.
+    pub members: Option<Vec<WebsiteMember>>,
+}
+
+/// The website's member list, with the log head index of the moment it was asked for: members
+/// the log added after that are newer than the list and never removed by it.
+#[derive(Debug, Clone)]
+struct Roster {
+    members: BTreeMap<MemberId, Option<Role>>,
+    at: u64,
+}
 
 /// A reservation in the team, as the relay reported it.
 #[derive(Debug, Clone)]
@@ -636,13 +674,24 @@ pub struct EngineSetup {
     pub identity: DeviceIdentity,
     /// The account the device was bound to (`None`: not welcomed yet).
     pub member: Option<MemberId>,
+    /// The account signed in on the website (`/me`), when known: the first `welcome` must name
+    /// it, so the relay cannot bind this device to another member id.
+    pub account: Option<MemberId>,
     /// The person's role in the project on the website (the ticket's role); caps the log role.
     pub website_role: Role,
+    /// The project's owner on the website; the verified log's owner must be the same.
+    pub owner: Option<MemberId>,
     pub keys: StoredKeys,
     pub local: LocalState,
     /// Unix milliseconds (log entries' `issued_at`, the send counter's floor).
     pub now: Box<dyn Fn() -> u64 + Send + Sync>,
     pub entropy: EntropySource,
+    /// Website checks the relay's events ask for go out at most this often (milliseconds;
+    /// [`WEBSITE_CHECK_EVERY_MS`] in the app).
+    pub website_every_ms: u64,
+    /// An owner's or admin's device compares the members this often (milliseconds;
+    /// [`MEMBERS_CHECK_EVERY_MS`] in the app).
+    pub members_every_ms: u64,
 }
 
 pub struct Engine {
@@ -651,7 +700,24 @@ pub struct Engine {
     device: DeviceId,
     identity: DeviceIdentity,
     member: Option<MemberId>,
+    account: Option<MemberId>,
     website_role: Role,
+    owner: Option<MemberId>,
+    /// The website's member list as last read; `None` before the first read and after a member
+    /// entry the relay refused (until the next read).
+    roster: Option<Roster>,
+    /// When the last [`Effect::CheckWebsite`] went out (clock milliseconds).
+    website_checked_at: Option<u64>,
+    /// A website check waits for [`WEBSITE_CHECK_EVERY_MS`] to pass; with `website_removal`
+    /// the relay said this member was removed.
+    website_wanted: bool,
+    website_removal: bool,
+    /// The log head index when the member list now being read was asked for.
+    roster_asked_at: Option<u64>,
+    website_every_ms: u64,
+    members_every_ms: u64,
+    /// A remove member or change role entry this device sent waits for its answer.
+    appending: bool,
     keys: StoredKeys,
     local: LocalState,
     now: Box<dyn Fn() -> u64 + Send + Sync>,
@@ -791,7 +857,17 @@ impl Engine {
             device: setup.device,
             identity: setup.identity,
             member: setup.member,
+            account: setup.account,
             website_role: setup.website_role,
+            owner: setup.owner,
+            roster: None,
+            website_checked_at: None,
+            website_wanted: false,
+            website_removal: false,
+            roster_asked_at: None,
+            website_every_ms: setup.website_every_ms,
+            members_every_ms: setup.members_every_ms,
+            appending: false,
             keys: setup.keys,
             local: setup.local,
             now: setup.now,
@@ -846,11 +922,67 @@ impl Engine {
         }
     }
 
-    /// The person's role on the website, read before every connection and after
-    /// [`Effect::CheckWebsite`]; the relay's events never set it.
-    pub fn set_website_role(&mut self, role: Role) -> Vec<Effect> {
-        self.website_role = role;
+    /// What the website says, read before every connection and after
+    /// [`Effect::CheckWebsite`]; the relay's events never set it. A member list arrives only for
+    /// a check that asked for one; it replaces the last one.
+    pub fn set_website(&mut self, website: Website) -> Vec<Effect> {
+        self.website_role = website.role;
+        self.owner = website.owner;
+        let asked = self.roster_asked_at.take();
+        if let (Some(members), Some(at)) = (website.members, asked) {
+            self.roster = Some(Roster {
+                members: members.into_iter().map(|m| (m.member, m.role)).collect(),
+                at,
+            });
+        }
         self.reconcile()
+    }
+
+    /// The account signed in on the website, read before every connection.
+    pub fn set_account(&mut self, account: Option<MemberId>) {
+        self.account = account;
+    }
+
+    /// Whether this device acts for the team's owner or an admin (log role capped by the
+    /// website's), with an admission the person confirmed.
+    fn manages(&self) -> bool {
+        let (Some(state), Some(me)) = (self.verifier.state(), self.me.as_ref()) else {
+            return false;
+        };
+        self.keys.admitted
+            && state.device(me).is_some()
+            && state
+                .effective_role(&me.member, self.website_role)
+                .is_some_and(|r| role_rank(r) <= role_rank(Role::Admin))
+    }
+
+    /// Asks for a website check; `removal`: the relay said this member was removed. At most one
+    /// per [`WEBSITE_CHECK_EVERY_MS`]: a later wish waits for the next ping after that.
+    fn want_website(&mut self, removal: bool) -> Vec<Effect> {
+        self.website_wanted = true;
+        self.website_removal |= removal;
+        self.website_due()
+    }
+
+    fn website_due(&mut self) -> Vec<Effect> {
+        if !self.website_wanted {
+            return Vec::new();
+        }
+        let now = (self.now)();
+        let recent = self
+            .website_checked_at
+            .is_some_and(|at| now >= at && now - at < self.website_every_ms);
+        if recent {
+            return Vec::new();
+        }
+        self.website_checked_at = Some(now);
+        self.website_wanted = false;
+        let removal = std::mem::take(&mut self.website_removal);
+        let members = self.manages();
+        if members {
+            self.roster_asked_at = self.verifier.state().map(|s| s.head().index);
+        }
+        vec![Effect::CheckWebsite { removal, members }]
     }
 
     pub fn keys(&self) -> &StoredKeys {
@@ -911,6 +1043,7 @@ impl Engine {
         self.synced = false;
         self.creating = false;
         self.rotating = false;
+        self.appending = false;
         self.key_get = None;
         self.devices_get = false;
         self.inline.clear();
@@ -1009,6 +1142,15 @@ impl Engine {
             self.unknown_fetch_at = Some((self.now)());
             effects.extend(self.sync_log());
         }
+        // The member check of an owner's or admin's device, also when the relay says nothing.
+        let now = (self.now)();
+        let stale = self
+            .website_checked_at
+            .is_none_or(|at| now < at || now - at >= self.members_every_ms);
+        if self.synced && stale && self.manages() {
+            self.website_wanted = true;
+        }
+        effects.extend(self.website_due());
         effects
     }
 
@@ -1080,6 +1222,16 @@ impl Engine {
                         return vec![Self::stop(AttentionReason::OtherAccount)];
                     }
                     Some(_) => {}
+                    // The first welcome binds the device for good: it must name the account
+                    // signed in on the website, not one the relay chose.
+                    None if self
+                        .account
+                        .as_ref()
+                        .is_some_and(|account| *account != welcome.member) =>
+                    {
+                        eprintln!("hangar: the relay named another account than the signed-in one");
+                        return vec![Self::stop(AttentionReason::OtherAccount)];
+                    }
                     None => {
                         self.member = Some(welcome.member.clone());
                         effects.push(Effect::StoreDevice);
@@ -1134,23 +1286,25 @@ impl Engine {
             ServerMessage::DeviceRemoved(_) => effects.extend(self.sync_log()),
             ServerMessage::MemberRemoved(removed) => {
                 // The website first: the relay usually closes this connection right after, so
-                // the log fetch may never be answered.
-                if self
+                // the log fetch may never be answered. Another member's removal makes an owner's
+                // or admin's device compare the log's members with the website's.
+                let mine = self
                     .me
                     .as_ref()
-                    .is_some_and(|me| me.member == removed.member)
-                {
-                    effects.push(Effect::CheckWebsite);
+                    .is_some_and(|me| me.member == removed.member);
+                if mine || self.manages() {
+                    effects.extend(self.want_website(mine));
                 }
                 effects.extend(self.sync_log());
             }
-            ServerMessage::MemberRoleChanged(changed)
-                if self
+            ServerMessage::MemberRoleChanged(changed) => {
+                let mine = self
                     .me
                     .as_ref()
-                    .is_some_and(|me| me.member == changed.member) =>
-            {
-                effects.push(Effect::CheckWebsite);
+                    .is_some_and(|me| me.member == changed.member);
+                if mine || self.manages() {
+                    effects.extend(self.want_website(false));
+                }
             }
             ServerMessage::PresenceUpdate(update) => effects.extend(self.on_presence(update, true)),
             ServerMessage::ClaimOverlap(overlap) => effects.extend(self.on_overlap(overlap, true)),
@@ -1191,6 +1345,11 @@ impl Engine {
                 // and decide again; a confirmation shows up again with the next device poll.
                 eprintln!("hangar: team log entry refused ({code:?})");
                 self.creating = false;
+                if std::mem::take(&mut self.appending) {
+                    // A member entry from the website's list: not again before the next read,
+                    // so a refusing relay cannot make this device send it in a loop.
+                    self.roster = None;
+                }
                 self.sync_log()
             }
             Some(Op::Rotate(epoch)) => {
@@ -1249,6 +1408,7 @@ impl Engine {
             }
             Some(Op::Append(confirmed)) => {
                 self.creating = false;
+                self.appending = false;
                 if let Some(holder) = confirmed {
                     self.wrap_queue.push(holder);
                 }
@@ -1323,8 +1483,17 @@ impl Engine {
                 return vec![Self::stop(AttentionReason::HistoryMismatch)];
             }
         }
+        // The log's owner must be the project's owner on the website: a relay could otherwise
+        // show a newcomer a team it invented under the project's id.
+        if let (Some(state), Some(owner)) = (self.verifier.state(), &self.owner) {
+            if state.owner() != owner {
+                eprintln!("hangar: the team log names another owner than the website");
+                return vec![Self::stop(AttentionReason::OwnerMismatch)];
+            }
+        }
         let mut effects = Vec::new();
-        if !self.synced {
+        let first = !self.synced;
+        if first {
             effects.push(Effect::Settled);
         }
         self.synced = true;
@@ -1361,6 +1530,11 @@ impl Engine {
         effects.extend(self.poll_devices());
         effects.extend(self.retry_stashed());
         effects.extend(self.drain_tasks());
+        // An owner's or admin's device compares the members with the website's on every new
+        // connection (within the check's rate).
+        if first && self.manages() {
+            effects.extend(self.want_website(false));
+        }
         effects
     }
 
@@ -1390,6 +1564,20 @@ impl Engine {
         if state.device(&me).is_none() {
             self.status = waiting;
             return effects;
+        }
+        if !self.keys.admitted {
+            // The device that created the team admitted itself; any other was admitted by
+            // another device, which the person checks before this one shares anything.
+            match state.added_by(&me) {
+                Some(by) if *by == me => {
+                    self.keys.admitted = true;
+                    effects.push(Effect::StoreKeys);
+                }
+                by => {
+                    self.status = Self::admission(state, by);
+                    return effects;
+                }
+            }
         }
         let role = state.effective_role(&me.member, self.website_role);
         let manager = role.is_some_and(|r| role_rank(r) <= role_rank(Role::Admin));
@@ -1435,6 +1623,12 @@ impl Engine {
         let Some(state) = self.verifier.state() else {
             return effects;
         };
+        if state.rotation_due() {
+            // A device or member left and only an owner or admin changes the key: until then
+            // the current key may be in the removed one's hands, so nothing new is sealed.
+            self.status = TeamStatus::WaitingForKeyChange;
+            return effects;
+        }
         self.status = TeamStatus::Connected {
             epoch: epoch.0,
             members: state.members().len(),
@@ -1443,7 +1637,127 @@ impl Engine {
         if self.shared_epoch != Some(epoch) {
             effects.extend(self.share_now());
         }
+        effects.extend(self.reconcile_members());
         effects
+    }
+
+    /// The status asking the person to check who admitted this device (`by`, from the log).
+    fn admission(state: &TeamState, by: Option<&Holder>) -> TeamStatus {
+        let head = *state.head();
+        let log_safety_number = state
+            .log_safety_number_at(head.index)
+            .map(|n| safety_groups(&n))
+            .unwrap_or_default();
+        let (member, device, number) = match by {
+            Some(by) => {
+                let keys = state
+                    .key_periods(by)
+                    .iter()
+                    .rev()
+                    .find(|p| p.removed_at.is_none())
+                    .or_else(|| state.key_periods(by).last())
+                    .map(|p| p.keys);
+                (
+                    by.member.as_str().to_owned(),
+                    by.device.as_str().to_owned(),
+                    keys.map(|k| safety_groups(&safety_number(by, &k)))
+                        .unwrap_or_default(),
+                )
+            }
+            None => (String::new(), String::new(), Vec::new()),
+        };
+        TeamStatus::ConfirmAdmission {
+            member,
+            device,
+            safety_number: number,
+            log_index: head.index,
+            log_safety_number,
+        }
+    }
+
+    /// The person compared the safety numbers of the admitting device and of the log with that
+    /// device and confirms: stored with the head, then this device fetches its key and shares.
+    pub fn confirm_admission(&mut self) -> Result<Vec<Effect>, TeamError> {
+        if !matches!(self.status, TeamStatus::ConfirmAdmission { .. }) {
+            return Err(TeamError::UnknownRequest);
+        }
+        self.keys.admitted = true;
+        let mut effects = vec![Effect::StoreKeys];
+        effects.extend(self.reconcile());
+        if self.manages() {
+            effects.extend(self.want_website(false));
+        }
+        Ok(effects)
+    }
+
+    /// On an owner's or admin's device: the first difference between the log's members and the
+    /// website's list, as one log entry. A member the website no longer lists (and the log
+    /// listed when the list was asked for) is removed, which makes a rotation due that leaves
+    /// its devices out; on the owner's device a role the website changed is written into the
+    /// log. One entry at a time; the next follows the log fetch after its answer.
+    fn reconcile_members(&mut self) -> Vec<Effect> {
+        if !self.synced || self.syncing || self.creating || self.rotating || self.appending {
+            return Vec::new();
+        }
+        if !self.manages() {
+            return Vec::new();
+        }
+        let (Some(roster), Some(state), Some(me)) =
+            (&self.roster, self.verifier.state(), self.me.as_ref())
+        else {
+            return Vec::new();
+        };
+        let Some(role) = state.effective_role(&me.member, self.website_role) else {
+            return Vec::new();
+        };
+        // A list that names neither this member nor the log's owner is not this project's
+        // member list (an empty answer, ids of another kind): it removes nobody.
+        if !roster.members.contains_key(&me.member) || !roster.members.contains_key(state.owner()) {
+            return Vec::new();
+        }
+        let now = self.now();
+        let mut candidates = Vec::new();
+        for (member, entry) in state.members() {
+            if *member == me.member || member == state.owner() {
+                continue;
+            }
+            match roster.members.get(member) {
+                None if entry.added_at <= roster.at => {
+                    candidates.push(EntryKind::RemoveMember {
+                        member: member.clone(),
+                    });
+                }
+                Some(Some(listed))
+                    if role == Role::Owner
+                        && *listed != Role::Owner
+                        && entry.role != Role::Owner
+                        && *listed != entry.role =>
+                {
+                    candidates.push(EntryKind::ChangeRole {
+                        member: member.clone(),
+                        role: *listed,
+                    });
+                }
+                _ => {}
+            }
+        }
+        let body = candidates.into_iter().find_map(|kind| {
+            let body = state.next_body(me.clone(), now, kind);
+            state.check(&body).is_ok().then_some(body)
+        });
+        let Some(body) = body else {
+            return Vec::new();
+        };
+        match body.sign(&self.identity) {
+            Ok(append) => {
+                self.appending = true;
+                vec![self.frame(Op::Append(None), ClientMessage::MemberLogAppend(append))]
+            }
+            Err(error) => {
+                eprintln!("hangar: team member entry not signed: {error}");
+                Vec::new()
+            }
+        }
     }
 
     fn create_team(&mut self, me: &Holder) -> Vec<Effect> {
@@ -1596,7 +1910,8 @@ impl Engine {
         let state = self.verifier.state()?;
         let me = self.me.as_ref()?;
         state.device(me)?;
-        if state.device(&info.holder).is_some() || info.holder == *me {
+        // A device whose own admission the person did not confirm vouches for nobody.
+        if !self.keys.admitted || state.device(&info.holder).is_some() || info.holder == *me {
             return None;
         }
         let keys = DevicePublicKeys {
@@ -1625,11 +1940,21 @@ impl Engine {
             if !new_member || role_rank(role) > role_rank(Role::Admin) {
                 return None;
             }
+            // The website's role when it named one an owner may grant; otherwise member (the
+            // owner's device writes a later change with `reconcile_members`).
+            let listed = self
+                .roster
+                .as_ref()
+                .and_then(|r| r.members.get(&info.holder.member).copied().flatten());
+            let new_role = match listed {
+                Some(Role::Admin) if role == Role::Owner => Role::Admin,
+                _ => Role::Member,
+            };
             (
                 PendingKind::NewMember,
                 EntryKind::AddMember {
                     member: info.holder.member.clone(),
-                    role: Role::Member,
+                    role: new_role,
                     devices: vec![entry],
                 },
             )
@@ -1718,25 +2043,32 @@ impl Engine {
         Ok(vec![Effect::StoreLocal, Effect::Changed])
     }
 
-    /// Removes another device from the team (`device.remove` with its signed entry). Not a
-    /// command yet (step F part 2b); a rotation follows on an owner's or admin's device.
-    pub fn remove_device(&mut self, holder: &Holder) -> Result<Vec<Effect>, TeamError> {
+    /// Removes another device of the signed-in person from the team, a lost one for example
+    /// (`device.remove` with its signed entry). A rotation follows on an owner's or admin's
+    /// device; until then the team waits for the key change.
+    pub fn remove_own_device(&mut self, device: &DeviceId) -> Result<Vec<Effect>, TeamError> {
+        let me = self.me.clone().ok_or(TeamError::Busy)?;
+        if !self.keys.admitted || *device == me.device {
+            return Err(TeamError::UnknownRequest);
+        }
+        let holder = Holder {
+            member: me.member,
+            device: device.clone(),
+        };
         let body = self.removal_body(EntryKind::RemoveDevice {
             holder: holder.clone(),
         })?;
         let log = body
             .sign(&self.identity)
             .map_err(|_| TeamError::UnknownRequest)?;
-        let remove = DeviceRemove {
-            holder: holder.clone(),
-            log,
-        };
+        let remove = DeviceRemove { holder, log };
         Ok(vec![
             self.frame(Op::Remove, ClientMessage::DeviceRemove(remove))
         ])
     }
 
-    /// Removes a member with all its devices (owner or admin). Not a command yet.
+    /// Removes a member with all its devices (owner or admin). The app writes it from the
+    /// website's member list ([`Engine::reconcile_members`]); tests call it directly.
     pub fn remove_member(&mut self, member: &MemberId) -> Result<Vec<Effect>, TeamError> {
         let body = self.removal_body(EntryKind::RemoveMember {
             member: member.clone(),
@@ -2252,14 +2584,13 @@ impl Engine {
             .peers
             .get(&overlap.other.holder)
             .filter(|peer| peer.signed);
-        let unlisted = signed.is_some_and(|peer| {
-            !peer
-                .status
+        let in_status = signed.is_some_and(|peer| {
+            peer.status
                 .sessions
                 .iter()
                 .any(|s| s.key == overlap.other.session.as_str())
         });
-        if unlisted {
+        if signed.is_some() && !in_status {
             return if self.remove_overlap(session, &overlap.other) {
                 vec![Effect::Changed]
             } else {
@@ -2271,15 +2602,26 @@ impl Engine {
             .get(&session)
             .and_then(|others| others.get(&overlap.other));
         if known.is_none() {
-            let cap = self.device_count().saturating_mul(MAX_OVERLAPS_PER_DEVICE);
-            let held = self.overlaps.get(&session).map_or(0, BTreeMap::len);
-            if held >= cap {
+            // Per own session and teammate device: one device inventing session keys cannot
+            // take the room of the others.
+            let held = self.overlaps.get(&session).map_or(0, |others| {
+                others
+                    .keys()
+                    .filter(|other| other.holder == overlap.other.holder)
+                    .count()
+            });
+            if held >= MAX_OVERLAPS_PER_DEVICE {
                 return Vec::new();
             }
         }
         let mut effects = Vec::new();
         let mut detail = known.and_then(|e| e.detail.clone());
-        if let Some(sealed) = &overlap.detail {
+        // A detail counts only for a session the device's newest signed status lists: without
+        // one, the relay alone vouches that the session runs, and only the level is kept.
+        if !in_status {
+            detail = None;
+        }
+        if let Some(sealed) = overlap.detail.as_ref().filter(|_| in_status) {
             let record = overlap.other.session.as_str().as_bytes();
             match self.open_sealed(
                 RecordKind::ClaimDetail,
@@ -2415,7 +2757,43 @@ impl Engine {
                 })
                 .collect(),
             notices: self.notices.iter().cloned().collect(),
+            devices: self.own_devices(),
+            log: self.verifier.state().and_then(|state| {
+                let index = state.head().index;
+                state.log_safety_number_at(index).map(|n| LogSafety {
+                    index,
+                    safety_number: safety_groups(&n),
+                })
+            }),
         }
+    }
+
+    /// The signed-in person's devices the verified log lists, this one first.
+    fn own_devices(&self) -> Vec<OwnDevice> {
+        let (Some(state), Some(me)) = (self.verifier.state(), self.me.as_ref()) else {
+            return Vec::new();
+        };
+        let Some(member) = state.member(&me.member) else {
+            return Vec::new();
+        };
+        let mut devices: Vec<OwnDevice> = member
+            .devices
+            .values()
+            .map(|entry| {
+                let holder = Holder {
+                    member: me.member.clone(),
+                    device: entry.device.clone(),
+                };
+                OwnDevice {
+                    device: entry.device.as_str().to_owned(),
+                    this: entry.device == me.device,
+                    recovery: entry.recovery,
+                    safety_number: safety_groups(&safety_number(&holder, &entry.keys)),
+                }
+            })
+            .collect();
+        devices.sort_by_key(|d| !d.this);
+        devices
     }
 
     fn teammate_overlaps(&self) -> Vec<TeammateOverlap> {
@@ -4199,6 +4577,16 @@ mod tests {
                         Err(error) => own.push(self.err(id, error.code())),
                     }
                 }
+                ClientMessage::DeviceRemove(remove) => {
+                    match self.verifier.admit_device_remove(&remove, sender, role) {
+                        Ok(admitted) => {
+                            self.store(&remove.log, admitted.head, sender);
+                            own.push(self.ack(id, None));
+                            all.push(self.appended(admitted.head, sender));
+                        }
+                        Err(error) => own.push(self.err(id, error.code())),
+                    }
+                }
                 ClientMessage::KeyRotate(rotate) => {
                     match self.verifier.admit_rotation(&rotate, sender, role) {
                         Ok(admitted) => {
@@ -4437,11 +4825,20 @@ mod tests {
         ended: Option<SessionEnd>,
         /// Fails the engine's draw after this many more, once.
         fail_draw: Arc<Mutex<Option<usize>>>,
+        /// Confirms its admission once the log lists it, as the person would after comparing
+        /// the safety numbers ([`run`]).
+        admit: bool,
+        /// The website checks it asked for (`removal`, `members`).
+        checks: Vec<(bool, bool)>,
+        /// The engine's clock (Unix milliseconds).
+        clock: Arc<std::sync::atomic::AtomicU64>,
     }
 
     fn client(member: &str, device: &str, role: Role) -> Client {
         let identity = DeviceIdentity::generate(&mut OsEntropy).unwrap();
         let fail_draw = Arc::new(Mutex::new(None));
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+        let read = Arc::clone(&clock);
         Client {
             engine: Engine::new(EngineSetup {
                 project: "p1".to_owned(),
@@ -4449,11 +4846,15 @@ mod tests {
                 device: DeviceId::new(device).unwrap(),
                 identity,
                 member: None,
+                account: Some(MemberId::new(member).unwrap()),
                 website_role: role,
+                owner: None,
                 keys: StoredKeys::default(),
                 local: LocalState::default(),
-                now: Box::new(|| 1_000),
+                now: Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst)),
                 entropy: Box::new(Scripted(Arc::clone(&fail_draw))),
+                website_every_ms: WEBSITE_CHECK_EVERY_MS,
+                members_every_ms: MEMBERS_CHECK_EVERY_MS,
             }),
             holder: holder(member, device),
             role,
@@ -4461,6 +4862,9 @@ mod tests {
             stored_keys: 0,
             ended: None,
             fail_draw,
+            admit: true,
+            checks: Vec::new(),
+            clock,
         }
     }
 
@@ -4474,6 +4878,9 @@ mod tests {
                         Effect::Send(frame) => sends.push((at, frame)),
                         Effect::StoreKeys => clients[at].stored_keys += 1,
                         Effect::End(end) => clients[at].ended = Some(end),
+                        Effect::CheckWebsite { removal, members } => {
+                            clients[at].checks.push((removal, members));
+                        }
                         _ => {}
                     }
                 }
@@ -4499,7 +4906,18 @@ mod tests {
                 }
             }
             if !any && start.is_empty() {
-                return;
+                for (at, client) in clients.iter_mut().enumerate() {
+                    let waits = matches!(
+                        client.engine.status(false),
+                        TeamStatus::ConfirmAdmission { .. }
+                    );
+                    if client.admit && waits {
+                        start.push((at, client.engine.confirm_admission().unwrap()));
+                    }
+                }
+                if start.is_empty() {
+                    return;
+                }
             }
         }
         panic!("the clients did not settle");
@@ -4893,7 +5311,9 @@ mod tests {
                 device: DeviceId::new("a1").unwrap(),
                 identity: DeviceIdentity::generate(&mut OsEntropy).unwrap(),
                 member: None,
+                account: None,
                 website_role: Role::Owner,
+                owner: None,
                 keys: StoredKeys::default(),
                 local: LocalState {
                     counter: stored,
@@ -4901,6 +5321,8 @@ mod tests {
                 },
                 now: Box::new(|| 1_000),
                 entropy: Box::new(OsEntropy),
+                website_every_ms: WEBSITE_CHECK_EVERY_MS,
+                members_every_ms: MEMBERS_CHECK_EVERY_MS,
             })
         };
         assert_eq!(
@@ -5070,6 +5492,352 @@ mod tests {
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
         assert_eq!(connected(&b1), (1, 2, 2));
         (relay, a1, b1)
+    }
+
+    fn sends(effects: &[Effect]) -> Vec<&'static str> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Send(frame) => Some(frame.message.kind()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn website_checks(effects: &[Effect]) -> Vec<(bool, bool)> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::CheckWebsite { removal, members } => Some((*removal, *members)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_newcomer_shares_nothing_before_the_person_confirms_who_admitted_it() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        b1.admit = false;
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        assert!(
+            a1.engine.keys().admitted,
+            "the team's creator admitted itself"
+        );
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let bob = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&bob.id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        let TeamStatus::ConfirmAdmission {
+            member,
+            device,
+            safety_number,
+            log_index,
+            log_safety_number,
+        } = b1.engine.status(false)
+        else {
+            panic!("not asking: {:?}", b1.engine.status(false));
+        };
+        // The admitting device shows the same numbers for itself and the log.
+        assert_eq!((member.as_str(), device.as_str()), ("alice", "a1"));
+        let view = a1.engine.activity();
+        let own = view.devices.iter().find(|d| d.this).unwrap();
+        assert_eq!(own.safety_number, safety_number);
+        let log = view.log.unwrap();
+        assert_eq!(
+            (log.index, log.safety_number),
+            (log_index, log_safety_number)
+        );
+        assert!(!b1.engine.keys().admitted);
+        // Nothing of bob's goes out: no presence, no claims, no reservation, no removal.
+        let shared = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/a.rs", 1, 2)]));
+        assert!(sends(&shared).is_empty(), "{:?}", sends(&shared));
+        assert!(matches!(
+            b1.engine.reserve_task("Fix login", None, None),
+            Err(TeamError::Busy)
+        ));
+        assert!(matches!(
+            b1.engine.remove_own_device(&DeviceId::new("b9").unwrap()),
+            Err(TeamError::UnknownRequest)
+        ));
+        assert!(a1.engine.activity().peers.is_empty());
+        // Confirmed: stored with the head first, then bob's device takes the key and shares.
+        let confirmed = b1.engine.confirm_admission().unwrap();
+        assert!(matches!(confirmed[0], Effect::StoreKeys));
+        assert!(b1.engine.keys().admitted);
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, confirmed)]);
+        assert_eq!(connected(&b1), (1, 2, 2));
+        assert!(a1.engine.activity().peers.iter().any(|p| p.member == "bob"));
+        assert!(matches!(
+            b1.engine.confirm_admission(),
+            Err(TeamError::UnknownRequest)
+        ));
+    }
+
+    #[test]
+    fn a_log_whose_owner_is_not_the_websites_stops_the_team() {
+        let mut relay = Relay::new();
+        // The relay lets someone else create the project's team.
+        let mut mallory = client("mallory", "m1", Role::Owner);
+        let hello = mallory.engine.hello(ticket());
+        run(&mut relay, &mut [&mut mallory], vec![(0, hello)]);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let _ = b1.engine.set_website(Website {
+            role: Role::Member,
+            owner: Some(MemberId::new("alice").unwrap()),
+            members: None,
+        });
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut mallory, &mut b1], vec![(1, hello)]);
+        assert_eq!(
+            b1.ended,
+            Some(SessionEnd::Stop(StopReason::Attention(
+                AttentionReason::OwnerMismatch
+            )))
+        );
+    }
+
+    #[test]
+    fn the_first_welcome_must_name_the_signed_in_account() {
+        let mut relay = Relay::new();
+        let mut b1 = client("bob", "b1", Role::Member);
+        // The website says carol is signed in; the relay's welcome names bob.
+        b1.engine.set_account(Some(MemberId::new("carol").unwrap()));
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut b1], vec![(0, hello)]);
+        assert_eq!(
+            b1.ended,
+            Some(SessionEnd::Stop(StopReason::Attention(
+                AttentionReason::OtherAccount
+            )))
+        );
+        assert!(
+            b1.engine.member().is_none(),
+            "not bound to the relay's choice"
+        );
+        assert!(relay.devices.is_empty(), "no keys registered");
+    }
+
+    #[test]
+    fn relay_events_ask_the_website_at_most_once_per_interval() {
+        let (relay, _a1, mut b1) = team_of_two();
+        let removed = relay.text(
+            None,
+            None,
+            ServerMessage::MemberRemoved(hangar_team_protocol::wire::MemberRemoved {
+                member: MemberId::new("bob").unwrap(),
+            }),
+        );
+        let mut checks = Vec::new();
+        for _ in 0..100 {
+            checks.extend(website_checks(&b1.engine.on_text(&removed)));
+        }
+        assert_eq!(checks, vec![(true, false)]);
+        // The next one waits for a ping after the interval, with the removal remembered.
+        assert!(website_checks(&b1.engine.ping()).is_empty());
+        b1.clock
+            .fetch_add(WEBSITE_CHECK_EVERY_MS, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(website_checks(&b1.engine.ping()), vec![(true, false)]);
+        assert!(website_checks(&b1.engine.ping()).is_empty());
+    }
+
+    #[test]
+    fn a_member_list_without_this_member_or_the_owner_removes_nobody() {
+        let (_relay, mut a1, _b1) = team_of_two();
+        let alice = MemberId::new("alice").unwrap();
+        let lists = [
+            Vec::new(),
+            vec![WebsiteMember {
+                member: MemberId::new("carol").unwrap(),
+                role: Some(Role::Member),
+            }],
+        ];
+        for list in lists {
+            a1.clock
+                .fetch_add(MEMBERS_CHECK_EVERY_MS, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(website_checks(&a1.engine.ping()), vec![(false, true)]);
+            let effects = a1.engine.set_website(Website {
+                role: Role::Owner,
+                owner: Some(alice.clone()),
+                members: Some(list),
+            });
+            assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
+        }
+        assert_eq!(connected(&a1), (1, 2, 2));
+    }
+
+    #[test]
+    fn a_member_the_website_no_longer_lists_leaves_the_log_and_the_next_key() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        // The owner's device asks for the member list (here at its ping).
+        let ping = a1.engine.ping();
+        assert_eq!(website_checks(&ping), vec![(false, true)]);
+        let alice = MemberId::new("alice").unwrap();
+        let bob = MemberId::new("bob").unwrap();
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![WebsiteMember {
+                member: alice,
+                role: Some(Role::Owner),
+            }]),
+        });
+        let append = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(frame) => match &frame.message {
+                    ClientMessage::MemberLogAppend(append) => Some(append.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("a member log entry");
+        let body = EntryBody::decode_unverified(&append.entry).unwrap();
+        assert_eq!(
+            body.kind,
+            EntryKind::RemoveMember {
+                member: bob.clone()
+            }
+        );
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        // After the relay took it and the log was fetched: a rotation that leaves bob out.
+        assert_eq!(connected(&a1), (2, 1, 1));
+        let wrapped: Vec<&Holder> = relay
+            .wrapped
+            .iter()
+            .filter(|w| w.1 == Epoch(2))
+            .map(|w| &w.0)
+            .collect();
+        assert!(!wrapped.is_empty());
+        assert!(wrapped.iter().all(|h| h.member != bob), "{wrapped:?}");
+        assert_eq!(b1.ended, Some(SessionEnd::Stop(StopReason::Removed)));
+    }
+
+    #[test]
+    fn a_member_added_after_the_list_was_asked_for_stays_and_roles_follow_the_website() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        // The list was asked for before bob's device was confirmed: it does not name bob yet.
+        a1.engine.roster_asked_at = Some(2);
+        let alice = MemberId::new("alice").unwrap();
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![WebsiteMember {
+                member: alice.clone(),
+                role: Some(Role::Owner),
+            }]),
+        });
+        assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
+        // The website makes bob an admin: the owner's device writes the change.
+        assert_eq!(website_checks(&a1.engine.ping()), vec![(false, true)]);
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![
+                WebsiteMember {
+                    member: alice,
+                    role: Some(Role::Owner),
+                },
+                WebsiteMember {
+                    member: MemberId::new("bob").unwrap(),
+                    role: Some(Role::Admin),
+                },
+            ]),
+        });
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let state = a1.engine.state().unwrap();
+        let bob = state.member(&MemberId::new("bob").unwrap()).unwrap();
+        assert_eq!(bob.role, Role::Admin);
+        assert_eq!(
+            connected(&a1),
+            (1, 2, 2),
+            "a role change makes no rotation due"
+        );
+    }
+
+    #[test]
+    fn after_a_removal_a_member_device_seals_nothing_until_the_key_changes() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let mut b2 = client("bob", "b2", Role::Member);
+        let hello = a1.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(0, hello)],
+        );
+        let hello = b1.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(1, hello)],
+        );
+        let poll = a1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(0, poll)],
+        );
+        let pending = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&pending.id).unwrap();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(0, confirm)],
+        );
+        let hello = b2.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(2, hello)],
+        );
+        let poll = b1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(1, poll)],
+        );
+        let pending = b1.engine.pending().into_iter().next().unwrap();
+        let confirm = b1.engine.confirm(&pending.id).unwrap();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(1, confirm)],
+        );
+        assert_eq!(connected(&b2), (1, 2, 3));
+        // Bob's second device is lost; his first removes it while no owner or admin is around.
+        let own = b1.engine.activity().devices;
+        assert_eq!(own.len(), 2);
+        assert!(own[0].this && !own[1].this);
+        let remove = b1
+            .engine
+            .remove_own_device(&DeviceId::new("b2").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut b1, &mut b2], vec![(0, remove)]);
+        assert_eq!(b2.ended, Some(SessionEnd::Stop(StopReason::Removed)));
+        assert_eq!(b1.engine.status(false), TeamStatus::WaitingForKeyChange);
+        let shared = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/a.rs", 1, 2)]));
+        assert!(sends(&shared).is_empty(), "{:?}", sends(&shared));
+        assert!(matches!(
+            b1.engine.reserve_task("Fix login", None, None),
+            Err(TeamError::Busy)
+        ));
+        // The owner's device comes back and rotates: bob's device shares again.
+        let claims = relay.claim_sets;
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        assert_eq!(connected(&b1), (2, 2, 2));
+        assert!(relay.claim_sets > claims);
     }
 
     fn range(start: u32, end: u32) -> crate::claims::LineRange {
@@ -5499,17 +6267,22 @@ mod tests {
     }
 
     #[test]
-    fn overlaps_per_session_are_bounded_by_the_devices_in_the_log() {
-        let (relay, mut a1, b1) = team_of_two();
+    fn overlaps_per_session_are_bounded_per_teammate_device_and_need_a_status_for_details() {
+        let (relay, mut a1, mut b1) = team_of_two();
         let a = a1
             .engine
             .set_share(share("Alice", 1, "Claude Code", &[("src/auth.rs", 10, 12)]));
         let repo = claim_set(&a).repo;
         let mine = a1.engine.session_keys.get(&1).unwrap().clone();
-        // Without a status from bob's device the overlaps are kept (at most as the same area).
+        // Bob's real session with its signed detail, but no status of his device reached alice.
+        let b = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/auth.rs", 10, 12)]));
+        let theirs = claim_set(&b);
+        assert!(theirs.detail.is_some());
         a1.engine.peers.clear();
-        for n in 0..500 {
-            let text = relay.text(
+        let overlap = |session: SessionKey, detail: Option<Sealed>| {
+            relay.text(
                 None,
                 None,
                 ServerMessage::ClaimOverlap(ClaimOverlap {
@@ -5517,24 +6290,38 @@ mod tests {
                     session: mine.clone(),
                     other: SessionRef {
                         holder: b1.holder.clone(),
-                        session: SessionKey::new(format!("s{n}")).unwrap(),
+                        session,
                     },
-                    level: MatchLevel::SameArea,
+                    level: MatchLevel::SameFile,
                     file: None,
-                    files: 0,
-                    detail: None,
+                    files: 1,
+                    detail,
                 }),
-            );
+            )
+        };
+        let _ = a1
+            .engine
+            .on_text(&overlap(theirs.session.clone(), theirs.detail.clone()));
+        for n in 0..200 {
+            let text = overlap(SessionKey::new(format!("s{n}")).unwrap(), None);
             let _ = a1.engine.on_text(&text);
         }
         assert_eq!(a1.engine.overlaps.len(), 1);
-        assert_eq!(a1.engine.overlaps[&1].len(), 2 * MAX_OVERLAPS_PER_DEVICE);
+        // One device fills at most its own share, never the room of the other devices.
+        assert_eq!(a1.engine.overlaps[&1].len(), MAX_OVERLAPS_PER_DEVICE);
+        // Without a signed status listing the session only the level is kept, no detail.
+        assert!(a1.engine.overlaps[&1].values().all(|e| e.detail.is_none()));
         assert!(a1
             .engine
             .activity()
             .overlaps
             .iter()
             .all(|o| o.level == OverlapLevel::SameArea && o.path.is_none()));
+        assert!(a1
+            .engine
+            .teammate_files()
+            .iter()
+            .all(|f| f.lines.is_empty()));
     }
 
     /// A record stamp of the key period added at log index 3.

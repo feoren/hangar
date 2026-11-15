@@ -22,6 +22,8 @@ pub const OFFICIAL_BASE: &str = "https://hangar.feoren.com/api/v1";
 pub const CLIENT_ID: &str = "hangar-desktop";
 pub const SCOPE: &str = "team";
 /// Event to the main window with every new [`AccountView`].
+/// Signal to the main window that the account view changed; without payload (the window fetches
+/// it with `account_status`), since other webviews can listen to it too.
 pub const EVENT: &str = "account-changed";
 /// Keychain service of the refresh token; the account name is the server address. Separate from
 /// the profile secrets (`secrets::SERVICE`), so no profile variable can share its entry. Debug
@@ -64,7 +66,7 @@ const MAX_BACKOFF: u64 = 60;
 pub enum BaseUrlError {
     #[error("The server address is not a valid URL")]
     Invalid,
-    #[error("The server address must use https (http only for 127.0.0.1 or localhost)")]
+    #[error("The server address must use https (http only for 127.0.0.1 or [::1])")]
     Insecure,
     #[error("The server address must not contain a user name, password, query or fragment")]
     Extra,
@@ -125,7 +127,8 @@ impl BaseUrl {
         self.url.scheme() == "https"
     }
 
-    /// `localhost`, `127.0.0.1` or `[::1]`: a development server, never reached through a proxy.
+    /// `127.0.0.1`, `[::1]` (and `localhost` in a debug build): a development server, never
+    /// reached through a proxy.
     pub fn is_loopback(&self) -> bool {
         is_loopback(&self.url)
     }
@@ -177,10 +180,19 @@ impl Default for BaseUrl {
     }
 }
 
-/// `localhost`, `127.0.0.1` or `[::1]` (the url crate lower-cases hosts and writes IPv6 in
-/// brackets).
+/// `127.0.0.1` or `[::1]`, and `localhost` in a debug build only (the url crate lower-cases
+/// hosts and writes IPv6 in brackets). A name can resolve elsewhere (hosts file, resolver), so a
+/// release build trusts only the literal addresses with plain http, like the relay's plain `ws`.
 fn is_loopback(url: &Url) -> bool {
-    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+    loopback_host(url.host_str(), cfg!(debug_assertions))
+}
+
+fn loopback_host(host: Option<&str>, debug: bool) -> bool {
+    match host {
+        Some("127.0.0.1" | "[::1]") => true,
+        Some("localhost") => debug,
+        _ => false,
+    }
 }
 
 /// What `account.json` holds: the chosen server and, per keychain service, the servers whose
@@ -576,6 +588,30 @@ impl Project {
                 })
                 .collect(),
         )
+    }
+}
+
+/// One member of `GET /projects/{id}/members`: who belongs to the project now, and with which
+/// role. An owner's or admin's device removes members from the team's membership log that the
+/// website no longer lists (team-crypto, "Membership follows the website").
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ProjectMember {
+    #[serde(deserialize_with = "opaque_id")]
+    pub id: String,
+    pub role: Role,
+}
+
+#[derive(Deserialize)]
+struct RawMembers {
+    members: Vec<ProjectMember>,
+}
+
+impl ProjectMember {
+    /// `{"members": [{"id": "...", "role": "owner" | "admin" | "member"}]}`; `None` when the
+    /// answer is not such a list. Extra fields are ignored.
+    pub fn parse_list(body: &[u8]) -> Option<Vec<Self>> {
+        let raw: RawMembers = serde_json::from_slice(body).ok()?;
+        Some(raw.members)
     }
 }
 
@@ -1041,6 +1077,20 @@ mod tests {
     }
 
     #[test]
+    fn a_release_build_trusts_only_literal_loopback_addresses_with_plain_http() {
+        for debug in [false, true] {
+            assert!(loopback_host(Some("127.0.0.1"), debug));
+            assert!(loopback_host(Some("[::1]"), debug));
+            assert!(!loopback_host(Some("example.test"), debug));
+            assert!(!loopback_host(Some("localhost.example.test"), debug));
+            assert!(!loopback_host(None, debug));
+        }
+        // A name may resolve anywhere: only a debug build takes `localhost`.
+        assert!(!loopback_host(Some("localhost"), false));
+        assert!(loopback_host(Some("localhost"), true));
+    }
+
+    #[test]
     fn endpoints_and_pages() {
         let base = BaseUrl::parse("https://example.test/api/v1/").unwrap();
         assert_eq!(base.as_str(), "https://example.test/api/v1");
@@ -1331,6 +1381,19 @@ mod tests {
         let projects = Project::parse_list(spoof.as_bytes(), &base()).unwrap();
         assert_eq!(projects[0].name, "Coretxt");
         assert_eq!(projects[0].plan.as_deref(), Some("team"));
+    }
+
+    #[test]
+    fn project_members_are_read_with_their_roles() {
+        let body = br#"{"members":[{"id":7,"role":"owner","name":"x"},{"id":"9","role":"admin"},{"id":"11","role":"guest"}]}"#;
+        let members = ProjectMember::parse_list(body).unwrap();
+        assert_eq!(members.len(), 3);
+        assert_eq!(members[0].id, "7");
+        assert_eq!(members[0].role, Role::Owner);
+        assert_eq!(members[1].role, Role::Admin);
+        assert_eq!(members[2].role, Role::Other);
+        assert!(ProjectMember::parse_list(b"{}").is_none());
+        assert!(ProjectMember::parse_list(br#"{"members":[{"id":"","role":"member"}]}"#).is_none());
     }
 
     #[test]

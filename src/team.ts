@@ -30,6 +30,8 @@ export type AttentionReason =
   | "storage"
   | "otherInstance"
   | "otherAccount"
+  /** The team's log names another owner than the website: the relay may show an invented team. */
+  | "ownerMismatch"
   | "unknown";
 
 /** State of one project's team connection (Rust: `TeamStatus`). */
@@ -40,6 +42,21 @@ export type TeamStatus =
   | { state: "connected"; epoch: number; members: number; devices: number }
   /** This device waits until another device of the person, or an owner or admin, confirms it. */
   | { state: "waitingForConfirmation"; safetyNumber: string[] }
+  /**
+   * The team admitted this device; before it shares anything the person compares the admitting
+   * device's safety number and the log's with that device and confirms.
+   */
+  | {
+      state: "confirmAdmission";
+      /** Opaque ids of the admitting member and device, shown muted and shortened. */
+      member: string;
+      device: string;
+      safetyNumber: string[];
+      logIndex: number;
+      logSafetyNumber: string[];
+    }
+  /** A device or member left; nothing new is shared until an owner or admin changes the key. */
+  | { state: "waitingForKeyChange" }
   /** `unknown`: a reason (or a state) this Hangar does not know yet. */
   | { state: "needsAttention"; reason: AttentionReason }
   | { state: "removed" }
@@ -214,6 +231,26 @@ export interface TeamActivity {
   sessions: number[];
   /** The repository of each of `sessions` (Rust: `SessionRepo`). */
   sessionRepos: SessionRepo[];
+  /** The signed-in person's devices in the team, this one first. */
+  devices: OwnDevice[];
+  /** The log's safety number at its head, for a newcomer to compare; `null` before the log. */
+  log: LogSafety | null;
+}
+
+/** One of the signed-in person's devices in the team (Rust: `OwnDevice`). */
+export interface OwnDevice {
+  device: string;
+  /** This computer. */
+  this: boolean;
+  /** The offline device of a recovery code. */
+  recovery: boolean;
+  safetyNumber: string[];
+}
+
+/** The team log's safety number at one entry (Rust: `LogSafety`). */
+export interface LogSafety {
+  index: number;
+  safetyNumber: string[];
 }
 
 /** One of this device's shared sessions and the root commit of its repository. */
@@ -232,6 +269,8 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   notices: [],
   sessions: [],
   sessionRepos: [],
+  devices: [],
+  log: null,
 };
 
 export interface TeamEntry {
@@ -276,6 +315,7 @@ const REASONS: readonly AttentionReason[] = [
   "storage",
   "otherInstance",
   "otherAccount",
+  "ownerMismatch",
 ];
 const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember"];
 const ERROR_KINDS: readonly TeamErrorKind[] = [
@@ -316,6 +356,7 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
     case "off":
     case "removed":
     case "projectDeleted":
+    case "waitingForKeyChange":
       return { state };
     case "connecting": {
       const retrying = field(value, "retrying");
@@ -331,6 +372,17 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
     case "waitingForConfirmation": {
       const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
       return safetyNumber === null ? null : { state, safetyNumber };
+    }
+    case "confirmAdmission": {
+      const member = text(field(value, "member"));
+      const device = text(field(value, "device"));
+      const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+      const logIndex = field(value, "logIndex");
+      const logSafetyNumber = parseSafetyNumber(field(value, "logSafetyNumber"));
+      // Every part is compared by the person: a missing one is malformed, never empty.
+      if (member === null || device === null || safetyNumber === null) return null;
+      if (!isCount(logIndex) || logSafetyNumber === null) return null;
+      return { state, member, device, safetyNumber, logIndex, logSafetyNumber };
     }
     case "needsAttention": {
       const reason = field(value, "reason");
@@ -590,6 +642,25 @@ function optionalList<T>(value: unknown, parse: (value: unknown) => T[] | null):
   return value === undefined ? [] : parse(value);
 }
 
+function parseOwnDevice(value: unknown): OwnDevice | null {
+  const device = text(field(value, "device"));
+  const isThis = field(value, "this");
+  const recovery = field(value, "recovery");
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (device === null || typeof isThis !== "boolean" || typeof recovery !== "boolean") return null;
+  if (safetyNumber === null) return null;
+  return { device, this: isThis, recovery, safetyNumber };
+}
+
+/** The log's safety number; absent or `null` is none, malformed is `undefined`. */
+function parseLogSafety(value: unknown): LogSafety | null | undefined {
+  if (value === undefined || value === null) return null;
+  const index = field(value, "index");
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (!isCount(index) || safetyNumber === null) return undefined;
+  return { index, safetyNumber };
+}
+
 function parseSessionRepo(value: unknown): SessionRepo | null {
   const sessionId = field(value, "sessionId");
   const repo = text(field(value, "repo"));
@@ -610,10 +681,24 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
     list(v, (item) => (isCount(item) ? item : null)),
   );
   const sessionRepos = optionalList(field(value, "sessionRepos"), (v) => list(v, parseSessionRepo));
+  const devices = optionalList(field(value, "devices"), (v) => list(v, parseOwnDevice));
+  const log = parseLogSafety(field(value, "log"));
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
-  if (sessionRepos === null) return null;
-  return { linked, peers, overlaps, divergent, tasks, attempts, notices, sessions, sessionRepos };
+  if (sessionRepos === null || devices === null || log === undefined) return null;
+  return {
+    linked,
+    peers,
+    overlaps,
+    divergent,
+    tasks,
+    attempts,
+    notices,
+    sessions,
+    sessionRepos,
+    devices,
+    log,
+  };
 }
 
 function parseTeamEntry(value: unknown): TeamEntry | null {
@@ -690,6 +775,7 @@ const REASON_TEXTS: Record<AttentionReason, MessageKey> = {
   storage: "team.status.storage",
   otherInstance: "team.status.otherInstance",
   otherAccount: "team.status.otherAccount",
+  ownerMismatch: "team.status.ownerMismatch",
   unknown: "team.status.attention",
 };
 
@@ -704,6 +790,10 @@ export function statusKey(status: TeamStatus): MessageKey | null {
       return "team.status.connected";
     case "waitingForConfirmation":
       return "team.status.waiting";
+    case "confirmAdmission":
+      return "team.status.confirmAdmission";
+    case "waitingForKeyChange":
+      return "team.status.waitingForKeyChange";
     case "needsAttention":
       return REASON_TEXTS[status.reason];
     case "removed":
@@ -720,6 +810,8 @@ export function statusTone(status: TeamStatus): StatusTone {
     case "connecting":
       return status.retrying ? "problem" : "busy";
     case "waitingForConfirmation":
+    case "confirmAdmission":
+    case "waitingForKeyChange":
       return "busy";
     case "needsAttention":
       // Another window holds the connection: this one waits, nothing is broken.

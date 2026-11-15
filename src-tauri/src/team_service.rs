@@ -31,7 +31,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use hangar_team_crypto::identity::DeviceIdentity;
 use hangar_team_crypto::{Entropy as _, OsEntropy};
 use hangar_team_protocol::ids::{DeviceId, MemberId, TeamId, Ticket};
-use hangar_team_protocol::wire::{encode_client, Holder, Role};
+use hangar_team_protocol::wire::{encode_client, Role};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
@@ -49,7 +49,7 @@ use crate::team::{
     LinkedRepo, LocalState, Next, PendingConfirmation, ReconnectPolicy, SessionEnd, StopReason,
     StoredDevice, StoredKeys, TeamConfig, TeamEntry, TeamError, TeamSnapshot, TeamStatus, Timing,
 };
-use crate::team_engine::{Effect, Engine, EngineSetup};
+use crate::team_engine::{self, Effect, Engine, EngineSetup, WebsiteMember};
 use crate::team_share::{
     self, LocalSession, LocalShare, SessionLabel, SessionState, TeamActivity, TeammateFile,
 };
@@ -96,8 +96,10 @@ impl Default for Options {
 enum Command {
     Confirm(String, oneshot::Sender<Result<(), TeamError>>),
     Reject(String, oneshot::Sender<Result<(), TeamError>>),
-    RemoveMember(MemberId, oneshot::Sender<Result<(), TeamError>>),
-    RemoveDevice(Holder, oneshot::Sender<Result<(), TeamError>>),
+    /// Another device of the signed-in person leaves the team (a lost one, for example).
+    RemoveDevice(DeviceId, oneshot::Sender<Result<(), TeamError>>),
+    /// The person compared the safety numbers of the device that admitted this one.
+    ConfirmAdmission(oneshot::Sender<Result<(), TeamError>>),
     /// What the project shares from this device now (part 2b).
     Share(LocalShare),
     /// Reserves a task (title, linked session, folder of its repository).
@@ -168,7 +170,11 @@ struct Inner {
 
 /// What the website says about the person and the project.
 enum Website {
-    Member(Role),
+    Member {
+        role: Role,
+        /// The project's owner, when the website names one.
+        owner: Option<MemberId>,
+    },
     /// The project is not in the person's list (deleted, or the person left it).
     Gone,
     SignedOut,
@@ -190,6 +196,10 @@ fn jitter() -> f64 {
         return 0.5;
     }
     f64::from(u32::from_be_bytes(bytes)) / 4_294_967_296.0
+}
+
+fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn attention(reason: AttentionReason) -> SessionEnd {
@@ -875,26 +885,19 @@ impl TeamService {
             .ok_or(TeamError::UnknownProject)
     }
 
-    /// Removes a member from a team (owner or admin). Not a command yet (step F part 2b).
-    pub async fn remove_member(&self, project: &str, member: &str) -> Result<(), TeamError> {
-        let member = MemberId::new(member).map_err(|_| TeamError::UnknownRequest)?;
+    /// Removes another device of the signed-in person from a team (a lost one, for example).
+    /// Members leave through the website's member list, never by hand here.
+    pub async fn remove_device(&self, project: &str, device: &str) -> Result<(), TeamError> {
+        let device = DeviceId::new(device).map_err(|_| TeamError::UnknownRequest)?;
         let tx = self.team_tx(project)?;
-        Self::send_command(tx, move |reply| Command::RemoveMember(member, reply)).await
+        Self::send_command(tx, move |reply| Command::RemoveDevice(device, reply)).await
     }
 
-    /// Removes another device from a team. Not a command yet (step F part 2b).
-    pub async fn remove_device(
-        &self,
-        project: &str,
-        member: &str,
-        device: &str,
-    ) -> Result<(), TeamError> {
-        let holder = Holder {
-            member: MemberId::new(member).map_err(|_| TeamError::UnknownRequest)?,
-            device: DeviceId::new(device).map_err(|_| TeamError::UnknownRequest)?,
-        };
+    /// The person compared the admitting device's and the log's safety numbers and confirms
+    /// that this device joined the right team.
+    pub async fn confirm_admission(&self, project: &str) -> Result<(), TeamError> {
         let tx = self.team_tx(project)?;
-        Self::send_command(tx, move |reply| Command::RemoveDevice(holder, reply)).await
+        Self::send_command(tx, Command::ConfirmAdmission).await
     }
 
     /// Sets a worker's view, unless a newer worker took over the team.
@@ -1145,7 +1148,7 @@ impl Worker {
                 self.retire().await;
                 Next::Stop(StopReason::ProjectDeleted)
             }
-            Website::Member(_) => {
+            Website::Member { .. } => {
                 eprintln!("hangar: the relay called a project deleted that the website lists");
                 Next::Stop(StopReason::Attention(AttentionReason::Refused))
             }
@@ -1185,8 +1188,8 @@ impl Worker {
             }
             Command::Confirm(_, reply)
             | Command::Reject(_, reply)
-            | Command::RemoveMember(_, reply)
             | Command::RemoveDevice(_, reply)
+            | Command::ConfirmAdmission(reply)
             | Command::ReserveTask(_, reply)
             | Command::ReleaseTask(_, reply)
             | Command::AskRelease(_, reply)
@@ -1228,10 +1231,15 @@ impl Worker {
     /// The person and the project on the website.
     async fn website(&self) -> Website {
         match self.service.inner.account.projects().await {
-            Ok(projects) => projects
-                .iter()
-                .find(|p| p.id == self.project)
-                .map_or(Website::Gone, |p| Website::Member(map_role(p.role))),
+            Ok(projects) => {
+                projects
+                    .iter()
+                    .find(|p| p.id == self.project)
+                    .map_or(Website::Gone, |p| Website::Member {
+                        role: map_role(p.role),
+                        owner: p.owner_id.as_deref().and_then(|id| MemberId::new(id).ok()),
+                    })
+            }
             Err(AccountError::NotSignedIn | AccountError::SessionEnded) => Website::SignedOut,
             Err(error) => {
                 eprintln!("hangar: team project list not read: {error}");
@@ -1240,11 +1248,60 @@ impl Worker {
         }
     }
 
+    /// The project's members on the website, for an owner's or admin's device. `None` when
+    /// the website does not answer (or does not offer the list yet): the log's members then
+    /// stay as they are; nothing else depends on the list.
+    async fn website_members(&self) -> Option<Vec<WebsiteMember>> {
+        match self
+            .service
+            .inner
+            .account
+            .project_members(&self.project)
+            .await
+        {
+            Ok(members) => Some(
+                members
+                    .into_iter()
+                    .filter_map(|m| {
+                        let role = match m.role {
+                            account::Role::Other => None,
+                            known => Some(map_role(known)),
+                        };
+                        let member = MemberId::new(m.id).ok()?;
+                        Some(WebsiteMember { member, role })
+                    })
+                    .collect(),
+            ),
+            Err(error) => {
+                eprintln!("hangar: team member list not read: {error}");
+                None
+            }
+        }
+    }
+
+    /// The account signed in on the website, when the account read it (`/me`).
+    fn signed_in_account(&self) -> Option<MemberId> {
+        match self.service.inner.account.view().state {
+            AccountState::SignedIn { user: Some(me) } => MemberId::new(me.id).ok(),
+            _ => None,
+        }
+    }
+
     /// The engine, with this device's identity from the keychain (created on first use).
-    async fn ensure_engine(&mut self, role: Role) -> Result<(), SessionEnd> {
+    async fn ensure_engine(
+        &mut self,
+        role: Role,
+        owner: Option<MemberId>,
+    ) -> Result<(), SessionEnd> {
+        let account = self.signed_in_account();
         if let Some(engine) = &mut self.engine {
-            // Not synced on a new connection yet, so this only notes the role.
-            let _ = engine.set_website_role(role);
+            // Not synced on a new connection yet, so this only notes role, owner and account.
+            engine.set_account(account);
+            let _ = engine.set_website(team_engine::Website {
+                role,
+                owner,
+                members: None,
+            });
             return Ok(());
         }
         let keychain = attention(AttentionReason::Keychain);
@@ -1328,11 +1385,15 @@ impl Worker {
             device,
             identity,
             member,
+            account,
             website_role: role,
+            owner,
             keys,
             local,
             now: Box::new(crate::updates::now_millis),
             entropy: Box::new(OsEntropy),
+            website_every_ms: millis(self.timing().website_every),
+            members_every_ms: millis(self.timing().members_every),
         });
         let _ = engine.set_share(self.share.clone());
         self.engine = Some(engine);
@@ -1368,14 +1429,14 @@ impl Worker {
 
     /// One connection from ticket to close. `Err` leaves the worker (turned off).
     async fn connect_once(&mut self) -> Result<SessionEnd, Exit> {
-        let role = match self.website().await {
-            Website::Member(role) => role,
+        let (role, owner) = match self.website().await {
+            Website::Member { role, owner } => (role, owner),
             // Not listed: the keys stay, the website may list the project again.
             Website::Gone => return Ok(SessionEnd::Stop(StopReason::Removed)),
             Website::SignedOut => return Ok(attention(AttentionReason::SignedOut)),
             Website::Unreachable => return Ok(SessionEnd::Lost),
         };
-        if let Err(end) = self.ensure_engine(role).await {
+        if let Err(end) = self.ensure_engine(role, owner).await {
             return Ok(end);
         }
         if self.other_account() {
@@ -1515,8 +1576,8 @@ impl Worker {
             }
             Command::Confirm(id, reply) => (engine.confirm(&id), reply),
             Command::Reject(id, reply) => (engine.reject(&id), reply),
-            Command::RemoveMember(member, reply) => (engine.remove_member(&member), reply),
-            Command::RemoveDevice(holder, reply) => (engine.remove_device(&holder), reply),
+            Command::RemoveDevice(device, reply) => (engine.remove_own_device(&device), reply),
+            Command::ConfirmAdmission(reply) => (engine.confirm_admission(), reply),
             Command::ReserveTask(task, reply) => (
                 engine.reserve_task(&task.title, task.session, task.area.as_deref()),
                 reply,
@@ -1652,19 +1713,37 @@ impl Worker {
                     }
                 }
                 Effect::WipeDevice => self.retire().await,
-                Effect::CheckWebsite => match self.website().await {
-                    Website::Member(role) => {
+                Effect::CheckWebsite { removal, members } => match self.website().await {
+                    Website::Member { role, owner } => {
+                        let members = if members {
+                            self.website_members().await
+                        } else {
+                            None
+                        };
                         let more = self
                             .engine
                             .as_mut()
-                            .map(|engine| engine.set_website_role(role))
+                            .map(|engine| {
+                                engine.set_website(team_engine::Website {
+                                    role,
+                                    owner,
+                                    members,
+                                })
+                            })
                             .unwrap_or_default();
                         for effect in more.into_iter().rev() {
                             queue.push_front(effect);
                         }
                     }
-                    Website::Gone => {
+                    // The relay said this member was removed and the website agrees: the keys go.
+                    Website::Gone if removal => {
                         self.retire().await;
+                        result = Some(Ok(SessionEnd::Stop(StopReason::Removed)));
+                        break;
+                    }
+                    // Not listed, without the relay's word: the keys stay, the website may list
+                    // the project again (as at the start of a connection).
+                    Website::Gone => {
                         result = Some(Ok(SessionEnd::Stop(StopReason::Removed)));
                         break;
                     }

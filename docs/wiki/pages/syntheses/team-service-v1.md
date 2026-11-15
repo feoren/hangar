@@ -4,7 +4,7 @@ type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
 sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]"]
 created: 2026-11-09
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Team service version 1: research results and build plan
@@ -561,15 +561,17 @@ real relay yet; tested against an in-test relay built from both crates.
   device, or (for `member.removed` naming this member, and 4404) when the website no longer lists
   the project. `member.role_changed` only rereads the project list; the role comes from the
   website. Every wipe also turns sharing off, so the next start does not register a new identity
-  unasked. `remove_member` and `remove_device` exist in the service (removal through
-  `device.remove` with its signed entry) but are not commands yet.
+  unasked. Members leave the log from the website's member list on an owner's or admin's
+  device; a person removes a lost device of their own with `team_remove_device` (the signed
+  entry in `device.remove`). Details and the admission check in [[team-crypto]] (third review).
 - **Account changes:** the team service subscribes to the account (`AccountService::subscribe`).
   A sign-out (or a sign-in the server ended) stops the running teams at once with "signed out",
   instead of at the next ticket renewal; a sign-in restarts them; a server change stops and
   forgets the old server's workers and starts the new server's enabled ones.
 - **Interface:** commands `team_status(projectId)`, `team_enable(projectId)`,
   `team_disable(projectId)`, `team_pending_confirmations()`, `team_confirm(request)`,
-  `team_reject(request)` (main window only); event `team-changed` with `TeamSnapshot { teams:
+  `team_reject(request)`, `team_confirm_admission(projectId)`,
+  `team_remove_device(projectId, device)`, `team_snapshot()` (main window only; `team-changed` is a payload-free signal, since other webviews may hear it, and the window fetches the snapshot); event `team-changed` with `TeamSnapshot { teams:
   { projectId, status }[], pending: PendingConfirmation[] }`; `TeamStatus` is `off`,
   `connecting { retrying }`, `connected { epoch, members, devices }`, `waitingForConfirmation
   { safetyNumber }` (six groups of five digits), `needsAttention { reason }` (`historyMismatch`,

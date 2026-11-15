@@ -32,6 +32,37 @@ const FILE_VIEWER_ONLY: &[&str] = &[
     "file_viewer_open_link",
 ];
 
+/// Tauri hands an event sent with `emit_to` to one window also to listeners of other webviews
+/// that listen to any target (the panel may listen). The account and team signals therefore
+/// carry no payload; the main window fetches the state with commands only it may call.
+#[test]
+fn account_and_team_signals_carry_no_payload() {
+    let lib = read("src/lib.rs");
+    for event in ["account::EVENT", "team::EVENT"] {
+        let emits: Vec<&str> = lib
+            .match_indices(event)
+            .map(|(at, _)| {
+                let end = lib[at..].find(')').map_or(lib.len(), |e| at + e);
+                &lib[at..end]
+            })
+            .collect();
+        assert!(!emits.is_empty(), "{event} is never emitted");
+        for emit in emits {
+            assert_eq!(
+                emit,
+                format!("{event}, ("),
+                "{event} carries a payload: {emit}"
+            );
+        }
+    }
+    for path in ["capabilities/panel.json", "capabilities/file-viewer.json"] {
+        let capability = read(path);
+        for command in ["allow-team-snapshot", "allow-account-status"] {
+            assert!(!capability.contains(command), "{path} grants {command}");
+        }
+    }
+}
+
 #[test]
 fn commands_are_registered_allowed_and_wired() {
     let commands = build_commands();

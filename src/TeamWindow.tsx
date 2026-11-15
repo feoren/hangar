@@ -17,6 +17,7 @@ import {
 } from "./team";
 import { TeamPeople } from "./TeamActivityView";
 import {
+  AdmissionCheck,
   ConnectButton,
   ConnectList,
   PendingConfirmations,
@@ -360,8 +361,26 @@ function NowTab(props: {
   const { status } = props;
   if (status.state === "connected")
     return <div className="team-columns team-now">{props.content}</div>;
+  if (status.state === "waitingForKeyChange") {
+    // The teammates stay visible; only this device's sharing waits for the new key.
+    const waiting = statusLine(status, t);
+    return (
+      <>
+        {waiting !== null && (
+          <p className={`team-status tone-${waiting.tone}`} role="status">
+            <span className="team-status-mark" aria-hidden="true" />
+            <span>{waiting.text}</span>
+          </p>
+        )}
+        <div className="team-columns team-now">{props.content}</div>
+      </>
+    );
+  }
   if (status.state === "waitingForConfirmation") {
     return <WaitingHelp safetyNumber={status.safetyNumber} />;
+  }
+  if (status.state === "confirmAdmission") {
+    return <AdmissionCheck projectId={props.project.id} status={status} busy={props.busy} />;
   }
   const line = statusLine(status, t);
   const off = status.state === "off" || status.state === "removed";

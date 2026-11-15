@@ -13,8 +13,8 @@ use reqwest::{Method, StatusCode};
 use zeroize::Zeroizing;
 
 use crate::account::{
-    self, BaseUrl, DeviceAuthorization, Me, OAuthCode, PollResponse, Problem, Project, RelayTicket,
-    TokenSet,
+    self, BaseUrl, DeviceAuthorization, Me, OAuthCode, PollResponse, Problem, Project,
+    ProjectMember, RelayTicket, TokenSet,
 };
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -352,6 +352,17 @@ impl AccountApi {
         Project::parse_list(&body, &self.base).ok_or(ApiError::Malformed)
     }
 
+    /// `GET /projects/{id}/members`: the project's members and their roles, for a project the
+    /// person is a member of. The id is percent-encoded as one path segment.
+    pub async fn project_members(
+        &self,
+        access: &str,
+        project_id: &str,
+    ) -> Result<Vec<ProjectMember>, ApiError> {
+        let body = self.get(&members_path(project_id), access).await?;
+        ProjectMember::parse_list(&body).ok_or(ApiError::Malformed)
+    }
+
     /// `POST /relay-ticket` for a project the person is a member of (404 otherwise).
     pub async fn relay_ticket(
         &self,
@@ -430,6 +441,14 @@ fn form_encode(out: &mut String, value: &str) {
     }
 }
 
+/// `projects/<id>/members`, the id percent-encoded so it stays one segment whatever it holds.
+fn members_path(project_id: &str) -> String {
+    let mut path = String::from("projects/");
+    form_encode(&mut path, project_id);
+    path.push_str("/members");
+    path
+}
+
 fn map_reqwest(error: reqwest::Error) -> ApiError {
     if error.is_timeout() {
         ApiError::Timeout
@@ -447,5 +466,11 @@ mod tests {
         let mut out = String::new();
         form_encode(&mut out, "hgrt_a-b.c*d~e+f=g&h%i j/\u{e4}");
         assert_eq!(out, "hgrt_a-b.c*d%7Ee%2Bf%3Dg%26h%25i%20j%2F%C3%A4");
+    }
+
+    #[test]
+    fn a_project_id_stays_one_path_segment() {
+        assert_eq!(members_path("42"), "projects/42/members");
+        assert_eq!(members_path("../me"), "projects/..%2Fme/members");
     }
 }
