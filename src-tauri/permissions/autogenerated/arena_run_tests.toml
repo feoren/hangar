@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-arena-run-tests"
+description = "Enables the arena_run_tests command without any pre-configured scope."
+commands.allow = ["arena_run_tests"]
+
+[[permission]]
+identifier = "deny-arena-run-tests"
+description = "Denies the arena_run_tests command without any pre-configured scope."
+commands.deny = ["arena_run_tests"]

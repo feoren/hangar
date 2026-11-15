@@ -520,6 +520,16 @@ export function TemplateIcon(props: IconProps) {
   );
 }
 
+/** Columns of different heights side by side: the arena, several agents compared. */
+export function ArenaIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 13.5h11" />
+      <path d="M3.5 13.5V8h2.6v5.5M6.7 13.5V4h2.6v9.5M9.9 13.5V6.5h2.6v7" />
+    </Svg>
+  );
+}
+
 export function PlayIcon(props: IconProps) {
   return (
     <Svg {...props}>

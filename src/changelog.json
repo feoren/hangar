@@ -2,7 +2,22 @@
   {
     "version": "0.7.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Die Arena gibt eine Aufgabe an 2 bis 4 Agenten, jeder im eigenen Worktree. Du vergleichst Dateien, Zeilen, Dauer und Tests und übernimmst den Gewinner.",
+        "en": "The arena gives one task to 2 to 4 agents, each in its own worktree. Compare files, lines, time and tests, then take over the winner.",
+        "el": "Η αρένα δίνει μία εργασία σε 2 έως 4 agents, τον καθένα στο δικό του worktree. Σύγκρινε αρχεία, γραμμές, χρόνο και δοκιμές και υιοθέτησε τον νικητή.",
+        "es": "La arena da una tarea a entre 2 y 4 agentes, cada uno en su propio worktree. Compara archivos, líneas, tiempo y pruebas, y adopta al ganador.",
+        "fr": "L’arène confie une tâche à 2 à 4 agents, chacun dans son worktree. Compare fichiers, lignes, durée et tests, puis reprends le gagnant.",
+        "it": "L’arena dà un compito a un numero di agenti da 2 a 4, ognuno nel proprio worktree. Confronta file, righe, durata e test, poi adotta il vincitore.",
+        "ja": "アリーナは 1 つのタスクを 2 から 4 のエージェントに渡し、それぞれ専用の worktree で作業させます。ファイル、行、時間、テストを比べて勝者を取り込めます。",
+        "pl": "Arena daje jedno zadanie od 2 do 4 agentom, każdemu we własnym worktree. Porównaj pliki, wiersze, czas i testy, a potem przejmij zwycięzcę.",
+        "pt": "A arena dá uma tarefa a 2 a 4 agentes, cada um em seu próprio worktree. Compare arquivos, linhas, tempo e testes e adote o vencedor.",
+        "ru": "Арена даёт одну задачу двум, трём или четырём агентам, каждому в своём worktree. Сравни файлы, строки, время и тесты и забери победителя.",
+        "tr": "Arena tek bir görevi 2 ile 4 arası ajana verir, her biri kendi worktree’sinde. Dosyaları, satırları, süreyi ve testleri karşılaştır, kazananı al.",
+        "zh": "竞技场把一个任务交给 2 到 4 个代理，每个都在自己的 worktree 中工作。比较文件、行数、用时和测试，然后采用胜出者。"
+      }
+    ]
   },
   {
     "version": "0.6.0",

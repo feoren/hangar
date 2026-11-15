@@ -94,6 +94,11 @@ pub fn is_valid_slug(slug: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// A full SHA-1 or SHA-256 commit id in hex, never a ref name or an option.
+pub fn is_full_commit_id(text: &str) -> bool {
+    matches!(text.len(), 40 | 64) && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// `<repo name>-<8 hex of sha256(repoRoot)>`: readable, and two repositories with the same name
 /// do not share a folder.
 pub fn repo_dir_name(repo_root: &Path) -> String {
@@ -205,12 +210,30 @@ pub fn check_branch(branch: &str) -> Result<(), WorktreeError> {
 /// Creates branch `hangar/<slug>` from HEAD of the repository that contains `cwd` and checks it
 /// out under `base`.
 pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktree, WorktreeError> {
+    create_at(git, base, cwd, &new_slug(label), "HEAD")
+}
+
+/// [`create`] with a slug chosen by the caller (the arena names its own) and the commit to start
+/// from: `HEAD` or a full commit id, so several worktrees share one base even if HEAD moves while
+/// they are created.
+pub fn create_at(
+    git: &Git,
+    base: &Path,
+    cwd: &Path,
+    slug: &str,
+    start: &str,
+) -> Result<Worktree, WorktreeError> {
+    if !is_valid_slug(slug) {
+        return Err(WorktreeError::ForeignBranch);
+    }
+    if start != "HEAD" && !is_full_commit_id(start) {
+        return Err(GitError::InvalidCommit.into());
+    }
     git::check_folder(cwd)?;
     let deadline = Instant::now() + TIMEOUT;
     let repo_root = git::toplevel(git, cwd, deadline)?.ok_or(WorktreeError::NotARepo)?;
-    let slug = new_slug(label);
     let parent = base.join(repo_dir_name(&repo_root));
-    let path = parent.join(&slug);
+    let path = parent.join(slug);
     crate::persist::create_private_dir(&parent).map_err(|source| WorktreeError::Io {
         path: parent.clone(),
         source,
@@ -222,7 +245,7 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
         OsStr::new("-b"),
         OsStr::new(&branch),
         path.as_os_str(),
-        OsStr::new("HEAD"),
+        OsStr::new(start),
     ];
     let output = git.run(&repo_root, args, deadline, 64 * 1024)?;
     if !output.success {
@@ -241,7 +264,7 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
 /// `branch -d`). Not a valid slug, so it can never be taken for a worktree.
 pub const NO_HOOKS_DIR: &str = ".no-hooks";
 
-fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
+pub(crate) fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
     let dir = base.join(NO_HOOKS_DIR);
     let io = |source| WorktreeError::Io {
         path: dir.clone(),

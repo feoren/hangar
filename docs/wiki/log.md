@@ -636,3 +636,11 @@ The system bar's gauges became tiles with the sparkline as background; measured 
 pane-placed sessions (without terminal lines) and names the program and version; the context
 meter and the marker dot in a session row lost their tooltips.
 Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] query | Agent arena
+Filed the design of the agent arena: worktrees `hangar/arena-<id>-<agent>` from one commit read
+once, the task pasted with Enter once a session is quiet, diff stats against the base commit with
+new files counted, the test command split into argv (no shell, PATH only, time limit, process tree
+ended), taking the winner over through `git apply` plus copied new files with refusal on files the
+project folder changed, and forced removal only for confirmed arena worktrees. No cost column yet.
+Pages changed: [[agent-arena]] (new), index.

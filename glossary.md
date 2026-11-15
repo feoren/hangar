@@ -225,3 +225,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Zeitraum (Aktivitätskarte)                      | time window                       | last hour, today, 7 days; `HeatWindow`                                               |
 | Abspielen (Aktivitätskarte)                     | replay                            | the time window in `PLAY_STEPS` steps, play and pause                                |
 | Halter (einer Datei)                            | file holder                       | a teammate session or a worktree of this device changing a file                      |
+| Arena (Agenten-Arena)                           | agent arena, arena                | one task for 2 to 4 agents in worktrees from one commit; `arena.rs`, `arena.ts`      |
+| Teilnehmer (Arena)                              | contestant                        | one agent of an arena with its session and worktree; `Contestant`                    |
+| Übernehmen (Arena)                              | take over                         | the winner's changes into the project folder, uncommitted; `arena_apply`             |

@@ -52,6 +52,22 @@ import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
+import {
+  contestantState,
+  newContestant,
+  others,
+  parseApplyOutcome,
+  parseArena,
+  parseTestRun,
+  promptReady,
+  testsDue,
+  trackAttention,
+  type ApplyOutcome,
+  type ArenaRun,
+  type ArenaSetup,
+  type Contestant,
+} from "./arena";
+import { ArenaDialog, type ArenaInput } from "./ArenaDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import {
@@ -356,10 +372,33 @@ const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog =
-  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
+  | "about"
+  | "settings"
+  | "whatsNew"
+  | "launcher"
+  | "broadcast"
+  | "searchAll"
+  | "overview"
+  | "arena"
+  | null;
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
+/** How often the arena looks whether a contestant is ready for its task. */
+const ARENA_POLL_MS = 500;
+
+/** The running arena once its sessions started; its clock starts now. */
+function arenaRun(setup: ArenaSetup, input: ArenaInput, contestants: Contestant[]): ArenaRun {
+  return {
+    id: setup.id,
+    baseCommit: setup.baseCommit,
+    repoRoot: setup.repoRoot,
+    prompt: input.prompt,
+    testCommand: input.testCommand,
+    startedAt: Date.now(),
+    contestants,
+  };
+}
 /** Snippets listed directly in the terminal context menu; more are in quick access. */
 const MENU_SNIPPETS = 5;
 
@@ -520,6 +559,18 @@ export function App() {
   // Read before the settings are saved for the first time: has Hangar run here before?
   const [knownUser] = useState(hasStoredSettings);
   const [renamingId, setRenamingId] = useState<number | null>(null);
+  /** The running agent arena (arena.ts); one at a time, kept in memory only. */
+  const [arena, setArena] = useState<ArenaRun | null>(null);
+  const arenaRef = useRef(arena);
+  useEffect(() => {
+    arenaRef.current = arena;
+  }, [arena]);
+  /** When each contestant's session started (performance.now), for promptReady. */
+  const arenaStarts = useRef(new Map<number, number>());
+  /** Contestants whose task went out, so the poll never sends it twice. */
+  const arenaSent = useRef(new Set<number>());
+  /** Attention changes of every session reach the arena here (set once the arena code exists). */
+  const arenaAttention = useRef<(id: number, next: AttentionState) => void>(() => undefined);
   /** What the terminals' trackers report; `attention` below adds the gate's waiting sessions. */
   const [trackedAttention, setAttention] = useState<ReadonlyMap<number, AttentionState>>(
     () => new Map(),
@@ -1663,6 +1714,7 @@ export function App() {
         if (next === "working") {
           setDoneNotice((current) => (current?.sessionId === id ? null : current));
         }
+        arenaAttention.current(id, next);
         previous = next;
         previousReason = reason;
         if (chime !== null) chimes.request(chime, settingsRef.current.chimeVolume);
@@ -1754,7 +1806,8 @@ export function App() {
    * the agent gate (ADR 0008). A start in the target uses up a chosen folder: the next one follows
    * the active session again. `title`: a name chosen beforehand (workspace templates). `onError`
    * takes a failure's text instead of the error notice (a template reports once at the end).
-   * Resolves to whether the session runs.
+   * `prepared`: a worktree the arena already made; the session runs there privately and gets
+   * `onStarted` with its id. Resolves to whether the session runs.
    */
   const start = useCallback(
     async (
@@ -1763,13 +1816,14 @@ export function App() {
       mode: StartMode = "private",
       title?: string,
       onError?: (text: string) => void,
+      prepared?: { worktree: Worktree; onStarted: (id: number) => void },
     ): Promise<boolean> => {
       const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
-      let worktree: Worktree | undefined;
+      let worktree: Worktree | undefined = prepared?.worktree;
       // A team session needs its worktree; without a folder there is none to make.
       if (mode === "team" && base === null) return false;
-      if (mode === "team" && base !== null) {
+      if (mode === "team" && base !== null && worktree === undefined) {
         setCreatingWorktree(true);
         try {
           const made = parseWorktree(await api.createWorktree(base, worktreeLabel(profile.name)));
@@ -1797,10 +1851,11 @@ export function App() {
           terminal.createChannel(),
           false,
           null,
-          worktree === undefined ? "private" : "team",
+          worktree === undefined || prepared !== undefined ? "private" : "team",
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
+        prepared?.onStarted(info.id);
         // The same program twice: "PowerShell 7 (2)", so the sidebar can tell them apart.
         // A real name, not a display trick: rename and restore keep it.
         const others = [
@@ -2130,8 +2185,12 @@ export function App() {
       });
   }, []);
 
+  /**
+   * `discard`: the user confirmed in the arena that the worktree goes with all its changes
+   * (arena_discard); otherwise it is removed only when clean.
+   */
   const close = useCallback(
-    async (id: number) => {
+    async (id: number, discard = false) => {
       const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
       let closed = true;
       if (!isPlaceholder(id)) {
@@ -2176,6 +2235,14 @@ export function App() {
             message: tr("worktree.keptInUse"),
             path: worktree.path,
             copied: false,
+          });
+        } else if (discard) {
+          api.arenaDiscard(worktree).catch((e: unknown) => {
+            setWorktreeNotice({
+              message: tr("arena.discardFailed", { error: errorText(e) }),
+              path: worktree.path,
+              copied: false,
+            });
           });
         } else {
           removeSessionWorktree(worktree);
@@ -3326,6 +3393,192 @@ export function App() {
   const startHere = (profile: Profile) => {
     void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
+
+  // Agent arena (arena.ts, ArenaDialog.tsx, backend arena.rs).
+
+  /** Installed agents that can take part: programs that are not a known shell. */
+  const arenaAgents = startable.filter((profile) => shellKind(profile.command) === "agent");
+  /** Folders an arena can start in: the start places that lie in a git repository. */
+  const arenaFolders = places.filter((path) => worktreeChance(branches, path) === "yes");
+  const arenaOpenable = arena !== null || arenaAgents.length >= 2;
+  const openArena = () => {
+    setDialog("arena");
+  };
+
+  /** Changes one contestant; the state stays the same object when nothing changed. */
+  const updateContestant = useCallback((id: number, change: (c: Contestant) => Contestant) => {
+    setArena((current) => {
+      if (current === null) return current;
+      const contestants = current.contestants.map((c) => (c.sessionId === id ? change(c) : c));
+      const changed = contestants.some((c, index) => c !== current.contestants[index]);
+      return changed ? { ...current, contestants } : current;
+    });
+  }, []);
+
+  // Working and finish times follow the attention changes of the contestants' sessions.
+  useEffect(() => {
+    arenaAttention.current = (id, next) => {
+      updateContestant(id, (c) => trackAttention(c, next, Date.now()));
+    };
+  }, [updateContestant]);
+
+  /** Pastes the task into a contestant's session, then Enter (as "Send to several" does). */
+  const sendArenaTask = useCallback(
+    (id: number) => {
+      const terminal = terminals.get(id);
+      const prompt = arenaRef.current?.prompt;
+      if (!terminal || prompt === undefined || terminal.exitCode !== undefined) return;
+      arenaSent.current.add(id);
+      // An agent that is still busy when its task arrives counts as working on it.
+      const state = terminal.attention.state;
+      updateContestant(id, (c) =>
+        c.promptSent ? c : trackAttention({ ...c, promptSent: true }, state, Date.now()),
+      );
+      void sendToTargets([terminal], prompt, () => delay(BROADCAST_ENTER_DELAY_MS));
+    },
+    [updateContestant],
+  );
+
+  // The task goes in once a contestant's start screen is quiet (promptReady).
+  const waitingForTask =
+    arena?.contestants
+      .filter((c) => !c.promptSent)
+      .map((c) => c.sessionId)
+      .join(",") ?? "";
+  useEffect(() => {
+    if (waitingForTask === "") return;
+    const ids = waitingForTask.split(",").map(Number);
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      for (const id of ids) {
+        const terminal = terminals.get(id);
+        const startedAt = arenaStarts.current.get(id);
+        if (!terminal || startedAt === undefined || arenaSent.current.has(id)) continue;
+        const lastOutput = terminal.lastOutputAt > 0 ? terminal.lastOutputAt : null;
+        if (promptReady(startedAt, lastOutput, now)) sendArenaTask(id);
+      }
+    }, ARENA_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [waitingForTask, sendArenaTask]);
+
+  /** Runs the test command in a contestant's worktree (backend, argv without a shell). */
+  const runArenaTests = useCallback(
+    (id: number) => {
+      const current = arenaRef.current;
+      const contestant = current?.contestants.find((c) => c.sessionId === id);
+      if (!current || !contestant || current.testCommand === "") return;
+      if (contestant.tests.kind === "running") return;
+      updateContestant(id, (c) => ({ ...c, tests: { kind: "running" }, testedFor: c.doneAt }));
+      api
+        .arenaRunTests(contestant.worktree, current.testCommand)
+        .then((value) => {
+          const run = parseTestRun(value);
+          updateContestant(id, (c) => ({
+            ...c,
+            tests:
+              run === null ? { kind: "error", message: t("error.unknown") } : { kind: "done", run },
+          }));
+        })
+        .catch((e: unknown) => {
+          updateContestant(id, (c) => ({ ...c, tests: { kind: "error", message: errorText(e) } }));
+        });
+    },
+    [updateContestant, t],
+  );
+
+  // Tests run by themselves once per finish.
+  useEffect(() => {
+    if (arena === null || arena.testCommand === "") return;
+    for (const c of arena.contestants) {
+      const session = state.sessions.find((s) => s.id === c.sessionId);
+      if (session === undefined) continue;
+      const now = contestantState(c, attention.get(c.sessionId), session.status === "exited");
+      if (testsDue(c, now, arena.testCommand)) runArenaTests(c.sessionId);
+    }
+  }, [arena, attention, state.sessions, runArenaTests]);
+
+  /**
+   * One worktree per agent from the current commit (backend), then one private session in each,
+   * shown side by side. The task follows per session once its agent is ready.
+   */
+  const startArena = async (input: ArenaInput): Promise<string | null> => {
+    const picked = input.profileIds.flatMap((id) => {
+      const profile = arenaAgents.find((agent) => agent.id === id);
+      return profile ? [profile] : [];
+    });
+    let setup;
+    try {
+      setup = parseArena(
+        await api.arenaCreate(
+          input.folder,
+          picked.map((profile) => profile.name),
+        ),
+      );
+    } catch (e) {
+      return createErrorText(e, t);
+    }
+    if (setup === null) return t("error.unknown");
+    const failures: string[] = [];
+    const contestants: Contestant[] = [];
+    for (const [index, profile] of picked.entries()) {
+      const worktree = setup.worktrees[index];
+      if (worktree === undefined) continue;
+      const started: number[] = [];
+      const ok = await start(
+        profile,
+        input.folder,
+        "private",
+        t("arena.sessionTitle", { name: profile.name }),
+        (text) => {
+          failures.push(text);
+        },
+        {
+          worktree,
+          onStarted: (id) => {
+            started.push(id);
+            arenaStarts.current.set(id, performance.now());
+          },
+        },
+      );
+      const id = started[0];
+      if (ok && id !== undefined) {
+        contestants.push(newContestant(id, profile.id, profile.name, worktree));
+      }
+    }
+    // Worktrees whose session did not start were taken away again by `start`.
+    const lastError = failures.at(-1);
+    if (contestants.length === 0) return lastError ?? t("error.unknown");
+    setArena(arenaRun(setup, input, contestants));
+    setDialog(null);
+    splitView.showOnly(contestants.map((c) => c.sessionId));
+    if (lastError !== undefined) setError(lastError);
+    else setStartHint(t("arena.started"));
+    return null;
+  };
+
+  const applyArenaWinner = async (id: number): Promise<ApplyOutcome | string> => {
+    const current = arenaRef.current;
+    const contestant = current?.contestants.find((c) => c.sessionId === id);
+    if (!current || !contestant) return t("error.unknown");
+    try {
+      const outcome = parseApplyOutcome(
+        await api.arenaApply(contestant.worktree, current.baseCommit),
+      );
+      return outcome ?? t("error.unknown");
+    } catch (e) {
+      return errorText(e);
+    }
+  };
+
+  /** After taking a winner over: the others close, their worktrees go with all changes. */
+  const closeArenaOthers = (winnerId: number) => {
+    const current = arenaRef.current;
+    if (!current) return;
+    const existing = new Set(stateRef.current.sessions.map((s) => s.id));
+    for (const c of others(current, winnerId, existing)) void close(c.sessionId, true);
+  };
   /**
    * Starts every session of a workspace template, one after another so titles number in order.
    * Team sessions stay team sessions only where the folder is still a git repository and the
@@ -3664,6 +3917,10 @@ export function App() {
             setDialog("broadcast");
           },
         },
+        // Hidden, not greyed out, while fewer than two agents are installed.
+        ...(arenaOpenable
+          ? [{ type: "action" as const, label: t("arena.menu"), run: openArena }]
+          : []),
         {
           type: "action",
           label: t("templates.save"),
@@ -4284,6 +4541,7 @@ export function App() {
             setTemplates((current) => deleteTemplate(current, id));
           }}
           onSaveTemplate={openSaveTemplate}
+          onOpenArena={arenaOpenable ? openArena : null}
           grouping={grouping}
           onGrouping={(sessionGrouping) => {
             updateSettings({ sessionGrouping });
@@ -5075,6 +5333,27 @@ export function App() {
             badgeFor={badgeFor}
             snippets={snippets}
             onSend={sendToSeveral}
+            onClose={closeDialog}
+          />
+        )}
+        {dialog === "arena" && (
+          <ArenaDialog
+            agents={arenaAgents}
+            folders={arenaFolders}
+            badgeFor={badgeFor}
+            arena={arena}
+            sessions={state.sessions}
+            attention={attention}
+            onStart={startArena}
+            onShow={(id) => {
+              setDialog(null);
+              dispatch({ type: "activated", id });
+              focusTerminal();
+            }}
+            onResend={sendArenaTask}
+            onRunTests={runArenaTests}
+            onApply={applyArenaWinner}
+            onCloseOthers={closeArenaOthers}
             onClose={closeDialog}
           />
         )}

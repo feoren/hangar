@@ -441,6 +441,19 @@ export const api = {
     invoke<unknown>("create_worktree", { cwd, label }),
   /** Never forces; what stays is named in `reason`. Check with `parseRemoval`. */
   removeWorktree: (worktree: Worktree) => invoke<unknown>("remove_worktree", { worktree }),
+  /** Agent arena: one worktree per label from the current commit; check with `parseArena`. */
+  arenaCreate: (cwd: string, labels: string[]) => invoke<unknown>("arena_create", { cwd, labels }),
+  /** A contestant's changes against the base commit; check with `parseDiffStat`. */
+  arenaDiffStat: (worktree: Worktree, baseCommit: string) =>
+    invoke<unknown>("arena_diff_stat", { worktree, baseCommit }),
+  /** Takes the winner over, uncommitted; check with `parseApplyOutcome`. */
+  arenaApply: (worktree: Worktree, baseCommit: string) =>
+    invoke<unknown>("arena_apply", { worktree, baseCommit }),
+  /** Removes an arena worktree and its branch with all changes (the user confirmed it). */
+  arenaDiscard: (worktree: Worktree) => invoke<null>("arena_discard", { worktree }),
+  /** The test command in a contestant's worktree; check with `parseTestRun`. */
+  arenaRunTests: (worktree: Worktree, command: string) =>
+    invoke<unknown>("arena_run_tests", { worktree, command }),
   /**
    * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
    * While on, the backend emits `claims-changed` with every new snapshot.

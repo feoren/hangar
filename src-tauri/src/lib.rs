@@ -4,6 +4,7 @@ pub mod account;
 pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
+pub mod arena;
 pub mod batch;
 pub mod child_env;
 pub mod claims;
@@ -389,6 +390,11 @@ pub fn run() -> tauri::Result<()> {
             commands::file_viewer_open_link,
             commands::create_worktree,
             commands::remove_worktree,
+            commands::arena_create,
+            commands::arena_diff_stat,
+            commands::arena_apply,
+            commands::arena_discard,
+            commands::arena_run_tests,
             commands::configure_claims,
             commands::claims_snapshot,
             commands::configure_gate,

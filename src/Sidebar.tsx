@@ -13,6 +13,7 @@ import { peekNotes } from "./peek";
 import { useT } from "./i18n";
 import {
   AlertIcon,
+  ArenaIcon,
   BranchIcon,
   ChevronIcon,
   CloseIcon,
@@ -208,6 +209,8 @@ interface Props {
   onDeleteTemplate: (id: string) => void;
   /** "Save sessions as template"; `null` while no session runs. */
   onSaveTemplate: (() => void) | null;
+  /** Opens the agent arena; `null` while fewer than two agents are installed and none runs. */
+  onOpenArena: (() => void) | null;
   /** Sessions grouped by program or by project folder. */
   grouping: SessionGrouping;
   onGrouping: (grouping: SessionGrouping) => void;
@@ -1052,6 +1055,17 @@ export function Sidebar(props: Props) {
             onSave={props.onSaveTemplate}
             onAction={props.onMenuClose}
           />
+          {props.onOpenArena !== null && (
+            <button
+              type="button"
+              className="icon-button cwd-templates"
+              aria-label={t("arena.title")}
+              title={`${t("arena.title")}: ${t("arena.hint")}`}
+              onClick={props.onOpenArena}
+            >
+              <ArenaIcon size={15} />
+            </button>
+          )}
         </div>
         {folderMenu !== null && (
           <FolderMenu
