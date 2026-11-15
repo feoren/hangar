@@ -105,6 +105,9 @@ the repository's filters: Hangar first reads `git config -z --get-regexp
 "^filter\..*\.(clean|smudge|process)$"` and passes `-c filter.<name>.clean= -c
 filter.<name>.smudge= -c filter.<name>.process= -c filter.<name>.required=false` per driver
 (a driver name with `=` or more than 64 drivers refuse the call), plus `--ignore-submodules=all`.
+Every call also gets `-c submodule.recurse=false`: a repository's `submodule.recurse=true` would
+take a restore or checkout into its submodules and run their smudge filters, which the guard
+never read (measured in round 4; no Hangar call reached it).
 A process that ends before it could join the Job Object is not an error (its output is used).
 Before git runs at all (`git_diff`, `create_worktree`, `remove_worktree`), the folder must be
 absolute and existing, and the `.git` file found walking up from it (and the `commondir` file of
@@ -138,7 +141,12 @@ parser is used and no repository is opened), and follows every `include.path` an
 `core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`, entry of
 `objects/info/alternates` (also nested: the files at depth 0 to 5 are read, as git reads them
 and opens every folder the depth-5 file lists; at most 256 entries in all; C-quoted lines),
-`.git` entry, git folder or
+target of a linked worktree's back-link `worktrees/<id>/gitdir` in the common folder (git 2.56
+opens each on `worktree list`, `add`, `remove` and on a commit, measured in round 4 as an SMB
+contact; a relative target is relative to `worktrees/<id>`; its path is walked like an include,
+so a folder linked to a share on the way refuses the call too; more than 256 entries refuse the
+call; the `worktrees` folder and every `gitdir` file are stamped for the cache, so a new entry
+or a back-link turned towards a share later is noticed), `.git` entry, git folder or
 config file that is a link leading to another share or device (also `/\host`, `//host`,
 `\\?\UNC\`, `\??\UNC\`) refuses the call with "The repository's git folder lies on another
 network share or device" before git starts there. An include target that exists but is no
@@ -782,7 +790,22 @@ menu paste uses the clipboard plugin.
       Teams webhook paths (`webhook.office.com/webhookb2/`, `outlook.office.com/webhook/`, `@`
       included); key blocks with four or more dashes and spaces around the label
       (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`); the lines after `Private-Lines: <n>` of a
-      PuTTY `.ppk` file. The
+      PuTTY `.ppk` file. Since round 4 also: the password field of `.pgpass` lines (five
+      colon-separated fields, the port a number or `*`); the text of an XML element whose `key`
+      or `name` attribute names a secret (`<string name="api_key">`, `<entry key="password">`;
+      the attribute itself stays); the value after a secret config key following `config set`,
+      `configure set`, `config`, `--global` and similar (`aws configure set
+      aws_secret_access_key <v>`, `git config --global github.token <v>`, `npm config set
+      ...:_authToken <v>`; a plain name with a plain word, a `set` in prose (`set API_KEY to
+      ...`) and `grep -e API_KEY src` stay); the cell after a
+      Markdown table cell with a secret name (not in a header row, `| Column | Value |` stays);
+      a quoted fallback literal (`os.getenv("DB_PASSWORD", "<v>")`, `getenv("X", "<v>")` after
+      a secret name, `|| '<v>'`, `?? "<v>"`, `or "<v>"` after a secret name on the line); the
+      password flags `redis-cli -a`, `ldap* -w` and `-y`, `smbclient -U user%<v>`, the word
+      after the share of `net use`, `openssl -k` and `-pass`/`-passin`/`-passout pass:<v>`,
+      `twine -p`, and what `echo` pipes into `--password-stdin`; the prefixes `pypi-AgE` (50+),
+      `whsec_` (24+), `AGE-SECRET-KEY-1` (50+), `glsa_` (32+), `HRKU-` (24+) and Telegram bot
+      tokens (8 to 10 digits, `:AA`, 30+). The
       description and every log text (task, text, tool argument, result) are masked the same
       way. Every pass is linear in the text length (a skipped value is passed over as a whole),
       checked by a test with 1 MB lines such as `key:` repeated. Known limits: names written
