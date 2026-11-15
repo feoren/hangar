@@ -160,10 +160,8 @@ function CrewItem({
             </span>
             <AgentFigure figure={figure} size={88} crop="full" />
             <span className="crew-plinth" aria-hidden="true">
-              <span className="crew-plinth-label">{stateLabel}</span>
-            </span>
-            <span className="crew-name" aria-hidden="true">
-              {name}
+              {/* The plinth's color alone tells the state; the word stays in the tooltip and label. */}
+              <span className="crew-plinth-label">{name}</span>
             </span>
           </>
         ) : (

@@ -36,13 +36,15 @@ the backend changes.
 
 ## States, colors, texts
 
-The plinth is a block with a solid top edge in the state color and a body tinted with the same
-color mixed into the panel color, so the label (text color) keeps 4.5:1 in both themes. The color
-changes with a short transition (color only, allowed under reduced motion). The state also stands
-as a word on the plinth and in the accessible name.
+The plinth is a low round pedestal: an elliptic top face in the state color for the figure's feet
+and a front face tinted with the same color mixed into the panel color and shaded towards the
+bottom, so its label (text color) keeps 4.5:1 in both themes. The label is the sub-agent's name
+(the user's choice): on screen only the color tells the state. The state word stays in the tooltip
+and the accessible name. The color changes with a short transition (color only, allowed under
+reduced motion).
 
-| State | When | Token | Plinth word | Bubble |
-| ----- | ---- | ----- | ----------- | ------ |
+| State | When | Token | State word (tooltip, label) | Bubble |
+| ----- | ---- | ----- | --------------------------- | ------ |
 | working | status `running` | `--accent` | Working | tool and target, e.g. "Reading terminal.ts" |
 | waiting | the session has a pending gate decision (reason `gate`, never `bell`) and this is the unfinished sub-agent whose last write is before the decision's creation and newest of those; one that wrote since is not waiting | `--warn` (amber in both themes), stronger tint and a ring | Waiting for you | "I need your OK" |
 | done | status `finished`, hidden after 8 s | `--ok` | Done | "Done" |

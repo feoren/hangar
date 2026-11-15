@@ -203,29 +203,25 @@ describe("CrewColumn", () => {
     expect(host.querySelector(".agent-figure.full")).not.toBeNull();
     expect(host.querySelector(".agent-figure.head")).toBeNull();
     expect(host.querySelector(".crew-item")?.classList.contains("state-working")).toBe(true);
-    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Arbeitet");
+    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Explore");
     expect(host.querySelector(".crew-chip-text")).toBeNull();
-  });
-
-  it("shows which sub-agent it is under the plinth", () => {
-    mount("column");
-    expect(host.querySelector(".crew-name")?.textContent).toBe("Explore");
   });
 
   it("puts the sub-agent's name before its text in the strip", () => {
     mount("strip");
     expect(host.querySelector(".crew-chip-name")?.textContent).toBe("Explore");
-    expect(host.querySelector(".crew-name")).toBeNull();
   });
 
-  it("shows the plinth word of a finished sub-agent", () => {
+  it("keeps the name on the plinth of a finished sub-agent", () => {
     view.current = {
       located: null,
       agents: [subAgent("a1", { status: "finished", lastActivity: Date.now() })],
     };
     mount("column");
     expect(host.querySelector(".crew-item")?.classList.contains("state-done")).toBe(true);
-    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Fertig");
+    // The color alone shows the state on screen; the word stays in the accessible name.
+    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Explore");
+    expect(buttons()[0]?.getAttribute("aria-label")).toContain("Fertig");
   });
 
   it("draws only the head and one line of text in the strip form", () => {

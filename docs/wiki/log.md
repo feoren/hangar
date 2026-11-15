@@ -1057,3 +1057,8 @@ The crew column and the sub-agent tree showed the neutral initial for every sess
 any project overrode a global definition of that name (Hangar's own `.claude/agents` did). They
 now pass the session's folder to `runningFigure`, which follows `defsFor` like the session rows.
 Pages changed: [[sub-agent-library]], [[crew-column]].
+
+## [2026-11-16] update | Crew plinth carries the name
+The plinth became a low round pedestal and shows the sub-agent's name instead of the state word;
+the state shows by color alone on screen and stays as a word in the tooltip and accessible name.
+Pages changed: [[crew-column]].

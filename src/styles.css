@@ -12875,21 +12875,6 @@ body.session-dragging .session-actions {
     border-color var(--crew-fade);
 }
 
-/* Which sub-agent it is, under its plinth; the full name stays in the tooltip. */
-.crew-name {
-  box-sizing: border-box;
-  max-width: 100%;
-  margin-top: 3px;
-  padding: 0 4px;
-  overflow: hidden;
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .crew-chip-name {
   font-weight: 600;
 }
