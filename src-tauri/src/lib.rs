@@ -94,6 +94,8 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() -> tauri::Result<()> {
+    // First, while the process has a single thread (`child_env::scrub_own_environment`).
+    child_env::scrub_own_environment();
     let mut builder = tauri::Builder::default();
     // First of all plugins, so a second start exits before anything else runs; debug builds are
     // exempt (see `single_instance::ENFORCED`).

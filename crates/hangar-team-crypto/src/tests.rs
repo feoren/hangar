@@ -2745,12 +2745,14 @@ fn the_log_refuses_entries_beyond_its_cap_and_keeps_the_last_places_for_removals
     assert_eq!(refused.code(), ErrorCode::Limit);
     assert_eq!(team.state().head().index, max - RESERVED_LOG_ENTRIES);
     assert!(team.state().log_full());
-    // A removal of one's own device is refused as well; an owner still removes the member and
-    // rotates.
+    // A member still removes a stolen device of its own in the reserved places; an owner still
+    // removes the member and rotates.
     let removal = EntryKind::RemoveDevice {
         holder: holder("member", "d0"),
     };
-    assert_eq!(team.submit(Who::Member, removal), Err(LogError::LogFull));
+    team.submit(Who::Member, removal)
+        .expect("reserved for removing a device");
+    assert!(team.state().rotation_due());
     team.submit(
         Who::Owner,
         EntryKind::RemoveMember {
@@ -2848,6 +2850,115 @@ fn only_removals_of_devices_from_before_the_epoch_or_of_members_are_urgent() {
     team.next_epoch(Who::Owner, None);
     assert!(!team.state().rotation_due());
     assert!(!team.state().rotation_urgent());
+}
+
+#[test]
+fn a_full_log_takes_device_removals_up_to_their_part_of_the_reserve() {
+    use crate::memberlog::{DEVICE_REMOVAL_RESERVE, RESERVED_LOG_ENTRIES};
+    let max = 3 + 1 + RESERVED_LOG_ENTRIES + 2;
+    let room = max - DEVICE_REMOVAL_RESERVE;
+    // One place before the limit: the removal takes the last place device removals may use.
+    let mut team = Team::with_max_entries(max);
+    let laptop = copy(&team.member);
+    let stolen = Device::new("member", "stolen");
+    team.add_device(Who::Member, &stolen, &laptop).expect("add");
+    while team.state().head().index < room - 1 {
+        team.next_epoch(Who::Owner, None);
+    }
+    assert!(team.state().log_full());
+    team.submit(
+        Who::Member,
+        EntryKind::RemoveDevice {
+            holder: stolen.holder.clone(),
+        },
+    )
+    .expect("a stolen device can be removed in a full log");
+    assert_eq!(team.state().head().index, room);
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_due());
+
+    // At the limit and past it the removal is refused; a member's removal still fits.
+    for head in [room, room + 1] {
+        let mut team = Team::with_max_entries(max);
+        let laptop = copy(&team.member);
+        let stolen = Device::new("member", "stolen");
+        team.add_device(Who::Member, &stolen, &laptop).expect("add");
+        while team.state().head().index < head {
+            team.next_epoch(Who::Owner, None);
+        }
+        assert_eq!(
+            team.submit(
+                Who::Member,
+                EntryKind::RemoveDevice {
+                    holder: stolen.holder.clone(),
+                },
+            ),
+            Err(LogError::LogFull),
+            "at {head}"
+        );
+        team.submit(
+            Who::Owner,
+            EntryKind::RemoveMember {
+                member: team.member.holder.member.clone(),
+            },
+        )
+        .expect("the reserve keeps room for removing a member");
+        team.next_epoch(Who::Owner, None);
+    }
+}
+
+#[test]
+fn device_removals_never_use_up_the_places_a_members_removal_needs() {
+    use crate::memberlog::RESERVED_LOG_ENTRIES;
+    use hangar_team_protocol::limits::MAX_DEVICES_PER_MEMBER;
+    let extra = MAX_DEVICES_PER_MEMBER as u64 - 1;
+    let max = 3 + extra + RESERVED_LOG_ENTRIES + 10;
+    let mut team = Team::with_max_entries(max);
+    let laptop = copy(&team.member);
+    // The member fills its device budget, then key changes fill the log past its full mark.
+    let devices: Vec<Device> = (0..extra)
+        .map(|i| Device::new("member", &format!("d{i}")))
+        .collect();
+    for device in &devices {
+        team.add_device(Who::Member, device, &laptop).expect("add");
+    }
+    while team.state().head().index < max - RESERVED_LOG_ENTRIES + 10 {
+        team.next_epoch(Who::Owner, None);
+    }
+    assert!(team.state().log_full());
+    // It removes its own devices, each followed by the urgent key change, until the log refuses.
+    let mut removed = 0;
+    let refused = loop {
+        let Some(device) = devices.get(removed) else {
+            panic!("every device was removed; the limit was never reached");
+        };
+        match team.submit(
+            Who::Member,
+            EntryKind::RemoveDevice {
+                holder: device.holder.clone(),
+            },
+        ) {
+            Ok(()) => {
+                removed += 1;
+                team.next_epoch(Who::Owner, None);
+            }
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(refused, LogError::LogFull);
+    assert!(removed > 0);
+    // The owner still removes the member and changes the key.
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: team.member.holder.member.clone(),
+        },
+    )
+    .expect("room for removing the member stays");
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_due());
 }
 
 #[test]

@@ -100,11 +100,17 @@ A.2.1 test.
   entry over either is refused (`TooManyDevices`, `limit`). So every rotation fits one
   `key.rotate`, and one member cannot fill the team's device budget.
 - **Log length** (round 2, M1). A log has at most `MAX_LOG_ENTRIES` (8192) entries; the last
-  `RESERVED_LOG_ENTRIES` (64) places take only remove member and rotate epoch entries, so an
-  owner or admin can still remove the member who filled the log and change the key. The very
-  last place takes only a rotate epoch entry (round 3, N-3): a remove member entry needs a place
-  after it for the rotation it makes due, so a log can never end with a removal it cannot follow
-  with a key change; an owner's or admin's device does not even try such a removal. Beyond,
+  `RESERVED_LOG_ENTRIES` (64) places take only removals (remove member and, since round 4,
+  remove device) and rotate epoch entries, so an owner or admin can still remove the member who
+  filled the log, a person can still remove a stolen device of their own, and the key can still
+  change. Remove device entries take only the first half of the reserve: the last
+  `DEVICE_REMOVAL_RESERVE` (32) places stay for remove member and rotate epoch entries. A member
+  has up to 16 devices and each removal makes an urgent rotation due, so without that split a few
+  members removing their own devices could use up the whole reserve, after which they could
+  never be removed (round 4 review). The very last place takes only a rotate epoch entry (round 3, N-3): a removal needs a
+  place after it for the rotation it makes due, so a log can never end with a removal it cannot
+  follow with a key change; an owner's or admin's device does not even try such a removal. The
+  engine maps a refused removal to `TeamError::LogFull`, not to an unknown request (round 4). Beyond,
   `LogError::LogFull` (`limit`); the relay refuses such appends through the same verifier, and a
   client given a longer log than that stops with `AttentionReason::LogFull`. Every device
   verifies the whole log on each connection, so its length must stay bounded; 8192 entries are a
@@ -119,7 +125,10 @@ A.2.1 test.
   the project on the website, and the log follows with a remove member entry (reserved place);
   that stops further churn but frees no place, since the cap counts every entry ever written.
   New devices and members then need a new project created on the website (a new team with its
-  own log). There is no log reset or compaction; both would need a new trust anchor and are not
+  own log). When the log is at its very last place, a member the website no longer lists cannot
+  be removed at all: after the grace period every device, owners and admins included, seals
+  nothing new and says so (`KeyChangeWait::LogFull`: the history is full, create a new project),
+  instead of waiting for a removal that cannot come (round 4). There is no log reset or compaction; both would need a new trust anchor and are not
   built.
 - **Fork resistance** (M4). The epoch keys bind the log hash of the epoch's rotate entry
   (`EpochKeys::derive(secret, team, epoch, rotation)`), and that hash commits to the whole log up
@@ -269,7 +278,10 @@ A.2.1 test.
   confirmation is bound to what the window showed (round 2, N5): `team_confirm_admission` carries
   the log index and the admitting device's safety number, and the engine refuses them
   (`TeamError::Changed`) when the status shows others by now; the window then reads the new
-  numbers. Its button stays disabled for a moment after any number changes, like the device
+  numbers. Without an admitting device or with an empty number there is nothing to compare:
+  the status stays waiting, and `confirm_admission` refuses an empty number with
+  `TeamError::UnknownRequest` (round 4; a listed device always has the entry that added it, so
+  this is a guard, not a path seen). Its button stays disabled for a moment after any number changes, like the device
   confirmations, whose cards also start disarmed again when their content changes under the
   same id. Independently, the log's owner (entry 1's issuer) must be the project's `owner_id` on
   the website, else the team stops (`OwnerMismatch`). A website that names no owner (an older
@@ -295,8 +307,10 @@ A.2.1 test.
   notes when it first saw the deferred rotation, and `DEFERRED_ROTATION_EVERY_MS` later it treats
   it as urgent and seals nothing new (`KeyChangeWait::Overdue`) until an owner or admin rotates;
   so such a device keeps the key for at most about 10 minutes of sharing, however long the
-  managers stay away. Removing a member, or a device from before the epoch, rotates at once as
-  before.
+  managers stay away. Only a removal of one of this device's own member's devices starts that
+  wait (round 4): another member's removed device got nothing its member did not already have,
+  so one member's churn can no longer stop everybody else's sharing. Removing a member, or a
+  device from before the epoch, rotates at once as before.
 - **Rejected confirmations are remembered up to a bound** (round 3, info). The state file keeps
   the ids of rejected device and role confirmations, at most 256, oldest dropped first. A relay
   or member that makes more than 256 different requests can bring an old rejected one back into
@@ -401,8 +415,8 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
 
 ## Tests
 
-69 unit tests (round 2 added the log cap with its reserved places and `rotation_urgent`, round 3
-the last place kept for the rotation and the signed flag of `AheadOfLog`): whole-team flows where every entry passes the relay's `admit` (a removal through
+71 unit tests (round 2 added the log cap with its reserved places and `rotation_urgent`, round 3
+the last place kept for the rotation and the signed flag of `AheadOfLog`, round 4 device removals in a full log up to their half of the reserve): whole-team flows where every entry passes the relay's `admit` (a removal through
 `admit_device_remove`) and a client's `apply` with the same verdict (create, add, rotate as one
 unit, unwrap on every device, records across devices, removal and history, `key.wrap` with
 garbage packages first, recovery and its limits), every log rule and binding, proofs and

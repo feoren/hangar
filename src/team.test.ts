@@ -248,7 +248,7 @@ describe("parseTeamStatus", () => {
       state: "waitingForKeyChange",
       reason: "removal",
     });
-    for (const reason of ["removal", "memberLeft", "overdue"] as const) {
+    for (const reason of ["removal", "memberLeft", "overdue", "logFull"] as const) {
       expect(parseTeamStatus({ state: "waitingForKeyChange", reason })).toEqual({
         state: "waitingForKeyChange",
         reason,
@@ -272,6 +272,9 @@ describe("parseTeamStatus", () => {
     expect(left?.tone).toBe("busy");
     expect(statusKey({ state: "waitingForKeyChange", reason: "overdue" })).toBe(
       "team.status.keyChangeOverdue",
+    );
+    expect(statusKey({ state: "waitingForKeyChange", reason: "logFull" })).toBe(
+      "team.status.memberLeftLogFull",
     );
     expect(statusKey({ state: "needsAttention", reason: "ownerMismatch" })).toBe(
       "team.status.ownerMismatch",

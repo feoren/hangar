@@ -1461,6 +1461,8 @@ const de = {
     "Der Teamschlüssel wurde nicht gewechselt, seit ein Mitglied gegangen ist. Teilen wartet auf den Inhaber oder einen Admin.",
   "team.status.keyChangeOverdue":
     "Ein Gerät wurde entfernt, der Teamschlüssel aber noch nicht gewechselt. Teilen wartet auf den Inhaber oder einen Admin.",
+  "team.status.memberLeftLogFull":
+    "Ein Mitglied hat das Projekt verlassen, aber der Teamverlauf ist voll, deshalb kann es nicht aus dem Team entfernt werden. Teilen ist angehalten. Leg auf der Website ein neues Projekt an und teile dieses.",
   "team.historyWithheld": "Der Server hält einen Teil der Teamhistorie zurück. Teilen geht weiter.",
   "team.admission.title": "Wer hat dich aufgenommen?",
   "team.admission.help":
@@ -3073,6 +3075,8 @@ const en: Record<MessageKey, string> = {
     "The team key has not been changed since a member left. Waiting for the owner or an admin.",
   "team.status.keyChangeOverdue":
     "A device was removed and the team key has not been changed yet. Waiting for the owner or an admin.",
+  "team.status.memberLeftLogFull":
+    "A member left the project, but the team history is full, so they cannot be taken out of the team. Sharing is paused. Create a new project on the website and share that one.",
   "team.historyWithheld": "The server is holding back part of the team history. Sharing goes on.",
   "team.admission.title": "Who admitted you?",
   "team.admission.help":
@@ -4718,6 +4722,8 @@ const el: Record<MessageKey, string> = {
     "Το κλειδί ομάδας δεν έχει αλλάξει από τότε που αποχώρησε ένα μέλος. Αναμονή για τον ιδιοκτήτη ή έναν διαχειριστή.",
   "team.status.keyChangeOverdue":
     "Μια συσκευή αφαιρέθηκε, αλλά το κλειδί ομάδας δεν έχει αλλάξει ακόμη. Αναμονή για τον ιδιοκτήτη ή έναν διαχειριστή.",
+  "team.status.memberLeftLogFull":
+    "Ένα μέλος αποχώρησε από το έργο, αλλά το ιστορικό της ομάδας είναι γεμάτο, οπότε δεν μπορεί να αφαιρεθεί από την ομάδα. Η κοινή χρήση σταμάτησε. Δημιούργησε νέο έργο στον ιστότοπο και μοιράσου αυτό.",
   "team.historyWithheld":
     "Ο διακομιστής κρατά πίσω μέρος του ιστορικού της ομάδας. Η κοινή χρήση συνεχίζεται.",
   "team.admission.title": "Ποιος σε δέχτηκε;",
@@ -6357,6 +6363,8 @@ const es: Record<MessageKey, string> = {
     "La clave del equipo no ha cambiado desde que se fue un miembro. Esperando al propietario o a un administrador.",
   "team.status.keyChangeOverdue":
     "Se quitó un dispositivo y la clave del equipo aún no ha cambiado. Esperando al propietario o a un administrador.",
+  "team.status.memberLeftLogFull":
+    "Un miembro dejó el proyecto, pero el historial del equipo está lleno, así que no se le puede quitar del equipo. Compartir está en pausa. Crea un proyecto nuevo en el sitio web y comparte ese.",
   "team.historyWithheld":
     "El servidor retiene parte del historial del equipo. Se sigue compartiendo.",
   "team.admission.title": "¿Quién te admitió?",
@@ -8004,6 +8012,8 @@ const fr: Record<MessageKey, string> = {
     "La clé d'équipe n'a pas été changée depuis le départ d'un membre. En attente du propriétaire ou d'un admin.",
   "team.status.keyChangeOverdue":
     "Un appareil a été retiré et la clé d'équipe n'a pas encore été changée. En attente du propriétaire ou d'un admin.",
+  "team.status.memberLeftLogFull":
+    "Un membre a quitté le projet, mais l'historique de l'équipe est plein, il ne peut donc pas être retiré de l'équipe. Le partage est en pause. Crée un nouveau projet sur le site web et partage celui-là.",
   "team.historyWithheld":
     "Le serveur retient une partie de l'historique de l'équipe. Le partage continue.",
   "team.admission.title": "Qui t'a admis ?",
@@ -9644,6 +9654,8 @@ const it: Record<MessageKey, string> = {
     "La chiave del team non è stata cambiata da quando un membro è uscito. In attesa del proprietario o di un admin.",
   "team.status.keyChangeOverdue":
     "Un dispositivo è stato rimosso, ma la chiave del team non è ancora stata cambiata. In attesa del proprietario o di un admin.",
+  "team.status.memberLeftLogFull":
+    "Un membro ha lasciato il progetto, ma la cronologia del team è piena, quindi non può essere rimosso dal team. La condivisione è in pausa. Crea un nuovo progetto sul sito web e condividi quello.",
   "team.historyWithheld":
     "Il server trattiene una parte della cronologia del team. La condivisione continua.",
   "team.admission.title": "Chi ti ha ammesso?",
@@ -11277,6 +11289,8 @@ const ja: Record<MessageKey, string> = {
     "メンバーが抜けてからチームキーが変更されていません。オーナーまたは管理者を待っています。",
   "team.status.keyChangeOverdue":
     "デバイスが削除されましたが、チームキーはまだ変更されていません。オーナーまたは管理者を待っています。",
+  "team.status.memberLeftLogFull":
+    "メンバーがプロジェクトを抜けましたが、チームの履歴がいっぱいのため、チームから外せません。共有を一時停止しました。ウェブサイトで新しいプロジェクトを作成し、そちらを共有してください。",
   "team.historyWithheld": "サーバーがチームの履歴の一部を渡していません。共有は続きます。",
   "team.admission.title": "誰があなたを承認しましたか?",
   "team.admission.help":
@@ -12894,6 +12908,8 @@ const pl: Record<MessageKey, string> = {
     "Klucz zespołu nie został zmieniony, odkąd odszedł członek. Czeka na właściciela lub administratora.",
   "team.status.keyChangeOverdue":
     "Usunięto urządzenie, ale klucz zespołu nie został jeszcze zmieniony. Czeka na właściciela lub administratora.",
+  "team.status.memberLeftLogFull":
+    "Członek opuścił projekt, ale historia zespołu jest pełna, więc nie można go usunąć z zespołu. Udostępnianie jest wstrzymane. Utwórz na stronie nowy projekt i udostępnij go.",
   "team.historyWithheld": "Serwer wstrzymuje część historii zespołu. Udostępnianie trwa dalej.",
   "team.admission.title": "Kto cię przyjął?",
   "team.admission.help":
@@ -14524,6 +14540,8 @@ const pt: Record<MessageKey, string> = {
     "A chave da equipe não foi trocada desde que um membro saiu. Aguardando o proprietário ou um administrador.",
   "team.status.keyChangeOverdue":
     "Um dispositivo foi removido e a chave da equipe ainda não foi trocada. Aguardando o proprietário ou um administrador.",
+  "team.status.memberLeftLogFull":
+    "Um membro saiu do projeto, mas o histórico da equipe está cheio, então ele não pode ser retirado da equipe. O compartilhamento está pausado. Crie um novo projeto no site e compartilhe esse.",
   "team.historyWithheld":
     "O servidor está retendo parte do histórico da equipe. O compartilhamento continua.",
   "team.admission.title": "Quem admitiu você?",
@@ -16138,6 +16156,8 @@ const ru: Record<MessageKey, string> = {
     "Ключ команды не меняли с тех пор, как ушёл участник. Ожидание владельца или администратора.",
   "team.status.keyChangeOverdue":
     "Устройство удалено, но ключ команды ещё не сменён. Ожидание владельца или администратора.",
+  "team.status.memberLeftLogFull":
+    "Участник покинул проект, но история команды заполнена, поэтому его нельзя убрать из команды. Общий доступ приостановлен. Создай на сайте новый проект и делись им.",
   "team.historyWithheld": "Сервер придерживает часть истории команды. Общий доступ продолжается.",
   "team.admission.title": "Кто тебя принял?",
   "team.admission.help":
@@ -17742,6 +17762,8 @@ const tr: Record<MessageKey, string> = {
     "Bir üye ayrıldığından beri ekip anahtarı değiştirilmedi. Sahip veya bir yönetici bekleniyor.",
   "team.status.keyChangeOverdue":
     "Bir cihaz kaldırıldı ancak ekip anahtarı henüz değiştirilmedi. Sahip veya bir yönetici bekleniyor.",
+  "team.status.memberLeftLogFull":
+    "Bir üye projeden ayrıldı, ancak ekip geçmişi dolu olduğu için ekipten çıkarılamıyor. Paylaşım duraklatıldı. Web sitesinde yeni bir proje oluştur ve onu paylaş.",
   "team.historyWithheld": "Sunucu ekip geçmişinin bir kısmını geri tutuyor. Paylaşım devam ediyor.",
   "team.admission.title": "Seni kim kabul etti?",
   "team.admission.help":
@@ -19287,6 +19309,8 @@ const zh: Record<MessageKey, string> = {
   "team.status.memberLeftKeyUnchanged":
     "自从有成员离开后，团队密钥一直未更换。正在等待所有者或管理员。",
   "team.status.keyChangeOverdue": "已移除一台设备，但团队密钥尚未更换。正在等待所有者或管理员。",
+  "team.status.memberLeftLogFull":
+    "有成员已离开项目，但团队历史已满，无法将其移出团队。共享已暂停。请在网站上创建新项目并共享该项目。",
   "team.historyWithheld": "服务器正在扣留部分团队历史。共享仍在继续。",
   "team.admission.title": "是谁接纳了你?",
   "team.admission.help":

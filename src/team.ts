@@ -68,9 +68,10 @@ export type TeamStatus =
 
 /**
  * Why a device waits for a new team key (Rust: `KeyChangeWait`): the log removed someone, the
- * website removed a member the log still names, or a key change that could wait is overdue.
+ * website removed a member the log still names, a key change that could wait is overdue, or
+ * such a member cannot be removed because the log is full.
  */
-export type KeyChangeWait = "removal" | "memberLeft" | "overdue";
+export type KeyChangeWait = "removal" | "memberLeft" | "overdue" | "logFull";
 
 /** `roleChange`: the website made a member an admin; the owner confirms it for the team. */
 export type ConfirmationKind = "ownDevice" | "newMember" | "roleChange" | "unknown";
@@ -398,7 +399,10 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
       const reason = field(value, "reason");
       return {
         state,
-        reason: reason === "memberLeft" || reason === "overdue" ? reason : "removal",
+        reason:
+          reason === "memberLeft" || reason === "overdue" || reason === "logFull"
+            ? reason
+            : "removal",
       };
     }
     case "connecting": {
@@ -848,6 +852,7 @@ const KEY_CHANGE_TEXTS: Record<KeyChangeWait, MessageKey> = {
   removal: "team.status.waitingForKeyChange",
   memberLeft: "team.status.memberLeftKeyUnchanged",
   overdue: "team.status.keyChangeOverdue",
+  logFull: "team.status.memberLeftLogFull",
 };
 
 /** The text key of a status; `null` for off, which shows nothing below the switch. */
