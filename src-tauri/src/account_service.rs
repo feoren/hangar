@@ -1184,6 +1184,20 @@ impl AccountService {
         Ok(projects)
     }
 
+    /// The members of `project_id` with their roles, fresh from the server (for the team's
+    /// membership log on an owner's or admin's device).
+    pub async fn project_members(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<account::ProjectMember>, AccountError> {
+        let project_id = project_id.to_owned();
+        self.authorized(move |api, token| {
+            let project_id = project_id.clone();
+            async move { api.project_members(&token, &project_id).await }
+        })
+        .await
+    }
+
     /// A short-lived ticket for the relay of `project_id` (step D; not used by the window yet).
     pub async fn relay_ticket(
         &self,

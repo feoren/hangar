@@ -353,6 +353,8 @@ fn timing(renew_every: Duration) -> Timing {
         backoff_unit: Duration::from_millis(200),
         stable_after: Duration::from_secs(30),
         lock_retry: Duration::from_millis(50),
+        website_every: Duration::from_millis(200),
+        members_every: Duration::from_secs(600),
     }
 }
 
@@ -477,6 +479,11 @@ impl App {
             if test(&status) {
                 eprintln!("interop: {what}: {status:?}");
                 return true;
+            }
+            // The person compares the admitting device's safety numbers and confirms.
+            if matches!(status, TeamStatus::ConfirmAdmission { .. }) {
+                eprintln!("interop: {what}: confirming the admission");
+                let _ = self.team.confirm_admission(project).await;
             }
             if Instant::now() >= deadline {
                 eprintln!("interop: {what}: still {status:?}");
@@ -1112,10 +1119,8 @@ fn hangar_against_a_self_hosted_relay() {
         })
         .await;
         assert!(b2.has_identity(&base, &team));
-        a1.team
-            .remove_device(&team, &bob_id, &bob_second)
-            .await
-            .unwrap();
+        // Bob removes his own second device from his first (the app removes own devices only).
+        b1.team.remove_device(&team, &bob_second).await.unwrap();
         removed_device(
             &a1,
             &b1,
@@ -1167,10 +1172,7 @@ fn hangar_against_a_self_hosted_relay() {
                 .is_some_and(|a| a.peers.iter().all(|p| p.device != bob_third))
         })
         .await;
-        a1.team
-            .remove_device(&team, &bob_id, &bob_third)
-            .await
-            .unwrap();
+        b1.team.remove_device(&team, &bob_third).await.unwrap();
         findings.check(
             b2.has_identity(&base, &team),
             "restart: the closed app still holds its identity before it starts",
@@ -1208,18 +1210,22 @@ fn hangar_against_a_self_hosted_relay() {
                 .await,
             "a member removed on the server stops as removed",
         );
-        a1.team.remove_member(&team, &bob_id).await.unwrap();
-        a1.until(&team, "alice alone", |s| {
-            matches!(
-                s,
-                TeamStatus::Connected {
-                    members: 1,
-                    devices: 1,
-                    ..
-                }
-            )
-        })
-        .await;
+        // The owner's device removes Bob from the log on its own, from the website's member
+        // list (needs `GET /api/v1/projects/{id}/members` on the server).
+        findings.check(
+            a1.wait(&team, "alice alone", WAIT, |s| {
+                matches!(
+                    s,
+                    TeamStatus::Connected {
+                        members: 1,
+                        devices: 1,
+                        ..
+                    }
+                )
+            })
+            .await,
+            "a member removed on the website leaves the log through the owner's device",
+        );
         let deleted = relay_api(
             &client,
             &origin,

@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, resources, system-bar, process-tree, notifications, push, keychain, contract]
 sources: ["[[system-usage-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # Session resources and push to the phone
@@ -230,10 +230,14 @@ the machine before a service is saved.
   `includeTitle` ("Send session names"). Never terminal content; control characters are stripped
   and the text is cut at 200 characters.
 
-**Storage.** `push.json` in the config folder holds provider, ntfy address and events. The ntfy
-access token and both Pushover keys live only in the OS keychain, service `hangar-push`, accounts
-`ntfy-token`, `pushover-user`, `pushover-token` (the existing `secrets::KeyringStore`), apart from
-the profile secrets so no profile variable shares an entry.
+**Storage.** `push.json` in the config folder holds provider and events. The ntfy address (its
+topic is a secret on a server without access control), the ntfy access token and both Pushover
+keys live only in the OS keychain, service `hangar-push`, accounts `ntfy-url`, `ntfy-token`,
+`pushover-user`, `pushover-token` (the existing `secrets::KeyringStore`), apart from the profile
+secrets so no profile variable shares an entry. The window sees the address with the topic cut
+to four characters and four dots; sending that text back unchanged keeps the stored address. An
+address an older Hangar wrote into `push.json` moves to the keychain on start (third security
+review, L4).
 
 **Sending** (`push::deliver`): one POST, reqwest with rustls (already in the tree), `https_only`,
 no redirects (a redirect could carry the token elsewhere), 10 s total time limit, no retries.

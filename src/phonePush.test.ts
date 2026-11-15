@@ -4,6 +4,7 @@ import {
   DEFAULT_PUSH_VIEW,
   isNtfyUrl,
   isWeakTopic,
+  keepsStoredUrl,
   needsTokenAgain,
   ntfyTopic,
   parsePushView,
@@ -32,6 +33,15 @@ describe("token and topic rules", () => {
     expect(needsTokenAgain(stored, "", false, false)).toBe(false);
     expect(urlOrigin("https://ntfy.sh:443/x")).toBe("https://ntfy.sh");
     expect(urlOrigin("nonsense")).toBeNull();
+  });
+
+  it("keeps the stored address while the field shows it masked", () => {
+    const masked = { ntfyUrl: "https://ntfy.sh/hang\u2022\u2022\u2022\u2022" };
+    expect(keepsStoredUrl(masked, ` ${masked.ntfyUrl} `)).toBe(true);
+    expect(keepsStoredUrl(masked, "https://ntfy.sh/hangar-new-topic-1234")).toBe(false);
+    expect(keepsStoredUrl({ ntfyUrl: "" }, "")).toBe(false);
+    // The masked address is no valid ntfy address: only the kept one may be saved like this.
+    expect(isNtfyUrl(masked.ntfyUrl)).toBe(false);
   });
 
   it("wants a long topic without a token", () => {

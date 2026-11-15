@@ -26,6 +26,7 @@ import {
   statusLine,
   taskTitle,
   teamErrorText,
+  type OwnDevice,
   type PendingConfirmation,
   type RepoRef,
   type TaskView,
@@ -34,7 +35,7 @@ import {
   type TeamStatus,
 } from "./team";
 import { account } from "./useAccount";
-import { taskKey, team } from "./useTeam";
+import { deviceKey, taskKey, team } from "./useTeam";
 
 // The Team window's building blocks: a project's details and share switch, connecting a first
 // project, the waiting help with the safety number, and the requests that wait for an answer
@@ -112,6 +113,168 @@ export function ProjectDetails(props: {
           repos={props.repos}
           busy={props.busy}
         />
+      )}
+      {(status.state === "connected" || status.state === "waitingForKeyChange") &&
+        props.activity.devices.length > 0 && (
+          <TeamDevices projectId={project.id} activity={props.activity} busy={props.busy} />
+        )}
+    </div>
+  );
+}
+
+/**
+ * The person's devices in the team, with their safety numbers and the log's (what a newly
+ * admitted device asks to compare), and "Remove device" for a lost one.
+ */
+function TeamDevices(props: {
+  projectId: string;
+  activity: TeamActivity;
+  busy: ReadonlySet<string>;
+}) {
+  const t = useT();
+  const { log, devices } = props.activity;
+  return (
+    <TeamCard className="team-devices" title={t("team.devices.title")} count={devices.length}>
+      <p className="team-help">{t("team.devices.help")}</p>
+      {devices.map((device) => (
+        <TeamDeviceRow
+          key={device.device}
+          projectId={props.projectId}
+          device={device}
+          busy={props.busy.has(deviceKey(props.projectId, device.device))}
+        />
+      ))}
+      {log !== null && (
+        <div className="team-confirm-item">
+          <div className="team-confirm-kind">{t("team.devices.log", { index: log.index })}</div>
+          <SafetyNumber groups={log.safetyNumber} />
+        </div>
+      )}
+    </TeamCard>
+  );
+}
+
+function TeamDeviceRow(props: { projectId: string; device: OwnDevice; busy: boolean }) {
+  const t = useT();
+  const { device } = props;
+  const [asking, setAsking] = useState(false);
+  const [problem, setProblem] = useState<TeamProblem | null>(null);
+  const label = device.this
+    ? t("team.devices.this")
+    : device.recovery
+      ? t("team.devices.recovery")
+      : t("team.confirm.device", { id: shortId(device.device) });
+  return (
+    <div className="team-confirm-item">
+      <div className="team-confirm-kind" title={device.device}>
+        {label}
+      </div>
+      <SafetyNumber groups={device.safetyNumber} />
+      {!device.this &&
+        (asking ? (
+          <div className="team-confirm-ask" role="group" aria-label={t("team.devices.remove")}>
+            <p className="team-help">{t("team.devices.removeQuestion")}</p>
+            <div className="team-confirm-actions">
+              <button
+                type="button"
+                className="primary-button danger"
+                disabled={props.busy}
+                onClick={() => {
+                  setProblem(null);
+                  team
+                    .removeDevice(props.projectId, device.device)
+                    .then((next) => {
+                      setProblem(next);
+                      setAsking(false);
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                {t("team.devices.remove")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={props.busy}
+                onClick={() => {
+                  setAsking(false);
+                }}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="team-confirm-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={props.busy}
+              onClick={() => {
+                setAsking(true);
+              }}
+            >
+              {t("team.devices.remove")}
+            </button>
+          </div>
+        ))}
+      {problem !== null && (
+        <p className="team-help error-text" role="alert">
+          {teamErrorText(problem, t)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The team admitted this device: before it shares anything, the person compares who admitted it
+ * and the team's log with that device ("Your devices" in its Team window) and confirms.
+ */
+export function AdmissionCheck(props: {
+  projectId: string;
+  status: Extract<TeamStatus, { state: "confirmAdmission" }>;
+  busy: boolean;
+}) {
+  const t = useT();
+  const { status } = props;
+  const [problem, setProblem] = useState<TeamProblem | null>(null);
+  return (
+    <div className="team-waiting">
+      <p className="team-waiting-title">{t("team.admission.title")}</p>
+      <p className="team-help">{t("team.admission.help")}</p>
+      <div className="team-confirm-meta">
+        <span title={status.member}>
+          {t("team.confirm.member", { id: shortId(status.member) })}
+        </span>
+        <span title={status.device}>
+          {t("team.confirm.device", { id: shortId(status.device) })}
+        </span>
+      </div>
+      <SafetyNumber groups={status.safetyNumber} />
+      <p className="team-help">{t("team.devices.log", { index: status.logIndex })}</p>
+      <SafetyNumber groups={status.logSafetyNumber} />
+      <p className="team-help">{t("team.admission.mismatch")}</p>
+      <div className="team-confirm-actions">
+        <button
+          type="button"
+          className="primary-button"
+          disabled={props.busy}
+          onClick={() => {
+            setProblem(null);
+            team
+              .confirmAdmission(props.projectId)
+              .then(setProblem)
+              .catch(() => undefined);
+          }}
+        >
+          {t("team.admission.confirm")}
+        </button>
+      </div>
+      {problem !== null && (
+        <p className="team-help error-text" role="alert">
+          {teamErrorText(problem, t)}
+        </p>
       )}
     </div>
   );

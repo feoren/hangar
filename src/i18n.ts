@@ -554,6 +554,7 @@ const de = {
   "push.ntfyUrl": "Adresse mit Thema",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/dein-geheimes-thema",
   "push.ntfyUrlHelp": "Wähle ein schwer zu erratendes Thema: Wer es kennt, liest mit.",
+  "push.ntfyUrlStored": "Das Thema ist im Schlüsselbund gespeichert und wird gekürzt angezeigt.",
   "push.ntfyToken": "Zugriffstoken (optional)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API-Token der App",
@@ -1428,6 +1429,24 @@ const de = {
   "team.error.busy": "Gerade beschäftigt. Versuch es gleich noch mal.",
   "team.status.otherAccount":
     "Das Teamgerät auf diesem Computer gehört zu einem anderen Konto. Melde dich mit diesem Konto an.",
+  "team.status.ownerMismatch":
+    "Der Teamverlauf nennt einen anderen Inhaber als die Website. Teilen ist angehalten.",
+  "team.status.confirmAdmission": "Prüfe, wer dich aufgenommen hat",
+  "team.status.waitingForKeyChange":
+    "Wartet auf einen neuen Teamschlüssel von einem Inhaber oder Admin",
+  "team.admission.title": "Wer hat dich aufgenommen?",
+  "team.admission.help":
+    "Vergleiche beide Nummern mit dem Gerät, das dich bestätigt hat. Dort stehen sie im Teamfenster unter Leute bei Deine Geräte. Erst danach teilt dieses Gerät etwas.",
+  "team.admission.mismatch": "Stimmt eine Nummer nicht, bestätige nicht und schalte Teilen aus.",
+  "team.admission.confirm": "Nummern stimmen überein",
+  "team.devices.title": "Deine Geräte",
+  "team.devices.help":
+    "Ein neues Gerät fragt dich nach diesen Nummern. Entferne ein Gerät, das du nicht mehr hast.",
+  "team.devices.this": "Dieses Gerät",
+  "team.devices.recovery": "Wiederherstellungscode",
+  "team.devices.log": "Teamverlauf bis Eintrag {index}",
+  "team.devices.remove": "Gerät entfernen",
+  "team.devices.removeQuestion": "Dieses Gerät verliert den Zugang zum Team. Fortfahren?",
   "team.error.unknownRepository": "In diesem Repository läuft keine Session mehr.",
   "team.activity.repos": "Geteilte Repositories",
   "team.activity.reposHelp":
@@ -2135,6 +2154,7 @@ const en: Record<MessageKey, string> = {
   "push.ntfyUrl": "Address with topic",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/your-secret-topic",
   "push.ntfyUrlHelp": "Pick a topic that is hard to guess: anyone who knows it can read along.",
+  "push.ntfyUrlStored": "The topic is stored in the keychain and shown shortened.",
   "push.ntfyToken": "Access token (optional)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "App API token",
@@ -2991,6 +3011,23 @@ const en: Record<MessageKey, string> = {
   "team.error.busy": "Busy right now. Try again in a moment.",
   "team.status.otherAccount":
     "On this computer, the team device belongs to another account. Sign in with that account.",
+  "team.status.ownerMismatch":
+    "The team history names another owner than the website. Sharing is paused.",
+  "team.status.confirmAdmission": "Check who admitted you",
+  "team.status.waitingForKeyChange": "Waiting for a new team key from an owner or admin",
+  "team.admission.title": "Who admitted you?",
+  "team.admission.help":
+    "Compare both numbers with the device that confirmed you. It shows them in the Team window under People, Your devices. Only then does this device share anything.",
+  "team.admission.mismatch": "If a number differs, do not confirm and turn sharing off.",
+  "team.admission.confirm": "Numbers match",
+  "team.devices.title": "Your devices",
+  "team.devices.help":
+    "A new device asks you for these numbers. Remove a device you no longer have.",
+  "team.devices.this": "This device",
+  "team.devices.recovery": "Recovery code",
+  "team.devices.log": "Team history up to entry {index}",
+  "team.devices.remove": "Remove device",
+  "team.devices.removeQuestion": "This device loses access to the team. Continue?",
   "team.error.unknownRepository": "No session runs in that repository any more.",
   "team.activity.repos": "Shared repositories",
   "team.activity.reposHelp":
@@ -3702,6 +3739,7 @@ const el: Record<MessageKey, string> = {
   "push.ntfyUrl": "Διεύθυνση με θέμα",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/to-mystiko-sou-thema",
   "push.ntfyUrlHelp": "Διάλεξε ένα θέμα που δύσκολα μαντεύεται: όποιος το ξέρει, το διαβάζει.",
+  "push.ntfyUrlStored": "Το θέμα αποθηκεύεται στο μπρελόκ κλειδιών και εμφανίζεται συντομευμένο.",
   "push.ntfyToken": "Διακριτικό πρόσβασης (προαιρετικό)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API token της εφαρμογής",
@@ -4586,6 +4624,24 @@ const el: Record<MessageKey, string> = {
   "team.error.busy": "Απασχολημένο τώρα. Δοκίμασε ξανά σε λίγο.",
   "team.status.otherAccount":
     "Η συσκευή ομάδας σε αυτόν τον υπολογιστή ανήκει σε άλλον λογαριασμό. Συνδέσου με εκείνον τον λογαριασμό.",
+  "team.status.ownerMismatch":
+    "Το ιστορικό της ομάδας αναφέρει άλλον ιδιοκτήτη από τον ιστότοπο. Η κοινή χρήση σταμάτησε.",
+  "team.status.confirmAdmission": "Έλεγξε ποιος σε δέχτηκε",
+  "team.status.waitingForKeyChange": "Αναμονή για νέο κλειδί ομάδας από ιδιοκτήτη ή διαχειριστή",
+  "team.admission.title": "Ποιος σε δέχτηκε;",
+  "team.admission.help":
+    "Σύγκρινε και τους δύο αριθμούς με τη συσκευή που σε επιβεβαίωσε. Τους δείχνει στο παράθυρο ομάδας στα Άτομα, Οι συσκευές σου. Μόνο τότε αυτή η συσκευή μοιράζεται κάτι.",
+  "team.admission.mismatch":
+    "Αν ένας αριθμός διαφέρει, μην επιβεβαιώσεις και απενεργοποίησε την κοινή χρήση.",
+  "team.admission.confirm": "Οι αριθμοί ταιριάζουν",
+  "team.devices.title": "Οι συσκευές σου",
+  "team.devices.help":
+    "Μια νέα συσκευή σού ζητά αυτούς τους αριθμούς. Αφαίρεσε μια συσκευή που δεν έχεις πια.",
+  "team.devices.this": "Αυτή η συσκευή",
+  "team.devices.recovery": "Κωδικός ανάκτησης",
+  "team.devices.log": "Ιστορικό ομάδας έως την καταχώριση {index}",
+  "team.devices.remove": "Αφαίρεση συσκευής",
+  "team.devices.removeQuestion": "Αυτή η συσκευή χάνει την πρόσβαση στην ομάδα. Συνέχεια;",
   "team.error.unknownRepository": "Σε αυτό το αποθετήριο δεν τρέχει πια καμία συνεδρία.",
   "team.activity.repos": "Κοινόχρηστα αποθετήρια",
   "team.activity.reposHelp":
@@ -5299,6 +5355,7 @@ const es: Record<MessageKey, string> = {
   "push.ntfyUrl": "Dirección con tema",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/tu-tema-secreto",
   "push.ntfyUrlHelp": "Elige un tema difícil de adivinar: quien lo conozca puede leerlo.",
+  "push.ntfyUrlStored": "El tema se guarda en el llavero y se muestra abreviado.",
   "push.ntfyToken": "Token de acceso (opcional)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API token de la app",
@@ -6173,6 +6230,25 @@ const es: Record<MessageKey, string> = {
   "team.error.busy": "Ocupado ahora mismo. Inténtalo de nuevo en un momento.",
   "team.status.otherAccount":
     "En este ordenador, el dispositivo del equipo pertenece a otra cuenta. Inicia sesión con esa cuenta.",
+  "team.status.ownerMismatch":
+    "El historial del equipo indica otro propietario que el sitio web. Se pausó el uso compartido.",
+  "team.status.confirmAdmission": "Comprueba quién te admitió",
+  "team.status.waitingForKeyChange":
+    "Esperando una nueva clave de equipo de un propietario o administrador",
+  "team.admission.title": "¿Quién te admitió?",
+  "team.admission.help":
+    "Compara ambos números con el dispositivo que te confirmó. Los muestra en la ventana del equipo en Personas, Tus dispositivos. Solo entonces este dispositivo comparte algo.",
+  "team.admission.mismatch":
+    "Si un número no coincide, no confirmes y desactiva el uso compartido.",
+  "team.admission.confirm": "Los números coinciden",
+  "team.devices.title": "Tus dispositivos",
+  "team.devices.help":
+    "Un dispositivo nuevo te pide estos números. Quita un dispositivo que ya no tengas.",
+  "team.devices.this": "Este dispositivo",
+  "team.devices.recovery": "Código de recuperación",
+  "team.devices.log": "Historial del equipo hasta la entrada {index}",
+  "team.devices.remove": "Quitar dispositivo",
+  "team.devices.removeQuestion": "Este dispositivo pierde el acceso al equipo. ¿Continuar?",
   "team.error.unknownRepository": "Ya no se ejecuta ninguna sesión en ese repositorio.",
   "team.activity.repos": "Repositorios compartidos",
   "team.activity.reposHelp":
@@ -6884,6 +6960,7 @@ const fr: Record<MessageKey, string> = {
   "push.ntfyUrl": "Adresse avec sujet",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/ton-sujet-secret",
   "push.ntfyUrlHelp": "Choisis un sujet difficile à deviner : qui le connaît peut lire.",
+  "push.ntfyUrlStored": "Le sujet est enregistré dans le trousseau et affiché en abrégé.",
   "push.ntfyToken": "Jeton d’accès (facultatif)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "Jeton API de l’app",
@@ -7769,6 +7846,24 @@ const fr: Record<MessageKey, string> = {
   "team.error.busy": "Occupé pour le moment. Réessaie dans un instant.",
   "team.status.otherAccount":
     "Sur cet ordinateur, l'appareil d'équipe appartient à un autre compte. Connecte-toi avec ce compte.",
+  "team.status.ownerMismatch":
+    "L'historique de l'équipe indique un autre propriétaire que le site web. Le partage est suspendu.",
+  "team.status.confirmAdmission": "Vérifie qui t'a admis",
+  "team.status.waitingForKeyChange":
+    "En attente d'une nouvelle clé d'équipe d'un propriétaire ou d'un admin",
+  "team.admission.title": "Qui t'a admis ?",
+  "team.admission.help":
+    "Compare les deux numéros avec l'appareil qui t'a confirmé. Il les affiche dans la fenêtre Équipe sous Personnes, Tes appareils. Ce n'est qu'ensuite que cet appareil partage quelque chose.",
+  "team.admission.mismatch": "Si un numéro diffère, ne confirme pas et désactive le partage.",
+  "team.admission.confirm": "Les numéros correspondent",
+  "team.devices.title": "Tes appareils",
+  "team.devices.help":
+    "Un nouvel appareil te demande ces numéros. Retire un appareil que tu n'as plus.",
+  "team.devices.this": "Cet appareil",
+  "team.devices.recovery": "Code de récupération",
+  "team.devices.log": "Historique de l'équipe jusqu'à l'entrée {index}",
+  "team.devices.remove": "Retirer l'appareil",
+  "team.devices.removeQuestion": "Cet appareil perd l'accès à l'équipe. Continuer ?",
   "team.error.unknownRepository": "Plus aucune session ne tourne dans ce dépôt.",
   "team.activity.repos": "Dépôts partagés",
   "team.activity.reposHelp":
@@ -8482,6 +8577,7 @@ const it: Record<MessageKey, string> = {
   "push.ntfyUrl": "Indirizzo con argomento",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/il-tuo-argomento-segreto",
   "push.ntfyUrlHelp": "Scegli un argomento difficile da indovinare: chi lo conosce può leggere.",
+  "push.ntfyUrlStored": "L'argomento è salvato nel portachiavi e mostrato abbreviato.",
   "push.ntfyToken": "Token di accesso (facoltativo)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API token dell'app",
@@ -9358,6 +9454,24 @@ const it: Record<MessageKey, string> = {
   "team.error.busy": "Occupato al momento. Riprova tra poco.",
   "team.status.otherAccount":
     "Su questo computer il dispositivo del team appartiene a un altro account. Accedi con quell'account.",
+  "team.status.ownerMismatch":
+    "La cronologia del team indica un proprietario diverso dal sito web. La condivisione è sospesa.",
+  "team.status.confirmAdmission": "Controlla chi ti ha ammesso",
+  "team.status.waitingForKeyChange":
+    "In attesa di una nuova chiave del team da un proprietario o admin",
+  "team.admission.title": "Chi ti ha ammesso?",
+  "team.admission.help":
+    "Confronta entrambi i numeri con il dispositivo che ti ha confermato. Li mostra nella finestra del team in Persone, I tuoi dispositivi. Solo dopo questo dispositivo condivide qualcosa.",
+  "team.admission.mismatch": "Se un numero è diverso, non confermare e disattiva la condivisione.",
+  "team.admission.confirm": "I numeri corrispondono",
+  "team.devices.title": "I tuoi dispositivi",
+  "team.devices.help":
+    "Un nuovo dispositivo ti chiede questi numeri. Rimuovi un dispositivo che non hai più.",
+  "team.devices.this": "Questo dispositivo",
+  "team.devices.recovery": "Codice di recupero",
+  "team.devices.log": "Cronologia del team fino alla voce {index}",
+  "team.devices.remove": "Rimuovi dispositivo",
+  "team.devices.removeQuestion": "Questo dispositivo perde l'accesso al team. Continuare?",
   "team.error.unknownRepository": "In quel repository non è più in esecuzione nessuna sessione.",
   "team.activity.repos": "Repository condivisi",
   "team.activity.reposHelp":
@@ -10065,6 +10179,7 @@ const ja: Record<MessageKey, string> = {
   "push.ntfyUrl": "トピック付きアドレス",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/your-secret-topic",
   "push.ntfyUrlHelp": "推測されにくいトピックを選んでください: 知っている人は誰でも読めます。",
+  "push.ntfyUrlStored": "トピックはキーチェーンに保存され、短縮して表示されます。",
   "push.ntfyToken": "アクセストークン (任意)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "アプリの API トークン",
@@ -10942,6 +11057,23 @@ const ja: Record<MessageKey, string> = {
   "team.error.busy": "処理中です。少し待ってから再試行してください。",
   "team.status.otherAccount":
     "このコンピューターのチーム用デバイスは別のアカウントのものです。そのアカウントでサインインしてください。",
+  "team.status.ownerMismatch":
+    "チームの履歴がウェブサイトとは別のオーナーを示しています。共有を停止しました。",
+  "team.status.confirmAdmission": "あなたを承認した人を確認してください",
+  "team.status.waitingForKeyChange": "オーナーまたは管理者による新しいチームキーを待っています",
+  "team.admission.title": "誰があなたを承認しましたか?",
+  "team.admission.help":
+    "両方の番号を、あなたを承認したデバイスと照合してください。そのデバイスのチームウィンドウの メンバー の あなたのデバイス に表示されます。照合後にのみ、このデバイスは共有を始めます。",
+  "team.admission.mismatch": "番号が一致しない場合は承認せず、共有をオフにしてください。",
+  "team.admission.confirm": "番号が一致します",
+  "team.devices.title": "あなたのデバイス",
+  "team.devices.help":
+    "新しいデバイスがこれらの番号を尋ねます。手元にないデバイスは削除してください。",
+  "team.devices.this": "このデバイス",
+  "team.devices.recovery": "復旧コード",
+  "team.devices.log": "エントリ {index} までのチーム履歴",
+  "team.devices.remove": "デバイスを削除",
+  "team.devices.removeQuestion": "このデバイスはチームへのアクセスを失います。続けますか?",
   "team.error.unknownRepository": "そのリポジトリで実行中のセッションはもうありません。",
   "team.activity.repos": "共有するリポジトリ",
   "team.activity.reposHelp":
@@ -11644,6 +11776,7 @@ const pl: Record<MessageKey, string> = {
   "push.ntfyUrl": "Adres z tematem",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/twoj-tajny-temat",
   "push.ntfyUrlHelp": "Wybierz temat trudny do odgadnięcia: kto go zna, może czytać.",
+  "push.ntfyUrlStored": "Temat jest zapisany w pęku kluczy i wyświetlany w skrócie.",
   "push.ntfyToken": "Token dostępu (opcjonalnie)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API token aplikacji",
@@ -12508,6 +12641,24 @@ const pl: Record<MessageKey, string> = {
   "team.error.busy": "Zajęte. Spróbuj ponownie za chwilę.",
   "team.status.otherAccount":
     "Na tym komputerze urządzenie zespołu należy do innego konta. Zaloguj się na to konto.",
+  "team.status.ownerMismatch":
+    "Historia zespołu wskazuje innego właściciela niż strona. Udostępnianie wstrzymane.",
+  "team.status.confirmAdmission": "Sprawdź, kto cię przyjął",
+  "team.status.waitingForKeyChange":
+    "Czeka na nowy klucz zespołu od właściciela lub administratora",
+  "team.admission.title": "Kto cię przyjął?",
+  "team.admission.help":
+    "Porównaj oba numery z urządzeniem, które cię potwierdziło. Pokazuje je w oknie zespołu w Osoby, Twoje urządzenia. Dopiero wtedy to urządzenie coś udostępnia.",
+  "team.admission.mismatch": "Jeśli numer się różni, nie potwierdzaj i wyłącz udostępnianie.",
+  "team.admission.confirm": "Numery się zgadzają",
+  "team.devices.title": "Twoje urządzenia",
+  "team.devices.help":
+    "Nowe urządzenie zapyta cię o te numery. Usuń urządzenie, którego już nie masz.",
+  "team.devices.this": "To urządzenie",
+  "team.devices.recovery": "Kod odzyskiwania",
+  "team.devices.log": "Historia zespołu do wpisu {index}",
+  "team.devices.remove": "Usuń urządzenie",
+  "team.devices.removeQuestion": "To urządzenie straci dostęp do zespołu. Kontynuować?",
   "team.error.unknownRepository": "W tym repozytorium nie działa już żadna sesja.",
   "team.activity.repos": "Udostępniane repozytoria",
   "team.activity.reposHelp":
@@ -13213,6 +13364,7 @@ const pt: Record<MessageKey, string> = {
   "push.ntfyUrl": "Endereço com tópico",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/seu-topico-secreto",
   "push.ntfyUrlHelp": "Escolha um tópico difícil de adivinhar: quem o conhece pode ler.",
+  "push.ntfyUrlStored": "O tópico fica guardado no chaveiro e aparece abreviado.",
   "push.ntfyToken": "Token de acesso (opcional)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API token do app",
@@ -14088,6 +14240,25 @@ const pt: Record<MessageKey, string> = {
   "team.error.busy": "Ocupado agora. Tente de novo em instantes.",
   "team.status.otherAccount":
     "Neste computador, o dispositivo da equipe pertence a outra conta. Entre com essa conta.",
+  "team.status.ownerMismatch":
+    "O histórico da equipe indica outro proprietário que o site. O compartilhamento está pausado.",
+  "team.status.confirmAdmission": "Verifique quem admitiu você",
+  "team.status.waitingForKeyChange":
+    "Aguardando uma nova chave da equipe de um proprietário ou administrador",
+  "team.admission.title": "Quem admitiu você?",
+  "team.admission.help":
+    "Compare os dois números com o dispositivo que confirmou você. Ele os mostra na janela da equipe em Pessoas, Seus dispositivos. Só então este dispositivo compartilha algo.",
+  "team.admission.mismatch":
+    "Se um número for diferente, não confirme e desative o compartilhamento.",
+  "team.admission.confirm": "Os números coincidem",
+  "team.devices.title": "Seus dispositivos",
+  "team.devices.help":
+    "Um novo dispositivo pede estes números. Remova um dispositivo que você não tem mais.",
+  "team.devices.this": "Este dispositivo",
+  "team.devices.recovery": "Código de recuperação",
+  "team.devices.log": "Histórico da equipe até a entrada {index}",
+  "team.devices.remove": "Remover dispositivo",
+  "team.devices.removeQuestion": "Este dispositivo perde o acesso à equipe. Continuar?",
   "team.error.unknownRepository": "Nenhuma sessão está mais rodando nesse repositório.",
   "team.activity.repos": "Repositórios compartilhados",
   "team.activity.reposHelp":
@@ -14788,6 +14959,7 @@ const ru: Record<MessageKey, string> = {
   "push.ntfyUrl": "Адрес с темой",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/tvoya-sekretnaya-tema",
   "push.ntfyUrlHelp": "Выбери тему, которую трудно угадать: кто её знает, тот читает.",
+  "push.ntfyUrlStored": "Тема хранится в связке ключей и показана сокращённо.",
   "push.ntfyToken": "Токен доступа (необязательно)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "API-токен приложения",
@@ -15651,6 +15823,24 @@ const ru: Record<MessageKey, string> = {
   "team.error.busy": "Сейчас занято. Попробуй ещё раз чуть позже.",
   "team.status.otherAccount":
     "На этом компьютере устройство команды принадлежит другой учётной записи. Войди с этой учётной записью.",
+  "team.status.ownerMismatch":
+    "История команды указывает другого владельца, чем сайт. Общий доступ приостановлен.",
+  "team.status.confirmAdmission": "Проверь, кто тебя принял",
+  "team.status.waitingForKeyChange":
+    "Ожидание нового ключа команды от владельца или администратора",
+  "team.admission.title": "Кто тебя принял?",
+  "team.admission.help":
+    "Сравни оба номера с устройством, которое тебя подтвердило. Оно показывает их в окне команды в разделе Люди, Твои устройства. Только после этого это устройство чем-то делится.",
+  "team.admission.mismatch": "Если номер не совпадает, не подтверждай и выключи общий доступ.",
+  "team.admission.confirm": "Номера совпадают",
+  "team.devices.title": "Твои устройства",
+  "team.devices.help":
+    "Новое устройство спросит у тебя эти номера. Удали устройство, которого у тебя больше нет.",
+  "team.devices.this": "Это устройство",
+  "team.devices.recovery": "Код восстановления",
+  "team.devices.log": "История команды до записи {index}",
+  "team.devices.remove": "Удалить устройство",
+  "team.devices.removeQuestion": "Это устройство потеряет доступ к команде. Продолжить?",
   "team.error.unknownRepository": "В этом репозитории больше не работает ни одна сессия.",
   "team.activity.repos": "Общие репозитории",
   "team.activity.reposHelp":
@@ -16349,6 +16539,7 @@ const tr: Record<MessageKey, string> = {
   "push.ntfyUrl": "Konulu adres",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/gizli-konun",
   "push.ntfyUrlHelp": "Tahmin edilmesi zor bir konu seç: onu bilen herkes okuyabilir.",
+  "push.ntfyUrlStored": "Konu anahtar zincirinde saklanır ve kısaltılmış gösterilir.",
   "push.ntfyToken": "Erişim belirteci (isteğe bağlı)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "Uygulamanın API belirteci",
@@ -17207,6 +17398,23 @@ const tr: Record<MessageKey, string> = {
   "team.error.busy": "Şu an meşgul. Birazdan yeniden dene.",
   "team.status.otherAccount":
     "Bu bilgisayardaki ekip cihazı başka bir hesaba ait. O hesapla oturum aç.",
+  "team.status.ownerMismatch":
+    "Ekip geçmişi web sitesinden farklı bir sahip gösteriyor. Paylaşım duraklatıldı.",
+  "team.status.confirmAdmission": "Seni kimin kabul ettiğini kontrol et",
+  "team.status.waitingForKeyChange": "Bir sahip veya yöneticiden yeni ekip anahtarı bekleniyor",
+  "team.admission.title": "Seni kim kabul etti?",
+  "team.admission.help":
+    "İki numarayı da seni onaylayan cihazla karşılaştır. O cihaz bunları ekip penceresinde Kişiler, Cihazların altında gösterir. Ancak ondan sonra bu cihaz bir şey paylaşır.",
+  "team.admission.mismatch": "Bir numara farklıysa onaylama ve paylaşımı kapat.",
+  "team.admission.confirm": "Numaralar eşleşiyor",
+  "team.devices.title": "Cihazların",
+  "team.devices.help":
+    "Yeni bir cihaz senden bu numaraları ister. Artık sende olmayan bir cihazı kaldır.",
+  "team.devices.this": "Bu cihaz",
+  "team.devices.recovery": "Kurtarma kodu",
+  "team.devices.log": "{index}. kayda kadar ekip geçmişi",
+  "team.devices.remove": "Cihazı kaldır",
+  "team.devices.removeQuestion": "Bu cihaz ekibe erişimini kaybeder. Devam edilsin mi?",
   "team.error.unknownRepository": "Bu depoda artık çalışan bir oturum yok.",
   "team.activity.repos": "Paylaşılan depolar",
   "team.activity.reposHelp":
@@ -17885,6 +18093,7 @@ const zh: Record<MessageKey, string> = {
   "push.ntfyUrl": "带主题的地址",
   "push.ntfyUrlPlaceholder": "https://ntfy.sh/your-secret-topic",
   "push.ntfyUrlHelp": "选择一个难以猜到的主题: 知道它的人都能读到。",
+  "push.ntfyUrlStored": "主题保存在钥匙串中,并以缩略形式显示。",
   "push.ntfyToken": "访问令牌 (可选)",
   "push.pushoverUser": "User Key",
   "push.pushoverToken": "应用的 API 令牌",
@@ -18708,6 +18917,21 @@ const zh: Record<MessageKey, string> = {
   "team.error.unknownRequest": "此请求已不存在。",
   "team.error.busy": "正在忙碌。请稍后再试。",
   "team.status.otherAccount": "此电脑上的团队设备属于另一个账户。请用该账户登录。",
+  "team.status.ownerMismatch": "团队记录中的所有者与网站不同。共享已暂停。",
+  "team.status.confirmAdmission": "确认是谁接纳了你",
+  "team.status.waitingForKeyChange": "正在等待所有者或管理员提供新的团队密钥",
+  "team.admission.title": "是谁接纳了你?",
+  "team.admission.help":
+    "将两个号码与确认你的设备进行比对。它会在团队窗口的 成员, 你的设备 中显示这些号码。比对之后此设备才会共享内容。",
+  "team.admission.mismatch": "如果有号码不一致,请不要确认,并关闭共享。",
+  "team.admission.confirm": "号码一致",
+  "team.devices.title": "你的设备",
+  "team.devices.help": "新设备会向你询问这些号码。请移除你已不再拥有的设备。",
+  "team.devices.this": "此设备",
+  "team.devices.recovery": "恢复代码",
+  "team.devices.log": "截至第 {index} 条的团队记录",
+  "team.devices.remove": "移除设备",
+  "team.devices.removeQuestion": "此设备将失去对团队的访问。继续吗?",
   "team.error.unknownRepository": "该仓库中已没有正在运行的会话。",
   "team.activity.repos": "共享的仓库",
   "team.activity.reposHelp":

@@ -630,6 +630,14 @@ export const api = {
   teamPendingConfirmations: () => invoke<unknown>("team_pending_confirmations"),
   teamConfirm: (request: string) => invoke<unknown>("team_confirm", { request }),
   teamReject: (request: string) => invoke<unknown>("team_reject", { request }),
+  /** Every team's connection, the pending confirmations and the repositories to link. */
+  teamSnapshot: () => invoke<unknown>("team_snapshot"),
+  /** This device joined the team the person expected (they compared the safety numbers). */
+  teamConfirmAdmission: (projectId: string) =>
+    invoke<unknown>("team_confirm_admission", { projectId }),
+  /** Removes another device of the signed-in person from the team (a lost one). */
+  teamRemoveDevice: (projectId: string, device: string) =>
+    invoke<unknown>("team_remove_device", { projectId, device }),
   /** What each session does (team.ts `sessionStates`), for the team's presence. */
   teamSessionStates: (states: { sessionId: number; state: SessionState }[]) =>
     invoke<undefined>("team_session_states", { states }),
@@ -699,9 +707,12 @@ export const POWER_CHANGED = "power-changed";
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */
 export const GATE_CHANGED = "gate-changed";
-/** Event with the newest account state (`parseAccountView` in account.ts). */
+/**
+ * Signal without payload: the account state changed; read it with `accountStatus`. Other webviews
+ * may hear it too, so it carries nothing.
+ */
 export const ACCOUNT_CHANGED = "account-changed";
-/** Event with every project's team connection and the pending confirmations (`parseTeamSnapshot`). */
+/** Signal without payload: the team snapshot changed; read it with `teamSnapshot`. */
 export const TEAM_CHANGED = "team-changed";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
