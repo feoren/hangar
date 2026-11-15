@@ -128,6 +128,9 @@ windows-sys = { version = "0.61", features = [
   # GlobalMemoryStatusEx: memory in use for the system bar (system_usage.rs). Bindings only.
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  # SystemTimeToTzSpecificLocalTime: the local day of a response for the cost overview
+  # (token_usage.rs), daylight saving included. Bindings only, kernel32.dll ships with Windows.
+  "Win32_System_Time",
   # ShellExecuteW: web pages open in the default browser (desktop.rs).
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",

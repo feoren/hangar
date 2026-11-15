@@ -712,11 +712,11 @@ fn read_meta(path: &Path) -> Option<Meta> {
     serde_json::from_slice(&bytes).ok()
 }
 
-fn is_real_dir(path: &Path) -> bool {
+pub(crate) fn is_real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir())
 }
 
-fn is_real_file(path: &Path) -> bool {
+pub(crate) fn is_real_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
 }
 

@@ -12,6 +12,7 @@ pub mod cli_session;
 pub mod clipboard_image;
 mod commands;
 pub mod context_usage;
+pub mod cost_service;
 pub mod desktop;
 pub mod exe_image;
 pub mod exec_alias;
@@ -32,6 +33,7 @@ pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod manager;
+pub mod model_prices;
 pub mod notes;
 pub mod notify;
 pub mod output;
@@ -59,6 +61,7 @@ pub mod team_tasks;
 #[cfg(test)]
 mod test_support;
 pub mod text;
+pub mod token_usage;
 pub mod tray;
 pub mod updates;
 pub mod version;
@@ -214,6 +217,33 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: context meter not started: {error}");
             }
             app.manage(context);
+            // Tokens and estimated cost per session and local day: one thread for all sessions,
+            // numbers, titles and program names only. Prices: built in, plus the user's
+            // model-prices.toml next to profiles.toml.
+            let costs = cost_service::CostService::default();
+            let (prices, price_error) =
+                model_prices::PriceTable::load(&app.state::<ProfileLoad>().dir);
+            if let Some(error) = price_error {
+                eprintln!("hangar: {error}");
+            }
+            let ledger = app
+                .path()
+                .app_local_data_dir()?
+                .join(cost_service::LEDGER_FILE);
+            let sessions = app.handle().clone();
+            let events = app.handle().clone();
+            let started = costs.start(
+                ledger,
+                prices,
+                move || sessions.state::<SessionManager>().cost_targets(),
+                move |report| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, cost_service::EVENT, report);
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: cost overview not started: {error}");
+            }
+            app.manage(costs);
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
             // this machine (Windows: %LOCALAPPDATA%\<identifier>).
             let local_dir = app.path().app_local_data_dir()?;
@@ -409,6 +439,7 @@ pub fn run() -> tauri::Result<()> {
             commands::focus_sub_agent,
             commands::unwatch_sub_agents,
             commands::context_usage,
+            commands::cost_report,
             commands::account_status,
             commands::account_sign_in,
             commands::account_cancel_sign_in,
@@ -436,6 +467,7 @@ pub fn run() -> tauri::Result<()> {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
             handle.state::<context_usage::ContextUsage>().stop();
+            handle.state::<cost_service::CostService>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.

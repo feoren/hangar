@@ -232,6 +232,11 @@ export const api = {
   /** The sessions' newest context use; check with `parseContextSnapshot` (contextUsage.ts). */
   contextUsage: () => invoke<unknown>("context_usage"),
   /**
+   * Tokens and estimated cost per running session and per local day; check with
+   * `parseCostReport` (costs.ts). Only sessions whose program keeps readable usage appear.
+   */
+  costReport: () => invoke<unknown>("cost_report"),
+  /**
    * Version per profile ID (`Record<string, string | null>`), installed programs only.
    * Slow (up to 5 s) because the backend starts the programs to ask. Check with `parseVersions`.
    */
@@ -548,6 +553,8 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
+/** Event with the newest cost report (`parseCostReport` in costs.ts). */
+export const COST_USAGE_CHANGED = "cost-usage-changed";
 /** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
 export const CLAIMS_CHANGED = "claims-changed";
 /** Event with the newest gate snapshot (`parseGateSnapshot` in gate.ts). */

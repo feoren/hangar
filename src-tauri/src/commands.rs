@@ -682,6 +682,16 @@ pub fn context_usage(
     usage.snapshot()
 }
 
+/// Tokens and estimated cost per running session and per local day (cost_service.rs); later
+/// changes arrive as `cost-usage-changed` events with the same shape. Other features read one
+/// session's numbers from `sessions` (or through `CostService::session` in the backend).
+#[tauri::command]
+pub fn cost_report(
+    costs: State<'_, crate::cost_service::CostService>,
+) -> crate::cost_service::CostReport {
+    costs.report()
+}
+
 // Workspace and scrollback (persist.rs). File access runs on a blocking thread because
 // synchronous commands run on the main thread and 2 MiB of scrollback would make the window stutter.
 

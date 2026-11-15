@@ -62,6 +62,7 @@ describe("parseSettings", () => {
       viewerTheme: "github",
       sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
+      dailyBudget: 12.5,
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,

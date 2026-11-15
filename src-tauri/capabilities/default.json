@@ -106,6 +106,7 @@
     "allow-focus-sub-agent",
     "allow-unwatch-sub-agents",
     "allow-context-usage",
+    "allow-cost-report",
     "allow-account-status",
     "allow-account-sign-in",
     "allow-account-cancel-sign-in",

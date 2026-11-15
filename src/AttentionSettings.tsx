@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import { Badge } from "./Badge";
 import { playChime } from "./chimeAudio";
+import { budgetFromInput } from "./costs";
 import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnimation";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
@@ -221,8 +224,64 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ showResources });
           }}
         />
+        <BudgetField
+          value={settings.dailyBudget}
+          onChange={(dailyBudget) => {
+            onChange({ dailyBudget });
+          }}
+        />
       </fieldset>
     </>
+  );
+}
+
+/**
+ * Daily budget in dollars: taken when the field loses focus or Enter is pressed; an empty field
+ * means no budget, an invalid entry goes back to the saved value.
+ */
+function BudgetField({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const t = useT();
+  const [text, setText] = useState(value === null ? "" : String(value));
+  const commit = () => {
+    const parsed = budgetFromInput(text);
+    if (parsed === null && text.trim() !== "") {
+      setText(value === null ? "" : String(value));
+      return;
+    }
+    setText(parsed === null ? "" : String(parsed));
+    if (parsed !== value) onChange(parsed);
+  };
+  return (
+    <div className="field budget-field">
+      <label htmlFor="daily-budget">{t("costs.budget")}</label>
+      <input
+        id="daily-budget"
+        type="text"
+        inputMode="decimal"
+        className="text-input"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={t("costs.budgetNone")}
+        value={text}
+        aria-describedby="daily-budget-help"
+        onChange={(event) => {
+          setText(event.currentTarget.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+        }}
+      />
+      <p id="daily-budget-help" className="muted settings-help">
+        {t("costs.budgetHelp")}
+      </p>
+    </div>
   );
 }
 

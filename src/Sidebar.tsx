@@ -4,6 +4,7 @@ import type { Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
+import { costNote } from "./costs";
 import { FolderMenu } from "./FolderMenu";
 import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
@@ -94,6 +95,7 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { ContextMeter } from "./ContextMeter";
 import { resourceText } from "./resources";
+import { useSessionCost } from "./useCosts";
 import { useSessionResources } from "./useSessionResources";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
@@ -322,6 +324,7 @@ export function Sidebar(props: Props) {
     (peekSession.id === activeId || props.placements.has(peekSession.id));
   /** CPU and memory of the peeked session, for its peek; nothing while none is peeked. */
   const peekResources = useSessionResources(peekSession?.id ?? -1);
+  const peekCost = useSessionCost(peekSession?.id ?? -1);
   /** Mouse handlers of a session row for the peek. */
   const peekHandlers = (id: number): PeekEvents => ({
     onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
@@ -492,6 +495,7 @@ export function Sidebar(props: Props) {
           resources:
             peekResources === undefined ? null : resourceText(peekResources, props.language, t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
+          cost: costNote(peekCost, props.language, t),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
           cwd: peekSession.cwd,

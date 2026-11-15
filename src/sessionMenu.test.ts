@@ -55,4 +55,11 @@ describe("sessionMenuEntries", () => {
     // An open view can always be closed, even after the session lost its sub-agents.
     expect(keys(false, true)).toContain("subAgents");
   });
+
+  it("offers the handover only where the caller allows it, after the marker", () => {
+    const keys = (handover: boolean) =>
+      sessionMenuEntries({ status: "running" }, t, false, handover).map((entry) => entry.key);
+    expect(keys(false)).not.toContain("handover");
+    expect(keys(true)).toEqual(["rename", "marker", "handover", "sep", "kill", "close"]);
+  });
 });

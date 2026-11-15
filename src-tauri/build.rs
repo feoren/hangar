@@ -98,6 +98,7 @@ const COMMANDS: &[&str] = &[
     "focus_sub_agent",
     "unwatch_sub_agents",
     "context_usage",
+    "cost_report",
     "account_status",
     "account_sign_in",
     "account_cancel_sign_in",

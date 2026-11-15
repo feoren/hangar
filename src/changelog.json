@@ -2,7 +2,36 @@
   {
     "version": "0.7.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Neu: Token und geschätzte Kosten pro Session und Tag für Claude Code, in der Vorschau und unter Ansicht > Kosten, mit optionalem Tagesbudget.",
+        "en": "New: tokens and estimated costs per session and day for Claude Code, in the peek and under View > Costs, with an optional daily budget.",
+        "el": "Νέο: tokens και εκτιμώμενο κόστος ανά συνεδρία και ημέρα για το Claude Code, στην προεπισκόπηση και στο Προβολή > Κόστος, με προαιρετικό ημερήσιο όριο.",
+        "es": "Nuevo: tokens y costes estimados por sesión y día para Claude Code, en la vista previa y en Ver > Costes, con presupuesto diario opcional.",
+        "fr": "Nouveau : jetons et coûts estimés par session et par jour pour Claude Code, dans l’aperçu et sous Affichage > Coûts, avec un budget journalier optionnel.",
+        "it": "Novità: token e costi stimati per sessione e giorno per Claude Code, nell’anteprima e in Visualizza > Costi, con budget giornaliero opzionale.",
+        "ja": "新機能: Claude Code のセッションごと・日ごとのトークンと推定コストを、プレビューと「表示 > コスト」で確認できます。1 日の予算も設定できます。",
+        "pl": "Nowość: tokeny i szacowane koszty na sesję i dzień dla Claude Code, w podglądzie i w Widok > Koszty, z opcjonalnym dziennym budżetem.",
+        "pt": "Novo: tokens e custos estimados por sessão e dia para o Claude Code, na prévia e em Exibir > Custos, com orçamento diário opcional.",
+        "ru": "Новое: токены и оценка расходов по сессиям и дням для Claude Code, в превью и в меню Вид > Расходы, с дневным бюджетом по желанию.",
+        "tr": "Yeni: Claude Code için oturum ve gün başına token ve tahmini maliyet, önizlemede ve Görünüm > Maliyetler altında, isteğe bağlı günlük bütçeyle.",
+        "zh": "新功能：按会话和按天显示 Claude Code 的 token 和估算费用，可在预览和“视图 > 费用”中查看，并可设置每日预算。"
+      },
+      {
+        "de": "Neu: „Übergeben an …“ im Session-Menü startet einen anderen Agenten im selben Ordner und fügt letzten Auftrag, geänderte Dateien und Notizen ein.",
+        "en": "New: “Hand over to …” in the session menu starts another agent in the same folder and inserts the last request, changed files and notes.",
+        "el": "Νέο: η «Παράδοση σε …» στο μενού συνεδρίας ξεκινά άλλον agent στον ίδιο φάκελο και εισάγει το τελευταίο αίτημα, τα αλλαγμένα αρχεία και σημειώσεις.",
+        "es": "Nuevo: «Pasar a …» en el menú de sesión inicia otro agente en la misma carpeta e inserta la última petición, los archivos cambiados y las notas.",
+        "fr": "Nouveau : « Passer à … » dans le menu de session lance un autre agent dans le même dossier avec la dernière demande, les fichiers modifiés et les notes.",
+        "it": "Novità: «Passa a …» nel menu della sessione avvia un altro agente nella stessa cartella e inserisce l’ultima richiesta, i file modificati e le note.",
+        "ja": "新機能: セッションメニューの「引き継ぎ先 …」で、同じフォルダーに別のエージェントを起動し、最後の依頼、変更ファイル、メモを挿入します。",
+        "pl": "Nowość: „Przekaż do …” w menu sesji uruchamia innego agenta w tym samym folderze i wstawia ostatnie polecenie, zmienione pliki i notatki.",
+        "pt": "Novo: “Passar para …” no menu da sessão inicia outro agente na mesma pasta e insere o último pedido, os arquivos alterados e as notas.",
+        "ru": "Новое: «Передать …» в меню сессии запускает другого агента в той же папке и вставляет последний запрос, изменённые файлы и заметки.",
+        "tr": "Yeni: Oturum menüsündeki “Devret …”, aynı klasörde başka bir ajan başlatır ve son isteği, değişen dosyaları ve notları ekler.",
+        "zh": "新功能：会话菜单中的“移交给 …”会在同一文件夹中启动另一个代理，并插入最后的请求、已更改的文件和笔记。"
+      }
+    ]
   },
   {
     "version": "0.6.0",

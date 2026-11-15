@@ -2,6 +2,7 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply.
 
+import { parseBudget } from "./costs";
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
@@ -104,6 +105,11 @@ export interface Settings {
   sessionGrouping: SessionGrouping;
   /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
   snippets: Snippet[];
+  /**
+   * Estimated dollars per day after which Hangar warns once that day (costs.ts); `null`: no
+   * budget.
+   */
+  dailyBudget: number | null;
 }
 
 type Flag =
@@ -155,6 +161,7 @@ export function defaultSettings(language: Language): Settings {
     viewerTheme: DEFAULT_VIEWER_THEME,
     sessionGrouping: "program",
     snippets: defaultSnippets(language),
+    dailyBudget: null,
   };
 }
 
@@ -242,6 +249,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     viewerTheme: isViewerTheme(viewerTheme) ? viewerTheme : defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
     snippets: parseSnippets(get("snippets"), chosenLanguage),
+    dailyBudget: parseBudget(get("dailyBudget")),
   };
 }
 

@@ -636,3 +636,10 @@ The system bar's gauges became tiles with the sparkline as background; measured 
 pane-placed sessions (without terminal lines) and names the program and version; the context
 meter and the marker dot in a session row lost their tooltips.
 Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] ingest | Token usage in Claude Code transcripts, costs and handover
+Measured the usage fields of a Claude Code 2.1.322 transcript (keys and counts only: 1345
+assistant records, 771 ids, identical usage per id) and filed the price table's source. Filed the
+contracts of the cost overview (per session and local day, ledger, price table, budget notice) and
+of the session handover; Codex and the other agents show no costs.
+Pages changed: [[token-usage-measurement]] (new), [[costs-and-handover]] (new), index.

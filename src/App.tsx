@@ -78,6 +78,20 @@ import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
+import { BudgetNotice } from "./BudgetNotice";
+import { CostDialog } from "./CostDialog";
+import {
+  buildHandover,
+  canHandOver,
+  canRequestSummary,
+  handoverStart,
+  handoverTargets,
+  NOTES_MAX as HANDOVER_NOTES_MAX,
+  summaryRequest,
+  waitUntilReady,
+} from "./handover";
+import { HandoverDialog } from "./HandoverDialog";
+import { noteExcerpt } from "./noteText";
 import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
 import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
 import { dropLine } from "./sessionDrag";
@@ -104,7 +118,7 @@ import {
   type SideTab,
   type SidebarGroup,
 } from "./layout";
-import { parseNoteFolders, type NoteFolderInfo } from "./notes";
+import { parseNoteFolders, parseNotes, type NoteFolderInfo } from "./notes";
 import {
   loadWindowPrefs,
   PANEL_COMMAND,
@@ -356,7 +370,15 @@ const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog =
-  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
+  | "about"
+  | "settings"
+  | "whatsNew"
+  | "launcher"
+  | "broadcast"
+  | "searchAll"
+  | "overview"
+  | "costs"
+  | null;
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -579,6 +601,8 @@ export function App() {
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   /** Session whose marker is being edited. */
   const [markerId, setMarkerId] = useState<number | null>(null);
+  /** The session whose "Hand over to" dialog is open. */
+  const [handoverId, setHandoverId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   /**
@@ -1754,7 +1778,8 @@ export function App() {
    * the agent gate (ADR 0008). A start in the target uses up a chosen folder: the next one follows
    * the active session again. `title`: a name chosen beforehand (workspace templates). `onError`
    * takes a failure's text instead of the error notice (a template reports once at the end).
-   * Resolves to whether the session runs.
+   * `reuse`: run in this existing worktree instead of creating one (a handover); it is never
+   * removed on failure. Resolves to the new session's id, `null` when it does not run.
    */
   const start = useCallback(
     async (
@@ -1763,13 +1788,14 @@ export function App() {
       mode: StartMode = "private",
       title?: string,
       onError?: (text: string) => void,
-    ): Promise<boolean> => {
+      reuse?: Worktree,
+    ): Promise<number | null> => {
       const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
-      let worktree: Worktree | undefined;
+      let worktree: Worktree | undefined = reuse;
       // A team session needs its worktree; without a folder there is none to make.
-      if (mode === "team" && base === null) return false;
-      if (mode === "team" && base !== null) {
+      if (mode === "team" && base === null) return null;
+      if (mode === "team" && base !== null && reuse === undefined) {
         setCreatingWorktree(true);
         try {
           const made = parseWorktree(await api.createWorktree(base, worktreeLabel(profile.name)));
@@ -1777,7 +1803,7 @@ export function App() {
           worktree = made;
         } catch (e) {
           fail(createErrorText(e, t));
-          return false;
+          return null;
         } finally {
           setCreatingWorktree(false);
         }
@@ -1797,7 +1823,7 @@ export function App() {
           terminal.createChannel(),
           false,
           null,
-          worktree === undefined ? "private" : "team",
+          mode === "team" && worktree !== undefined ? "team" : "private",
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1823,19 +1849,19 @@ export function App() {
         setLastProgramId(profile.id);
         // The folder the session really runs in (the backend may fall back to the home folder);
         // for a worktree the repository's folder, so recent folders do not fill with worktrees.
-        const used = worktree === undefined ? info.cwd : base;
+        const used = worktree === undefined ? info.cwd : (reuse?.repoRoot ?? base);
         if (used !== null) setFolders((current) => recordRecent(current, used));
         // Very short processes may already have exited before the response arrives.
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id: info.id, code: terminal.exitCode });
         }
-        return true;
+        return info.id;
       } catch (e) {
         terminal.dispose();
         fail(errorText(e));
         // Nothing runs in the new worktree yet: take it away again (never forced).
-        if (worktree) api.removeWorktree(worktree).catch(() => undefined);
-        return false;
+        if (worktree && reuse === undefined) api.removeWorktree(worktree).catch(() => undefined);
+        return null;
       }
     },
     [
@@ -3350,7 +3376,7 @@ export function App() {
         const ok = await start(entry.profile, entry.folder, entry.mode, entry.title, (text) => {
           lastError = text;
         });
-        if (ok) started += 1;
+        if (ok !== null) started += 1;
       }
       const report = templateReport(template.sessions.length, started, plan.skipped, lastError);
       if (report.kind === "started") {
@@ -3852,6 +3878,13 @@ export function App() {
         { type: "separator" },
         {
           type: "action",
+          label: t("costs.menu"),
+          run: () => {
+            setDialog("costs");
+          },
+        },
+        {
+          type: "action",
           label: t("menu.overview"),
           shortcut: keys("overview"),
           disabled: state.sessions.length === 0,
@@ -4035,6 +4068,9 @@ export function App() {
       case "marker":
         setMarkerId(id);
         break;
+      case "handover":
+        setHandoverId(id);
+        break;
       case "subAgents":
         toggleSubAgents(id);
         break;
@@ -4052,22 +4088,95 @@ export function App() {
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id).map(
-          (entry): PopupItem => {
-            if (entry.type === "separator") return entry;
-            const action = entry.key;
-            const id = menuSession.id;
-            return {
-              ...entry,
-              run: () => {
-                runSessionAction(action, id);
-              },
-            };
-          },
-        );
+      : sessionMenuEntries(
+          menuSession,
+          t,
+          subAgentsOf === menuSession.id,
+          canHandOver(menuSession, profileById.get(menuSession.profileId)?.command),
+        ).map((entry): PopupItem => {
+          if (entry.type === "separator") return entry;
+          const action = entry.key;
+          const id = menuSession.id;
+          return {
+            ...entry,
+            run: () => {
+              runSessionAction(action, id);
+            },
+          };
+        });
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
+  const handoverSession =
+    handoverId === null ? undefined : state.sessions.find((s) => s.id === handoverId);
+  const closeHandover = () => {
+    setHandoverId(null);
+    focusActive();
+  };
+
+  /** Asks the old agent for a summary (pasted, then Enter); the handover follows later. */
+  const requestSummary = (id: number) => {
+    const terminal = terminals.get(id);
+    setHandoverId(null);
+    if (!terminal) return;
+    const pause = () => delay(BROADCAST_ENTER_DELAY_MS);
+    void sendToTargets([terminal], summaryRequest(t), pause);
+    setStartHint(t("handover.summaryAsked"));
+    focusActive();
+  };
+
+  /**
+   * Starts `profile` in the session's folder (same worktree and mode where possible), waits until
+   * its input line is up and pastes the handover text without Enter.
+   */
+  const handOver = async (id: number, profile: Profile) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    setHandoverId(null);
+    if (session === undefined) return;
+    const old = terminals.get(id);
+    const plan = handoverStart(session, profile);
+    const [diff, notes] = await Promise.all([
+      api.gitDiff(session.cwd).catch(() => null),
+      api.listNotes({ path: session.cwd }).catch(() => null),
+    ]);
+    const changed = parseGitDiff(diff);
+    const noteList = parseNotes(notes)
+      .sort((a, b) => a.order - b.order)
+      .slice(0, HANDOVER_NOTES_MAX);
+    const noteTexts = await Promise.all(
+      noteList.map(async (note) => {
+        const value = await api.readNote({ path: session.cwd }, note.id).catch(() => null);
+        const content = typeof value === "string" ? value : "";
+        return { title: note.title, excerpt: noteExcerpt(content, note.title) };
+      }),
+    );
+    const text = buildHandover(
+      {
+        from: profileById.get(session.profileId)?.name ?? session.title,
+        folder: plan.folder,
+        lastPrompt: old?.lastPrompt()?.text ?? null,
+        files: changed?.isRepo === true ? changed.files.map((file) => file.path) : [],
+        notes: noteTexts,
+      },
+      t,
+    );
+    const newId = await start(profile, plan.folder, plan.mode, undefined, undefined, plan.worktree);
+    if (newId === null) return;
+    const terminal = terminals.get(newId);
+    if (!terminal) return;
+    const ready = await waitUntilReady(
+      {
+        bracketedPaste: () => terminal.bracketedPaste(),
+        quietFor: () => {
+          const last = terminal.activity().lastOutput;
+          return last === null ? null : Date.now() - last;
+        },
+        gone: () => terminals.get(newId) !== terminal,
+      },
+      delay,
+    );
+    if (ready) pasteIntoSession(newId, text);
+  };
 
   /** Entries of quick access; built only while it is open. */
   const launcherItems = () =>
@@ -4745,6 +4854,14 @@ export function App() {
                 </div>
               </div>
             )}
+            <BudgetNotice
+              language={settings.language}
+              budget={settings.dailyBudget}
+              quietHours={settings.quietHours}
+              onShowCosts={() => {
+                setDialog("costs");
+              }}
+            />
             {startHint !== null && (
               <div className="link-notice start-hint" role="status" key={startHint}>
                 <span>{startHint}</span>
@@ -5004,6 +5121,28 @@ export function App() {
               setSessionMenu(null);
               focusActive();
             }}
+          />
+        )}
+        {handoverSession !== undefined && (
+          <HandoverDialog
+            title={handoverSession.title}
+            targets={handoverTargets(startable, handoverSession.profileId)}
+            badgeFor={badgeFor}
+            canSummarize={canRequestSummary(handoverSession, attention.get(handoverSession.id))}
+            onSummarize={() => {
+              requestSummary(handoverSession.id);
+            }}
+            onPick={(profile) => {
+              void handOver(handoverSession.id, profile);
+            }}
+            onClose={closeHandover}
+          />
+        )}
+        {dialog === "costs" && (
+          <CostDialog
+            language={settings.language}
+            budget={settings.dailyBudget}
+            onClose={closeDialog}
           />
         )}
         {markerSession && (

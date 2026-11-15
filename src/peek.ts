@@ -77,6 +77,8 @@ export interface PeekNoteSources {
   resources?: string | null | undefined;
   /** Why the session is marked as an outlier. */
   outlier?: string | null | undefined;
+  /** Tokens and estimated cost so far: "Tokens 123k · ~$0.42" (costs.ts costNote). */
+  cost?: string | null | undefined;
   /** Address of the dev server the session runs. */
   devServer?: string | null | undefined;
   /** The session's program and its version ("PowerShell 7 · 7.6.9"). */
@@ -87,8 +89,8 @@ export interface PeekNoteSources {
 
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
- * then the load, the dev server and the program, then the working folder. Empty and repeated texts are left
- * out.
+ * then the load, the tokens and cost, the dev server and the program, then the working folder.
+ * Empty and repeated texts are left out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
   const notes: string[] = [];
@@ -98,6 +100,7 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.exit,
     sources.outlier,
     sources.resources,
+    sources.cost,
     sources.devServer,
     sources.program,
     sources.cwd,

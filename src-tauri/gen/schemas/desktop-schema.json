@@ -279,6 +279,12 @@
           "markdownDescription": "Enables the context_usage command without any pre-configured scope."
         },
         {
+          "description": "Enables the cost_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cost-report",
+          "markdownDescription": "Enables the cost_report command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-note",
@@ -967,6 +973,12 @@
           "type": "string",
           "const": "deny-context-usage",
           "markdownDescription": "Denies the context_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cost_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cost-report",
+          "markdownDescription": "Denies the cost_report command without any pre-configured scope."
         },
         {
           "description": "Denies the create_note command without any pre-configured scope.",

@@ -1200,6 +1200,32 @@ impl SessionManager {
             .collect()
     }
 
+    /// [`Self::context_targets`] with each session's title and program name, for the cost
+    /// overview (`cost_service`).
+    pub fn cost_targets(&self) -> Vec<crate::cost_service::CostTarget> {
+        let names = self.profile_names();
+        let infos: HashMap<SessionId, SessionInfo> = self
+            .list()
+            .into_iter()
+            .map(|info| (info.id, info))
+            .collect();
+        self.context_targets()
+            .into_iter()
+            .filter_map(|(id, target)| {
+                let info = infos.get(&id)?;
+                Some(crate::cost_service::CostTarget {
+                    id,
+                    target,
+                    title: info.title.clone(),
+                    program: names
+                        .get(&info.profile_id)
+                        .cloned()
+                        .unwrap_or_else(|| info.profile_id.clone()),
+                })
+            })
+            .collect()
+    }
+
     /// What the process tree of each running session uses right now (`resources.rs`). The trees
     /// are cloned under the session lock and asked after it is released: a few system calls per
     /// session on Windows, one pass over `/proc` on Linux.

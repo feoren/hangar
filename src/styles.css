@@ -9916,3 +9916,147 @@ body.session-dragging .session-actions {
   align-items: center;
   justify-content: center;
 }
+
+/* Costs (CostDialog.tsx): today per session, then seven days as thin bars; numbers right-aligned
+   with tabular figures so the columns line up. */
+.cost-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.cost-section {
+  margin-top: 12px;
+}
+
+.cost-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cost-sum,
+.cost-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cost-sum {
+  font-weight: 400;
+  color: var(--text);
+}
+
+.cost-list,
+.cost-days {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cost-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.cost-row,
+.cost-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.cost-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cost-day-name {
+  flex: 0 0 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cost-bar {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  background: var(--hover);
+  border-radius: 3px;
+}
+
+.cost-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.cost-budget {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+}
+
+.cost-budget-over {
+  color: var(--warn);
+}
+
+.cost-empty {
+  margin: 8px 0;
+}
+
+.cost-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+.budget-field .text-input {
+  width: 10em;
+}
+
+/* Hand over to (HandoverDialog.tsx): one row per agent, the summary request below. */
+.handover-help {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+
+.handover-list {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.handover-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+}
+
+.handover-target:hover,
+.handover-target:focus-visible {
+  background: var(--hover);
+}
+
+.handover-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+}
