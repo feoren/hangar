@@ -4575,7 +4575,9 @@ program = ["x"]
             assert!(!protected_path(&arg, Some(&cwd), &place, WINDOWS));
         }
         let took = started.elapsed();
-        assert!(took < std::time::Duration::from_millis(50), "{took:?}");
+        // The scan per `[` took seconds; linear work stays far below a second even in a debug
+        // build on a loaded CI runner (a shared Windows runner needed 55 ms, so 50 ms was flaky).
+        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
         let tokens = glob_tokens(&"[".repeat(65_000));
         assert_eq!(tokens.len(), 65_000);
     }
