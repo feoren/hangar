@@ -5381,6 +5381,14 @@ export function App() {
                   ) : (
                     allHidden && <p>{t("sidebar.allHidden")}</p>
                   )}
+                  <ActivityCalendar
+                    folders={activityFolders(
+                      folders.favorites,
+                      folders.recent,
+                      state.sessions.map((session) => session.cwd),
+                    )}
+                    language={settings.language}
+                  />
                   <ProjectOverview
                     sessions={state.sessions}
                     rows={new Map(overviewTiles().map((tile) => [tile.id, tile]))}
@@ -5405,14 +5413,6 @@ export function App() {
                           }
                         : null
                     }
-                  />
-                  <ActivityCalendar
-                    folders={activityFolders(
-                      folders.favorites,
-                      folders.recent,
-                      state.sessions.map((session) => session.cwd),
-                    )}
-                    language={settings.language}
                   />
                 </div>
               )}

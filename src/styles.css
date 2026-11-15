@@ -3148,7 +3148,7 @@ h2 .beta-badge {
 .activity {
   width: 100%;
   max-width: calc(53 * 17px - 3px);
-  margin-top: 22px;
+  margin-bottom: 22px;
 }
 
 .activity-calendar {
@@ -10846,7 +10846,7 @@ body.session-dragging .session-actions {
   justify-content: center;
 }
 
-/* Project overview in the home view: one quiet card per project folder, above the calendar. */
+/* Project overview in the home view: one quiet card per project folder, below the calendar. */
 .projects {
   width: 100%;
   max-width: 1040px;
