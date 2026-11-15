@@ -7053,6 +7053,17 @@ body.resizing-horizontal * {
   text-overflow: ellipsis;
 }
 
+/* The take-over confirmation: what arrives, files that can run code marked calmly. */
+.arena-apply-files {
+  margin: 4px 0;
+}
+
+.arena-runs-code {
+  flex-shrink: 0;
+  color: var(--warn);
+  white-space: nowrap;
+}
+
 .arena-output {
   max-height: 200px;
   margin: 4px 0 0;

@@ -961,6 +961,10 @@ snapshots go after a successful close, on quit without restore, and at start for
 workspace.
 Pages changed: [[work-tree-timeline]] (new), index.
 
+## [2026-11-15] update | Agent arena: take-over and discard hardened
+Paths into a git folder (any case, trailing dots or spaces, HFS+ ignorables, NTFS short names) and Windows device names are refused, new files are checked against the resolved git folder, links and submodules in the patch and links on the way are refused, new files are opened without following a link and created new, they go in before the patch and are taken back if it fails, the user confirms the exact file list (files that can run code marked), and discarding deletes the folder with `remove_dir_all` before git takes its record. Measured: Win32 trailing dot normalization, `git worktree remove --force` leaving a junction behind, `git apply -R` not restoring bytes under autocrlf.
+Pages changed: [[agent-arena]].
+
 ## [2026-11-15] update | 0.8.0 integration of costs, handover, arena, dictation and timeline
 Merged the four features into one branch. The session start takes one prepared worktree for the
 handover and the arena (only the arena's fresh one is removed when its session fails), the

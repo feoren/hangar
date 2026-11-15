@@ -175,7 +175,7 @@ fn hfs_ignored(c: char) -> bool {
 /// One path component that names a git folder on some file system: `.git` in any case, with the
 /// code points HFS+ ignores, or the NTFS short name `git~<n>`. Checked on every platform, since a
 /// work tree may live on any of them.
-fn names_git_folder(part: &str) -> bool {
+pub fn names_git_folder(part: &str) -> bool {
     let folded: String = part.chars().filter(|c| !hfs_ignored(*c)).collect();
     if folded.eq_ignore_ascii_case(".git") {
         return true;

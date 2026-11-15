@@ -1079,6 +1079,18 @@ const de = {
   "arena.errorSpawn": "Der Testbefehl ließ sich nicht starten.",
   "arena.errorProgram": "{program} wurde nicht gefunden. Ist es installiert und im PATH?",
   "arena.errorNoProgram": "Das Programm des Testbefehls wurde nicht gefunden.",
+  "arena.errorUnsafePath":
+    "Ein Pfad in den Änderungen könnte in den .git-Ordner oder auf ein Gerät führen. Nichts wurde übernommen.",
+  "arena.errorLink":
+    "Die Änderungen enthalten einen Link oder ein Submodul. So etwas übernimmt Hangar nicht, nichts wurde übernommen.",
+  "arena.errorChanged":
+    "Der Agent hat seit der Anzeige weiter geändert. Sieh dir die Liste noch einmal an.",
+  "arena.errorRemove": "Der Worktree ließ sich nicht ganz löschen. Läuft dort noch ein Programm?",
+  "arena.applyFiles": "Diese Dateien kommen an:",
+  "arena.runsCode": "kann Code ausführen",
+  "arena.runsCodeHint":
+    "Markierte Dateien können beim Öffnen, Bauen oder Testen Code ausführen. Sieh sie dir vorher an.",
+  "arena.moreFiles": "und {count} weitere",
   "marker.title": "Markierung",
   "marker.color": "Farbe",
   "marker.none": "Keine",
@@ -2934,6 +2946,18 @@ const en: Record<MessageKey, string> = {
   "arena.errorSpawn": "The test command could not be started.",
   "arena.errorProgram": "{program} was not found. Is it installed and on the PATH?",
   "arena.errorNoProgram": "The test command's program was not found.",
+  "arena.errorUnsafePath":
+    "A path in the changes could lead into the .git folder or to a device. Nothing was taken over.",
+  "arena.errorLink":
+    "The changes contain a link or a submodule. Hangar never takes those over, so nothing was taken over.",
+  "arena.errorChanged": "The agent changed more since the list was shown. Look at the list again.",
+  "arena.errorRemove":
+    "The worktree could not be deleted completely. Is a program still running there?",
+  "arena.applyFiles": "These files arrive:",
+  "arena.runsCode": "can run code",
+  "arena.runsCodeHint":
+    "Marked files can run code when the project is opened, built or tested. Look at them first.",
+  "arena.moreFiles": "and {count} more",
   "marker.title": "Marker",
   "marker.color": "Color",
   "marker.none": "None",
@@ -4795,6 +4819,18 @@ const el: Record<MessageKey, string> = {
   "arena.errorSpawn": "Η εντολή δοκιμών δεν μπόρεσε να ξεκινήσει.",
   "arena.errorProgram": "Το {program} δεν βρέθηκε. Είναι εγκατεστημένο και στο PATH;",
   "arena.errorNoProgram": "Το πρόγραμμα της εντολής δοκιμών δεν βρέθηκε.",
+  "arena.errorUnsafePath":
+    "Μια διαδρομή στις αλλαγές θα μπορούσε να οδηγεί στον φάκελο .git ή σε συσκευή. Δεν υιοθετήθηκε τίποτα.",
+  "arena.errorLink":
+    "Οι αλλαγές περιέχουν σύνδεσμο ή submodule. Το Hangar δεν τα υιοθετεί ποτέ, οπότε δεν υιοθετήθηκε τίποτα.",
+  "arena.errorChanged":
+    "Ο πράκτορας άλλαξε κι άλλα από τότε που εμφανίστηκε η λίστα. Δες τη λίστα ξανά.",
+  "arena.errorRemove": "Το worktree δεν διαγράφηκε εντελώς. Τρέχει ακόμη κάποιο πρόγραμμα εκεί;",
+  "arena.applyFiles": "Φτάνουν αυτά τα αρχεία:",
+  "arena.runsCode": "μπορεί να εκτελέσει κώδικα",
+  "arena.runsCodeHint":
+    "Τα σημειωμένα αρχεία μπορούν να εκτελέσουν κώδικα όταν το έργο ανοίγει, χτίζεται ή δοκιμάζεται. Δες τα πρώτα.",
+  "arena.moreFiles": "και {count} ακόμη",
   "marker.title": "Σήμανση",
   "marker.color": "Χρώμα",
   "marker.none": "Κανένα",
@@ -6672,6 +6708,19 @@ const es: Record<MessageKey, string> = {
   "arena.errorSpawn": "No se pudo iniciar el comando de pruebas.",
   "arena.errorProgram": "No se encontró {program}. ¿Está instalado y en el PATH?",
   "arena.errorNoProgram": "No se encontró el programa del comando de pruebas.",
+  "arena.errorUnsafePath":
+    "Una ruta de los cambios podría llevar a la carpeta .git o a un dispositivo. No se adoptó nada.",
+  "arena.errorLink":
+    "Los cambios contienen un enlace o un submódulo. Hangar nunca los adopta, así que no se adoptó nada.",
+  "arena.errorChanged":
+    "El agente cambió más cosas desde que se mostró la lista. Vuelve a mirar la lista.",
+  "arena.errorRemove":
+    "No se pudo eliminar el worktree por completo. ¿Sigue ejecutándose un programa allí?",
+  "arena.applyFiles": "Llegan estos archivos:",
+  "arena.runsCode": "puede ejecutar código",
+  "arena.runsCodeHint":
+    "Los archivos marcados pueden ejecutar código al abrir, compilar o probar el proyecto. Revísalos antes.",
+  "arena.moreFiles": "y {count} más",
   "marker.title": "Marcador",
   "marker.color": "Color",
   "marker.none": "Ninguno",
@@ -8543,6 +8592,19 @@ const fr: Record<MessageKey, string> = {
   "arena.errorSpawn": "La commande de test n’a pas pu démarrer.",
   "arena.errorProgram": "{program} est introuvable. Est-il installé et dans le PATH ?",
   "arena.errorNoProgram": "Le programme de la commande de test est introuvable.",
+  "arena.errorUnsafePath":
+    "Un chemin des modifications pourrait mener dans le dossier .git ou vers un périphérique. Rien n’a été repris.",
+  "arena.errorLink":
+    "Les modifications contiennent un lien ou un sous-module. Hangar ne les reprend jamais, donc rien n’a été repris.",
+  "arena.errorChanged":
+    "L’agent a encore modifié des fichiers depuis l’affichage de la liste. Regarde la liste à nouveau.",
+  "arena.errorRemove":
+    "Le worktree n’a pas pu être supprimé entièrement. Un programme y tourne-t-il encore ?",
+  "arena.applyFiles": "Ces fichiers arrivent :",
+  "arena.runsCode": "peut exécuter du code",
+  "arena.runsCodeHint":
+    "Les fichiers marqués peuvent exécuter du code à l’ouverture, à la compilation ou aux tests du projet. Regarde-les d’abord.",
+  "arena.moreFiles": "et {count} de plus",
   "marker.title": "Marqueur",
   "marker.color": "Couleur",
   "marker.none": "Aucune",
@@ -10418,6 +10480,19 @@ const it: Record<MessageKey, string> = {
   "arena.errorSpawn": "Impossibile avviare il comando di test.",
   "arena.errorProgram": "{program} non trovato. È installato e nel PATH?",
   "arena.errorNoProgram": "Il programma del comando di test non è stato trovato.",
+  "arena.errorUnsafePath":
+    "Un percorso nelle modifiche potrebbe portare nella cartella .git o a un dispositivo. Non è stato adottato nulla.",
+  "arena.errorLink":
+    "Le modifiche contengono un link o un submodule. Hangar non li adotta mai, quindi non è stato adottato nulla.",
+  "arena.errorChanged":
+    "L’agente ha cambiato altro da quando è stato mostrato l’elenco. Guarda di nuovo l’elenco.",
+  "arena.errorRemove":
+    "Non è stato possibile eliminare del tutto il worktree. C’è ancora un programma in esecuzione lì?",
+  "arena.applyFiles": "Arrivano questi file:",
+  "arena.runsCode": "può eseguire codice",
+  "arena.runsCodeHint":
+    "I file segnati possono eseguire codice quando il progetto viene aperto, compilato o testato. Guardali prima.",
+  "arena.moreFiles": "e altri {count}",
   "marker.title": "Contrassegno",
   "marker.color": "Colore",
   "marker.none": "Nessuno",
@@ -12285,6 +12360,19 @@ const ja: Record<MessageKey, string> = {
   "arena.errorSpawn": "テストコマンドを開始できませんでした。",
   "arena.errorProgram": "{program} が見つかりません。インストール済みで PATH に含まれていますか?",
   "arena.errorNoProgram": "テストコマンドのプログラムが見つかりません。",
+  "arena.errorUnsafePath":
+    "変更内のパスが .git フォルダーまたはデバイスを指す可能性があります。何も取り込んでいません。",
+  "arena.errorLink":
+    "変更にリンクまたはサブモジュールが含まれています。Hangar はこれらを取り込まないため、何も取り込んでいません。",
+  "arena.errorChanged":
+    "一覧の表示後にエージェントがさらに変更しました。一覧をもう一度確認してください。",
+  "arena.errorRemove":
+    "worktree を完全には削除できませんでした。そこでまだプログラムが動いていませんか?",
+  "arena.applyFiles": "次のファイルが届きます:",
+  "arena.runsCode": "コードを実行しうる",
+  "arena.runsCodeHint":
+    "印の付いたファイルは、プロジェクトを開く、ビルドする、テストするときにコードを実行することがあります。先に確認してください。",
+  "arena.moreFiles": "ほか {count} 件",
   "marker.title": "マーカー",
   "marker.color": "色",
   "marker.none": "なし",
@@ -14138,6 +14226,18 @@ const pl: Record<MessageKey, string> = {
   "arena.errorSpawn": "Nie udało się uruchomić polecenia testów.",
   "arena.errorProgram": "Nie znaleziono {program}. Czy jest zainstalowany i w PATH?",
   "arena.errorNoProgram": "Nie znaleziono programu polecenia testów.",
+  "arena.errorUnsafePath":
+    "Ścieżka w zmianach mogłaby prowadzić do folderu .git lub do urządzenia. Nic nie zostało przejęte.",
+  "arena.errorLink":
+    "Zmiany zawierają link lub submoduł. Hangar nigdy ich nie przejmuje, więc nic nie zostało przejęte.",
+  "arena.errorChanged": "Agent zmienił więcej, odkąd pokazano listę. Spójrz na listę jeszcze raz.",
+  "arena.errorRemove":
+    "Nie udało się całkowicie usunąć worktree. Czy działa tam jeszcze jakiś program?",
+  "arena.applyFiles": "Trafią tam te pliki:",
+  "arena.runsCode": "może uruchomić kod",
+  "arena.runsCodeHint":
+    "Oznaczone pliki mogą uruchomić kod przy otwieraniu, budowaniu lub testowaniu projektu. Obejrzyj je najpierw.",
+  "arena.moreFiles": "i {count} więcej",
   "marker.title": "Znacznik",
   "marker.color": "Kolor",
   "marker.none": "Brak",
@@ -15991,6 +16091,19 @@ const pt: Record<MessageKey, string> = {
   "arena.errorSpawn": "Não foi possível iniciar o comando de testes.",
   "arena.errorProgram": "{program} não foi encontrado. Ele está instalado e no PATH?",
   "arena.errorNoProgram": "O programa do comando de testes não foi encontrado.",
+  "arena.errorUnsafePath":
+    "Um caminho nas alterações poderia levar à pasta .git ou a um dispositivo. Nada foi adotado.",
+  "arena.errorLink":
+    "As alterações contêm um link ou um submódulo. O Hangar nunca os adota, então nada foi adotado.",
+  "arena.errorChanged":
+    "O agente alterou mais coisas desde que a lista foi mostrada. Veja a lista de novo.",
+  "arena.errorRemove":
+    "Não foi possível excluir o worktree por completo. Ainda há um programa rodando lá?",
+  "arena.applyFiles": "Estes arquivos chegam:",
+  "arena.runsCode": "pode executar código",
+  "arena.runsCodeHint":
+    "Os arquivos marcados podem executar código quando o projeto é aberto, compilado ou testado. Veja-os antes.",
+  "arena.moreFiles": "e mais {count}",
   "marker.title": "Marcador",
   "marker.color": "Cor",
   "marker.none": "Nenhuma",
@@ -17846,6 +17959,18 @@ const ru: Record<MessageKey, string> = {
   "arena.errorSpawn": "Не удалось запустить команду тестов.",
   "arena.errorProgram": "{program} не найден. Он установлен и есть в PATH?",
   "arena.errorNoProgram": "Программа команды тестов не найдена.",
+  "arena.errorUnsafePath":
+    "Путь в изменениях может вести в папку .git или на устройство. Ничего не забрано.",
+  "arena.errorLink":
+    "Изменения содержат ссылку или подмодуль. Hangar такое не забирает, поэтому ничего не забрано.",
+  "arena.errorChanged": "Агент изменил ещё что-то после показа списка. Посмотри список ещё раз.",
+  "arena.errorRemove":
+    "Worktree не удалось удалить полностью. Там ещё работает какая-то программа?",
+  "arena.applyFiles": "Придут эти файлы:",
+  "arena.runsCode": "может запускать код",
+  "arena.runsCodeHint":
+    "Отмеченные файлы могут запускать код при открытии, сборке или тестировании проекта. Сначала посмотри их.",
+  "arena.moreFiles": "и ещё {count}",
   "marker.title": "Метка",
   "marker.color": "Цвет",
   "marker.none": "Нет",
@@ -19682,6 +19807,18 @@ const tr: Record<MessageKey, string> = {
   "arena.errorSpawn": "Test komutu başlatılamadı.",
   "arena.errorProgram": "{program} bulunamadı. Kurulu ve PATH içinde mi?",
   "arena.errorNoProgram": "Test komutunun programı bulunamadı.",
+  "arena.errorUnsafePath":
+    "Değişikliklerdeki bir yol .git klasörüne veya bir aygıta çıkabilir. Hiçbir şey alınmadı.",
+  "arena.errorLink":
+    "Değişiklikler bir bağlantı veya alt modül içeriyor. Hangar bunları asla almaz, bu yüzden hiçbir şey alınmadı.",
+  "arena.errorChanged":
+    "Ajan, liste gösterildikten sonra başka değişiklikler yaptı. Listeye yeniden bak.",
+  "arena.errorRemove": "Worktree tamamen silinemedi. Orada hâlâ çalışan bir program var mı?",
+  "arena.applyFiles": "Şu dosyalar gelir:",
+  "arena.runsCode": "kod çalıştırabilir",
+  "arena.runsCodeHint":
+    "İşaretli dosyalar proje açılırken, derlenirken veya test edilirken kod çalıştırabilir. Önce onlara bak.",
+  "arena.moreFiles": "ve {count} tane daha",
   "marker.title": "İşaret",
   "marker.color": "Renk",
   "marker.none": "Yok",
@@ -21473,6 +21610,14 @@ const zh: Record<MessageKey, string> = {
   "arena.errorSpawn": "无法启动测试命令。",
   "arena.errorProgram": "未找到 {program}。它是否已安装并在 PATH 中？",
   "arena.errorNoProgram": "未找到测试命令的程序。",
+  "arena.errorUnsafePath": "更改中的某个路径可能指向 .git 文件夹或设备。未采用任何内容。",
+  "arena.errorLink": "更改包含链接或子模块。Hangar 从不采用这些，因此未采用任何内容。",
+  "arena.errorChanged": "显示列表之后，代理又做了更改。请再看一遍列表。",
+  "arena.errorRemove": "无法完全删除该 worktree。那里是否仍有程序在运行？",
+  "arena.applyFiles": "将带来这些文件：",
+  "arena.runsCode": "可能运行代码",
+  "arena.runsCodeHint": "标记的文件在打开、构建或测试项目时可能运行代码。请先查看它们。",
+  "arena.moreFiles": "以及另外 {count} 个",
   "marker.title": "标记",
   "marker.color": "颜色",
   "marker.none": "无",

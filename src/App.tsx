@@ -4323,13 +4323,13 @@ export function App() {
     return null;
   };
 
-  const applyArenaWinner = async (id: number): Promise<ApplyOutcome | string> => {
+  const applyArenaWinner = async (id: number, files: string[]): Promise<ApplyOutcome | string> => {
     const current = arenaRef.current;
     const contestant = current?.contestants.find((c) => c.sessionId === id);
     if (!current || !contestant) return t("error.unknown");
     try {
       const outcome = parseApplyOutcome(
-        await api.arenaApply(contestant.worktree, current.baseCommit),
+        await api.arenaApply(contestant.worktree, current.baseCommit, files),
       );
       return outcome ?? t("error.unknown");
     } catch (e) {
