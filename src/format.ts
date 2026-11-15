@@ -74,6 +74,19 @@ export const PHRASES: Record<StatusPhrase, MessageKey> = {
   exitedByUser: "status.exitedByUser",
 };
 
+/** One word per phrase, for the session row's title line (the sentence stays in the peek). */
+export const SHORT_PHRASES: Record<StatusPhrase, MessageKey> = {
+  starting: "status.short.starting",
+  working: "status.short.working",
+  idle: "status.short.idle",
+  attention: "status.short.attention",
+  asks: "status.short.asks",
+  gate: "status.short.gate",
+  failed: "status.short.failed",
+  exited: "status.short.exited",
+  exitedByUser: "status.short.exitedByUser",
+};
+
 /** Status without a subject, for places that name the program elsewhere (pane header, tooltips). */
 export function statusText(
   session: Pick<SessionView, "status" | "exitCode" | "stoppedByUser">,

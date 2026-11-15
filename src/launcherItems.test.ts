@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Profile } from "./api";
 import { createTranslator } from "./i18n";
 import type { MenuGroup } from "./AppMenu";
+import type { LauncherItem } from "./LauncherDialog";
 import {
   buildLauncherItems,
   commitItems,
@@ -71,6 +72,8 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
     openSnapPicker: null,
     openBroadcast: vi.fn(),
     subAgents: null,
+    queue: null,
+    agentCommands: null,
     openSettings: vi.fn(),
     menu: [],
     skipLabels: [],
@@ -345,5 +348,53 @@ describe("buildLauncherItems", () => {
       (item) => item.key === "subAgents",
     );
     expect(hide?.label).toBe(createTranslator("en")("session.hideSubAgents"));
+  });
+
+  it("offers the queued message for the active session only where the menu would", () => {
+    const keys = (queue: Parameters<typeof context>[0]) =>
+      buildLauncherItems(context(queue)).filter((item) => item.key === "queue");
+    expect(keys({})).toEqual([]);
+    const open = vi.fn();
+    expect(keys({ queue: { offer: null, open } })).toEqual([]);
+    const add = keys({ queue: { offer: "offer", open } })[0];
+    expect(add?.label).toBe(createTranslator("en")("queue.add"));
+    add?.run();
+    expect(open).toHaveBeenCalledOnce();
+    expect(keys({ queue: { offer: "queued", open } })[0]?.label).toBe(
+      createTranslator("en")("queue.edit"),
+    );
+  });
+
+  it("offers the active session's agent commands and nothing without them", () => {
+    const commandKeys = (items: LauncherItem[]) =>
+      items.filter((item) => item.key.startsWith("agent-command:")).map((item) => item.key);
+    expect(commandKeys(buildLauncherItems(context()))).toEqual([]);
+    const run = vi.fn();
+    const compact = {
+      labelKey: "compact",
+      text: "/compact",
+      submit: true,
+      confirm: false,
+    } as const;
+    const own = { label: "Review", text: "/review", submit: true, confirm: false };
+    const items = buildLauncherItems(
+      context({
+        agentCommands: {
+          commands: [compact, own],
+          sessionTitle: "hangar",
+          programName: "Claude Code",
+          run,
+        },
+      }),
+    );
+    expect(commandKeys(items)).toEqual(["agent-command:/compact", "agent-command:/review"]);
+    const entry = items.find((item) => item.key === "agent-command:/compact");
+    expect(entry?.label).toBe("Compact context");
+    expect(entry?.detail).toBe("/compact · hangar");
+    expect(entry?.section).toBe("commands");
+    expect(entry?.keywords).toContain("Claude Code");
+    entry?.run();
+    expect(run).toHaveBeenCalledWith(compact);
+    expect(items.find((item) => item.key === "agent-command:/review")?.label).toBe("Review");
   });
 });

@@ -33,7 +33,7 @@ A, with these detailed decisions:
 | Backpressure | the frontend acknowledges processed bytes (`ack_session`), the backend pauses above 2 MB of unacknowledged bytes; after more than 5 s without an acknowledgement the counter is reset | the UI does not freeze, and a reloaded frontend never blocks a session |
 | Input | a dedicated writer thread per session, ordered through a channel | a child process that does not read never blocks the main thread |
 | Process exit | after `wait()` the waiter thread closes the pseudo console; EOF follows, the remaining output is sent, then the exit event | otherwise ConPTY never closes the output |
-| Process tree | Windows: Job Object with `KILL_ON_JOB_CLOSE`; Unix: `killpg` | no zombie agents, even if the app crashes |
+| Process tree | Windows: Job Object with `KILL_ON_JOB_CLOSE`; Unix: `killpg` SIGHUP, after 2 s SIGKILL to the group and (Linux) the terminal session, never after the child was reaped ([[process-launch-hardening]]) | no zombie agents, even if the app crashes |
 | Permissions | commands registered via `AppManifest`, each one allowed individually in `capabilities/default.json` | the frontend may only call what is allowed |
 | Frontend | one xterm.js instance per session outside React; all panes are stacked, inactive ones are merely hidden | scrollback and size survive switching |
 | Keys | Ctrl+C copies when there is a selection and goes to the process otherwise; Ctrl+V and Ctrl+Shift+V paste via `term.paste` (bracketed paste); Ctrl+Tab switches the session | behaves like Windows Terminal |

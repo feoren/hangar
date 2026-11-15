@@ -7,7 +7,7 @@ raw:
 url: https://raw.githubusercontent.com/tauri-apps/tauri-docs/v2/src/content/docs/plugin/updater.mdx
 retrieved: 2026-11-07
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-15
 ---
 
 # Tauri updater docs and NSIS installer template
@@ -32,7 +32,9 @@ Sources (retrieved on 2026-11-07):
 - JS API: `check()` from `@tauri-apps/plugin-updater`, then `update.downloadAndInstall(cb)` with the
   events `Started` (contentLength), `Progress` (chunkLength) and `Finished`, then `relaunch()`
   from `@tauri-apps/plugin-process`.
-- Permissions must be granted in the capabilities (Hangar: `updater:default`,
+- Permissions must be granted in the capabilities (Hangar: `updater:allow-check` and
+  `updater:allow-download-and-install`, the two commands `check()` and `downloadAndInstall()` call,
+  instead of `updater:default`, which also adds the separate `download` and `install`;
   `process:allow-restart`, `process:allow-exit`).
 
 ## Key points: NSIS template

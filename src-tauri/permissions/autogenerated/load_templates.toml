@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-load-templates"
+description = "Enables the load_templates command without any pre-configured scope."
+commands.allow = ["load_templates"]
+
+[[permission]]
+identifier = "deny-load-templates"
+description = "Denies the load_templates command without any pre-configured scope."
+commands.deny = ["load_templates"]

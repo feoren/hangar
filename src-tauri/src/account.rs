@@ -22,6 +22,8 @@ pub const OFFICIAL_BASE: &str = "https://hangar.feoren.com/api/v1";
 pub const CLIENT_ID: &str = "hangar-desktop";
 pub const SCOPE: &str = "team";
 /// Event to the main window with every new [`AccountView`].
+/// Signal to the main window that the account view changed; without payload (the window fetches
+/// it with `account_status`), since other webviews can listen to it too.
 pub const EVENT: &str = "account-changed";
 /// Keychain service of the refresh token; the account name is the server address. Separate from
 /// the profile secrets (`secrets::SERVICE`), so no profile variable can share its entry. Debug
@@ -64,7 +66,7 @@ const MAX_BACKOFF: u64 = 60;
 pub enum BaseUrlError {
     #[error("The server address is not a valid URL")]
     Invalid,
-    #[error("The server address must use https (http only for 127.0.0.1 or localhost)")]
+    #[error("The server address must use https (http only for 127.0.0.1 or [::1])")]
     Insecure,
     #[error("The server address must not contain a user name, password, query or fragment")]
     Extra,
@@ -125,7 +127,8 @@ impl BaseUrl {
         self.url.scheme() == "https"
     }
 
-    /// `localhost`, `127.0.0.1` or `[::1]`: a development server, never reached through a proxy.
+    /// `127.0.0.1`, `[::1]` (and `localhost` in a debug build): a development server, never
+    /// reached through a proxy.
     pub fn is_loopback(&self) -> bool {
         is_loopback(&self.url)
     }
@@ -159,6 +162,16 @@ impl BaseUrl {
             && url.password().is_none();
         fine.then_some(url)
     }
+
+    /// `text` as a URL when it lies on this server's origin ([`Self::same_origin`]) and below
+    /// the API's own path (`/api/v1/...`): the only addresses that get the access token, so it
+    /// never reaches another application on the same host. Dot segments are resolved by the
+    /// parser first (also percent-encoded ones), so `/api/v1/../x` does not pass.
+    pub fn same_api(&self, text: &str) -> Option<Url> {
+        let url = self.same_origin(text)?;
+        let prefix = format!("{}/", self.url.path().trim_end_matches('/'));
+        url.path().starts_with(&prefix).then_some(url)
+    }
 }
 
 impl Default for BaseUrl {
@@ -167,10 +180,19 @@ impl Default for BaseUrl {
     }
 }
 
-/// `localhost`, `127.0.0.1` or `[::1]` (the url crate lower-cases hosts and writes IPv6 in
-/// brackets).
+/// `127.0.0.1` or `[::1]`, and `localhost` in a debug build only (the url crate lower-cases
+/// hosts and writes IPv6 in brackets). A name can resolve elsewhere (hosts file, resolver), so a
+/// release build trusts only the literal addresses with plain http, like the relay's plain `ws`.
 fn is_loopback(url: &Url) -> bool {
-    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+    loopback_host(url.host_str(), cfg!(debug_assertions))
+}
+
+fn loopback_host(host: Option<&str>, debug: bool) -> bool {
+    match host {
+        Some("127.0.0.1" | "[::1]") => true,
+        Some("localhost") => debug,
+        _ => false,
+    }
 }
 
 /// What `account.json` holds: the chosen server and, per keychain service, the servers whose
@@ -313,13 +335,17 @@ impl Problem {
     }
 }
 
-/// Server text for the window: control characters and bidirectional marks dropped (they could
-/// reorder what the person reads), at most [`MAX_TEXT_CHARS`].
+/// Server text for the window: control, invisible and bidirectional characters and line or
+/// paragraph separators dropped (they could hide or reorder what the person reads), at most
+/// [`MAX_TEXT_CHARS`].
 pub fn clean_text(text: &str) -> String {
     text.chars()
+        // Invisible and reordering characters could hide or reorder what the window shows next
+        // to the text; the line and paragraph separators would break a one-line label.
         .filter(|&c| {
             !c.is_control()
-                && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                && !crate::text::is_invisible(c)
+                && !matches!(c, '\u{2028}' | '\u{2029}')
         })
         .take(MAX_TEXT_CHARS)
         .collect::<String>()
@@ -488,6 +514,18 @@ pub struct Me {
     pub seats_account_total: Option<u32>,
     #[serde(default)]
     pub seats_account_used: Option<u32>,
+    /// Where the profile picture is downloaded (by the backend, after the origin check); never
+    /// sent to the window. A value of the wrong type counts as missing, so it cannot cost the
+    /// window the person's name.
+    #[serde(default, skip_serializing, deserialize_with = "lenient_text")]
+    pub avatar_url: Option<String>,
+    /// The picture's SHA-256 (64 hex digits); changes with the picture. Anything else is ignored.
+    #[serde(default, skip_serializing, deserialize_with = "lenient_etag")]
+    pub avatar_etag: Option<String>,
+    /// Changes whenever the picture the backend holds changes; `None` without one (initials).
+    /// The picture itself comes through `account_avatar`, so the views stay small.
+    #[serde(default, skip_deserializing)]
+    pub avatar_version: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -534,12 +572,62 @@ pub struct Project {
 #[derive(Deserialize)]
 struct RawProjects {
     projects: Vec<Project>,
+    #[serde(flatten)]
+    paging: Paging,
+}
+
+/// Paging markers next to a list. Hangar reads the whole list in one answer: one that says more
+/// follows is incomplete, and an incomplete list would look like members or projects that are
+/// gone (removing members from the team's log, retiring a team's keys).
+#[derive(Deserialize)]
+struct Paging {
+    #[serde(default)]
+    next: Option<serde_json::Value>,
+    #[serde(default)]
+    next_cursor: Option<serde_json::Value>,
+    #[serde(default)]
+    cursor: Option<serde_json::Value>,
+    #[serde(default)]
+    has_more: Option<serde_json::Value>,
+    #[serde(default)]
+    page: Option<serde_json::Value>,
+    #[serde(default)]
+    total: Option<serde_json::Value>,
+}
+
+impl Paging {
+    /// Whether nothing says the `len` entries are only part of the list: no link or cursor to
+    /// more, `has_more` absent or `false`, `total` absent or `len`, and a `page` only together
+    /// with such a `total`.
+    fn complete(&self, len: usize) -> bool {
+        let total = match &self.total {
+            None => None,
+            Some(total) => match total.as_u64() {
+                Some(total) => Some(total),
+                None => return false,
+            },
+        };
+        let total_fits = total.is_none_or(|t| usize::try_from(t).is_ok_and(|t| t == len));
+        self.next.is_none()
+            && self.next_cursor.is_none()
+            && self.cursor.is_none()
+            && self
+                .has_more
+                .as_ref()
+                .is_none_or(|more| *more == serde_json::Value::Bool(false))
+            && total_fits
+            && (self.page.is_none() || total.is_some())
+    }
 }
 
 impl Project {
-    /// The list, with `can_invite` decided against `base`.
+    /// The list, with `can_invite` decided against `base`; `None` when it says it is only part
+    /// of one ([`Paging`]), so a project on a later page never looks gone.
     pub fn parse_list(body: &[u8], base: &BaseUrl) -> Option<Vec<Self>> {
         let raw: RawProjects = serde_json::from_slice(body).ok()?;
+        if !raw.paging.complete(raw.projects.len()) {
+            return None;
+        }
         Some(
             raw.projects
                 .into_iter()
@@ -557,12 +645,43 @@ impl Project {
     }
 }
 
+/// One member of `GET /projects/{id}/members`: who belongs to the project now, and with which
+/// role. An owner's or admin's device removes members from the team's membership log that the
+/// website no longer lists (team-crypto, "Membership follows the website").
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ProjectMember {
+    #[serde(deserialize_with = "opaque_id")]
+    pub id: String,
+    pub role: Role,
+}
+
+#[derive(Deserialize)]
+struct RawMembers {
+    members: Vec<ProjectMember>,
+    #[serde(flatten)]
+    paging: Paging,
+}
+
+impl ProjectMember {
+    /// `{"members": [{"id": "...", "role": "owner" | "admin" | "member"}]}`; `None` when the
+    /// answer is not such a list or says it is only part of one ([`Paging`]). Extra fields are
+    /// ignored.
+    pub fn parse_list(body: &[u8]) -> Option<Vec<Self>> {
+        let raw: RawMembers = serde_json::from_slice(body).ok()?;
+        raw.paging
+            .complete(raw.members.len())
+            .then_some(raw.members)
+    }
+}
+
 /// `POST /relay-ticket`: a short-lived ticket for the relay (step D). Not used by the window yet.
 pub struct RelayTicket {
     pub ticket: Zeroizing<String>,
     pub expires_at: u64,
-    /// Checked by [`relay_url`]: the ticket travels there.
+    /// Checked by [`relay_url`] against [`Self::base`]: the ticket travels there.
     pub relay_url: Url,
+    /// The server that issued the ticket; plain `ws` is fine only when it is a loopback one.
+    pub base: BaseUrl,
 }
 
 impl fmt::Debug for RelayTicket {
@@ -570,6 +689,7 @@ impl fmt::Debug for RelayTicket {
         f.debug_struct("RelayTicket")
             .field("expires_at", &self.expires_at)
             .field("relay_url", &self.relay_url)
+            .field("base", &self.base.as_str())
             .finish_non_exhaustive()
     }
 }
@@ -582,29 +702,33 @@ struct RawRelayTicket {
 }
 
 impl RelayTicket {
-    /// `None` when the ticket is no token or the relay address is not one Hangar connects to.
-    pub fn parse(body: &[u8]) -> Option<Self> {
+    /// `None` when the ticket is no token or the relay address is not one Hangar connects to
+    /// for a ticket `base` issued.
+    pub fn parse(body: &[u8], base: &BaseUrl) -> Option<Self> {
         let raw: RawRelayTicket = serde_json::from_slice(body).ok()?;
         let ticket = Zeroizing::new(raw.ticket);
-        let relay_url = relay_url(&raw.relay_url)?;
+        let relay_url = relay_url(&raw.relay_url, base)?;
         is_token_text(&ticket).then(|| Self {
             ticket,
             expires_at: raw.expires_at,
             relay_url,
+            base: base.clone(),
         })
     }
 }
 
-/// The relay address of a ticket when Hangar may send the ticket there: `wss`, or plain `ws`
-/// only on the loopback for development; no user info or fragment.
-pub fn relay_url(text: &str) -> Option<Url> {
+/// The relay address of a ticket `base` issued when Hangar may send the ticket there: `wss`, or
+/// plain `ws` to the loopback only when `base` itself is a loopback development server; no user
+/// info or fragment. A real server answering with `ws://127.0.0.1` would otherwise hand the
+/// ticket in plain text to whatever listens on that port of this machine.
+pub fn relay_url(text: &str, base: &BaseUrl) -> Option<Url> {
     if text.chars().count() > MAX_BASE_CHARS {
         return None;
     }
     let url = Url::parse(text.trim()).ok()?;
     let scheme = match url.scheme() {
         "wss" => true,
-        "ws" => is_loopback(&url),
+        "ws" => base.is_loopback() && is_loopback(&url),
         _ => false,
     };
     let fine = scheme
@@ -633,6 +757,21 @@ fn optional_cleaned<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<String>, D::Error> {
     Option::<String>::deserialize(deserializer).map(|text| text.map(|text| clean_text(&text)))
+}
+
+/// A string, or `None` for anything else (an optional extra the person's details must survive).
+fn lenient_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(text) if !text.is_empty() => Ok(Some(text)),
+        _ => Ok(None),
+    }
+}
+
+fn lenient_etag<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    lenient_text(deserializer).map(|etag| {
+        etag.filter(|etag| crate::avatar::is_etag(etag))
+            .map(|etag| etag.to_ascii_lowercase())
+    })
 }
 
 fn optional_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
@@ -805,7 +944,7 @@ pub enum AccountState {
     },
 }
 
-/// Payload of `account-changed` and answer of the account commands.
+/// Answer of the account commands; `account-changed` itself carries no payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountView {
@@ -816,6 +955,9 @@ pub struct AccountView {
     pub state: AccountState,
     /// Other servers whose sign-in stays stored on this device (base addresses).
     pub other_sign_ins: Vec<String>,
+    /// Rises with every published change. Events and command answers travel on different
+    /// channels, so the window keeps a view only when it is not older than the one it shows.
+    pub revision: u64,
 }
 
 impl AccountView {
@@ -830,6 +972,7 @@ impl AccountView {
                 .filter(|other| *other != base)
                 .map(|other| other.as_str().to_owned())
                 .collect(),
+            revision: 0,
         }
     }
 }
@@ -993,6 +1136,20 @@ mod tests {
     }
 
     #[test]
+    fn a_release_build_trusts_only_literal_loopback_addresses_with_plain_http() {
+        for debug in [false, true] {
+            assert!(loopback_host(Some("127.0.0.1"), debug));
+            assert!(loopback_host(Some("[::1]"), debug));
+            assert!(!loopback_host(Some("example.test"), debug));
+            assert!(!loopback_host(Some("localhost.example.test"), debug));
+            assert!(!loopback_host(None, debug));
+        }
+        // A name may resolve anywhere: only a debug build takes `localhost`.
+        assert!(!loopback_host(Some("localhost"), false));
+        assert!(loopback_host(Some("localhost"), true));
+    }
+
+    #[test]
     fn endpoints_and_pages() {
         let base = BaseUrl::parse("https://example.test/api/v1/").unwrap();
         assert_eq!(base.as_str(), "https://example.test/api/v1");
@@ -1006,6 +1163,45 @@ mod tests {
         );
         let root = BaseUrl::parse("https://example.test").unwrap();
         assert_eq!(root.endpoint("/me").as_str(), "https://example.test/me");
+    }
+
+    #[test]
+    fn only_addresses_below_the_api_get_the_token() {
+        let base = base();
+        let api = base.as_str();
+        assert!(base.same_api(&format!("{api}/me/avatar?v=0123")).is_some());
+        let origin = base.devices_page().origin().ascii_serialization();
+        for refused in [
+            format!("{origin}/other-app/avatar"),
+            format!("{origin}/api/v10/me/avatar"),
+            format!("{api}/../../other/avatar"),
+            format!("{api}/%2e%2e/%2e%2e/other"),
+            format!("{origin}/api/v1"),
+            "https://elsewhere.test/api/v1/me/avatar".to_owned(),
+        ] {
+            assert!(base.same_api(&refused).is_none(), "{refused}");
+        }
+        let root = BaseUrl::parse("https://example.test").unwrap();
+        assert!(root.same_api("https://example.test/me/avatar").is_some());
+    }
+
+    #[test]
+    fn origins_compare_after_normalization() {
+        let base = BaseUrl::parse("https://example.test/api/v1").unwrap();
+        // The default port is the same origin; another port or a trailing dot is not.
+        assert!(base
+            .same_origin("https://example.test:443/api/v1/me")
+            .is_some());
+        assert!(base.same_origin("https://EXAMPLE.test/api/v1/me").is_some());
+        assert!(base
+            .same_origin("https://example.test:8443/api/v1/me")
+            .is_none());
+        assert!(base
+            .same_origin("https://example.test./api/v1/me")
+            .is_none());
+        assert!(base
+            .same_api("https://example.test.:443/api/v1/me")
+            .is_none());
     }
 
     #[test]
@@ -1132,6 +1328,12 @@ mod tests {
         assert_eq!(oauth.message().as_deref(), Some("Too fast"));
         let bidi = Problem::parse("{\"detail\":\"a\u{202e}b\u{2066}c\"}".as_bytes()).unwrap();
         assert_eq!(bidi.message().as_deref(), Some("abc"));
+        // Invisible characters, the Arabic letter mark, the Mongolian vowel separator and line
+        // or paragraph separators go too.
+        assert_eq!(
+            clean_text("a\u{200B}b\u{FEFF}c\u{061C}d\u{180E}e\u{2028}f\u{2029}g\u{00AD}h"),
+            "abcdefgh"
+        );
         assert!(Problem::parse(b"<html>").is_none());
         assert!(Problem::parse(b"[]").is_none());
         let long = format!(r#"{{"detail":"{}"}}"#, "x".repeat(1000));
@@ -1247,6 +1449,71 @@ mod tests {
     }
 
     #[test]
+    fn project_members_are_read_with_their_roles() {
+        let body = br#"{"members":[{"id":7,"role":"owner","name":"x"},{"id":"9","role":"admin"},{"id":"11","role":"guest"}]}"#;
+        let members = ProjectMember::parse_list(body).unwrap();
+        assert_eq!(members.len(), 3);
+        assert_eq!(members[0].id, "7");
+        assert_eq!(members[0].role, Role::Owner);
+        assert_eq!(members[1].role, Role::Admin);
+        assert_eq!(members[2].role, Role::Other);
+        assert!(ProjectMember::parse_list(b"{}").is_none());
+        assert!(ProjectMember::parse_list(br#"{"members":[{"id":"","role":"member"}]}"#).is_none());
+    }
+
+    #[test]
+    fn member_lists_with_paging_markers_are_refused_as_incomplete() {
+        let one = r#""members":[{"id":"1","role":"owner"}]"#;
+        for marker in [
+            r#""next":"/api/v1/projects/3/members?page=2""#,
+            r#""next_cursor":"abc""#,
+            r#""cursor":"abc""#,
+            r#""has_more":true"#,
+            r#""has_more":"yes""#,
+            r#""page":1"#,
+            r#""total":2"#,
+            r#""total":"1""#,
+        ] {
+            let body = format!("{{{one},{marker}}}");
+            assert!(
+                ProjectMember::parse_list(body.as_bytes()).is_none(),
+                "{marker}"
+            );
+        }
+        // Markers that say the list is complete, or say nothing, keep it.
+        for marker in [
+            r#""next":null"#,
+            r#""has_more":false"#,
+            r#""total":1"#,
+            r#""page":1,"total":1"#,
+        ] {
+            let body = format!("{{{one},{marker}}}");
+            assert_eq!(
+                ProjectMember::parse_list(body.as_bytes()).map(|m| m.len()),
+                Some(1),
+                "{marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_lists_with_paging_markers_are_refused_so_none_looks_gone() {
+        let one = r#""projects":[{"id":"1","name":"Core","role":"member"}]"#;
+        for marker in [r#""next":"?page=2""#, r#""has_more":true"#, r#""total":5"#] {
+            let body = format!("{{{one},{marker}}}");
+            assert!(
+                Project::parse_list(body.as_bytes(), &base()).is_none(),
+                "{marker}"
+            );
+        }
+        let body = format!(r#"{{{one},"has_more":false,"total":1}}"#);
+        assert_eq!(
+            Project::parse_list(body.as_bytes(), &base()).map(|p| p.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn me_mirrors_in_camel_case() {
         let me: Me = serde_json::from_slice(
             br#"{"id":"7","email":"ada@example.test","name":"Ada","locale":"de",
@@ -1264,29 +1531,91 @@ mod tests {
     }
 
     #[test]
+    fn me_reads_the_avatar_fields_but_never_sends_them_to_the_window() {
+        let etag = "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08";
+        let body = format!(
+            r#"{{"id":"7","email":"a@example.test","name":"Ada","locale":null,
+                "seats_account_total":3,"seats_account_used":1,
+                "avatar_url":"https://example.test/api/v1/me/avatar?v=0123456789abcdef",
+                "avatar_etag":"{etag}"}}"#
+        );
+        let me: Me = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            me.avatar_url.as_deref(),
+            Some("https://example.test/api/v1/me/avatar?v=0123456789abcdef")
+        );
+        assert_eq!(me.avatar_etag, Some(etag.to_ascii_lowercase()));
+        assert_eq!(me.avatar_version, None);
+        let json = serde_json::to_value(&me).unwrap();
+        assert_eq!(json["avatarVersion"], serde_json::Value::Null);
+        assert!(json.get("avatar").is_none());
+        assert!(json.get("avatarUrl").is_none() && json.get("avatarEtag").is_none());
+        assert!(!json.to_string().contains("me/avatar"));
+        // Without the fields, with null, or with a wrong type: no picture, the rest stays.
+        for extra in [
+            "",
+            r#","avatar_url":null,"avatar_etag":null"#,
+            r#","avatar_url":42,"avatar_etag":"short""#,
+        ] {
+            let me: Me =
+                serde_json::from_str(&format!(r#"{{"id":"7","email":"a@example.test"{extra}}}"#))
+                    .unwrap();
+            assert_eq!((me.avatar_url, me.avatar_etag), (None, None), "{extra}");
+        }
+    }
+
+    #[test]
     fn relay_tickets_hide_the_ticket() {
+        let base = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
         let ticket = RelayTicket::parse(
             br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1794225660,"relay_url":"wss://relay.example.test"}"#,
+            &base,
         )
         .unwrap();
         assert_eq!(ticket.expires_at, 1_794_225_660);
         assert_eq!(ticket.relay_url.as_str(), "wss://relay.example.test/");
+        assert_eq!(ticket.base, base);
         assert!(!format!("{ticket:?}").contains("eyJ2"));
         let foreign =
             br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"ws://relay.example.test"}"#;
-        assert!(RelayTicket::parse(foreign).is_none());
+        assert!(RelayTicket::parse(foreign, &base).is_none());
+    }
+
+    #[test]
+    fn plain_relay_tickets_only_from_a_loopback_server() {
+        let plain =
+            br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"ws://127.0.0.1:9/"}"#;
+        let secure =
+            br#"{"ticket":"eyJ2IjoxfQ.c2ln","expires_at":1,"relay_url":"wss://relay.example.test/"}"#;
+        let https = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
+        let local = BaseUrl::parse("http://localhost:3000/api/v1").unwrap();
+        assert!(RelayTicket::parse(plain, &https).is_none());
+        assert!(RelayTicket::parse(plain, &BaseUrl::official()).is_none());
+        let ticket = RelayTicket::parse(plain, &local).unwrap();
+        assert_eq!(ticket.relay_url.as_str(), "ws://127.0.0.1:9/");
+        assert_eq!(ticket.base, local);
+        assert!(RelayTicket::parse(secure, &https).is_some());
+        assert!(RelayTicket::parse(secure, &local).is_some());
     }
 
     #[test]
     fn relay_addresses_need_wss_except_on_loopback() {
+        let https = BaseUrl::parse("https://team.example.test/api/v1").unwrap();
+        let local = BaseUrl::parse("http://127.0.0.1:8080/api/v1").unwrap();
         for good in [
             "wss://relay.example.test",
             "wss://relay.example.test:8443/v1/socket",
+        ] {
+            assert!(relay_url(good, &https).is_some(), "{good}");
+            assert!(relay_url(good, &local).is_some(), "{good}");
+        }
+        for plain in [
             "ws://127.0.0.1:9000/relay",
             "ws://localhost:9000",
             "ws://[::1]:9000",
         ] {
-            assert!(relay_url(good).is_some(), "{good}");
+            assert!(relay_url(plain, &local).is_some(), "{plain}");
+            assert!(relay_url(plain, &https).is_none(), "{plain}");
         }
         for bad in [
             "ws://relay.example.test",
@@ -1299,10 +1628,11 @@ mod tests {
             "not a url",
             "",
         ] {
-            assert!(relay_url(bad).is_none(), "{bad}");
+            assert!(relay_url(bad, &local).is_none(), "{bad}");
+            assert!(relay_url(bad, &https).is_none(), "{bad}");
         }
         let long = format!("wss://relay.example.test/{}", "a".repeat(MAX_BASE_CHARS));
-        assert!(relay_url(&long).is_none());
+        assert!(relay_url(&long, &https).is_none());
     }
 
     #[test]

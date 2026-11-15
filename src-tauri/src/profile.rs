@@ -71,6 +71,10 @@ pub struct Profile {
     /// The program's own update command ([`crate::install_source::SelfUpdate`]).
     #[serde(default, rename = "self_update")]
     pub self_update: Option<SelfUpdate>,
+    /// Texts Hangar can type into a running session of the program ([`crate::agent_commands`]).
+    /// Added after the catalog's when the profile starts the catalog's program.
+    #[serde(default, rename = "agent_commands")]
+    pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
 }
 
 impl Profile {
@@ -202,6 +206,12 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
                 problem,
             });
         }
+        if let Err(problem) = crate::agent_commands::check(&profile.agent_commands) {
+            return Err(ProfileError::Invalid {
+                profile: label.clone(),
+                problem,
+            });
+        }
         if let Err(problem) = check_environment(profile) {
             return Err(ProfileError::Invalid {
                 profile: label.clone(),
@@ -226,6 +236,11 @@ fn check_environment(profile: &Profile) -> Result<(), &'static str> {
         .any(|key| key.is_empty() || key.contains(['=', '\0']))
     {
         return Err("env names must not be empty or contain '=' or NUL");
+    }
+    // A NUL ends the value in the OS block: the child would get something else than written,
+    // and std panics on such a value when it builds the environment.
+    if profile.env.values().any(|value| value.contains('\0')) {
+        return Err("env values must not contain NUL");
     }
     let mut seen = HashSet::new();
     for name in &profile.secret_env {
@@ -327,6 +342,16 @@ pub fn reload(dir: &Path) -> Result<Vec<Profile>, ProfileProblem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn env_values_with_nul_are_refused() {
+        let with = |value: &str| {
+            format!("[[profile]]\nid = 'x'\nname = 'X'\ncommand = 'x'\nenv = {{ MARK = \"{value}\" }}\n")
+        };
+        let error = parse(&with("hangar\\u0000marker")).unwrap_err();
+        assert!(error.to_string().contains("NUL"), "{error}");
+        assert!(parse(&with("hangar marker")).is_ok());
+    }
 
     #[test]
     fn default_profiles_of_both_platforms_are_valid() {
@@ -471,6 +496,41 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn agent_commands_are_read_and_checked() {
+        let base = "[[profile]]
+id='a'
+name='A'
+command='a'
+";
+        let p = &parse(&format!(
+            "{base}agent_commands=[{{ label='Review', text='/review', submit=false }}]
+"
+        ))
+        .unwrap()[0];
+        assert_eq!(p.agent_commands.len(), 1);
+        assert!(!p.agent_commands[0].submit);
+        assert!(parse(base).unwrap()[0].agent_commands.is_empty());
+        // A broken entry is reported with the profile, like every other field.
+        let problem = ProfileProblem::new(
+            &parse(&format!(
+                "{base}agent_commands=[{{ label='Review', text='' }}]
+"
+            ))
+            .unwrap_err(),
+            None,
+        );
+        assert!(problem.message.contains("'a'"), "{problem:?}");
+        assert!(problem.message.contains("text"), "{problem:?}");
+        assert!(matches!(
+            parse(&format!(
+                "{base}agentCommands=[]
+"
+            )),
+            Err(ProfileError::Parse(_))
+        ));
     }
 
     #[test]

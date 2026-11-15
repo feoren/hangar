@@ -5,8 +5,8 @@
 //! transcripts ([`token_usage`]), prices each response with the [`PriceTable`] and keeps the
 //! numbers per conversation and local day in a small ledger (`cost-ledger.json` in the local data
 //! folder), so the last days still count sessions that were closed since. The window gets a full
-//! [`CostReport`] only when a number changed. Only numbers, titles and program names leave this
-//! module, never text of a transcript.
+//! signal only when a number changed and then reads the [`CostReport`]. Only numbers, titles and
+//! program names leave this module, never text of a transcript.
 //!
 //! Other agents: Codex CLI keeps token counts in rollout files Hangar cannot tie to a session,
 //! and the others document no usage log; their sessions show nothing (see the wiki).
@@ -29,7 +29,8 @@ use crate::subagents::claude::{is_agent_id, is_real_dir, ClaudeSource, MAX_AGENT
 use crate::subagents::{SubAgentKind, Target};
 use crate::token_usage::{system_local_day, Bucket, Day, LocalDay, SessionTally, Tokens};
 
-/// Event with the newest [`CostReport`].
+/// Signal without payload that the [`CostReport`] changed; the main window reads it with
+/// `cost_report` (any window may listen to an event, and the report carries session titles).
 pub const EVENT: &str = "cost-usage-changed";
 /// Costs need no second-by-second updates; an idle session costs one `stat` per file and poll.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(5);

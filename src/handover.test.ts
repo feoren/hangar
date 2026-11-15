@@ -7,6 +7,7 @@ import {
   canRequestSummary,
   FILES_MAX,
   HANDOVER_MAX_CHARS,
+  handoverRequest,
   handoverStart,
   handoverTargets,
   PROMPT_MAX_CHARS,
@@ -159,5 +160,22 @@ describe("waitUntilReady", () => {
       1000,
     );
     expect(late).toBe(true);
+  });
+});
+
+describe("handoverRequest", () => {
+  it("keeps real requests with their whitespace collapsed", () => {
+    expect(handoverRequest("  fix   the login	form ")).toBe("fix the login form");
+    expect(handoverRequest("ok")).toBe("ok");
+  });
+
+  it("skips empty lines, one-character answers and slash commands", () => {
+    for (const line of ["", "   ", "1", "y", "/clear"]) expect(handoverRequest(line)).toBeNull();
+  });
+
+  it("caps a long request at what the handover quotes", () => {
+    const text = handoverRequest("a".repeat(PROMPT_MAX_CHARS + 50));
+    expect(Array.from(text ?? "")).toHaveLength(PROMPT_MAX_CHARS);
+    expect(text?.endsWith("…")).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
 
+import { CommandGuardSettings } from "./CommandGuardSettings";
 import { Dialog } from "./Dialog";
 import { GateRulesSettings } from "./GateRulesSettings";
 import {
@@ -22,8 +23,10 @@ import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
+import { RowLayoutField } from "./RowLayoutSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { SnippetsSettings } from "./SnippetsSettings";
+import { instructionsUnavailable } from "./startOptions";
 import {
   nextTabIndex,
   SECTION_NAMES,
@@ -84,6 +87,8 @@ interface Props {
   onClearScrollbacks: () => Promise<void>;
   /** Opens profiles.toml in the default editor (creates it if needed); rejects with an error. */
   onOpenProfileFile: () => Promise<void>;
+  /** Opens HANGAR.md in the default editor (creates it if needed); rejects with an error. */
+  onOpenHangarMd: () => Promise<void>;
   /** Rereads profiles.toml; rejects with the backend's error (profileFile.ts). */
   onReloadProfiles: () => Promise<void>;
   /** A profile was saved or deleted in the editor: apply the backend's new list. */
@@ -98,18 +103,18 @@ interface Props {
 const SCHEME_NAMES: Record<ColorScheme, MessageKey> = {
   hangar: "scheme.hangar",
   dusk: "scheme.dusk",
-  oneDarkPro: "scheme.oneDarkPro",
-  github: "scheme.github",
-  vscode: "scheme.vscode",
-  darcula: "scheme.darcula",
-  solarized: "scheme.solarized",
-  catppuccin: "scheme.catppuccin",
-  monokai: "scheme.monokai",
-  dracula: "scheme.dracula",
-  nord: "scheme.nord",
-  gruvbox: "scheme.gruvbox",
-  tokyoNight: "scheme.tokyoNight",
-  rosePine: "scheme.rosePine",
+  meridian: "scheme.meridian",
+  harbor: "scheme.harbor",
+  studio: "scheme.studio",
+  anvil: "scheme.anvil",
+  sundial: "scheme.sundial",
+  velvet: "scheme.velvet",
+  ember: "scheme.ember",
+  nocturne: "scheme.nocturne",
+  fjord: "scheme.fjord",
+  ochre: "scheme.ochre",
+  neon: "scheme.neon",
+  heather: "scheme.heather",
 };
 
 const SCHEME_GROUP_NAMES: Record<SchemeGroup, MessageKey> = {
@@ -120,13 +125,13 @@ const SCHEME_GROUP_NAMES: Record<SchemeGroup, MessageKey> = {
 
 /** Proper names, the same in every language. */
 const VIEWER_THEME_NAMES: Record<ViewerTheme, MessageKey> = {
-  oneDarkPro: "viewerTheme.oneDarkPro",
-  github: "viewerTheme.github",
-  vscode: "viewerTheme.vscode",
-  darcula: "viewerTheme.darcula",
-  solarized: "viewerTheme.solarized",
-  catppuccin: "viewerTheme.catppuccin",
-  monokai: "viewerTheme.monokai",
+  meridian: "viewerTheme.meridian",
+  harbor: "viewerTheme.harbor",
+  studio: "viewerTheme.studio",
+  anvil: "viewerTheme.anvil",
+  sundial: "viewerTheme.sundial",
+  velvet: "viewerTheme.velvet",
+  ember: "viewerTheme.ember",
 };
 
 const CURSOR_NAMES: Record<CursorStyle, MessageKey> = {
@@ -463,6 +468,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <label className="check">
         <input
           type="checkbox"
+          checked={settings.warnMultilinePaste}
+          aria-describedby="warn-multiline-paste-help"
+          onChange={(event) => {
+            onChange({ warnMultilinePaste: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.warnMultilinePaste")}</span>
+      </label>
+      <p id="warn-multiline-paste-help" className="muted settings-help">
+        {t("settings.warnMultilinePasteHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={settings.subAgentExcerpts}
           aria-describedby="sub-agent-excerpts-help"
           onChange={(event) => {
@@ -507,6 +526,13 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
           <> {t("settings.gateNeedsClaims", { setting: t("settings.claims") })}</>
         )}
       </p>
+      <CommandGuardSettings
+        enabled={settings.commandGuardEnabled}
+        available={settings.gateEnabled && settings.claimsEnabled}
+        onChange={(enabled) => {
+          onChange({ commandGuardEnabled: enabled });
+        }}
+      />
       <GateRulesSettings language={settings.language} />
     </section>
   );
@@ -572,6 +598,13 @@ function AppearanceSection(props: Props) {
           {t("sidebar.groupByHelp")}
         </p>
       </div>
+      <RowLayoutField
+        value={settings.rowLayout}
+        language={settings.language}
+        onChange={(rowLayout) => {
+          onChange({ rowLayout });
+        }}
+      />
       <TerminalLookFields {...props} />
       <ViewerThemeFields {...props} />
       <div className="settings-row">
@@ -953,8 +986,94 @@ function ProgramsSection(props: Props) {
         onChange={props.onChange}
         onProfiles={props.onProfiles}
       />
+      <AgentInstructionsField
+        settings={props.settings}
+        profiles={props.profiles}
+        onChange={props.onChange}
+        onOpen={props.onOpenHangarMd}
+      />
       <ProfileFileField onOpen={props.onOpenProfileFile} onReload={props.onReloadProfiles} />
     </>
+  );
+}
+
+/** HANGAR.md for every agent, and the upstream check of a fresh worktree session. */
+function AgentInstructionsField({
+  settings,
+  profiles,
+  onChange,
+  onOpen,
+}: Pick<Props, "settings" | "profiles" | "onChange"> & { onOpen: () => Promise<void> }) {
+  const t = useT();
+  const unavailable = instructionsUnavailable(profiles);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const open = () => {
+    setBusy(true);
+    setProblem(null);
+    onOpen()
+      .catch((error: unknown) => {
+        setProblem(errorText(error));
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  return (
+    <section className="settings-section" aria-labelledby="programs-instructions">
+      <h4 id="programs-instructions" className="settings-subtitle">
+        {t("settings.agentInstructions")}
+      </h4>
+      <p id="hangar-md-help" className="muted settings-intro">
+        {t("settings.agentInstructionsHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.hangarMd}
+          aria-describedby="hangar-md-help"
+          onChange={(event) => {
+            onChange({ hangarMd: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.hangarMd")}</span>
+      </label>
+      {unavailable.length > 0 && (
+        <p className="muted settings-help">
+          {t("settings.hangarMdUnavailable", { names: unavailable.join(", ") })}
+        </p>
+      )}
+      <div className="settings-row">
+        <button
+          type="button"
+          className="secondary-button"
+          aria-describedby="hangar-md-help"
+          disabled={busy}
+          onClick={open}
+        >
+          {t("settings.openHangarMd")}
+        </button>
+        <span className="muted error-text" role="status">
+          {problem ?? ""}
+        </span>
+      </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={settings.worktreeUpstreamCheck}
+          aria-describedby="worktree-upstream-help"
+          onChange={(event) => {
+            onChange({ worktreeUpstreamCheck: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.worktreeUpstreamCheck")}</span>
+      </label>
+      <p id="worktree-upstream-help" className="muted settings-help">
+        {t("settings.worktreeUpstreamCheckHelp")}
+      </p>
+    </section>
   );
 }
 

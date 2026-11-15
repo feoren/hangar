@@ -13,7 +13,7 @@ updated: 2026-11-11
 # Context use and window size of a Claude Code session
 
 Own measurement on Windows 11 with Claude Code 2.1.322 for the context meter in the session rows
-(`src-tauri/src/context_usage.rs`, `src/ContextMeter.tsx`). Key names and numbers only.
+(`src-tauri/src/context_usage.rs`, `src/ContextLine.tsx`). Key names and numbers only.
 
 ## Key points (2.1.322)
 - **Use:** main transcripts carry the same `message.usage` as sub-agent transcripts; input, cache

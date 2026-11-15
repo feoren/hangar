@@ -4,6 +4,8 @@ import { accountErrorText, isSignedIn, type Project } from "./account";
 import { AccountStateSection } from "./AccountSettings";
 import { useT, type MessageKey } from "./i18n";
 import { CloseIcon } from "./icons";
+import { revealInvisible } from "./invisible";
+import { Revealed } from "./Revealed";
 import { nextTabIndex } from "./settingsSections";
 import {
   EMPTY_ACTIVITY,
@@ -17,6 +19,7 @@ import {
 } from "./team";
 import { TeamPeople } from "./TeamActivityView";
 import {
+  AdmissionCheck,
   ConnectButton,
   ConnectList,
   PendingConfirmations,
@@ -322,8 +325,8 @@ function ProjectSwitch(props: {
   const t = useT();
   if (props.projects.length < 2) {
     return (
-      <span className="team-window-project" title={props.current.name}>
-        {props.current.name}
+      <span className="team-window-project" title={revealInvisible(props.current.name)}>
+        <Revealed text={props.current.name} />
       </span>
     );
   }
@@ -338,7 +341,8 @@ function ProjectSwitch(props: {
     >
       {props.projects.map((project) => (
         <option key={project.id} value={project.id}>
-          {project.name}
+          {/* An option holds text only: the invisible characters as their placeholders. */}
+          {revealInvisible(project.name)}
         </option>
       ))}
     </select>
@@ -358,9 +362,28 @@ function NowTab(props: {
   const t = useT();
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const { status } = props;
-  if (status.state === "connected") return <div className="team-now">{props.content}</div>;
+  if (status.state === "connected")
+    return <div className="team-columns team-now">{props.content}</div>;
+  if (status.state === "waitingForKeyChange") {
+    // The teammates stay visible; only this device's sharing waits for the new key.
+    const waiting = statusLine(status, t);
+    return (
+      <>
+        {waiting !== null && (
+          <p className={`team-status tone-${waiting.tone}`} role="status">
+            <span className="team-status-mark" aria-hidden="true" />
+            <span>{waiting.text}</span>
+          </p>
+        )}
+        <div className="team-columns team-now">{props.content}</div>
+      </>
+    );
+  }
   if (status.state === "waitingForConfirmation") {
     return <WaitingHelp safetyNumber={status.safetyNumber} />;
+  }
+  if (status.state === "confirmAdmission") {
+    return <AdmissionCheck projectId={props.project.id} status={status} busy={props.busy} />;
   }
   const line = statusLine(status, t);
   const off = status.state === "off" || status.state === "removed";

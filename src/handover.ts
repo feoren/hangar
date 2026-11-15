@@ -60,6 +60,17 @@ function cut(text: string, max: number): string {
     : text;
 }
 
+/**
+ * A submitted line that counts as the user's last request: not empty, not a slash command and
+ * not a one-character answer to a menu or a yes/no question ("1", "y"). Capped at
+ * PROMPT_MAX_CHARS, which is all the handover quotes.
+ */
+export function handoverRequest(line: string): string | null {
+  const text = oneLine(line);
+  if (text.length < 2 || text.startsWith("/")) return null;
+  return cut(text, PROMPT_MAX_CHARS);
+}
+
 /** The prompt for the new agent; see the bounds above. */
 export function buildHandover(input: HandoverInput, t: Translate): string {
   const head = t("handover.intro", { from: oneLine(input.from), folder: oneLine(input.folder) });

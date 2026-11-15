@@ -4,10 +4,21 @@ import {
   CHIME_VOLUME,
   defaultSettings,
   gateActive,
+  BACKEND_KEYS,
+  legacyNotices,
+  legacyProtected,
+  legacySwitches,
+  NOTICE_KEYS,
+  noticesOf,
   parseSettings,
+  PROTECTED_KEYS,
   QUIET_SECONDS,
   SCROLLBACK_LINES,
+  SECURITY_SWITCH_KEYS,
+  withoutBackendKeys,
 } from "./settings";
+import { DEFAULT_QUIET_HOURS } from "./quietHours";
+import { DEFAULT_ROW_LAYOUT, presetLayout, ROW_PRESETS } from "./rowLayout";
 import { defaultSnippets } from "./snippets";
 import { DEFAULT_LOOKS } from "./stateLook";
 
@@ -37,13 +48,16 @@ describe("parseSettings", () => {
         failed: { color: "#f5a3c7", pulse: "subtle", seconds: 1.6 },
       },
       dotAnimation: "wave",
+      rowLayout: presetLayout("ring"),
       quietSeconds: 10,
+      stallMinutes: 12,
       taskbarFlash: false,
       notifyDesktop: false,
       chime: false,
       chimeVolume: 70,
       quietHours: { enabled: true, from: 1380, to: 360 },
       showResources: false,
+      powerSaving: false,
       keepInTray: true,
       showVersions: false,
       showIcons: false,
@@ -54,18 +68,37 @@ describe("parseSettings", () => {
       subAgentExcerpts: false,
       claimsEnabled: false,
       gateEnabled: false,
+      commandGuardEnabled: false,
+      hangarMd: false,
+      worktreeUpstreamCheck: false,
+      warnMultilinePaste: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
-      terminalScheme: "solarized",
+      terminalScheme: "sundial",
       terminalFont: "JetBrains Mono",
       cursorStyle: "bar",
       cursorBlink: false,
-      viewerTheme: "github",
+      viewerTheme: "harbor",
       sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
       dailyBudget: 12.5,
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
+      // The security switches, the protected and the notice settings come from the backend
+      // only (mainStore.ts), never from storage.
+      attentionEnabled: true,
+      taskbarFlash: true,
+      notifyDesktop: true,
+      chime: true,
+      quietHours: DEFAULT_QUIET_HOURS,
+      restoreSessions: true,
+      claimsEnabled: true,
+      gateEnabled: true,
+      commandGuardEnabled: true,
+      autoUpdate: true,
+      hangarMd: true,
+      warnMultilinePaste: true,
+      snippets: defaultSnippets("en"),
       looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });
@@ -80,6 +113,7 @@ describe("parseSettings", () => {
       taskbarFlash: "yes",
       notifyDesktop: "no",
       showResources: "off",
+      powerSaving: "yes",
       keepInTray: 1,
       showVersions: "no",
       showIcons: null,
@@ -90,10 +124,19 @@ describe("parseSettings", () => {
       subAgentExcerpts: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
+      commandGuardEnabled: "on",
+      warnMultilinePaste: "no",
       dotAnimation: "spin",
+      rowStyle: "fancy",
+      rowLayout: "grid",
       sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
+  });
+
+  it("warns before a multi-line paste by default, also for older settings", () => {
+    expect(defaultSettings("de").warnMultilinePaste).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").warnMultilinePaste).toBe(true);
   });
 
   it("keeps the previous terminal look by default, also for older settings", () => {
@@ -123,28 +166,43 @@ describe("parseSettings", () => {
     expect(parsed.cursorStyle).toBe("block");
     expect(parsed.cursorBlink).toBe(true);
     const valid = parseSettings(
-      JSON.stringify({ terminalScheme: "catppuccin", cursorStyle: "underline" }),
+      JSON.stringify({ terminalScheme: "velvet", cursorStyle: "underline" }),
       "de",
     );
-    expect(valid.terminalScheme).toBe("catppuccin");
+    expect(valid.terminalScheme).toBe("velvet");
     expect(valid.cursorStyle).toBe("underline");
   });
 
-  it("reads the file viewer theme and falls back to One Dark Pro", () => {
-    expect(defaultSettings("de").viewerTheme).toBe("oneDarkPro");
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("oneDarkPro");
-    for (const theme of ["github", "vscode", "darcula", "solarized", "catppuccin", "monokai"]) {
+  it("reads the file viewer theme and falls back to Meridian", () => {
+    expect(defaultSettings("de").viewerTheme).toBe("meridian");
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").viewerTheme).toBe("meridian");
+    for (const theme of ["harbor", "studio", "anvil", "sundial", "velvet", "ember"]) {
       expect(parseSettings(JSON.stringify({ viewerTheme: theme }), "de").viewerTheme).toBe(theme);
     }
     for (const wrong of ["GitHub", "atom", 3, null]) {
       expect(parseSettings(JSON.stringify({ viewerTheme: wrong }), "de").viewerTheme).toBe(
-        "oneDarkPro",
+        "meridian",
       );
     }
   });
 
-  it("keeps saved color schemes from older versions and reads the new ones", () => {
-    for (const scheme of ["hangar", "catppuccin", "solarized", "dusk", "dracula", "rosePine"]) {
+  it("carries a viewer theme saved by 0.6.0 over to its new name", () => {
+    const renamed = {
+      oneDarkPro: "meridian",
+      github: "harbor",
+      vscode: "studio",
+      darcula: "anvil",
+      solarized: "sundial",
+      catppuccin: "velvet",
+      monokai: "ember",
+    };
+    for (const [old, now] of Object.entries(renamed)) {
+      expect(parseSettings(JSON.stringify({ viewerTheme: old }), "de").viewerTheme, old).toBe(now);
+    }
+  });
+
+  it("keeps saved color schemes and reads the new ones", () => {
+    for (const scheme of ["hangar", "dusk", "harbor", "meridian", "nocturne", "heather"]) {
       expect(parseSettings(JSON.stringify({ terminalScheme: scheme }), "de").terminalScheme).toBe(
         scheme,
       );
@@ -154,13 +212,29 @@ describe("parseSettings", () => {
     );
   });
 
-  it("moves the renamed schemes Harbor and Meridian to their origins", () => {
-    expect(parseSettings(JSON.stringify({ terminalScheme: "harbor" }), "de").terminalScheme).toBe(
-      "github",
-    );
-    expect(parseSettings(JSON.stringify({ terminalScheme: "meridian" }), "de").terminalScheme).toBe(
-      "oneDarkPro",
-    );
+  it("carries a color scheme saved by an older version over to its new name", () => {
+    const renamed = {
+      oneDarkPro: "meridian",
+      github: "harbor",
+      vscode: "studio",
+      darcula: "anvil",
+      solarized: "sundial",
+      catppuccin: "velvet",
+      monokai: "ember",
+      dracula: "nocturne",
+      nord: "fjord",
+      gruvbox: "ochre",
+      tokyoNight: "neon",
+      rosePine: "heather",
+      // Keys from before 0.6.0, current again.
+      harbor: "harbor",
+      meridian: "meridian",
+    };
+    for (const [old, now] of Object.entries(renamed)) {
+      expect(parseSettings(JSON.stringify({ terminalScheme: old }), "de").terminalScheme, old).toBe(
+        now,
+      );
+    }
   });
 
   it("follows the system by default and replaces invalid themes", () => {
@@ -183,13 +257,52 @@ describe("parseSettings", () => {
     expect(old.showIcons).toBe(true);
   });
 
-  it("seeds snippets in the stored language and keeps the user's list", () => {
-    const old = parseSettings(JSON.stringify({ language: "en" }), "de");
+  it("migrates snippets in the stored language and keeps the user's list", () => {
+    const old = legacyProtected(JSON.stringify({ language: "en" }), "de");
     expect(old.snippets).toEqual(defaultSnippets("en"));
-    const none = parseSettings(JSON.stringify({ snippets: [] }), "de");
+    expect(legacyProtected(null, "de").snippets).toEqual(defaultSnippets("de"));
+    const none = legacyProtected(JSON.stringify({ snippets: [] }), "de");
     expect(none.snippets).toEqual([]);
-    const own = parseSettings(JSON.stringify({ snippets: [{ id: "a", text: "Hi" }] }), "de");
+    const own = legacyProtected(JSON.stringify({ snippets: [{ id: "a", text: "Hi" }] }), "de");
     expect(own.snippets).toEqual([{ id: "a", text: "Hi" }]);
+  });
+
+  it("reads the protected settings an older version stored, once, for the migration", () => {
+    const stored = JSON.stringify({ warnMultilinePaste: false, autoUpdate: false, hangarMd: "no" });
+    expect(legacyProtected(stored, "en")).toEqual({
+      warnMultilinePaste: false,
+      autoUpdate: false,
+      hangarMd: true,
+      snippets: defaultSnippets("en"),
+    });
+    for (const broken of ["{broken", "[false]", "42"]) {
+      expect(legacyProtected(broken, "en")).toEqual({
+        warnMultilinePaste: true,
+        autoUpdate: true,
+        hangarMd: true,
+        snippets: defaultSnippets("en"),
+      });
+    }
+  });
+
+  // The panel and file viewer windows share this storage: whatever stands there is ignored.
+  it("never reads warnMultilinePaste from localStorage", () => {
+    const settings = parseSettings(JSON.stringify({ warnMultilinePaste: false }), "de");
+    expect(settings.warnMultilinePaste).toBe(true);
+  });
+
+  it("never reads autoUpdate from localStorage", () => {
+    expect(parseSettings(JSON.stringify({ autoUpdate: false }), "de").autoUpdate).toBe(true);
+  });
+
+  it("never reads hangarMd from localStorage", () => {
+    expect(parseSettings(JSON.stringify({ hangarMd: false }), "de").hangarMd).toBe(true);
+  });
+
+  it("never reads snippets from localStorage", () => {
+    const planted = [{ id: "x", text: "HANGAR-MARKER" }];
+    const settings = parseSettings(JSON.stringify({ language: "en", snippets: planted }), "de");
+    expect(settings.snippets).toEqual(defaultSnippets("en"));
   });
 
   it("replaces invalid values for versions and icons", () => {
@@ -209,10 +322,45 @@ describe("parseSettings", () => {
     expect(parse(4.6)).toBe(5);
   });
 
+  it("hints at a stuck agent after five minutes by default, 0 turns it off", () => {
+    expect(defaultSettings("de").stallMinutes).toBe(5);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").stallMinutes).toBe(5);
+    const parse = (stallMinutes: unknown) =>
+      parseSettings(JSON.stringify({ stallMinutes }), "de").stallMinutes;
+    expect(parse(0)).toBe(0);
+    expect(parse(12)).toBe(12);
+    expect(parse(999)).toBe(30);
+    expect(parse("7")).toBe(5);
+  });
+
   it("flashes the taskbar by default, also for older settings", () => {
     expect(defaultSettings("de").taskbarFlash).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").taskbarFlash).toBe(true);
-    expect(parseSettings(JSON.stringify({ taskbarFlash: false }), "de").taskbarFlash).toBe(false);
+    // Stored by an older version, it is taken over once by the migration, never read here.
+    expect(parseSettings(JSON.stringify({ taskbarFlash: false }), "de").taskbarFlash).toBe(true);
+    expect(legacyNotices(JSON.stringify({ taskbarFlash: false })).taskbarFlash).toBe(false);
+  });
+
+  it("never reads or writes the notice settings in localStorage", () => {
+    const stored = {
+      restoreSessions: false,
+      attentionEnabled: false,
+      taskbarFlash: false,
+      notifyDesktop: false,
+      chime: false,
+      quietHours: { enabled: true, from: 1380, to: 360 },
+    };
+    expect(noticesOf(parseSettings(JSON.stringify(stored), "de"))).toEqual(
+      noticesOf(defaultSettings("de")),
+    );
+    expect(legacyNotices(JSON.stringify(stored))).toEqual(stored);
+    const kept = withoutBackendKeys({ ...defaultSettings("de"), ...stored });
+    for (const key of NOTICE_KEYS) expect(kept).not.toHaveProperty(key);
+    expect(legacyNotices(null)).toEqual(noticesOf(defaultSettings("de")));
+    expect(legacyNotices("{broken")).toEqual(noticesOf(defaultSettings("de")));
+    expect(legacyNotices(JSON.stringify({ chime: "no", quietHours: 5 }))).toEqual(
+      noticesOf(defaultSettings("de")),
+    );
   });
 
   it("notifies by default and keeps running in the notification area only when chosen", () => {
@@ -227,6 +375,12 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").showResources).toBe(true);
     expect(parseSettings(JSON.stringify({ showResources: false }), "de").showResources).toBe(false);
+  });
+
+  it("saves energy on battery by default, also for older settings", () => {
+    expect(defaultSettings("de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").powerSaving).toBe(true);
+    expect(parseSettings(JSON.stringify({ powerSaving: false }), "de").powerSaving).toBe(false);
   });
 
   it("remembers sessions and checks for program updates by default", () => {
@@ -244,16 +398,42 @@ describe("parseSettings", () => {
     );
   });
 
-  it("detects overlaps between sessions by default, also for older settings", () => {
+  it("never reads the security switches from localStorage", () => {
+    // The panel and file viewer windows share this storage: whatever stands there is ignored.
+    const stored = JSON.stringify({
+      claimsEnabled: false,
+      gateEnabled: false,
+      commandGuardEnabled: false,
+    });
+    const settings = parseSettings(stored, "de");
+    expect(settings.claimsEnabled).toBe(true);
+    expect(settings.gateEnabled).toBe(true);
+    expect(settings.commandGuardEnabled).toBe(true);
     expect(defaultSettings("de").claimsEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").claimsEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ claimsEnabled: false }), "de").claimsEnabled).toBe(false);
+    expect(defaultSettings("de").gateEnabled).toBe(true);
+    expect(defaultSettings("de").commandGuardEnabled).toBe(true);
   });
 
-  it("pauses agents before overlapping edits by default, also for older settings", () => {
-    expect(defaultSettings("de").gateEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").gateEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ gateEnabled: false }), "de").gateEnabled).toBe(false);
+  it("never writes the security switches or the protected settings to localStorage", () => {
+    const settings = { ...defaultSettings("de"), gateEnabled: false, commandGuardEnabled: false };
+    const stored = withoutBackendKeys(settings);
+    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS, ...NOTICE_KEYS]) {
+      expect(key in stored).toBe(false);
+      expect(BACKEND_KEYS).toContain(key);
+    }
+    expect(stored.language).toBe("de");
+  });
+
+  it("reads the switches an older version stored, once, for the migration", () => {
+    expect(legacySwitches(JSON.stringify({ gateEnabled: false, claimsEnabled: "no" }))).toEqual({
+      claimsEnabled: true,
+      gateEnabled: false,
+      commandGuardEnabled: true,
+    });
+    const on = { claimsEnabled: true, gateEnabled: true, commandGuardEnabled: true };
+    expect(legacySwitches(null)).toEqual(on);
+    expect(legacySwitches("{broken")).toEqual(on);
+    expect(legacySwitches("[false]")).toEqual(on);
   });
 
   it("turns the gate on only together with the overlap detection", () => {
@@ -284,6 +464,18 @@ describe("parseSettings", () => {
     expect(parsed.looks.working.color).toBe("#8cc8ff");
     expect(parsed.looks.failed).toEqual(DEFAULT_LOOKS.failed);
     expect(parsed.dotAnimation).toBe("bounce");
+    expect(parsed.rowLayout).toEqual(DEFAULT_ROW_LAYOUT);
+  });
+
+  it("turns a row style of an earlier version into its layout once", () => {
+    for (const preset of ROW_PRESETS) {
+      const parsed = parseSettings(JSON.stringify({ rowStyle: preset }), "de");
+      expect(parsed.rowLayout).toEqual(presetLayout(preset));
+      // Saved again, only the layout is stored.
+      const saved = withoutBackendKeys(parsed);
+      expect(saved).not.toHaveProperty("rowStyle");
+      expect(parseSettings(JSON.stringify(saved), "de").rowLayout).toEqual(presetLayout(preset));
+    }
   });
 
   it("drops invalid looks", () => {
@@ -344,7 +536,9 @@ describe("chime", () => {
 
   it("takes a stored choice, rounds the volume to its step and clamps it", () => {
     const parsed = parseSettings('{"chime":false,"chimeVolume":62}', "de");
-    expect(parsed.chime).toBe(false);
+    // The switch itself lives in the backend (mainStore.ts); the old value migrates once.
+    expect(parsed.chime).toBe(true);
+    expect(legacyNotices('{"chime":false}').chime).toBe(false);
     expect(parsed.chimeVolume).toBe(60);
     expect(parseSettings('{"chimeVolume":0}', "de").chimeVolume).toBe(CHIME_VOLUME.min);
     expect(parseSettings('{"chimeVolume":900}', "de").chimeVolume).toBe(CHIME_VOLUME.max);

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { changedFileCount, finishedWork, offersDoneNotice } from "./doneNotice";
+import { doneFileCount, finishedWork, offersDoneNotice, parseChangedCount } from "./doneNotice";
 
 describe("finishedWork", () => {
   it("is true when work ends in rest or waiting", () => {
@@ -18,19 +18,48 @@ describe("finishedWork", () => {
   });
 });
 
-describe("changedFileCount", () => {
-  const file = (path: string) => ({ path, status: " M", additions: 1, deletions: 0 });
-
-  it("counts the files of a repository", () => {
-    expect(
-      changedFileCount({ isRepo: true, files: [file("a"), file("b")], diff: "", truncated: false }),
-    ).toBe(2);
+describe("parseChangedCount", () => {
+  it("takes the number of changed files", () => {
+    expect(parseChangedCount(2)).toBe(2);
   });
 
   it("is 0 outside a repository and for malformed answers", () => {
-    expect(changedFileCount({ isRepo: false, files: [], diff: "" })).toBe(0);
-    expect(changedFileCount(null)).toBe(0);
-    expect(changedFileCount("nope")).toBe(0);
+    expect(parseChangedCount(null)).toBe(0);
+    expect(parseChangedCount(0)).toBe(0);
+    expect(parseChangedCount(-1)).toBe(0);
+    expect(parseChangedCount(1.5)).toBe(0);
+    expect(parseChangedCount("3")).toBe(0);
+    expect(parseChangedCount({ isRepo: true, files: [] })).toBe(0);
+  });
+});
+
+describe("doneFileCount", () => {
+  it("asks the backend for the count of the session's folder only", async () => {
+    const ask = vi.fn((id: number) => Promise.resolve<unknown>(id === 7 ? 3 : null));
+    await expect(doneFileCount(7, ask)).resolves.toBe(3);
+    expect(ask).toHaveBeenCalledWith(7);
+  });
+
+  it("offers nothing outside a repository or without changes", async () => {
+    for (const answer of [null, 0]) {
+      const count = await doneFileCount(2, () => Promise.resolve<unknown>(answer));
+      expect(count).toBe(0);
+      expect(
+        offersDoneNotice({
+          count,
+          sessionId: 1,
+          state: "idle",
+          activeId: 2,
+          changesShown: false,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("passes a git error on, so the caller shows nothing", async () => {
+    await expect(
+      doneFileCount(3, () => Promise.reject(new Error("git not found"))),
+    ).rejects.toThrow("git not found");
   });
 });
 

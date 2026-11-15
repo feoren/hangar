@@ -1,6 +1,7 @@
 // The cost report outside React state, like the context meter (useContextUsage.ts): the backend
-// sends a report only when a number changed, and only components that read it re-render. The
-// listener starts with the first reader and asks once for the current report.
+// signals only when a number changed, and only components that read it re-render. The signal
+// carries nothing (any window may listen, and the report holds session titles); each one reads
+// the report anew, and only the answer to the newest read counts.
 
 import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
@@ -11,6 +12,7 @@ import { parseCostReport, type CostReport, type SessionCost } from "./costs";
 let report: CostReport | null = null;
 const listeners = new Set<() => void>();
 let started = false;
+let reads = 0;
 
 function accept(value: unknown): void {
   const parsed = parseCostReport(value);
@@ -19,17 +21,24 @@ function accept(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
+/** Two reads may answer out of order: an older answer never replaces a newer one. */
+function read(): void {
+  reads += 1;
+  const mine = reads;
+  api
+    .costReport()
+    .then((value) => {
+      if (mine === reads) accept(value);
+    })
+    .catch(() => undefined);
+}
+
 function start(): void {
   if (started) return;
   started = true;
   try {
-    listen(COST_USAGE_CHANGED, (event) => {
-      accept(event.payload);
-    }).catch(() => undefined);
-    api
-      .costReport()
-      .then(accept)
-      .catch(() => undefined);
+    listen(COST_USAGE_CHANGED, read).catch(() => undefined);
+    read();
   } catch {
     // Outside Tauri (browser preview) there are no backend events.
   }

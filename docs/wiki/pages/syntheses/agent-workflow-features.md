@@ -3,9 +3,9 @@ title: "Agent workflow features (0.3.0)"
 type: synthesis
 status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
-sources: ["[[terminal-font-coverage-measurement]]"]
+sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Agent workflow features (0.3.0)
@@ -85,22 +85,87 @@ like a dropped file. Text on the clipboard always wins over an image.
 
 ### Git
 All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
-`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv. Every inherited
+`-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv, and no repository
+hook: every call passes `-c core.hooksPath=<path of the git program>`, a path below a regular
+file that can never exist, so git finds no hook and nothing has to be kept empty; no caller names
+a `core.hooksPath` of its own (a later `-c` would replace this one with a folder that can be
+filled). Hooks named in the config (`hook.<name>.command`, git 2.54 and later) are not found
+through that folder and still ran (verified with git 2.56), so every call also passes
+`-c hook.<event>.enabled=false` for each of the 24 events of githooks(5), and
+`-c hook.<name>.enabled=false` for every friendly name the repository's config files and their
+include targets name (so a hook for an event git adds later stays off too; measured with git
+2.56: both the event and the friendly name switch a config hook off); older git ignores these
+keys. Only a commit from the Changes panel opts in
+(`Git::with_repo_hooks`). Files below `.git` (`HEAD` up to 4 KiB, a `.git` file and `commondir`
+up to 1 MiB) are read only as regular files, without following a link at the last component and
+without blocking on a FIFO (`persist::read_regular_capped`). Every inherited
 `GIT_*` variable is removed from git's environment before Hangar sets its own. If the process tree
 cannot be put into a Job Object, git is killed and the call fails. `status` and `diff` run without
 the repository's filters: Hangar first reads `git config -z --get-regexp
 "^filter\..*\.(clean|smudge|process)$"` and passes `-c filter.<name>.clean= -c
 filter.<name>.smudge= -c filter.<name>.process= -c filter.<name>.required=false` per driver
 (a driver name with `=` or more than 64 drivers refuse the call), plus `--ignore-submodules=all`.
+Every call also gets `-c submodule.recurse=false`: a repository's `submodule.recurse=true` would
+take a restore or checkout into its submodules and run their smudge filters, which the guard
+never read (measured in round 4; no Hangar call reached it).
 A process that ends before it could join the Job Object is not an error (its output is used).
 Before git runs at all (`git_diff`, `create_worktree`, `remove_worktree`), the folder must be
 absolute and existing, and the `.git` file found walking up from it (and the `commondir` file of
 the git folder it names) must not lead from a local folder to a UNC share, `\\?\UNC\`, `\\.\` or
 another `\\?\` namespace (same rule as `git_branches`); otherwise the call fails with "The
 repository's git folder lies on another network share or device". Only the paths are compared.
-Not covered, because git reads them itself: `[include]` and `[includeIf]` paths,
-`objects/info/alternates`, `core.worktree`, `core.excludesFile`, `core.attributesFile` and other
-paths in the repository's config, and `.git` entries that are symlinks or junctions to a share.
+
+Repository config guard (`src-tauri/src/git/guard.rs`), before every git call through
+`Git::run`: git opens the repository's config with its includes at startup, even for
+`git config --file` (measured with git 2.56), so an `include.path` to `\\host\share` sent the
+user's NTLM credentials on every claims scan, and an `[includeIf "onbranch:hangar/**"]` could
+name a smudge filter that only applies once a worktree's HEAD is `hangar/<slug>` (both
+measured). The guard takes every git folder git could open from the call's folder (lexical and
+resolved): each `.git` folder or `.git` file target on the way up, and each folder with a `HEAD`
+entry whose common folder (after its `commondir`) holds `objects` and `refs` entries of any kind,
+as git's `is_git_directory` decides (Windows ignores `X_OK`, so plain files named `objects` and
+`refs` pass; an embedded folder whose `commondir` names another one was reachable through
+`git clone`, both measured in round 3). A `.git` file or `commondir` is read up to 1 MiB (git's
+own cap for `.git` files; `commondir` git reads whole) and taken whole with only trailing CR and
+LF removed, as git does; one that exists but is larger, unreadable, no regular file, not UTF-8
+or holds a line break or NUL inside refuses the call instead of being skipped (also in
+`check_git_links`; the sidebar reads the same way but shows nothing then). Every file the guard
+opens is looked up by a walk from the root that follows only links to local fixed drives
+(`no_links::metadata`), so a folder linked to a share in the middle of a path is refused before
+any lookup passes it. For each git folder it reads `config` and `config.worktree`
+with `git config --file <f> --no-includes -z --get-regexp`, started in the git program's own
+folder with `GIT_CEILING_DIRECTORIES` set to its parent (outside every repository, so git's
+parser is used and no repository is opened), and follows every `include.path` and
+`includeIf.<any condition>.path` itself (relative to the including file, `~/` from `HOME`, then
+`USERPROFILE`; up to 10 levels, at most 64 files). Any include target, `core.excludesFile`,
+`core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`, entry of
+`objects/info/alternates` (also nested: the files at depth 0 to 5 are read, as git reads them
+and opens every folder the depth-5 file lists; at most 256 entries in all; C-quoted lines),
+target of a linked worktree's back-link `worktrees/<id>/gitdir` in the common folder (git 2.56
+opens each on `worktree list`, `add`, `remove` and on a commit, measured in round 4 as an SMB
+contact; a relative target is relative to `worktrees/<id>`; its path is walked like an include,
+so a folder linked to a share on the way refuses the call too; more than 256 entries refuse the
+call; the `worktrees` folder and every `gitdir` file are stamped for the cache, so a new entry
+or a back-link turned towards a share later is noticed), `.git` entry, git folder or
+config file that is a link leading to another share or device (also `/\host`, `//host`,
+`\\?\UNC\`, `\??\UNC\`) refuses the call with "The repository's git folder lies on another
+network share or device" before git starts there. An include target that exists but is no
+regular file (folder, FIFO), `~user/` and `%(prefix)/` paths, a name `-c` cannot pass back and a
+config git cannot parse refuse it too ("filters Hangar cannot switch off safely" or git's
+message); a missing target is skipped as git skips it. The filter drivers and hook names found
+are the union over all those files, whatever the include's condition: `filter_overrides` adds
+them to what `git config --get-regexp` reports now, so overrides read on `main` still cover a
+call that runs on `hangar/<slug>`. Results are cached per git folder (256 entries) and reused
+while size, modification time and link state of every file read are unchanged (a link's target
+is only looked at while the link itself is unchanged). Cost: only `stat` calls per git call on a
+cache hit (the walk up to the root is not cached; measured in round 3 on Windows: 0.3 to 4 ms on a
+local drive, 20 to 50 ms for a repository on a share reached through `\\localhost`); one
+`git config` process per config file on a change. The cache key holds the common
+folder, so a changed `commondir` is scanned again. Check and call are two steps: a config file
+rewritten in between, or within the timestamp resolution at the same size, is read by git
+unchecked. The cache compares each file's own entry (and a link's target) only, so a folder on the
+way that becomes a link later is noticed only once the file itself changes. Both need write
+access to the git folder, which already allows far more.
 - `git_branches(paths: string[]) -> Record<string, string | null>`: branch per folder. Reads
   `HEAD` from the `.git` directory or follows a `.git` file (`gitdir: ...`, worktrees,
   submodules) walking up from the folder; no process. `ref: refs/heads/x` gives `x`, a detached
@@ -130,7 +195,11 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   branch `hangar/<slug>` from `HEAD` and the worktree under
   `<app local data>/worktrees/<repo name>-<8 hex of sha256(repoRoot)>/<slug>`. `slug` comes from
   `label` (lowercase ASCII letters, digits, `-`, at most 40) plus a short random suffix. The app
-  data folder keeps repositories and synced folders clean.
+  data folder keeps repositories and synced folders clean. The worktree is added with
+  `--no-checkout`; the files are checked out afterwards with `git reset --hard --quiet
+  --no-recurse-submodules HEAD` inside the new worktree, with filter overrides read there (HEAD
+  already on the new branch, its `config.worktree` included). A failed checkout takes the new
+  worktree and branch back by force (they hold nothing of the user yet).
 - `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: string | null }`:
   first `git status --porcelain=v1 -z --ignored=matching` in the worktree (filters off as above):
   with ignored files (`!!`) nothing is removed and `reason` is "The worktree contains ignored
@@ -142,13 +211,86 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   `config.worktree` filter counts too), which reach that child through `GIT_CONFIG_PARAMETERS`.
   A worktree with populated submodules is refused by git without `--force` (measured, git
   2.56.0.windows.4), so submodule filters do not come into play. Then
-  `git branch -d <branch>` (an unmerged branch stays). `worktree remove`, `worktree prune` and
-  `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
-  folder), so no repository hook runs; `worktree add` keeps the hooks. Refuses any path outside
+  `git branch -d <branch>` (an unmerged branch stays). A folder deleted by hand leaves only git's
+  record: `git worktree remove <path>` takes exactly that one away, never `worktree prune`, which
+  would also drop the records of the user's own worktrees ([[worktree-remove-missing-measurement]]);
+  a record already gone counts as removed. `worktree remove`, `branch -d`, `worktree add` and the
+  checkout run without any repository hook (the `core.hooksPath` every call gets, see above; the
+  former empty `.no-hooks` folder is no longer named; a dot name is no valid slug) and with
+  the filter overrides, so neither a post-checkout or reference-transaction hook nor a smudge
+  filter runs; a fresh worktree therefore holds Git LFS files as pointers. Refuses any path outside
   the app's worktrees folder, and any record whose path does not end in
   `<repo dir of repoRoot>/<slug of branch>` (so `repoRoot` cannot be swapped for another
   repository). `worktree add` and `worktree remove` get 120 s instead of 10 s, because killing a
   checkout halfway leaves a broken worktree.
+
+### Worktree cleanup
+Dialog "Clean up worktrees" (File menu, so also in quick access; no shortcut of its own) lists the
+worktrees Hangar created and removes the safe ones. Code: `src-tauri/src/worktree_cleanup.rs`,
+`src/worktreeCleanup.ts`, `src/WorktreeCleanupDialog.tsx`.
+
+- **Scope.** Only Hangar's layout counts: `<app local data>/worktrees/<repo dir>/<slug>` with branch
+  `hangar/<slug>`, where the repo dir is the one of the repository git keeps the record in
+  (`check_managed`). Other worktrees of a repository (also `.claude/worktrees/*` or the user's own)
+  and stray folders are never listed and never touched. Found two ways: the folders below the
+  worktrees folder (their `.git` file names the repository, read lexically, in the spelling the
+  repo dir was made from), and `git worktree list --porcelain -z` of every repository Hangar
+  knows: those of the folders' `.git` files, of the saved workspace's worktrees, and of the
+  folders the window passes (sessions' repositories and folders, favorites, recent folders; at
+  most 64). A folder deleted by hand is only found through such a repository. At most 64
+  repositories and 256 entries; 45 s for a whole listing, entries left over are "cannot be
+  checked".
+- **States** (`CleanupState`, serialized as `{ kind, reason? }`), in this order: `inUse` (a
+  session's folder lies in it, running or ended, or a saved session's folder or worktree, which a
+  restart brings back, or a worktree `create_worktree` made in this run whose session has not
+  started yet), `unknown` with a `cause` (`repoNotFound`, `notKnownToGit`, `otherBranch`,
+  `noBranch`, `locked`, `notCheckedInTime`, `remoteRepo`, `gitFailed`) and a `detail` (git's own
+  message for `gitFailed`, the branch for `otherBranch`; the window words each cause itself and
+  shows only git's message),
+  `missing` (folder gone, record left), `changes` (`git status --porcelain=v1 -z
+  --untracked-files=normal --ignored=matching --ignore-submodules=all` with the filter overrides
+  shows anything but `!!`), `ignored` (only `!!`: `worktree remove` would delete them without
+  asking), `merged` (the branch's commit is an ancestor of the default branch: `refs/heads/<name>`
+  or `refs/remotes/origin/<name>`, the name from `origin/HEAD`, otherwise `main` or `master`;
+  `git merge-base --is-ancestor`, so a squash merge does not count), `clean` (own commits not in
+  the default branch).
+- **Actions.** `merged` and `clean`: remove; `missing`: drop the record; all others: show the
+  folder in the file manager (`open_path`); a missing folder without its repository offers
+  nothing. "Remove all safe ones" (shown from two safe entries on) runs them one after another.
+- **Removal checks again.** The window sends only `path` and `repoRoot`. The backend checks the
+  layout (the repo dir binds the two), reads the repository's records and the state again, and
+  acts only when that state still allows exactly the requested action; otherwise it answers
+  `done: false` with the fresh state. Removing goes through `worktree::remove_folder` (never
+  forces, keeps ignored files, hooks and filters off), so a change made after the check still
+  keeps the folder. The branch goes only for `merged` (or a missing folder whose branch is
+  merged), with `git update-ref -d refs/heads/hangar/<slug> <checked commit>` under the empty
+  hooks folder: it fails if the branch moved since the check. The claims let go of the folder
+  first and take it back when it stays, as for `remove_worktree`.
+- **Freshly created worktrees.** Between `create_worktree` and the start of its session a
+  worktree is no session's folder yet and would count as merged or clean. The backend keeps the
+  paths it created in this run in memory (`PendingWorktrees`) and counts them as in use until a
+  session's folder lies in one, the worktree is removed, or 10 minutes passed (a start that
+  failed). A session's folder occupies a worktree when it is the worktree or lies below it, by
+  the text or by the resolved paths (a junction, symlink or 8.3 short name on the way); paths on
+  a network share are compared by their text alone.
+- **Ignored files** (decision). A worktree with ignored files stays and says so: they may be
+  build output, but also `.env` files or local databases, and `git worktree remove` would delete
+  them without asking. A later "remove with build output" may only ever delete a fixed list of
+  folders that a build regenerates (such as `node_modules` or `target`), never `.env` or other
+  ignored files.
+- **Debug builds.** A debug build (`pnpm tauri dev`) uses the same app data folder as an installed
+  Hangar, so it lists the installed instance's worktrees too, but knows nothing of that
+  instance's running sessions: there such worktrees may show as removable.
+- **Size and last change.** `hangar_worktree_size` walks one folder in the layout: no link or
+  reparse point is followed or counted, at most 200 000 entries or 5 s, then `complete: false` and
+  the window shows "≥ size". The window asks for one folder at a time. "Changed" is the newest of
+  the folder, its `.git` file, the worktree's index, HEAD and reflog, and the newest file the walk
+  saw.
+- **Commands** (main window only): `list_hangar_worktrees(folders: string[]) -> CleanupEntry[]`
+  (`{ path, repoRoot: string | null, branch, modified: number | null, state }`),
+  `hangar_worktree_size(path) -> { bytes, files, complete, newest: number | null }`,
+  `remove_hangar_worktree(path, repoRoot)` and `prune_hangar_worktree(path, repoRoot)` return
+  `{ done, branchDeleted, state, reason: string | null }`. All run in `spawn_blocking`.
 
 ### Workspace
 `SavedSession` gains three optional fields (absent or `null` in old files):
@@ -219,6 +361,37 @@ name is cleaned: `< > : " / \ | ? *` become `_`, control and invisible character
 Notifications) go,
 leading and trailing dots and spaces go, Windows device names (`CON`, `NUL`, `COM1`, ...) get a
 leading `_`, at most 100 characters, empty becomes `session`; the extension is added once.
+
+### Session report
+`export_report(sessionId, title, suggestedName, utcOffsetMinutes, labels) -> string | null`
+(`src-tauri/src/report/`): the session's conversation as Markdown, read from the agent's own
+transcript, not the terminal. Only for sessions with `subAgents` (Claude Code with a conversation
+id); the context menu entry "Export as report" and the app menu's "Export session > As report"
+(and with it quick access) are hidden for every other program. Codex is left out because its
+rollouts cannot be linked to a session ([[session-report-transcripts]]).
+- Content: title, program, working folder, branch (`gitBranch` of the newest record, else HEAD),
+  start, last activity and duration (first and last record, in the window's offset from UTC);
+  then in order the prompts as quotes, slash commands, assistant text as Markdown, one line per
+  tool call (name plus key argument: a path relative to the working folder or the first line of a
+  command, at most 160 characters; never its output) and one per sub-agent run (type,
+  description, tokens of the finished run or of its own transcript); at the end the work tree's
+  changed files (`git status`, as the Changes tab) and the commits on HEAD authored from the
+  first record to five minutes after the last (at most one page of 100).
+- Safety: the transcript is found as for the sub-agent view (real folders inside the projects
+  folder, no links) and opened without following a link; every text is stripped of terminal
+  sequences and control characters, masked (`redact`) and capped (50 000 characters per prompt
+  or text); thinking blocks and tool results are never read into the report. Titles, paths,
+  branch and commit subjects are escaped, an unclosed code fence is closed, and raw HTML in
+  prompts and assistant texts outside code is shown as text (`<` becomes `&lt;`), as the terminal
+  showed it, so a viewer never renders it and an unclosed `<!--` cannot hide the rest. Outside
+  code, `![` becomes `!\[` and `](` becomes `]\(`, so an image in an agent's text is not loaded
+  from a remote host when the report is opened, and a link shows its target as text. The two
+  git sections are labelled for what they are: "Uncommitted changes" (the work tree now, not only
+  the agent's) and "Commits in this period" (a time window, not a link to the session). At most 256 MiB of
+  the transcript's end are read (a marker shows a left-out start), the report itself at most
+  32 MiB like the export, checked before the save dialog (filter "Markdown" `*.md`).
+- `labels` are the headings in the window's language (14 texts, `tokens` with `{count}`), cleaned
+  to one line of at most 80 characters with English fallbacks.
 
 ### WSL
 Windows only: the profile list gains one terminal per installed WSL distribution
@@ -352,6 +525,12 @@ request). Right click opens the menu. No window capability is needed for hiding;
 11. **Drag and drop**: files from Explorer onto a pane insert their quoted paths as bracketed paste
     (`onDragDropEvent`, pane under the cursor). Quoting per program: PowerShell `'...'` with `''`,
     cmd `"..."`, POSIX shells and WSL `'...'` with `'\''`, agent CLIs `"..."` when needed.
+    A path with a control character (a line break, ESC) or a reordering character (bidi
+    embeddings, overrides and isolates U+202A to U+202E and U+2066 to U+2069, the marks U+200E,
+    U+200F and U+061C, the separators U+2028 and U+2029) is left out with a hint
+    (`unsafeDropPath` in `src/pathQuote.ts`): `invoice<U+202E>txt.sh` would show as
+    `invoicehs.txt`. Zero-width joiners and non-joiners (U+200C, U+200D) stay allowed, Persian
+    and Indic file names and emoji need them.
 12. **Terminal look**: color scheme (Hangar, Catppuccin, Solarized, each with light and dark variant
     following the app theme), font (Cascadia Code, Cascadia Mono, JetBrains Mono, Fira Code,
     Consolas; installed ones only), cursor style and blink. Ligatures are left out for now
@@ -362,9 +541,10 @@ request). Right click opens the menu. No window capability is needed for hiding;
     Solarized, Catppuccin, Monokai; Dracula, Nord, Gruvbox, Tokyo Night, Rosé Pine), each with a
     dark and a light variant. Tests hold every variant to foreground 4.5 : 1, every normal and
     bright accent and the dim gray (bright black) to 3 : 1, and blue on dark backgrounds to 4 : 1;
-    published values are darkened or lightened just enough where they fall short. The released
-    keys `harbor` and `meridian` are read as `github` and `oneDarkPro` (same palettes). Bundled
-    fonts: JetBrains Mono, Fira Code, Geist Mono, Hack, Source Code Pro, IBM Plex Mono, Victor
+    published values are darkened or lightened just enough where they fall short. In 0.6.0 the
+    older keys `harbor` and `meridian` were read as `github` and `oneDarkPro`. Since 0.7.0 the
+    schemes carry own names, `harbor` and `meridian` are current keys again and every 0.6.0 key
+    migrates ([[0009-own-color-scheme-names]]). Bundled fonts: JetBrains Mono, Fira Code, Geist Mono, Hack, Source Code Pro, IBM Plex Mono, Victor
     Mono, all with box drawing ([[terminal-font-coverage-measurement]]); system fonts when
     installed: Cascadia Mono and Code, Consolas, Lucida Console, SF Mono, Menlo, Monaco, DejaVu
     Sans Mono, Ubuntu Mono, Noto Sans Mono, Liberation Mono. Settings show a sticky preview with
@@ -554,7 +734,16 @@ menu paste uses the clipboard plugin.
       pwd, passphrase, credential or credentials, and of `pass`, `auth` and `cookie` as a whole
       name or after `_` or `-` (`DB_PASS`, npm `_auth=`, `Set-Cookie`; `compass` and `oauth2`
       stay), with `=` or `:` (`API_KEY=...`, `"client_secret": "..."`, `"auth": "..."`,
-      `password: ...`, `x-api-key: ...`); a bare unquoted `key:`, `auth:` or `cookie:` masks only
+      `password: ...`, `x-api-key: ...`), also with a qualifier after the secret word
+      (`API_KEY_2`, `SECRET_KEY_BASE`, `GITHUB_TOKEN_OLD`) unless the last part describes the
+      secret (`_file`, `_path`, `_count`, `_limit`, `_name`, `_id`, `_url`, `_at`, `_date` and similar), with a
+      fullwidth `：` or `＝`, URL-encoded (`password%3D...`, `%22token%22%3A%22...%22`), and in
+      JSON inside a JSON string (`{\"password\": \"...\"}`, an inner `\\\"` stays in the
+      value); an unquoted value keeps inner commas (`p@ss,word`) but not trailing ones. A YAML
+      block scalar (`password: |` or `>`, with chomping or indentation indicators) masks the
+      deeper indented lines below it. Not masked as values: booleans (`true`, `False`, `None`,
+      `null`, `on`, ...), numbers unless the name holds `pass`, `pwd` or `pin`, and a call
+      (`load_key(path)`). A bare unquoted `key:`, `auth:` or `cookie:` masks only
       a value of at least 16 token characters or one holding `=`, so prose headings stay, and a
       `Cookie:` value runs to the end of the line. Command line flags with such a name take the
       next word too (`--password X`, `--client-secret "X"`, `--token X`; not `--no-...`, not when
@@ -569,11 +758,54 @@ menu paste uses the clipboard plugin.
       `Bearer`, `Token` or `Digest` (at least 8 characters), or without a scheme when it looks
       like a key (at least 8 characters holding a digit or symbol, or at least 16), the token
       after `Bearer ` anywhere (at least 16), the value of PowerShell
-      `ConvertTo-SecureString "X" -AsPlainText` (also with `-String`), URL passwords
-      (`https://user:...@host`) and long URL user names, words starting with a known token prefix
+      `ConvertTo-SecureString "X" -AsPlainText` (also with `-String`, `-String:X`, or after the
+      switches `-AsPlainText -Force`, where an unquoted plain word counts only as the first
+      argument), URL passwords (`https://user:...@host`, also holding `/` up to 128 bytes when
+      the part after the colon is no port) and long URL user names, words starting with a known token prefix
       (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`, `glpat-`, `xox?-`, `xapp-`, `AKIA`,
       `AIza`, `npm_`, `hf_`, `SG.`, `dop_v1_`, `shpat_`, `ya29.`, `eyJ` and others, with enough
-      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks. The
+      characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks; also
+      the value after `password` or `account` in `.netrc` lines (only when every word of the
+      line is a `machine`, `login`, `password`, `account` or `port` pair, on a line with
+      `machine` or `default` or right after one), the text of XML elements with a secret name
+      (`<password>`, `<apiKey>`, `<ns:Secret attr="x">`, when a closing tag follows; not
+      `<key>`, so plists stay), and the path of Slack (`hooks.slack.com/services/`,
+      `/workflows/`, `/triggers/`) and Discord (`discord.com` or `discordapp.com`
+      `/api/webhooks/`) webhook URLs. An unquoted value after `name:` with a secret name other
+      than the bare loose ones runs to the end of the line or the closing quote of a
+      surrounding argument (`password: two words`). Since round 3 also: the unquoted value of a
+      `.env` line (`NAME=value` with only spaces, `export ` or a list's `- ` before it) runs to
+      the next whitespace, `&`, `;`, `)`, `}` and quotes included (a trailing `;` or `,` stays
+      outside); the separators `=>`, `:=`, `<-`, a subscript name (`os.environ['API_TOKEN'] =`),
+      the second argument of `SetEnvironmentVariable(` or `setenv(` with a secret first
+      argument; `setx NAME value`, fish `set -x NAME value` (plain `set` only for a variable
+      spelling, so `set password reset` stays), Dockerfile `ENV NAME value` (to the line end); a
+      line of just a secret name and a token (`X-Api-Key <v>`, `token<TAB><v>`: at least 16
+      token characters, or 8 with letters and digits for a name that is not loose); a YAML
+      `password:` whose scalar stands alone on the next, deeper indented line; the `value`
+      attribute of a tag whose `key` or `name` attribute or own name is a secret name
+      (`<add key="ApiKey" value="..."/>`, `<secret value="..."/>`); `Your API key is <v>` when the
+      value has 16 token characters with letters and digits; the prefixes `xoxc-`, `xoxd-`,
+      `xoxe-`, `xoxe.` and `ASIA` (`AKIA` and `ASIA` only with 16 upper case letters or digits);
+      Teams webhook paths (`webhook.office.com/webhookb2/`, `outlook.office.com/webhook/`, `@`
+      included); key blocks with four or more dashes and spaces around the label
+      (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`); the lines after `Private-Lines: <n>` of a
+      PuTTY `.ppk` file. Since round 4 also: the password field of `.pgpass` lines (five
+      colon-separated fields, the port a number or `*`); the text of an XML element whose `key`
+      or `name` attribute names a secret (`<string name="api_key">`, `<entry key="password">`;
+      the attribute itself stays); the value after a secret config key following `config set`,
+      `configure set`, `config`, `--global` and similar (`aws configure set
+      aws_secret_access_key <v>`, `git config --global github.token <v>`, `npm config set
+      ...:_authToken <v>`; a plain name with a plain word, a `set` in prose (`set API_KEY to
+      ...`) and `grep -e API_KEY src` stay); the cell after a
+      Markdown table cell with a secret name (not in a header row, `| Column | Value |` stays);
+      a quoted fallback literal (`os.getenv("DB_PASSWORD", "<v>")`, `getenv("X", "<v>")` after
+      a secret name, `|| '<v>'`, `?? "<v>"`, `or "<v>"` after a secret name on the line); the
+      password flags `redis-cli -a`, `ldap* -w` and `-y`, `smbclient -U user%<v>`, the word
+      after the share of `net use`, `openssl -k` and `-pass`/`-passin`/`-passout pass:<v>`,
+      `twine -p`, and what `echo` pipes into `--password-stdin`; the prefixes `pypi-AgE` (50+),
+      `whsec_` (24+), `AGE-SECRET-KEY-1` (50+), `glsa_` (32+), `HRKU-` (24+) and Telegram bot
+      tokens (8 to 10 digits, `:AA`, 30+). The
       description and every log text (task, text, tool argument, result) are masked the same
       way. Every pass is linear in the text length (a skipped value is passed over as a whole),
       checked by a test with 1 MB lines such as `key:` repeated. Known limits: names written
@@ -640,15 +872,16 @@ menu paste uses the clipboard plugin.
     key is session plus conversation id only) and dropping excerpts at once when they are no
     longer wanted. The tree lists up to five sub-agents (the shown one, running and newer
     first, in start order, else four plus "N more"); a row shows that sub-agent's log and is
-    highlighted. Finished rows get a remove button that replaces the run time on hover or
-    keyboard focus; with two or more finished ones a last row "Remove finished" removes them
-    all. Removing only hides them in the tree and the list (`dismissFinished`, finished ones
-    only, per session and conversation id); transcripts are never touched. The removed ids live
-    in the app's memory for this run of Hangar, not in the workspace: a view preference that
-    needs no format change, and a new conversation starts with a clean tree anyway. Removing the
-    shown sub-agent closes the view; removing by keyboard moves the focus to the next row (or
-    the previous one), and to the terminal once the tree is empty; by mouse the terminal gets
-    the focus back.
+    highlighted. Finished rows end their second line with an always visible italic text
+    button "close" (`SubAgentItem`, `.subagent-close-text`), lying over room the activity line
+    keeps for it; run time and tokens stay in line one. With two or more finished ones a last
+    row "Close finished" closes them all. Closing only hides them in the tree and the list
+    (`dismissFinished`, finished ones only, per session and conversation id); transcripts are
+    never touched. The closed ids live in the app's memory for this run of Hangar, not in the
+    workspace: a view preference that needs no format change, and a new conversation starts
+    with a clean tree anyway. Closing the shown sub-agent closes the view; closing by keyboard
+    moves the focus to the next row (or the previous one), and to the terminal once the tree
+    is empty; by mouse the terminal gets the focus back.
     As built, conversation ids (`src/workspace.ts`, `src/sessions.ts`): `cliSessionId` is saved
     per entry (lower case, invalid or duplicate ids dropped to `null`, so the backend never
     refuses the workspace), passed to `create_session` on restore and on restarting a

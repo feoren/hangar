@@ -200,3 +200,19 @@ export function parsePaneRatios(raw: unknown): PaneRatios {
   }
   return parsed;
 }
+
+/**
+ * The sub-agent view lays the session's terminal and the view out as two columns. Its splitter
+ * position is remembered on its own, so it never moves the columns of the split view.
+ */
+export const SUB_AGENT_LAYOUT: Exclude<LayoutId, "single"> = "pair";
+
+/** Splitter position of the sub-agent view: the stored one, or the preset. */
+export function subAgentRatios(stored: Ratios | null): Ratios {
+  return stored ?? DEFAULT_RATIOS[SUB_AGENT_LAYOUT];
+}
+
+/** Stored value to the sub-agent view's splitter position; `null` (preset) when unusable. */
+export function parseSubAgentRatios(raw: unknown): Ratios | null {
+  return parsePaneRatios({ [SUB_AGENT_LAYOUT]: raw })[SUB_AGENT_LAYOUT] ?? null;
+}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTranslator } from "./i18n";
 import {
   ARM_DELAY_MS,
+  admissionKey,
   armDelayLeft,
   canToggle,
   confirmationKindText,
@@ -10,7 +11,9 @@ import {
   isArmed,
   isSharing,
   parsePendingConfirmations,
+  parseTeamActivity,
   parseTeamError,
+  pendingContentKey,
   parseTeamSnapshot,
   parseTeamStatus,
   requestPosition,
@@ -143,6 +146,17 @@ const ACTIVITY = {
   notices: [NOTICE],
   sessions: [3],
   sessionRepos: [{ sessionId: 3, repo: "a".repeat(40) }],
+  devices: [
+    {
+      device: "d-this",
+      this: true,
+      recovery: false,
+      safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"],
+    },
+  ],
+  log: { index: 4, safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"] },
+  logFull: false,
+  historyWithheld: false,
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -155,6 +169,7 @@ const REQUEST = {
   kind: "ownDevice",
   safetyNumber: SAFETY,
   readmitted: false,
+  logFull: false,
 };
 
 describe("parseTeamStatus", () => {
@@ -208,6 +223,62 @@ describe("parseTeamStatus", () => {
     expect(waiting(["12a45", ...SAFETY.slice(1)])).toBeNull();
     expect(waiting([12345, ...SAFETY.slice(1)])).toBeNull();
     expect(waiting("123451234512345")).toBeNull();
+  });
+
+  it("reads the admission check, the key change and the owner mismatch", () => {
+    const admission = {
+      state: "confirmAdmission",
+      member: "alice",
+      device: "d1",
+      safetyNumber: SAFETY,
+      logIndex: 4,
+      logSafetyNumber: SAFETY,
+    };
+    expect(parseTeamStatus(admission)).toEqual(admission);
+    // Every part is compared by the person: none may be missing.
+    expect(parseTeamStatus({ ...admission, logSafetyNumber: undefined })).toBeNull();
+    expect(parseTeamStatus({ ...admission, member: "" })).toBeNull();
+    expect(parseTeamStatus({ ...admission, logIndex: -1 })).toBeNull();
+    // Without a reason (an older backend) or with an unknown one: the general text.
+    expect(parseTeamStatus({ state: "waitingForKeyChange" })).toEqual({
+      state: "waitingForKeyChange",
+      reason: "removal",
+    });
+    expect(parseTeamStatus({ state: "waitingForKeyChange", reason: "later" })).toEqual({
+      state: "waitingForKeyChange",
+      reason: "removal",
+    });
+    for (const reason of ["removal", "memberLeft", "overdue", "logFull"] as const) {
+      expect(parseTeamStatus({ state: "waitingForKeyChange", reason })).toEqual({
+        state: "waitingForKeyChange",
+        reason,
+      });
+    }
+    expect(parseTeamStatus({ state: "needsAttention", reason: "ownerMismatch" })).toEqual({
+      state: "needsAttention",
+      reason: "ownerMismatch",
+    });
+    const t = createTranslator("en");
+    const admissionStatus = parseTeamStatus(admission);
+    expect(admissionStatus).not.toBeNull();
+    if (admissionStatus === null) return;
+    expect(statusKey(admissionStatus)).toBe("team.status.confirmAdmission");
+    expect(statusTone(admissionStatus)).toBe("busy");
+    expect(statusLine({ state: "waitingForKeyChange", reason: "removal" }, t)?.text).toBe(
+      t("team.status.waitingForKeyChange"),
+    );
+    const left = statusLine({ state: "waitingForKeyChange", reason: "memberLeft" }, t);
+    expect(left?.text).toBe(t("team.status.memberLeftKeyUnchanged"));
+    expect(left?.tone).toBe("busy");
+    expect(statusKey({ state: "waitingForKeyChange", reason: "overdue" })).toBe(
+      "team.status.keyChangeOverdue",
+    );
+    expect(statusKey({ state: "waitingForKeyChange", reason: "logFull" })).toBe(
+      "team.status.memberLeftLogFull",
+    );
+    expect(statusKey({ state: "needsAttention", reason: "ownerMismatch" })).toBe(
+      "team.status.ownerMismatch",
+    );
   });
 });
 
@@ -283,6 +354,17 @@ describe("parseTeamSnapshot", () => {
       pending: [],
     });
     expect(parseTeamSnapshot(team({ ...ACTIVITY, peers: null }))).toBeNull();
+    // Own devices and the log's number are compared by the person: malformed is refused.
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, devices: [{ ...ACTIVITY.devices[0], this: "yes" }] })),
+    ).toBeNull();
+    expect(
+      parseTeamSnapshot(team({ ...ACTIVITY, log: { index: 4, safetyNumber: [] } })),
+    ).toBeNull();
+    // An older backend sends neither: no devices, no log number.
+    const noDevices = parseTeamSnapshot(team({ ...ACTIVITY, devices: undefined, log: undefined }));
+    expect(noDevices?.teams[0]?.activity.devices).toEqual([]);
+    expect(noDevices?.teams[0]?.activity.log).toBeNull();
     expect(
       parseTeamSnapshot(team({ ...ACTIVITY, overlaps: [{ ...OVERLAP, sessionId: -1 }] })),
     ).toBeNull();
@@ -812,5 +894,103 @@ describe("reservation review fixes", () => {
       tasks: [{ ...TASK, request: { ...TASK.request, confirmed: false } }],
     };
     expect(releaseRequests(new Map([["p", unconfirmed]]))).toEqual([]);
+  });
+});
+
+describe("second security round", () => {
+  it("reads a role change request without device or safety number, and nothing else without", () => {
+    const role = { ...REQUEST, kind: "roleChange", device: "", safetyNumber: [] };
+    expect(parsePendingConfirmations([role])).toEqual([role]);
+    // A role change with a device or numbers is malformed; a device request without them too.
+    expect(parsePendingConfirmations([{ ...role, device: "d" }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...role, safetyNumber: SAFETY }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, device: "" }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, safetyNumber: [] }])).toBeNull();
+    const t = createTranslator("en");
+    expect(confirmationKindText("roleChange", t)).toBe(t("team.confirm.roleChange"));
+  });
+
+  it("knows the full log and the changed admission", () => {
+    const full = parseTeamStatus({ state: "needsAttention", reason: "logFull" });
+    expect(full).toEqual({ state: "needsAttention", reason: "logFull" });
+    if (full === null) return;
+    expect(statusKey(full)).toBe("team.status.logFull");
+    expect(parseTeamError({ kind: "changed", detail: null })).toEqual({
+      kind: "changed",
+      detail: null,
+    });
+    const t = createTranslator("de");
+    expect(teamErrorText({ kind: "changed", detail: null }, t)).toBe(t("team.error.changed"));
+  });
+
+  it("re-arms a request whose content changes under the same id", () => {
+    const parsed = parsePendingConfirmations([REQUEST]);
+    const request = parsed?.[0];
+    expect(request).toBeDefined();
+    if (request === undefined) return;
+    const same = pendingContentKey({ ...request });
+    expect(pendingContentKey(request)).toBe(same);
+    for (const changed of [
+      { ...request, safetyNumber: [...SAFETY.slice(1), "99999"] },
+      { ...request, device: "device-other" },
+      { ...request, member: "member-other" },
+      { ...request, kind: "newMember" as const },
+      { ...request, readmitted: true },
+    ]) {
+      expect(pendingContentKey(changed)).not.toBe(same);
+    }
+  });
+
+  it("keys the admission check on everything it shows", () => {
+    const admission = {
+      state: "confirmAdmission" as const,
+      member: "alice",
+      device: "d1",
+      safetyNumber: SAFETY,
+      logIndex: 4,
+      logSafetyNumber: SAFETY,
+    };
+    const key = admissionKey(admission);
+    expect(admissionKey({ ...admission })).toBe(key);
+    expect(admissionKey({ ...admission, logIndex: 5 })).not.toBe(key);
+    expect(admissionKey({ ...admission, safetyNumber: [...SAFETY].reverse() })).not.toBe(key);
+    expect(admissionKey({ ...admission, logSafetyNumber: [...SAFETY].reverse() })).not.toBe(key);
+    expect(admissionKey({ ...admission, device: "d2" })).not.toBe(key);
+  });
+});
+
+describe("full team log", () => {
+  it("reads the flag on the activity and on requests, absent as room", () => {
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: true })?.logFull).toBe(true);
+    // An older backend sends no flag.
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: undefined })?.logFull).toBe(false);
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: "yes" })).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: true }])?.[0]?.logFull).toBe(true);
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: undefined }])?.[0]?.logFull).toBe(
+      false,
+    );
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: 1 }])).toBeNull();
+  });
+
+  it("reads the held back history flag, absent as none", () => {
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: true })?.historyWithheld).toBe(
+      true,
+    );
+    expect(
+      parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: undefined })?.historyWithheld,
+    ).toBe(false);
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: 1 })).toBeNull();
+  });
+
+  it("names the full log, the refused confirmation and the missing website owner", () => {
+    const t = createTranslator("de");
+    expect(teamErrorText({ kind: "logFull", detail: null }, t)).toBe(t("team.error.logFull"));
+    expect(parseTeamError({ kind: "logFull", detail: null }).kind).toBe("logFull");
+    const noOwner = parseTeamStatus({ state: "needsAttention", reason: "noWebsiteOwner" });
+    expect(noOwner).toEqual({ state: "needsAttention", reason: "noWebsiteOwner" });
+    if (noOwner === null) return;
+    expect(statusLine(noOwner, t)?.text).toBe(t("team.status.noWebsiteOwner"));
+    expect(t("team.status.noWebsiteOwner")).not.toBe(t("team.status.ownerMismatch"));
+    expect(t("team.logFull.notice")).toContain("voll");
   });
 });

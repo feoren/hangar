@@ -97,6 +97,11 @@ struct Team {
 
 impl Team {
     fn new() -> Self {
+        Self::with_max_entries(crate::memberlog::MAX_LOG_ENTRIES)
+    }
+
+    /// A team whose relay and client take at most `max` log entries.
+    fn with_max_entries(max: u64) -> Self {
         let owner = Device::new("owner", "laptop");
         let admin = Device::new("admin", "desktop");
         let member = Device::new("member", "laptop");
@@ -105,8 +110,8 @@ impl Team {
             admin,
             member,
             entries: Vec::new(),
-            relay: LogVerifier::new(team_id()),
-            verifier: LogVerifier::new(team_id()),
+            relay: LogVerifier::with_max_entries(team_id(), max),
+            verifier: LogVerifier::with_max_entries(team_id(), max),
         };
         let create = EntryBody::create_team(
             team_id(),
@@ -614,9 +619,21 @@ fn record_heads_detect_forks_and_newer_logs() {
     let ahead = seal_as(&cipher, team.state(), &team.admin, 1, &context, b"x");
     assert_eq!(
         cipher.open_verified(&behind, &context, &ahead).err(),
-        Some(OpenError::AheadOfLog { index: 5 })
+        Some(OpenError::AheadOfLog {
+            index: 5,
+            signed: true
+        })
     );
     assert!(cipher.open_verified(team.state(), &context, &ahead).is_ok());
+    // A newer head the sender's keys did not sign (the relay's word alone) says so.
+    let unsigned = seal_as(&cipher, team.state(), &team.member, 1, &context, b"x");
+    assert_eq!(
+        cipher.open_verified(&behind, &context, &unsigned).err(),
+        Some(OpenError::AheadOfLog {
+            index: 5,
+            signed: false
+        })
+    );
 
     // A record naming another hash at a known index: the relay forked the log.
     let forged_head = ChainHead {
@@ -2702,4 +2719,284 @@ fn a_task_note_is_named_by_the_hash_as_lowercase_hex_and_opens_only_under_it() {
     assert_eq!(id, "ab".repeat(32));
     assert_eq!(id, task.to_hex(), "the spelling the wire carries");
     assert_ne!(task_record_id(&KeyedHash::from_bytes([0xAC; 32])), id);
+}
+
+#[test]
+fn the_log_refuses_entries_beyond_its_cap_and_keeps_the_last_places_for_removals() {
+    use crate::memberlog::RESERVED_LOG_ENTRIES;
+    // Three entries from `Team::new`, room for a few device changes, then only the reserved
+    // places for remove member and rotate epoch entries.
+    let max = 3 + 6 + RESERVED_LOG_ENTRIES;
+    let mut team = Team::with_max_entries(max);
+    let laptop = copy(&team.member);
+    let mut i = 0;
+    let refused = loop {
+        // `log_full` says beforehand exactly when the next device entry is refused.
+        let full = team.state().log_full();
+        let device = Device::new("member", &format!("d{i}"));
+        let added = team.add_device(Who::Member, &device, &laptop);
+        assert_eq!(added.is_err(), full, "at {}", team.state().head().index);
+        if let Err(error) = added {
+            break error;
+        }
+        i += 1;
+    };
+    assert_eq!(refused, LogError::LogFull);
+    assert_eq!(refused.code(), ErrorCode::Limit);
+    assert_eq!(team.state().head().index, max - RESERVED_LOG_ENTRIES);
+    assert!(team.state().log_full());
+    // A member still removes a stolen device of its own in the reserved places; an owner still
+    // removes the member and rotates.
+    let removal = EntryKind::RemoveDevice {
+        holder: holder("member", "d0"),
+    };
+    team.submit(Who::Member, removal)
+        .expect("reserved for removing a device");
+    assert!(team.state().rotation_due());
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: team.member.holder.member.clone(),
+        },
+    )
+    .expect("reserved for removing a member");
+    team.next_epoch(Who::Owner, None);
+    // Past the cap nothing goes in: relay and client both refuse (`submit` checks they agree).
+    while team.state().head().index < max {
+        team.next_epoch(Who::Owner, None);
+    }
+    assert_eq!(
+        team.submit(
+            Who::Owner,
+            EntryKind::RemoveMember {
+                member: team.admin.holder.member.clone(),
+            },
+        ),
+        Err(LogError::LogFull)
+    );
+    assert_eq!(
+        plan_rotation(
+            team.state(),
+            &team.owner.identity,
+            &team.owner.holder,
+            None,
+            UnixMillis(3),
+            &mut OsEntropy,
+        )
+        .err(),
+        Some(RotationError::Log(LogError::LogFull))
+    );
+}
+
+#[test]
+fn only_removals_of_devices_from_before_the_epoch_or_of_members_are_urgent() {
+    let mut team = Team::new();
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_urgent());
+    let laptop = copy(&team.member);
+    // A member adds a device of its own after the epoch began and removes it again: due, but
+    // not urgent, however often it does that.
+    for i in 0..50 {
+        let device = Device::new("member", &format!("churn{i}"));
+        team.add_device(Who::Member, &device, &laptop).expect("add");
+        team.submit(
+            Who::Member,
+            EntryKind::RemoveDevice {
+                holder: device.holder.clone(),
+            },
+        )
+        .expect("remove");
+        assert!(team.state().rotation_due());
+        assert!(!team.state().rotation_urgent());
+    }
+    // A device that was listed when the epoch's key was wrapped: urgent.
+    let mut fresh = Team::new();
+    let phone = Device::new("member", "phone");
+    let member_laptop = copy(&fresh.member);
+    fresh
+        .add_device(Who::Member, &phone, &member_laptop)
+        .expect("add");
+    fresh.next_epoch(Who::Owner, None);
+    fresh
+        .submit(
+            Who::Member,
+            EntryKind::RemoveDevice {
+                holder: phone.holder.clone(),
+            },
+        )
+        .expect("remove");
+    assert!(fresh.state().rotation_urgent());
+    // A member who leaves: urgent, also when all its devices came after the epoch.
+    let late = Device::new("late", "d");
+    team.next_epoch(Who::Owner, None);
+    team.submit(
+        Who::Owner,
+        EntryKind::AddMember {
+            member: late.holder.member.clone(),
+            role: Role::Member,
+            devices: vec![late.entry()],
+        },
+    )
+    .expect("add member");
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: late.holder.member.clone(),
+        },
+    )
+    .expect("remove member");
+    assert!(team.state().rotation_urgent());
+    // A rotation clears both.
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_due());
+    assert!(!team.state().rotation_urgent());
+}
+
+#[test]
+fn a_full_log_takes_device_removals_up_to_their_part_of_the_reserve() {
+    use crate::memberlog::{DEVICE_REMOVAL_RESERVE, RESERVED_LOG_ENTRIES};
+    let max = 3 + 1 + RESERVED_LOG_ENTRIES + 2;
+    let room = max - DEVICE_REMOVAL_RESERVE;
+    // One place before the limit: the removal takes the last place device removals may use.
+    let mut team = Team::with_max_entries(max);
+    let laptop = copy(&team.member);
+    let stolen = Device::new("member", "stolen");
+    team.add_device(Who::Member, &stolen, &laptop).expect("add");
+    while team.state().head().index < room - 1 {
+        team.next_epoch(Who::Owner, None);
+    }
+    assert!(team.state().log_full());
+    team.submit(
+        Who::Member,
+        EntryKind::RemoveDevice {
+            holder: stolen.holder.clone(),
+        },
+    )
+    .expect("a stolen device can be removed in a full log");
+    assert_eq!(team.state().head().index, room);
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_due());
+
+    // At the limit and past it the removal is refused; a member's removal still fits.
+    for head in [room, room + 1] {
+        let mut team = Team::with_max_entries(max);
+        let laptop = copy(&team.member);
+        let stolen = Device::new("member", "stolen");
+        team.add_device(Who::Member, &stolen, &laptop).expect("add");
+        while team.state().head().index < head {
+            team.next_epoch(Who::Owner, None);
+        }
+        assert_eq!(
+            team.submit(
+                Who::Member,
+                EntryKind::RemoveDevice {
+                    holder: stolen.holder.clone(),
+                },
+            ),
+            Err(LogError::LogFull),
+            "at {head}"
+        );
+        team.submit(
+            Who::Owner,
+            EntryKind::RemoveMember {
+                member: team.member.holder.member.clone(),
+            },
+        )
+        .expect("the reserve keeps room for removing a member");
+        team.next_epoch(Who::Owner, None);
+    }
+}
+
+#[test]
+fn device_removals_never_use_up_the_places_a_members_removal_needs() {
+    use crate::memberlog::RESERVED_LOG_ENTRIES;
+    use hangar_team_protocol::limits::MAX_DEVICES_PER_MEMBER;
+    let extra = MAX_DEVICES_PER_MEMBER as u64 - 1;
+    let max = 3 + extra + RESERVED_LOG_ENTRIES + 10;
+    let mut team = Team::with_max_entries(max);
+    let laptop = copy(&team.member);
+    // The member fills its device budget, then key changes fill the log past its full mark.
+    let devices: Vec<Device> = (0..extra)
+        .map(|i| Device::new("member", &format!("d{i}")))
+        .collect();
+    for device in &devices {
+        team.add_device(Who::Member, device, &laptop).expect("add");
+    }
+    while team.state().head().index < max - RESERVED_LOG_ENTRIES + 10 {
+        team.next_epoch(Who::Owner, None);
+    }
+    assert!(team.state().log_full());
+    // It removes its own devices, each followed by the urgent key change, until the log refuses.
+    let mut removed = 0;
+    let refused = loop {
+        let Some(device) = devices.get(removed) else {
+            panic!("every device was removed; the limit was never reached");
+        };
+        match team.submit(
+            Who::Member,
+            EntryKind::RemoveDevice {
+                holder: device.holder.clone(),
+            },
+        ) {
+            Ok(()) => {
+                removed += 1;
+                team.next_epoch(Who::Owner, None);
+            }
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(refused, LogError::LogFull);
+    assert!(removed > 0);
+    // The owner still removes the member and changes the key.
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: team.member.holder.member.clone(),
+        },
+    )
+    .expect("room for removing the member stays");
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert!(!team.state().rotation_due());
+}
+
+#[test]
+fn the_last_log_place_is_kept_for_the_rotation_a_removal_makes_due() {
+    let max = 70;
+    let mut team = Team::with_max_entries(max);
+    // Rotations take reserved places too; fill up to one place before the end.
+    while team.state().head().index < max - 1 {
+        team.next_epoch(Who::Owner, None);
+    }
+    // A removal into the last place would leave no room for the rotation it makes due.
+    assert_eq!(
+        team.submit(
+            Who::Owner,
+            EntryKind::RemoveMember {
+                member: team.member.holder.member.clone(),
+            },
+        ),
+        Err(LogError::LogFull)
+    );
+    // The rotation itself still fits.
+    team.next_epoch(Who::Owner, None);
+    assert_eq!(team.state().head().index, max);
+
+    // One place earlier the removal fits, and so does its rotation after it.
+    let mut team = Team::with_max_entries(max);
+    while team.state().head().index < max - 2 {
+        team.next_epoch(Who::Owner, None);
+    }
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: team.member.holder.member.clone(),
+        },
+    )
+    .expect("one place stays for the rotation");
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert_eq!(team.state().head().index, max);
+    assert!(!team.state().rotation_due());
 }

@@ -382,6 +382,10 @@ function keepTicking(sessionId: number, start: number, frameOf: (s: number, f: n
 const sessions = new Map<number, Record<string, unknown>>();
 let nextSessionId = 0;
 
+/** CPU share and resident memory (MB) per program, for the session rows. */
+const RESOURCE_CPU: Record<string, number> = { claude: 12, codex: 9, gemini: 4, aider: 2 };
+const RESOURCE_MB: Record<string, number> = { claude: 412, codex: 286, gemini: 238, aider: 164 };
+
 function createSession(args: Args): unknown {
   const id = ++nextSessionId;
   const profileId = typeof args.profileId === "string" ? args.profileId : "";
@@ -953,6 +957,27 @@ const handlers: Record<string, (args: Args) => unknown> = {
   team_session_states: () => undefined,
   configure_claims: () => null,
   claims_snapshot: () => claimsSnapshot,
+  // Steady load numbers so every session row shows CPU, RAM and, for Codex, the GPU.
+  session_resources: () =>
+    [...sessions.entries()].map(([id, info]) => {
+      const program = typeof info.profileId === "string" ? info.profileId : "";
+      return {
+        id,
+        cpu: RESOURCE_CPU[program] ?? 3,
+        memory: (RESOURCE_MB[program] ?? 180) * 1024 * 1024,
+        gpu: program === "codex" ? 14 : null,
+        gpuMemory: program === "codex" ? 820 * 1024 * 1024 : null,
+        outlier: false,
+      };
+    }),
+  system_usage: () => ({
+    cpu: 23,
+    memory: 58,
+    gpu: 17,
+    memoryUsed: 18.6 * 1024 ** 3,
+    memoryTotal: 32 * 1024 ** 3,
+    gpuMemory: 2.4 * 1024 ** 3,
+  }),
   // Features these scenes do not show (gates): nothing to report.
   profile_path: () => null,
   configure_gate: () => null,

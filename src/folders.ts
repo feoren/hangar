@@ -1,7 +1,12 @@
-// Favorite and recently used working folders for the "Starts in" menu. Stored per machine in
-// localStorage; invalid content yields empty lists.
+// Favorite and recently used working folders for the "Starts in" menu. Stored per machine by the
+// backend for the main window alone (mainStore.ts): the first recent folder is where the next
+// session starts, and a viewer that wrote it could start an agent in a folder of its choice.
+// Invalid content yields empty lists.
 
-const STORAGE_KEY = "hangar.folders";
+/** Where an older Hangar kept the lists, read once for the migration (mainStore.ts). */
+export const FOLDERS_STORAGE_KEY = "hangar.folders";
+/** The start folder of still older versions, taken as the first recent folder then. */
+export const LAST_CWD_STORAGE_KEY = "hangar.lastCwd";
 
 /** Recent folders kept; favorites have no limit of their own. */
 export const RECENT_LIMIT = 8;
@@ -121,20 +126,25 @@ export function parseFolderPrefs(value: unknown): FolderPrefs {
   };
 }
 
-export function loadFolderPrefs(): FolderPrefs {
+/**
+ * The folders an older Hangar kept in `storage`, for the one migration to the backend. Without a
+ * recent folder, the start folder of still older versions becomes the first one, as it was where
+ * the next session started. Empty lists when missing, broken or blocked.
+ */
+export function legacyFolderPrefs(storage: Pick<Storage, "getItem">): FolderPrefs {
+  let prefs = EMPTY_FOLDERS;
   try {
-    const text = localStorage.getItem(STORAGE_KEY);
-    return text === null ? EMPTY_FOLDERS : parseFolderPrefs(JSON.parse(text));
+    const text = storage.getItem(FOLDERS_STORAGE_KEY);
+    if (text !== null) prefs = parseFolderPrefs(JSON.parse(text));
   } catch {
-    return EMPTY_FOLDERS;
+    prefs = EMPTY_FOLDERS;
   }
-}
-
-export function saveFolderPrefs(prefs: FolderPrefs): void {
+  if (prefs.recent.length > 0) return prefs;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    const last = storage.getItem(LAST_CWD_STORAGE_KEY);
+    return last === null ? prefs : recordRecent(prefs, last);
   } catch {
-    // Without storage, the menu starts empty next time.
+    return prefs;
   }
 }
 

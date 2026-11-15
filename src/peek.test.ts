@@ -8,7 +8,6 @@ import {
   peekShows,
   peekPosition,
   peekWidth,
-  sameLines,
 } from "./peek";
 
 const viewport = { width: 1200, height: 800 };
@@ -62,20 +61,6 @@ describe("peekWidth", () => {
   });
 });
 
-describe("sameLines", () => {
-  it("compares line by line", () => {
-    expect(sameLines(["a", "b"], ["a", "b"])).toBe(true);
-    expect(sameLines(["a", "b"], ["a", "c"])).toBe(false);
-    expect(sameLines(["a"], ["a", "b"])).toBe(false);
-  });
-
-  it("treats a missing preview as its own value", () => {
-    expect(sameLines(null, null)).toBe(true);
-    expect(sameLines(null, [])).toBe(false);
-    expect(sameLines([], null)).toBe(false);
-  });
-});
-
 describe("peekNotes", () => {
   it("lists overlap, gate note and folder in that order", () => {
     expect(
@@ -83,10 +68,27 @@ describe("peekNotes", () => {
     ).toEqual(["Also changed by #2", "Gate is off", "C:\\work\\app"]);
   });
 
+  it("spells out the load and the context a compact row leaves out, after the outlier", () => {
+    expect(
+      peekNotes({
+        program: "Claude",
+        context: "Context 22% full",
+        load: "CPU 12% · RAM 476 MB",
+        outlier: "Uses a lot",
+      }),
+    ).toEqual(["Uses a lot", "CPU 12% · RAM 476 MB", "Context 22% full", "Claude"]);
+  });
+
   it("leaves out missing, blank and repeated texts", () => {
     expect(peekNotes({})).toEqual([]);
     expect(peekNotes({ overlap: null, gateOff: "  ", cwd: "/home/me" })).toEqual(["/home/me"]);
     expect(peekNotes({ overlap: "same", gateOff: "same" })).toEqual(["same"]);
+  });
+
+  it("spells out the queued message after the exit and before the program", () => {
+    expect(
+      peekNotes({ queued: "Queued: run the tests", exit: "Exit code 1", program: "Claude" }),
+    ).toEqual(["Exit code 1", "Queued: run the tests", "Claude"]);
   });
 
   it("names the program before the folder", () => {
@@ -100,7 +102,6 @@ describe("peekNotes", () => {
       peekNotes({
         cwd: "/home/me/app",
         devServer: "http://localhost:5173",
-        resources: "CPU 12 % · 340 MB",
         outlier: "Outlier",
         exit: "Exit code 1",
         gateOff: "Gate is off",
@@ -111,7 +112,6 @@ describe("peekNotes", () => {
       "Gate is off",
       "Exit code 1",
       "Outlier",
-      "CPU 12 % · 340 MB",
       "http://localhost:5173",
       "/home/me/app",
     ]);

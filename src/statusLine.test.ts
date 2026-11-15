@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createTranslator } from "./i18n";
+import { SHORT_PHRASES } from "./format";
+import { createTranslator, LANGUAGES } from "./i18n";
 import { detailLine, formatDuration, NO_ACTIVITY, statusLine } from "./statusLine";
 import type { SessionView } from "./sessions";
 
@@ -47,7 +48,7 @@ describe("statusLine", () => {
     reason: Parameters<typeof statusLine>[7] = null,
   ) => statusLine("Claude Code", session(extra), state, activity, NOW, t, "en", reason).full;
 
-  it("keeps the duration apart from the short phrase, so it is never cut", () => {
+  it("gives the row one word and the peek the whole sentence with the duration", () => {
     const working = statusLine(
       "Claude Code",
       session(),
@@ -59,8 +60,7 @@ describe("statusLine", () => {
     );
     // The group header above the row names the program; the row says only what it does.
     expect(working).toEqual({
-      sentence: "working",
-      duration: "3 min",
+      word: "working",
       full: "Claude Code has been working for 3 min",
     });
     const resting = statusLine(
@@ -72,8 +72,8 @@ describe("statusLine", () => {
       t,
       "en",
     );
-    expect(resting.sentence).toBe("taking a break");
-    expect(resting.duration).toBe("5 min");
+    expect(resting.word).toBe("paused");
+    expect(resting.full).toContain("5 min");
   });
 
   it("has no duration below a minute or while waiting", () => {
@@ -87,8 +87,7 @@ describe("statusLine", () => {
       "en",
     );
     expect(fresh).toEqual({
-      sentence: "working",
-      duration: null,
+      word: "working",
       full: "Claude Code is working",
     });
     const waiting = statusLine(
@@ -100,7 +99,8 @@ describe("statusLine", () => {
       t,
       "en",
     );
-    expect(waiting.duration).toBeNull();
+    expect(waiting.word).toBe("done");
+    expect(waiting.full).not.toMatch(/\d+ min/);
   });
 
   it("names the program and how long it has been working", () => {
@@ -157,6 +157,46 @@ describe("statusLine", () => {
   });
 });
 
+describe("stall hint in the status line", () => {
+  const working = { workingSince: NOW - 20 * MINUTE, lastOutput: NOW };
+  const line = (
+    state: Parameters<typeof statusLine>[2],
+    stalledSince: number | null,
+    extra: Partial<SessionView> = {},
+    reason: Parameters<typeof statusLine>[7] = null,
+  ) =>
+    statusLine("Claude Code", session(extra), state, working, NOW, t, "en", reason, stalledSince);
+
+  it("names the stall in one word and says how long in the sentence", () => {
+    const stalled = line("working", NOW - 7 * MINUTE);
+    expect(stalled.word).toBe("quiet");
+    expect(stalled.full).toBe("Claude Code has shown nothing new for 7 min");
+    expect(stalled.stalled).toBe(true);
+    const german = statusLine(
+      "Claude Code",
+      session(),
+      "working",
+      working,
+      NOW,
+      createTranslator("de"),
+      "de",
+      null,
+      NOW - 7 * MINUTE,
+    );
+    expect(german.word).toBe("still");
+    expect(german.full).toBe("Claude Code zeigt seit 7 Min. nichts Neues");
+  });
+
+  it("never shows for done, asks, failed or ended sessions", () => {
+    const since = NOW - 7 * MINUTE;
+    expect(line("attention", since, {}, "quiet").stalled).toBeUndefined();
+    expect(line("attention", since, {}, "bell").stalled).toBeUndefined();
+    expect(line("idle", since, { status: "exited", exitCode: 1 }).stalled).toBeUndefined();
+    expect(line("idle", since).stalled).toBeUndefined();
+    expect(line("working", null).word).toBe(t("status.short.working"));
+  });
+});
+
 describe("detailLine", () => {
   it("names the folder, the branch and the run time", () => {
     expect(detailLine(session(), "main", NOW, "en")).toEqual({
@@ -168,5 +208,18 @@ describe("detailLine", () => {
 
   it("leaves out the run time of an ended session", () => {
     expect(detailLine(session({ status: "exited" }), null, NOW, "en").runtime).toBeNull();
+  });
+});
+
+describe("the one-word status", () => {
+  it("is a single word for every state in every language", () => {
+    for (const language of LANGUAGES) {
+      const translate = createTranslator(language);
+      for (const key of Object.values(SHORT_PHRASES)) {
+        const word = translate(key);
+        expect(word).not.toBe(key);
+        expect(word).not.toMatch(/\s/);
+      }
+    }
   });
 });

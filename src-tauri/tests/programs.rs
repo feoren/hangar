@@ -178,6 +178,7 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
         update_hint: None,
         packages: None,
         self_update: None,
+        agent_commands: Vec::new(),
     }
 }
 

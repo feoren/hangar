@@ -55,7 +55,7 @@ export function GateRulesSettings(props: { language: string }) {
     let disposed = false;
     let stop: (() => void) | null = null;
     try {
-      // A card answered with "Remember" adds a rule and sends a snapshot: both lists follow it.
+      // A card answered with "Remember" adds a rule and signals a change: both lists follow it.
       listen(GATE_CHANGED, refresh)
         .then((unlisten) => {
           if (disposed) unlisten();
@@ -90,7 +90,7 @@ export function GateRulesSettings(props: { language: string }) {
       {rules.length > 0 && (
         <ul className="gate-rule-list" aria-labelledby="gate-rules-title">
           {rules.map((rule) => {
-            const path = rulePathLabel(rule.path, rule.scope);
+            const path = rulePathLabel(rule.path, rule.scope, t);
             return (
               <li key={rule.id} className="gate-rule-item">
                 <span className={`gate-rule-effect ${rule.effect}`}>

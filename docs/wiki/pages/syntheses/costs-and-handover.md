@@ -4,7 +4,7 @@ type: synthesis
 tags: [costs, tokens, handover, claude-code]
 sources: ["[[token-usage-measurement]]", "[[context-window-measurement]]"]
 created: 2026-11-13
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # Costs per session and day, session handover
@@ -40,7 +40,10 @@ updated: 2026-11-13
 - Ledger `cost-ledger.json` in the local data folder: per conversation id and local day the
   tokens, the cost of the priced part and the unpriced tokens. Replaced from the transcript on every
   change (never added), 31 days, at most 2000 conversations, written at most every 30 s and on exit.
-- `cost_report` returns and `cost-usage-changed` carries the `CostReport`: `today`, `sessions`
+- `cost-usage-changed` is a signal without payload (main window only, but any window may listen
+  to an event, see [[process-launch-hardening]], and the report carries session titles); the main
+  window then reads `cost_report`, and only the answer to the newest read counts.
+- `cost_report` returns the `CostReport`: `today`, `sessions`
   (running sessions, whole conversation), `days` (today first, 7 entries, each with its sessions,
   most expensive first, `sessionId: null` once closed), `priceSource`, `priceDate`. An amount has
   `tokens`, `total`, `costUsd` (`null` when nothing has a price) and `partial`.
@@ -51,14 +54,17 @@ updated: 2026-11-13
 ## Window
 
 - Session peek: "Tokens 123k · ~$0.42" (a trailing "+" when part is unpriced; tokens only without
-  any price). Nothing for sessions without data.
+  any price), after the load and context lines the row builder leaves to the peek. Nothing for
+  sessions without data. The row builder's "tokens" element stays the context window's tokens;
+  costs have no row element.
 - View menu "Costs …": today per session, the last 7 days as bars, the price source and date.
 - Settings, Attention, Resources: daily budget in dollars. When today's estimate reaches it, a
   notice shows once per local day; during quiet hours it waits until they end.
 
 ## Handover
 
-- Session menu "Hand over to …" for agent sessions (not shells, not updates). The dialog lists the
+- Session menu "Hand over to …" for agent sessions (not shells, not updates), and only while
+  another installed agent can take over; otherwise the entry is hidden. The dialog lists the
   other installed agents; "Request summary" (running and not working) pastes a summary request
   with Enter into the old session.
 - Picking an agent starts it in the old session's folder. A team session keeps its worktree; the
@@ -67,8 +73,11 @@ updated: 2026-11-13
 - Hangar waits until the new agent turned on bracketed paste and its output paused for 1 s (at
   most 30 s), then pastes without Enter (`pasteIntoSession`, which asks first when the text would
   run lines).
-- The text (`src/handover.ts`): introduction with program and folder, the last prompt (at most
-  1500 characters, quoted), the changed files from `git_diff` (at most 40, then a count), the
+- The text (`src/handover.ts`): introduction with program and folder, the last request (at most
+  1500 characters, quoted; the old terminal tracks the user's submitted lines in agent sessions,
+  `SessionTerminal.lastRequest`, skipping slash commands and one-character answers, since the last
+  prompt bar it used to read is gone), the changed files from `git_diff` by session id (at most
+  40, then a count), the
   project notes (at most 5 titles with excerpts of 160 characters), and the instruction to
   summarize first. At most 8000 characters: excerpts go first, then file lines.
 

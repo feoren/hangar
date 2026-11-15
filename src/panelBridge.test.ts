@@ -8,6 +8,7 @@ import {
   panelContextPayload,
   panelSessionIsAgent,
   panelSessionName,
+  panelSessionShell,
   parsePanelCommand,
   parsePanelContext,
   parsePanelMessage,
@@ -194,9 +195,26 @@ function context(): PanelContext {
         program: "Claude Code",
         repo: String.raw`C:\work\shop`,
         agent: true,
+        shell: "agent",
       },
-      { id: 2, title: "Codex", running: false, program: "", repo: null, agent: true },
-      { id: 3, title: "pwsh", running: true, program: "PowerShell", repo: null, agent: false },
+      {
+        id: 2,
+        title: "Codex",
+        running: false,
+        program: "",
+        repo: null,
+        agent: true,
+        shell: "agent",
+      },
+      {
+        id: 3,
+        title: "pwsh",
+        running: true,
+        program: "PowerShell",
+        repo: null,
+        agent: false,
+        shell: "powershell",
+      },
     ],
     claims: claims(),
     activities: new Map([["project-1", activity()]]),
@@ -269,6 +287,24 @@ describe("panel context", () => {
         ...good,
         sessions: [{ id: 1, title: "a", running: true, program: "", repo: null, agent: "yes" }],
       },
+      {
+        ...good,
+        sessions: [
+          {
+            id: 1,
+            title: "a",
+            running: true,
+            program: "",
+            repo: null,
+            agent: false,
+            shell: "bash",
+          },
+        ],
+      },
+      {
+        ...good,
+        sessions: [{ id: 1, title: "a", running: true, program: "", repo: null, agent: false }],
+      },
       { ...good, sessions: "all" },
       { ...good, claims: { enabled: "yes", sessions: [], overlaps: [] } },
       { ...good, claims: undefined },
@@ -298,6 +334,14 @@ describe("panel context", () => {
     expect(panelSessionIsAgent(sessions, 3)).toBe(false);
     expect(panelSessionIsAgent(sessions, 9)).toBe(false);
     expect(panelSessionIsAgent(sessions, null)).toBe(false);
+  });
+
+  it("knows how each session reads typed paths", () => {
+    const { sessions } = context();
+    expect(panelSessionShell(sessions, 1)).toBe("agent");
+    expect(panelSessionShell(sessions, 3)).toBe("powershell");
+    expect(panelSessionShell(sessions, 9)).toBe("agent");
+    expect(panelSessionShell(sessions, null)).toBe("agent");
   });
 });
 
@@ -332,6 +376,24 @@ describe("window prefs", () => {
     expect(
       parseWindowPrefs(JSON.stringify({ bounds: { x: 0, y: 0, width: -5, height: 10 } })).bounds,
     ).toBeNull();
+  });
+
+  it("drops a place no screen has: sizes and positions out of bounds", () => {
+    // Any window of this origin can write the prefs; the main window reads them strictly.
+    for (const bounds of [
+      { x: 0, y: 0, width: 16_385, height: 400 },
+      { x: 0, y: 0, width: 400, height: 1e9 },
+      { x: -200_000, y: 0, width: 400, height: 400 },
+      { x: 0, y: 1e12, width: 400, height: 400 },
+      { x: 0, y: 0, width: 400, height: 400, extra: 1 },
+    ]) {
+      expect(
+        parseWindowPrefs(JSON.stringify({ bounds })).bounds,
+        JSON.stringify(bounds),
+      ).toBeNull();
+    }
+    const edge = { x: -100_000, y: 100_000, width: 16_384, height: 16_384 };
+    expect(parseWindowPrefs(JSON.stringify({ bounds: edge })).bounds).toEqual(edge);
   });
 
   it("carries over the notes window prefs from before", () => {

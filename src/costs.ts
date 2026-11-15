@@ -92,7 +92,7 @@ function record(value: unknown): object | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 }
 
-/** Checks a `cost-usage-changed` payload or the answer of `cost_report`; `null` if malformed. */
+/** Checks the answer of `cost_report`; `null` if malformed. */
 export function parseCostReport(value: unknown): CostReport | null {
   const raw = record(value);
   if (raw === null) return null;

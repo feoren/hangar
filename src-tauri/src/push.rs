@@ -8,11 +8,14 @@
 //! at most one push per session every [`MIN_GAP`] and [`MAX_PER_MINUTE`] in all, over https only,
 //! without redirects, with a short time limit and no retries.
 //!
-//! The provider, the ntfy address and the events live in `push.json` in the config folder. The
-//! ntfy access token and both Pushover keys live only in the OS keychain (service
+//! The provider and the events live in `push.json` in the config folder. The ntfy address (its
+//! topic is the only secret of an ntfy server without access control: whoever knows it reads
+//! along), the ntfy access token and both Pushover keys live only in the OS keychain (service
 //! [`KEYCHAIN_SERVICE`]); they never reach a file, a log, an error text or the window, which
-//! only learns whether each one is stored. The ntfy token is bound to the origin it was entered
-//! for: another scheme, host or port needs the token again.
+//! only learns whether each secret is stored and sees the address with its topic masked
+//! ([`masked_url`]). An address an older Hangar kept in `push.json` moves to the keychain on
+//! start. The ntfy token is bound to the origin it was entered for: another scheme, host or port
+//! needs the token again.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -55,6 +58,12 @@ const MAX_TEMPLATE_CHARS: usize = 160;
 const RATE_WINDOW: Duration = Duration::from_secs(60);
 
 const NTFY_TOKEN: &str = "ntfy-token";
+const NTFY_URL: &str = "ntfy-url";
+/// Characters of the topic the masked address still shows, so the person recognizes it.
+const SHOWN_TOPIC_CHARS: usize = 4;
+/// Stands for the hidden rest of the topic; never a topic character, so a masked address is
+/// never taken for a new one.
+const TOPIC_MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}";
 const PUSHOVER_USER: &str = "pushover-user";
 const PUSHOVER_TOKEN: &str = "pushover-token";
 
@@ -113,7 +122,9 @@ impl Events {
 #[serde(rename_all = "camelCase", default)]
 pub struct PushConfig {
     pub provider: Provider,
-    /// `https://host/topic`; kept when another provider is chosen.
+    /// Only read: the ntfy address of a file an older Hangar wrote, which moves to the keychain
+    /// on start ([`PushService::new`]). Never written.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub ntfy_url: String,
     /// Origin (`https://host:port`) the stored ntfy token was entered for; empty without one.
     pub ntfy_token_origin: String,
@@ -128,6 +139,8 @@ pub struct PushConfig {
 #[serde(rename_all = "camelCase")]
 pub struct PushView {
     pub provider: Provider,
+    /// The stored ntfy address with its topic masked ([`masked_url`]); sent back unchanged, it
+    /// keeps the stored one. Empty without one.
     pub ntfy_url: String,
     pub include_title: bool,
     pub events: Events,
@@ -157,7 +170,7 @@ impl std::fmt::Debug for PushInput {
         let given = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
         f.debug_struct("PushInput")
             .field("provider", &self.provider)
-            .field("ntfy_url", &self.ntfy_url)
+            .field("ntfy_url", &masked_url(&self.ntfy_url))
             .field("include_title", &self.include_title)
             .field("events", &self.events)
             .field("ntfy_token", &given(&self.ntfy_token))
@@ -281,6 +294,20 @@ fn topic(url: &Url) -> &str {
     url.path_segments()
         .and_then(|mut segments| segments.next_back())
         .unwrap_or_default()
+}
+
+/// The ntfy address as the window shows it: the server and the first few characters of the
+/// topic, the rest as [`TOPIC_MASK`] (`https://ntfy.sh/hang` and four dots). Empty for an
+/// address that does not parse.
+pub fn masked_url(text: &str) -> String {
+    let Ok(url) = ntfy_url(text) else {
+        return String::new();
+    };
+    let full = url.as_str();
+    let topic = topic(&url);
+    let prefix = full.strip_suffix(topic).unwrap_or(full);
+    let shown: String = topic.chars().take(SHOWN_TOPIC_CHARS).collect();
+    format!("{prefix}{shown}{TOPIC_MASK}")
 }
 
 /// `https://host:port`, what the ntfy token is bound to.
@@ -524,10 +551,11 @@ pub struct PushService {
 
 impl PushService {
     pub fn new(config_dir: &Path, store: Arc<dyn SecretStore>) -> Self {
+        let config = migrate_url(config_dir, store.as_ref(), load_config(config_dir));
         Self {
             config_dir: config_dir.to_owned(),
             store,
-            config: Mutex::new(load_config(config_dir)),
+            config: Mutex::new(config),
             debounce: Mutex::default(),
             rate: Mutex::default(),
             last_test: Mutex::default(),
@@ -538,9 +566,10 @@ impl PushService {
     /// The settings and which secrets are stored. Asks the keychain: blocking.
     pub fn view(&self) -> Result<PushView, PushError> {
         let config = lock(&self.config).clone();
+        let url = self.stored_url(&config)?;
         Ok(PushView {
             provider: config.provider,
-            ntfy_url: config.ntfy_url,
+            ntfy_url: url.as_deref().map(|u| masked_url(u)).unwrap_or_default(),
             include_title: config.include_title,
             events: config.events,
             ntfy_token: self.store.exists(NTFY_TOKEN)?,
@@ -553,7 +582,16 @@ impl PushService {
     /// be complete: an ntfy address, or both Pushover keys. A kept ntfy token must belong to the
     /// address's origin, and without a token the topic must be long enough. Blocking.
     pub fn save(&self, input: PushInput) -> Result<PushView, PushError> {
-        let address = input.ntfy_url.trim().to_owned();
+        let typed = input.ntfy_url.trim();
+        let current = lock(&self.config).clone();
+        let kept = self.stored_url(&current)?;
+        // The masked address sent back unchanged keeps the stored one.
+        let address = match kept.as_deref() {
+            Some(kept) if !typed.is_empty() && typed == masked_url(kept) => {
+                Zeroizing::new(kept.to_owned())
+            }
+            _ => Zeroizing::new(typed.to_owned()),
+        };
         let parsed = if address.is_empty() {
             None
         } else {
@@ -569,7 +607,6 @@ impl PushService {
                 Change::Set(_) => true,
             })
         };
-        let current = lock(&self.config).clone();
         let new_origin = parsed.as_ref().map(origin).unwrap_or_default();
         let token_stored = stored(&token, NTFY_TOKEN)?;
         let token_origin = match &token {
@@ -600,7 +637,13 @@ impl PushService {
         {
             return Err(PushError::WeakTopic);
         }
+        let url = if address.is_empty() {
+            Change::Remove
+        } else {
+            Change::Set(address.as_str())
+        };
         for (change, account) in [
+            (&url, NTFY_URL),
             (&token, NTFY_TOKEN),
             (&user, PUSHOVER_USER),
             (&app, PUSHOVER_TOKEN),
@@ -613,7 +656,7 @@ impl PushService {
         }
         let config = PushConfig {
             provider: input.provider,
-            ntfy_url: address,
+            ntfy_url: String::new(),
             ntfy_token_origin: token_origin,
             include_title: input.include_title,
             events: input.events,
@@ -675,7 +718,8 @@ impl PushService {
         match config.provider {
             Provider::Off => Err(PushError::Incomplete),
             Provider::Ntfy => {
-                let url = ntfy_url(&config.ntfy_url)?;
+                let stored = self.stored_url(config)?.ok_or(PushError::Incomplete)?;
+                let url = ntfy_url(&stored)?;
                 let token = self.store.get(NTFY_TOKEN)?;
                 // Also when push.json was changed by hand: the token stays with its server.
                 if token.is_some() && origin(&url) != config.ntfy_token_origin {
@@ -695,6 +739,18 @@ impl PushService {
                 let endpoint = Url::parse(PUSHOVER_ENDPOINT).map_err(|_| PushError::InvalidUrl)?;
                 Ok(pushover_request(endpoint, &user, &token, text))
             }
+        }
+    }
+
+    /// The ntfy address from the keychain; the one of an old `push.json` while moving it there
+    /// failed.
+    fn stored_url(&self, config: &PushConfig) -> Result<Option<Zeroizing<String>>, PushError> {
+        match self.store.get(NTFY_URL)? {
+            Some(url) => Ok(Some(url)),
+            None if !config.ntfy_url.is_empty() => {
+                Ok(Some(Zeroizing::new(config.ntfy_url.clone())))
+            }
+            None => Ok(None),
         }
     }
 
@@ -733,6 +789,25 @@ pub fn load_config(config_dir: &Path) -> PushConfig {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
+}
+
+/// Moves the ntfy address of a `push.json` an older Hangar wrote into the keychain and writes the
+/// file again without it. When the keychain or the file refuses, the address stays where it was
+/// (push keeps working) and the next start tries again.
+fn migrate_url(config_dir: &Path, store: &dyn SecretStore, mut config: PushConfig) -> PushConfig {
+    if config.ntfy_url.is_empty() {
+        return config;
+    }
+    if let Err(error) = store.set(NTFY_URL, &config.ntfy_url) {
+        eprintln!("hangar: push address not moved to the keychain: {error}");
+        return config;
+    }
+    let address = std::mem::take(&mut config.ntfy_url);
+    if let Err(error) = save_config(config_dir, &config) {
+        eprintln!("hangar: push settings not saved: {error}");
+        config.ntfy_url = address;
+    }
+    config
 }
 
 pub fn save_config(config_dir: &Path, config: &PushConfig) -> std::io::Result<()> {
@@ -990,7 +1065,10 @@ mod tests {
         assert!(view.ntfy_token);
         let file = std::fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap();
         assert!(!file.contains("tk_secret"), "{file}");
-        assert!(file.contains("https://ntfy.sh/topic"));
+        assert!(
+            !file.contains("topic"),
+            "the address is in the keychain: {file}"
+        );
         assert_eq!(
             store
                 .get(NTFY_TOKEN)
@@ -1014,6 +1092,55 @@ mod tests {
         // The settings come back after a restart.
         let (again, _) = service(&dir);
         assert_eq!(again.view().unwrap().provider, Provider::Ntfy);
+    }
+
+    #[test]
+    fn an_open_topic_stays_in_the_keychain_and_shows_masked() {
+        let dir = TempDir::new("push-topic");
+        let (push, store) = service(&dir);
+        let view = push.save(ntfy(OPEN, None)).unwrap();
+        let file = std::fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap();
+        assert!(!file.contains("AbCdEfGhIjKl"), "{file}");
+        assert_eq!(
+            store.get(NTFY_URL).unwrap().as_deref().map(String::as_str),
+            Some(OPEN)
+        );
+        assert_eq!(view.ntfy_url, format!("https://ntfy.sh/hang{TOPIC_MASK}"));
+        let shown = serde_json::to_string(&view).unwrap();
+        assert!(!shown.contains("AbCdEfGhIjKl"), "{shown}");
+        // The masked address sent back keeps the stored one; the push goes to the real topic.
+        let mut again = ntfy(&view.ntfy_url, None);
+        again.include_title = true;
+        let view = push.save(again).unwrap();
+        assert!(view.include_title);
+        let request = push.for_test("x", Instant::now()).unwrap();
+        assert_eq!(request.url.as_str(), OPEN);
+        assert!(!format!("{:?}", ntfy(OPEN, None)).contains("AbCdEfGhIjKl"));
+        // Clearing the address removes it from the keychain.
+        push.save(input(Provider::Off)).unwrap();
+        assert!(!store.exists(NTFY_URL).unwrap());
+    }
+
+    #[test]
+    fn an_address_of_an_old_push_json_moves_to_the_keychain() {
+        let dir = TempDir::new("push-migrate");
+        let old = format!(
+            r#"{{"provider":"ntfy","ntfyUrl":"{OPEN}","ntfyTokenOrigin":"","includeTitle":false}}"#
+        );
+        std::fs::write(dir.path().join(CONFIG_FILE), old).unwrap();
+        let (push, store) = service(&dir);
+        let file = std::fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap();
+        assert!(!file.contains("AbCdEfGhIjKl"), "{file}");
+        assert!(file.contains("ntfy"), "the provider stays: {file}");
+        assert_eq!(
+            store.get(NTFY_URL).unwrap().as_deref().map(String::as_str),
+            Some(OPEN)
+        );
+        assert_eq!(push.view().unwrap().provider, Provider::Ntfy);
+        assert_eq!(
+            push.for_test("x", Instant::now()).unwrap().url.as_str(),
+            OPEN
+        );
     }
 
     #[test]

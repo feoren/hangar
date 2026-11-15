@@ -7,7 +7,7 @@ version: "API v1 (base /api/v1), as of 2026-11-09"
 license: "service API; client code in this repository is MIT"
 repo: "website of the official service (not public); client in src-tauri/src/account*.rs"
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-15
 ---
 
 # Hangar account API (sign-in, account, projects)
@@ -44,8 +44,11 @@ Base `/api/v1`, default `https://hangar.feoren.com/api/v1`. All answers JSON wit
 | `POST /oauth/device` | none | RFC 8628 3.1: `client_id=hangar-desktop`, `scope=team`, optional `device_name` (100), `platform` (40); answers `device_code`, `user_code` (`XXXX-XXXX`), `verification_uri`, `verification_uri_complete`, `expires_in` 600, `interval` 5 |
 | `POST /oauth/token` | none | `grant_type=urn:ietf:params:oauth:grant-type:device_code` or `refresh_token`; access token `hgat_...` (900 s), refresh token `hgrt_...` |
 | `POST /oauth/revoke` | none | RFC 7009, form fields `token`, `token_type_hint` (`refresh_token` or `access_token`), `client_id=hangar-desktop`; 200 with an empty body (also for unknown tokens); 400 `invalid_client` or `invalid_request` (an unknown hint counts as `invalid_request`). Revoking a refresh token removes the whole device grant |
-| `GET /me` | Bearer | `id`, `email`, `name`, `locale`, `seats_account_total`, `seats_account_used` |
+| `GET /me` | Bearer | `id`, `email`, `name`, `locale`, `seats_account_total`, `seats_account_used`, `avatar_url`, `avatar_etag` (see Profile picture) |
+| `GET /me/avatar` | Bearer | the person's own picture (see Profile picture); 404 problem document without one |
+| `GET /users/{id}/avatar` | Bearer | the picture of a person sharing at least one project with the caller (or the caller); 404 otherwise, also when not allowed. `{id}` is the `id` of `/me`. Not used by the app yet |
 | `GET /projects` | Bearer | `{"projects":[...]}`: `id`, `name`, `role` (owner, admin, member), `owner_id`, `plan`, `seats_account_total`, `seats_account_used` (the owner's account), `pending_invitations` (owner and admin only), `invite_url` |
+| `GET /projects/{id}/members` | Bearer | needed by the app, not offered by the website yet (2026-11-15): `{"members":[{"id","role"}]}` for a member of the project (`id` as in `/me` and `owner_id`; the list includes the owner and the caller, or the app ignores it), 404 otherwise. An owner's or admin's device removes members the list does not name from the team's log ([[team-crypto]]); without the endpoint that step is skipped |
 | `POST /relay-ticket` | Bearer | `{"project_id"}` -> `{"ticket","expires_at","relay_url"}`; 404 for non-members and unknown projects |
 | `GET /keys` | none | public Ed25519 keys (not used by the app yet) |
 | `GET/POST /devices` | none | reserved, 501 |
@@ -55,6 +58,22 @@ invitations are not part of it (changed by the website on 2026-11-09).
 
 A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
 `WWW-Authenticate: Bearer realm="hangar", error="invalid_token"`.
+
+## Profile picture
+
+Contract agreed with the website on 2026-11-13 (the picture is uploaded only on the website; the
+app has no upload path).
+
+- `/me` adds `avatar_url`: `<server origin>/api/v1/me/avatar?v=<16 hex>` or `null`, and
+  `avatar_etag`: the picture's SHA-256 as 64 hex digits or `null`. A new picture changes both;
+  `null` means no picture (the window shows initials).
+- `GET /me/avatar` answers the image bytes, square 256x256, `Content-Type: image/webp` (fallback
+  `image/png`), `ETag: "<sha256>"`, `Cache-Control: private, max-age=86400`, and 304 on a
+  matching `If-None-Match`. No picture: 404 `application/problem+json`.
+
+> [!question] Unverified
+> The app was tested against the mock in `src-tauri/tests/account.rs`, not against the live
+> website.
 
 ## Device flow and tokens
 
@@ -77,7 +96,8 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   documents, polling rules, the window's view), `account_api.rs` (reqwest client),
   `account_service.rs` (state machine, tokens, single-flight refresh, keychain), commands in
   `commands.rs`. Types mirror in `src/account.ts`.
-- **Server address:** https, or http only on `localhost`, `127.0.0.1` or `[::1]`; no user info,
+- **Server address:** https, or http only on `127.0.0.1` or `[::1]` (and `localhost` in debug
+  builds only: a name may resolve elsewhere); no user info,
   query or fragment; at most 512 characters. Stored in `account.json` in the config folder. The
   official address is the default; Settings can change it for self-hosting.
 - **State machine** (`AccountState`): `idle` (optional notice `signedOut`, `signedOutLocally`
@@ -135,6 +155,36 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   single `signedIn` list of the first versions is ignored. Tests: two services on one config
   folder, and two processes of one build that write in turn. The view carries `otherSignIns`;
   after a sign-out Settings names those hosts and says to switch there to sign out.
+- **Person's details:** `/me` loads in the background whenever the state is `signedIn` without a
+  user: after a sign-in, on every `account_status` and after every project list, however the
+  sign-in was read (the token path reads the keychain without publishing). One load makes up to
+  5 attempts with a doubling pause from 1 s; the next status or project list starts another. A
+  load for an earlier sign-in (`epoch`) is dropped. Failures are logged with the HTTP status and
+  the problem's `code` only, never its text (it may name the person) and never a token. Fixed on 2026-11-13: before, one failed `/me` (or a
+  sign-in first read on the token path) left the window without the person's name for the whole
+  run, since `account_status` only loaded `/me` when it read the keychain itself.
+- **View order:** every published view carries a rising `revision`; command answers carry the
+  current one. Events and command answers reach the window on different channels, so the window
+  keeps a view only when its revision is not lower than the one on screen. It listens for
+  `account-changed` before its first `account_status`, and while signed in without a user asks
+  again after 20 s, 60 s and 180 s. A malformed user no longer drops the whole view; it reads as
+  `signedIn` without a user.
+- **Profile picture:** downloaded only by the backend, with the access token and only when
+  `avatar_url` lies on the base's own origin and below its API path, for example `/api/v1/`
+  (`BaseUrl::same_api`; dot segments, also percent-encoded, are resolved by the parser first, so
+  the token never reaches another application on the same host); no redirects (a 3xx is an
+  error); at most 1 MiB, also for a chunked answer without `Content-Length`; only `image/png`, `image/jpeg` and `image/webp` whose first bytes match the
+  `Content-Type` header. One copy (`avatar.img` plus `avatar.json` with server, account id, etag
+  and type) lives in `account-avatar` in the app's local data folder; it is reused without a
+  request when its etag equals `avatar_etag`, otherwise requested with `If-None-Match` (304 keeps
+  it). The request does not go through the general 401 handling, whose second 401 ends the
+  sign-in: a 401 gets one ordinary refresh and one more try, and a second 401 only drops the
+  picture. The views carry only `user.avatarVersion` (rises with every change, `null` without a
+  picture); the window fetches the picture as a `data:` URL through `account_avatar` when the
+  marker changes, so every status and event stays small. The window never gets the remote
+  address or a token (the CSP allows `data:` images only). A 404 or `avatar_url: null` removes the copy, so does a
+  sign-out or an ended session. A failed download keeps what is shown and retries with the next
+  `/me`. A wrong type of `avatar_url` or `avatar_etag` counts as missing and never fails `/me`.
 - **Server text:** problem texts, project names, plans and the person's name reach the window
   without control characters and bidirectional marks (they could reorder what is read), at most
   300 characters.
@@ -142,11 +192,16 @@ A missing, wrong, expired or revoked bearer token, or a locked account: 401 with
   https-only client unless the base is loopback http; a loopback base never goes through a proxy.
 - **Pages in the window:** `verificationUri` and `verificationUriComplete` are the addresses as
   checked and normalized by the origin check, never the server's raw text.
-- **Relay tickets:** `relay_url` must be `wss`, or `ws` only on the loopback, without user info or
-  fragment; otherwise the ticket is refused as malformed. A same-site check against the base is
+- **Relay tickets:** `relay_url` must be `wss`, or `ws` only on the loopback and only when the
+  base that issued the ticket is itself a loopback server (a real server answering with
+  `ws://127.0.0.1` would hand the ticket in plain text to whatever listens there), without user
+  info or fragment; `team_relay` repeats the check right before connecting; otherwise the ticket is refused as malformed. A same-site check against the base is
   not done (it would need the public suffix list).
 - **Interface:** commands `account_status`, `account_sign_in`, `account_cancel_sign_in`,
-  `account_sign_out`, `account_projects`, `account_set_base_url(baseUrl | null)`,
-  `account_open(page)` (main window only); event `account-changed` with `AccountView { baseUrl,
-  official, devicesUrl, state, otherSignIns }`; errors as `{ kind, detail }`. `relay_ticket` is a typed client
+  `account_sign_out`, `account_projects`, `account_avatar` (the picture as a `data:` URL or
+  `null`), `account_set_base_url(baseUrl | null)`,
+  `account_open(page)` (main window only); the payload-free event `account-changed`, after
+  which the window reads `account_status() -> AccountView { baseUrl,
+  official, devicesUrl, state, otherSignIns, revision }` (`user` in `signedIn`: `id`, `email`,
+  `name`, `locale`, `seatsAccountTotal`, `seatsAccountUsed`, `avatarVersion`); errors as `{ kind, detail }`. `relay_ticket` is a typed client
   function, not a command yet.

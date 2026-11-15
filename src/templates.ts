@@ -1,12 +1,15 @@
 // Workspace templates: a named set of sessions (program, project folder, private or team, optional
-// title) that starts again with one click. Stored per machine in localStorage, like the folder
-// lists; a broken or hand-edited value is read as far as it is valid, the rest is dropped.
+// title) that starts again with one click. The backend keeps them for the main window alone
+// (mainStore.ts, `main_store.rs`): a template starts programs in folders, and the panel and file
+// viewer windows share localStorage. An older version kept them in localStorage; that list is
+// migrated once. A broken value is read as far as it is valid, the rest is dropped.
 
 import { folderKey } from "./folders";
 import { isProgramTitle } from "./sessionLabel";
 import { teamCapable, type StartMode, type TeamProfile } from "./startMode";
 
-const STORAGE_KEY = "hangar.templates";
+/** Where an older version kept the templates; read once for the migration, then removed. */
+export const TEMPLATES_STORAGE_KEY = "hangar.templates";
 
 export const TEMPLATE_LIMIT = 30;
 export const TEMPLATE_SESSION_LIMIT = 16;
@@ -96,20 +99,13 @@ export function parseTemplates(value: unknown): WorkspaceTemplate[] {
   return result;
 }
 
-export function loadTemplates(): WorkspaceTemplate[] {
+/** The list an older version kept in localStorage, for the one migration (mainStore.ts). */
+export function legacyTemplates(storage: Pick<Storage, "getItem">): WorkspaceTemplate[] {
   try {
-    const text = localStorage.getItem(STORAGE_KEY);
+    const text = storage.getItem(TEMPLATES_STORAGE_KEY);
     return text === null ? [] : parseTemplates(JSON.parse(text));
   } catch {
     return [];
-  }
-}
-
-export function saveTemplates(templates: readonly WorkspaceTemplate[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
-  } catch {
-    // Without storage the templates last until the window closes.
   }
 }
 

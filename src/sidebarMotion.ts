@@ -41,10 +41,51 @@ export class MotionGate {
 export const sidebarMotion = new MotionGate();
 
 /**
- * Held while a splitter between panes is dragged or stepped by keyboard (PaneSplitters.tsx): the
- * panes follow the pointer, their terminals fit once at the end, so the program redraws once.
+ * Held while a splitter is dragged or stepped by keyboard, between panes (PaneSplitters.tsx) as well
+ * as the sidebar and side panel widths (Splitter.tsx): the layout follows the pointer, the
+ * terminals fit once at the end, so the programs redraw once.
  */
 export const paneResizing = new MotionGate();
+
+/** After the last arrow key step on a splitter, the terminals fit after this pause (ms). */
+export const SPLITTER_KEY_SETTLE_MS = 250;
+
+/**
+ * Held while the window is being resized: the terminals on screen follow at once, hidden ones
+ * fit once the window rests (or when they are shown), instead of on every frame of the drag.
+ */
+export const windowResizing = new MotionGate();
+
+/** The window counts as resting once this long passes without a resize event (ms). */
+export const WINDOW_RESIZE_SETTLE_MS = 150;
+
+/**
+ * Holds `gate` from the first `resize` event of `target` until `settleMs` pass without another.
+ * Returns the function that stops listening and opens the gate.
+ */
+export function followResizes(target: EventTarget, gate: MotionGate, settleMs: number): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const settle = () => {
+    timer = undefined;
+    gate.setMoving(false);
+  };
+  const onResize = () => {
+    gate.setMoving(true);
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(settle, settleMs);
+  };
+  target.addEventListener("resize", onResize);
+  return () => {
+    target.removeEventListener("resize", onResize);
+    if (timer !== undefined) clearTimeout(timer);
+    settle();
+  };
+}
+
+/** Drives `windowResizing` from the window's resize events while the app is mounted. */
+export function useWindowResizing(): void {
+  useEffect(() => followResizes(window, windowResizing, WINDOW_RESIZE_SETTLE_MS), []);
+}
 
 function reducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;

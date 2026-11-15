@@ -7,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
 use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
+use hangar_lib::instructions::StartPrompt;
 use hangar_lib::manager::{
-    GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, TermSize,
-    VersionSource,
+    GateLaunch, GatePlan, LaunchGate, ManagerError, SessionEvent, SessionManager, StartRequest,
+    TermSize, VersionSource,
 };
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
@@ -39,6 +40,7 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         update_hint: None,
         packages: None,
         self_update: None,
+        agent_commands: Vec::new(),
     }
 }
 
@@ -269,6 +271,44 @@ fn input_reaches_the_process() {
     manager.close(info.id).unwrap();
 }
 
+/// One write carries at most `MAX_WRITE` bytes; a program that does not read its input fills the
+/// bounded queue, and further writes are answered with `Busy` instead of piling up in memory.
+#[test]
+fn input_is_bounded() {
+    let manager = manager();
+    let (tx, _rx) = channel();
+    let info = manager
+        .create("sleep", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let too_large = "x".repeat(hangar_lib::manager::MAX_WRITE + 1);
+    assert!(matches!(
+        manager.write(info.id, &too_large),
+        Err(ManagerError::InputTooLarge { .. })
+    ));
+    // The sleeping program never reads: the PTY's buffer fills, then the queue.
+    let chunk = "y".repeat(hangar_lib::manager::MAX_WRITE);
+    let busy =
+        (0..64).any(|_| matches!(manager.write(info.id, &chunk), Err(ManagerError::Busy(_))));
+    assert!(busy, "the input queue never filled up");
+    manager.close(info.id).unwrap();
+}
+
+/// Sizes beyond what any window shows are clamped before they reach the PTY.
+#[test]
+fn huge_sizes_are_clamped() {
+    let manager = manager();
+    let (tx, _rx) = channel();
+    let huge = TermSize {
+        cols: u16::MAX,
+        rows: u16::MAX,
+    };
+    let info = manager
+        .create("sleep", None, huge, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    manager.resize(info.id, huge).unwrap();
+    manager.close(info.id).unwrap();
+}
+
 /// The resources of a session cover its process tree: memory of the running program, and CPU
 /// time that never shrinks between two readings.
 #[test]
@@ -287,10 +327,12 @@ fn tree_usage_of_a_running_session() {
     wait_for_output(&manager, info.id, &rx, "hangar-usage-ok");
     let first = manager.tree_usages();
     if cfg!(any(windows, target_os = "linux")) {
-        let (id, usage) = first.first().copied().expect("one reading");
+        let (id, usage) = first.first().cloned().expect("one reading");
         assert_eq!(id, info.id);
         assert!(usage.memory > 100 * 1024, "memory {}", usage.memory);
-        let (_, later) = manager.tree_usages()[0];
+        // The ids feed the per-process GPU counters (gpu.rs).
+        assert!(!usage.processes.is_empty(), "the tree's processes");
+        let (_, later) = manager.tree_usages().swap_remove(0);
         assert!(later.cpu >= usage.cpu);
     } else {
         assert!(first.is_empty(), "no readings on this platform");
@@ -656,9 +698,21 @@ fn update_session_does_not_search_programs_in_working_folder() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("probe.cmd"), "@echo HANGAR-FOLDER-PROBE\r\n").unwrap();
     let mut prog = profile("probe", "cmd", &["/d", "/c", "probe"]);
-    prog.cwd = Some(dir.clone());
     prog.update_hint = Some(hint("cmd /d /c probe"));
-    let manager = SessionManager::new(vec![prog], Vec::new(), std::env::temp_dir());
+    // A profile with a fixed folder: its update still runs in the home folder, where npm and
+    // pip find no project configuration of a foreign repository.
+    let mut fixed = profile("fixed", "cmd", &["/d", "/c", "exit 0"]);
+    fixed.cwd = Some(std::env::temp_dir());
+    fixed.update_hint = Some(hint("cmd /d /c exit 0"));
+    // The home folder holds the probe: an update starts there and must still not find it.
+    let manager = SessionManager::new(vec![prog, fixed], Vec::new(), dir.clone());
+
+    let (tx, rx) = channel();
+    let update = manager
+        .create_update("fixed", SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(update.cwd, dir, "update sessions run in the home folder");
+    collect_until_exit(&manager, update.id, &rx);
 
     let (tx, rx) = channel();
     let agent = manager
@@ -979,6 +1033,174 @@ fn cmd_launcher_does_not_search_node_in_working_folder() {
             "counter check {id}: {output:?}"
         );
     }
+}
+
+/// Every catalog agent, not only `.cmd` launchers, starts without the program lookup in its
+/// working folder: the programs an agent runs from there (`cmd /c marker`) cannot pick up a
+/// `marker.bat` a foreign project planted. A user profile (a shell) still finds it (counter
+/// check).
+#[cfg(windows)]
+#[test]
+fn catalog_agent_does_not_search_programs_in_working_folder() {
+    // See update_session_does_not_search_programs_in_working_folder.
+    std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-cwd-lookup-{}", std::process::id()));
+    let work = root.join("x");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&work).unwrap();
+    let work = std::fs::canonicalize(&work).unwrap();
+    let work = std::path::PathBuf::from(work.to_string_lossy().trim_start_matches(r"\\?\"));
+    std::fs::write(
+        work.join("marker.bat"),
+        "@type nul > hangar-marker-ran.txt\r\n",
+    )
+    .unwrap();
+    let ran = work.join("hangar-marker-ran.txt");
+    let manager = SessionManager::new(
+        vec![profile("shell", "cmd", &["/d", "/c", "marker"])],
+        vec![catalog_agent(
+            "agentlike",
+            &["cmd"],
+            &["/d", "/c", "marker"],
+        )],
+        std::env::temp_dir(),
+    );
+    let run = |id: &str| {
+        let (tx, rx) = channel();
+        let info = manager
+            .create(id, Some(work.clone()), SIZE, move |e| {
+                tx.send(e).unwrap_or(())
+            })
+            .unwrap();
+        collect_until_exit(&manager, info.id, &rx)
+    };
+
+    let (output, _) = run("agentlike");
+    assert!(!ran.exists(), "planted marker.bat ran: {output:?}");
+
+    let (output, _) = run("shell");
+    assert!(ran.exists(), "counter check: {output:?}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// A user profile that starts an agent (`command = "claude"`, as the profile file suggests) is
+/// protected like the catalog entry: what counts is the program, not where the profile came from.
+/// The stand-in agent is a copy of cmd.exe under another name, so it runs `marker` through the
+/// same program search; cmd.exe itself, as a shell profile, still finds the planted file.
+#[cfg(windows)]
+#[test]
+fn user_profile_of_an_agent_does_not_search_programs_in_working_folder() {
+    // See update_session_does_not_search_programs_in_working_folder.
+    std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-user-agent-{}", std::process::id()));
+    let work = root.join("x");
+    let bin = root.join("bin");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root = std::path::PathBuf::from(root.to_string_lossy().trim_start_matches(r"\\?\"));
+    let work = root.join("x");
+    let system = std::env::var_os("SystemRoot").expect("SystemRoot is set on Windows");
+    let agent_exe = root.join("bin").join("agentlike.exe");
+    std::fs::copy(
+        std::path::Path::new(&system)
+            .join("System32")
+            .join("cmd.exe"),
+        &agent_exe,
+    )
+    .unwrap();
+    std::fs::write(
+        work.join("marker.bat"),
+        "@type nul > hangar-marker-ran.txt\r\n",
+    )
+    .unwrap();
+    let ran = work.join("hangar-marker-ran.txt");
+    let manager = SessionManager::new(
+        vec![
+            profile(
+                "agent",
+                agent_exe.to_str().unwrap(),
+                &["/d", "/c", "marker"],
+            ),
+            profile("shell", "cmd", &["/d", "/c", "marker"]),
+        ],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let run = |id: &str| {
+        let (tx, rx) = channel();
+        let info = manager
+            .create(id, Some(work.clone()), SIZE, move |e| {
+                tx.send(e).unwrap_or(())
+            })
+            .unwrap();
+        collect_until_exit(&manager, info.id, &rx)
+    };
+
+    let (output, _) = run("agent");
+    assert!(!ran.exists(), "planted marker.bat ran: {output:?}");
+
+    let (output, _) = run("shell");
+    assert!(ran.exists(), "counter check: {output:?}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// Closing a session ends its whole tree on Unix, also a program that ignores SIGHUP: after the
+/// grace period the rest gets SIGKILL.
+#[cfg(unix)]
+#[test]
+fn close_kills_a_tree_that_ignores_sighup() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-sighup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let pid_file = root.join("pid");
+    let script = format!(
+        "trap '' HUP; sleep 1000 & echo $! > '{}'; echo HANGAR-READY; wait",
+        pid_file.display()
+    );
+    let manager = SessionManager::new(
+        vec![profile("stubborn", "sh", &["-c", script.as_str()])],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let (tx, rx) = channel();
+    let info = manager
+        .create("stubborn", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    wait_for_output(&manager, info.id, &rx, "HANGAR-READY");
+    let pid = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .to_owned();
+    manager.close(info.id).unwrap();
+    // Gone, or a zombie waiting for init: `ps` prints nothing, or a state starting with Z.
+    let alive = || {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        !state.is_empty() && !state.starts_with('Z')
+    };
+    let deadline = Instant::now() + hangar_lib::proctree::KILL_GRACE + Duration::from_secs(8);
+    while alive() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(!alive(), "sleep {pid} survived the close");
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 /// portable-pty quotes by MSVC rules, but cmd.exe interprets `&`, `|`, `%` … itself
@@ -1423,6 +1645,7 @@ impl LaunchGate for RecordingGate {
         agent: &hangar_lib::agent_catalog::Agent,
         _program: &std::path::Path,
         _args: &[String],
+        _version: Option<&str>,
     ) -> GatePlan {
         self.prepared.lock().unwrap().push(session);
         match agent.id() {
@@ -1780,4 +2003,94 @@ fn with_args(mut probe: Profile, extra: &[&str]) -> Profile {
     }
     probe.args.extend(extra.iter().map(|arg| (*arg).to_owned()));
     probe
+}
+
+// --- First prompt of a fresh worktree session (instructions.rs) ---
+
+/// Prints every argument after its own, like an agent CLI that takes a positional prompt.
+fn prompt_probe(id: &str) -> CatalogAgent {
+    let (command, args, resume): (&str, &[&str], &[&str]) = if cfg!(windows) {
+        (
+            "cmd",
+            &["/d", "/c", "echo", "ARGS="],
+            &["/d", "/c", "echo", "RESUMED"],
+        )
+    } else {
+        (
+            "sh",
+            &["-c", "echo ARGS=\"$*\"", "none"],
+            &["-c", "echo RESUMED", "none"],
+        )
+    };
+    let toml = format!(
+        "[[agent]]
+id = {id:?}
+name = {id:?}
+commands = [{command:?}]
+args = {args:?}
+resume_args = {resume:?}
+prompt_args = [\"{{prompt}}\"]
+"
+    );
+    agent_catalog::parse(&toml).unwrap().remove(0)
+}
+
+fn start_requested(
+    manager: &SessionManager,
+    profile_id: &str,
+    resume: bool,
+    request: StartRequest,
+) -> (SessionInfo, Receiver<SessionEvent>) {
+    let (tx, rx) = channel();
+    let info = manager
+        .create_requested(
+            profile_id,
+            None,
+            SIZE,
+            resume,
+            None,
+            SessionMode::Private,
+            request,
+            move |e| tx.send(e).unwrap_or(()),
+        )
+        .unwrap();
+    (info, rx)
+}
+
+#[test]
+fn only_a_fresh_worktree_start_gets_the_first_prompt() {
+    let manager = SessionManager::new(
+        Vec::new(),
+        vec![prompt_probe("prompted")],
+        std::env::temp_dir(),
+    );
+    let worktree = StartRequest {
+        instructions: false,
+        prompt: Some(StartPrompt::Worktree),
+    };
+    let marker = "Run git fetch";
+
+    let (info, rx) = start_requested(&manager, "prompted", false, worktree);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains(marker), "{output:?}");
+
+    // A restart continues in the same worktree: it is not asked again.
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("ARGS="), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
+
+    // A session outside a fresh worktree, and a resumed one, never get it.
+    let (info, rx) = start_requested(&manager, "prompted", false, StartRequest::default());
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("ARGS="), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
+    let (info, rx) = start_requested(&manager, "prompted", true, worktree);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("RESUMED"), "{output:?}");
+    assert!(!output.contains(marker), "{output:?}");
 }

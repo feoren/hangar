@@ -136,12 +136,16 @@ export interface WorktreeNotice {
  * Why the worktree stays. The two everyday cases (an agent left changes, a build left ignored
  * output) get a translated sentence; anything else keeps the backend's or git's own words.
  */
-function keptMessage(reason: string, t: Translate): string {
+export function keptMessage(reason: string, t: Translate): string {
   if (reason === "") return t("worktree.kept");
   // git: "fatal: '<path>' contains modified or untracked files, use --force to delete it".
   if (reason.includes("contains modified or untracked files")) return t("worktree.keptChanges");
   // worktree.rs `ignored_reason`.
   if (reason.startsWith("The worktree contains ignored files")) return t("worktree.keptIgnored");
+  // worktree.rs `remove_folder`.
+  if (reason === "The worktree folder could not be deleted completely") {
+    return t("worktree.keptPartly");
+  }
   return t("worktree.keptBecause", { reason });
 }
 

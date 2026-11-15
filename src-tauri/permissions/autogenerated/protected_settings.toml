@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-protected-settings"
+description = "Enables the protected_settings command without any pre-configured scope."
+commands.allow = ["protected_settings"]
+
+[[permission]]
+identifier = "deny-protected-settings"
+description = "Denies the protected_settings command without any pre-configured scope."
+commands.deny = ["protected_settings"]
