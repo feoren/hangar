@@ -92,6 +92,7 @@ describe("parseSettings", () => {
       chime: true,
       quietHours: DEFAULT_QUIET_HOURS,
       restoreSessions: true,
+      dailyBudget: null,
       claimsEnabled: true,
       gateEnabled: true,
       commandGuardEnabled: true,
@@ -349,6 +350,7 @@ describe("parseSettings", () => {
       notifyDesktop: false,
       chime: false,
       quietHours: { enabled: true, from: 1380, to: 360 },
+      dailyBudget: 12.5,
     };
     expect(noticesOf(parseSettings(JSON.stringify(stored), "de"))).toEqual(
       noticesOf(defaultSettings("de")),

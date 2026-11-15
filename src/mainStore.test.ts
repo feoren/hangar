@@ -299,6 +299,8 @@ describe("start and notice preferences", () => {
     notifyDesktop: true,
     chime: false,
     quietHours: { enabled: true, from: 1320, to: 420 },
+    dailyBudget: 12.5,
+    budgetWarnedDay: "2026-11-14",
   };
   /** What a viewer of the same origin could write to the old places after the migration. */
   const PLANTED = {
@@ -306,12 +308,14 @@ describe("start and notice preferences", () => {
     "hangar.lastProgram": "planted",
     "hangar.folders": JSON.stringify({ favorites: [], recent: ["C:\\planted"] }),
     "hangar.lastCwd": "C:\\planted",
+    "hangar.costs.warnedDay": "2999-12-31",
     [SETTINGS_STORAGE_KEY]: JSON.stringify({
       language: "de",
       restoreSessions: false,
       attentionEnabled: false,
       notifyDesktop: false,
       quietHours: { enabled: true, from: 0, to: 1439 },
+      dailyBudget: 100_000,
     }),
   };
 
@@ -321,6 +325,14 @@ describe("start and notice preferences", () => {
     expect(parseMainPrefs({ ...MINE, startMode: "root" })).toBeNull();
     expect(parseMainPrefs({ ...MINE, lastProgram: "a\u0007b" })).toBeNull();
     expect(parseMainPrefs({ ...MINE, chime: "no" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, dailyBudget: 0 })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, dailyBudget: "5" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, budgetWarnedDay: "2026-13-01" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, dailyBudget: null, budgetWarnedDay: null })).toEqual({
+      ...MINE,
+      dailyBudget: null,
+      budgetWarnedDay: null,
+    });
     // Folders and quiet hours are read as the menu and the settings read them.
     expect(parseMainPrefs({ ...MINE, recent: ["/r", "a\nb"] })?.recent).toEqual(["/r"]);
   });
@@ -331,11 +343,13 @@ describe("start and notice preferences", () => {
       "hangar.lastProgram": "claude",
       "hangar.lastCwd": "/home/a/repo",
       "hangar.folders": JSON.stringify({ favorites: ["C:\\Work"], recent: [] }),
+      "hangar.costs.warnedDay": "2026-11-14",
       [SETTINGS_STORAGE_KEY]: JSON.stringify({
         language: "de",
         restoreSessions: false,
         taskbarFlash: false,
         chime: false,
+        dailyBudget: 12.5,
       }),
     });
     const legacy = legacyMainPrefs(storage, storage.getItem(SETTINGS_STORAGE_KEY));
@@ -348,6 +362,7 @@ describe("start and notice preferences", () => {
       "hangar.lastProgram",
       "hangar.folders",
       "hangar.lastCwd",
+      "hangar.costs.warnedDay",
     ]) {
       expect(storage.store.has(key), key).toBe(false);
     }
@@ -370,6 +385,7 @@ describe("start and notice preferences", () => {
     expect(saved.prefs).toEqual([]);
     expect(storage.store.has("hangar.folders")).toBe(false);
     expect(storage.store.has("hangar.lastCwd")).toBe(false);
+    expect(storage.store.has("hangar.costs.warnedDay")).toBe(false);
     expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({ language: "de" });
   });
 
@@ -413,5 +429,7 @@ describe("start and notice preferences", () => {
       fake,
     );
     expect(saved.prefs).toEqual([{ ...MINE, lastProgram: null, recent: ["/r"] }]);
+    await saveMainPrefs({ ...MINE, dailyBudget: 0.001, budgetWarnedDay: "yesterday" }, fake);
+    expect(saved.prefs[1]).toEqual({ ...MINE, dailyBudget: null, budgetWarnedDay: null });
   });
 });

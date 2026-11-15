@@ -222,6 +222,8 @@ const de = {
     "Bittet den bisherigen Agenten um eine Zusammenfassung. Danach erneut übergeben.",
   "handover.summaryAsked":
     "Zusammenfassung angefordert. Wenn sie da ist, erneut „Übergeben an …“ wählen.",
+  "handover.notReady": "{program} war nicht bereit, die Übergabe wurde nicht eingefügt.",
+  "handover.copied": "Übergabe in die Zwischenablage kopiert.",
   "handover.summaryRequest":
     "Bitte fasse kurz zusammen: Ziel, erledigte Schritte, offene Punkte und geänderte Dateien. Ein anderer Agent übernimmt danach.",
   "handover.intro": "Übergabe: Du übernimmst die Arbeit von {from} im Ordner {folder}.",
@@ -1952,6 +1954,8 @@ const en: Record<MessageKey, string> = {
   "handover.summarize": "Request summary",
   "handover.summarizeHelp": "Asks the current agent for a summary. Hand over afterwards.",
   "handover.summaryAsked": "Summary requested. Once it is there, choose “Hand over to …” again.",
+  "handover.notReady": "{program} was not ready, so the handover was not pasted.",
+  "handover.copied": "Handover copied to the clipboard.",
   "handover.summaryRequest":
     "Please summarize briefly: goal, steps done, open points and changed files. Another agent takes over afterwards.",
   "handover.intro": "Handover: you take over the work of {from} in the folder {folder}.",
@@ -3648,6 +3652,8 @@ const el: Record<MessageKey, string> = {
   "handover.summarize": "Ζήτησε σύνοψη",
   "handover.summarizeHelp": "Ζητά σύνοψη από τον τρέχοντα agent. Μετά κάνε την παράδοση.",
   "handover.summaryAsked": "Ζητήθηκε σύνοψη. Όταν είναι έτοιμη, επίλεξε ξανά «Παράδοση σε …».",
+  "handover.notReady": "Το {program} δεν ήταν έτοιμο, η παράδοση δεν επικολλήθηκε.",
+  "handover.copied": "Η παράδοση αντιγράφηκε στο πρόχειρο.",
   "handover.summaryRequest":
     "Σύνοψε σύντομα: στόχος, βήματα που έγιναν, ανοιχτά θέματα και αλλαγμένα αρχεία. Μετά αναλαμβάνει άλλος agent.",
   "handover.intro": "Παράδοση: αναλαμβάνεις τη δουλειά του {from} στον φάκελο {folder}.",
@@ -5393,6 +5399,8 @@ const es: Record<MessageKey, string> = {
   "handover.summarize": "Pedir resumen",
   "handover.summarizeHelp": "Pide un resumen al agente actual. Después haz el traspaso.",
   "handover.summaryAsked": "Resumen pedido. Cuando esté listo, elige de nuevo «Pasar a …».",
+  "handover.notReady": "{program} no estaba listo, el traspaso no se pegó.",
+  "handover.copied": "Traspaso copiado al portapapeles.",
   "handover.summaryRequest":
     "Resume brevemente: objetivo, pasos hechos, puntos abiertos y archivos cambiados. Después otro agente toma el relevo.",
   "handover.intro": "Traspaso: tomas el trabajo de {from} en la carpeta {folder}.",
@@ -7117,6 +7125,8 @@ const fr: Record<MessageKey, string> = {
   "handover.summarize": "Demander un résumé",
   "handover.summarizeHelp": "Demande un résumé à l'agent actuel. Fais la passation ensuite.",
   "handover.summaryAsked": "Résumé demandé. Une fois prêt, choisis à nouveau « Passer à … ».",
+  "handover.notReady": "{program} n’était pas prêt, la passation n’a pas été collée.",
+  "handover.copied": "Passation copiée dans le presse-papiers.",
   "handover.summaryRequest":
     "Résume brièvement : objectif, étapes faites, points ouverts et fichiers modifiés. Un autre agent prend ensuite le relais.",
   "handover.intro": "Passation : tu reprends le travail de {from} dans le dossier {folder}.",
@@ -8858,6 +8868,8 @@ const it: Record<MessageKey, string> = {
   "handover.summarize": "Chiedi un riepilogo",
   "handover.summarizeHelp": "Chiede un riepilogo all'agente attuale. Poi fai il passaggio.",
   "handover.summaryAsked": "Riepilogo richiesto. Quando è pronto, scegli di nuovo «Passa a …».",
+  "handover.notReady": "{program} non era pronto, il passaggio non è stato incollato.",
+  "handover.copied": "Passaggio copiato negli appunti.",
   "handover.summaryRequest":
     "Riassumi in breve: obiettivo, passi fatti, punti aperti e file modificati. Poi subentra un altro agente.",
   "handover.intro": "Passaggio di consegne: prendi il lavoro di {from} nella cartella {folder}.",
@@ -10589,6 +10601,9 @@ const ja: Record<MessageKey, string> = {
   "handover.summarizeHelp": "現在のエージェントに要約を依頼します。その後で引き継いでください。",
   "handover.summaryAsked":
     "要約を依頼しました。届いたら、もう一度「引き継ぎ先 …」を選んでください。",
+  "handover.notReady":
+    "{program} の準備ができていなかったため、引き継ぎは貼り付けられませんでした。",
+  "handover.copied": "引き継ぎをクリップボードにコピーしました。",
   "handover.summaryRequest":
     "目的、完了した作業、未解決の点、変更したファイルを簡潔にまとめてください。このあと別のエージェントが引き継ぎます。",
   "handover.intro": "引き継ぎ: フォルダー {folder} で {from} の作業を引き継ぎます。",
@@ -12307,6 +12322,8 @@ const pl: Record<MessageKey, string> = {
   "handover.summarizeHelp": "Prosi obecnego agenta o podsumowanie. Potem przekaż sesję.",
   "handover.summaryAsked":
     "Poproszono o podsumowanie. Gdy będzie gotowe, wybierz ponownie „Przekaż do …”.",
+  "handover.notReady": "{program} nie był gotowy, przekazanie nie zostało wklejone.",
+  "handover.copied": "Przekazanie skopiowane do schowka.",
   "handover.summaryRequest":
     "Podsumuj krótko: cel, wykonane kroki, otwarte kwestie i zmienione pliki. Potem przejmie inny agent.",
   "handover.intro": "Przekazanie: przejmujesz pracę {from} w folderze {folder}.",
@@ -14015,6 +14032,8 @@ const pt: Record<MessageKey, string> = {
   "handover.summarize": "Pedir resumo",
   "handover.summarizeHelp": "Pede um resumo ao agente atual. Depois faça a passagem.",
   "handover.summaryAsked": "Resumo pedido. Quando estiver pronto, escolha de novo “Passar para …”.",
+  "handover.notReady": "{program} não estava pronto, a passagem não foi colada.",
+  "handover.copied": "Passagem copiada para a área de transferência.",
   "handover.summaryRequest":
     "Resuma brevemente: objetivo, passos feitos, pontos em aberto e arquivos alterados. Depois outro agente assume.",
   "handover.intro": "Passagem: você assume o trabalho de {from} na pasta {folder}.",
@@ -15734,6 +15753,8 @@ const ru: Record<MessageKey, string> = {
   "handover.summarize": "Запросить сводку",
   "handover.summarizeHelp": "Просит текущего агента подвести итог. Затем передай сессию.",
   "handover.summaryAsked": "Сводка запрошена. Когда она будет готова, снова выбери «Передать …».",
+  "handover.notReady": "{program} не был готов, передача не вставлена.",
+  "handover.copied": "Передача скопирована в буфер обмена.",
   "handover.summaryRequest":
     "Кратко подведи итог: цель, сделанные шаги, открытые вопросы и изменённые файлы. Потом работу примет другой агент.",
   "handover.intro": "Передача: ты продолжаешь работу {from} в папке {folder}.",
@@ -17434,6 +17455,8 @@ const tr: Record<MessageKey, string> = {
   "handover.summarize": "Özet iste",
   "handover.summarizeHelp": "Mevcut ajandan bir özet ister. Sonra devret.",
   "handover.summaryAsked": "Özet istendi. Hazır olduğunda yeniden “Devret …” seç.",
+  "handover.notReady": "{program} hazır değildi, devir yapıştırılmadı.",
+  "handover.copied": "Devir panoya kopyalandı.",
   "handover.summaryRequest":
     "Kısaca özetle: hedef, yapılan adımlar, açık noktalar ve değişen dosyalar. Ardından başka bir ajan devralacak.",
   "handover.intro": "Devir: {folder} klasöründe {from} ajanının işini devralıyorsun.",
@@ -19123,6 +19146,8 @@ const zh: Record<MessageKey, string> = {
   "handover.summarize": "请求总结",
   "handover.summarizeHelp": "请当前代理做一个总结，之后再移交。",
   "handover.summaryAsked": "已请求总结。总结完成后，请再次选择“移交给 …”。",
+  "handover.notReady": "{program} 尚未就绪，移交内容未粘贴。",
+  "handover.copied": "移交内容已复制到剪贴板。",
   "handover.summaryRequest":
     "请简要总结：目标、已完成的步骤、未决事项和已更改的文件。之后将由另一个代理接手。",
   "handover.intro": "移交：你将在文件夹 {folder} 中接手 {from} 的工作。",

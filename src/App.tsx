@@ -723,13 +723,23 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(EMPTY_FOLDERS);
+  /** The day the budget notice last showed, kept by the backend with the preferences. */
+  const [budgetWarnedDay, setBudgetWarnedDay] = useState<string | null>(null);
   useEffect(() => {
     void loadMainPrefs(oldPrefs).then((stored) => {
-      const { startMode: mode, lastProgram, favorites, recent, ...notices } = stored;
+      const {
+        startMode: mode,
+        lastProgram,
+        favorites,
+        recent,
+        budgetWarnedDay,
+        ...notices
+      } = stored;
       savedPrefs.current = JSON.stringify(stored);
       setStartMode(mode);
       setLastProgramId(lastProgram);
       setFolders({ favorites, recent });
+      setBudgetWarnedDay(budgetWarnedDay);
       setSettings((current) => ({ ...current, ...notices }));
       setPrefsReady(true);
     });
@@ -758,6 +768,11 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** The session whose "Hand over to" dialog is open. */
   const [handoverId, setHandoverId] = useState<number | null>(null);
+  /** A handover text that was not pasted (the new agent never turned bracketed paste on). */
+  const [unpastedHandover, setUnpastedHandover] = useState<{
+    text: string;
+    program: string;
+  } | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   /** The commands submenu of a session (session menu, "Commands …"), at the menu's place. */
@@ -1234,12 +1249,13 @@ export function App() {
       favorites: folders.favorites,
       recent: folders.recent,
       ...noticesOf(settings),
+      budgetWarnedDay,
     };
     const text = JSON.stringify(next);
     if (text === savedPrefs.current) return;
     savedPrefs.current = text;
     saveMainPrefs(next).catch(() => undefined);
-  }, [prefsReady, startMode, lastProgramId, folders, settings]);
+  }, [prefsReady, startMode, lastProgramId, folders, settings, budgetWarnedDay]);
 
   // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
@@ -4923,7 +4939,8 @@ export function App() {
       },
       delay,
     );
-    if (ready) pasteIntoSession(newId, text);
+    if (ready === "ready") pasteIntoSession(newId, text);
+    else if (ready === "notReady") setUnpastedHandover({ text, program: profile.name });
   };
 
   const editorSession =
@@ -5695,9 +5712,44 @@ export function App() {
                 </div>
               </div>
             )}
+            {unpastedHandover !== null && (
+              <div className="link-notice" role="status">
+                <span>{t("handover.notReady", { program: unpastedHandover.program })}</span>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const { text } = unpastedHandover;
+                      setUnpastedHandover(null);
+                      writeClipboard(text)
+                        .then(() => {
+                          setStartHint(t("handover.copied"));
+                        })
+                        .catch(showError);
+                    }}
+                  >
+                    {t("menu.copy")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setUnpastedHandover(null);
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
             <BudgetNotice
               language={settings.language}
-              budget={settings.dailyBudget}
+              budget={prefsReady ? settings.dailyBudget : null}
+              warnedDay={budgetWarnedDay}
+              onWarned={setBudgetWarnedDay}
               quietHours={settings.quietHours}
               onShowCosts={() => {
                 setDialog("costs");

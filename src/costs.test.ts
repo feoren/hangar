@@ -7,8 +7,10 @@ import {
   costText,
   dayLabel,
   formatUsd,
+  MAX_BUDGET_USD,
   parseBudget,
   parseCostReport,
+  parseWarnedDay,
   todayCost,
   type CostReport,
 } from "./costs";
@@ -120,10 +122,36 @@ describe("daily budget", () => {
     expect(parseBudget(-1)).toBeNull();
     expect(parseBudget("5")).toBeNull();
     expect(parseBudget(Number.NaN)).toBeNull();
+    // Checked after rounding: the backend never gets a zero or more than the maximum.
+    expect(parseBudget(0.004)).toBeNull();
+    expect(parseBudget(MAX_BUDGET_USD)).toBe(MAX_BUDGET_USD);
+    expect(parseBudget(MAX_BUDGET_USD + 0.01)).toBeNull();
     expect(budgetFromInput(" 12,5 ")).toBe(12.5);
     expect(budgetFromInput("$7")).toBe(7);
     expect(budgetFromInput("")).toBeNull();
     expect(budgetFromInput("abc")).toBeNull();
+  });
+
+  it("reads the warned day strictly as a calendar day", () => {
+    expect(parseWarnedDay("2026-11-14")).toBe("2026-11-14");
+    expect(parseWarnedDay("9999-12-31")).toBe("9999-12-31");
+    for (const day of [
+      null,
+      14,
+      "",
+      "2026-11-1",
+      "2026-11-145",
+      "2026/11/14",
+      "2026-00-14",
+      "2026-13-14",
+      "2026-11-00",
+      "2026-11-32",
+      "２０２６-11-14",
+      "2026-11-14\n",
+      " 2026-11-14",
+    ]) {
+      expect(parseWarnedDay(day), String(day)).toBeNull();
+    }
   });
 
   it("warns once a day when the budget is reached, never in quiet hours", () => {

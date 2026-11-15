@@ -1,12 +1,14 @@
 // What the main window keeps in the backend instead of localStorage: the security switches
 // (claims, gate, command guard), the queued messages, the protected settings (paste warning,
 // automatic updates, HANGAR.md, snippets), the workspace templates and the start and notice
-// preferences (private or team start, last program, folders, session restore, notices). The
+// preferences (private or team start, last program, folders, session restore, notices, the daily
+// budget and the day its notice last showed). The
 // panel and file viewer windows share the main window's origin and with it its localStorage; a
 // compromised viewer could otherwise turn the gate or the paste warning off, queue a message or
 // plant a snippet Hangar later pastes into an agent session, plant a template or a recent folder
 // that starts a program in a folder of its choice, make the next start private (without the
-// gate), or silence the notices of an agent that waits for approval. The backend commands answer
+// gate), silence the notices of an agent that waits for approval, or hide the budget notice. The
+// backend commands answer
 // the main window only (`main_store.rs`).
 //
 // Migration: as long as the backend has stored nothing, the values an older version kept in
@@ -14,6 +16,7 @@
 // read from there again.
 
 import { api } from "./api";
+import { BUDGET_WARNED_STORAGE_KEY, parseBudget, parseWarnedDay } from "./costs";
 import {
   FOLDERS_STORAGE_KEY,
   LAST_CWD_STORAGE_KEY,
@@ -76,6 +79,8 @@ export interface MainPrefs extends FolderPrefs, NoticeSettings {
   startMode: StartMode;
   /** The profile Ctrl+Shift+T starts; `null`: the first program in the list. */
   lastProgram: string | null;
+  /** The local day ("YYYY-MM-DD") the budget notice last showed; it shows once a day. */
+  budgetWarnedDay: string | null;
 }
 
 type LegacyStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -287,6 +292,7 @@ export function defaultMainPrefs(): MainPrefs {
     favorites: [],
     recent: [],
     ...noticesOf(defaultSettings("en")),
+    budgetWarnedDay: null,
   };
 }
 
@@ -309,7 +315,11 @@ export function parseMainPrefs(value: unknown): MainPrefs | null {
   const taskbarFlash = read("taskbarFlash");
   const notifyDesktop = read("notifyDesktop");
   const chime = read("chime");
+  const dailyBudget: unknown = Reflect.get(value, "dailyBudget") ?? null;
+  const budgetWarnedDay: unknown = Reflect.get(value, "budgetWarnedDay") ?? null;
   if (startMode !== "private" && startMode !== "team") return null;
+  if (dailyBudget !== null && parseBudget(dailyBudget) === null) return null;
+  if (budgetWarnedDay !== null && parseWarnedDay(budgetWarnedDay) === null) return null;
   if (lastProgram !== null && parseLastProgram(lastProgram) === null) return null;
   if (
     restoreSessions === null ||
@@ -332,6 +342,8 @@ export function parseMainPrefs(value: unknown): MainPrefs | null {
     notifyDesktop,
     chime,
     quietHours: parseQuietHours(Reflect.get(value, "quietHours")),
+    dailyBudget: parseBudget(dailyBudget),
+    budgetWarnedDay: parseWarnedDay(budgetWarnedDay),
   };
 }
 
@@ -345,13 +357,16 @@ export function persistableMainPrefs(prefs: MainPrefs): MainPrefs {
     recent: folders.recent,
     ...noticesOf(prefs),
     quietHours: parseQuietHours(prefs.quietHours),
+    dailyBudget: parseBudget(prefs.dailyBudget),
+    budgetWarnedDay: parseWarnedDay(prefs.budgetWarnedDay),
   };
 }
 
 /**
  * What an older Hangar kept of the preferences in localStorage, for the one migration: the
- * start mode, the last program, the folders and the notice settings in the stored settings text
- * (`settingsText`, read at start before anything saves).
+ * start mode, the last program, the folders, the day the budget notice last showed and the
+ * notice settings with the budget in the stored settings text (`settingsText`, read at start
+ * before anything saves).
  */
 export function legacyMainPrefs(
   storage: LegacyStorage | null,
@@ -359,11 +374,18 @@ export function legacyMainPrefs(
 ): MainPrefs {
   const notices = legacyNotices(settingsText);
   if (storage === null) return { ...defaultMainPrefs(), ...notices };
+  let warnedDay: string | null = null;
+  try {
+    warnedDay = parseWarnedDay(storage.getItem(BUDGET_WARNED_STORAGE_KEY));
+  } catch {
+    // Blocked storage: the notice may show once more today.
+  }
   return {
     startMode: legacyStartMode(storage),
     lastProgram: legacyLastProgram(storage),
     ...legacyFolderPrefs(storage),
     ...notices,
+    budgetWarnedDay: warnedDay,
   };
 }
 
@@ -373,6 +395,7 @@ const LEGACY_PREF_KEYS = [
   LAST_PROGRAM_STORAGE_KEY,
   FOLDERS_STORAGE_KEY,
   LAST_CWD_STORAGE_KEY,
+  BUDGET_WARNED_STORAGE_KEY,
 ] as const;
 
 /**

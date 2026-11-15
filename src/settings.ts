@@ -3,7 +3,7 @@
 // is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
 // command guard), the protected settings (paste warning, automatic updates, HANGAR.md,
 // snippets) and the notice settings (session restore, attention, taskbar flash, desktop
-// notifications, chime, quiet hours) are the exception: the panel and file viewer windows share
+// notifications, chime, quiet hours, daily budget) are the exception: the panel and file viewer windows share
 // this localStorage, so the backend keeps them for the main window alone (mainStore.ts); they are
 // neither read from nor written to localStorage here.
 
@@ -58,9 +58,9 @@ export type ProtectedSettings = Pick<Settings, ProtectedKey>;
 
 /**
  * Settings that decide whether sessions come back and whether a session that waits for the
- * person shows itself, kept by the backend with the start preferences (mainStore.ts `MainPrefs`):
- * a viewer that could write them could silence the notices of an agent asking for approval, or
- * turn the restore off.
+ * person or a budget that was reached shows itself, kept by the backend with the start
+ * preferences (mainStore.ts `MainPrefs`): a viewer that could write them could silence the
+ * notices of an agent asking for approval, turn the restore off, or set the budget out of reach.
  */
 export const NOTICE_KEYS = [
   "restoreSessions",
@@ -69,6 +69,7 @@ export const NOTICE_KEYS = [
   "notifyDesktop",
   "chime",
   "quietHours",
+  "dailyBudget",
 ] as const;
 
 export type NoticeKey = (typeof NOTICE_KEYS)[number];
@@ -369,7 +370,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     viewerTheme: parseViewerTheme(viewerTheme) ?? defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
     snippets: defaultSnippets(chosenLanguage),
-    dailyBudget: parseBudget(get("dailyBudget")),
+    // Never from localStorage either: the backend keeps it with the notices (mainStore.ts).
+    dailyBudget: defaults.dailyBudget,
   };
 }
 
@@ -459,6 +461,7 @@ export function noticesOf(settings: NoticeSettings): NoticeSettings {
     notifyDesktop: settings.notifyDesktop,
     chime: settings.chime,
     quietHours: settings.quietHours,
+    dailyBudget: settings.dailyBudget,
   };
 }
 
@@ -475,7 +478,7 @@ export function legacyNotices(text: string | null): NoticeSettings {
     return defaults;
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return defaults;
-  const flag = (key: Exclude<NoticeKey, "quietHours">): boolean => {
+  const flag = (key: Exclude<NoticeKey, "quietHours" | "dailyBudget">): boolean => {
     const value: unknown = Reflect.get(raw, key);
     return typeof value === "boolean" ? value : defaults[key];
   };
@@ -486,6 +489,7 @@ export function legacyNotices(text: string | null): NoticeSettings {
     notifyDesktop: flag("notifyDesktop"),
     chime: flag("chime"),
     quietHours: parseQuietHours(Reflect.get(raw, "quietHours")),
+    dailyBudget: parseBudget(Reflect.get(raw, "dailyBudget")),
   };
 }
 

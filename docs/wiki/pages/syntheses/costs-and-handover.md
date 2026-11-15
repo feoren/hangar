@@ -36,10 +36,13 @@ updated: 2026-11-15
   `model-prices.toml` next to profiles.toml (same format; same `id` replaces). An id matches
   exactly or with a date (`-20251101`) or option suffix (`[1m]`), never a longer model id. A
   response of an unknown model, or a fast response without `fast_factor`, has no price; its tokens
-  count as `unpriced`.
+  count as `unpriced`. The user file is read with `take(256 KiB + 1)` and refused when it holds
+  more, so a size checked before and a file that grows in between cannot meet.
 - Ledger `cost-ledger.json` in the local data folder: per conversation id and local day the
   tokens, the cost of the priced part and the unpriced tokens. Replaced from the transcript on every
   change (never added), 31 days, at most 2000 conversations, written at most every 30 s and on exit.
+  Read with `persist::read_regular_capped` (8 MiB, regular files only, never more than the limit
+  plus one byte); a larger or foreign file starts an empty ledger.
 - `cost-usage-changed` is a signal without payload (main window only, but any window may listen
   to an event, see [[process-launch-hardening]], and the report carries session titles); the main
   window then reads `cost_report`, and only the answer to the newest read counts.
@@ -60,6 +63,15 @@ updated: 2026-11-15
 - View menu "Costs …": today per session, the last 7 days as bars, the price source and date.
 - Settings, Attention, Resources: daily budget in dollars. When today's estimate reaches it, a
   notice shows once per local day; during quiet hours it waits until they end.
+- The budget (`dailyBudget`) and the day the notice last showed (`budgetWarnedDay`) live in the
+  protected `main-prefs.json` (`MainPrefs` in `main_store.rs`, main window only), not in
+  localStorage: the panel and file viewer windows share the origin and could otherwise set the
+  budget out of reach or mark today as warned. The backend refuses a budget that is not finite,
+  below one cent (`MIN_BUDGET_USD`, so the window never rounds a stored budget to zero) or above
+  `MAX_BUDGET_USD` (100,000), and a day that is not strictly `YYYY-MM-DD` (month 01 to 12, day 01
+  to 31); the window rounds to cents before it checks, so it never sends a zero. Files written before these fields existed load with both unset. An older value in
+  localStorage (`dailyBudget` in `hangar.settings`, `hangar.costs.warnedDay`) is taken over once
+  with the other preferences, only while the backend has none stored, and then removed.
 
 ## Handover
 
@@ -72,7 +84,11 @@ updated: 2026-11-15
   otherwise, so closing either never removes the worktree under the other.
 - Hangar waits until the new agent turned on bracketed paste and its output paused for 1 s (at
   most 30 s), then pastes without Enter (`pasteIntoSession`, which asks first when the text would
-  run lines).
+  run lines). After the 30 s bracketed paste alone is enough (an agent that keeps drawing a
+  spinner). Without bracketed paste the text is never pasted, because every line break would
+  submit a line and the text carries foreign content (note excerpts, git file names): a notice
+  says the agent was not ready and offers "Copy" (`waitUntilReady` answers `ready`, `gone` or
+  `notReady`).
 - The text (`src/handover.ts`): introduction with program and folder, the last request (at most
   1500 characters, quoted; the old terminal tracks the user's submitted lines in agent sessions,
   `SessionTerminal.lastRequest`, skipping slash commands and one-character answers, since the last

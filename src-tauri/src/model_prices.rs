@@ -152,6 +152,22 @@ impl ModelPrice {
     }
 }
 
+/// The user's price file as text, `None` when it holds more than [`MAX_USER_BYTES`]. The limit
+/// applies to what is read, not to a size looked up before: the file may grow in between.
+fn read_user_file(path: &Path) -> std::io::Result<Option<String>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(MAX_USER_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_USER_BYTES {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
 impl PriceTable {
     pub fn parse(text: &str) -> Result<Self, PriceError> {
         let table: Self = toml::from_str(text)?;
@@ -173,15 +189,11 @@ impl PriceTable {
     pub fn load(config_dir: &Path) -> (Self, Option<PriceError>) {
         let mut table = Self::built_in();
         let path = config_dir.join(USER_FILE);
-        let user = match std::fs::metadata(&path) {
+        let user = match read_user_file(&path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (table, None),
             Err(error) => Err(PriceError::Io(error)),
-            Ok(meta) if meta.len() > MAX_USER_BYTES => {
-                Err(PriceError::Invalid(format!("{USER_FILE} is too large")))
-            }
-            Ok(_) => std::fs::read_to_string(&path)
-                .map_err(PriceError::from)
-                .and_then(|text| Self::parse(&text)),
+            Ok(None) => Err(PriceError::Invalid(format!("{USER_FILE} is too large"))),
+            Ok(Some(text)) => Self::parse(&text),
         };
         match user {
             Ok(user) => {
@@ -350,6 +362,22 @@ mod tests {
         fs::write(dir.path().join(USER_FILE), "[[model]]\nid = 3\n").unwrap();
         let (table, error) = PriceTable::load(dir.path());
         assert!(error.is_some());
+        assert_eq!(table, PriceTable::built_in());
+    }
+
+    #[test]
+    fn a_user_file_over_the_limit_is_refused_without_reading_it_all() {
+        let dir = TempDir::new("model-prices-limit");
+        let entry = "[[model]]\nid = \"local-model\"\ninput = 0.0\noutput = 0.0\n";
+        let padded = |len: usize| format!("{entry}{}", "#".repeat(len - entry.len()));
+        let limit = usize::try_from(MAX_USER_BYTES).unwrap();
+        fs::write(dir.path().join(USER_FILE), padded(limit)).unwrap();
+        let (table, error) = PriceTable::load(dir.path());
+        assert!(error.is_none(), "{error:?}");
+        assert!(table.lookup("local-model").is_some());
+        fs::write(dir.path().join(USER_FILE), padded(limit + 1)).unwrap();
+        let (table, error) = PriceTable::load(dir.path());
+        assert!(matches!(error, Some(PriceError::Invalid(_))), "{error:?}");
         assert_eq!(table, PriceTable::built_in());
     }
 }

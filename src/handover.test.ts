@@ -144,22 +144,51 @@ describe("waitUntilReady", () => {
       },
       noWait,
     );
-    expect(ready).toBe(true);
+    expect(ready).toBe("ready");
     expect(polls).toBe(5);
   });
 
-  it("gives up on a closed session and pastes anyway after the timeout", async () => {
+  it("gives up on a closed session", async () => {
     const closed = await waitUntilReady(
       { bracketedPaste: () => false, quietFor: () => null, gone: () => true },
       noWait,
     );
-    expect(closed).toBe(false);
+    expect(closed).toBe("gone");
+  });
+
+  it("does not paste after the timeout without bracketed paste", async () => {
     const late = await waitUntilReady(
-      { bracketedPaste: () => false, quietFor: () => null, gone: () => false },
+      { bracketedPaste: () => false, quietFor: () => 5000, gone: () => false },
       noWait,
       1000,
     );
-    expect(late).toBe(true);
+    expect(late).toBe("notReady");
+  });
+
+  it("pastes after the timeout when bracketed paste is on but the output never pauses", async () => {
+    const busy = await waitUntilReady(
+      { bracketedPaste: () => true, quietFor: () => 10, gone: () => false },
+      noWait,
+      1000,
+    );
+    expect(busy).toBe("ready");
+  });
+
+  it("reports a session that closed right at the timeout as gone", async () => {
+    let polls = 0;
+    const closed = await waitUntilReady(
+      {
+        bracketedPaste: () => true,
+        quietFor: () => 10,
+        gone: () => {
+          polls += 1;
+          return polls > 4;
+        },
+      },
+      noWait,
+      1000,
+    );
+    expect(closed).toBe("gone");
   });
 });
 

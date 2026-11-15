@@ -43,7 +43,7 @@ pub const REPORT_DAYS: i64 = 7;
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Bounds the ledger: the conversations with the newest days win.
 const MAX_LEDGER_SESSIONS: usize = 2000;
-const MAX_LEDGER_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_LEDGER_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 120;
 const LEDGER_VERSION: u32 = 1;
 
@@ -172,9 +172,10 @@ impl Ledger {
     /// Reads the ledger; a missing, oversized or broken file starts an empty one, and entries
     /// that do not check out are dropped.
     fn load(path: &Path) -> Self {
-        let fits = fs::metadata(path).is_ok_and(|meta| meta.len() <= MAX_LEDGER_BYTES);
-        let mut ledger: Self = fits
-            .then(|| fs::read(path).ok())
+        // The limit holds for what is read, not for a size looked up before; a link, a folder
+        // or a device is no ledger either.
+        let mut ledger: Self = crate::persist::read_regular_capped(path, MAX_LEDGER_BYTES)
+            .ok()
             .flatten()
             .and_then(|data| serde_json::from_slice(&data).ok())
             .unwrap_or_default();
@@ -709,5 +710,27 @@ mod tests {
         assert!(Ledger::load(&dir.path().join("missing.json"))
             .sessions
             .is_empty());
+    }
+
+    #[test]
+    fn a_ledger_over_the_limit_starts_empty() {
+        let dir = TempDir::new("cost-ledger-limit");
+        let path = dir.path().join(LEDGER_FILE);
+        let mut ledger = Ledger::default();
+        ledger.sessions.insert(
+            SESSION.into(),
+            LedgerSession {
+                title: "A".into(),
+                program: "Claude Code".into(),
+                days: [("2026-11-13".to_owned(), Bucket::default())].into(),
+            },
+        );
+        let json = serde_json::to_string(&ledger).unwrap();
+        // Trailing white space is valid JSON, so only the size decides.
+        let padded = |len: usize| format!("{json}{}", " ".repeat(len - json.len()));
+        fs::write(&path, padded(MAX_LEDGER_BYTES)).unwrap();
+        assert_eq!(Ledger::load(&path).sessions, ledger.sessions);
+        fs::write(&path, padded(MAX_LEDGER_BYTES + 1)).unwrap();
+        assert!(Ledger::load(&path).sessions.is_empty());
     }
 }

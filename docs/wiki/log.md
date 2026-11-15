@@ -913,3 +913,10 @@ handover reads the last request from its own tracker in the terminal (the last p
 gone), the changed files by session id, and its menu entry shows only while another installed
 agent can take over. The cost line stays in the peek, after the row builder's load and context.
 Pages changed: [[costs-and-handover]].
+
+## [2026-11-15] update | Costs and handover security review
+The daily budget and the day its notice last showed moved from localStorage into the protected
+`main-prefs.json`, validated by the backend and migrated once. The price file and the ledger are
+read with a byte cap instead of a size check before the read. A handover whose new agent never
+turned on bracketed paste is no longer pasted; a notice offers to copy it.
+Pages changed: [[costs-and-handover]].

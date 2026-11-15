@@ -18,7 +18,7 @@ export const FILES_MAX = 40;
 /** Notes listed, each with an excerpt of up to NOTE_EXCERPT_MAX characters. */
 export const NOTES_MAX = 5;
 export const NOTE_EXCERPT_MAX = 160;
-/** How long the new agent gets to start before the text is pasted anyway. */
+/** How long the new agent gets to turn bracketed paste on and fall quiet. */
 export const READY_TIMEOUT_MS = 30_000;
 /** Output must have paused this long: the agent's prompt is drawn and waits for input. */
 export const READY_QUIET_MS = 1000;
@@ -185,20 +185,29 @@ export interface ReadyProbe {
 }
 
 /**
+ * How the wait ended: `ready` to paste; `gone` when the session went away; `notReady` when the
+ * timeout passed without bracketed paste. Without it every line break of the text would submit
+ * a line, and the text carries foreign content (note excerpts, file names), so it is not pasted
+ * then: the person gets it to copy instead.
+ */
+export type ReadyResult = "ready" | "gone" | "notReady";
+
+/**
  * Waits until the new agent is ready for input: bracketed paste on and output paused for
- * READY_QUIET_MS. Resolves `true` then or after the timeout (the paste then asks first if it
- * would run lines), `false` when the session went away.
+ * READY_QUIET_MS. After the timeout, bracketed paste alone is enough (a program that keeps
+ * drawing a spinner).
  */
 export async function waitUntilReady(
   probe: ReadyProbe,
   wait: (ms: number) => Promise<void>,
   timeoutMs = READY_TIMEOUT_MS,
-): Promise<boolean> {
+): Promise<ReadyResult> {
   for (let waited = 0; waited < timeoutMs; waited += READY_POLL_MS) {
-    if (probe.gone()) return false;
+    if (probe.gone()) return "gone";
     const quiet = probe.quietFor();
-    if (probe.bracketedPaste() && quiet !== null && quiet >= READY_QUIET_MS) return true;
+    if (probe.bracketedPaste() && quiet !== null && quiet >= READY_QUIET_MS) return "ready";
     await wait(READY_POLL_MS);
   }
-  return !probe.gone();
+  if (probe.gone()) return "gone";
+  return probe.bracketedPaste() ? "ready" : "notReady";
 }

@@ -182,11 +182,31 @@ export function todayCost(report: CostReport): DayCost | undefined {
   return report.days.find((day) => day.day === report.today);
 }
 
-/** A stored budget: dollars above zero up to MAX_BUDGET_USD, else none. */
+/**
+ * A stored budget: whole cents above zero up to MAX_BUDGET_USD, else none. Checked after
+ * rounding, so the backend (`main_store.rs`) never gets a zero.
+ */
 export function parseBudget(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  if (value <= 0 || value > MAX_BUDGET_USD) return null;
-  return Math.round(value * 100) / 100;
+  const dollars = Math.round(value * 100) / 100;
+  return dollars <= 0 || dollars > MAX_BUDGET_USD ? null : dollars;
+}
+
+/**
+ * Where an older version kept the day the budget notice last showed; the backend keeps it now
+ * (`mainStore.ts`), and this key is only read once for the migration.
+ */
+export const BUDGET_WARNED_STORAGE_KEY = "hangar.costs.warnedDay";
+
+/**
+ * The day the budget notice last showed: strictly "YYYY-MM-DD" with a month from 01 to 12 and a
+ * day from 01 to 31, as the backend checks it (`main_store.rs`); else none.
+ */
+export function parseWarnedDay(value: unknown): string | null {
+  if (typeof value !== "string" || !DAY.test(value)) return null;
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31 ? value : null;
 }
 
 /** The budget field's text ("12.5", "12,5") as dollars; empty means no budget. */

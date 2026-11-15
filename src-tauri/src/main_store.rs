@@ -3,15 +3,17 @@
 //! reaches an agent or the machine ([`ProtectedSettings`]: the paste warning, automatic updates,
 //! HANGAR.md for every agent, the snippets), the workspace templates (program and folder of
 //! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
-//! start, the last program, the favorite and recent folders, session restore, and whether and when
-//! a waiting session shows itself).
+//! start, the last program, the favorite and recent folders, session restore, whether and when
+//! a waiting session shows itself, and the daily budget with the day its notice last showed).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
 //! off for the next start, queue a message or plant a snippet that Hangar later pastes into an
 //! agent session, switch the paste warning or updates off, plant a template that starts a
 //! program in a folder of its choice, point the next start at such a folder, start it private
-//! (without the gate), or silence the notices of a session that waits for the person. Here the files sit in the local app data folder, written
+//! (without the gate), silence the notices of a session that waits for the person, or hide the
+//! budget notice (a budget out of reach, today marked as warned). Here the files sit in the
+//! local app data folder, written
 //! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
 //! commands answer the main window only ([`check_main`]).
 //!
@@ -49,6 +51,11 @@ pub const MAX_PROFILE_ID_UNITS: usize = 200;
 /// Folder lists of the "Starts in" menu as the window bounds them (`folders.ts`).
 pub const MAX_RECENT_FOLDERS: usize = 8;
 pub const MAX_FAVORITE_FOLDERS: usize = 50;
+/// Highest daily budget in dollars, as the window bounds it (`costs.ts` `MAX_BUDGET_USD`).
+pub const MAX_BUDGET_USD: f64 = 100_000.0;
+/// Lowest daily budget: one cent. The window rounds to cents, so anything below would read
+/// there as zero and make it drop all preferences of the file.
+pub const MIN_BUDGET_USD: f64 = 0.01;
 /// Minutes in a day: quiet hours start and end before this (`quietHours.ts`).
 const MINUTES_PER_DAY: u16 = 24 * 60;
 /// IDs of snippets and templates: `^[a-z0-9-]{1,40}$`, as the window checks them.
@@ -317,8 +324,8 @@ impl Default for QuietHours {
 
 /// Where and how the next session starts, and whether a waiting session shows itself. A damaged
 /// file gives the defaults: private start in the home folder, the first program, sessions
-/// restored, every notice on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// restored, every notice on, no budget.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MainPrefs {
     pub start_mode: StartMode,
@@ -334,6 +341,13 @@ pub struct MainPrefs {
     pub notify_desktop: bool,
     pub chime: bool,
     pub quiet_hours: QuietHours,
+    /// Daily budget in dollars; `None`: no budget notice. Missing in files written before it
+    /// existed.
+    #[serde(default)]
+    pub daily_budget: Option<f64>,
+    /// The local day (`YYYY-MM-DD`) the budget notice last showed; it shows once a day.
+    #[serde(default)]
+    pub budget_warned_day: Option<String>,
 }
 
 impl Default for MainPrefs {
@@ -349,8 +363,28 @@ impl Default for MainPrefs {
             notify_desktop: true,
             chime: true,
             quiet_hours: QuietHours::default(),
+            daily_budget: None,
+            budget_warned_day: None,
         }
     }
+}
+
+/// A calendar day as `YYYY-MM-DD`: four digits, a month from 01 to 12 and a day from 01 to 31.
+fn valid_day(day: &str) -> bool {
+    let bytes = day.as_bytes();
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    if !(digits(0..4) && digits(5..7) && digits(8..10)) {
+        return false;
+    }
+    let number = |range: std::ops::Range<usize>| {
+        bytes[range]
+            .iter()
+            .fold(0_u32, |sum, digit| sum * 10 + u32::from(digit - b'0'))
+    };
+    (1..=12).contains(&number(5..7)) && (1..=31).contains(&number(8..10))
 }
 
 /// A folder as the window keeps it (`folders.ts` `validPath`): not blank, no control
@@ -362,7 +396,8 @@ fn valid_folder(folder: &str) -> bool {
 }
 
 /// The bounds the window keeps: a program ID like a template's, folders like the menu's, quiet
-/// hours within a day.
+/// hours within a day, a budget from [`MIN_BUDGET_USD`] up to [`MAX_BUDGET_USD`], a warned day
+/// as a date.
 pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
     if let Some(program) = &prefs.last_program {
         if program.trim().is_empty()
@@ -386,6 +421,16 @@ pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
     let hours = prefs.quiet_hours;
     if hours.from >= MINUTES_PER_DAY || hours.to >= MINUTES_PER_DAY {
         return Err(MainStoreError::InvalidPrefs("quiet hours"));
+    }
+    if let Some(budget) = prefs.daily_budget {
+        if !budget.is_finite() || budget < MIN_BUDGET_USD || budget > MAX_BUDGET_USD {
+            return Err(MainStoreError::InvalidPrefs("budget"));
+        }
+    }
+    if let Some(day) = &prefs.budget_warned_day {
+        if !valid_day(day) {
+            return Err(MainStoreError::InvalidPrefs("warned day"));
+        }
     }
     Ok(())
 }
@@ -745,6 +790,8 @@ mod tests {
                 from: 0,
                 to: 1439,
             },
+            daily_budget: Some(12.5),
+            budget_warned_day: Some("2026-11-14".to_owned()),
         }
     }
 
@@ -761,7 +808,8 @@ mod tests {
                 "favorites": ["C:\\Work\\Repo"], "recent": ["/home/a/repo", "C:\\Work\\Repo"],
                 "restoreSessions": false, "attentionEnabled": false, "taskbarFlash": false,
                 "notifyDesktop": false, "chime": false,
-                "quietHours": { "enabled": true, "from": 0, "to": 1439 } })
+                "quietHours": { "enabled": true, "from": 0, "to": 1439 },
+                "dailyBudget": 12.5, "budgetWarnedDay": "2026-11-14" })
         );
         // The defaults are stored too: the migration ran.
         store.save_prefs(MainPrefs::default()).unwrap();
@@ -770,6 +818,20 @@ mod tests {
         assert_eq!(defaults.start_mode, StartMode::Private);
         assert!(defaults.restore_sessions && defaults.attention_enabled && defaults.chime);
         assert!(defaults.taskbar_flash && defaults.notify_desktop);
+        assert_eq!(
+            (defaults.daily_budget, defaults.budget_warned_day),
+            (None, None)
+        );
+        // A file written before the budget existed keeps its preferences.
+        std::fs::write(
+            tmp.path().join(PREFS_FILE),
+            r#"{"startMode":"team","lastProgram":null,"favorites":[],"recent":[],"restoreSessions":false,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0}}"#,
+        )
+        .unwrap();
+        let older = store.load_prefs().unwrap();
+        assert_eq!(older.start_mode, StartMode::Team);
+        assert!(!older.restore_sessions);
+        assert_eq!(older.daily_budget, None);
         // Damaged or foreign content: stored, but the defaults.
         for foreign in [
             r#"{"startMode":"root"}"#,
@@ -788,9 +850,56 @@ mod tests {
             recent: vec!["/r".to_owned(); MAX_RECENT_FOLDERS],
             favorites: vec!["f".repeat(MAX_FOLDER_UNITS); MAX_FAVORITE_FOLDERS],
             last_program: Some("p".repeat(MAX_PROFILE_ID_UNITS)),
+            daily_budget: Some(MAX_BUDGET_USD),
+            budget_warned_day: Some("9999-12-31".to_owned()),
             ..prefs()
         };
         assert!(validate_prefs(&at_limit).is_ok());
+        let one_cent = MainPrefs {
+            daily_budget: Some(MIN_BUDGET_USD),
+            ..prefs()
+        };
+        assert!(validate_prefs(&one_cent).is_ok());
+        let unset = MainPrefs {
+            daily_budget: None,
+            budget_warned_day: None,
+            ..prefs()
+        };
+        assert!(validate_prefs(&unset).is_ok());
+        for budget in [
+            0.0,
+            0.001,
+            -1.0,
+            MAX_BUDGET_USD + 0.01,
+            f64::NAN,
+            f64::INFINITY,
+        ] {
+            let prefs = MainPrefs {
+                daily_budget: Some(budget),
+                ..prefs()
+            };
+            assert!(validate_prefs(&prefs).is_err(), "{budget}");
+        }
+        for day in [
+            "",
+            "2026-11-1",
+            "2026-11-145",
+            "2026/11/14",
+            "2026-00-14",
+            "2026-13-14",
+            "2026-11-00",
+            "2026-11-32",
+            "２０２６-11-14",
+            "2026-1a-14",
+            "2026-11-14\n",
+            " 2026-11-14",
+        ] {
+            let prefs = MainPrefs {
+                budget_warned_day: Some(day.to_owned()),
+                ..prefs()
+            };
+            assert!(validate_prefs(&prefs).is_err(), "{day:?}");
+        }
         let bad = [
             MainPrefs {
                 last_program: Some(" ".to_owned()),
