@@ -16,24 +16,29 @@
 //! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
 //! own under `<data>/gate/sessions/`, removed when the session's process ends.
 //!
-//! Shell commands: Claude Code's `Bash` hook and the extensions' shell tool reach the same route
-//! with the command line instead of a path. The command guard (`command_guard.rs`, rules in
-//! `command-guard.toml`) decides whether the person is asked; a held command that gets no answer
-//! in time is denied (fail safe), whereas every error still lets it through.
+//! Shell commands: Claude Code's hook (matcher `*`, every tool) and the extensions' shell tool
+//! reach the same route with the command line instead of a path. A known shell tool, or any
+//! other tool with a string `tool_input.command` that is no edit tool, goes to the command guard
+//! (`command_guard.rs`, rules in `command-guard.toml`), which decides whether the person is
+//! asked; a held command that gets no answer in time is denied (fail safe). Other tools that are
+//! no edits pass at once.
 //!
 //! Connections: one thread each. Until its head is read and its token known, a connection holds
 //! one of [`MAX_UNAUTHENTICATED`] slots and has [`Limits::head`] in total for the head, however
-//! slowly it sends; a known session then moves to one of [`MAX_CONNECTIONS`] slots with
-//! [`Limits::body`] for its body. The accept thread never reads or writes: a connection over the
-//! limit is closed at once. A held request checks every [`WAIT_TICK`] whether the agent still
-//! waits, so an interrupted agent does not leave a card behind.
+//! slowly it sends; when all slots are taken, the oldest of them is closed for the newcomer
+//! once it waited [`Limits::grace`] for its head (a hook sends its head at once, so a burst of
+//! hooks is never cut), and past [`MAX_HEAD_THREADS`] busy head threads with none of them
+//! silent that long a new connection is closed at once. A known session then moves to one of [`MAX_CONNECTIONS`]
+//! slots, at most [`MAX_PER_SESSION`] of them its own, with [`Limits::body`] for its body. The
+//! accept thread never reads or blocks. A held request checks every [`WAIT_TICK`] whether the
+//! agent still waits, so an interrupted agent does not leave a card behind.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -65,12 +70,26 @@ use crate::team_tasks::TeamTask;
 
 /// Event to the main window with the newest [`GateSnapshot`].
 pub const EVENT: &str = "gate-changed";
-/// Connections of known sessions handled at the same time; one more is answered 503 (Claude
-/// Code then carries on as without the hook).
-pub const MAX_CONNECTIONS: usize = 64;
-/// Connections whose token is not known yet. Small, so a flood of slow connections cannot hold
-/// the threads; it only delays new hooks, which then fail open.
+/// Connections of known sessions handled at the same time. One more is denied while the gate
+/// is on (`Inner::overloaded`): an unanswered hook would let its call go ahead unchecked.
+pub const MAX_CONNECTIONS: usize = 128;
+/// Connections whose token is not known yet that may stay silent. With more open, a new one
+/// closes the oldest once that has waited [`HEAD_GRACE`] for its head: a hook sends its head at
+/// once, so silent clients cannot keep the hooks out, and a burst of parallel hooks is not cut.
 pub const MAX_UNAUTHENTICATED: usize = 8;
+/// Threads reading a head at once, closed connections that have not noticed yet included; over
+/// it a new connection is closed unanswered unless a silent one makes room. Bounds what a flood
+/// of connections costs; well above the hooks an agent sends at once.
+pub const MAX_HEAD_THREADS: usize = 128;
+/// How long a connection may wait for its head before a newer one may take its place. A hook's
+/// head arrives with the connection, so only a client that holds it silently is closed.
+const HEAD_GRACE: Duration = Duration::from_secs(1);
+/// Connections one known session holds at once, so one session cannot take every slot. Well
+/// above what an agent opens: Claude Code hooks every tool and runs several tools and
+/// sub-agents at once, and a quick hook holds its connection for milliseconds only.
+pub const MAX_PER_SESSION: usize = 32;
+/// How often a connection reading its head looks whether a newer one took its slot.
+const HEAD_POLL: Duration = Duration::from_millis(100);
 /// Stack of each connection thread (see `accept_loop`).
 const CONNECTION_STACK: usize = 8 * 1024 * 1024;
 /// How often a held request checks whether the agent still waits.
@@ -88,6 +107,8 @@ const SESSIONS_DIR: &str = "sessions";
 struct Limits {
     /// Request line and headers.
     head: Duration,
+    /// How long a connection may wait silently for its head before a newer one may close it.
+    grace: Duration,
     /// The body of a known session.
     body: Duration,
     /// Reading what the client still sends after the answer.
@@ -100,6 +121,7 @@ struct Limits {
 
 const LIMITS: Limits = Limits {
     head: Duration::from_secs(5),
+    grace: HEAD_GRACE,
     body: Duration::from_secs(30),
     linger: Duration::from_secs(2),
     write: Duration::from_secs(5),
@@ -120,7 +142,6 @@ struct Inner {
     gate: Mutex<Gate<Waiter>>,
     /// Port of the endpoint once it runs.
     port: Mutex<Option<u16>>,
-    unauthenticated: Arc<AtomicUsize>,
     connections: Arc<AtomicUsize>,
     limits: Limits,
     /// Where the hook settings for cmd.exe launchers go (no secret in them).
@@ -141,13 +162,19 @@ struct Inner {
     starts: AtomicUsize,
     /// The person's gate rules (`gate_rules.rs`) and the file they live in.
     rules: Mutex<Rules>,
-    /// The command guard's setting and rules.
+    /// The command guard's rules.
     guard: Mutex<Guard>,
+    /// The command guard's setting (on by default). Not under a lock, so `ask_command` can read
+    /// it while it holds the gate's.
+    guard_enabled: AtomicBool,
+    /// Connections whose head is still being read, oldest first.
+    heads: Arc<Mutex<Heads>>,
+    /// Connections each known session holds.
+    per_session: Arc<Mutex<HashMap<SessionId, usize>>>,
 }
 
 /// The command guard: on by default; its rules come from the file, read again when it changed.
 struct Guard {
-    enabled: bool,
     /// `command-guard.toml` in Hangar's config folder; without one (tests) the default rules.
     file: Option<PathBuf>,
     /// Modification time and length of the file the rules were read from.
@@ -160,7 +187,6 @@ struct Guard {
 impl Default for Guard {
     fn default() -> Self {
         Self {
-            enabled: true,
             file: None,
             stamp: None,
             wrote_default: false,
@@ -236,7 +262,6 @@ impl GateService {
             inner: Arc::new(Inner {
                 gate: Mutex::new(Gate::default()),
                 port: Mutex::new(None),
-                unauthenticated: Arc::new(AtomicUsize::new(0)),
                 connections: Arc::new(AtomicUsize::new(0)),
                 limits,
                 settings_dir,
@@ -250,6 +275,9 @@ impl GateService {
                 starts: AtomicUsize::new(0),
                 rules: Mutex::new(Rules::default()),
                 guard: Mutex::new(Guard::default()),
+                guard_enabled: AtomicBool::new(true),
+                heads: Arc::new(Mutex::new(Heads::default())),
+                per_session: Arc::new(Mutex::new(HashMap::new())),
             }),
         }
     }
@@ -350,12 +378,7 @@ impl GateService {
 
     /// The window's setting. Turning it off lets every held shell command go on.
     pub fn configure_command_guard(&self, enabled: bool) {
-        let changed = {
-            let mut guard = lock(&self.inner.guard);
-            let changed = guard.enabled != enabled;
-            guard.enabled = enabled;
-            changed
-        };
+        let changed = self.inner.guard_enabled.swap(enabled, Ordering::SeqCst) != enabled;
         if !changed || enabled {
             return;
         }
@@ -371,7 +394,7 @@ impl GateService {
         let set = self.inner.guard_rules();
         let guard = lock(&self.inner.guard);
         GuardInfo {
-            enabled: guard.enabled,
+            enabled: self.inner.guard_enabled.load(Ordering::SeqCst),
             file: guard
                 .file
                 .as_ref()
@@ -1058,11 +1081,118 @@ impl Drop for Slot {
     }
 }
 
+/// Connections whose head is still being read.
+#[derive(Default)]
+struct Heads {
+    next: u64,
+    /// The ones holding a slot, oldest first: id, a handle to close it, its cancel flag, when
+    /// it was accepted.
+    open: VecDeque<(u64, TcpStream, Arc<AtomicBool>, Instant)>,
+    /// Threads still reading a head, the closed ones that have not noticed yet included.
+    alive: usize,
+}
+
+/// A connection reading its head: one of [`MAX_UNAUTHENTICATED`] slots until the head is read
+/// or a newer connection takes the slot.
+struct HeadSlot {
+    heads: Arc<Mutex<Heads>>,
+    id: u64,
+    cancel: Arc<AtomicBool>,
+}
+
+impl HeadSlot {
+    /// A slot for `stream`. With [`MAX_UNAUTHENTICATED`] or more open, or every head thread
+    /// busy, the oldest connection is closed for this one once it waited `grace` for its head: a hook sends its head at once, a client that holds a slot silently does not,
+    /// so silent clients cannot keep the hooks out, while a burst of hooks arriving together
+    /// is never cut. `None` (closed unanswered) only when [`MAX_HEAD_THREADS`] threads are busy
+    /// and none of them has been silent that long. Each thread over that limit closed a silent
+    /// one, which ends within [`HEAD_POLL`], so the threads stay bounded.
+    fn take(heads: &Arc<Mutex<Heads>>, stream: &TcpStream, grace: Duration) -> Option<HeadSlot> {
+        let handle = stream.try_clone().ok()?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let now = Instant::now();
+        let (id, evicted) = {
+            let mut list = lock(heads);
+            let crowded = list.open.len() >= MAX_UNAUTHENTICATED || list.alive >= MAX_HEAD_THREADS;
+            let silent = list
+                .open
+                .front()
+                .is_some_and(|(_, _, _, since)| now.saturating_duration_since(*since) >= grace);
+            let evicted = if crowded && silent {
+                list.open.pop_front()
+            } else {
+                None
+            };
+            if evicted.is_none() && list.alive >= MAX_HEAD_THREADS {
+                return None;
+            }
+            let id = list.next;
+            list.next = list.next.wrapping_add(1);
+            list.open.push_back((id, handle, Arc::clone(&cancel), now));
+            list.alive += 1;
+            (id, evicted)
+        };
+        if let Some((_, oldest, flag, _)) = evicted {
+            flag.store(true, Ordering::SeqCst);
+            // Wakes its reader where the platform does; the flag ends it within HEAD_POLL.
+            let _ = oldest.shutdown(Shutdown::Both);
+        }
+        Some(HeadSlot {
+            heads: Arc::clone(heads),
+            id,
+            cancel,
+        })
+    }
+}
+
+impl Drop for HeadSlot {
+    fn drop(&mut self) {
+        let mut list = lock(&self.heads);
+        list.open.retain(|(id, _, _, _)| *id != self.id);
+        list.alive = list.alive.saturating_sub(1);
+    }
+}
+
+/// One of [`MAX_PER_SESSION`] connections of a known session.
+struct SessionSlot {
+    sessions: Arc<Mutex<HashMap<SessionId, usize>>>,
+    session: SessionId,
+}
+
+impl SessionSlot {
+    fn take(sessions: &Arc<Mutex<HashMap<SessionId, usize>>>, session: SessionId) -> Option<Self> {
+        let mut counts = lock(sessions);
+        let count = counts.entry(session).or_insert(0);
+        if *count >= MAX_PER_SESSION {
+            return None;
+        }
+        *count += 1;
+        Some(SessionSlot {
+            sessions: Arc::clone(sessions),
+            session,
+        })
+    }
+}
+
+impl Drop for SessionSlot {
+    fn drop(&mut self) {
+        let mut counts = lock(&self.sessions);
+        if let Some(count) = counts.get_mut(&self.session) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(&self.session);
+            }
+        }
+    }
+}
+
 /// Reads with one deadline for all reads together: each read may take only the time left, so a
 /// client sending a byte now and then cannot stretch a limit meant for the whole request.
 struct Deadline<'a> {
     stream: &'a TcpStream,
     until: Instant,
+    /// Set when a newer connection took this one's slot: reading stops within [`HEAD_POLL`].
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl<'a> Deadline<'a> {
@@ -1070,24 +1200,47 @@ impl<'a> Deadline<'a> {
         Self {
             stream,
             until: Instant::now() + limit,
+            cancel: None,
         }
     }
 
     /// A fresh total from now, for the next part of the request.
     fn restart(&mut self, limit: Duration) {
         self.until = Instant::now() + limit;
+        self.cancel = None;
     }
 }
 
 impl Read for Deadline<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let left = self.until.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Err(io::ErrorKind::TimedOut.into());
+        loop {
+            if self
+                .cancel
+                .as_ref()
+                .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+            {
+                return Err(io::ErrorKind::ConnectionAborted.into());
+            }
+            let left = self.until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            let slice = match self.cancel {
+                Some(_) => left.min(HEAD_POLL),
+                None => left,
+            };
+            self.stream.set_read_timeout(Some(slice))?;
+            let mut stream = self.stream;
+            match stream.read(buf) {
+                Err(error)
+                    if self.cancel.is_some()
+                        && matches!(
+                            error.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                        ) => {}
+                other => return other,
+            }
         }
-        self.stream.set_read_timeout(Some(left))?;
-        let mut stream = self.stream;
-        stream.read(buf)
     }
 }
 
@@ -1108,9 +1261,9 @@ fn accept_loop(inner: &Arc<Inner>, listener: &TcpListener) {
         if !loopback {
             continue;
         }
-        // Over the limit: closed unanswered, without a read or a write that could block this
-        // thread. Claude Code treats that as a failed hook and goes on.
-        let Some(slot) = Slot::take(&inner.unauthenticated, MAX_UNAUTHENTICATED) else {
+        // No thread left for heads: closed unanswered, without a read or a write that could
+        // block this thread. Claude Code treats that as a failed hook and goes on.
+        let Some(slot) = HeadSlot::take(&inner.heads, &stream, inner.limits.grace) else {
             continue;
         };
         let worker = Arc::clone(inner);
@@ -1126,24 +1279,30 @@ fn accept_loop(inner: &Arc<Inner>, listener: &TcpListener) {
     }
 }
 
-fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: Slot) {
+fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
     let _ = stream.set_write_timeout(Some(inner.limits.write));
-    let mut reader = BufReader::new(Deadline::new(stream, inner.limits.head));
+    let mut deadline = Deadline::new(stream, inner.limits.head);
+    deadline.cancel = Some(Arc::clone(&unauthenticated.cancel));
+    let mut reader = BufReader::new(deadline);
     // Held until the connection closes, once the session is known.
     let mut _authenticated = None;
     let (status, body) = match hook_http::read_head(&mut reader) {
         Err(error) => match error.status() {
-            Some(status) => (status, String::new()),
-            None => return,
+            Some(status) if !unauthenticated.cancel.load(Ordering::SeqCst) => {
+                (status, String::new())
+            }
+            _ => return,
         },
         Ok(head) => match inner.admit(&head) {
             Err(status) => (status, String::new()),
             Ok(session) => {
                 drop(unauthenticated);
-                match Slot::take(&inner.connections, MAX_CONNECTIONS) {
-                    None => (Status::Unavailable, String::new()),
-                    Some(slot) => {
-                        _authenticated = Some(slot);
+                let slots = Slot::take(&inner.connections, MAX_CONNECTIONS)
+                    .zip(SessionSlot::take(&inner.per_session, session));
+                match slots {
+                    None => inner.overloaded(&head),
+                    Some(slots) => {
+                        _authenticated = Some(slots);
                         reader.get_mut().restart(inner.limits.body);
                         inner.route(session, &head, &mut reader, stream)
                     }
@@ -1424,6 +1583,22 @@ impl Inner {
             .ok_or(Status::Unauthorized)
     }
 
+    /// The answer to a known session's request that finds no free slot, without reading its
+    /// body. A tool hook is denied while the gate is on: an unanswered one (503, closed) lets
+    /// the call go ahead unchecked, so a session flooding the endpoint could wave a command
+    /// past the guard. The prompt hook only adds context and may go without.
+    fn overloaded(&self, head: &Head) -> (Status, String) {
+        let tool_hook = matches!(
+            head.path.as_str(),
+            ROUTE_PRE_TOOL_USE | ROUTE_PRE_TOOL_USE_JSON
+        );
+        if tool_hook && lock(&self.gate).enabled() {
+            (Status::Ok, Outcome::Deny(gate::busy_reason()).body())
+        } else {
+            (Status::Unavailable, String::new())
+        }
+    }
+
     fn route(
         &self,
         session: SessionId,
@@ -1524,23 +1699,40 @@ impl Inner {
         if let Some(command) = request.command.clone() {
             return self.decide_command(session, &request, command, stream);
         }
+        // Claude Code sends every tool (matcher `*`); only edits are looked at here.
+        if !gate::is_edit_tool(&request.tool) {
+            return Outcome::Allow;
+        }
+        let worktrees = (self.worktrees)();
+        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
+        // A path the gate cannot read is asked about: refusing the request would let it through.
+        if let Some(start) = &request.unreadable_path {
+            let text = format!("{}: {start}", request.tool);
+            let hit = Hit::builtin(RULE_TOO_LONG, String::new());
+            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
+        }
         let Some(path) = request.path.as_deref() else {
             return Outcome::Allow;
         };
-        let worktrees = (self.worktrees)();
-        let own = worktrees.iter().find(|w| w.sessions.contains(&session));
-        // An edit of Hangar's own settings is held like a risky command, whatever collides.
+        // An edit of Hangar's own settings is held like a risky command, whatever collides; also
+        // through a link inside the project that leads there.
         let place = self.place_for(request.cwd.as_deref(), own);
-        if command_guard::edit_touches_hangar(path, &place, Style::HOST) {
+        let candidates = own
+            .map(|own| path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key)))
+            .unwrap_or_default();
+        if command_guard::edit_touches_hangar(path, &place, Style::HOST)
+            || candidates
+                .iter()
+                .any(|key| command_guard::edit_touches_hangar(key, &place, Style::HOST))
+        {
             let text = format!("{}: {path}", request.tool);
             let hit = Hit::builtin(RULE_HANGAR_CONFIG, text.clone());
-            return self.ask_command(session, &request.tool, own, text, vec![hit], stream);
+            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
         }
         // A session outside every known worktree cannot collide; its path is not even looked at.
         let Some(own) = own else {
             return Outcome::Allow;
         };
-        let candidates = path_candidates(path, request.cwd.as_deref(), Path::new(&own.root_key));
         let teammates = self.teammates_of(session, &worktrees);
         let tasks = self.tasks_of(session, &worktrees);
         let Some(conflict) =
@@ -1616,7 +1808,7 @@ impl Inner {
         command: CommandText,
         stream: &TcpStream,
     ) -> Outcome {
-        let guard_on = lock(&self.guard).enabled;
+        let guard_on = self.guard_enabled.load(Ordering::SeqCst);
         let worktrees = (self.worktrees)();
         let own = worktrees.iter().find(|w| w.sessions.contains(&session));
         let place = self.place_for(request.cwd.as_deref(), own);
@@ -1635,12 +1827,15 @@ impl Inner {
             .into_iter()
             .filter(|hit| guard_on || hit.rule_id == RULE_HANGAR_CONFIG)
             .collect();
-        self.ask_command(session, &request.tool, own, text, hits, stream)
+        self.ask_command(session, &request.tool, own, text, hits, stream, true)
     }
 
     /// The person's decision about `hits` of one command (or an edit of Hangar's settings): a
     /// remembered deny for any rule blocks it, rules with a remembered allow drop out, and the
-    /// rest are asked about on one card. Allowed at once when nothing is left.
+    /// rest are asked about on one card. Allowed at once when nothing is left. `guarded`: the
+    /// hits come from the command guard, so switching it off before the card opens drops all
+    /// but Hangar's own settings.
+    #[allow(clippy::too_many_arguments)]
     fn ask_command(
         &self,
         session: SessionId,
@@ -1649,6 +1844,7 @@ impl Inner {
         text: String,
         hits: Vec<Hit>,
         stream: &TcpStream,
+        guarded: bool,
     ) -> Outcome {
         if hits.is_empty() {
             return Outcome::Allow;
@@ -1697,27 +1893,39 @@ impl Inner {
         if remaining.is_empty() {
             return Outcome::Allow;
         }
-        let call = remaining
-            .iter()
-            .find(|hit| !hit.call.is_empty())
-            .map(|hit| hit.call.clone())
-            .unwrap_or_default();
-        let rules: Vec<AskRule> = remaining
-            .iter()
-            .map(|hit| AskRule::new(&hit.rule_id, &hit.description))
-            .collect();
         let (tx, rx) = sync_channel(1);
-        let conflict = CommandConflict {
-            rules: rules.clone(),
-            call,
-            text,
-        };
-        let opened = {
+        let (opened, rules) = {
             let mut gate = lock(&self.gate);
             if !gate.enabled() {
                 return Outcome::Allow;
             }
-            gate.open_command(session, tool, conflict, now_millis(), tx)
+            // Read under the gate's lock: `configure_command_guard` clears the flag before it
+            // takes this lock to release held commands, so a card opened here after that sees
+            // it, and one opened before is released there.
+            if guarded && !self.guard_enabled.load(Ordering::SeqCst) {
+                remaining.retain(|hit| hit.rule_id == RULE_HANGAR_CONFIG);
+                if remaining.is_empty() {
+                    return Outcome::Allow;
+                }
+            }
+            let call = remaining
+                .iter()
+                .find(|hit| !hit.call.is_empty())
+                .map(|hit| hit.call.clone())
+                .unwrap_or_default();
+            let rules: Vec<AskRule> = remaining
+                .iter()
+                .map(|hit| AskRule::new(&hit.rule_id, &hit.description))
+                .collect();
+            let conflict = CommandConflict {
+                rules: rules.clone(),
+                call,
+                text,
+            };
+            (
+                gate.open_command(session, tool, conflict, now_millis(), tx),
+                rules,
+            )
         };
         let (id, ticket) = match opened {
             Opened::Waiting { id, ticket } => (id, ticket),
@@ -1805,6 +2013,7 @@ mod tests {
     fn limits(decision: Duration) -> Limits {
         Limits {
             head: Duration::from_millis(1500),
+            grace: Duration::from_millis(300),
             body: Duration::from_secs(5),
             linger: Duration::from_millis(500),
             write: Duration::from_secs(5),
@@ -1815,7 +2024,14 @@ mod tests {
     /// Session 1 in `root`, session 2 in another worktree of the same repository that changes
     /// `src/shared.rs` lines 10 to 12.
     fn fixture(decision: Duration) -> Fixture {
-        let root = std::env::current_dir().unwrap().join("repo-under-test");
+        fixture_at(
+            std::env::current_dir().unwrap().join("repo-under-test"),
+            decision,
+        )
+    }
+
+    /// [`fixture`] with session 1's worktree at `root`.
+    fn fixture_at(root: PathBuf, decision: Duration) -> Fixture {
         let root_key = crate::git::path_key(&root);
         let worktrees = Arc::new(vec![
             WorktreeClaims {
@@ -2253,7 +2469,7 @@ mod tests {
     }
 
     #[test]
-    fn idle_connections_cannot_lock_out_the_endpoint() {
+    fn idle_connections_do_not_block_a_new_hook() {
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
         let (port, token) = launch(&fixture, 1);
@@ -2265,19 +2481,18 @@ mod tests {
             thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
         };
         let id = next_pending(&fixture.events).pending[0].id;
-        // Silent connections fill every slot for unknown clients and many more wait beyond.
-        let idle: Vec<TcpStream> = (0..MAX_UNAUTHENTICATED + MAX_CONNECTIONS)
-            .map(|_| connect(port))
-            .collect();
-        // The accept thread is not blocked by them: one over the limit is closed at once.
+        // Silent connections take every slot for unknown clients, and more come after them.
+        let mut idle: Vec<TcpStream> = (0..MAX_UNAUTHENTICATED).map(|_| connect(port)).collect();
+        let grace = limits(DECISION_TIMEOUT).grace;
+        thread::sleep(grace + Duration::from_millis(200));
+        let oldest = idle.remove(0);
         let started = Instant::now();
-        let extra = connect(port);
-        let took = closed_after(extra, started);
-        assert!(took < Duration::from_secs(1), "{took:?}");
-        assert!(fixture.service.answer(id, Answer::AllowOnce));
-        assert_eq!(waiting.join().unwrap(), (200, String::new()));
-        // Once the head limit closed them, a new request is served again.
-        thread::sleep(limits(DECISION_TIMEOUT).head + Duration::from_millis(500));
+        idle.push(connect(port));
+        // The newcomer takes the slot of the oldest, silent past its grace: that one is closed
+        // at once, long before the head limit (another second away).
+        let took = closed_after(oldest, started);
+        assert!(took < Duration::from_millis(600), "{took:?}");
+        // A hook sent while silent clients hold every slot is served right away.
         let started = Instant::now();
         assert_eq!(
             post(
@@ -2288,8 +2503,317 @@ mod tests {
             ),
             (200, String::new())
         );
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(
+            started.elapsed() < limits(DECISION_TIMEOUT).head,
+            "{:?}",
+            started.elapsed()
+        );
+        // A burst of many more does not lock the endpoint out either.
+        let burst: Vec<TcpStream> = (0..3 * MAX_HEAD_THREADS).map(|_| connect(port)).collect();
+        thread::sleep(grace + Duration::from_millis(200));
+        let started = Instant::now();
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&token),
+                &edit(&fixture.root, "src/own.rs")
+            ),
+            (200, String::new())
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(fixture.service.answer(id, Answer::AllowOnce));
+        assert_eq!(waiting.join().unwrap(), (200, String::new()));
         drop(idle);
+        drop(burst);
+    }
+
+    #[test]
+    fn one_session_cannot_take_every_slot() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let (_, other) = launch(&fixture, 2);
+        let head = format!(
+            "POST {ROUTE_PRE_TOOL_USE} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: 100\r\n\r\n"
+        );
+        // Session 1 holds as many connections as it may, each waiting for its body.
+        let hold = || {
+            let mut stream = connect(port);
+            stream.write_all(head.as_bytes()).unwrap();
+            stream
+        };
+        // Session 1 has all but one of its connections open, each still sending its body.
+        let mut held: Vec<TcpStream> = (0..MAX_PER_SESSION - 1).map(|_| hold()).collect();
+        thread::sleep(Duration::from_millis(300));
+        // Its shell command in the last free slot is still checked by the guard.
+        let risky = bash(&fixture.root, "git push --force");
+        let waiting = {
+            let (token, risky) = (token.clone(), risky.clone());
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky))
+        };
+        let snapshot = next_pending(&fixture.events);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+        // With every slot taken, one more of session 1 is denied unread, never left
+        // unanswered: an unanswered hook would let the command run unchecked.
+        held.push(hold());
+        thread::sleep(Duration::from_millis(300));
+        let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky);
+        assert_eq!(code, 200);
+        assert_eq!(
+            decision_of(&answer),
+            ("deny".to_owned(), gate::busy_reason())
+        );
+        // The prompt hook only adds context; it may go without.
+        assert_eq!(
+            post(port, ROUTE_USER_PROMPT_SUBMIT, Some(&token), "{}").0,
+            503
+        );
+        // Another session is still served.
+        let started = Instant::now();
+        assert_eq!(
+            post(
+                port,
+                ROUTE_PRE_TOOL_USE,
+                Some(&other),
+                &edit(&fixture.root, "src/own.rs")
+            ),
+            (200, String::new())
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        // Once the held connections close, session 1 is checked as before.
+        drop(held);
+        thread::sleep(Duration::from_millis(300));
+        let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky));
+        let snapshot = next_pending(&fixture.events);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&waiting.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn a_risky_command_among_a_storm_of_parallel_reads_is_never_waved_through() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let read = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Read",
+            "tool_input": { "file_path": fixture.root.join("src").join("shared.rs") },
+        })
+        .to_string();
+        // Far more parallel reads than one session may hold, and a force push among them.
+        let reads: Vec<_> = (0..3 * MAX_PER_SESSION)
+            .map(|_| {
+                let (token, read) = (token.clone(), read.clone());
+                thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &read))
+            })
+            .collect();
+        let risky = bash(&fixture.root, "git push --force");
+        let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky));
+        // Either the guard holds it for the person, or the session was too busy and it is
+        // denied unread; it never comes back as an empty "go ahead".
+        let started = Instant::now();
+        while !waiting.is_finished() {
+            if let Some(pending) = fixture.service.snapshot().pending.first() {
+                fixture.service.answer(pending.id, Answer::Deny);
+            }
+            assert!(started.elapsed() < Duration::from_secs(20));
+            thread::sleep(Duration::from_millis(20));
+        }
+        let (code, answer) = waiting.join().unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(decision_of(&answer).0, "deny");
+        // Every read is answered: let through, or denied while the session was too busy.
+        for read in reads {
+            let (code, answer) = read.join().unwrap();
+            assert_eq!(code, 200);
+            if !answer.is_empty() {
+                assert_eq!(
+                    decision_of(&answer),
+                    ("deny".to_owned(), gate::busy_reason())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_hundred_hooks_of_tools_that_change_nothing_are_answered_quickly() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let tools = [
+            (
+                "Read",
+                serde_json::json!({ "file_path": fixture.root.join("src/shared.rs") }),
+            ),
+            ("Glob", serde_json::json!({ "pattern": "**/*.rs" })),
+            (
+                "Grep",
+                serde_json::json!({ "pattern": "fn main", "path": fixture.root }),
+            ),
+            (
+                "WebFetch",
+                serde_json::json!({ "url": "https://example.com/", "prompt": "x" }),
+            ),
+        ];
+        let started = Instant::now();
+        for round in 0..100 {
+            let (tool, input) = &tools[round % tools.len()];
+            let body = serde_json::json!({
+                "cwd": fixture.root, "tool_name": tool, "tool_input": input,
+            })
+            .to_string();
+            assert_eq!(
+                post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
+                (200, String::new()),
+                "{tool}"
+            );
+        }
+        // A local round trip each, no disk work and no lock held for long: well under 10 ms
+        // per hook even in a debug build on a loaded machine.
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn an_edit_path_hangar_cannot_read_is_asked_about() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let long = fixture.root.join("a".repeat(gate::MAX_FIELD_BYTES + 1));
+        let body = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Write",
+            "tool_input": { "file_path": long, "content": "x" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert_eq!(rules[0].id, RULE_TOO_LONG);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        let (code, answer) = held.join().unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(decision_of(&answer).0, "deny");
+    }
+
+    #[test]
+    fn every_tool_reaches_the_endpoint_but_only_edits_and_commands_are_checked() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // A read of a file another session changes is no edit: it goes ahead at once.
+        let read = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "Read",
+            "tool_input": { "file_path": fixture.root.join("src").join("shared.rs") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &read),
+            (200, String::new())
+        );
+        // A tool Hangar does not know by name but with a command is read as a shell command.
+        let run = serde_json::json!({
+            "cwd": fixture.root, "tool_name": "mcp__box__run",
+            "tool_input": { "command": "git push --force" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &run));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert!(
+            rules.iter().any(|rule| rule.id == "git-push-force"),
+            "{rules:?}"
+        );
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&held.join().unwrap().1).0, "deny");
+    }
+
+    #[test]
+    fn a_command_found_before_the_guard_was_switched_off_opens_no_card() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let _ = launch(&fixture, 1);
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let hit = |id: &str| Hit {
+            rule_id: id.to_owned(),
+            description: "d".into(),
+            call: "git push --force".into(),
+        };
+        // The hits were found while the guard was on; it is switched off before the card opens.
+        fixture.service.configure_command_guard(false);
+        let outcome = fixture.service.inner.ask_command(
+            1,
+            "Bash",
+            None,
+            "git push --force".into(),
+            vec![hit("git-push-force")],
+            &server,
+            true,
+        );
+        assert_eq!(outcome, Outcome::Allow);
+        assert!(fixture.service.snapshot().pending.is_empty());
+        drop(client);
+    }
+
+    #[test]
+    fn an_edit_through_a_link_into_hangars_folder_is_asked_about() {
+        let project = TempDir::new("gate-link-project");
+        let fixture = fixture_at(project.path().to_path_buf(), DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        // A link inside the project that leads into the gate's own folder.
+        let target = fixture.settings.path().join("linked");
+        std::fs::create_dir_all(&target).unwrap();
+        let link = project.path().join("innocent");
+        if !make_dir_link(&link, &target) {
+            eprintln!("no directory link could be made; the test is skipped");
+            return;
+        }
+        let body = serde_json::json!({
+            "cwd": project.path(), "tool_name": "Write",
+            "tool_input": { "file_path": link.join("hooks.json"), "content": "x" },
+        })
+        .to_string();
+        let held = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body));
+        let snapshot = next_pending(&fixture.events);
+        let rules = snapshot.pending[0].command.as_ref().unwrap().rules.clone();
+        assert_eq!(rules[0].id, RULE_HANGAR_CONFIG);
+        assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
+        assert_eq!(decision_of(&held.join().unwrap().1).0, "deny");
+        // The same file name in an ordinary folder of the project goes ahead.
+        let (_, token) = launch(&fixture, 1);
+        std::fs::create_dir_all(project.path().join("plain")).unwrap();
+        let plain = serde_json::json!({
+            "cwd": project.path(), "tool_name": "Write",
+            "tool_input": { "file_path": project.path().join("plain").join("hooks.json") },
+        })
+        .to_string();
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &plain),
+            (200, String::new())
+        );
+        let _ = std::fs::remove_dir(&link);
+    }
+
+    /// A directory junction (Windows, no privilege needed) or symlink at `link` to `target`.
+    fn make_dir_link(link: &Path, target: &Path) -> bool {
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
     }
 
     #[test]
@@ -2650,9 +3174,11 @@ mod tests {
         assert!(fixture.service.answer(decision.id, Answer::Deny));
         let (code, answer) = waiting.join().unwrap();
         assert_eq!((code, decision_of(&answer).0.as_str()), (200, "deny"));
-        // A tool that is no shell keeps its `command` field to itself.
+        // An edit tool keeps its `command` field to itself (Codex's patch text); any other tool
+        // with a command is read as a shell command
+        // (`every_tool_reaches_the_endpoint_but_only_edits_and_commands_are_checked`).
         let other = serde_json::json!({
-            "tool_name": "Task", "cwd": fixture.root,
+            "tool_name": "apply_patch", "cwd": fixture.root,
             "tool_input": { "command": "git push --force" },
         })
         .to_string();

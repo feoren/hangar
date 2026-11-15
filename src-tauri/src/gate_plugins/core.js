@@ -6,9 +6,10 @@
 // endpoint refuses as a request from a browser page.
 // Shell commands go to the same endpoint as tool "Bash" with the command line; Hangar's command
 // guard decides there whether the person is asked.
-// Fails open: whatever goes wrong (no variable, endpoint unreachable, an answer it cannot read)
-// lets the edit or command through, as every other hook of Hangar's gate does. The gate coordinates the
-// user's own sessions; it is not a security boundary.
+// Edits fail open: whatever goes wrong (no variable, endpoint unreachable, an answer it cannot
+// read) lets the edit through, as every other hook of Hangar's gate does. A shell command whose
+// question to the endpoint fails is blocked instead (the command guard fails closed); only a
+// missing variable, a session without the gate, lets it through.
 import { request } from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
@@ -206,6 +207,18 @@ async function decideCommand(tool, command, cwd, signal) {
   const limit = MAX_COMMAND_BYTES * 2;
   const text = Buffer.byteLength(command) > limit ? command.slice(0, limit) : command;
   const verdict = await askGate(gate, tool, { command: text }, cwd, signal);
-  if (verdict.kind === "error") return { kind: "allow", notes: [verdict.note] };
+  // A command the guard could not check is blocked, not let through: a client that floods the
+  // endpoint must not be able to wave a command past it. The session runs inside Hangar, so the
+  // endpoint is there while the agent is.
+  if (verdict.kind === "error") {
+    return {
+      kind: "deny",
+      reason:
+        "Hangar: the command guard could not check this command (" +
+        verdict.note +
+        "). Retry it in a moment.",
+      notes: [verdict.note],
+    };
+  }
   return { ...verdict, notes: [] };
 }

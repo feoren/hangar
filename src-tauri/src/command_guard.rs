@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::command_split::{join, split, Dialect};
+use crate::command_split::{join, split, CallInfo, Dialect};
 use crate::git::key_within;
 
 /// File in Hangar's config folder, next to `profiles.toml`.
@@ -78,9 +78,13 @@ impl Flag {
     /// Whether `option` (one argument that looks like an option) gives this flag.
     fn given_by(&self, option: &str) -> bool {
         match self {
-            Flag::Long(long) => option
-                .strip_prefix(long.as_str())
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('=')),
+            // Programs using getopt_long or git's parser take an unambiguous prefix (`--ha` for
+            // `--hard`); which prefixes another option of the program shares is not known here,
+            // so every prefix of at least two letters counts.
+            Flag::Long(long) => {
+                let name = option.split_once('=').map_or(option, |(name, _)| name);
+                name == long || (name.len() >= 4 && long.starts_with(name))
+            }
             Flag::Short(c) => {
                 let Some(group) = option.strip_prefix('-') else {
                     return false;
@@ -949,15 +953,33 @@ impl Flag {
     }
 }
 
+/// What a call reads besides its arguments, for [`GuardRule::matches`].
+#[derive(Clone, Copy, Default)]
+struct Input<'a> {
+    /// Its stdin is another command's output.
+    piped: bool,
+    /// The call whose output it reads, when known.
+    upstream: Option<&'a [String]>,
+    /// Here-strings and here-document bodies it reads.
+    fed: &'a [String],
+}
+
+/// The value of a PowerShell `-Name:value` option, unless it is a switch's `$true`/`$false`:
+/// `-Path:C:\x` names a path like a positional argument.
+fn colon_value(option: &str) -> Option<&str> {
+    let rest = option.strip_prefix('-')?;
+    if rest.starts_with('-') {
+        return None;
+    }
+    let (name, value) = rest.split_once(':')?;
+    let plain = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric());
+    let switch = value.eq_ignore_ascii_case("$true") || value.eq_ignore_ascii_case("$false");
+    (plain && !value.is_empty() && !switch).then_some(value)
+}
+
 impl GuardRule {
-    fn matches(&self, call: &[String], cwd: Option<&str>, place_of: &Place, style: Style) -> bool {
-        let Some(first) = call.first() else {
-            return false;
-        };
-        let program = program_name(first);
-        if !self.programs.iter().any(|p| glob_match(p, &program)) {
-            return false;
-        }
+    /// The options and the other arguments of `args`, as this rule reads them.
+    fn split_args<'a>(&self, args: &'a [String]) -> (Vec<&'a str>, Vec<&'a str>) {
         let slash = self
             .any
             .iter()
@@ -967,7 +989,7 @@ impl GuardRule {
         let mut options: Vec<&str> = Vec::new();
         let mut positionals: Vec<&str> = Vec::new();
         let mut ended = false;
-        let mut args = call[1..].iter();
+        let mut args = args.iter();
         while let Some(arg) = args.next() {
             if ended {
                 positionals.push(arg);
@@ -984,12 +1006,46 @@ impl GuardRule {
                 positionals.push(arg);
             }
         }
+        (options, positionals)
+    }
+
+    fn matches(
+        &self,
+        call: &[String],
+        cwd: Option<&str>,
+        input: Input,
+        place_of: &Place,
+        style: Style,
+    ) -> bool {
+        let Some(first) = call.first() else {
+            return false;
+        };
+        let program = program_name(first);
+        if !self.programs.iter().any(|p| glob_match(p, &program)) {
+            return false;
+        }
+        let (mut options, mut positionals) = self.split_args(&call[1..]);
         if !self.subcommands.is_empty() {
             match positionals.first() {
                 Some(sub) if self.subcommands.iter().any(|s| s == sub) => {
                     positionals.remove(0);
                 }
                 _ => return false,
+            }
+        }
+        let mut paths: Vec<&str> = positionals.clone();
+        if self.outside_project {
+            paths.extend(options.iter().filter_map(|option| colon_value(option)));
+            // `Get-ChildItem x -Recurse | Remove-Item`: a delete without paths of its own takes
+            // what the call before it lists, and that call's options.
+            if paths.is_empty() && input.piped {
+                if let Some(upstream) = input.upstream {
+                    let (up_options, up_positionals) =
+                        self.split_args(upstream.get(1..).unwrap_or_default());
+                    paths.extend(&up_positionals);
+                    paths.extend(up_options.iter().filter_map(|option| colon_value(option)));
+                    options.extend(up_options);
+                }
             }
         }
         let given = |flag: &Flag| options.iter().any(|option| flag.given_by_word(option));
@@ -1000,7 +1056,7 @@ impl GuardRule {
             return false;
         }
         if !self.words.is_empty() {
-            let found = call[1..].iter().any(|arg| {
+            let found = call[1..].iter().chain(input.fed).any(|arg| {
                 let words = upper_words(arg);
                 self.words.iter().any(|wanted| {
                     words
@@ -1013,7 +1069,11 @@ impl GuardRule {
             }
         }
         if self.outside_project {
-            let outside = positionals.iter().any(|arg| {
+            // A piped delete whose input is not known cannot be placed.
+            if paths.is_empty() {
+                return input.piped;
+            }
+            let outside = paths.iter().any(|arg| {
                 match (
                     place(arg, cwd, place_of.home.as_deref(), style),
                     &place_of.project,
@@ -1175,17 +1235,38 @@ pub fn edit_touches_hangar(path: &str, place_of: &Place, style: Style) -> bool {
 /// extension on Windows) is read in all three and every hit counts.
 pub fn dialects_of(tool: &str) -> &'static [Dialect] {
     match tool {
+        "Bash" => &[Dialect::Posix],
         "PowerShell" => &[Dialect::PowerShell],
-        "Shell" => &[Dialect::Posix, Dialect::PowerShell, Dialect::Cmd],
-        _ => &[Dialect::Posix],
+        // `Shell` and any other tool with a command: its shell is not known.
+        _ => &[Dialect::Posix, Dialect::PowerShell, Dialect::Cmd],
     }
 }
 
+/// Working folders a command may be in at one point; more make every relative path
+/// unplaceable.
+const MAX_CWDS: usize = 16;
+/// Words of one call after brace expansion; a call that would have more keeps its words as
+/// written (an option word still counts by the part before its braces).
+const MAX_EXPANDED_WORDS: usize = 1024;
+/// Database clients that read SQL from stdin when no option or argument gives it.
+const DB_CLIENTS: &[&str] = &[
+    "mysql",
+    "mariadb",
+    "psql",
+    "sqlite3",
+    "sqlcmd",
+    "duckdb",
+    "clickhouse-client",
+];
+
 /// Every rule that matches `command`, each once, in the order found: the file's rules per
 /// program call, and the built-in rules for what cannot be read ([`RULE_TOO_COMPLEX`],
-/// [`RULE_STDIN_SCRIPT`]) or names Hangar's own settings ([`RULE_HANGAR_CONFIG`]). A `cd`
-/// moves the working folder for the calls after it; `cd -`, a bare `cd` and `popd` leave it
-/// unknown.
+/// [`RULE_STDIN_SCRIPT`]) or names Hangar's own settings ([`RULE_HANGAR_CONFIG`]).
+///
+/// A `cd` adds its target to the working folders a later call may run in, and the folder
+/// before it stays one of them (`(cd x)`, `cd x | true` and a failed `cd` leave it unchanged);
+/// a path counts as outside when it is outside from any of them. `cd -`, a bare `cd` and
+/// `popd` add an unknown folder.
 pub fn check(
     rules: &[GuardRule],
     command: &str,
@@ -1199,6 +1280,12 @@ pub fn check(
             hits.push(hit);
         }
     };
+    let home = place_of.home.as_deref();
+    let protected_from = |arg: &str, cwds: &[Option<String>]| {
+        cwds.iter()
+            .any(|cwd| protected_path(arg, cwd.as_deref(), place_of, style))
+    };
+    let no_info = CallInfo::default();
     for dialect in dialects {
         let analysis = split(command, *dialect);
         if analysis.truncated || analysis.unclosed {
@@ -1207,42 +1294,66 @@ pub fn check(
         if analysis.stdin_script {
             add(Hit::builtin(RULE_STDIN_SCRIPT, String::new()));
         }
-        let mut cwd = place_of.cwd.clone();
+        let mut cwds: Vec<Option<String>> = vec![place_of.cwd.clone()];
         let mut redirects = analysis.redirects.iter().peekable();
         for (index, call) in analysis.calls.iter().enumerate() {
             while let Some((_, target)) = redirects.next_if(|(at, _)| *at <= index) {
-                if protected_path(target, cwd.as_deref(), place_of, style) {
+                if protected_from(target, &cwds) {
                     add(Hit::builtin(RULE_HANGAR_CONFIG, format!("> {target}")));
                 }
             }
+            let info = analysis.info.get(index).unwrap_or(&no_info);
             let program = call.first().map(|word| program_name(word));
             let program = program.as_deref().unwrap_or_default();
             if CHANGE_FOLDER.contains(&program) {
                 let target = call.iter().skip(1).find(|arg| !arg.starts_with('-'));
-                cwd = target.and_then(|arg| {
-                    place(arg, cwd.as_deref(), place_of.home.as_deref(), style).map(|t| t.key)
-                });
+                let moved: Vec<Option<String>> = cwds
+                    .iter()
+                    .map(|cwd| {
+                        target
+                            .and_then(|arg| place(arg, cwd.as_deref(), home, style).map(|t| t.key))
+                    })
+                    .collect();
+                for folder in moved {
+                    add_folder(&mut cwds, folder);
+                }
                 continue;
             }
             if FOLDER_BACK.contains(&program) {
-                cwd = None;
+                add_folder(&mut cwds, None);
                 continue;
             }
             let shown_call = join(call);
-            if call
-                .iter()
-                .skip(1)
-                .any(|arg| protected_path(arg, cwd.as_deref(), place_of, style))
-            {
+            if call.iter().skip(1).any(|arg| protected_from(arg, &cwds)) {
                 add(Hit::builtin(RULE_HANGAR_CONFIG, shown_call.clone()));
             }
-            // `g$@it`, `--for${x}ce`: parameters that are empty in an agent's shell vanish.
-            let variant = without_empty_parameters(call);
+            if unreadable_call(program, call, info) {
+                add(Hit::builtin(RULE_TOO_COMPLEX, shown_call.clone()));
+            }
+            if sql_from_stdin(program, call, info) {
+                add(Hit::builtin(RULE_STDIN_SCRIPT, shown_call.clone()));
+            }
+            let variants = call_variants(call, info.dialect);
+            let input = Input {
+                piped: info.piped,
+                upstream: info
+                    .upstream
+                    .and_then(|at| analysis.calls.get(at))
+                    .map(Vec::as_slice),
+                fed: &info.fed,
+            };
             for rule in rules {
-                let matched = rule.matches(call, cwd.as_deref(), place_of, style)
-                    || variant.as_ref().is_some_and(|variant| {
-                        rule.matches(variant, cwd.as_deref(), place_of, style)
-                    });
+                // Only a rule about paths depends on the working folder.
+                let folders = if rule.outside_project {
+                    &cwds[..]
+                } else {
+                    &cwds[..1]
+                };
+                let matched = variants.iter().any(|variant| {
+                    folders
+                        .iter()
+                        .any(|cwd| rule.matches(variant, cwd.as_deref(), input, place_of, style))
+                });
                 if matched {
                     add(Hit {
                         rule_id: rule.id.clone(),
@@ -1253,12 +1364,287 @@ pub fn check(
             }
         }
         for (_, target) in redirects {
-            if protected_path(target, cwd.as_deref(), place_of, style) {
+            if protected_from(target, &cwds) {
                 add(Hit::builtin(RULE_HANGAR_CONFIG, format!("> {target}")));
             }
         }
     }
     hits
+}
+
+/// Adds `folder` to the working folders a command may be in; past [`MAX_CWDS`] an unknown one
+/// stands for the rest.
+fn add_folder(cwds: &mut Vec<Option<String>>, folder: Option<String>) {
+    if cwds.contains(&folder) {
+        return;
+    }
+    if cwds.len() + 1 >= MAX_CWDS {
+        if !cwds.contains(&None) {
+            cwds.push(None);
+        }
+        return;
+    }
+    cwds.push(folder);
+}
+
+/// A call whose words a shell changes in ways Hangar does not model: cmd's substring and
+/// replace expansions (`%PATH:~0,0%`) and delayed variables (`!x!`), and git configuration
+/// given on its command line that turns a harmless word into another command (`-c alias.x=...`)
+/// or switches off a safety check (`-c clean.requireForce=false`).
+fn unreadable_call(program: &str, call: &[String], info: &CallInfo) -> bool {
+    if info.dialect == Dialect::Cmd
+        && call
+            .iter()
+            .any(|word| has_cmd_edit(word) || has_delayed_variable(word))
+    {
+        return true;
+    }
+    if program != "git" {
+        return false;
+    }
+    let mut args = call[1..].iter();
+    while let Some(arg) = args.next() {
+        let value = match arg.as_str() {
+            "-c" | "--config-env" => args.next().map(String::as_str),
+            "-C" | "--git-dir" | "--work-tree" | "--namespace" => {
+                args.next();
+                continue;
+            }
+            _ if arg.starts_with("--config-env=") => arg.get("--config-env=".len()..),
+            _ if arg.starts_with("-c") => arg.get(2..),
+            _ if arg.starts_with('-') => continue,
+            _ => break,
+        };
+        let key = value
+            .unwrap_or_default()
+            .split('=')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if key.starts_with("alias.") || key == "clean.requireforce" {
+            return true;
+        }
+    }
+    false
+}
+
+/// `%name:...%` in a word: a substring or replace expansion of cmd.
+fn has_cmd_edit(word: &str) -> bool {
+    !cmd_edits(word).is_empty()
+}
+
+/// The byte ranges of every `%name:...%` in `word`.
+fn cmd_edits(word: &str) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(open) = word.get(from..).and_then(|rest| rest.find('%')) {
+        let open = open + from;
+        let Some(close) = word.get(open + 1..).and_then(|rest| rest.find('%')) else {
+            break;
+        };
+        let close = close + open + 1;
+        let inner = &word[open + 1..close];
+        let named = inner.split_once(':').is_some_and(|(name, _)| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_-.()".contains(c))
+        });
+        if named {
+            found.push((open, close + 1));
+            from = close + 1;
+        } else {
+            from = close;
+        }
+    }
+    found
+}
+
+/// `!name!` in a word: a delayed variable of cmd.
+fn has_delayed_variable(word: &str) -> bool {
+    let parts: Vec<&str> = word.split('!').collect();
+    // The parts between two `!`; the first and the last have no `!` on one side.
+    parts.len() >= 3
+        && parts[1..parts.len() - 1].iter().any(|name| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_:~,=".contains(c))
+        })
+}
+
+/// A database client that reads its SQL from stdin while the text is not on the command line: a
+/// pipe into it with no SQL option or argument, or a here-document built from variables.
+fn sql_from_stdin(program: &str, call: &[String], info: &CallInfo) -> bool {
+    if !DB_CLIENTS.contains(&program) {
+        return false;
+    }
+    if info.fed.iter().any(|text| text.contains('$')) {
+        return true;
+    }
+    if !info.piped {
+        return false;
+    }
+    let args = &call[1..];
+    let sql_option = args.iter().any(|arg| {
+        let name = arg.split_once('=').map_or(arg.as_str(), |(name, _)| name);
+        matches!(
+            name,
+            "-e" | "--execute"
+                | "-c"
+                | "--command"
+                | "-f"
+                | "--file"
+                | "-q"
+                | "-Q"
+                | "-i"
+                | "--query"
+                | "--queries-file"
+                | "-cmd"
+                | "--init"
+        ) || (matches!(program, "mysql" | "mariadb") && arg.starts_with("-e"))
+    });
+    // sqlite3 and duckdb take the SQL as the argument after the database file.
+    let positional_sql = matches!(program, "sqlite3" | "duckdb")
+        && args.iter().filter(|arg| !arg.starts_with('-')).count() >= 2;
+    !(sql_option || positional_sql)
+}
+
+/// The call as written and the ways a shell may read its words differently, each matched on its
+/// own: parameters that are empty when unset, `$IFS` and default values (`${x:-git}`), brace
+/// expansion in any word (`{git,push,--force}`), cmd's substring expansions.
+fn call_variants(call: &[String], dialect: Dialect) -> Vec<Vec<String>> {
+    let mut variants = vec![call.to_vec()];
+    let mut add = |variant: Vec<String>| {
+        if !variants.contains(&variant) {
+            variants.push(variant);
+        }
+    };
+    if let Some(stripped) = without_empty_parameters(call) {
+        add(stripped);
+    }
+    match dialect {
+        Dialect::Posix => {
+            let mut shell = with_defaults_and_ifs(call);
+            if let Some(stripped) = without_empty_parameters(&shell) {
+                shell = stripped;
+            }
+            if let Some(expanded) = brace_expanded(&shell) {
+                shell = expanded;
+            }
+            add(shell);
+        }
+        Dialect::Cmd => {
+            if call.iter().any(|word| has_cmd_edit(word)) {
+                add(call
+                    .iter()
+                    .map(|word| {
+                        let mut out = word.clone();
+                        for (start, end) in cmd_edits(word).into_iter().rev() {
+                            out.replace_range(start..end, "");
+                        }
+                        out
+                    })
+                    .collect());
+            }
+        }
+        Dialect::PowerShell => {}
+    }
+    variants
+}
+
+/// Each word brace expanded into its variants; `None` when no word has a brace or the call
+/// would grow past [`MAX_EXPANDED_WORDS`].
+fn brace_expanded(call: &[String]) -> Option<Vec<String>> {
+    if !call.iter().any(|word| word.contains('{')) {
+        return None;
+    }
+    let mut out = Vec::new();
+    for word in call {
+        match brace_variants(word) {
+            Some(variants) => out.extend(variants),
+            None => out.push(word.clone()),
+        }
+        if out.len() > MAX_EXPANDED_WORDS {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+/// The call with `$IFS` read as a word break and `${name:-word}`, `${name-word}`,
+/// `${name:=word}` and `${name=word}` read as `word`, split again at blanks.
+fn with_defaults_and_ifs(call: &[String]) -> Vec<String> {
+    if !call.iter().any(|word| word.contains('$')) {
+        return call.to_vec();
+    }
+    call.iter()
+        .flat_map(|word| {
+            defaults_and_ifs(word)
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn defaults_and_ifs(word: &str) -> String {
+    let mut out = String::new();
+    let mut rest = word;
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        if let Some(tail) = after.strip_prefix("IFS") {
+            out.push(' ');
+            rest = tail;
+        } else if let Some(inner) = after.strip_prefix('{') {
+            let Some(close) = closing_brace(inner) else {
+                out.push_str(&rest[at..]);
+                return out;
+            };
+            let body = &inner[..close];
+            let name_end = body
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(body.len());
+            let (name, op) = body.split_at(name_end);
+            let value = [":-", ":=", "-", "="]
+                .iter()
+                .find_map(|prefix| op.strip_prefix(prefix));
+            match value {
+                Some(value) => out.push_str(&defaults_and_ifs(value)),
+                None if name == "IFS" && op.is_empty() => out.push(' '),
+                None => {
+                    out.push_str("${");
+                    out.push_str(body);
+                    out.push('}');
+                }
+            }
+            rest = &inner[close + 1..];
+        } else {
+            out.push('$');
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The index of the `}` closing a `${` whose inside starts `text`, nested braces counted.
+fn closing_brace(text: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    for (index, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// The call with `$@`, `$*` and `${...}` removed from its words, which a shell expands to
@@ -1412,6 +1798,143 @@ mod tests {
     fn assert_passes(commands: &[&str]) {
         for command in commands {
             assert_eq!(hits(command), Vec::<String>::new(), "{command}");
+        }
+    }
+
+    #[test]
+    fn everyday_agent_commands_raise_no_question() {
+        let posix = [
+            "git status",
+            "git status --short",
+            "git log --oneline -20",
+            "git log --oneline --graph --all -n 30",
+            "git diff --stat",
+            "git diff HEAD~1 -- src/main.rs",
+            "git add -A",
+            "git add src/lib.rs src/main.rs",
+            "git commit -m \"fix: handle the empty list\"",
+            "git commit -m \"$(cat <<'EOF'\nfix: don't drop the user's input\n\nIt's kept now.\nEOF\n)\"",
+            "git commit --amend --no-edit",
+            "git push",
+            "git push origin feature/x",
+            "git push --set-upstream origin feature/x",
+            "git push --force-with-lease",
+            "git fetch --all --prune",
+            "git pull --rebase",
+            "git checkout -b feature/x",
+            "git switch main",
+            "git stash push -m wip",
+            "git branch -a",
+            "git rev-parse --show-toplevel",
+            "git show HEAD --stat",
+            "git config --get user.name",
+            "git -C src status",
+            "git reset --soft HEAD~1",
+            "git clean -n",
+            "npm install",
+            "npm run build",
+            "npm test -- --watch=false",
+            "npx tsc --noEmit",
+            "pnpm install --frozen-lockfile",
+            "pnpm format:check && pnpm lint && pnpm test && pnpm build",
+            "pnpm vitest run src/app.test.ts",
+            "cargo build --release",
+            "cargo test --manifest-path src-tauri/Cargo.toml",
+            "cargo clippy --all-targets -- -D warnings",
+            "cargo fmt --check",
+            "export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo test",
+            "ls -la",
+            "ls -la src/{lib,main}.rs",
+            "cat src/main.rs | head -50",
+            "grep -rn \"TODO\" src",
+            "grep -rn 'fn main' --include=*.rs .",
+            r#"rg -n "unwrap()" src-tauri/src"#,
+            "rg --files | wc -l",
+            "find . -name '*.rs' -not -path './target/*'",
+            "find src -type f -name '*.ts' | xargs wc -l",
+            "find . -name '*.tmp' -print",
+            "mkdir -p tests/.tmp/out",
+            "mkdir -p src/{components,hooks}",
+            "cp src/a.ts src/b.ts",
+            "cp -r assets dist/assets",
+            "mv src/old.ts src/new.ts",
+            "rm src/old.ts",
+            "rm -rf dist",
+            "rm -rf target/debug/build",
+            "touch src/new.ts",
+            "echo ${HOME:-none}",
+            "for f in src/*.ts; do echo \"$f\"; done",
+            "sed -n '1,40p' src/main.rs",
+            "awk '{print $1}' log.txt",
+            "python3 -m pytest -q",
+            "py -3 -m unittest discover tools",
+            "node scripts/build.js",
+            "cd src && ls",
+            "cd src-tauri && cargo check",
+            "wc -l src/*.ts",
+            "head -n 20 README.md",
+            "diff -u a.txt b.txt",
+            "tar -czf out.tgz dist",
+            "curl -s http://127.0.0.1:1420/ -o /dev/null -w '%{http_code}'",
+            "docker ps",
+            "gh pr list",
+            "which cargo",
+            "env | sort",
+            "sleep 1 && echo done",
+            "chmod +x scripts/run.sh",
+            "jq '.name' package.json",
+            "git push -u origin main",
+            "git push --tags",
+            "git push --follow-tags",
+            "git push --no-verify",
+            "git checkout -- src/main.rs",
+            "git restore --staged src/main.rs",
+            "git -c core.autocrlf=false status",
+            "git -c user.name=marker commit -m wip",
+            "npm run lint -- --fix",
+            "cargo fix --allow-dirty",
+            "rm -rf ./node_modules",
+            "find . -type d -name node_modules -prune",
+            "find . -name '*.rs' -exec grep -l marker {} +",
+        ];
+        for command in posix {
+            assert_eq!(hits(command), Vec::<String>::new(), "{command}");
+        }
+        let powershell = [
+            "Get-ChildItem -Recurse -Filter *.rs",
+            "Get-ChildItem src -Name",
+            r"Select-String -Path src\*.ts -Pattern 'TODO'",
+            "Get-Content README.md -TotalCount 20",
+            "Get-Content log.txt | Select-Object -Last 10",
+            r"New-Item -ItemType Directory -Force tests\.tmp",
+            r"Copy-Item src\a.ts src\b.ts",
+            r"Move-Item src\old.ts src\new.ts",
+            r"Remove-Item src\old.ts",
+            "Remove-Item -Recurse -Force dist",
+            "Get-ChildItem dist | Remove-Item -Recurse",
+            r"Test-Path src\main.ts",
+            "git status; git log --oneline -5",
+            "cargo test --manifest-path src-tauri/Cargo.toml",
+            "pnpm lint && pnpm test",
+            "$env:RUST_LOG = 'debug'; cargo run",
+            "Get-Process | Where-Object { $_.Name -like 'node*' }",
+            "(Get-Content package.json | ConvertFrom-Json).version",
+            "Write-Output \"It's done\"",
+            "tasklist /FI \"IMAGENAME eq hangar.exe\"",
+            r"Remove-Item -Path .\dist -Recurse -Force",
+            "Get-ChildItem -Path src -Include *.tmp -Recurse | Remove-Item",
+            "git push --force-with-lease",
+        ];
+        for command in powershell {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                Vec::<String>::new(),
+                "{command}"
+            );
+        }
+        // A tool whose shell is not known reads every dialect.
+        for command in ["git status", "cargo test", "ls -la", "npm run build"] {
+            assert_eq!(hits_in(command, "Shell"), Vec::<String>::new(), "{command}");
         }
     }
 
@@ -2211,6 +2734,255 @@ program = ["x"]
         assert_eq!(shown("abcdef", 3), "abc…");
         assert_eq!(shown_counted("abcdef", 3), ("abc".to_owned(), 3));
         assert_eq!(cut("a\u{1b}bcd", 3), ("a\u{1b}b".to_owned(), 2));
+    }
+
+    fn has(found: &[String], rule: &str) -> bool {
+        found.iter().any(|id| id == rule)
+    }
+
+    #[test]
+    fn heredoc_bodies_do_not_hide_the_commands_after_them() {
+        assert_hits(
+            "git-push-force",
+            &[
+                "cat <<EOF\nit's\nEOF\ngit push --force\necho marker #'",
+                "cat <<'EOF'\nit's\nEOF\ngit push --force",
+                "cat <<-EOF\n\tit's\n\tEOF\ngit push --force",
+                "cat <<EOF\n$(git push --force)\nEOF",
+            ],
+        );
+        assert_passes(&[
+            "cat <<'EOF'\n$(git push --force)\nEOF",
+            "cat <<EOF\nhello\nEOF",
+        ]);
+        assert!(has(&hits("cat <<EOF\ngit push --force"), RULE_TOO_COMPLEX));
+    }
+
+    #[test]
+    fn powershell_here_strings_do_not_hide_the_commands_after_them() {
+        for command in [
+            "echo @'\nx'\n'@\ngit push --force #'",
+            "echo @\"\nx\"\n\"@\ngit push --force #\"",
+        ] {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                ["git-push-force"],
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn brace_expansion_counts_in_every_position() {
+        assert_hits(
+            "git-push-force",
+            &[
+                "{git,push,--force}",
+                "git {push,--force}",
+                "git push {-f,-q}",
+            ],
+        );
+        assert_passes(&["echo {a,b}", "git {status,log}", "ls {src,docs}/x"]);
+    }
+
+    #[test]
+    fn field_separators_and_default_values_are_read() {
+        assert_hits(
+            "git-push-force",
+            &[
+                "git${IFS}push${IFS}--force",
+                "git$IFS'push'$IFS'--force'",
+                "${x:-git} push --force",
+                "${x-git} push ${y:=--force}",
+                "git push ${x=--force}",
+            ],
+        );
+        assert_passes(&["echo ${x:-git push --force}x"]);
+    }
+
+    #[test]
+    fn cmd_substrings_and_delayed_variables_are_read_or_asked_about() {
+        let cmd = |command: &str| {
+            ids_of(check(
+                &defaults(),
+                command,
+                &[Dialect::Cmd],
+                &windows_place(),
+                WINDOWS,
+            ))
+        };
+        let found = cmd("git push --for%COMSPEC:~0,0%ce");
+        assert!(has(&found, "git-push-force"), "{found:?}");
+        assert!(has(&found, RULE_TOO_COMPLEX), "{found:?}");
+        let found = hits_in("cmd /c \"git push --for%COMSPEC:~0,0%ce\"", "Bash");
+        assert!(has(&found, "git-push-force"), "{found:?}");
+        assert!(has(&cmd("git push !opt!"), RULE_TOO_COMPLEX));
+        assert!(cmd("echo 100%% done & git status").is_empty());
+    }
+
+    #[test]
+    fn abbreviated_long_options_and_git_overrides_count() {
+        assert_hits("git-reset-hard", &["git reset --ha HEAD~1"]);
+        assert_hits("git-clean-force", &["git clean --forc -d"]);
+        assert_hits("rm-outside-project", &["rm --recur /tmp/marker"]);
+        assert_passes(&[
+            "git clean --forc --dry",
+            "git reset --h",
+            "git push --force-with",
+        ]);
+        for command in [
+            "git -c clean.requireForce=false clean -d",
+            "git -c alias.p='push --force' p",
+            "git -C .. -c Alias.p=x p",
+            "git --config-env=alias.p=X p",
+        ] {
+            assert!(has(&hits(command), RULE_TOO_COMPLEX), "{command}");
+        }
+        assert_passes(&["git -c core.autocrlf=false status"]);
+        let flag = |text: &str| Flag::parse(text).unwrap();
+        assert!(flag("--force").given_by("--fo"));
+        assert!(!flag("--force").given_by("--f"));
+        assert!(flag("--force").given_by("--forc=1"));
+    }
+
+    #[test]
+    fn scripts_from_stdin_and_processes_are_asked_about() {
+        for command in [
+            "echo 'git push --force' | bash /dev/stdin",
+            "echo 'git push --force' | bash /dev/fd/0",
+            "echo 'git push --force' | sh /proc/self/fd/0",
+            "echo 'git push --force' | pwsh -File -",
+            "echo 'git push --force' | source /dev/stdin",
+            ". <(echo git push --force)",
+        ] {
+            assert!(has(&hits(command), RULE_STDIN_SCRIPT), "{command}");
+        }
+        assert_passes(&[". ./env.sh", "source venv/bin/activate"]);
+    }
+
+    #[test]
+    fn powershell_deletes_with_colon_values_and_pipelines_are_placed() {
+        for command in [
+            r"Remove-Item -Recurse -Path:C:\Users\u\marker",
+            r"Remove-Item -Recurse -LiteralPath:C:\Users\u\marker",
+            r"Get-ChildItem C:\Users\u\marker -Recurse | Remove-Item -Force",
+            r"Get-ChildItem -Path:C:\Users\u\marker | Remove-Item -Recurse",
+        ] {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                ["remove-item-outside-project"],
+                "{command}"
+            );
+        }
+        for command in [
+            r"Remove-Item -Recurse -Path:.\build",
+            r"Get-ChildItem .\build -Recurse | Remove-Item -Force",
+            r"Get-ChildItem C:\Users\u\marker | Remove-Item -Force",
+            r"Remove-Item -Recurse:$true .\build",
+        ] {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                Vec::<String>::new(),
+                "{command}"
+            );
+        }
+        // A piped delete whose input Hangar cannot place counts as outside.
+        assert_eq!(
+            hits_in(r"$list | Remove-Item -Recurse", "PowerShell"),
+            ["remove-item-outside-project"]
+        );
+    }
+
+    #[test]
+    fn a_cd_that_may_not_apply_keeps_the_old_folder_too() {
+        assert_hits(
+            "rm-outside-project",
+            &[
+                "(cd src/deep); rm -r ../../marker",
+                "cd src/deep | true; rm -r ../../marker",
+                "cd src/deep 2>/dev/null; rm -r ../../marker",
+            ],
+        );
+        assert_passes(&["cd src && rm -rf generated"]);
+        // Many cd calls stay bounded.
+        let many = format!("{}rm -r build", "cd a; ".repeat(400));
+        assert!(has(&hits(&many), "rm-outside-project"));
+    }
+
+    #[test]
+    fn sql_on_stdin_is_read_or_asked_about() {
+        assert_hits(
+            "sql-drop",
+            &[
+                "psql <<< 'DROP TABLE marker'",
+                "mysql <<EOF\ndrop database marker;\nEOF",
+            ],
+        );
+        for command in [
+            "echo 'DROP TABLE marker' | psql",
+            "cat dump.sql | mysql shop",
+            "psql <<EOF\n$SQL\nEOF",
+        ] {
+            assert!(has(&hits(command), RULE_STDIN_SCRIPT), "{command}");
+        }
+        assert_passes(&[
+            "psql <<< 'SELECT 1'",
+            "echo x | psql -c 'SELECT 1'",
+            "cat q | sqlite3 app.db 'SELECT 1'",
+            "psql -f schema.sql",
+        ]);
+    }
+
+    #[test]
+    fn more_wrappers_and_inline_commands_are_looked_through() {
+        assert_hits(
+            "git-push-force",
+            &[
+                "winpty git push --force",
+                "setsid git push --force",
+                "stdbuf -oL git push --force",
+                "ionice -c3 git push --force",
+                "busybox sh -c 'git push --force'",
+                "trap 'git push --force' EXIT",
+            ],
+        );
+        assert_hits(
+            "rm-outside-project",
+            &[
+                "find /tmp/marker -exec rm -r {} +",
+                "find .. -execdir rm -r {} \\;",
+            ],
+        );
+        assert_passes(&["find . -name '*.o' -exec rm -r {} +"]);
+        assert_eq!(
+            hits_in(
+                "& ([scriptblock]::Create('git push --force'))",
+                "PowerShell"
+            ),
+            ["git-push-force"]
+        );
+    }
+
+    #[test]
+    fn huge_here_documents_and_here_strings_are_checked_quickly() {
+        let body = "x 'y' $(z) `w`\n".repeat(4000);
+        for (command, tool) in [
+            (format!("cat <<EOF\n{body}EOF\ngit push --force"), "Bash"),
+            (
+                format!("echo @\"\n{body}\"@\ngit push --force"),
+                "PowerShell",
+            ),
+            (format!("psql <<EOF\n{body}EOF"), "Shell"),
+            ("{a,b} ".repeat(10_000), "Shell"),
+        ] {
+            let started = std::time::Instant::now();
+            let found = hits_in(&command, tool);
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "{:?} {found:?}",
+                started.elapsed()
+            );
+        }
     }
 
     #[test]
