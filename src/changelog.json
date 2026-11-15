@@ -198,6 +198,20 @@
         "ru": "Безопаснее: ссылки показывают цель, вставка строк спрашивает, Git-хуки только при твоём коммите, скрытые опасные команды видны, команды подтверждают устройства.",
         "tr": "Güvenlik: bağlantılar hedefi gösterir, çok satırlı yapıştırma sorar, Git hook’ları sadece commit’inde, gizli riskli komutlar yakalanır, ekipler cihaz onaylar.",
         "zh": "更安全：链接显示真实目标，粘贴多行前先询问，Git 钩子只在你提交时运行，隐藏的危险命令也会被发现，团队会确认新设备。"
+      },
+      {
+        "de": "Sicherer: Manipulierte Repositorys starten über Hangar keine eigenen Programme und erreichen keine fremden Rechner mehr, und täuschende Linktexte fallen auf.",
+        "en": "Safer: a tampered repository can no longer run its own programs or reach other machines through Hangar, and link text that hides another target is caught.",
+        "el": "Ασφάλεια: ένα αλλοιωμένο αποθετήριο δεν τρέχει πια δικά του προγράμματα ούτε φτάνει σε άλλους υπολογιστές μέσω Hangar, και παραπλανητικοί σύνδεσμοι πιάνονται.",
+        "es": "Más seguro: un repositorio manipulado ya no ejecuta sus propios programas ni llega a otros equipos a través de Hangar, y se detectan enlaces con texto engañoso.",
+        "fr": "Plus sûr : un dépôt piégé ne lance plus ses propres programmes et n’atteint plus d’autres machines via Hangar, et les textes de lien trompeurs sont repérés.",
+        "it": "Più sicuro: un repository manomesso non avvia più programmi propri né raggiunge altri computer tramite Hangar, e i testi dei link ingannevoli vengono scoperti.",
+        "ja": "安全性向上: 改ざんされたリポジトリが Hangar 経由で独自のプログラムを実行したり他のマシンに接続したりできなくなり、別の宛先を隠すリンク文字列も検出します。",
+        "pl": "Bezpieczniej: zmanipulowane repozytorium nie uruchamia już przez Hangar własnych programów ani nie łączy się z innymi maszynami, a mylące linki są wykrywane.",
+        "pt": "Mais seguro: um repositório adulterado não executa mais programas próprios nem alcança outras máquinas pelo Hangar, e textos de link enganosos são detectados.",
+        "ru": "Безопаснее: изменённый злоумышленником репозиторий больше не запускает свои программы и не обращается к другим машинам через Hangar, а обманные ссылки видны.",
+        "tr": "Güvenlik: kurcalanmış bir depo artık Hangar üzerinden kendi programlarını çalıştıramaz veya başka makinelere ulaşamaz; yanıltıcı bağlantı metinleri yakalanır.",
+        "zh": "更安全：被篡改的仓库无法再通过 Hangar 运行自己的程序或连接其他机器，隐藏真实目标的链接文字也会被发现。"
       }
     ]
   },
