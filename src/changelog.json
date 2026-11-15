@@ -254,6 +254,20 @@
         "ru": "Календарь коммитов теперь всегда вверху главного экрана, даже до твоего первого коммита.",
         "tr": "Commit takvimi artık ilk commit'inden önce bile ana ekranın en üstünde.",
         "zh": "提交日历现在始终显示在主页顶部，即使你还没有自己的提交。"
+      },
+      {
+        "de": "Ein Klick in die Eingabe eines Agenten übernimmt den grauen Vorschlag nicht mehr. Markierten Text in der Eingabe löschst du mit Rücktaste oder Entf.",
+        "en": "Clicking into an agent’s prompt no longer takes its grey suggestion. Delete marked text in the prompt with Backspace or Delete.",
+        "el": "Ένα κλικ στη γραμμή εισόδου ενός πράκτορα δεν παίρνει πια τη γκρι πρόταση. Σβήσε το επιλεγμένο κείμενο εκεί με Backspace ή Delete.",
+        "es": "Hacer clic en la entrada de un agente ya no acepta su sugerencia gris. Borra el texto marcado en la entrada con Retroceso o Supr.",
+        "fr": "Un clic dans la saisie d’un agent n’accepte plus sa suggestion grise. Efface le texte sélectionné dans la saisie avec Retour arrière ou Suppr.",
+        "it": "Un clic nell’input di un agente non accetta più il suggerimento grigio. Cancella il testo selezionato nell’input con Backspace o Canc.",
+        "ja": "エージェントの入力欄をクリックしても、灰色の候補が確定されなくなりました。入力欄で選択した文字は Backspace か Delete で消せます。",
+        "pl": "Kliknięcie w pole wpisywania agenta nie przyjmuje już szarej podpowiedzi. Zaznaczony tekst w tym polu usuniesz klawiszem Backspace lub Delete.",
+        "pt": "Clicar na entrada de um agente não aceita mais a sugestão cinza. Apague o texto marcado na entrada com Backspace ou Delete.",
+        "ru": "Щелчок в поле ввода агента больше не принимает серую подсказку. Выделенный текст в поле ввода удаляй клавишей Backspace или Delete.",
+        "tr": "Bir ajanın giriş satırına tıklamak artık gri öneriyi kabul etmez. Girişte seçtiğin metni Backspace veya Delete ile sil.",
+        "zh": "点击智能体的输入框不再会采纳灰色建议。在输入框中选中的文字可以用 Backspace 或 Delete 删除。"
       }
     ]
   },

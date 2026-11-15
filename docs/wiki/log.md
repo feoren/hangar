@@ -900,3 +900,7 @@ Pages changed: [[session-row-layout]].
 ## [2026-11-15] update | Row builder acceptance measurements
 Tree guide geometry of all presets compared against main in Edge 157 headless (identical), editor drag, keyboard and focus driven over the DevTools protocol; arrow buttons at an edge are now `aria-disabled`.
 Pages changed: [[session-row-layout]].
+
+## [2026-11-15] update | Prompt mouse editing: suggestion stays, selection deletes
+A click in an agent's prompt no longer moves into Claude Code's faint suggestion (a Right arrow took it); the cursor stops at the end of the typed text and at the first character after the prompt mark. Backspace or Delete with a selection inside the typed text of the cursor's line deletes it (arrows to its end, one Backspace per character); elsewhere the keys behave as before. Read the suggestion's rendering from the Claude Code 2.1.325 binary.
+Pages changed: [[prompt-mouse-editing]], [[claude-code-suggestion-reading]].

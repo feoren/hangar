@@ -26,6 +26,9 @@ export const AGENT_NEWLINE = "\x1b\r";
  * - `newline`: Shift+Enter in an agent session. `send` is `AGENT_NEWLINE` on keydown and `null` for
  *   the keypress and keyup of the same key; xterm ignores all three, so it never sends its own CR
  *   (which would submit the prompt) and each press inserts exactly one new line.
+ * - `deleteSelection`: Backspace or Delete with a selection in an agent session. The terminal tries
+ *   to delete the selection from the prompt (terminalClick.ts) and hands the key back to xterm
+ *   when the selection is not part of the typed text.
  * - `terminal`: xterm handles the key as usual (input for the process).
  */
 export type TerminalKeyAction =
@@ -33,12 +36,14 @@ export type TerminalKeyAction =
   | { kind: "copy"; clearSelection: boolean }
   | { kind: "paste" }
   | { kind: "newline"; send: string | null }
+  | { kind: "deleteSelection" }
   | { kind: "terminal" };
 
 /**
  * Ctrl+C copies only with a selection; without one it goes to the process (interrupt).
  * `agent`: an agent CLI runs in the session, so Shift+Enter starts a new line in its prompt. A
- * plain shell gets Shift+Enter like Enter, as in other terminals.
+ * plain shell gets Shift+Enter like Enter, as in other terminals, and Backspace with a selection
+ * as a plain Backspace.
  */
 export function terminalKeyAction(
   event: KeyInfo,
@@ -49,6 +54,9 @@ export function terminalKeyAction(
   if (matchShortcut(event)) return { kind: "app" };
   if (agent && isShiftEnter(event)) {
     return { kind: "newline", send: event.type === "keydown" ? AGENT_NEWLINE : null };
+  }
+  if (agent && hasSelection && event.type === "keydown" && isPlainErase(event)) {
+    return { kind: "deleteSelection" };
   }
   // F6 moves the focus to the notes while they are open; the process must not get it as well.
   if (focusCycle && event.type === "keydown" && focusCycleStep(event) !== null) {
@@ -69,6 +77,18 @@ function isShiftEnter(event: KeyInfo): boolean {
   return (
     event.key === "Enter" &&
     event.shiftKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    !event.isComposing
+  );
+}
+
+/** Backspace or Delete without a modifier: Ctrl+Backspace deletes a word in many CLIs. */
+function isPlainErase(event: KeyInfo): boolean {
+  return (
+    (event.key === "Backspace" || event.key === "Delete") &&
+    !event.shiftKey &&
     !event.ctrlKey &&
     !event.altKey &&
     !event.metaKey &&
