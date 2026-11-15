@@ -161,10 +161,78 @@ fn blocking_commands_run_off_the_main_thread() {
         "account_open",
         "delete_gate_rule",
         "team_link_repo",
+        // An "always" answer writes the gate rules; the guard's info reads its rules file.
+        "answer_gate",
+        "command_guard_info",
+        "protected_settings",
+        "save_protected_settings",
+        "load_templates",
+        "save_templates",
     ] {
         let body = command_body(&commands, name);
         assert!(body.contains("spawn_blocking"), "{name} runs on the caller");
     }
+}
+
+/// The note commands the panel may call with a folder check it first: the shared notes live in
+/// a repository (and run git there), so the panel reaches only those of its session's folder.
+#[test]
+fn panel_note_commands_check_the_handed_folder() {
+    let commands = read("src/commands.rs");
+    for name in [
+        "list_notes",
+        "read_note",
+        "write_note",
+        "create_note",
+        "rename_note",
+        "delete_note",
+        "reorder_notes",
+        "reveal_notes_folder",
+        "list_trash",
+        "restore_note",
+        "export_note",
+        "reveal_note",
+        "shared_notes_status",
+        "shared_notes_prepare",
+        "shared_notes_save_code",
+        "shared_notes_copy_code",
+        "shared_notes_cancel",
+        "shared_notes_enable",
+        "shared_notes_unlock",
+    ] {
+        let body = command_body(&commands, name);
+        assert!(
+            body.contains("notes_in_scope(window.label(), &scope, &folder)?;"),
+            "{name} does not check the panel's folder"
+        );
+    }
+    let moved = command_body(&commands, "move_note");
+    for folder in ["&from", "&to"] {
+        assert!(
+            moved.contains(&format!(
+                "notes_in_scope(window.label(), &scope, {folder})?;"
+            )),
+            "move_note does not check {folder}"
+        );
+    }
+    // Every command that takes a note folder is in the lists above.
+    let mut named = 0;
+    for (at, _) in commands.match_indices("    folder: NoteFolder,\n") {
+        let head = commands[..at].rfind("pub async fn ").unwrap();
+        let body = command_body(&commands, {
+            let rest = &commands[head + "pub async fn ".len()..];
+            &rest[..rest.find('(').unwrap()]
+        });
+        assert!(body.contains("notes_in_scope("), "{}", &body[..80]);
+        named += 1;
+    }
+    assert!(named >= 19, "{named}");
+    // The search spans every unlocked repository: its hits pass the same rule.
+    assert!(command_body(&commands, "search_notes").contains("scope.allows_hit(label, hit)"));
+    // Text from the panel goes to the handed session only (panel_to_main is synchronous).
+    let start = commands.find("pub fn panel_to_main(").unwrap();
+    let end = commands[start..].find("\n}\n").unwrap() + start;
+    assert!(commands[start..end].contains("message.scoped(&scope)?"));
 }
 
 /// explorer.exe parses its own command line and splits a path at commas (`C:\Users\Doe, Jane`),

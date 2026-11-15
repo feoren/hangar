@@ -229,9 +229,10 @@ clicks stay; Escape cancels. Only the main window drags (the detached panel has 
 
 ## Capability `file-viewer`
 
-Windows `file-viewer-*`: `core:event:allow-listen`, `core:event:allow-unlisten`,
-`core:window:allow-close`, `core:window:allow-set-focus`, `core:window:allow-set-title`,
-`clipboard-manager:allow-write-text`, `allow-file-viewer-content`, `allow-file-viewer-stamp`,
-`allow-file-viewer-diff`, `allow-file-viewer-open-link`. The main window holds
+Windows `file-viewer-*`: `clipboard-manager:allow-write-text`, `allow-file-viewer-content`,
+`allow-file-viewer-stamp`, `allow-file-viewer-diff`, `allow-file-viewer-open-link`. No event
+permissions (a listener for any target would read events meant for the main window) and, since
+the third security review, no `core:window:*` permission either: those commands take any window's
+label, and the viewer calls none. The main window holds
 `allow-open-file-viewer`, never a permission to create webviews; the main window and the panel
 hold `allow-list-session-paths`. `src-tauri/tests/contract.rs` pins all three lists.

@@ -129,7 +129,12 @@ pub struct TreeChanges {
 /// A local day as the window computed it: `[start, end)` in ms. It must be a plausible day
 /// within the log's retention, so a call cannot make Hangar read years of history.
 pub fn check_window(start: i64, end: i64, now: i64) -> Result<(), ReviewError> {
-    if end <= start || end - start > MAX_WINDOW_MS {
+    // `end - start` overflows for far apart values the window could send.
+    if end <= start
+        || end
+            .checked_sub(start)
+            .is_none_or(|length| length > MAX_WINDOW_MS)
+    {
         return Err(ReviewError::InvalidDay("not one day"));
     }
     if start < now - (work_log::RETENTION_DAYS + 2) * DAY_MS || start > now + DAY_MS {
@@ -737,6 +742,10 @@ mod tests {
         assert!(check_window(DAY, DAY + 27 * HOUR, now).is_err());
         assert!(check_window(DAY - 200 * DAY_MS, DAY - 199 * DAY_MS, now).is_err());
         assert!(check_window(DAY + 3 * DAY_MS, DAY + 4 * DAY_MS, now).is_err());
+        // Far apart values neither overflow nor pass.
+        assert!(check_window(i64::MIN, i64::MAX, now).is_err());
+        assert!(check_window(i64::MIN, now, now).is_err());
+        assert!(check_window(now, i64::MAX, now).is_err());
     }
 
     #[test]

@@ -49,6 +49,9 @@ const TRASH_META_FILE: &str = "trash.json";
 const TRASH_META_VERSION: u32 = 1;
 /// At most this many hits per search; title hits first, then the newest notes.
 pub const MAX_SEARCH_RESULTS: usize = 50;
+/// IDs one reorder may name, checked before any is read: no folder holds that many notes, and
+/// every ID is compared with every note.
+pub const MAX_REORDER_IDS: usize = 10_000;
 pub const MAX_QUERY_CHARS: usize = 200;
 /// A search reads at most this many note files, so a huge notes folder cannot stall it.
 const MAX_SEARCH_FILES: usize = 5000;
@@ -1212,15 +1215,20 @@ impl NotesStore {
     /// The given IDs move to the front in this order, all others keep their
     /// order behind them. Unknown IDs are an error.
     pub fn reorder_notes(&self, folder: &NoteFolder, ids: &[String]) -> Result<(), NotesError> {
+        if ids.len() > MAX_REORDER_IDS {
+            return Err(NotesError::UnknownNote);
+        }
         let ids: Vec<String> = ids
             .iter()
             .map(|id| check_id(id))
             .collect::<Result<_, _>>()?;
         let _guard = lock(&self.guard);
         let mut opened = self.opened(folder)?;
-        if ids
-            .iter()
-            .any(|id| opened.meta.notes.iter().all(|n| &n.id != id))
+        // More IDs than notes means repeats: the order names every note once at most.
+        if ids.len() > opened.meta.notes.len()
+            || ids
+                .iter()
+                .any(|id| opened.meta.notes.iter().all(|n| &n.id != id))
         {
             return Err(NotesError::UnknownNote);
         }
@@ -1525,6 +1533,17 @@ mod tests {
         assert_eq!(orders, [0, 1, 2]);
         assert!(matches!(
             t.0.reorder_notes(&folder, &[new_id()]),
+            Err(NotesError::UnknownNote)
+        ));
+        // More IDs than notes (repeats), and far too many, are refused before anything changes.
+        let repeated = vec![a.clone(), a.clone(), b.clone(), c.clone()];
+        assert!(matches!(
+            t.0.reorder_notes(&folder, &repeated),
+            Err(NotesError::UnknownNote)
+        ));
+        let flood = vec![a.clone(); MAX_REORDER_IDS + 1];
+        assert!(matches!(
+            t.0.reorder_notes(&folder, &flood),
             Err(NotesError::UnknownNote)
         ));
         // New notes go to the end.

@@ -156,6 +156,27 @@ impl PanelMessage {
         }
     }
 
+    /// The message as the main window receives it: text goes to the handed session only. A
+    /// message without a session names the handed one explicitly, so the main window never
+    /// pastes into whatever session is active by then; without a handed session it is refused.
+    pub fn scoped(self, scope: &PanelScope) -> Result<Self, PanelWindowError> {
+        match self {
+            Self::SendToTerminal { text, session_id } => {
+                let handed = scope
+                    .session()
+                    .ok_or(PanelWindowError::Invalid("no session handed to the panel"))?;
+                if session_id.is_some_and(|id| id != handed) {
+                    return Err(PanelWindowError::Invalid("not the panel's session"));
+                }
+                Ok(Self::SendToTerminal {
+                    text,
+                    session_id: Some(handed),
+                })
+            }
+            other => Ok(other),
+        }
+    }
+
     /// Messages after which the main window comes to the front.
     pub fn shows_main(&self) -> bool {
         matches!(self, Self::ShowMain {} | Self::ShowSession { .. })
@@ -163,25 +184,72 @@ impl PanelMessage {
 }
 
 /// The session the main window last handed to the panel window (its active session, the one the
-/// panel's tabs show). Commands the panel may call with a session id answer for that session
-/// only, so a compromised panel cannot read or change another session's repository or files.
-/// The main window may name any session.
+/// panel's tabs show) and that session's working folder. Commands the panel may call with a
+/// session id answer for that session only, and the shared notes (which live in a repository
+/// and run git there) for that folder only, so a compromised panel cannot read or change another
+/// session's repository, files or shared notes. The main window may name any session and folder.
 #[derive(Debug, Default)]
-pub struct PanelScope(std::sync::Mutex<Option<u64>>);
+pub struct PanelScope(std::sync::Mutex<Option<Handed>>);
+
+#[derive(Debug)]
+struct Handed {
+    session: u64,
+    /// [`crate::notes::normalize_path`] of the session's working folder.
+    folder: String,
+}
 
 impl PanelScope {
-    /// Set by the main window whenever it sends the panel its context; `None`: no session.
-    pub fn set(&self, session: Option<u64>) {
-        *crate::lock(&self.0) = session;
+    /// Set by the main window whenever it sends the panel its context; `None`: no session. The
+    /// folder is the backend's own record of the session's working folder, never the window's.
+    pub fn set(&self, handed: Option<(u64, &std::path::Path)>) {
+        *crate::lock(&self.0) = handed.map(|(session, folder)| Handed {
+            session,
+            folder: crate::notes::normalize_path(folder),
+        });
+    }
+
+    /// The session handed to the panel, if any.
+    pub fn session(&self) -> Option<u64> {
+        crate::lock(&self.0).as_ref().map(|handed| handed.session)
     }
 
     /// Whether the window labelled `label` may address session `id`.
     pub fn allows(&self, label: &str, id: u64) -> bool {
         match label {
             MAIN_LABEL => true,
-            LABEL => *crate::lock(&self.0) == Some(id),
+            LABEL => crate::lock(&self.0)
+                .as_ref()
+                .is_some_and(|handed| handed.session == id),
             _ => false,
         }
+    }
+
+    /// Whether the window labelled `label` may use the notes of `folder`. Private notes live in
+    /// Hangar's own data folder and are open to the panel for any folder; shared notes live in
+    /// the repository of the folder, so the panel reaches only those of the handed session's
+    /// working folder.
+    pub fn allows_folder(&self, label: &str, folder: &crate::notes::NoteFolder) -> bool {
+        match label {
+            MAIN_LABEL => true,
+            LABEL if !folder.shared => true,
+            LABEL => match (&folder.path, crate::lock(&self.0).as_ref()) {
+                (Some(path), Some(handed)) => crate::notes::normalize_path(path) == handed.folder,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Whether the window labelled `label` may see a search hit: by the rule of
+    /// [`Self::allows_folder`], so a search from the panel shows no shared note it could not open.
+    pub fn allows_hit(&self, label: &str, hit: &crate::notes::SearchHit) -> bool {
+        self.allows_folder(
+            label,
+            &crate::notes::NoteFolder {
+                path: hit.path.clone(),
+                shared: hit.shared,
+            },
+        )
     }
 }
 
@@ -206,6 +274,7 @@ pub fn check_sender(label: &str) -> Result<(), PanelWindowError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn parse(json: &str) -> Result<PanelMessage, serde_json::Error> {
         serde_json::from_str(json)
@@ -217,7 +286,7 @@ mod tests {
         // Nothing handed yet: the panel reaches no session, the main window every one.
         assert!(!scope.allows(LABEL, 1));
         assert!(scope.allows(MAIN_LABEL, 1));
-        scope.set(Some(4));
+        scope.set(Some((4, Path::new(FOLDER))));
         assert!(scope.allows(LABEL, 4));
         assert!(!scope.allows(LABEL, 5));
         assert!(scope.allows(MAIN_LABEL, 5));
@@ -228,6 +297,106 @@ mod tests {
         assert!(!scope.allows(LABEL, 4));
         assert!(check_main(MAIN_LABEL).is_ok());
         assert!(matches!(check_main(LABEL), Err(PanelWindowError::NotMain)));
+    }
+
+    const FOLDER: &str = if cfg!(windows) {
+        r"C:\Work\Repo"
+    } else {
+        "/work/repo"
+    };
+
+    fn folder(path: Option<&str>, shared: bool) -> crate::notes::NoteFolder {
+        crate::notes::NoteFolder {
+            path: path.map(std::path::PathBuf::from),
+            shared,
+        }
+    }
+
+    #[test]
+    fn the_panel_reaches_only_the_shared_notes_of_its_session_folder() {
+        let scope = PanelScope::default();
+        let other = if cfg!(windows) {
+            r"C:\Work\Other"
+        } else {
+            "/work/other"
+        };
+        // Nothing handed: no shared notes at all, private notes of any folder.
+        assert!(!scope.allows_folder(LABEL, &folder(Some(FOLDER), true)));
+        assert!(scope.allows_folder(LABEL, &folder(Some(other), false)));
+        assert!(scope.allows_folder(LABEL, &folder(None, false)));
+        scope.set(Some((4, Path::new(FOLDER))));
+        assert!(scope.allows_folder(LABEL, &folder(Some(FOLDER), true)));
+        // The same folder written another way (case on Windows, a trailing separator).
+        let same = if cfg!(windows) {
+            r"c:\work\repo\"
+        } else {
+            "/work/repo/"
+        };
+        assert!(scope.allows_folder(LABEL, &folder(Some(same), true)));
+        for refused in [Some(other), None] {
+            assert!(
+                !scope.allows_folder(LABEL, &folder(refused, true)),
+                "{refused:?}"
+            );
+        }
+        // The main window reaches every folder, any other window none.
+        assert!(scope.allows_folder(MAIN_LABEL, &folder(Some(other), true)));
+        for window in ["file-viewer-1", "Panel", ""] {
+            assert!(
+                !scope.allows_folder(window, &folder(Some(FOLDER), false)),
+                "{window}"
+            );
+        }
+        scope.set(None);
+        assert!(!scope.allows_folder(LABEL, &folder(Some(FOLDER), true)));
+    }
+
+    #[test]
+    fn the_panel_finds_only_the_shared_notes_of_its_session_folder() {
+        let scope = PanelScope::default();
+        let other = if cfg!(windows) {
+            r"C:\Work\Other"
+        } else {
+            "/work/other"
+        };
+        let hit = |path: Option<&str>, shared: bool| crate::notes::SearchHit {
+            folder_key: "key".into(),
+            path: path.map(std::path::PathBuf::from),
+            id: "note".into(),
+            title: "HANGAR-MARKER".into(),
+            excerpt: String::new(),
+            updated_at: None,
+            shared,
+        };
+        scope.set(Some((4, Path::new(FOLDER))));
+        assert!(scope.allows_hit(LABEL, &hit(Some(FOLDER), true)));
+        assert!(scope.allows_hit(LABEL, &hit(Some(other), false)));
+        assert!(scope.allows_hit(LABEL, &hit(None, false)));
+        assert!(!scope.allows_hit(LABEL, &hit(Some(other), true)));
+        assert!(scope.allows_hit(MAIN_LABEL, &hit(Some(other), true)));
+    }
+
+    #[test]
+    fn text_from_the_panel_goes_to_its_session_only() {
+        let scope = PanelScope::default();
+        let send = |session_id| PanelMessage::SendToTerminal {
+            text: "ls".into(),
+            session_id,
+        };
+        // Nothing handed: no paste at all.
+        assert!(send(None).scoped(&scope).is_err());
+        assert!(send(Some(4)).scoped(&scope).is_err());
+        scope.set(Some((4, Path::new(FOLDER))));
+        assert_eq!(send(Some(4)).scoped(&scope).unwrap(), send(Some(4)));
+        // Without a session: the handed one, named explicitly for the main window.
+        assert_eq!(send(None).scoped(&scope).unwrap(), send(Some(4)));
+        assert!(matches!(
+            send(Some(5)).scoped(&scope),
+            Err(PanelWindowError::Invalid(_))
+        ));
+        // Other messages pass unchanged.
+        let show = PanelMessage::ShowSession { session_id: 9 };
+        assert_eq!(show.clone().scoped(&scope).unwrap(), show);
     }
 
     #[test]

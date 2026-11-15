@@ -1,8 +1,9 @@
 // App settings (language, appearance, attention, program details, updates).
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
-// command guard) are the exception: the panel and file viewer windows share this localStorage, so
-// the backend keeps them for the main window alone (mainStore.ts); they are neither read from nor
+// command guard) and the protected settings (paste warning, automatic updates, HANGAR.md,
+// snippets) are the exception: the panel and file viewer windows share this localStorage, so the
+// backend keeps them for the main window alone (mainStore.ts); they are neither read from nor
 // written to localStorage here.
 
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
@@ -40,6 +41,21 @@ export type SecuritySwitchKey = (typeof SECURITY_SWITCH_KEYS)[number];
 
 /** The security switches as the backend stores them (`main_store.rs`). */
 export type SecuritySwitches = Record<SecuritySwitchKey, boolean>;
+
+/**
+ * Settings that decide what reaches an agent or the machine, kept by the backend (mainStore.ts):
+ * a viewer that could write them could switch the paste warning or updates off, or plant a
+ * snippet that is later pasted into an agent session.
+ */
+export const PROTECTED_KEYS = ["warnMultilinePaste", "autoUpdate", "hangarMd", "snippets"] as const;
+
+export type ProtectedKey = (typeof PROTECTED_KEYS)[number];
+
+/** The protected settings as the backend stores them (`main_store.rs`, `ProtectedSettings`). */
+export type ProtectedSettings = Pick<Settings, ProtectedKey>;
+
+/** Every setting the backend keeps and localStorage never holds. */
+export const BACKEND_KEYS: readonly string[] = [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS];
 
 export const QUIET_SECONDS = { min: 1, max: 30, default: 3 } as const;
 /**
@@ -294,7 +310,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     keepInTray: flag("keepInTray"),
     showVersions: flag("showVersions"),
     showIcons: flag("showIcons"),
-    autoUpdate: flag("autoUpdate"),
+    // Never from localStorage, like the switches below: the backend keeps them (mainStore.ts).
+    autoUpdate: defaults.autoUpdate,
     checkProgramUpdates: flag("checkProgramUpdates"),
     restoreSessions: flag("restoreSessions"),
     scrollbackLines:
@@ -306,9 +323,9 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     claimsEnabled: defaults.claimsEnabled,
     gateEnabled: defaults.gateEnabled,
     commandGuardEnabled: defaults.commandGuardEnabled,
-    hangarMd: flag("hangarMd"),
+    hangarMd: defaults.hangarMd,
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
-    warnMultilinePaste: flag("warnMultilinePaste"),
+    warnMultilinePaste: defaults.warnMultilinePaste,
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: parseColorScheme(scheme) ?? defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,
@@ -316,7 +333,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     cursorBlink: flag("cursorBlink"),
     viewerTheme: parseViewerTheme(viewerTheme) ?? defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
-    snippets: parseSnippets(get("snippets"), chosenLanguage),
+    snippets: defaultSnippets(chosenLanguage),
   };
 }
 
@@ -344,16 +361,57 @@ export function hasStoredSettings(): boolean {
 
 export function saveSettings(settings: Settings): void {
   try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(withoutSwitches(settings)));
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(withoutBackendKeys(settings)));
   } catch {
     // Without storage, the defaults apply again on the next start.
   }
 }
 
-/** The settings as stored in localStorage: without the security switches. */
-export function withoutSwitches(settings: Settings): Record<string, unknown> {
-  const switches: readonly string[] = SECURITY_SWITCH_KEYS;
-  return Object.fromEntries(Object.entries(settings).filter(([key]) => !switches.includes(key)));
+/** The settings as stored in localStorage: without what the backend keeps (`BACKEND_KEYS`). */
+export function withoutBackendKeys(settings: Settings): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(settings).filter(([key]) => !BACKEND_KEYS.includes(key)),
+  );
+}
+
+/** The protected settings of `settings`. */
+export function protectedOf(settings: ProtectedSettings): ProtectedSettings {
+  return {
+    warnMultilinePaste: settings.warnMultilinePaste,
+    autoUpdate: settings.autoUpdate,
+    hangarMd: settings.hangarMd,
+    snippets: settings.snippets,
+  };
+}
+
+/**
+ * The protected settings an older Hangar kept in the stored settings text, for the one migration
+ * to the backend (mainStore.ts); missing or invalid values are the defaults, never stored
+ * snippets are the defaults in `language`.
+ */
+export function legacyProtected(text: string | null, language: Language): ProtectedSettings {
+  const defaults = defaultSettings(language);
+  let raw: unknown = null;
+  try {
+    raw = text === null ? null : JSON.parse(text);
+  } catch {
+    return protectedOf(defaults);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return protectedOf(defaults);
+  const flag = (key: "warnMultilinePaste" | "autoUpdate" | "hangarMd"): boolean => {
+    const value: unknown = Reflect.get(raw, key);
+    return typeof value === "boolean" ? value : defaults[key];
+  };
+  const storedLanguage: unknown = Reflect.get(raw, "language");
+  return {
+    warnMultilinePaste: flag("warnMultilinePaste"),
+    autoUpdate: flag("autoUpdate"),
+    hangarMd: flag("hangarMd"),
+    snippets: parseSnippets(
+      "snippets" in raw ? Reflect.get(raw, "snippets") : undefined,
+      isLanguage(storedLanguage) ? storedLanguage : language,
+    ),
+  };
 }
 
 /** The switches of `settings`. */

@@ -32,7 +32,10 @@ use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
-use crate::main_store::{self, MainStore, MainStoreError, QueuedMessages, SecuritySwitches};
+use crate::main_store::{
+    self, MainStore, MainStoreError, ProtectedSettings, QueuedMessages, SecuritySwitches,
+    WorkspaceTemplate,
+};
 use crate::manager::{
     EventSink, ManagerError, SessionEvent, SessionManager, StartRequest, TermSize,
 };
@@ -908,6 +911,21 @@ async fn notes_blocking<T: Send + 'static>(
         .map_err(|error| NotesError::Task(error.to_string()))?
 }
 
+/// The panel window reaches the shared notes of its session's working folder only
+/// ([`PanelScope::allows_folder`]); any other folder is answered as if it were no repository,
+/// before anything touches it.
+fn notes_in_scope(
+    label: &str,
+    scope: &PanelScope,
+    folder: &NoteFolder,
+) -> Result<(), ProjectNotesError> {
+    if scope.allows_folder(label, folder) {
+        Ok(())
+    } else {
+        Err(ProjectNotesError::NotRepository)
+    }
+}
+
 #[tauri::command]
 pub async fn list_note_folders(
     store: State<'_, NotesStore>,
@@ -918,10 +936,13 @@ pub async fn list_note_folders(
 
 #[tauri::command]
 pub async fn list_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<NoteInfo>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -934,11 +955,14 @@ pub async fn list_notes(
 
 #[tauri::command]
 pub async fn read_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -951,12 +975,15 @@ pub async fn read_note(
 
 #[tauri::command]
 pub async fn write_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     content: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -969,11 +996,14 @@ pub async fn write_note(
 
 #[tauri::command]
 pub async fn create_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     title: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -986,12 +1016,15 @@ pub async fn create_note(
 
 #[tauri::command]
 pub async fn rename_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     title: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1004,11 +1037,14 @@ pub async fn rename_note(
 
 #[tauri::command]
 pub async fn delete_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1022,11 +1058,14 @@ pub async fn delete_note(
 /// Shared notes sort by their last change and have no manual order: a no-op for them.
 #[tauri::command]
 pub async fn reorder_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     ids: Vec<String>,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(&folder, |s| s.reorder_notes(&folder, &ids), |_| Ok(()))
     })
@@ -1035,10 +1074,13 @@ pub async fn reorder_notes(
 
 #[tauri::command]
 pub async fn reveal_notes_folder(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1054,24 +1096,35 @@ pub async fn reveal_notes_folder(
 /// run are decrypted in memory and included.
 #[tauri::command]
 pub async fn search_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     query: String,
 ) -> Result<Vec<SearchHit>, NotesError> {
-    notes_blocking(store, shared, move |n| {
+    let hits = notes_blocking(store, shared, move |n| {
         let private = n.private.search(&query)?;
         let shared = n.shared.search(&query)?;
         Ok(crate::notes::merge_hits(&query, private, shared))
     })
-    .await
+    .await?;
+    // The panel sees the shared notes of its session's folder only (`notes_in_scope`).
+    let label = window.label();
+    Ok(hits
+        .into_iter()
+        .filter(|hit| scope.allows_hit(label, hit))
+        .collect())
 }
 
 #[tauri::command]
 pub async fn list_trash(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<TrashInfo>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1085,11 +1138,14 @@ pub async fn list_trash(
 /// Returns the restored note's ID (the old one unless it is taken again).
 #[tauri::command]
 pub async fn restore_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1103,12 +1159,16 @@ pub async fn restore_note(
 /// Moves a note between the private notes of a folder and its shared notes. Returns the new ID.
 #[tauri::command]
 pub async fn move_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     from: NoteFolder,
     id: String,
     to: NoteFolder,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &from)?;
+    notes_in_scope(window.label(), &scope, &to)?;
     notes_blocking(store, shared, move |n| {
         project_notes::move_note(&n.private, &n.shared, &from, &id, &to)
     })
@@ -1119,6 +1179,7 @@ pub async fn move_note(
 /// `None` when the dialog was cancelled, otherwise the path written.
 #[tauri::command]
 pub async fn export_note(
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     store: State<'_, NotesStore>,
@@ -1126,6 +1187,7 @@ pub async fn export_note(
     folder: NoteFolder,
     id: String,
 ) -> Result<Option<String>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         let (title, content) = n.dispatch(
             &folder,
@@ -1184,20 +1246,26 @@ async fn shared_blocking<T: Send + 'static>(
 /// first; `label` names the copies ("Title (label, Name)").
 #[tauri::command]
 pub async fn shared_notes_status(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     label: String,
     untitled: String,
 ) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.status(&folder, &label, &untitled)).await
 }
 
 /// First step of turning shared notes on: returns the notes recovery code to show once.
 #[tauri::command]
 pub async fn shared_notes_prepare(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<String, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| {
         p.prepare(&folder).map(|code| code.to_string())
     })
@@ -1209,12 +1277,14 @@ pub async fn shared_notes_prepare(
 /// where the code could be committed. `heading` is the first line, in the window's language.
 #[tauri::command]
 pub async fn shared_notes_save_code(
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     heading: String,
 ) -> Result<project_notes::SaveCode, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     use tauri_plugin_dialog::DialogExt as _;
     let heading: String = heading
         .chars()
@@ -1266,10 +1336,13 @@ pub async fn shared_notes_save_code(
 /// clipboard after a minute if it still holds the code.
 #[tauri::command]
 pub async fn shared_notes_copy_code(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     use tauri_plugin_clipboard_manager::ClipboardExt as _;
     let code = shared_blocking(shared, move |p| p.pending_code(&folder)).await?;
     app.clipboard()
@@ -1296,32 +1369,41 @@ pub async fn shared_notes_copy_code(
 /// The setup dialog closed without turning shared notes on: the prepared key and code go.
 #[tauri::command]
 pub async fn shared_notes_cancel(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.cancel(&folder)).await
 }
 
 /// Second step, after "I saved it": writes the vault and stores the key; nothing is staged.
 #[tauri::command]
 pub async fn shared_notes_enable(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     label: String,
     untitled: String,
 ) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.enable(&folder, &label, &untitled)).await
 }
 
 /// Unlocks the shared notes on this computer with the notes recovery code.
 #[tauri::command]
 pub async fn shared_notes_unlock(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     code: String,
     label: String,
     untitled: String,
 ) -> Result<project_notes::Unlock, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     let code = zeroize::Zeroizing::new(code);
     shared_blocking(shared, move |p| p.unlock(&folder, &code, &label, &untitled)).await
 }
@@ -1397,17 +1479,40 @@ pub fn set_panel_on_top(
     Ok(())
 }
 
+/// Closes the panel window: the calling window itself, never another one. The close runs the
+/// window's own close handler, which saves pending input and then calls
+/// [`destroy_panel_window`]. Instead of `core:window:allow-close`, whose command takes any
+/// window's label.
+#[tauri::command]
+pub fn close_panel_window(window: tauri::WebviewWindow) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
+    window.close()?;
+    Ok(())
+}
+
+/// Ends the panel window once its close handler saved pending input: the calling window itself,
+/// never another one. Instead of `core:window:allow-destroy`.
+#[tauri::command]
+pub fn destroy_panel_window(window: tauri::WebviewWindow) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
+    window.destroy()?;
+    Ok(())
+}
+
 /// The only way from the panel window to the main window: a validated [`PanelMessage`],
 /// delivered as event `panel-message` to `main` alone. The panel window may not emit events
-/// itself, so it cannot fake events such as `tray-quit`.
+/// itself, so it cannot fake events such as `tray-quit`. Text goes to the session the main
+/// window handed the panel only ([`PanelMessage::scoped`]).
 #[tauri::command]
 pub fn panel_to_main(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    scope: State<'_, PanelScope>,
     message: PanelMessage,
 ) -> Result<(), PanelWindowError> {
     panel_window::check_sender(window.label())?;
     message.validate()?;
+    let message = message.scoped(&scope)?;
     if message.shows_main() {
         tray::show_main_window(&app);
     }
@@ -1422,11 +1527,14 @@ pub fn panel_to_main(
 /// Shows the note's file selected in Explorer or Finder (Linux: its folder).
 #[tauri::command]
 pub async fn reveal_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -2428,10 +2536,19 @@ pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
 }
 
 /// The person's answer to a waiting edit; `false` when it no longer waits (answered, timed out,
-/// session ended).
+/// session ended). On a blocking thread: an "always" answer writes the rules file.
 #[tauri::command]
-pub fn answer_gate(gate: State<'_, GateService>, id: u64, answer: Answer) -> bool {
-    gate.answer(id, answer)
+pub async fn answer_gate(
+    gate: State<'_, GateService>,
+    id: u64,
+    answer: Answer,
+) -> Result<bool, ()> {
+    let gate = gate.inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || gate.answer(id, answer))
+            .await
+            .unwrap_or(false),
+    )
 }
 
 /// The person's gate rules, per project (`gate_rules.rs`).
@@ -2459,10 +2576,14 @@ pub fn configure_command_guard(gate: State<'_, GateService>, enabled: bool) {
     gate.configure_command_guard(enabled);
 }
 
-/// The command guard's rules file, its rules and what could not be read in it.
+/// The command guard's rules file, its rules and what could not be read in it. On a blocking
+/// thread: it reads the rules file.
 #[tauri::command]
-pub fn command_guard_info(gate: State<'_, GateService>) -> GuardInfo {
-    gate.command_guard_info()
+pub async fn command_guard_info(gate: State<'_, GateService>) -> Result<GuardInfo, String> {
+    let gate = gate.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || gate.command_guard_info())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change
@@ -2883,17 +3004,74 @@ pub async fn save_message_queue(
         .map_err(|error| MainStoreError::Task(error.to_string()))?
 }
 
+/// The settings that decide what reaches an agent or the machine (paste warning, automatic
+/// updates, HANGAR.md, snippets); `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn protected_settings(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<ProtectedSettings>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_settings())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn save_protected_settings(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    settings: ProtectedSettings,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_settings(settings))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The workspace templates; `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn load_templates(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<Vec<WorkspaceTemplate>>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_templates())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+/// Replaces the stored workspace templates; an empty list removes them all.
+#[tauri::command]
+pub async fn save_templates(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    templates: Vec<WorkspaceTemplate>,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_templates(templates))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
 /// The session the panel window shows from now on (`null`: none). The main window calls it
 /// before it sends the panel its context; the panel's session commands answer for this session
-/// only ([`PanelScope`]).
+/// only, its shared notes for this session's working folder only ([`PanelScope`]). The folder
+/// comes from the session manager; an id it does not know hands the panel nothing.
 #[tauri::command]
 pub fn set_panel_session(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
+    manager: Manager<'_>,
     id: Option<SessionId>,
 ) -> Result<(), PanelWindowError> {
     panel_window::check_main(window.label())?;
-    scope.set(id);
+    let handed = id.and_then(|id| session_folder(&manager, id).ok().map(|cwd| (id, cwd)));
+    scope.set(handed.as_ref().map(|(id, cwd)| (*id, cwd.as_path())));
     Ok(())
 }
 

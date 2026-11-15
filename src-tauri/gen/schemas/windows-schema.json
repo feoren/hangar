@@ -255,6 +255,12 @@
           "markdownDescription": "Enables the clear_scrollbacks command without any pre-configured scope."
         },
         {
+          "description": "Enables the close_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-close-panel-window",
+          "markdownDescription": "Enables the close_panel_window command without any pre-configured scope."
+        },
+        {
           "description": "Enables the close_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-close-session",
@@ -361,6 +367,12 @@
           "type": "string",
           "const": "allow-delete-scrollback",
           "markdownDescription": "Enables the delete_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the destroy_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-destroy-panel-window",
+          "markdownDescription": "Enables the destroy_panel_window command without any pre-configured scope."
         },
         {
           "description": "Enables the detect_versions command without any pre-configured scope.",
@@ -567,6 +579,12 @@
           "markdownDescription": "Enables the load_scrollback command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-templates",
+          "markdownDescription": "Enables the load_templates command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_workspace command without any pre-configured scope.",
           "type": "string",
           "const": "allow-load-workspace",
@@ -673,6 +691,12 @@
           "type": "string",
           "const": "allow-program-icons",
           "markdownDescription": "Enables the program_icons command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the protected_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-protected-settings",
+          "markdownDescription": "Enables the protected_settings command without any pre-configured scope."
         },
         {
           "description": "Enables the prune_hangar_worktree command without any pre-configured scope.",
@@ -795,6 +819,12 @@
           "markdownDescription": "Enables the save_profile command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_protected_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-protected-settings",
+          "markdownDescription": "Enables the save_protected_settings command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-scrollback",
@@ -805,6 +835,12 @@
           "type": "string",
           "const": "allow-save-security-switches",
           "markdownDescription": "Enables the save_security_switches command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-templates",
+          "markdownDescription": "Enables the save_templates command without any pre-configured scope."
         },
         {
           "description": "Enables the save_workspace command without any pre-configured scope.",
@@ -1101,6 +1137,12 @@
           "markdownDescription": "Denies the clear_scrollbacks command without any pre-configured scope."
         },
         {
+          "description": "Denies the close_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-close-panel-window",
+          "markdownDescription": "Denies the close_panel_window command without any pre-configured scope."
+        },
+        {
           "description": "Denies the close_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-close-session",
@@ -1207,6 +1249,12 @@
           "type": "string",
           "const": "deny-delete-scrollback",
           "markdownDescription": "Denies the delete_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the destroy_panel_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-destroy-panel-window",
+          "markdownDescription": "Denies the destroy_panel_window command without any pre-configured scope."
         },
         {
           "description": "Denies the detect_versions command without any pre-configured scope.",
@@ -1413,6 +1461,12 @@
           "markdownDescription": "Denies the load_scrollback command without any pre-configured scope."
         },
         {
+          "description": "Denies the load_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-templates",
+          "markdownDescription": "Denies the load_templates command without any pre-configured scope."
+        },
+        {
           "description": "Denies the load_workspace command without any pre-configured scope.",
           "type": "string",
           "const": "deny-load-workspace",
@@ -1519,6 +1573,12 @@
           "type": "string",
           "const": "deny-program-icons",
           "markdownDescription": "Denies the program_icons command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the protected_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-protected-settings",
+          "markdownDescription": "Denies the protected_settings command without any pre-configured scope."
         },
         {
           "description": "Denies the prune_hangar_worktree command without any pre-configured scope.",
@@ -1641,6 +1701,12 @@
           "markdownDescription": "Denies the save_profile command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_protected_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-protected-settings",
+          "markdownDescription": "Denies the save_protected_settings command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-scrollback",
@@ -1651,6 +1717,12 @@
           "type": "string",
           "const": "deny-save-security-switches",
           "markdownDescription": "Denies the save_security_switches command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-templates",
+          "markdownDescription": "Denies the save_templates command without any pre-configured scope."
         },
         {
           "description": "Denies the save_workspace command without any pre-configured scope.",

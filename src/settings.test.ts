@@ -4,12 +4,15 @@ import {
   CHIME_VOLUME,
   defaultSettings,
   gateActive,
+  BACKEND_KEYS,
+  legacyProtected,
   legacySwitches,
   parseSettings,
+  PROTECTED_KEYS,
   QUIET_SECONDS,
   SCROLLBACK_LINES,
   SECURITY_SWITCH_KEYS,
-  withoutSwitches,
+  withoutBackendKeys,
 } from "./settings";
 import { defaultSnippets } from "./snippets";
 import { DEFAULT_LOOKS } from "./stateLook";
@@ -75,10 +78,15 @@ describe("parseSettings", () => {
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
-      // The security switches come from the backend only (mainStore.ts), never from storage.
+      // The security switches and the protected settings come from the backend only
+      // (mainStore.ts), never from storage.
       claimsEnabled: true,
       gateEnabled: true,
       commandGuardEnabled: true,
+      autoUpdate: true,
+      hangarMd: true,
+      warnMultilinePaste: true,
+      snippets: defaultSnippets("en"),
       looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });
@@ -236,13 +244,52 @@ describe("parseSettings", () => {
     expect(old.showIcons).toBe(true);
   });
 
-  it("seeds snippets in the stored language and keeps the user's list", () => {
-    const old = parseSettings(JSON.stringify({ language: "en" }), "de");
+  it("migrates snippets in the stored language and keeps the user's list", () => {
+    const old = legacyProtected(JSON.stringify({ language: "en" }), "de");
     expect(old.snippets).toEqual(defaultSnippets("en"));
-    const none = parseSettings(JSON.stringify({ snippets: [] }), "de");
+    expect(legacyProtected(null, "de").snippets).toEqual(defaultSnippets("de"));
+    const none = legacyProtected(JSON.stringify({ snippets: [] }), "de");
     expect(none.snippets).toEqual([]);
-    const own = parseSettings(JSON.stringify({ snippets: [{ id: "a", text: "Hi" }] }), "de");
+    const own = legacyProtected(JSON.stringify({ snippets: [{ id: "a", text: "Hi" }] }), "de");
     expect(own.snippets).toEqual([{ id: "a", text: "Hi" }]);
+  });
+
+  it("reads the protected settings an older version stored, once, for the migration", () => {
+    const stored = JSON.stringify({ warnMultilinePaste: false, autoUpdate: false, hangarMd: "no" });
+    expect(legacyProtected(stored, "en")).toEqual({
+      warnMultilinePaste: false,
+      autoUpdate: false,
+      hangarMd: true,
+      snippets: defaultSnippets("en"),
+    });
+    for (const broken of ["{broken", "[false]", "42"]) {
+      expect(legacyProtected(broken, "en")).toEqual({
+        warnMultilinePaste: true,
+        autoUpdate: true,
+        hangarMd: true,
+        snippets: defaultSnippets("en"),
+      });
+    }
+  });
+
+  // The panel and file viewer windows share this storage: whatever stands there is ignored.
+  it("never reads warnMultilinePaste from localStorage", () => {
+    const settings = parseSettings(JSON.stringify({ warnMultilinePaste: false }), "de");
+    expect(settings.warnMultilinePaste).toBe(true);
+  });
+
+  it("never reads autoUpdate from localStorage", () => {
+    expect(parseSettings(JSON.stringify({ autoUpdate: false }), "de").autoUpdate).toBe(true);
+  });
+
+  it("never reads hangarMd from localStorage", () => {
+    expect(parseSettings(JSON.stringify({ hangarMd: false }), "de").hangarMd).toBe(true);
+  });
+
+  it("never reads snippets from localStorage", () => {
+    const planted = [{ id: "x", text: "HANGAR-MARKER" }];
+    const settings = parseSettings(JSON.stringify({ language: "en", snippets: planted }), "de");
+    expect(settings.snippets).toEqual(defaultSnippets("en"));
   });
 
   it("replaces invalid values for versions and icons", () => {
@@ -330,10 +377,13 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").commandGuardEnabled).toBe(true);
   });
 
-  it("never writes the security switches to localStorage", () => {
+  it("never writes the security switches or the protected settings to localStorage", () => {
     const settings = { ...defaultSettings("de"), gateEnabled: false, commandGuardEnabled: false };
-    const stored = withoutSwitches(settings);
-    for (const key of SECURITY_SWITCH_KEYS) expect(key in stored).toBe(false);
+    const stored = withoutBackendKeys(settings);
+    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS]) {
+      expect(key in stored).toBe(false);
+      expect(BACKEND_KEYS).toContain(key);
+    }
     expect(stored.language).toBe("de");
   });
 

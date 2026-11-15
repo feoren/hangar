@@ -33,6 +33,8 @@ the project root; every rule has a test named below.
 | `HANGAR.md` text with `{file}` or `{text}` was filled in a second time | `instruction_args` and `prompt_args` replace every placeholder in one pass from left to right; a value is never scanned again | unit `placeholders_inside_the_text_stay_as_they_are` |
 | JetBrains IDEs' askpass helpers reached every child | `GIT_ASKPASS` and `SSH_ASKPASS` are removed when their file name starts with `intellij-git-askpass` or `intellij-ssh-askpass`, like VS Code's git extension helper | unit `jetbrains_askpass_helpers_are_found` |
 | Folders and Hangar's own files opened through explorer.exe's command line, which splits paths at commas | `reveal_session_folder` and `reveal_notes_folder` use `desktop::open_folder`, `open_profile_file` and `open_hangar_md` use `desktop::open_text_file` (`ShellExecuteW` "open", and "openas" when no program is associated, `SE_ERR_NOASSOC`); `desktop::open` is private and unused on Windows | unit `only_a_missing_association_asks_for_a_program`, static `folders_and_files_never_open_through_explorer_arguments` |
+| Helper programs inherited the calling session's markers, the gate's token and an editor's git variables: git (its hooks and helpers) and the file manager or opened program | `child_env::scrub` removes what sessions never get either (`removals`: `ide_variables`, every session marker, `HANGAR_HOOK_TOKEN` and `HANGAR_GATE`, inside a gated Hangar every gate variable) and sets nothing; `Git::command_with` and `desktop::spawn_detached` call it. `ShellExecuteW`/`ShellExecuteExW` take no environment, so a program the shell starts still inherits Hangar's own | units `helpers_lose_markers_gate_and_editor_variables`, `scrub_only_removes`, `calls_get_no_transport_and_no_lazy_fetch` (git, `Command::get_envs`), `opened_programs_inherit_no_session_or_gate_variables` (desktop) |
+| A clicked folder could be swapped for a program between the check and the open (`path_links::open`) | `desktop::open_folder` uses `ShellExecuteExW` with `SEE_MASK_CLASSNAME` and `lpClass = "Folder"` (`SHELLEXECUTEINFOW`, Microsoft Learn: the verb comes from the named class, not from the file's type; `HKCR\Folder\shell\open` is Explorer's `DelegateExecute` handler on this machine), plus `SEE_MASK_NOASYNC`. What Explorer's folder handler does with a path that is a program by then is not measured [UNVERIFIED]; it does not take the program's own "open" verb | unit `folders_open_through_the_folder_class` (mask and class); opening a folder by hand stays a manual check |
 | Relative program path with a separator | `resolve_program`/`resolve_all` accept a path only when it is absolute, as `updates::split_command` already did | unit `relative_program_paths_are_refused` |
 | NUL in profile `env` values | Refused by `profile::parse` (and with it by profile editing) | `env_values_with_nul_are_refused`, `an_env_value_with_nul_is_refused` |
 | Package names could start with `-` | npm (each scope part), PyPI and GitHub names start with a letter or digit | `package_names_start_with_a_letter_or_digit` |
@@ -82,7 +84,39 @@ job and survives the session. Not changed, because:
   (`set_panel_session`, main window only, called before every `panel-context`); any other id is
   "Unknown session N". The main window may name any session (`PanelScope`, unit
   `the_panel_addresses_only_the_session_it_was_handed`, static
-  `panel_session_commands_check_the_handed_session`).
+  `panel_session_commands_check_the_handed_session`). Since the third review `PanelScope` also
+  keeps the handed session's working folder, read by `set_panel_session` from the session manager
+  (never from the window), and two more paths are bound to it:
+  - Every note command that takes a folder (`list_notes` to `reveal_note`, `move_note` for both
+    folders, all `shared_notes_*`) checks `notes_in_scope` first: from the panel, shared notes
+    (which live in a repository and run git there) are reachable only for that folder, compared
+    after `notes::normalize_path`; any other folder answers `NotRepository` before anything
+    touches it. `search_notes` spans every unlocked repository, so its hits pass the same rule
+    (`PanelScope::allows_hit`): the panel finds no shared note it could not open. A shared hit
+    names the repository's main worktree, so a panel whose session works in a task worktree or a
+    subfolder finds no shared hits at all. Private notes live in Hangar's data folder and stay
+    open for any folder (units
+    `the_panel_reaches_only_the_shared_notes_of_its_session_folder`,
+    `the_panel_finds_only_the_shared_notes_of_its_session_folder`, static
+    `panel_note_commands_check_the_handed_folder`, which also finds every command with a
+    `folder: NoteFolder` argument).
+  - `panel_to_main` with `sendToTerminal` passes only for the handed session; a message without
+    a session names the handed one explicitly, so the main window never pastes into whatever is
+    active by then, and without a handed session it is refused (`PanelMessage::scoped`, unit
+    `text_from_the_panel_goes_to_its_session_only`). The panel's notes offer only the active
+    session as a send target.
+- **No window permissions outside the main window.** The window plugin's commands
+  (`plugin:window|close`, `destroy`, `set_focus`, `set_title`, ...) take a window label and act on
+  whichever window it names, so a panel or viewer holding them could close or focus the main
+  window. `file-viewer.json` holds no `core:window:*` at all (the viewer calls none),
+  `panel.json` none either: the panel closes itself through `close_panel_window` and ends itself
+  through `destroy_panel_window`, both checking `panel_window::check_sender` and acting on the
+  calling window only. The close handler listens to `tauri://close-requested` itself (Tauri
+  2.12.5 keeps a window open while a JS listener for it exists, `manager/window.rs`), saves
+  pending input and then calls `destroy_panel_window`; `onCloseRequested` would need
+  `core:window:allow-destroy`. The main window keeps its window permissions: it is trusted
+  (contract tests `no_window_permissions_outside_the_main_window`,
+  `panel_window_commands_act_on_the_caller_only`).
 - **Main window state out of `localStorage`.** The panel and file viewer windows share the main
   window's origin and with it `localStorage`. The security switches (`claimsEnabled`,
   `gateEnabled`, `commandGuardEnabled`; the gate needs the claims, so all three) and the queued
@@ -98,6 +132,24 @@ job and survives the session. Not changed, because:
   compromised in an older version before the update could have written values that the one
   migration takes over. Tests: `main_store` units, Vitest `mainStore.test.ts`,
   `settings.test.ts` ("never reads the security switches from localStorage").
+  Since the third review the same store keeps the settings that decide what reaches an agent or
+  the machine (`protected-settings.json`: `warnMultilinePaste`, `autoUpdate`, `hangarMd`,
+  `snippets`) and the workspace templates (`workspace-templates.json`: program, folder, mode and
+  title of each session a template starts). Commands `protected_settings`,
+  `save_protected_settings`, `load_templates`, `save_templates`, main window only, off the main
+  thread. Rust checks the window's own bounds (50 snippets of at most 8000 UTF-16 units with
+  unique `^[a-z0-9-]{1,40}$` ids; 30 templates of 1 to 16 sessions, names up to 60 and titles up
+  to 80 characters without control characters, folders up to 4096 UTF-16 units, program ids up
+  to 200; template names are not compared, since the window ignores case by the user's locale);
+  a damaged file gives the safe defaults (warning, updates and HANGAR.md on, no snippets, no
+  templates). The main window migrates the old values once and stores them even when they are
+  only defaults or empty, so a value a viewer writes to the old place later is never taken over;
+  `parseSettings` ignores the four keys, `saveSettings` leaves them out, the templates are no
+  longer read from `hangar.templates`, and sessions are restored only once the protected
+  settings are read (HANGAR.md). Tests: `main_store` units
+  (`protected_settings_round_trip_and_start_unset`, `templates_are_checked_like_the_window_checks_them`
+  and others), Vitest "never reads X from localStorage" per key and the migration cases in
+  `mainStore.test.ts`.
 - **The file viewer's own storage (investigated, not built).** Tauri 2.12.5 offers
   `WebviewWindowBuilder::incognito` and `data_directory`; wry 0.57.1 maps `incognito` on Windows
   to `ICoreWebView2ControllerOptions::SetIsInPrivateModeEnabled` in the same WebView2
@@ -107,7 +159,22 @@ job and survives the session. Not changed, because:
   (`src/FileViewerWindow.tsx`); those would first have to come through the URL query or a viewer
   command. Not built in this round because that file belonged to parallel work; recommended as
   the next step. The panel window cannot go InPrivate: it shares its window prefs with the main
-  window through `localStorage` and the `storage` event.
+  window through `localStorage` and the `storage` event. Evaluated again in the third review and
+  again not built: besides language and theme, `open_file_viewer` would have to take them from
+  the opener (main window or panel) and check them, the viewer would no longer follow a settings
+  change while open (no `storage` event across profiles), and whether the app's custom protocol
+  and IPC behave the same in an InPrivate WebView2 controller is not measured
+  [UNVERIFIED]; that needs a run of the built app. With the security-relevant values out of
+  `localStorage`, what a viewer could still change there is appearance, layout, folder lists and
+  the panel's window prefs.
+- **Gate commands off the main thread.** `answer_gate` (an "always" answer writes the rules file)
+  and `command_guard_info` (reads the rules file) run on `spawn_blocking` (static test
+  `blocking_commands_run_off_the_main_thread`, which also lists the new store commands).
+- **Bounds.** `rename_session` trims the title and cuts it to 256 characters
+  (`manager::session_title`); `reorder_notes` refuses more than 10,000 ids before checking any
+  and more ids than notes after opening the folder (every id is compared with every note);
+  `daily_review` checks the window's length with `checked_sub`, so `(i64::MIN, i64::MAX)` is
+  refused instead of overflowing.
 - **CSP** adds `object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'`;
   `default-src` does not cover the last three.
 

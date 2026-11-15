@@ -93,9 +93,10 @@ Capabilities:
   `allow-git-diff`, `allow-git-log`, `allow-git-commit-diff`, `allow-list-session-folder`,
   `allow-open-file-viewer`, `allow-panel-to-main`, `allow-set-panel-on-top`,
   `core:event:allow-listen` and `core:event:allow-unlisten` (listening only, never `allow-emit`
-  or `allow-emit-to`), `core:window:allow-close`, `core:window:allow-destroy` (the close handler
-  destroys the window once input is saved), `core:window:allow-set-focus`, never
-  `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text` (copy;
+  or `allow-emit-to`), `allow-close-panel-window` and `allow-destroy-panel-window` (the close
+  handler ends the window once input is saved; both act on the calling window only), no
+  `core:window:*` permission at all (those commands take any window's label),
+  `clipboard-manager:allow-write-text` (copy;
   `navigator.clipboard` fails in WebView2). No session commands; text reaches a session only as
   a validated paste through the main window (`panel_to_main`). No
   claims, gate or team commands (the main window pushes what the tabs show), no profiles,
