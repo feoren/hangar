@@ -714,7 +714,7 @@ A history scan for secrets and private data found the local user name in the npm
 
 ## [2026-11-14] ingest | Updater signing outside the build
 `tools/release.py` no longer hands the updater key to `pnpm tauri build`: the build runs with `bundle.createUpdaterArtifacts: false`, and `tauri signer sign --app-version` signs the installer afterwards as the only process with the key. Measured with Tauri CLI 2.12.4 and a throwaway key that the signer writes `<file>.sig` with the same trusted comment as the build (`timestamp`, `file`, `version`) and accepts an empty password variable without asking.
-Pages changed: [[release-rollout]].
+Pages changed: [[release-rollout]], [[tauri-updater-and-nsis]].
 
 ## [2026-11-14] lint | Audit fixes reflected in the pages
 Terminal path links now refuse links to anything but local fixed drives in every segment and no longer open SVG or XML files directly; relay tickets with plain `ws` are accepted only from a loopback server; `worktree add` runs without repository hooks and filters.
@@ -816,3 +816,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] lint | Payload-free team and account signals after the security merge
 The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
 Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].
+
+## [2026-11-15] decision | Release tool: programs only from PATH, real signature verification
+`tools/release.py` runs git, node, cargo and PowerShell only as absolute `.exe` programs from `PATH` outside the repository and the working folder, sets `NoDefaultCurrentDirectoryInExePath=1`, checks the installed Tauri CLI version against `pnpm-lock.yaml` and gives the signer a reduced environment without Node settings. After signing, `src-tauri/examples/verify_update_sig.rs` verifies the signature with the same `minisign-verify` call as `tauri-plugin-updater` 2.14.1, including the signed version; the key id is printed in minisign's order. The main window's updater permissions are narrowed to `allow-check` and `allow-download-and-install`; CI checks out without persisted credentials, builds with `--locked` and takes the pnpm version from `packageManager` only (pnpm/action-setup README at the pinned commit). Residual risk documented: `node_modules` is not integrity-checked.
+Pages changed: [[release-rollout]], [[tauri-updater-and-nsis]].

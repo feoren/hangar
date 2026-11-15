@@ -15,6 +15,20 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
 
+[dev-dependencies]
+# examples/verify_update_sig.rs: tools/release.py verifies every updater signature with the same
+# crate and call tauri-plugin-updater uses before a release is published. Both are already in the
+# tree at these versions through the plugin, so they add no code: minisign-verify (MIT, jedisct1,
+# no dependencies) and base64 (MIT/Apache-2.0, marshallpierce). The alternative, a Python
+# Ed25519 check, would need a third-party package and could drift from the plugin.
+minisign-verify = "0.3"
+base64 = "0.23"
+
+# Its unit tests (the throwaway test vectors) run with `cargo test`.
+[[example]]
+name = "verify_update_sig"
+test = true
+
 [dependencies]
 # image-png: the frontend draws the taskbar badge as a PNG (overlay icon on Windows).
 # tray-icon: optional icon in the notification area (tray.rs); adds tauri-apps' tray-icon crate

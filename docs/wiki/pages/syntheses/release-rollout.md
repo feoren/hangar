@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
 created: 2026-11-07
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Rolling out a release
@@ -39,16 +39,35 @@ collects its items under that same version without a date. `src/versionSync.test
    - dates the changelog entry to today
    - builds only from a clean working tree
    - sets the version in `tauri.conf.json`, `Cargo.toml` and `package.json`
-   - builds with `pnpm tauri build` with `bundle.createUpdaterArtifacts: false` (a `--config`
-     override) and without any `TAURI_SIGNING_PRIVATE_KEY*` variable in its environment, so no
-     build script or dependency sees the key; then signs the finished installer in a separate
-     `pnpm tauri signer sign --app-version <X.Y.Z+Build>` with `%USERPROFILE%\.tauri\hangar.key`.
-     The `.sig` is the same as from `tauri build` (trusted comment
+   - builds with `node.exe node_modules/@tauri-apps/cli/tauri.js build` (never through
+     `pnpm.cmd`) with `bundle.createUpdaterArtifacts: false` (a `--config` override) and without
+     any `TAURI_SIGNING_PRIVATE_KEY*` variable in its environment, so no build script or
+     dependency sees the key
+   - then signs the finished installer in a separate
+     `node.exe node_modules/@tauri-apps/cli/tauri.js signer sign --app-version <X.Y.Z+Build>` with
+     `%USERPROFILE%\.tauri\hangar.key`. Only this process gets the key, and with a reduced
+     environment: `PATH`, the system, profile and temporary folders and the locale, nothing else
+     (no `NODE_OPTIONS` or `NODE_PATH`, through which node would load other code). The `.sig` is
+     the same as from `tauri build` (trusted comment
      `timestamp:...<TAB>file:<installer>.exe<TAB>version:<X.Y.Z+Build>`, measured with Tauri CLI 2.12.4
-     and a throwaway key); the script warns when the key is used without a password, and aborts
-     when the key id in the `.sig` differs from the `pubkey` in `tauri.conf.json`. The CLI runs as
-     `node.exe node_modules/@tauri-apps/cli/tauri.js`, not through `pnpm.cmd`; the app requires the
-     signed version (`requireSignedVersion`, [[process-launch-hardening]])
+     and a throwaway key); the script warns when the key is used without a password
+   - verifies the signature before anything is published: the key id in the `.sig` must match the
+     `pubkey` in `tauri.conf.json` (printed in minisign's order, the same id as the comment
+     `minisign public key: E34C168FC5B115C8`), and
+     `cargo run --locked --offline --example verify_update_sig -- <installer> <.sig> <pubkey> <X.Y.Z+Build>`
+     (`src-tauri/examples/verify_update_sig.rs`, no key in its environment) checks it the way
+     installed apps do: the same `minisign-verify` call as `tauri-plugin-updater` 2.14.1, including
+     the global signature over the trusted comment, which must carry exactly `version:<X.Y.Z+Build>`.
+     On failure the `.sig` is deleted and the script aborts. The app itself requires the signed
+     version (`requireSignedVersion`, [[process-launch-hardening]])
+   - runs `git`, `node`, `cargo` and PowerShell only as absolute programs from `PATH` (on Windows
+     only `<name>.exe`), never from a `PATH` folder inside the repository, the working folder itself or a
+     relative `PATH` entry, and sets `NoDefaultCurrentDirectoryInExePath=1` for itself and every
+     child process. Windows otherwise searches the working folder first and prefers `.com` over
+     `.exe`, so a file planted in the repository (`node.com`, `git.exe`) could run instead and read
+     the key or skip the clean working tree check
+   - checks that `node_modules/@tauri-apps/cli/package.json` has the version `pnpm-lock.yaml` pins
+     before running the CLI (see the residual risk under Keys)
    - creates `release/0.2.0-31/` containing `Hangar_0.2.0-31_x64-setup.exe`, `Hangar-Setup.exe`,
      `SHA256SUMS.txt`, `latest.json` (its download URL points to the GitHub release `v0.2.0`) and
      `release-notes.md`
@@ -103,6 +122,16 @@ Website, download button (always the newest release):
   > that every installation trusts. So keep an offline copy (e.g. a
   > password manager or USB stick), never in a cloud sync folder or Git.
 - Different key file: set the environment variable `HANGAR_SIGNING_KEY`.
+- **Recommended: give the key a password.** `tauri signer generate -p` (or re-encrypting the
+  existing key) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` set only for the release run. Without
+  one, every program that can read `%USERPROFILE%\.tauri\hangar.key` can sign updates.
+- > [!warning] Residual risk: `node_modules` is not integrity-checked
+  > The signer is the Tauri CLI from `node_modules`, and it holds the key. The script only compares
+  > the CLI's `package.json` version with `pnpm-lock.yaml`; whoever can write `node_modules`
+  > (any build script or agent running in the repository) can change the CLI's code and both files.
+  > So run the release from a fresh `pnpm install --frozen-lockfile` in a clean checkout, with no
+  > agent or untrusted build running in it, and use a key password, which a planted CLI would
+  > still see but which keeps a merely copied key file useless.
 
 ## Code signing (Authenticode)
 Without a code signing certificate, Windows shows "Windows protected your PC" (SmartScreen) the first
@@ -124,7 +153,7 @@ As of 2026-11-08 according to [[code-signing-research]]:
 
 ### Setup
 `tools/release.py` reads the code signing settings from the environment. `tauri.conf.json` stays
-unchanged; the script passes the values to `pnpm tauri build` as a temporary `--config` file and
+unchanged; the script passes the values to `tauri build` (`node.exe node_modules/@tauri-apps/cli/tauri.js build`) as a temporary `--config` file and
 deletes it afterwards ([[code-signing-research]]: `--config` accepts file paths and merges them).
 
 | Variable | Meaning |

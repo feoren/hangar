@@ -79,7 +79,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[resume-measurement]]: measurement: claude, codex, opencode, pi, aider with resume_args in an empty folder (updated: 2026-11-07)
 - [[version-number-wikipedia]]: Wikipedia: major, minor, revision and build number (updated: 2026-11-07)
 - [[agent-clis-research]]: research on 24 agent CLIs: program names, installation, renames (updated: 2026-11-07)
-- [[tauri-updater-and-nsis]]: Tauri updater docs and NSIS template: updater signature, latest.json, desktop shortcut (updated: 2026-11-07)
+- [[tauri-updater-and-nsis]]: Tauri updater docs and NSIS template: updater signature, latest.json, desktop shortcut (updated: 2026-11-15)
 - [[conpty-cursor-query-measurement]]: measurement: ConPTY waits for the reply to ESC[6n at startup (updated: 2026-11-07)
 - [[system-usage-measurement]]: measurement: system bar reading on Windows 11, about 2 ms with 806 GPU engine instances, Get-Counter cross-check of the busiest-engine GPU figure (updated: 2026-11-12)
 
@@ -102,4 +102,4 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[session-resources-and-phone-push]]: contracts of session_resources (CPU share, resident memory and on Windows GPU load and memory of each session's process tree from the Job Object or /proc and a shared PDH reading, outlier rule, polling while visible, three-line session row), system_usage (system bar: machine CPU, memory and busiest GPU engine with RAM and GPU memory amounts, sparklines, one shared poll; session rows without tooltip, details in the peek) and the push commands (ntfy or Pushover, secrets in the keychain, events, 60 s delay, 30 s debounce, quiet hours, https only) (sources: 1, updated: 2026-11-13)
 - [[queued-messages-and-stall-hint]]: queued messages (sent once on done, kept on asks or when the screen shows a question, disarmed after a restore or exit, broadcast send path, stored per session key beside the workspace) and the stall hint (screen fingerprint without spinner and elapsed times, CPU at or above 1 % counts as busy, quiet status line text, Ctrl+C and last lines from the menu) (sources: 0, updated: 2026-11-14)
 - [[session-restore]]: contract: workspace.json, scrollback per session, create_session with resume, resumeFallback event (sources: 1, updated: 2026-11-07)
-- [[release-rollout]]: build, sign and publish a release as a GitHub release, create the upcoming version with `--next`; refresh the README screenshots (`pnpm readme:shots`, one image per scene); keys, code signing (vendors, variables, verification) (sources: 2, updated: 2026-11-14)
+- [[release-rollout]]: build, sign and publish a release as a GitHub release, create the upcoming version with `--next`; refresh the README screenshots (`pnpm readme:shots`, one image per scene); keys, code signing (vendors, variables, verification) (sources: 2, updated: 2026-11-15)

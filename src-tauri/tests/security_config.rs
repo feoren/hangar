@@ -124,3 +124,27 @@ fn git_reads_take_a_session_not_a_folder() {
         assert!(!signature.contains("cwd"), "{name}: {signature}");
     }
 }
+
+/// The frontend only checks for an update and installs it in one step (src/useUpdater.ts), so the
+/// main window gets exactly those two commands, not the separate download and install that
+/// `updater:default` adds.
+#[test]
+fn the_updater_grants_only_check_and_download_and_install() {
+    let capability: serde_json::Value =
+        serde_json::from_str(&read("capabilities/default.json")).unwrap();
+    let updater: Vec<&str> = capability["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|permission| permission.starts_with("updater:"))
+        .collect();
+    assert_eq!(
+        updater,
+        ["updater:allow-check", "updater:allow-download-and-install"]
+    );
+    for other in ["panel.json", "file-viewer.json"] {
+        let text = read(&format!("capabilities/{other}"));
+        assert!(!text.contains("updater:"), "{other} grants the updater");
+    }
+}
