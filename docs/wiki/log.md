@@ -995,3 +995,7 @@ prompt line tracker now feeds two records: `SubmittedLines` for the handover's l
 sessions only) and the timeline's `StepPrompt` (fixed when the work starts). The timeline's
 `splitBackendError` with its detail line is the one kept; the arena reads its code from it.
 Pages changed: [[costs-and-handover]].
+
+## [2026-11-15] update | Prompt mouse editing: suggestion stays, selection deletes
+A click in an agent's prompt no longer moves into Claude Code's faint suggestion (a Right arrow took it); the cursor stops at the end of the typed text and at the first character after the prompt mark. Backspace or Delete with a selection inside the typed text of the cursor's line deletes it (arrows to its end, one Backspace per character); elsewhere the keys behave as before. Read the suggestion's rendering from the Claude Code 2.1.325 binary.
+Pages changed: [[prompt-mouse-editing]], [[claude-code-suggestion-reading]].

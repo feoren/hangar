@@ -115,6 +115,41 @@ describe("terminal keys", () => {
     });
   });
 
+  it("offers to delete a selection with Backspace or Delete in an agent session", () => {
+    for (const name of ["Backspace", "Delete"]) {
+      const erase = { ...key(name), key: name };
+      expect(terminalKeyAction(erase, true, false, true)).toEqual({ kind: "deleteSelection" });
+      // Without a selection, in a shell, on keyup and with a modifier: the usual key.
+      expect(terminalKeyAction(erase, false, false, true)).toEqual({ kind: "terminal" });
+      expect(terminalKeyAction(erase, true)).toEqual({ kind: "terminal" });
+      expect(terminalKeyAction({ ...erase, type: "keyup" }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+      expect(terminalKeyAction({ ...erase, ctrlKey: true }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+      expect(terminalKeyAction({ ...erase, shiftKey: true }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+      expect(terminalKeyAction({ ...erase, isComposing: true }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+      expect(terminalKeyAction({ ...erase, altKey: true }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+      expect(terminalKeyAction({ ...erase, metaKey: true }, true, false, true)).toEqual({
+        kind: "terminal",
+      });
+    }
+  });
+
+  it("still copies with Ctrl+C when an agent session has a selection", () => {
+    expect(terminalKeyAction(key("KeyC", { ctrl: true }), true, false, true)).toEqual({
+      kind: "copy",
+      clearSelection: true,
+    });
+  });
+
   it("keeps Ctrl+Shift+Space from the process only while dictation is on", () => {
     const chord = { ...key("Space", { ctrl: true, shift: true }), key: " " };
     expect(terminalKeyAction(chord, false)).toEqual({ kind: "terminal" });

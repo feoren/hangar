@@ -4,7 +4,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal, type IBufferRange } from "@xterm/xterm";
+import { Terminal, type IBufferCell, type IBufferRange } from "@xterm/xterm";
 
 import type { PasteWarning } from "./appPaste";
 import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
@@ -45,7 +45,13 @@ import {
   type LineMatch,
   type RowSource,
 } from "./sessionSearch";
-import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
+import {
+  arrowsToColumn,
+  clickMovesCursor,
+  promptEditable,
+  selectionDeleteKeys,
+  type ClickCell,
+} from "./terminalClick";
 import { dictationTail, terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
@@ -448,13 +454,55 @@ export class SessionTerminal {
     const buffer = term.buffer.active;
     // Only the cursor's own line: other lines would need Up and Down, which page the history.
     if (buffer.viewportY + row !== buffer.baseY + buffer.cursorY) return;
-    const line = buffer.getLine(buffer.baseY + buffer.cursorY);
-    if (!line) return;
-    const cells: ClickCell[] = [];
-    for (let x = 0; x < line.length; x += 1)
-      cells.push({ width: line.getCell(x)?.getWidth() ?? 1 });
+    const cells = this.cursorLineCells();
+    if (!cells) return;
     const keys = arrowsToColumn(cells, buffer.cursorX, col, term.modes.applicationCursorKeysMode);
     if (keys !== "") this.send(keys);
+  }
+
+  /**
+   * The keys that delete the selection from an agent's prompt (terminalClick.ts), or null when
+   * the selection is not all typed text on the cursor's line.
+   */
+  private selectionDeleteKeys(): string | null {
+    const term = this.term;
+    if (!promptEditable(this.shellKind(), term.modes.mouseTrackingMode)) return null;
+    const range = term.getSelectionPosition();
+    const buffer = term.buffer.active;
+    const cursorRow = buffer.baseY + buffer.cursorY;
+    // xterm's range is 0-based with an exclusive end column, despite its typings saying 1-based.
+    if (!range || range.start.y !== cursorRow || range.end.y !== cursorRow) return null;
+    const cells = this.cursorLineCells();
+    if (!cells) return null;
+    return selectionDeleteKeys(
+      cells,
+      buffer.cursorX,
+      { start: range.start.x, end: range.end.x },
+      term.modes.applicationCursorKeysMode,
+    );
+  }
+
+  /** The cursor's line as the cells terminalClick.ts reads: width, text, faint and reverse. */
+  private cursorLineCells(): ClickCell[] | null {
+    const buffer = this.term.buffer.active;
+    const line = buffer.getLine(buffer.baseY + buffer.cursorY);
+    if (!line) return null;
+    const cells: ClickCell[] = [];
+    let cell: IBufferCell | undefined;
+    for (let x = 0; x < line.length; x += 1) {
+      cell = line.getCell(x, cell);
+      cells.push(
+        cell
+          ? {
+              width: cell.getWidth(),
+              text: cell.getChars(),
+              dim: cell.isDim() !== 0,
+              inverse: cell.isInverse() !== 0,
+            }
+          : { width: 1, text: "", dim: false, inverse: false },
+      );
+    }
+    return cells;
   }
 
   fit(): void {
@@ -1054,6 +1102,18 @@ export class SessionTerminal {
           this.send(action.send);
         }
         return false;
+      case "deleteSelection": {
+        const keys = this.selectionDeleteKeys();
+        // Not part of the typed text: the key goes to the program as usual.
+        if (keys === null) return true;
+        event.preventDefault();
+        this.term.clearSelection();
+        this.typedSinceTaken = true;
+        this.attention.typed();
+        this.send(keys);
+        this.trackPrompt(keys);
+        return false;
+      }
       case "terminal":
         return true;
     }
