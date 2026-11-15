@@ -144,7 +144,7 @@ export interface PendingDecision {
   command: CommandAsk | null;
 }
 
-/** Payload of `gate-changed` and answer of `gate_snapshot`. */
+/** Answer of `gate_snapshot`, read after each payload-free `gate-changed`. */
 export interface GateSnapshot {
   enabled: boolean;
   /** Oldest first (by id). */

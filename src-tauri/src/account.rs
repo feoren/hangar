@@ -885,7 +885,7 @@ pub enum AccountState {
     },
 }
 
-/// Payload of `account-changed` and answer of the account commands.
+/// Answer of the account commands; `account-changed` itself carries no payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountView {

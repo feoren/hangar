@@ -316,8 +316,9 @@ let the edit through. The setting's help text says so.
   change. `SessionStart` takes no http hooks (measured), so it is the first prompt rather than
   the start.
 - **Interface:** commands `configure_gate(enabled)`, `gate_snapshot()` and
-  `answer_gate(id, answer: "allowOnce" | "allowFile" | "deny") -> bool` (main window only), event
-  `gate-changed` with `GateSnapshot { enabled, pending: PendingDecision[] }`,
+  `answer_gate(id, answer: "allowOnce" | "allowFile" | "deny") -> bool` (main window only), the
+  payload-free event `gate-changed` (since the process launch review), after which the main window
+  reads `gate_snapshot() -> GateSnapshot { enabled, pending: PendingDecision[] }`,
   `PendingDecision { id, sessionId, tool, path, otherSessions, level, lines, createdAt }`.
   Types mirror in `src/gate.ts`.
 - **UI:** the waiting session takes the attention look with the reason `gate` (sidebar pulse,

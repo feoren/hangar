@@ -209,4 +209,17 @@ describe("sendCommand", () => {
       expect(calls).toEqual([]);
     }
   });
+
+  it("rejects without Enter when the program did not take the paste", async () => {
+    const calls: string[] = [];
+    const stalled: BroadcastTarget = {
+      bracketedPaste: () => true,
+      pasteAndWait: () => Promise.reject(new Error("stalled")),
+      submit: () => {
+        calls.push("enter");
+      },
+    };
+    await expect(sendCommand(stalled, compact, () => Promise.resolve())).rejects.toThrow("stalled");
+    expect(calls).toEqual([]);
+  });
 });

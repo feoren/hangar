@@ -58,7 +58,7 @@ export type AccountState =
   | { kind: "signedIn"; user: Me | null }
   | { kind: "failed"; reason: FailReason };
 
-/** Payload of `account-changed` (Rust: `AccountView`). */
+/** Answer of the account commands (Rust: `AccountView`); `account-changed` carries no payload. */
 export interface AccountView {
   baseUrl: string;
   official: boolean;

@@ -173,8 +173,9 @@ pub struct TeamEntry {
     pub activity: crate::team_share::TeamActivity,
 }
 
-/// Payload of `team-changed`: every team that is on or not off, every pending confirmation, and
-/// the repositories of this device's running sessions (offered for linking to a project).
+/// Answer of `team_snapshot`, read after each payload-free `team-changed` signal: every team that
+/// is on or not off, every pending confirmation, and the repositories of this device's running
+/// sessions (offered for linking to a project).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSnapshot {

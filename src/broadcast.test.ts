@@ -171,4 +171,34 @@ describe("sendToTargets with a stalled paste", () => {
     await Promise.resolve();
     expect(events).toEqual(["enter a"]);
   });
+
+  it("holds back a blocked target and still stops before the stalled one's Enter", async () => {
+    const events: string[] = [];
+    const target = (
+      name: string,
+      bracketed: boolean,
+      arrived: () => Promise<void>,
+    ): BroadcastTarget => ({
+      bracketedPaste: () => bracketed,
+      pasteAndWait: () => {
+        events.push(`paste ${name}`);
+        return arrived();
+      },
+      submit: () => {
+        events.push(`enter ${name}`);
+      },
+    });
+    const done = sendToTargets(
+      [
+        target("plain", false, () => Promise.resolve()),
+        target("stalled", true, () => Promise.reject(new Error("stalled"))),
+        target("ok", true, () => Promise.resolve()),
+      ],
+      "one\ntwo",
+      () => Promise.resolve(),
+    );
+    await expect(done).rejects.toThrow("stalled");
+    await Promise.resolve();
+    expect(events).toEqual(["paste stalled", "paste ok", "enter ok"]);
+  });
 });

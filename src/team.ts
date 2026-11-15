@@ -279,7 +279,10 @@ export interface TeamEntry {
   activity: TeamActivity;
 }
 
-/** Payload of `team-changed`. A project missing from `teams` is off. */
+/**
+ * Answer of `team_snapshot`, read after each payload-free `team-changed`. A project missing from
+ * `teams` is off.
+ */
 export interface TeamSnapshot {
   teams: TeamEntry[];
   pending: PendingConfirmation[];
@@ -709,7 +712,7 @@ function parseTeamEntry(value: unknown): TeamEntry | null {
   return { projectId, status, activity };
 }
 
-/** Checks the payload of `team-changed`; `null` if anything is malformed or a project repeats. */
+/** Checks the answer of `team_snapshot`; `null` if anything is malformed or a project repeats. */
 export function parseTeamSnapshot(value: unknown): TeamSnapshot | null {
   const teams = list(field(value, "teams"), parseTeamEntry);
   const pending = parsePendingConfirmations(field(value, "pending"));

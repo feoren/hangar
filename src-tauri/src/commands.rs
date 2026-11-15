@@ -2342,8 +2342,8 @@ pub fn claims_snapshot(claims: State<'_, ClaimsService>) -> ClaimsSnapshot {
 // Agent gate (gate.rs, gate_service.rs). Contract: team-service-v1.md, step B.
 
 /// Turns the agent gate on or off (the window's setting). Only agents started while it is on get
-/// the hook; turning it off lets every waiting edit through. Emits `gate-changed` with a
-/// [`GateSnapshot`] whenever the waiting edits change.
+/// the hook; turning it off lets every waiting edit through. Emits the payload-free `gate-changed`
+/// signal whenever the waiting edits change; the window then reads `gate_snapshot`.
 #[tauri::command]
 pub fn configure_gate(gate: State<'_, GateService>, enabled: bool) {
     gate.configure(enabled);
@@ -2387,7 +2387,8 @@ pub fn command_guard_info(gate: State<'_, GateService>) -> GuardInfo {
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change
-// of the state is also emitted as `account-changed` with an `AccountView`.
+// of the state is signalled as the payload-free `account-changed`; the window then reads
+// `account_status`.
 
 /// The sign-in state; reads a stored sign-in from the keychain on the first call.
 #[tauri::command]
@@ -2451,7 +2452,7 @@ pub fn account_open(
 }
 
 // Team connection (team.rs, team_engine.rs, team_service.rs; step F part 2a). Every change is
-// also emitted as `team-changed` with a `TeamSnapshot`.
+// signalled as the payload-free `team-changed`; the main window reads `team_snapshot`.
 
 /// The connection state of one project ("Share with team" off when never turned on).
 #[tauri::command]

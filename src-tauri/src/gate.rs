@@ -1207,7 +1207,7 @@ pub struct ReservedBy {
     pub title: String,
 }
 
-/// Event `gate-changed` and the answer of `gate_snapshot`.
+/// The answer of `gate_snapshot`, read after each payload-free `gate-changed` signal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GateSnapshot {
