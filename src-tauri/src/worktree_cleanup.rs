@@ -743,11 +743,10 @@ pub fn clean_up(
 }
 
 fn delete_branch(cx: &Context<'_>, worktree: &Worktree, tip: &str) -> Result<bool, WorktreeError> {
-    let hooks = worktree::no_hooks_arg(cx.base)?;
     let full = format!("refs/heads/{}", worktree.branch);
     let output = cx.git.run(
         &worktree.repo_root,
-        ["-c", &hooks, "update-ref", "-d", &full, tip],
+        ["update-ref", "-d", &full, tip],
         Instant::now() + git::TIMEOUT,
         64 * 1024,
     )?;

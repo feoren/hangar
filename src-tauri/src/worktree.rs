@@ -126,8 +126,6 @@ pub enum WorktreeError {
         #[source]
         source: std::io::Error,
     },
-    #[error("Folder {0} must be empty")]
-    NotEmpty(PathBuf),
 }
 
 impl Serialize for WorktreeError {
@@ -227,52 +225,90 @@ pub fn create(git: &Git, base: &Path, cwd: &Path, label: &str) -> Result<Worktre
     })?;
     let branch = format!("{BRANCH_PREFIX}{slug}");
     // The checkout runs post-checkout and reference-transaction hooks and smudge filters, any
-    // program a cloned repository's config names; switched off like everywhere else.
+    // program a cloned repository's config names; switched off like everywhere else (the hooks
+    // by Git itself).
     let neutral = git::filter_overrides(git, &repo_root, deadline)?;
-    let hooks = no_hooks_arg(base)?;
-    let args = neutral
+    let add = neutral
         .iter()
         .map(OsStr::new)
         .chain([
-            OsStr::new("-c"),
-            OsStr::new(&hooks),
             OsStr::new("worktree"),
             OsStr::new("add"),
+            OsStr::new("--no-checkout"),
             OsStr::new("-b"),
             OsStr::new(&branch),
             path.as_os_str(),
             OsStr::new("HEAD"),
         ])
         .collect::<Vec<_>>();
-    let output = git.run(&repo_root, args, deadline, 64 * 1024)?;
+    let output = git.run(&repo_root, add, deadline, 64 * 1024)?;
     if !output.success {
         let _ = fs::remove_dir(&parent);
         return Err(output.failure().into());
     }
-    Ok(Worktree {
+    let worktree = Worktree {
         path,
         branch,
         repo_root,
-    })
-}
-
-/// Folder below `base` that stays empty; `core.hooksPath` points there while Hangar removes a
-/// worktree and its branch, so no hook of the repository runs (reference-transaction runs on
-/// `branch -d`). Not a valid slug, so it can never be taken for a worktree.
-pub const NO_HOOKS_DIR: &str = ".no-hooks";
-
-pub(crate) fn empty_hooks_dir(base: &Path) -> Result<PathBuf, WorktreeError> {
-    let dir = base.join(NO_HOOKS_DIR);
-    let io = |source| WorktreeError::Io {
-        path: dir.clone(),
-        source,
     };
-    crate::persist::create_private_dir(&dir).map_err(io)?;
-    if fs::read_dir(&dir).map_err(io)?.next().is_some() {
-        return Err(WorktreeError::NotEmpty(dir));
+    // The files are checked out only now, from inside the new worktree: there git reads the
+    // config as the checkout sees it (HEAD on the new branch, so an `onbranch:hangar/**` include
+    // applies, and the worktree's own config.worktree), and the overrides are read the same way.
+    if let Err(error) = checkout(git, &worktree.path, deadline) {
+        // A fresh deadline: after a checkout that timed out, the old one would fail every step.
+        discard_new(git, &worktree, &neutral, &parent, Instant::now() + TIMEOUT);
+        return Err(error);
     }
-    Ok(dir)
+    Ok(worktree)
 }
+
+/// Fills a worktree added with `--no-checkout`: index and files from its HEAD, with the filter
+/// overrides read in the worktree itself.
+fn checkout(git: &Git, path: &Path, deadline: Instant) -> Result<(), WorktreeError> {
+    let neutral = git::filter_overrides(git, path, deadline)?;
+    let args = neutral.iter().map(String::as_str).chain([
+        "reset",
+        "--hard",
+        "--quiet",
+        "--no-recurse-submodules",
+        "HEAD",
+    ]);
+    let output = git.run(path, args, deadline, 64 * 1024)?;
+    if !output.success {
+        return Err(output.failure().into());
+    }
+    Ok(())
+}
+
+/// Takes back a worktree [`create`] just added but could not check out: it holds no file of the
+/// user yet, so folder and branch go by force. Failures stay, a later cleanup sees them.
+fn discard_new(
+    git: &Git,
+    worktree: &Worktree,
+    neutral: &[String],
+    parent: &Path,
+    deadline: Instant,
+) {
+    let remove = neutral.iter().map(OsStr::new).chain([
+        OsStr::new("worktree"),
+        OsStr::new("remove"),
+        OsStr::new("--force"),
+        worktree.path.as_os_str(),
+    ]);
+    let _ = git.run(&worktree.repo_root, remove, deadline, 64 * 1024);
+    let _ = git.run(
+        &worktree.repo_root,
+        ["branch", "-D", worktree.branch.as_str()],
+        deadline,
+        64 * 1024,
+    );
+    let _ = fs::remove_dir(parent);
+}
+
+/// Folder below `base` that earlier versions named as `core.hooksPath`. Git itself now points
+/// `core.hooksPath` at a place that can never hold a hook; the name stays reserved, it is no
+/// valid slug and can never be taken for a worktree.
+pub const NO_HOOKS_DIR: &str = ".no-hooks";
 
 /// How many ignored names the reason lists before "and N more".
 const LISTED_IGNORED: usize = 3;
@@ -332,10 +368,9 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
         });
     }
     let deadline = Instant::now() + TIMEOUT;
-    let hooks = no_hooks_arg(base)?;
     let output = git.run(
         &worktree.repo_root,
-        ["-c", &hooks, "branch", "-d", worktree.branch.as_str()],
+        ["branch", "-d", worktree.branch.as_str()],
         deadline,
         64 * 1024,
     )?;
@@ -344,14 +379,6 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
         branch_deleted: output.success,
         reason: (!output.success).then(|| git::message(&output.stderr)),
     })
-}
-
-/// `-c` value that points `core.hooksPath` at the empty [`NO_HOOKS_DIR`].
-pub(crate) fn no_hooks_arg(base: &Path) -> Result<String, WorktreeError> {
-    Ok(format!(
-        "core.hooksPath={}",
-        empty_hooks_dir(base)?.display()
-    ))
 }
 
 /// Removes the worktree's folder and git's record of it, never by force, and leaves the branch
@@ -369,7 +396,6 @@ pub fn remove_folder(
     git::check_git_links(&worktree.path)?;
     let deadline = Instant::now() + TIMEOUT;
     let root = &worktree.repo_root;
-    let hooks = no_hooks_arg(base)?;
 
     let mut neutral = Vec::new();
     if worktree.path.exists() {
@@ -398,8 +424,6 @@ pub fn remove_folder(
         .iter()
         .map(OsStr::new)
         .chain([
-            OsStr::new("-c"),
-            OsStr::new(&hooks),
             OsStr::new("worktree"),
             OsStr::new("remove"),
             worktree.path.as_os_str(),
@@ -719,6 +743,66 @@ mod tests {
                 .unwrap()
                 .replace("\r\n", "\n"),
             "hello\n"
+        );
+    }
+
+    /// A smudge filter that an include defines only for Hangar's branches: the new worktree's
+    /// HEAD is such a branch while the files are checked out.
+    #[test]
+    fn create_runs_no_filter_from_an_onbranch_include() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("worktree-onbranch");
+        let base = tmp.path().join(DIR_NAME);
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        fs::write(repo.join(".gitattributes"), "*.txt filter=marker\n").unwrap();
+        fs::write(repo.join("readme.txt"), "hello\n").unwrap();
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        let marker = tmp.path().join("marker-smudge");
+        fs::write(
+            repo.join(".git").join("evil.cfg"),
+            crate::git::tests::marker_filter_config(&marker),
+        )
+        .unwrap();
+        crate::git::tests::append(
+            &repo.join(".git").join("config"),
+            "[includeIf \"onbranch:hangar/**\"]\n\tpath = evil.cfg\n",
+        );
+
+        // Plain git runs the filter for a branch under hangar/, otherwise the test proves nothing.
+        let probe = tmp.path().join("probe");
+        git_ok(
+            &git,
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "hangar/probe-1a2b3c",
+                &probe.to_string_lossy(),
+                "HEAD",
+            ],
+        );
+        assert!(marker.exists(), "git did not run the filter; test is void");
+        fs::remove_file(&marker).unwrap();
+
+        let worktree = create(&git, &base, &repo, "onbranch").unwrap();
+        assert!(!marker.exists(), "a filter from an onbranch include ran");
+        assert_eq!(
+            fs::read_to_string(worktree.path.join("readme.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "hello\n"
+        );
+        assert_eq!(
+            crate::git::branch_of(&worktree.path, None).as_deref(),
+            Some(worktree.branch.as_str())
+        );
+        // Checked out completely: nothing to commit, nothing staged.
+        assert_eq!(
+            crate::git::changed_count(&git, &worktree.path).unwrap(),
+            Some(0)
         );
     }
 

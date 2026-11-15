@@ -6,11 +6,11 @@
 //! runner of git.rs. Paths are checked to stay inside the work tree before git sees them and are
 //! handed to git as literal pathspecs on stdin (`--literal-pathspecs`, `--pathspec-from-file`), so
 //! no path is ever read as an option, a glob or pathspec magic, and no list overflows the command
-//! line. Stage, unstage and discard switch the repository's filter drivers and hooks off (hooks
-//! point at an empty folder Hangar owns), and refuse files that a filter would have to convert
-//! (Git LFS, for example): running them without their filter would store or write the wrong
-//! content. Discard also refuses any path that leads through or contains a link (symbolic link,
-//! junction), where git could delete or write outside the work tree. A commit runs the
+//! line. Stage, unstage and discard switch the repository's filter drivers and hooks off (git.rs
+//! points `core.hooksPath` where no hook can be), and refuse files that a filter would have to
+//! convert (Git LFS, for example): running them without their filter would store or write the
+//! wrong content. Discard also refuses any path that leads through or contains a link (symbolic
+//! link, junction), where git could delete or write outside the work tree. A commit runs the
 //! repository's hooks like a commit in the terminal does; nothing is bypassed there.
 
 use std::fs;
@@ -39,8 +39,10 @@ pub const MAX_LINK_SCAN: usize = 100_000;
 /// Commands without a pathspec file (`ls-files`, `clean`) take their paths as arguments; a few
 /// per call keep the command line short.
 const CLEAN_CHUNK: usize = 64;
-/// Folder below Hangar's local data folder that stage, unstage and discard name as
-/// `core.hooksPath`: it stays empty, so no hook of the repository runs for them.
+/// Folder below Hangar's local data folder that stage, unstage and discard once named as
+/// `core.hooksPath`. They no longer pass it to git: Git itself points `core.hooksPath` at a place
+/// that can never hold a hook, and a second `-c` would replace that. The `_no_hooks` parameters
+/// stay until the command layer stops creating the folder.
 pub const NO_HOOKS_FOLDER: &str = "git-no-hooks";
 
 #[derive(Debug, thiserror::Error)]
@@ -258,7 +260,7 @@ fn refuse_links_below(folder: &Path, path: &str) -> Result<(), ActionError> {
 struct Repo {
     root: PathBuf,
     deadline: Instant,
-    /// Filter overrides and `core.hooksPath`; must come before the subcommand.
+    /// Filter overrides (and hooks the config names); must come before the subcommand.
     overrides: Vec<String>,
     /// A filter driver is configured, so files have to be checked for filter attributes.
     filters: bool,
@@ -267,23 +269,20 @@ struct Repo {
 impl Repo {
     /// The work tree of the session's folder with the folder checks of git.rs, and the
     /// overrides for it. The deadline grows with the number of paths.
-    fn open(git: &Git, cwd: &Path, no_hooks: &Path, paths: usize) -> Result<Self, ActionError> {
+    fn open(git: &Git, cwd: &Path, paths: usize) -> Result<Self, ActionError> {
         let per_path =
             ACTION_TIMEOUT_PER_PATH.saturating_mul(u32::try_from(paths).unwrap_or(u32::MAX));
         let deadline = Instant::now() + ACTION_BASE_TIMEOUT + per_path;
         let root = repo_root(git, cwd, deadline)?;
-        let filters = git::filter_overrides(git, &root, deadline)?;
-        let mut overrides = vec![
-            "-c".to_owned(),
-            format!("core.hooksPath={}", no_hooks.display()),
-        ];
-        let any_filter = !filters.is_empty();
-        overrides.extend(filters);
+        // Hooks are off through Git itself (a `core.hooksPath` that can never hold a hook); a
+        // `core.hooksPath` named here would replace it with a folder that can be filled.
+        let overrides = git::filter_overrides(git, &root, deadline)?;
+        let filters = overrides.iter().any(|arg| arg.starts_with("filter."));
         Ok(Self {
             root,
             deadline,
             overrides,
-            filters: any_filter,
+            filters,
         })
     }
 }
@@ -476,10 +475,10 @@ fn with_originals(paths: &[String], entries: &[StatusEntry]) -> Vec<String> {
 }
 
 /// `git add --all` for the paths: new, changed and deleted files go into the index. Hooks off.
-pub fn stage(git: &Git, no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
+pub fn stage(git: &Git, _no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         refuse_filtered(git, &repo, paths)?;
         run_with_paths(git, &repo, &["add", "--all"], paths)?;
         Ok(())
@@ -491,13 +490,13 @@ pub fn stage(git: &Git, no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result
 /// without commits); the work tree stays as it is. Hooks off.
 pub fn unstage(
     git: &Git,
-    no_hooks: &Path,
+    _no_hooks: &Path,
     cwd: &Path,
     paths: &[String],
 ) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         let entries = status(git, &repo.root, &repo.overrides, repo.deadline)?;
         let all = with_originals(paths, &entries);
         run_with_paths(git, &repo, &["reset", "--quiet"], &all)?;
@@ -513,13 +512,13 @@ pub fn unstage(
 /// asks before it calls this.
 pub fn discard(
     git: &Git,
-    no_hooks: &Path,
+    _no_hooks: &Path,
     cwd: &Path,
     paths: &[String],
 ) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         let entries = status(git, &repo.root, &repo.overrides, repo.deadline)?;
         let mut tracked = Vec::new();
         let mut untracked = Vec::new();
@@ -1019,6 +1018,28 @@ mod tests {
         stage(&git, &hooks(&tmp), &repo, &owned(&["b.txt"])).unwrap();
         commit(&git, &repo, "test: hooks").unwrap();
         assert!(committed.exists(), "the commit hook did not run");
+    }
+
+    /// Git switches hooks off with a `core.hooksPath` no hook can live under; a second one from
+    /// the caller would replace it.
+    #[test]
+    fn stage_names_core_hooks_path_once() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-actions-hooks-path");
+        let repo = committed_repo(&git, &tmp);
+        let opened = Repo::open(&git, &repo, 1).unwrap();
+        let args: Vec<&str> = opened
+            .overrides
+            .iter()
+            .map(String::as_str)
+            .chain(["add", "--all"])
+            .collect();
+        let argv = git.test_argv(&repo, &args);
+        let named = argv
+            .iter()
+            .filter(|arg| arg.to_ascii_lowercase().starts_with("core.hookspath"))
+            .count();
+        assert_eq!(named, 1, "{argv:?}");
     }
 
     #[test]

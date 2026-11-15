@@ -380,10 +380,12 @@ pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
 }
 
 /// A regular file that is still a reparse point on Windows: a cloud placeholder (OneDrive), a
-/// deduplicated or a projected file. Opened as the reparse point itself, its filter driver does
-/// not supply the content, so it is opened once more the ordinary way, and only if it is still
-/// the same file. Name surrogates (symbolic links, junctions, mount points) never get here,
-/// since `Metadata::is_file` is false for them, and are refused again should one be swapped in.
+/// deduplicated, a compressed system or a projected file. Opened as the reparse point itself,
+/// its filter driver does not supply the content, so it is opened once more the ordinary way:
+/// first through the handle already open (`ReOpenFile`, no second lookup of the path), and only
+/// if that fails by its path again, then accepted only if it is still the same file. The tag is
+/// read on the first handle and must be one of those content tags; name surrogates (symbolic
+/// links, junctions, mount points) and every other tag are refused.
 #[cfg(windows)]
 mod windows_reparse {
     use std::fs::{File, OpenOptions};
@@ -393,16 +395,32 @@ mod windows_reparse {
     use std::os::windows::io::AsRawHandle as _;
     use std::path::Path;
 
+    use std::os::windows::io::FromRawHandle as _;
+
+    use windows_sys::Win32::Foundation::{GENERIC_READ, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
-        FileAttributeTagInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TAG_INFO,
+        FileAttributeTagInfo, GetFileInformationByHandle, GetFileInformationByHandleEx, ReOpenFile,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TAG_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
     };
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    /// IO_REPARSE_TAG_CLOUD with its sixteen subtypes (bits 12 to 15), ntifs.h.
+    const TAG_CLOUD: u32 = 0x9000_001A;
+    const TAG_CLOUD_MASK: u32 = 0xFFFF_0FFF;
+    /// IO_REPARSE_TAG_DEDUP, IO_REPARSE_TAG_WOF, IO_REPARSE_TAG_PROJFS.
+    const CONTENT_TAGS: [u32; 3] = [0x8000_0013, 0x8000_0017, 0x9000_001C];
 
     /// `IsReparseTagNameSurrogate` of winnt.h: the tag names another path.
     pub(super) fn names_another_path(tag: u32) -> bool {
         tag & 0x2000_0000 != 0
+    }
+
+    /// A tag whose filter supplies the file's own content (a placeholder, deduplicated,
+    /// compressed or projected file), never another path.
+    pub(super) fn supplies_content(tag: u32) -> bool {
+        !names_another_path(tag)
+            && (tag & TAG_CLOUD_MASK == TAG_CLOUD || CONTENT_TAGS.contains(&tag))
     }
 
     pub(super) fn through_placeholder(file: File, path: &Path) -> io::Result<File> {
@@ -410,8 +428,13 @@ mod windows_reparse {
             return Ok(file);
         }
         let tag = reparse_tag(&file)?;
-        if names_another_path(tag) {
+        if !supplies_content(tag) {
             return Err(refused());
+        }
+        // [UNVERIFIED] whether every content filter supplies the data for a reopened handle as it
+        // does for an open by path; where the reopen fails, the path is opened once more.
+        if let Ok(content) = reopen(&file) {
+            return Ok(content);
         }
         let mut options = OpenOptions::new();
         options.read(true);
@@ -426,6 +449,30 @@ mod windows_reparse {
 
     fn refused() -> io::Error {
         io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+    }
+
+    /// The same file opened anew through `file` (`ReOpenFile`), for reading, without
+    /// FILE_FLAG_OPEN_REPARSE_POINT; the path is not looked up again.
+    pub(super) fn reopen(file: &File) -> io::Result<File> {
+        // SAFETY: the handle is open for the call; ReOpenFile does not take it over and
+        // returns a new handle or INVALID_HANDLE_VALUE.
+        let handle = unsafe {
+            ReOpenFile(
+                file.as_raw_handle(),
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                0,
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE || handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `handle` is a new, valid handle owned by nobody else; File closes it.
+        let reopened = unsafe { File::from_raw_handle(handle) };
+        if identity(&reopened)? != identity(file)? || !reopened.metadata()?.is_file() {
+            return Err(refused());
+        }
+        Ok(reopened)
     }
 
     fn reparse_tag(file: &File) -> io::Result<u32> {
@@ -618,6 +665,50 @@ mod tests {
         assert!(!names_another_path(0x9000_401A), "OneDrive placeholder");
         assert!(!names_another_path(0x8000_0013), "deduplicated file");
         assert!(!names_another_path(0x8000_0017), "compressed system file");
+
+        use windows_reparse::supplies_content;
+        for tag in [
+            0x9000_001A,
+            0x9000_401A,
+            0x9000_F01A,
+            0x8000_0013,
+            0x8000_0017,
+        ] {
+            assert!(supplies_content(tag), "{tag:#x}");
+        }
+        // Links, an app execution alias, a Unix socket and an unknown tag are refused.
+        for tag in [
+            0xA000_000C,
+            0xA000_0003,
+            0x8000_001B,
+            0x8000_0023,
+            0x0000_0001,
+        ] {
+            assert!(!supplies_content(tag), "{tag:#x}");
+        }
+    }
+
+    /// The second open goes through the handle already open: same file, readable content.
+    #[cfg(windows)]
+    #[test]
+    fn reopening_through_the_handle_reads_the_same_file() {
+        use std::io::Read as _;
+        let dir = TempDir::new("persist-reopen");
+        let path = dir.path().join("plain.txt");
+        fs::write(&path, "same content").unwrap();
+        let first = open_regular(&path).unwrap();
+        let mut again = windows_reparse::reopen(&first).unwrap();
+        let mut text = String::new();
+        again.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "same content");
+        // Replaced by name after the first open: the reopen still reads the first file.
+        let first = open_regular(&path).unwrap();
+        fs::rename(&path, dir.path().join("moved.txt")).unwrap();
+        fs::write(&path, "swapped in").unwrap();
+        let mut again = windows_reparse::reopen(&first).unwrap();
+        let mut text = String::new();
+        again.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "same content");
     }
 
     /// Runs `read` on a thread; a read that blocks fails the test instead of hanging it.

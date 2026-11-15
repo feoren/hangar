@@ -39,7 +39,7 @@ use zeroize::Zeroizing;
 use crate::git::{self, Git, GitError};
 use crate::lock;
 use crate::notes::{self, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo};
-use crate::persist::{create_private_dir, write_atomic};
+use crate::persist::{create_private_dir, open_regular, read_regular_capped, write_atomic};
 use crate::secrets::{SecretError, SecretStore};
 
 /// Keychain service of the notes key rings. One for release and debug builds alike: a key ring
@@ -631,27 +631,19 @@ fn note_file(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}{NOTE_EXTENSION}"))
 }
 
+/// A note file: only a regular file, checked on the open handle ([`open_regular`]). A link
+/// could lead out of the repository or to a share, a FIFO could block, and a file swapped in
+/// after a check by path is never read.
 fn read_file(path: &Path) -> Result<Option<Vec<u8>>, ProjectNotesError> {
-    use std::io::Read as _;
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(io_error(path)(error)),
-    };
-    // Only regular files: a link could lead out of the repository, a FIFO could block.
-    if !meta.is_file() {
-        return Err(ProjectNotesError::Unreadable);
+    match read_regular_capped(path, MAX_FILE_LEN) {
+        Ok(Some(bytes)) => Ok(Some(bytes)),
+        Ok(None) => Err(ProjectNotesError::Unreadable),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
+            Err(ProjectNotesError::Unreadable)
+        }
+        Err(error) => Err(io_error(path)(error)),
     }
-    let file = fs::File::open(path).map_err(io_error(path))?;
-    let mut bytes = Vec::new();
-    let limit = u64::try_from(MAX_FILE_LEN).unwrap_or(u64::MAX) + 1;
-    file.take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(io_error(path))?;
-    if bytes.len() > MAX_FILE_LEN {
-        return Err(ProjectNotesError::Unreadable);
-    }
-    Ok(Some(bytes))
 }
 
 /// `.hangar` and `.hangar/notes` are real folders inside `root`, not links or junctions that lead
@@ -717,9 +709,11 @@ pub fn code_path_allowed(root: &Path, path: &Path) -> bool {
     }
 }
 
+/// Modification time and size of a regular note file, without following a link (whose target
+/// could be a share or a device); `None` for anything else.
 fn stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
-    let meta = fs::metadata(path).ok()?;
-    Some((meta.modified().ok(), meta.len()))
+    let meta = fs::symlink_metadata(path).ok()?;
+    meta.is_file().then(|| (meta.modified().ok(), meta.len()))
 }
 
 impl ProjectNotes {
@@ -1563,7 +1557,7 @@ impl ProjectNotes {
     /// The first line of a note file names format 1 and a key of the ring.
     fn header_usable(open: &Open, path: &Path) -> bool {
         use std::io::{BufRead as _, Read as _};
-        let Ok(file) = fs::File::open(path) else {
+        let Ok(file) = open_regular(path) else {
             return false;
         };
         let mut line = Vec::new();
