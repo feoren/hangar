@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { AttentionState } from "./attention";
+import { CrewColumn } from "./CrewColumn";
+import { crewForm, type CrewForm } from "./crew";
 import { SessionLook } from "./SessionLook";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
@@ -41,6 +43,11 @@ interface Props {
   onMaximize: (id: number) => void;
   /** Right click on the header: the session menu. */
   onHeaderMenu: (id: number, x: number, y: number) => void;
+  /**
+   * The sub-agents beside the terminal (CrewColumn.tsx); `null`: no crew for this pane. In a pane
+   * too narrow for the column the same crew is a strip above the terminal.
+   */
+  crew?: Omit<React.ComponentProps<typeof CrewColumn>, "form"> | null;
   /** Overlays inside the terminal area, e.g. the search bar. */
   children?: React.ReactNode;
 }
@@ -79,6 +86,23 @@ export function TerminalPane(props: Props) {
   const host = useRef<HTMLDivElement>(null);
   const shown = useRef(visible);
   const fitRef = useRef<(() => void) | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [form, setForm] = useState<CrewForm>("column");
+  const hasCrew = props.crew !== undefined && props.crew !== null;
+
+  // The crew takes the form the pane's width allows (crew.ts).
+  useEffect(() => {
+    const element = paneRef.current;
+    if (!hasCrew || !element) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width !== undefined && width > 0) setForm(crewForm(width));
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasCrew]);
 
   useEffect(() => {
     const element = host.current;
@@ -130,6 +154,7 @@ export function TerminalPane(props: Props) {
 
   return (
     <div
+      ref={paneRef}
       className={className}
       data-session={sessionId}
       aria-hidden={!visible}
@@ -160,7 +185,7 @@ export function TerminalPane(props: Props) {
             props.onHeaderMenu(sessionId, event.clientX, event.clientY);
           }}
         >
-          <SessionLook look={split.look} session={split.session} busy={split.state === "working"} />
+          <SessionLook look={split.look} session={split.session} />
           <SessionMarker marker={split.session.marker} />
           <span className="pane-title">{split.session.title}</span>
           <span
@@ -171,14 +196,18 @@ export function TerminalPane(props: Props) {
         </div>
       )}
       {visible && <LastPromptBar terminal={terminal} />}
-      <div className="pane-body">
-        <div ref={host} className="pane-host" />
-        {dropping && (
-          <div className="drop-hint" aria-hidden="true">
-            <span className="drop-hint-label">{t("drop.hint")}</span>
-          </div>
-        )}
-        {props.children}
+      {visible && props.crew && form === "strip" && <CrewColumn {...props.crew} form="strip" />}
+      <div className="pane-row">
+        <div className="pane-body">
+          <div ref={host} className="pane-host" />
+          {dropping && (
+            <div className="drop-hint" aria-hidden="true">
+              <span className="drop-hint-label">{t("drop.hint")}</span>
+            </div>
+          )}
+          {props.children}
+        </div>
+        {visible && props.crew && form === "column" && <CrewColumn {...props.crew} form="column" />}
       </div>
     </div>
   );

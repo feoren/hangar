@@ -57,8 +57,6 @@ export interface RowBodyProps {
   session?: { subAgent?: string | null; cwd: string };
   /** The program's name for the figure's tooltip. */
   programName?: string;
-  /** The session works right now: its figure moves a little more. */
-  busy?: boolean;
 }
 
 function hasFigure(props: RowBodyProps): boolean {
@@ -66,13 +64,17 @@ function hasFigure(props: RowBodyProps): boolean {
 }
 
 /** The badge, or a sub-agent session's figure with the badge on its corner. */
-function Look({ look, ...props }: { look: BadgeLook } & RowBodyProps) {
+function Look({
+  look,
+  crop,
+  ...props
+}: { look: BadgeLook; crop?: "full" | "head" } & RowBodyProps) {
   if (props.session === undefined) return <Badge look={look} />;
   return (
     <SessionLook
       look={look}
       session={props.session}
-      busy={props.busy === true}
+      {...(crop === undefined ? {} : { crop })}
       {...(props.programName === undefined ? {} : { programName: props.programName })}
     />
   );
@@ -150,7 +152,7 @@ function Spanning({
 function Avatar({ look, ...props }: { look: BadgeLook } & RowBodyProps) {
   return (
     <span className="session-avatar" aria-hidden="true">
-      <Look look={look} {...props} />
+      <Look look={look} crop="full" {...props} />
       <span className="state-dot" />
     </span>
   );

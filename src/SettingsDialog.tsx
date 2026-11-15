@@ -520,6 +520,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <label className="check">
         <input
           type="checkbox"
+          checked={settings.crewColumn}
+          aria-describedby="crew-column-help"
+          onChange={(event) => {
+            onChange({ crewColumn: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.crewColumn")}</span>
+      </label>
+      <p id="crew-column-help" className="muted settings-help">
+        {t("settings.crewColumnHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={settings.claimsEnabled}
           aria-describedby="claims-help"
           onChange={(event) => {

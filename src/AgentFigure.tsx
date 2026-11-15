@@ -1,12 +1,13 @@
 // A sub-agent's figure: one of the bundled figures (src/assets/sub-agents, built by
-// tools/figures.py), an own image the backend checked, or the initial on the agent's color. The
-// idle motion is CSS only (styles.css, `.agent-figure`): it stops for reduced motion and in the
-// power saving mode, and grows while the sub-agent works.
+// tools/figures.py), an own image the backend checked, or the initial on the agent's color.
+// Figures stand still: nothing about them moves. The whole figure (`full`) is a portrait box,
+// 2 : 3 like the bundled files (tools/figures.py); where there is no room for that, `head` shows
+// the face in a round box.
 
 import type { CSSProperties } from "react";
 
 import { useSubAgentLibrary } from "./subAgentLibraryStore";
-import { defFigure, overridesGlobal, type Figure } from "./subAgentLibrary";
+import { defFigure, figureFor, overridesGlobal, type Figure } from "./subAgentLibrary";
 
 const FILES = import.meta.glob<string>("./assets/sub-agents/*.webp", {
   eager: true,
@@ -30,32 +31,29 @@ export function builtinFigureUrl(id: string): string | undefined {
 
 interface Props {
   figure: Figure;
-  /** Edge length in CSS pixels; missing: the surrounding CSS sets it (a session's look). */
+  /**
+   * `full`: the height in CSS pixels, the width is two thirds of it; `head`: the edge of the
+   * round face. Missing: the surrounding CSS sets it (a session's look).
+   */
   size?: number;
-  /** `head`: the face only, for small places; `full`: the whole figure. */
+  /** `full`: the whole figure; `head`: the face only, for places too small for the figure. */
   crop?: "head" | "full";
-  /** Moves a little more, while the sub-agent works. */
-  busy?: boolean;
   /** Without a label the figure is decoration next to the agent's name. */
   label?: string;
-  /** Still, without the idle motion (a picker's choices). */
-  still?: boolean;
 }
 
-export function AgentFigure({ figure, size, crop = "full", busy = false, label, still }: Props) {
-  const classes = [
-    "agent-figure",
-    crop === "head" ? "head" : "full",
-    busy ? "busy" : "",
-    still === true ? "still" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const style: CSSProperties = size === undefined ? {} : { width: size, height: size };
+export function AgentFigure({ figure, size, crop = "full", label }: Props) {
+  const classes = `agent-figure ${crop === "head" ? "head" : "full"}`;
+  const style: CSSProperties =
+    size === undefined
+      ? {}
+      : { width: crop === "head" ? size : Math.round((size * 2) / 3), height: size };
   const a11y =
     label === undefined ? { "aria-hidden": true as const } : { role: "img", "aria-label": label };
   if (figure.kind === "initial") {
-    const fontSize = size === undefined ? {} : { fontSize: Math.round(size * 0.5) };
+    // The letter is as large as half the box's width.
+    const fontSize =
+      typeof style.width === "number" ? { fontSize: Math.round(style.width * 0.5) } : {};
     return (
       <span
         className={`${classes} initial`}
@@ -68,7 +66,11 @@ export function AgentFigure({ figure, size, crop = "full", busy = false, label, 
   }
   const url = figure.kind === "builtin" ? builtinFigureUrl(figure.id) : figure.url;
   return (
-    <span className={classes} style={style} {...a11y}>
+    <span
+      className={figure.kind === "image" ? `${classes} custom` : classes}
+      style={style}
+      {...a11y}
+    >
       {url !== undefined && <img src={url} alt="" draggable={false} />}
     </span>
   );
@@ -86,4 +88,14 @@ export function useKnownFigure(name: string | null): Figure | null {
   // keeps the global figure off, so a repository's agent never wears the trusted one.
   const def = defs.find((entry) => overridesGlobal(library, entry)) ?? defs[0];
   return def === undefined ? null : defFigure(def, library, figures);
+}
+
+/**
+ * The figure of a running sub-agent of type `name` for the crew: a known definition's figure like
+ * `useKnownFigure`, else the figure the name alone points to (a built-in type such as `Explore`).
+ */
+export function useCrewFigure(name: string | null): Figure {
+  const known = useKnownFigure(name);
+  const { figures } = useSubAgentLibrary();
+  return known ?? figureFor(name ?? "agent", null, figures);
 }

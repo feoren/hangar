@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Neue Crew-Spalte: Arbeitende Sub-Agents stehen als Figuren neben dem Terminal, sagen in einer Sprechblase, was sie tun, und zeigen ihren Zustand am Sockel.",
+        "en": "New crew column: working sub-agents stand as figures next to the terminal, say in a speech bubble what they do, and show their state on their plinth.",
+        "el": "Νέα στήλη πληρώματος: οι υπο-πράκτορες στέκονται ως φιγούρες δίπλα στο τερματικό, λένε σε φούσκα τι κάνουν και δείχνουν την κατάσταση στη βάση τους.",
+        "es": "Nueva columna del equipo: los subagentes que trabajan aparecen como figuras junto al terminal, dicen en un bocadillo qué hacen y su peana muestra el estado.",
+        "fr": "Nouvelle colonne d’équipe : les sous-agents au travail se tiennent près du terminal, disent dans une bulle ce qu’ils font et montrent leur état sur leur socle.",
+        "it": "Nuova colonna della squadra: i sotto-agenti al lavoro stanno accanto al terminale, dicono in un fumetto cosa fanno e mostrano lo stato sul piedistallo.",
+        "ja": "新しいクルー列：作業中のサブエージェントが人物としてターミナルの横に立ち、吹き出しで作業内容を話し、台座の色で状態を示します。",
+        "pl": "Nowa kolumna załogi: pracujący podagenci stoją jako postacie obok terminala, w dymku mówią, co robią, a cokół pokazuje ich stan.",
+        "pt": "Nova coluna da equipa: os subagentes a trabalhar surgem como figuras junto ao terminal, dizem num balão o que fazem e o pedestal mostra o estado.",
+        "ru": "Новая колонка команды: работающие субагенты стоят фигурками рядом с терминалом, в облачке говорят, что делают, а подставка показывает состояние.",
+        "tr": "Yeni ekip sütunu: çalışan alt ajanlar terminalin yanında figür olarak durur, balonla ne yaptıklarını söyler, kaideleri durumu gösterir.",
+        "zh": "新的团队栏：工作中的子代理以形象站在终端旁，用对话气泡说出正在做什么，底座颜色显示状态。"
+      },
+      {
         "de": "Die Zeitleiste im Tab Änderungen sichert nach jedem Agentenschritt still den Stand der Dateien. Ein Klick zeigt den Schritt, du springst zu jedem Stand zurück.",
         "en": "The timeline in the Changes tab quietly saves your files after each agent step. Click a step to see its changes and go back to any saved state.",
         "el": "Το χρονολόγιο στις Αλλαγές αποθηκεύει αθόρυβα τα αρχεία μετά από κάθε βήμα του agent. Δες κάθε βήμα και γύρνα σε όποια κατάσταση θέλεις.",

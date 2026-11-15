@@ -2351,10 +2351,19 @@ h2 .beta-badge {
   translate: none;
 }
 
+/* Terminal area and, when sub-agents run, the crew column beside it. */
+.pane-row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* The terminal area of a pane; search bar and drop hint are positioned against it. */
 .pane-body {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -12400,17 +12409,22 @@ body.session-dragging .session-actions {
   width: 120px;
 }
 
-/* Sub-agent figures (AgentFigure.tsx): a bundled figure, an own image or an initial. The idle
-   motion is transform only (compositor friendly), a little more while the sub-agent works, and
-   none for reduced motion or in the power saving mode. `head` shows the face of a full figure. */
+/* Sub-agent figures (AgentFigure.tsx): a bundled figure, an own image or an initial. They stand
+   still. `full` is the whole figure in a portrait box (2 : 3, like the files from
+   tools/figures.py: cropped to the figure, filling the height, standing on the bottom edge);
+   `head` shows the face in a round box: the top 39 % of the figure, in the middle. */
 .agent-figure {
   position: relative;
   display: inline-flex;
   flex: none;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   overflow: hidden;
-  border-radius: 6px;
+}
+
+.agent-figure.full {
+  width: calc(var(--figure-height, 32px) * 2 / 3);
+  height: var(--figure-height, 32px);
 }
 
 .agent-figure img {
@@ -12418,8 +12432,7 @@ body.session-dragging .session-actions {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transform-origin: 50% 92%;
-  animation: figure-breathe 3.6s ease-in-out infinite;
+  object-position: 50% 100%;
   user-select: none;
 }
 
@@ -12430,107 +12443,91 @@ body.session-dragging .session-actions {
 
 .agent-figure.head img {
   position: absolute;
-  top: -6.5%;
-  left: -58.5%;
-  width: 217%;
+  top: 0;
+  left: -35%;
+  width: 170%;
   max-width: none;
   height: auto;
-  transform-origin: 50% 40%;
 }
 
-.agent-figure.busy img {
-  animation: figure-bob 0.9s ease-in-out infinite;
-}
-
-.agent-figure.still img {
-  animation: none;
+/* An own image is never cropped, not even in the face's round box. */
+.agent-figure.head.custom img {
+  position: static;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .agent-figure.initial {
-  border-radius: 50%;
+  align-items: center;
   color: var(--on-badge);
   font-weight: 600;
   line-height: 1;
 }
 
-@keyframes figure-breathe {
-  50% {
-    transform: translateY(-1.5%) scale(1.015, 0.99);
-  }
+.agent-figure.initial.head {
+  border-radius: 50%;
 }
 
-@keyframes figure-bob {
-  50% {
-    transform: translateY(-5%) rotate(-2deg);
-  }
+/* No picture: the initial stands on its color in a tall capsule, like a figure. */
+.agent-figure.initial.full {
+  border-radius: 999px 999px 8px 8px;
 }
 
-/* `.busy img` named too: its own rule is more specific than `.agent-figure img`. */
-@media (prefers-reduced-motion: reduce) {
-  .agent-figure img,
-  .agent-figure.busy img {
-    animation: none;
-  }
-}
-
-:root.power-saving .agent-figure img,
-:root.power-saving .agent-figure.busy img {
-  animation: none;
-}
-
-/* A session running as a sub-agent (SessionLook.tsx): the figure's face in the badge's place,
-   same size, the program's badge small on its lower right corner. */
+/* A session running as a sub-agent (SessionLook.tsx): its figure in the badge's place, the
+   program's badge small on its lower right corner. Where there is room the whole figure stands
+   there (`full`, a portrait box taller than the badge it replaces); in the tight places, such as
+   the 14 px title line, the search list, the pane header, the peek, the overview tiles and the
+   drag ghost, the face takes the badge's size (`head`). */
 .session-figure {
   position: relative;
   display: inline-flex;
   flex: none;
 }
 
-.session-figure .agent-figure {
+.session-figure .agent-figure.head {
   width: 26px;
   height: 26px;
   font-size: 12px;
 }
 
-.session-avatar .session-figure .agent-figure {
-  width: var(--row-avatar);
-  height: var(--row-avatar);
-  font-size: 9px;
-}
-
-/* In every place the face takes the size the program's badge has there. */
-[data-row-frame="card"] .row-span .session-avatar .session-figure .agent-figure {
-  width: var(--row-avatar-card);
-  height: var(--row-avatar-card);
+.session-figure .agent-figure.full {
+  --figure-height: 34px;
   font-size: 11px;
 }
 
-.session-title-row .session-figure .agent-figure {
+.session-avatar .session-figure .agent-figure.full {
+  --figure-height: 30px;
+}
+
+[data-row-frame="card"] .row-span .session-avatar .session-figure .agent-figure.full {
+  --figure-height: 42px;
+}
+
+.session-title-row .session-figure .agent-figure.head {
   width: 14px;
   height: 14px;
   font-size: 7px;
 }
 
-.search-session .session-figure .agent-figure {
+.search-session .session-figure .agent-figure.head {
   width: 16px;
   height: 16px;
   font-size: 8px;
 }
 
-.pane-header .session-figure .agent-figure,
-.overview-head .session-figure .agent-figure,
-.session-peek-head .session-figure .agent-figure,
-.drag-ghost .session-figure .agent-figure {
+.pane-header .session-figure .agent-figure.head,
+.overview-head .session-figure .agent-figure.head,
+.session-peek-head .session-figure .agent-figure.head,
+.drag-ghost .session-figure .agent-figure.head {
   width: 18px;
   height: 18px;
   font-size: 9px;
 }
 
-.launcher-option .session-figure .agent-figure,
-.broadcast-session .session-figure .agent-figure {
-  width: 20px;
-  height: 20px;
-  font-size: 9.5px;
+.launcher-option .session-figure .agent-figure.full,
+.broadcast-session .session-figure .agent-figure.full {
+  --figure-height: 28px;
 }
 
 /* A waiting session in the rail: the ring breathes around the face, not the small badge. */
@@ -12661,7 +12658,7 @@ body.session-dragging .session-actions {
 
 .figure-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -12671,7 +12668,7 @@ body.session-dragging .session-actions {
   justify-content: center;
   padding: 3px;
   border: 2px solid transparent;
-  border-radius: 50%;
+  border-radius: 10px;
 }
 
 .figure-choice.selected {
@@ -12697,4 +12694,231 @@ body.session-dragging .session-actions {
 
 .subagent-node .agent-figure {
   margin-right: 2px;
+}
+
+/* The crew beside the terminal (CrewColumn.tsx, wiki: crew-column). Figures stand still on a
+   plinth: a solid top edge and a tinted body in the state's color. Only colors change, with a
+   short transition, which reduced motion allows. The label keeps contrast on the tint (the
+   color is mixed into the panel color, never used for text). */
+.crew {
+  --crew-color: var(--accent);
+  --crew-tint: 20%;
+  --crew-fade: 0.4s;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.crew-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crew-item {
+  --crew-color: var(--accent);
+  --crew-tint: 20%;
+  min-width: 0;
+}
+
+.crew-item.state-waiting {
+  --crew-color: var(--warn);
+  --crew-tint: 32%;
+}
+
+.crew-item.state-done {
+  --crew-color: var(--ok);
+}
+
+.crew-item.state-quiet {
+  --crew-color: var(--muted);
+  --crew-tint: 14%;
+}
+
+.crew-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 4px;
+  color: var(--text);
+  text-align: center;
+  border-radius: 8px;
+}
+
+.crew-button:hover {
+  background: var(--hover);
+}
+
+.crew-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.crew-item.picked .crew-button {
+  background: var(--active-tint-strong);
+}
+
+/* Column: bubble, figure, plinth, one below the other. */
+.crew-column {
+  width: 148px;
+  margin: 0 6px 0 2px;
+  padding: 2px 0 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.crew-column .crew-list {
+  gap: 10px;
+}
+
+.crew-bubble {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  min-height: 2.6em;
+  margin-bottom: 7px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.25;
+  background: var(--panel-raised);
+  border: 1px solid color-mix(in srgb, var(--crew-color) 55%, var(--border));
+  border-radius: 10px;
+  transition: border-color var(--crew-fade);
+}
+
+/* The tail: a bordered triangle pointing at the figure, made of borders (no transform). */
+.crew-bubble::after {
+  position: absolute;
+  bottom: -6px;
+  left: calc(50% - 6px);
+  width: 0;
+  height: 0;
+  content: "";
+  border-top: 6px solid color-mix(in srgb, var(--crew-color) 55%, var(--border));
+  border-right: 6px solid transparent;
+  border-left: 6px solid transparent;
+}
+
+/* At most two lines; the tail outside the clamp stays visible. */
+.crew-bubble-text {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.crew-column .agent-figure {
+  z-index: 1;
+  margin-bottom: -4px;
+  border-radius: 0;
+}
+
+.crew-plinth {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 24px;
+  background: color-mix(in srgb, var(--crew-color) var(--crew-tint), var(--panel-raised));
+  border-top: 5px solid var(--crew-color);
+  border-radius: 4px 4px 7px 7px;
+  transition:
+    background-color var(--crew-fade),
+    border-color var(--crew-fade);
+}
+
+.crew-item.state-waiting .crew-plinth {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--crew-color) 45%, transparent);
+}
+
+.crew-plinth-label {
+  max-width: 100%;
+  padding: 0 6px;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  /* Room for descenders: the label is clipped to the plinth. */
+  line-height: 1.35;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Strip: faces and one line each, above the terminal of a narrow pane. */
+/* "+N more" and "Hide crew" share one line below the chips, so the terminal keeps its rows. */
+.crew-strip {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 6px 2px 0;
+}
+
+.crew-strip .crew-hide {
+  margin-left: auto;
+}
+
+.crew-strip .crew-list {
+  flex: 1 1 100%;
+  flex-flow: row wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.crew-strip .crew-item {
+  flex: 1 1 130px;
+  max-width: 240px;
+}
+
+.crew-strip .crew-button {
+  flex-direction: row;
+  gap: 6px;
+  padding: 3px 6px 2px 3px;
+  text-align: left;
+  background: color-mix(in srgb, var(--crew-color) var(--crew-tint), var(--panel-raised));
+  border-bottom: 3px solid var(--crew-color);
+  border-radius: 8px 8px 4px 4px;
+  transition:
+    background-color var(--crew-fade),
+    border-color var(--crew-fade);
+}
+
+.crew-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crew-more,
+.crew-hide {
+  align-self: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border-radius: 6px;
+}
+
+.crew-more:hover,
+.crew-hide:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.crew-more:focus-visible,
+.crew-hide:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

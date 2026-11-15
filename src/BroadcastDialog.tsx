@@ -147,7 +147,7 @@ export function BroadcastDialog({
                       });
                     }}
                   />
-                  <SessionLook look={badgeFor(session.profileId)} session={session} />
+                  <SessionLook look={badgeFor(session.profileId)} session={session} crop="full" />
                   <SessionMarker marker={session.marker} />
                   <span className="broadcast-title">{session.title}</span>
                   <span className="broadcast-path">{shortPath(session.cwd)}</span>

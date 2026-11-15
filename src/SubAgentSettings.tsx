@@ -194,7 +194,7 @@ function SubAgentRow({
         title={t("subAgentLib.figureFor", { name: entry.name })}
         onClick={onPick}
       >
-        <AgentFigure figure={figure} size={56} crop="head" />
+        <AgentFigure figure={figure} size={96} crop="full" />
       </button>
       <div className="sub-agent-text">
         <div className="sub-agent-head">
@@ -302,7 +302,7 @@ function FigurePicker({ name, chosen }: { name: string; chosen: FigureView | und
                 choose({ kind: "builtin", id });
               }}
             >
-              <AgentFigure figure={{ kind: "builtin", id }} size={44} crop="head" still />
+              <AgentFigure figure={{ kind: "builtin", id }} size={72} crop="full" />
             </button>
           );
         })}

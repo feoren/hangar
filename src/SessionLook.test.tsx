@@ -14,6 +14,14 @@ function render(element: ReactElement): string {
 }
 
 describe("SessionLook", () => {
+  it("shows the whole figure where the place has room", () => {
+    const html = render(
+      <SessionLook look={LOOK} session={{ subAgent: "tester", cwd: "C:\\src" }} crop="full" />,
+    );
+    expect(html).toContain('class="session-figure full"');
+    expect(html).toContain('class="agent-figure full"');
+  });
+
   it("is the badge without a sub-agent", () => {
     const html = render(<SessionLook look={LOOK} session={{ cwd: "C:\\src" }} />);
     expect(html).toBe('<span class="badge" style="background:#d97757">C</span>');
@@ -25,11 +33,11 @@ describe("SessionLook", () => {
         look={LOOK}
         session={{ subAgent: "tester", cwd: "C:\\src" }}
         programName="Claude Code"
-        busy
       />,
     );
     expect(html).toContain('title="Claude Code as tester"');
-    expect(html).toContain('class="agent-figure head busy"');
+    expect(html).toContain('class="session-figure head"');
+    expect(html).toContain('class="agent-figure head"');
     expect(html).toContain('<span class="figure-corner" aria-hidden="true"><span class="badge"');
   });
 });

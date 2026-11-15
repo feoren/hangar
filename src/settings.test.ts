@@ -67,6 +67,7 @@ describe("parseSettings", () => {
       restoreSessions: false,
       scrollbackLines: 2000,
       subAgentExcerpts: false,
+      crewColumn: false,
       claimsEnabled: false,
       gateEnabled: false,
       commandGuardEnabled: false,
@@ -128,6 +129,7 @@ describe("parseSettings", () => {
       restoreSessions: 0,
       scrollbackLines: "many",
       subAgentExcerpts: "off",
+      crewColumn: "off",
       claimsEnabled: "no",
       gateEnabled: 0,
       commandGuardEnabled: "on",
@@ -403,6 +405,12 @@ describe("parseSettings", () => {
     expect(parseSettings(JSON.stringify({ subAgentExcerpts: false }), "de").subAgentExcerpts).toBe(
       false,
     );
+  });
+
+  it("shows the crew column by default, also for older settings", () => {
+    expect(defaultSettings("de").crewColumn).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").crewColumn).toBe(true);
+    expect(parseSettings(JSON.stringify({ crewColumn: false }), "de").crewColumn).toBe(false);
   });
 
   it("never reads the security switches from localStorage", () => {

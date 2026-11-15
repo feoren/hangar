@@ -788,11 +788,7 @@ export function Sidebar(props: Props) {
                       openSessionMenu(event, session.id, props.onSessionMenu);
                     }}
                   >
-                    <SessionLook
-                      look={badgeFor(session.profileId)}
-                      session={session}
-                      busy={attention.get(session.id) === "working"}
-                    />
+                    <SessionLook look={badgeFor(session.profileId)} session={session} crop="full" />
                     {session.marker?.color != null && (
                       <span
                         className="rail-marker"
@@ -1780,7 +1776,6 @@ function SessionItem({
             badge={badge}
             program={badgeFor(session.profileId)}
             session={session}
-            busy={state === "working"}
             programName={programName}
             marker={session.marker}
             line={line}

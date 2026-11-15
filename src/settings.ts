@@ -161,6 +161,8 @@ export interface Settings {
    * text at all. The excerpts are never stored, whatever this says.
    */
   subAgentExcerpts: boolean;
+  /** The running sub-agents stand beside the session's terminal (CrewColumn.tsx). */
+  crewColumn: boolean;
   /**
    * The backend watches which files each session's agent changes and warns when two sessions
    * touch the same file or lines (claims.ts). Off: no watcher and no git call for it.
@@ -239,6 +241,7 @@ type Flag =
   | "checkProgramUpdates"
   | "restoreSessions"
   | "subAgentExcerpts"
+  | "crewColumn"
   | "claimsEnabled"
   | "gateEnabled"
   | "commandGuardEnabled"
@@ -272,6 +275,7 @@ export function defaultSettings(language: Language): Settings {
     restoreSessions: true,
     scrollbackLines: SCROLLBACK_LINES.default,
     subAgentExcerpts: true,
+    crewColumn: true,
     claimsEnabled: true,
     gateEnabled: true,
     commandGuardEnabled: true,
@@ -377,6 +381,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampScrollbackLines(lines)
         : defaults.scrollbackLines,
     subAgentExcerpts: flag("subAgentExcerpts"),
+    crewColumn: flag("crewColumn"),
     // Never from localStorage: any window of this origin could have written them there.
     claimsEnabled: defaults.claimsEnabled,
     gateEnabled: defaults.gateEnabled,

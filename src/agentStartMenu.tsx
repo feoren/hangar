@@ -73,7 +73,7 @@ export function agentStartItems(
       title: [t("subAgentLib.startAs", { program: profile.name, agent: def.name }), origin, line]
         .filter((part) => part !== "")
         .join("\n"),
-      icon: <AgentFigure figure={defFigure(def, library, figures)} size={22} crop="head" still />,
+      icon: <AgentFigure figure={defFigure(def, library, figures)} size={30} crop="full" />,
       run: () => {
         start(profile, def.name);
       },

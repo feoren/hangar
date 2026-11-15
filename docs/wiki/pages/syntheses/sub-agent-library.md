@@ -20,7 +20,7 @@ only shows the figure of a known definition next to a running sub-agent of that 
   `color`, `tools`) in `~/.claude/agents` (global) and `<project>/.claude/agents` (project).
 - **Settings > Sub-agents:** one row per name with figure, name, description, where it is
   defined (Global, Project <folder>, "from project <folder>, replaces the global one") and
-  model; the figure (a head crop, 56 px) is the button that opens the figure picker; actions Open
+  model; the whole figure (96 px high) is the button that opens the figure picker; actions Open
   (default editor) and Delete (global definitions only, asked inline). The picker names the
   built-in figures in words ("Developer 2") and marks only a figure the user chose, not one
   derived from the name. "New sub-agent" takes pasted text or a loaded `.md`
@@ -34,15 +34,18 @@ only shows the figure of a known definition next to a running sub-agent of that 
   the popup menu's keyboard: arrows, Enter, Escape) with each definition's face, name, origin
   and the first line of its description; and from quick access ("Start Claude Code as backend
   in hangar" per start place, a project definition's origin in its detail).
-- **Session look:** a session started as a definition shows the figure's face in place of the
+- **Session look:** a session started as a definition shows the figure in place of the
   program badge, with the badge small (42 %) on its lower right corner and a tooltip naming
-  program and agent (`SessionLook.tsx`): sidebar rows in every row builder form (also in a
-  program group, where the badge alone stays away), the rail, the peek, the overview, the split
-  view's pane headers, search results, quick access, the broadcast dialog and the drag ghost, each
-  at the size the badge has there. It moves more while the session
-  works. Group headers keep the program badge: they stand for the program, not one agent.
-- **Running sub-agents:** the sub-agent tree shows the figure (head crop) of a running sub-agent
-  whose `agentType` names a listed definition; it bobs while the sub-agent runs.
+  program and agent (`SessionLook.tsx`). Where there is room the whole figure stands there
+  (`crop="full"`, a 2 : 3 portrait box): sidebar rows in the avatar form (30 px high, 42 px on a
+  card), the rail (34 px), quick access and the broadcast dialog (28 px). Where there is not, the
+  face takes the badge's size (`crop="head"`): the 14 px title line of a program group, search
+  results (16 px), the split view's pane headers, the peek, the overview tiles and the drag ghost
+  (18 px). Group headers keep the program badge: they stand for the program, not one agent.
+- **Running sub-agents:** the sub-agent tree shows the whole figure (36 px high) of a running
+  sub-agent whose `agentType` names a listed definition. The crew column ([[crew-column]]) shows
+  every running sub-agent, a built-in type without a definition with the figure its name points
+  to.
 
 ## Backend (`src-tauri/src/agent_defs.rs`, `agent_figures.rs`)
 
@@ -183,13 +186,23 @@ names), else a built-in figure picked by a hash of the name, the same on every s
 
 Twelve chibi figures supplied by the owner (`backend-01`, `developer-01/02`, `frontend-01/02`,
 `manager-01/02`, `researcher-01/02`, `security-01/02`, `tester-01`), shrunk from 1254 px PNGs to
-256 px WebP with alpha (Lanczos, quality 82, 8 to 16 KiB each) by `tools/figures.py <in> <out>`.
+portrait WebP with alpha, 240 x 360 px (2 : 3), by `tools/figures.py <in> <out>`: the empty margin
+(the figures filled only about half the width of the square originals) is cut to the visible
+pixels, the figure fills the height and stands on the bottom edge, so the head sits at the same
+height in every file (Lanczos, quality 82, 15 to 28 KiB each).
 Vite bundles them (`import.meta.glob`); the Rust list `agent_figures::BUILTIN`, the TypeScript
-list `BUILTIN_FIGURES` and the files are kept equal by tests. Small places show a head crop of the
-full figure.
+list `BUILTIN_FIGURES` and the files are kept equal by tests.
+
+### Whole figure and head
+
+`AgentFigure` draws the whole figure (`crop="full"`) in a 2 : 3 box, `size` being its height, and
+for tight places the face (`crop="head"`) in a round box: the top 39 % of the file, centered
+(`.agent-figure.head img`: width 170 %, left -35 %, top 0). An own image is always shown whole
+(`object-fit: contain`), also in the round box. An initial on its color is a round badge in the
+head form and a tall capsule in the full form.
 
 ### Motion
 
-CSS only, transform only: a slow breathing (3.6 s) and, while the sub-agent runs, a quicker bob.
-None for `prefers-reduced-motion` and in the power saving mode. An own animated GIF or WebP keeps
-its own animation; the power saving mode cannot stop it.
+None. Figures stand still (the old breathing and bobbing, `busy` and the `still` flag are gone);
+only the attention ring around a waiting session's figure in the rail pulses, like a badge's. An
+own animated GIF or WebP keeps its own animation.

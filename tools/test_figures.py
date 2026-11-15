@@ -42,13 +42,13 @@ class FiguresTest(unittest.TestCase):
         names = [path.name for path in figures.figure_names(self.source)]
         self.assertEqual(names, ["backend-01.png", "code-reviewer-02.png"])
 
-    def test_output_is_a_square_webp_with_alpha(self) -> None:
+    def test_output_is_a_portrait_webp_with_alpha(self) -> None:
         self.picture("tester-01.png", (600, 300))
-        self.assertEqual(figures.main([str(self.source), str(self.target), "--size", "128"]), 0)
+        self.assertEqual(figures.main([str(self.source), str(self.target), "--height", "120"]), 0)
         out = self.target / "tester-01.webp"
         with Image.open(out) as image:
             self.assertEqual(image.format, "WEBP")
-            self.assertEqual(image.size, (128, 128))
+            self.assertEqual(image.size, (80, 120))
             self.assertEqual(image.convert("RGBA").getpixel((0, 0))[3], 0)
 
     def test_missing_or_empty_input_fails(self) -> None:

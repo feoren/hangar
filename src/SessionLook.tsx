@@ -1,6 +1,6 @@
 // A session's look wherever its program badge stands: the badge, or for a session that runs as a
 // sub-agent definition (`subAgent`) the figure's face with the program's badge small on a corner.
-// One place decides it, so the sidebar rows (in every row builder form), the rail, the peek, the
+// The whole figure where there is room, the face where there is not (`crop`). One place decides it, so the sidebar rows (in every row builder form), the rail, the peek, the
 // overview, the split view's pane headers, search and the drag ghost look alike.
 
 import { AgentFigure } from "./AgentFigure";
@@ -18,11 +18,11 @@ export interface SessionLookProps {
   session: { subAgent?: string | null; cwd: string };
   /** The program's name for the tooltip; missing: no tooltip. */
   programName?: string;
-  /** The session works right now: the figure moves a little more. */
-  busy?: boolean;
+  /** `full` where the place has room for a whole figure, `head` (default) where it is tight. */
+  crop?: "full" | "head";
 }
 
-export function SessionLook({ look, session, programName, busy = false }: SessionLookProps) {
+export function SessionLook({ look, session, programName, crop = "head" }: SessionLookProps) {
   const t = useT();
   const { library, figures } = useSubAgentLibrary();
   const agent = session.subAgent ?? null;
@@ -38,8 +38,8 @@ export function SessionLook({ look, session, programName, busy = false }: Sessio
           .filter((part) => part !== null)
           .join("\n");
   return (
-    <span className="session-figure" title={title} data-agent={agent}>
-      <AgentFigure figure={figure} crop="head" busy={busy} />
+    <span className={`session-figure ${crop}`} title={title} data-agent={agent}>
+      <AgentFigure figure={figure} crop={crop} />
       <span className="figure-corner" aria-hidden="true">
         <Badge look={look} />
       </span>

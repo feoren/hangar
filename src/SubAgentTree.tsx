@@ -202,9 +202,7 @@ export function SubAgentItem({
         }}
       >
         <span className={`subagent-dot ${agent.status}`} aria-hidden="true" />
-        {figure !== null && (
-          <AgentFigure figure={figure} size={20} crop="head" busy={agent.status === "running"} />
-        )}
+        {figure !== null && <AgentFigure figure={figure} size={36} crop="full" />}
         <span className="subagent-node-main" aria-hidden="true">
           <span className="subagent-node-head">
             <span className="subagent-node-name">{name}</span>

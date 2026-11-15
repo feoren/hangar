@@ -1046,3 +1046,8 @@ counting a boundary as one character where the screen is certain and doing nothi
 a wide character or the cursor makes two readings possible. Hidden second blank at a wrap is the
 documented residual risk. Gemini CLI is not installed and was not measured.
 Pages changed: [[prompt-mouse-editing]], [[claude-prompt-wrap-measurement]].
+
+## [2026-11-16] ingest | Crew column specification
+Specified the crew column (sub-agents as still figures with speech bubbles beside the terminal, plinth
+color per state, strip fallback, throttle, shared watch store, privacy). Removed the head motion of
+figures from the plan. Pages changed: [[crew-column]], index.

@@ -354,6 +354,7 @@ import {
   type Dismissed,
 } from "./subAgents";
 import { SubAgentPane } from "./SubAgentPane";
+import { crewWatchWanted, gateWaitingSince, waitsForDecision } from "./crew";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { useTeam } from "./useTeam";
@@ -1839,14 +1840,19 @@ export function App() {
     !layout.collapsed &&
     activeSession !== undefined &&
     !layout.closedAgentGroups.includes(sessionGroupKey(activeSession, grouping));
-  const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown);
+  // The crew column beside the active terminal needs the same watch, also without the tree.
+  const crewWatching = crewWatchWanted(
+    activeSession?.subAgents === true && !isPlaceholder(activeSession.id),
+    settings.crewColumn,
+  );
+  const watchedId = watchedSession(subAgentsOf, state.activeId, subAgentTreeShown || crewWatching);
   const watched = watchedId === null ? undefined : state.sessions.find((s) => s.id === watchedId);
   const subAgentKey = useSubAgentWatch(
     watched !== undefined && watched.subAgents === true && !isPlaceholder(watched.id)
       ? {
           sessionId: watched.id,
           cliSessionId: watched.cliSessionId ?? null,
-          excerpts: settings.subAgentExcerpts && subAgentsOf !== null,
+          excerpts: settings.subAgentExcerpts && (subAgentsOf !== null || crewWatching),
           focus: subAgentsOf === null ? null : subAgentPick,
         }
       : null,
@@ -4181,8 +4187,8 @@ export function App() {
   const subAgentIcon = (def: AgentDef) => (
     <AgentFigure
       figure={defFigure(def, agentLibrary.library, agentLibrary.figures)}
-      size={16}
-      crop="head"
+      size={26}
+      crop="full"
     />
   );
   /** Start Claude Code in the target as a sub-agent, in the mode the switch says. */
@@ -5400,7 +5406,7 @@ export function App() {
       t,
       badge: (profileId) => <Badge look={badgeFor(profileId)} />,
       sessionIcon: (session) => (
-        <SessionLook look={badgeFor(session.profileId)} session={session} />
+        <SessionLook look={badgeFor(session.profileId)} session={session} crop="full" />
       ),
       notesIcon: <NotesIcon size={14} />,
       activate: (id) => {
@@ -5500,7 +5506,6 @@ export function App() {
           <SessionLook
             look={badgeFor(session.profileId)}
             session={session}
-            busy={tileState === "working"}
             programName={profileById.get(session.profileId)?.name ?? session.profileId}
           />
         ),
@@ -5793,6 +5798,26 @@ export function App() {
                     active={active}
                     visible={active || paneInfo !== null}
                     split={paneInfo}
+                    crew={
+                      crewWatching && active && subAgentKey !== null && session.id === watchedId
+                        ? {
+                            sessionId: session.id,
+                            sessionTitle: session.title,
+                            watchKey: subAgentKey,
+                            hidden: subAgentHidden,
+                            sessionWaits: waitsForDecision(
+                              attention.get(session.id),
+                              reasons.get(session.id),
+                            ),
+                            waitingSince: gateWaitingSince(pendingGate, session.id),
+                            picked: subAgentsOf === session.id ? subAgentPick : null,
+                            onShow: showSubAgent,
+                            onHide: () => {
+                              updateSettings({ crewColumn: false });
+                            },
+                          }
+                        : null
+                    }
                     dropping={dropTarget === session.id}
                     onFocusPane={(id) => {
                       dispatch({ type: "activated", id });

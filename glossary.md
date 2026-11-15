@@ -29,6 +29,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Figur (Sub-Agent)                               | figure                            | picture of a definition: bundled, own image or initial; `agent_figures.rs`           |
 | Grundfigur                                      | built-in figure                   | bundled figure `src/assets/sub-agents/<id>.webp`, `tools/figures.py`                 |
 | Aussehen der Session (Figur)                    | session look                      | a sub-agent session's figure in place of the program badge; `SessionLook.tsx`        |
+| Crew-Spalte                                     | crew column                       | sub-agents as figures beside the terminal; `CrewColumn.tsx`, `crew.ts`               |
+| Crew-Leiste                                     | crew strip                        | narrow-pane form of the crew column, above the terminal                              |
+| Sockel (Crew)                                   | plinth                            | block under a figure, its color shows the state; `CrewState`                         |
+| Sprechblase (Crew)                              | speech bubble                     | short text of what a figure does; `crewText.ts`                                      |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextLine.tsx`                 |
 | Kostenübersicht                                 | cost overview                     | tokens and estimated cost per session and day, `cost_service.rs`, `CostDialog.tsx`   |
 | Preistabelle                                    | price table                       | dollars per million tokens per model, `model_prices.toml`, user `model-prices.toml`  |
