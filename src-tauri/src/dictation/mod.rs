@@ -702,6 +702,7 @@ mod tests {
                 rate: 16_000,
                 channels: 1,
                 callbacks: 10,
+                elapsed: Duration::from_secs(1),
             }
         }
     }
@@ -836,6 +837,53 @@ mod tests {
         service.start(1, ModelId::Base, Language::Auto).unwrap();
         service.stop();
         assert_eq!(settle(&rx).1, DictationState::PermissionDenied);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Released before the device delivered its first buffer: nothing happens, no notice.
+    #[test]
+    fn a_quick_tap_is_not_a_blocked_microphone() {
+        struct TapCapture;
+        impl Capture for TapCapture {
+            fn finish(self: Box<Self>) -> Recording {
+                Recording {
+                    samples: Zeroizing::new(Vec::new()),
+                    rate: 48_000,
+                    channels: 2,
+                    callbacks: 0,
+                    elapsed: Duration::from_millis(15),
+                }
+            }
+        }
+        struct TapSource;
+        impl AudioSource for TapSource {
+            fn open(
+                &self,
+                _level: Box<dyn Fn(f32) + Send>,
+            ) -> Result<Box<dyn Capture>, CaptureError> {
+                Ok(Box::new(TapCapture))
+            }
+        }
+        // The helper only provides the folder with an installed model here.
+        let (_, _, dir) = make_service(
+            "tap",
+            FakeSource(Ok(Vec::new())),
+            FakeTranscriber(Ok("x".into())),
+            true,
+        );
+        let (notices, events) = mpsc::channel();
+        let notices = Mutex::new(notices);
+        let service = DictationService::new(
+            dir.clone(),
+            Arc::new(TapSource),
+            Arc::new(FakeTranscriber(Ok("x".into()))),
+            Arc::new(move |notice| {
+                let _ = lock(&notices).send(notice);
+            }),
+        );
+        service.start(1, ModelId::Base, Language::Auto).unwrap();
+        service.stop();
+        assert_eq!(settle(&events), (None, DictationState::Ready));
         let _ = std::fs::remove_dir_all(dir);
     }
 

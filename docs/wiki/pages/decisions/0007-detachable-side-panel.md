@@ -6,7 +6,7 @@ superseded_by:
 tags: [ui, windows, tauri, capabilities, notes, changes, files]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # ADR 0007: Detachable side panel
@@ -27,8 +27,8 @@ What the tabs need, and where it lives today:
 - Files: the active session's id and folder, the whole claims snapshot (change letters,
   "also in" another session), the team activities (avatars), session names, opening a viewer.
 
-All of it is state of the main window (`App.tsx`): the session list, `useClaims` (event
-`claims-changed`, delivered to `main` only), `useTeam` (event `team-changed`, `main` only, plus
+All of it is state of the main window (`App.tsx`): the session list, `useClaims` (signal
+`claims-changed` without payload, then `claims_snapshot`, main window only), `useTeam` (event `team-changed`, `main` only, plus
 commands that change team state), the attention tracker. The backend emits these events to the
 main window alone (`src-tauri/src/lib.rs`).
 
@@ -125,8 +125,17 @@ Option 3 with transport b.
   listing a session's folder and opening a viewer for a file inside it (both resolve the folder
   from the session id in the backend). Accepted: the panel renders note Markdown like the notes
   window did, so an injection there would previously have reached all notes; git output of a
-  local folder is of the same sensitivity. Narrowing the git commands to a session id is a
-  possible follow-up.
+  local folder is of the same sensitivity. Since the security reviews of 2026-11-15 every one of
+  these commands takes a session id, and the panel reaches only the session the main window last
+  handed it (`set_panel_session`, main window only, called before each `panel-context`; any other
+  id is answered as unknown, `PanelScope` in `panel_window.rs`), see [[process-launch-hardening]].
+- Since the third security review (2026-11-15) the panel holds no `core:window:*` permission: the
+  window plugin's commands take any window's label. It closes and ends itself through
+  `close_panel_window` and `destroy_panel_window` (caller checked, the calling window only); its
+  close handler listens to `tauri://close-requested`, saves pending input and then calls
+  `destroy_panel_window`. Shared notes from the panel are reachable only for the handed session's
+  working folder, and text goes only to the handed session (`PanelScope`), see
+  [[process-launch-hardening]].
 - The panel cannot emit events, so it cannot fake `tray-quit`, `panel-message` or any backend
   event; everything it asks goes through `panel_to_main` and is validated twice (serde with
   `deny_unknown_fields` and `validate()` in Rust, `parsePanelMessage` in the main window).

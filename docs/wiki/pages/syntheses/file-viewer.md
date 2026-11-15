@@ -4,7 +4,7 @@ type: synthesis
 tags: [file-tree, window, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # File viewer window (contract)
@@ -32,7 +32,12 @@ bytes. Every folder on the way and the file itself must not be a link (symlink o
 resolved path must lie below the resolved session folder, and the file must be a regular file.
 The same check runs again on every `file_viewer_content`, `file_viewer_stamp` and
 `file_viewer_diff` call, so a file that was deleted, replaced by a folder or swapped for a link
-afterwards is refused.
+afterwards is refused. The read opens the file without following a link at the last component
+and without blocking on a FIFO, and checks the open handle for a regular file
+(`persist::open_regular`), so a swap between the check and the read is refused too. On Windows a
+regular file that is a reparse point without a name surrogate tag (a OneDrive placeholder, a
+deduplicated file) is opened a second time the ordinary way, so its filter supplies the content,
+and read only if both handles name the same file (volume serial and file index).
 
 The viewer window names no path. The backend keeps `label -> { sessionId, root, absolute path,
 relative path }` and looks up the calling window's label; a viewer can read exactly its one file.
@@ -157,11 +162,12 @@ opened: <io error>`, and the git errors of the changes panel.
 - Editor: `viewerEditor.ts` (read-only CodeMirror 6 with line numbers, folding, search) is a
   dynamic import, and `@codemirror/language-data` loads each language's parser on demand, so the
   main bundle carries neither.
-- Look: `viewerThemes.ts` holds seven families (`oneDarkPro`, `github`, `vscode`, `darcula`,
-  `solarized`, `catppuccin`, `monokai`), each with a dark and a light palette that follows the
+- Look: `viewerThemes.ts` holds seven families (`meridian`, `harbor`, `studio`, `anvil`,
+  `sundial`, `velvet`, `ember`; own names since 0.7.0, 0.6.0 keys migrate, see
+  [[0009-own-color-scheme-names]]), each with a dark and a light palette that follows the
   app theme; the choice is `viewerTheme` in the settings (Settings, Appearance). The palettes are
   applied as `--viewer-*` CSS variables, so a switch never rebuilds the editor. Token colors keep
-  the originals' contrast (Solarized and Catppuccin Latte are below 4.5:1 for some tokens); the
+  the originals' contrast (Sundial and Velvet light, after Solarized and Catppuccin Latte, are below 4.5:1 for some tokens); the
   text, line number and active line number contrasts are pinned by `viewerThemes.test.ts`.
 - Settings changes reach an open viewer through the `storage` event of the shared localStorage,
   as in the detached side panel window ([[notes]]).
@@ -200,21 +206,33 @@ moves to the first match.
 
 ## Dragging a row onto a terminal
 
-A row of the tree dragged onto a terminal pane types its mention (`rowMention`, the same text as
-the right click: `@path `, a folder with `/`, quoted when it has spaces) into the session under
-the drop point, as a paste, and activates that session; the pane shows the drop hint while the
-row is over it. Pointer events with pointer capture, not HTML5 drag and drop: Tauri's native
-file drop owns that in the window (see `useSessionDrag.ts`). The drag starts beyond the session
-drag's threshold, so clicks and double clicks stay; Escape cancels. Only the main window drags
-(the detached panel has no panes). The mention is relative to the tree's folder, so only a pane
-whose session works in that same folder takes the drop (`takesMention`); other panes show no
-drop hint.
+A row of the tree dragged onto a terminal pane types its path into the session under the drop
+point, as a paste, and activates that session; the pane shows the drop hint while the row is over
+it. The right click types the same text into the active session (in the detached panel too). The
+text depends on the target session's program (`insertPathText` in `pathQuote.ts`, kind from
+`shellKind` of the profile's command; the panel gets it as `PanelSession.shell`):
+
+| Program | Text for `xyz_test/test.md` |
+| --- | --- |
+| agent CLI or unknown | `@xyz_test/test.md`, a folder with a trailing `/`, quoted with spaces |
+| PowerShell | `xyz_test\test.md`, single quotes for anything but letters, digits, `_-.:\/` |
+| cmd | `xyz_test\test.md`, double quotes when needed (`%NAME%` still expands: known limit) |
+| bash, zsh, sh, fish | `xyz_test/test.md`, POSIX single quotes; outside the folder `/c/...` |
+| WSL | `xyz_test/test.md`; outside the folder `/mnt/c/...`, `\\wsl$\Distro\x` as `/x` |
+
+Inside the session's working folder the path is relative, otherwise absolute, so any pane takes
+the drop. A relative path starting with `-` gets `./` (`.\`) so no shell reads it as an option. A
+path with a control character (line break, ESC) inserts nothing. Pointer events with pointer
+capture, not HTML5 drag and drop: Tauri's native file drop owns that in the window (see
+`useSessionDrag.ts`). The drag starts beyond the session drag's threshold, so clicks and double
+clicks stay; Escape cancels. Only the main window drags (the detached panel has no panes).
 
 ## Capability `file-viewer`
 
-Windows `file-viewer-*`: `core:event:allow-listen`, `core:event:allow-unlisten`,
-`core:window:allow-close`, `core:window:allow-set-focus`, `core:window:allow-set-title`,
-`clipboard-manager:allow-write-text`, `allow-file-viewer-content`, `allow-file-viewer-stamp`,
-`allow-file-viewer-diff`, `allow-file-viewer-open-link`. The main window holds
+Windows `file-viewer-*`: `clipboard-manager:allow-write-text`, `allow-file-viewer-content`,
+`allow-file-viewer-stamp`, `allow-file-viewer-diff`, `allow-file-viewer-open-link`. No event
+permissions (a listener for any target would read events meant for the main window) and, since
+the third security review, no `core:window:*` permission either: those commands take any window's
+label, and the viewer calls none. The main window holds
 `allow-open-file-viewer`, never a permission to create webviews; the main window and the panel
 hold `allow-list-session-paths`. `src-tauri/tests/contract.rs` pins all three lists.

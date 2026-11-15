@@ -8,11 +8,11 @@
 
 ```
 > npm ls -g --depth=0
-C:\Users\Feo\AppData\Roaming\npm
+%APPDATA%\npm
 +-- @earendil-works/pi-coding-agent@0.79.9
 +-- @openai/codex@0.156.1
 +-- opencode-ai@1.15.7
-+-- ... (weitere ohne Bezug)
++-- ... (further, unrelated packages)
 ```
 
 ## OpenCode: two packages in the npm registry

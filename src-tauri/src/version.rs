@@ -41,9 +41,24 @@ pub fn probe_folder(app_data: &Path) -> std::io::Result<PathBuf> {
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// How long a failed probe (a timeout, no output, nothing parseable) is remembered before it is
+/// tried again: short, so a program hanging on `--version` does not block every profile list for
+/// [`TIMEOUT`] each time, yet the gate's fail-closed step (Claude Code's `onFailure`, which needs
+/// the version) comes back on the next list after it.
+pub const NEGATIVE_TTL: Duration = Duration::from_secs(60);
+
+/// A cached version query: a real version is kept until the program's file stamp changes; a failed
+/// probe is kept only until `retry_after`, then queried again.
+#[derive(Clone)]
+pub struct Cached {
+    version: Option<String>,
+    /// `Some` for a failed probe: the instant from which it is probed again.
+    retry_after: Option<Instant>,
+}
+
 /// Key: program file and arguments. Two profiles with the same program but their own
 /// `version_args` get separate entries.
-pub type VersionCache = FileCache<(FileStamp, Vec<String>), Option<String>>;
+pub type VersionCache = FileCache<(FileStamp, Vec<String>), Cached>;
 
 /// Git for Windows writes its build number behind `.windows.` (`git version 2.56.0.windows.4`,
 /// tag `v2.56.0.windows.4`); winget lists the same version as `2.56.0.4`.
@@ -242,8 +257,15 @@ fn cached_version(
 ) -> Option<String> {
     let (key, program) = cache_key(agent, program)?;
     if !refresh {
-        if let Some(version) = cache.get(&key) {
-            return version;
+        if let Some(entry) = cache.get(&key) {
+            match entry.retry_after {
+                // A real version: kept until the program's file stamp changes.
+                None => return entry.version,
+                // A failed probe still within its short window: do not query again yet.
+                Some(at) if Instant::now() < at => return None,
+                // A failed probe whose window has passed: fall through and query again.
+                Some(_) => {}
+            }
         }
     }
     // Not cached: the shim's stamp stays the same when a reinstall repairs the binary behind it.
@@ -251,14 +273,29 @@ fn cached_version(
         return None;
     }
     let version = probe(&program, &key.1, &agent.profile.env, TIMEOUT, cwd);
-    cache.insert(key, version.clone());
+    // A failed probe is remembered only for [`NEGATIVE_TTL`], so a hanging program does not block
+    // every list for [`TIMEOUT`], yet the gate's fail-closed step (it reads this version for
+    // Claude Code's `onFailure`, [`crate::gate::claude_blocks_on_failure`]) returns after the
+    // window instead of staying off for good behind a cached `None`.
+    let entry = Cached {
+        version: version.clone(),
+        retry_after: version.is_none().then(|| Instant::now() + NEGATIVE_TTL),
+    };
+    cache.insert(key, entry);
     version
 }
 
-/// The remembered version without starting anything: `None` if nothing is cached yet.
+/// The remembered version without starting anything: `None` if nothing is cached yet, or a failed
+/// probe whose short window has passed (nothing reliable to show). A failed probe still within its
+/// window is remembered as `Some(None)` (known to have no version).
 pub fn remembered(agent: &Agent, program: &Path, cache: &VersionCache) -> Option<Option<String>> {
     let (key, _) = cache_key(agent, program)?;
-    cache.get(&key)
+    let entry = cache.get(&key)?;
+    match entry.retry_after {
+        None => Some(entry.version),
+        Some(at) if Instant::now() < at => Some(None),
+        Some(_) => None,
+    }
 }
 
 /// Queries all entries in parallel: profileId → version or `None`.
@@ -418,6 +455,42 @@ mod tests {
             crate::profile::parse("[[profile]]\nid='a'\nname='A'\ncommand='a'\nversion_args=[]\n")
                 .unwrap();
         assert_eq!(profiles[0].version_args, Some(Vec::new()));
+    }
+
+    /// A launchable program whose version query yields nothing (a timeout, no output) is remembered
+    /// as failed for a short window, so a second list within it does not run the slow probe again;
+    /// after the window the gate's fail-closed step gets a fresh answer.
+    #[cfg(windows)]
+    #[test]
+    fn a_failed_probe_is_cached_briefly_not_reprobed() {
+        use std::fs;
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/.tmp");
+        fs::create_dir_all(&dir).unwrap();
+        let counter = dir.join("probe-count.txt");
+        let _ = fs::remove_file(&counter);
+        let tool = dir.join("no-version.cmd");
+        // Prints no version and records each run, so the number of probes can be counted.
+        fs::write(
+            &tool,
+            format!("@echo off\r\n>>\"{}\" echo run\r\n", counter.display()),
+        )
+        .unwrap();
+        let agent = Agent::from_catalog(
+            crate::agent_catalog::parse("[[agent]]\nid='a'\nname='A'\ncommands=['a']\n")
+                .unwrap()
+                .remove(0),
+        );
+        let cache = VersionCache::default();
+        assert_eq!(
+            detect(&[(agent.clone(), tool.clone())], &cache, &dir).get("a"),
+            Some(&None)
+        );
+        assert_eq!(detect(&[(agent, tool)], &cache, &dir).get("a"), Some(&None));
+        let runs = fs::read_to_string(&counter).map_or(0, |text| text.lines().count());
+        assert_eq!(
+            runs, 1,
+            "a failed probe within its window must not be re-run"
+        );
     }
 
     #[test]

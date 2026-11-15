@@ -4,7 +4,8 @@
 
 import type { ReactNode } from "react";
 
-import type { NoteFolder, PathEntry, Profile } from "./api";
+import { commandLauncherItems } from "./agentCommands";
+import type { AgentCommand, NoteFolder, PathEntry, Profile } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
 import { folderName } from "./folders";
 import { teamCapable } from "./startMode";
@@ -13,6 +14,7 @@ import type { CommitSummary } from "./gitHistory";
 import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
 import type { NoteFolderInfo } from "./notes";
+import type { QueueOffer } from "./sessionMenu";
 import type { SessionView } from "./sessions";
 import { SECTION_NAMES, SETTINGS_SECTIONS, type SettingsSection } from "./settingsSections";
 import { snippetLabel, type Snippet } from "./snippets";
@@ -137,6 +139,21 @@ export interface LauncherContext {
    * `shown` makes the entry hide the view.
    */
   subAgents: { shown: boolean; toggle: () => void } | null;
+  /**
+   * The active session's queued message (sessionMenu.ts queueOffer): `offer` queues one, `queued`
+   * edits it; `null` hides the entry (no working agent session, or attention off).
+   */
+  queue: { offer: QueueOffer; open: () => void } | null;
+  /**
+   * The active session's agent commands (agentCommands.ts `sessionCommands`); `null` when it
+   * offers none. `run` sends one, asking first where the command says so.
+   */
+  agentCommands: {
+    commands: readonly AgentCommand[];
+    sessionTitle: string;
+    programName: string;
+    run: (command: AgentCommand) => void;
+  } | null;
   /** Opens the Settings dialog on this section. */
   openSettings: (section: SettingsSection) => void;
   /** The app menu: its working entries become commands, so every action can be found here. */
@@ -280,6 +297,27 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       primary: true,
       run: subAgents.toggle,
     });
+  }
+  const queue = ctx.queue;
+  if (queue !== null && queue.offer !== null) {
+    items.push({
+      key: "queue",
+      section: "commands",
+      label: queue.offer === "offer" ? t("queue.add") : t("queue.edit"),
+      keywords: "queue next later message prompt",
+      run: queue.open,
+    });
+  }
+  const agentCommands = ctx.agentCommands;
+  if (agentCommands !== null) {
+    items.push(
+      ...commandLauncherItems(
+        agentCommands.commands,
+        { sessionTitle: agentCommands.sessionTitle, programName: agentCommands.programName },
+        t,
+        agentCommands.run,
+      ),
+    );
   }
   items.push({
     key: "changes",

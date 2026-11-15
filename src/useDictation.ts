@@ -8,11 +8,13 @@ import { api, DICTATION_LEVEL, DICTATION_STATUS, DICTATION_TEXT, errorText } fro
 import {
   canStart,
   EMPTY_DICTATION_STATUS,
+  failureAfter,
   parseDictationStatus,
   parseDictationText,
   parseLevel,
   type DictationModel,
   type DictationPrefs,
+  type DictationState,
   type DictationStatus,
   type DictationText,
 } from "./dictation";
@@ -146,6 +148,16 @@ export function useDictationKey(options: KeyOptions): void {
     if (text !== null && text.text !== "") latest.current.onText(text);
   });
 
+  // A failure that shows only after the start (a blocked microphone, a failed recognition)
+  // arrives as a state change; its notice goes to the pane the recording was for.
+  const previous = useRef<DictationState>(options.status.state);
+  const state = options.status.state;
+  useEffect(() => {
+    const failed = failureAfter(previous.current, state);
+    previous.current = state;
+    if (failed !== null) latest.current.onProblem(failed.failure, failed.session);
+  }, [state]);
+
   const enabled = options.prefs.enabled;
   useEffect(() => {
     if (!enabled) return;
@@ -162,9 +174,11 @@ export function useDictationKey(options: KeyOptions): void {
           return;
         }
         if (!canStart(status.state)) return;
-        started = api.dictationStart(session, prefs.model, prefs.language).catch((error) => {
-          onProblem(problemOf(error), session);
-        });
+        started = api
+          .dictationStart(session, prefs.model, prefs.language)
+          .catch((error: unknown) => {
+            onProblem(problemOf(error), session);
+          });
       },
       () => {
         void started.then(() => api.dictationStop()).catch(() => undefined);

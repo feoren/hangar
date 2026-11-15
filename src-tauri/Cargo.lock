@@ -1888,9 +1888,10 @@ dependencies = [
 
 [[package]]
 name = "hangar"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "arboard",
+ "base64 0.23.1",
  "clipboard-win",
  "cpal",
  "futures-util",
@@ -1899,6 +1900,7 @@ dependencies = [
  "keyring",
  "keyring-core",
  "libc",
+ "minisign-verify",
  "notify",
  "png",
  "portable-pty",

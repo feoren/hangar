@@ -63,7 +63,17 @@
 //! - A public key is accepted once per team and never again, even after its device was removed.
 //!   Signing keys must be valid points of large order, X25519 keys canonical and of large order.
 //! - Removing a device or a member marks a rotation as due; a rotate epoch entry clears it. Epochs
-//!   count from 1 without gaps.
+//!   count from 1 without gaps. [`TeamState::rotation_urgent`] tells a due rotation that must come
+//!   at once from one that only removes devices added after the current epoch began.
+//! - A log has at most [`MAX_LOG_ENTRIES`] entries; the last [`RESERVED_LOG_ENTRIES`] places take
+//!   only removals and rotate epoch entries, so an owner or admin can still remove the member who
+//!   filled the log, a member can still remove a stolen device, and the key can still change.
+//!   Remove device entries take only the first half of the reserve; the last
+//!   [`DEVICE_REMOVAL_RESERVE`] places stay for remove member and rotate epoch entries, so members
+//!   removing their own devices can never use up the places their own removal needs. The very
+//!   last place takes only a rotate epoch entry, so a removal always leaves room for the rotation
+//!   it makes due. Every device verifies the whole
+//!   log on each connection, so its length must stay bounded.
 //! - A member id that was removed may be added again (the website decides who is a member); the
 //!   state records it ([`Member::readmitted_after`]) so the app can show it.
 //! - `issued_at` is the issuer's clock, informational only; the order is the log's.
@@ -115,6 +125,20 @@ pub const ENTRY_VERSION: u8 = 1;
 /// have.
 pub const MAX_DEVICES_PER_ENTRY: usize = MAX_DEVICES_PER_MEMBER;
 const SIGNATURE_LEN: usize = 64;
+/// The most entries a team's log may have ([`LogError::LogFull`] beyond). Every device verifies
+/// the whole log on every connection; 8192 entries are a few thousand device lifecycles (add,
+/// remove, rotate).
+pub const MAX_LOG_ENTRIES: u64 = 8_192;
+/// The last places of [`MAX_LOG_ENTRIES`], which only removals and rotate epoch entries take: remove
+/// device entries only the first half of them ([`DEVICE_REMOVAL_RESERVE`]), the very last place
+/// only a rotate epoch entry.
+pub const RESERVED_LOG_ENTRIES: u64 = 64;
+/// The last places of the reserve that remove device entries never take. A member has up to
+/// `MAX_DEVICES_PER_MEMBER` devices and each removal makes an urgent rotation due, so a few
+/// members removing their own devices could otherwise fill the whole reserve, after which no
+/// remove member entry fits and those members could never be removed. These places keep room for
+/// 16 remove member entries, each with its rotation.
+pub const DEVICE_REMOVAL_RESERVE: u64 = RESERVED_LOG_ENTRIES / 2;
 
 const TAG_CREATE: u8 = 1;
 const TAG_ADD_MEMBER: u8 = 2;
@@ -216,6 +240,11 @@ pub enum LogError {
     /// The signed entry does not fit `memberlog.append` (16 KiB of base64url).
     #[error("the membership log entry is too large")]
     TooLarge,
+    /// The log reached its most entries ([`MAX_LOG_ENTRIES`]; for remove device,
+    /// [`DEVICE_REMOVAL_RESERVE`] fewer; for other kinds than removals and rotate epoch,
+    /// [`RESERVED_LOG_ENTRIES`] fewer).
+    #[error("the membership log is full")]
+    LogFull,
     /// Relay side: a rotate epoch entry sent through `memberlog.append`; it travels only inside
     /// `key.rotate`, together with the wrapped keys.
     #[error("a rotate epoch entry travels only inside `key.rotate`")]
@@ -252,7 +281,7 @@ impl LogError {
             | LogError::Forbidden
             | LogError::KeysNotRegistered => ErrorCode::Forbidden,
             LogError::EpochOrder { .. } => ErrorCode::StaleEpoch,
-            LogError::TooLarge | LogError::TooManyDevices => ErrorCode::Limit,
+            LogError::TooLarge | LogError::TooManyDevices | LogError::LogFull => ErrorCode::Limit,
             _ => ErrorCode::BadRequest,
         }
     }
@@ -746,6 +775,8 @@ pub struct TeamState {
     used_keys: BTreeSet<[u8; 32]>,
     /// The index of each removed member's last remove member entry.
     departed: BTreeMap<MemberId, u64>,
+    /// The most entries this log takes ([`MAX_LOG_ENTRIES`] outside tests).
+    max_entries: u64,
 }
 
 /// The lower (less privileged) of two roles.
@@ -778,7 +809,12 @@ fn holder_of(member: &MemberId, device: &DeviceId) -> Holder {
 }
 
 impl TeamState {
-    fn create(team: &TeamId, body: &EntryBody, head: ChainHead) -> Result<Self, LogError> {
+    fn create(
+        team: &TeamId,
+        body: &EntryBody,
+        head: ChainHead,
+        max_entries: u64,
+    ) -> Result<Self, LogError> {
         let EntryKind::CreateTeam { devices } = &body.kind else {
             return Err(LogError::NotCreated);
         };
@@ -802,6 +838,7 @@ impl TeamState {
             history: BTreeMap::new(),
             used_keys: BTreeSet::new(),
             departed: BTreeMap::new(),
+            max_entries,
         };
         state.check_new_devices(&body.issuer.member, devices)?;
         state.insert_member(body, body.issuer.member.clone(), Role::Owner, devices);
@@ -915,6 +952,53 @@ impl TeamState {
     /// A device or member was removed after the newest epoch started: the team should rotate.
     pub fn rotation_due(&self) -> bool {
         self.rotation_due
+    }
+
+    /// Whether the log has room only for its reserved entries (removals, rotate epoch): no
+    /// device or member can be added any more. The cap is for good; removing a member frees no
+    /// place.
+    pub fn log_full(&self) -> bool {
+        self.head.index >= self.max_entries.saturating_sub(RESERVED_LOG_ENTRIES)
+    }
+
+    /// Whether the due rotation must come at once: a member left since the newest epoch began,
+    /// or a device was removed that the log listed when that epoch's key was wrapped. A due
+    /// rotation that is not urgent only removes devices added after the epoch began, of members
+    /// still in the team: such a device got the key, if at all, through `key.wrap` from a device
+    /// of its own member or an owner or admin. Any member may add and remove devices of its own
+    /// without limit; if each such removal forced a rotation at once, one member could keep the
+    /// team changing keys (and waiting for them) for good, so the app rotates for these at most
+    /// once per interval. No epoch yet counts as urgent.
+    pub fn rotation_urgent(&self) -> bool {
+        if !self.rotation_due {
+            return false;
+        }
+        let Some(epoch) = self.current_epoch() else {
+            return true;
+        };
+        let since = epoch.index;
+        if self.departed.values().any(|&at| at > since) {
+            return true;
+        }
+        self.history.iter().any(|(holder, periods)| {
+            periods.iter().any(|period| {
+                period.removed_at.is_some_and(|removed| removed > since)
+                    && (period.added_at < since || !self.members.contains_key(&holder.member))
+            })
+        })
+    }
+
+    /// The devices removed since the newest epoch began (with no epoch yet, every removed one).
+    pub fn removed_since_epoch(&self) -> impl Iterator<Item = &Holder> + '_ {
+        let since = self.current_epoch().map_or(0, |epoch| epoch.index);
+        self.history
+            .iter()
+            .filter(move |(_, periods)| {
+                periods
+                    .iter()
+                    .any(|period| period.removed_at.is_some_and(|removed| removed > since))
+            })
+            .map(|(holder, _)| holder)
     }
 
     /// A body for the next entry (index and `prev` filled in).
@@ -1101,6 +1185,20 @@ impl TeamState {
         }
         if body.prev != Some(self.head.hash) {
             return Err(LogError::PrevMismatch);
+        }
+        // A removal makes a rotation due, so it leaves the last place to that rotation: a log
+        // whose last entry removed a member could never change the key again. Device removals
+        // stop earlier, so they never take the places a member's removal needs.
+        let room = match body.kind {
+            EntryKind::RotateEpoch { .. } => self.max_entries,
+            EntryKind::RemoveMember { .. } => self.max_entries.saturating_sub(1),
+            EntryKind::RemoveDevice { .. } => {
+                self.max_entries.saturating_sub(DEVICE_REMOVAL_RESERVE)
+            }
+            _ => self.max_entries.saturating_sub(RESERVED_LOG_ENTRIES),
+        };
+        if body.index > room {
+            return Err(LogError::LogFull);
         }
         let issuer = self
             .member(&body.issuer.member)
@@ -1322,15 +1420,23 @@ pub struct LogVerifier {
     team: TeamId,
     chain: MemberChain,
     state: Option<TeamState>,
+    max_entries: u64,
 }
 
 impl LogVerifier {
     /// Verification of `team`'s log from its first entry.
     pub fn new(team: TeamId) -> Self {
+        Self::with_max_entries(team, MAX_LOG_ENTRIES)
+    }
+
+    /// [`LogVerifier::new`] with another most number of entries than [`MAX_LOG_ENTRIES`] (tests;
+    /// a relay may be stricter, never more lenient, or the clients stop at its log).
+    pub fn with_max_entries(team: TeamId, max_entries: u64) -> Self {
         Self {
             team,
             chain: MemberChain::new(),
             state: None,
+            max_entries,
         }
     }
 
@@ -1497,7 +1603,12 @@ impl LogVerifier {
                 if cap.is_some_and(|role| role != Role::Owner) {
                     return Err(LogError::Forbidden);
                 }
-                Some(TeamState::create(&self.team, &body, head)?)
+                Some(TeamState::create(
+                    &self.team,
+                    &body,
+                    head,
+                    self.max_entries,
+                )?)
             }
             Some(state) => {
                 state.check_capped(&body, cap)?;

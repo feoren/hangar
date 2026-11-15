@@ -12,6 +12,7 @@ import {
   itemText,
   parseChangelog,
   toggleVersion,
+  whatsNewNeedsEntries,
   type ChangelogEntry,
 } from "./changelog";
 import changelogText from "./changelog.json?raw";
@@ -287,5 +288,29 @@ describe("decideWhatsNew", () => {
       remember: null,
     });
     expect(decideWhatsNew(ENTRIES, "0.2.0", "garbage", false).remember).toBe("0.2.0");
+  });
+});
+
+describe("whatsNewNeedsEntries", () => {
+  it("skips the changelog exactly when the decision does not depend on it", () => {
+    const versions = ["0.1.0", "0.2.0", "0.2.0+12", "0.3.0", "dev"];
+    const seen = [null, "0.1.0", "0.2.0", "0.3.0", "garbage"];
+    for (const current of versions) {
+      for (const last of seen) {
+        for (const known of [false, true]) {
+          if (whatsNewNeedsEntries(current, last, known)) continue;
+          expect(decideWhatsNew([], current, last, known)).toEqual(
+            decideWhatsNew(ENTRIES, current, last, known),
+          );
+        }
+      }
+    }
+  });
+
+  it("loads the changelog after an update and for existing users without a remembered version", () => {
+    expect(whatsNewNeedsEntries("0.2.0", "0.2.0", true)).toBe(false);
+    expect(whatsNewNeedsEntries("0.2.0+12", "0.1.0", false)).toBe(true);
+    expect(whatsNewNeedsEntries("0.2.0", null, true)).toBe(true);
+    expect(whatsNewNeedsEntries("0.2.0", null, false)).toBe(false);
   });
 });

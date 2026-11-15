@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-changed-count"
+description = "Enables the git_changed_count command without any pre-configured scope."
+commands.allow = ["git_changed_count"]
+
+[[permission]]
+identifier = "deny-git-changed-count"
+description = "Denies the git_changed_count command without any pre-configured scope."
+commands.deny = ["git_changed_count"]

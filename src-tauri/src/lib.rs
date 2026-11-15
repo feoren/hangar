@@ -4,14 +4,20 @@ pub mod account;
 pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
+pub mod agent_commands;
+pub mod avatar;
 pub mod batch;
 pub mod child_env;
+pub mod civil;
 pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
+pub mod command_guard;
+pub mod command_split;
 mod commands;
 pub mod context_usage;
+pub mod daily_review;
 pub mod desktop;
 pub mod dictation;
 pub mod exe_image;
@@ -28,22 +34,29 @@ pub mod git;
 pub mod git_actions;
 pub mod git_activity;
 pub mod git_history;
+pub mod gpu;
 pub mod hook_http;
 pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
+pub mod instructions;
+pub mod main_store;
 pub mod manager;
+pub mod no_links;
 pub mod notes;
 pub mod notify;
 pub mod output;
 pub mod panel_window;
 pub mod paste_image;
+pub mod path_links;
 pub mod persist;
+pub mod power;
 pub mod proctree;
 pub mod profile;
 pub mod profile_edit;
 pub mod project_notes;
 pub mod push;
+pub mod report;
 pub mod resolve;
 pub mod resources;
 pub mod secrets;
@@ -63,7 +76,9 @@ pub mod text;
 pub mod tray;
 pub mod updates;
 pub mod version;
+pub mod work_log;
 pub mod worktree;
+pub mod worktree_cleanup;
 pub mod wsl;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -80,6 +95,8 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub fn run() -> tauri::Result<()> {
+    // First, while the process has a single thread (`child_env::scrub_own_environment`).
+    child_env::scrub_own_environment();
     let mut builder = tauri::Builder::default();
     // First of all plugins, so a second start exits before anything else runs; debug builds are
     // exempt (see `single_instance::ENFORCED`).
@@ -96,6 +113,8 @@ pub fn run() -> tauri::Result<()> {
             let home = app.path().home_dir()?;
             let config_dir = app.path().app_config_dir()?;
             let profile_path = config_dir.join(profile::FILE_NAME);
+            // The command guard's rules sit next to the profiles: the user edits both.
+            let guard_file = config_dir.join(command_guard::FILE_NAME);
             let (profiles, error) = match profile::load_or_init(&config_dir) {
                 Ok(profiles) => (profiles, None),
                 Err(error) => (
@@ -109,7 +128,10 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: {error}");
                 Vec::new()
             });
-            app.manage(SessionManager::new(profiles, catalog, home));
+            app.manage(
+                SessionManager::new(profiles, catalog, home)
+                    .with_instructions_file(config_dir.join(instructions::FILE_NAME)),
+            );
             // Hangar account: the chosen server comes from the config folder; the sign-in itself
             // is read from the keychain on the window's first status call.
             let events = app.handle().clone();
@@ -119,11 +141,15 @@ pub fn run() -> tauri::Result<()> {
                     account::KEYCHAIN_SERVICE,
                 )),
                 std::sync::Arc::new(|url: &reqwest::Url| desktop::open_url(url)),
-                std::sync::Arc::new(move |view: &account::AccountView| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, view);
+                // A signal without payload: Tauri also hands events sent to one window to
+                // listeners of other webviews that listen to any target, so the account view
+                // stays behind `account_status`, which only the main window may call.
+                std::sync::Arc::new(move |_: &account::AccountView| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, account::EVENT, ());
                 }),
                 account_service::Options {
                     config_dir: Some(config_dir.clone()),
+                    avatar_dir: Some(app.path().app_local_data_dir()?.join(avatar::CACHE_DIR)),
                     ..account_service::Options::default()
                 },
             ));
@@ -135,8 +161,10 @@ pub fn run() -> tauri::Result<()> {
                     .inner()
                     .clone(),
                 std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
-                std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, snapshot);
+                // A signal without payload, as for the account: the snapshot (teammates, safety
+                // numbers, tasks) comes through `team_snapshot`, a main window command.
+                std::sync::Arc::new(move |_: &team::TeamSnapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, ());
                 }),
                 team_service::Options {
                     config_dir: Some(config_dir.clone()),
@@ -199,6 +227,19 @@ pub fn run() -> tauri::Result<()> {
             app.manage(notify::Notifier::default());
             app.manage(resources::ResourceMonitor::default());
             app.manage(system_usage::SystemMonitor::default());
+            // Battery or AC for the power saving mode: one cheap reading every 30 s, events only
+            // on a change.
+            let power = power::PowerMonitor::default();
+            let events = app.handle().clone();
+            let started = power.start(power::read, move |state| {
+                let _ = events.emit_to(panel_window::MAIN_LABEL, power::EVENT, state);
+            });
+            if let Err(error) = started {
+                eprintln!("hangar: power state not watched: {error}");
+            }
+            app.manage(power);
+            // One GPU reading for the system bar and the session rows alike.
+            app.manage(gpu::GpuMonitor::default());
             app.manage(subagents::Watchers::default());
             // Context meter of the sessions' rows: one thread for all sessions, numbers only.
             let context = context_usage::ContextUsage::default();
@@ -256,16 +297,30 @@ pub fn run() -> tauri::Result<()> {
             // The person's gate rules: local, they name this machine's
             // repositories.
             let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
+            // Work log for the daily review (ADR 0011): local, it names this machine's
+            // folders. Old days are deleted off the main thread.
+            let work_log = work_log::WorkLog::new(local_dir.join(work_log::DIR));
+            let pruned = work_log.clone();
+            std::thread::spawn(move || pruned.prune(work_log::now_ms()));
+            app.manage(work_log);
+            // The security switches and queued messages: only the main window reads and writes
+            // them, unlike `localStorage`, which the panel and viewer windows share.
+            app.manage(main_store::MainStore::new(local_dir.clone()));
             app.manage(persist::Store::new(local_dir));
+            app.manage(panel_window::PanelScope::default());
+            app.manage(commands::UpdateResults::default());
+            app.manage(worktree_cleanup::PendingWorktrees::default());
             // Local claims: the worker stays idle until the window turns the setting on.
             let claims = claims_service::ClaimsService::default();
             let sessions = app.handle().clone();
             let events = app.handle().clone();
             let started = claims.start(
                 move || claims_service::watched_sessions(&sessions.state::<SessionManager>()),
-                move |snapshot| {
-                    let _ =
-                        events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, snapshot);
+                // Only a signal, as for the gate: the overlaps name files and sessions, and a
+                // listener in any window receives events emitted to the main one. The main
+                // window reads `claims_snapshot`, which only it may call.
+                move |_snapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, ());
                 },
             );
             if let Err(error) = started {
@@ -292,11 +347,15 @@ pub fn run() -> tauri::Result<()> {
                         .map(|info| (info.id, info.title))
                         .collect()
                 },
-                move |snapshot| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, snapshot);
+                // Only a signal: a listener in any window receives events emitted to the main
+                // one, and the held edits name files and commands. The main window reads the
+                // snapshot through `gate_snapshot`, which only it may call.
+                move |_snapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, ());
                 },
             );
             gate.load_rules(gate_rules_file);
+            gate.load_command_guard(guard_file);
             app.state::<SessionManager>()
                 .set_launch_gate(std::sync::Arc::new(gate.clone()));
             // The team shares the sessions of repositories linked to a shared project; the gate
@@ -352,6 +411,7 @@ pub fn run() -> tauri::Result<()> {
             commands::profile_path,
             commands::reload_profiles,
             commands::open_profile_file,
+            commands::open_hangar_md,
             commands::save_workspace,
             commands::load_workspace,
             commands::save_scrollback,
@@ -382,19 +442,26 @@ pub fn run() -> tauri::Result<()> {
             commands::shared_notes_cancel,
             commands::open_panel_window,
             commands::set_panel_on_top,
+            commands::close_panel_window,
+            commands::destroy_panel_window,
             commands::panel_to_main,
             commands::check_program_updates,
             commands::create_update_session,
             commands::notify_session,
             commands::session_resources,
             commands::system_usage,
+            commands::power_state,
             commands::push_settings,
             commands::push_save,
             commands::push_test,
             commands::push_session,
             commands::git_branches,
+            commands::git_repo_places,
             commands::git_diff,
+            commands::git_changed_count,
             commands::git_activity,
+            commands::log_work_phase,
+            commands::daily_review,
             commands::git_log,
             commands::git_commit_diff,
             commands::git_stage,
@@ -405,6 +472,9 @@ pub fn run() -> tauri::Result<()> {
             commands::list_session_paths,
             commands::reveal_session_folder,
             commands::open_local_url,
+            commands::stat_paths,
+            commands::open_path,
+            commands::open_web_url,
             commands::open_file_viewer,
             commands::file_viewer_content,
             commands::file_viewer_stamp,
@@ -412,6 +482,10 @@ pub fn run() -> tauri::Result<()> {
             commands::file_viewer_open_link,
             commands::create_worktree,
             commands::remove_worktree,
+            commands::list_hangar_worktrees,
+            commands::hangar_worktree_size,
+            commands::remove_hangar_worktree,
+            commands::prune_hangar_worktree,
             commands::configure_claims,
             commands::claims_snapshot,
             commands::configure_gate,
@@ -419,6 +493,8 @@ pub fn run() -> tauri::Result<()> {
             commands::answer_gate,
             commands::gate_rules,
             commands::delete_gate_rule,
+            commands::configure_command_guard,
+            commands::command_guard_info,
             commands::save_profile,
             commands::delete_profile,
             commands::profile_env,
@@ -426,6 +502,7 @@ pub fn run() -> tauri::Result<()> {
             commands::delete_profile_secret,
             commands::profile_secrets,
             commands::export_session,
+            commands::export_report,
             commands::paste_clipboard_image,
             commands::configure_tray,
             commands::watch_sub_agents,
@@ -437,6 +514,7 @@ pub fn run() -> tauri::Result<()> {
             commands::account_cancel_sign_in,
             commands::account_sign_out,
             commands::account_projects,
+            commands::account_avatar,
             commands::account_set_base_url,
             commands::account_open,
             commands::team_status,
@@ -445,12 +523,27 @@ pub fn run() -> tauri::Result<()> {
             commands::team_pending_confirmations,
             commands::team_confirm,
             commands::team_reject,
+            commands::team_snapshot,
+            commands::team_confirm_admission,
+            commands::team_remove_device,
             commands::team_session_states,
             commands::team_link_repo,
             commands::team_reserve_task,
             commands::team_release_task,
             commands::team_ask_release,
             commands::team_answer_release,
+            commands::security_switches,
+            commands::save_security_switches,
+            commands::load_message_queue,
+            commands::save_message_queue,
+            commands::protected_settings,
+            commands::save_protected_settings,
+            commands::main_prefs,
+            commands::save_main_prefs,
+            commands::load_templates,
+            commands::save_templates,
+            commands::set_panel_session,
+            commands::take_update_results,
             commands::dictation_status,
             commands::dictation_start,
             commands::dictation_stop,
@@ -466,11 +559,16 @@ pub fn run() -> tauri::Result<()> {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
             handle.state::<context_usage::ContextUsage>().stop();
+            handle.state::<power::PowerMonitor>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.
             handle.state::<gate_service::GateService>().stop();
             handle.state::<claims_service::ClaimsService>().stop();
+            // The sessions end with the app; their runs end now in the work log.
+            handle
+                .state::<work_log::WorkLog>()
+                .end_all(work_log::now_ms());
             handle.state::<SessionManager>().shutdown();
         }
     });

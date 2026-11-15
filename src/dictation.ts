@@ -145,6 +145,15 @@ export function parseDictationText(value: unknown): DictationText | null {
   return { session: raw.session, text: raw.text };
 }
 
+/**
+ * What goes into the prompt for a transcript: the text and one space, so the next hold continues
+ * the sentence instead of gluing onto its last word. Blank text pastes nothing.
+ */
+export function pasteForm(text: string): string {
+  const line = text.trim();
+  return line === "" ? "" : `${line} `;
+}
+
 /** The input level, 0 to 1; anything else counts as silence. */
 export function parseLevel(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
@@ -163,4 +172,28 @@ export function canStart(state: DictationState): boolean {
     state.kind === "permissionDenied" ||
     state.kind === "error"
   );
+}
+
+/** What went wrong after a recording had started, for the notice on its pane. */
+export type DictationFailure = "noMicrophone" | "permissionDenied" | "other";
+
+/**
+ * The failure to show when the state moves from a recording or transcription of a session to a
+ * failure state: the microphone turned out blocked, the recognition failed. `null` otherwise.
+ */
+export function failureAfter(
+  previous: DictationState,
+  next: DictationState,
+): { session: number; failure: DictationFailure } | null {
+  const session = busySession(previous);
+  if (session === null) return null;
+  switch (next.kind) {
+    case "noMicrophone":
+    case "permissionDenied":
+      return { session, failure: next.kind };
+    case "error":
+      return { session, failure: "other" };
+    default:
+      return null;
+  }
 }

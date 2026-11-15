@@ -5,31 +5,40 @@
 //! (`system_usage`) while it is visible and the setting is on, and an answer younger than
 //! [`CACHE_FOR`] is repeated. CPU is the busy share of all processors since the previous answer,
 //! memory the share of physical memory in use, GPU the busiest engine of any adapter, as the task
-//! manager shows it. A value the platform cannot give stays `None`, and the window hides it.
+//! manager shows it, and the dedicated GPU memory in use. Memory and GPU memory also come as
+//! bytes. A value the platform cannot give stays `None`, and the window hides it.
 //!
-//! - Windows: `GetSystemTimes`, `GlobalMemoryStatusEx` and the performance counter
-//!   `\GPU Engine(*)\Utilization Percentage` through one PDH query that stays open.
+//! - Windows: `GetSystemTimes`, `GlobalMemoryStatusEx`; the GPU from the shared PDH reading
+//!   (`gpu.rs`).
 //! - Linux: `/proc/stat` and `/proc/meminfo`; no GPU (no vendor-neutral source).
 //! - Other systems: nothing yet.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::gpu::GpuSnapshot;
 use crate::lock;
 
 /// A second answer within this time repeats the first one without reading again.
 pub const CACHE_FOR: Duration = Duration::from_secs(1);
 
-/// What the system bar shows, each in percent (0 to 100, one decimal); `None` where unknown.
+/// What the system bar shows; `None` where unknown.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemUsage {
+    /// Busy share of all processors in percent (0 to 100, one decimal).
     pub cpu: Option<f64>,
+    /// Share of physical memory in use in percent (0 to 100, one decimal).
     pub memory: Option<f64>,
+    /// Physical memory in use and in total, in bytes.
+    pub memory_used: Option<u64>,
+    pub memory_total: Option<u64>,
+    /// Busiest GPU engine in percent (0 to 100, one decimal).
     pub gpu: Option<f64>,
+    /// Dedicated GPU memory in use on all adapters, in bytes.
+    pub gpu_memory: Option<u64>,
 }
 
 /// Processor time of the whole machine so far, in any unit as long as both use the same one.
@@ -60,40 +69,6 @@ pub fn memory_percent(total: u64, available: u64) -> Option<f64> {
     }
     let used = total.saturating_sub(available);
     Some(percent(used as f64 / total as f64))
-}
-
-/// GPU load from the instances of `\GPU Engine(*)\Utilization Percentage`, named like
-/// `pid_1234_luid_0x00000000_0x0000D1B5_phys_0_eng_3_engtype_3D`: the processes' shares are
-/// summed per engine (adapter, physical GPU and engine index), and the busiest engine is the
-/// load. This is how the task manager's GPU column reads the same counters, so a video decode
-/// running on its own engine shows as GPU load even while 3D is idle. `None` without any engine
-/// (no GPU, or no data yet).
-pub fn gpu_percent<'a>(instances: impl IntoIterator<Item = (&'a str, f64)>) -> Option<f64> {
-    let mut engines: HashMap<&str, f64> = HashMap::new();
-    for (name, value) in instances {
-        let Some(engine) = engine_key(name) else {
-            continue;
-        };
-        // A broken value counts as idle; the engine still exists.
-        let value = if value.is_finite() {
-            value.max(0.0)
-        } else {
-            0.0
-        };
-        *engines.entry(engine).or_default() += value;
-    }
-    engines
-        .into_values()
-        .reduce(f64::max)
-        .map(|busiest| percent(busiest / 100.0))
-}
-
-/// The engine part of an instance name: from `luid_` up to the engine type, without the process.
-fn engine_key(name: &str) -> Option<&str> {
-    let start = name.find("luid_")?;
-    let rest = &name[start..];
-    let end = rest.find("_engtype_").unwrap_or(rest.len());
-    Some(&rest[..end])
 }
 
 /// A fraction as a percentage with one decimal, clamped to 0 to 100.
@@ -133,12 +108,11 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
     Some((field("MemTotal")?, field("MemAvailable")?))
 }
 
-/// The previous CPU reading, the open GPU query and the last answer.
+/// The previous CPU reading and the last answer.
 #[derive(Default)]
 struct State {
     cpu: Option<CpuTimes>,
     last: Option<(Instant, SystemUsage)>,
-    platform: platform::Sampler,
 }
 
 /// Managed state behind `system_usage`; one shared poll for every caller.
@@ -149,9 +123,14 @@ pub struct SystemMonitor {
 
 impl SystemMonitor {
     /// The answer for `now`: the cached one when it is younger than [`CACHE_FOR`], otherwise a
-    /// fresh reading. The lock is held while reading, so a second caller waits and gets the
-    /// cached answer instead of a second reading.
-    pub fn sample(&self, now: Instant) -> SystemUsage {
+    /// fresh reading, with the GPU from `gpu` (the shared reading of `gpu.rs`). The lock is
+    /// held while reading, so a second caller waits and gets the cached answer instead of a
+    /// second reading.
+    pub fn sample(
+        &self,
+        now: Instant,
+        gpu: impl FnOnce() -> Option<Arc<GpuSnapshot>>,
+    ) -> SystemUsage {
         let mut state = lock(&self.state);
         if let Some((at, answer)) = state.last {
             if now.saturating_duration_since(at) < CACHE_FOR {
@@ -164,11 +143,15 @@ impl SystemMonitor {
             _ => None,
         };
         state.cpu = times;
+        let memory = platform::memory();
+        let gpu = gpu();
         let answer = SystemUsage {
             cpu,
-            memory: platform::memory()
-                .and_then(|(total, available)| memory_percent(total, available)),
-            gpu: state.platform.gpu(),
+            memory: memory.and_then(|(total, available)| memory_percent(total, available)),
+            memory_used: memory.map(|(total, available)| total.saturating_sub(available)),
+            memory_total: memory.map(|(total, _)| total),
+            gpu: gpu.as_ref().and_then(|snapshot| snapshot.load),
+            gpu_memory: gpu.as_ref().and_then(|snapshot| snapshot.memory),
         };
         state.last = Some((now, answer));
         answer
@@ -177,24 +160,11 @@ impl SystemMonitor {
 
 #[cfg(windows)]
 mod platform {
-    use std::ptr;
-
     use windows_sys::Win32::Foundation::FILETIME;
-    use windows_sys::Win32::System::Performance::{
-        PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
-        PdhOpenQueryW, PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE_ITEM_W,
-        PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PDH_MORE_DATA,
-    };
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     use windows_sys::Win32::System::Threading::GetSystemTimes;
 
-    use super::{gpu_percent, CpuTimes};
-
-    /// Counter path in English, so it resolves on every display language.
-    const GPU_COUNTER: &str = "\\GPU Engine(*)\\Utilization Percentage";
-    /// Bytes of counter values read at most; a machine with that many engine instances is
-    /// summed partially rather than allocating without bound.
-    const MAX_BUFFER: u32 = 4 * 1024 * 1024;
+    use super::CpuTimes;
 
     fn ticks(time: FILETIME) -> u64 {
         (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime)
@@ -216,6 +186,7 @@ mod platform {
         })
     }
 
+    /// Total and available physical memory in bytes.
     pub fn memory() -> Option<(u64, u64)> {
         let mut status = MEMORYSTATUSEX {
             dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
@@ -224,150 +195,6 @@ mod platform {
         // SAFETY: `status` is a live MEMORYSTATUSEX whose dwLength names its size, as required.
         let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
         (ok != 0).then_some((status.ullTotalPhys, status.ullAvailPhys))
-    }
-
-    /// The GPU query: opened on the first reading, kept open, given up for good when the
-    /// counter does not exist (no GPU driver with WDDM 2.0, say).
-    #[derive(Default)]
-    pub enum Sampler {
-        #[default]
-        Untried,
-        Open(GpuQuery),
-        Unavailable,
-    }
-
-    impl Sampler {
-        pub fn gpu(&mut self) -> Option<f64> {
-            if matches!(self, Self::Untried) {
-                // The first collection only sets the rate's baseline: nothing to show yet.
-                *self = GpuQuery::open().map_or(Self::Unavailable, Self::Open);
-                return None;
-            }
-            match self {
-                Self::Open(query) => query.read(),
-                _ => None,
-            }
-        }
-    }
-
-    pub struct GpuQuery {
-        query: PDH_HQUERY,
-        counter: PDH_HCOUNTER,
-    }
-
-    // SAFETY: PDH query and counter handles are process-wide and not bound to the thread that
-    // opened them; the monitor's mutex makes sure only one thread uses them at a time.
-    unsafe impl Send for GpuQuery {}
-
-    impl GpuQuery {
-        fn open() -> Option<Self> {
-            let mut query: PDH_HQUERY = ptr::null_mut();
-            // SAFETY: A null data source means live data; `query` receives the handle.
-            if unsafe { PdhOpenQueryW(ptr::null(), 0, &mut query) } != 0 {
-                return None;
-            }
-            let path: Vec<u16> = GPU_COUNTER.encode_utf16().chain(Some(0)).collect();
-            let mut counter: PDH_HCOUNTER = ptr::null_mut();
-            // SAFETY: `query` is open, `path` is NUL-terminated and outlives the call.
-            let status = unsafe { PdhAddEnglishCounterW(query, path.as_ptr(), 0, &mut counter) };
-            let opened = Self { query, counter };
-            if status != 0 {
-                return None; // Drop closes the query.
-            }
-            // The counter is a rate: the first collection only sets the baseline.
-            // SAFETY: `query` is open.
-            unsafe { PdhCollectQueryData(opened.query) };
-            Some(opened)
-        }
-
-        /// Collects once more and sums the instances; `None` while no instance has valid data.
-        fn read(&mut self) -> Option<f64> {
-            // SAFETY: `query` is open for as long as `self` lives.
-            if unsafe { PdhCollectQueryData(self.query) } != 0 {
-                return None;
-            }
-            let mut size: u32 = 0;
-            let mut count: u32 = 0;
-            // SAFETY: A zero size with a null buffer asks for the size needed.
-            let status = unsafe {
-                PdhGetFormattedCounterArrayW(
-                    self.counter,
-                    PDH_FMT_DOUBLE,
-                    &mut size,
-                    &mut count,
-                    ptr::null_mut(),
-                )
-            };
-            if status != PDH_MORE_DATA || size == 0 || size > MAX_BUFFER {
-                return None;
-            }
-            // u64 words: the items hold f64 values and pointers, so the buffer needs their
-            // alignment; the names the items point at follow inside the same buffer.
-            let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
-            let items = buffer.as_mut_ptr().cast::<PDH_FMT_COUNTERVALUE_ITEM_W>();
-            // SAFETY: `buffer` holds at least `size` bytes, aligned for the item type.
-            let status = unsafe {
-                PdhGetFormattedCounterArrayW(
-                    self.counter,
-                    PDH_FMT_DOUBLE,
-                    &mut size,
-                    &mut count,
-                    items,
-                )
-            };
-            if status != 0 {
-                return None;
-            }
-            let fits = (size as usize) <= buffer.len() * 8
-                && (count as usize) * std::mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>()
-                    <= buffer.len() * 8;
-            if !fits {
-                return None;
-            }
-            // SAFETY: PDH wrote `count` items at the start of `buffer` (checked to fit above).
-            let items = unsafe { std::slice::from_raw_parts(items, count as usize) };
-            let values: Vec<(String, f64)> = items
-                .iter()
-                .filter(|item| {
-                    item.FmtValue.CStatus == PDH_CSTATUS_VALID_DATA
-                        || item.FmtValue.CStatus == PDH_CSTATUS_NEW_DATA
-                })
-                .filter_map(|item| {
-                    // SAFETY: The item's name is a NUL-terminated string inside `buffer`.
-                    let name = unsafe { wide(item.szName) }?;
-                    // SAFETY: PDH_FMT_DOUBLE was asked for, so the union holds a double.
-                    let value = unsafe { item.FmtValue.Anonymous.doubleValue };
-                    Some((name, value))
-                })
-                .collect();
-            gpu_percent(values.iter().map(|(name, value)| (name.as_str(), *value)))
-        }
-    }
-
-    /// A NUL-terminated UTF-16 string; `None` for a null pointer.
-    ///
-    /// # Safety
-    /// `text` is null or points at a NUL-terminated UTF-16 string.
-    unsafe fn wide(text: *const u16) -> Option<String> {
-        if text.is_null() {
-            return None;
-        }
-        let mut length = 0;
-        // SAFETY: The caller guarantees a terminating NUL, which ends the walk.
-        while unsafe { *text.add(length) } != 0 {
-            length += 1;
-        }
-        // SAFETY: `length` units before the NUL were just read.
-        let units = unsafe { std::slice::from_raw_parts(text, length) };
-        Some(String::from_utf16_lossy(units))
-    }
-
-    impl Drop for GpuQuery {
-        fn drop(&mut self) {
-            // SAFETY: The query was opened by PdhOpenQueryW and is closed exactly once; closing it
-            // also frees its counter.
-            unsafe { PdhCloseQuery(self.query) };
-        }
     }
 }
 
@@ -379,18 +206,10 @@ mod platform {
         parse_proc_stat(&std::fs::read_to_string("/proc/stat").ok()?)
     }
 
-    /// In kB, the unit cancels out in the share.
+    /// Total and available physical memory in bytes (`/proc/meminfo` counts in kB).
     pub fn memory() -> Option<(u64, u64)> {
-        parse_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)
-    }
-
-    #[derive(Default)]
-    pub struct Sampler;
-
-    impl Sampler {
-        pub fn gpu(&mut self) -> Option<f64> {
-            None
-        }
+        let (total, available) = parse_meminfo(&std::fs::read_to_string("/proc/meminfo").ok()?)?;
+        Some((total.saturating_mul(1024), available.saturating_mul(1024)))
     }
 }
 
@@ -404,15 +223,6 @@ mod platform {
 
     pub fn memory() -> Option<(u64, u64)> {
         None
-    }
-
-    #[derive(Default)]
-    pub struct Sampler;
-
-    impl Sampler {
-        pub fn gpu(&mut self) -> Option<f64> {
-            None
-        }
     }
 }
 
@@ -463,53 +273,6 @@ mod tests {
         assert_eq!(memory_percent(0, 0), None);
     }
 
-    const LUID: &str = "luid_0x00000000_0x0000D1B5_phys_0";
-
-    fn engine(pid: u32, eng: u32, kind: &str) -> String {
-        format!("pid_{pid}_{LUID}_eng_{eng}_engtype_{kind}")
-    }
-
-    #[test]
-    fn gpu_sums_processes_per_engine_and_takes_the_busiest() {
-        let names = [
-            engine(10, 0, "3D"),
-            engine(20, 0, "3D"),
-            engine(10, 3, "VideoDecode"),
-            engine(30, 1, "Copy"),
-        ];
-        let values = [12.0, 30.5, 55.0, 2.0];
-        let samples = names.iter().map(String::as_str).zip(values);
-        // 3D: 12 + 30.5 = 42.5; video decode 55 on its own engine is the busiest.
-        assert_eq!(gpu_percent(samples), Some(55.0));
-    }
-
-    #[test]
-    fn gpu_keeps_adapters_apart_and_caps_at_full() {
-        let first = format!("pid_1_{LUID}_eng_0_engtype_3D");
-        let second = "pid_1_luid_0x00000000_0x0000AAAA_phys_0_eng_0_engtype_3D".to_owned();
-        let samples = [(first.as_str(), 70.0), (second.as_str(), 60.0)];
-        assert_eq!(
-            gpu_percent(samples),
-            Some(70.0),
-            "not 130 over two adapters"
-        );
-        let busy = [(first.as_str(), 80.0), (first.as_str(), 40.0)];
-        assert_eq!(gpu_percent(busy), Some(100.0));
-    }
-
-    #[test]
-    fn gpu_without_engines_is_unknown() {
-        assert_eq!(gpu_percent(std::iter::empty()), None);
-        assert_eq!(
-            gpu_percent([("_Total", 5.0)]),
-            None,
-            "no engine in the name"
-        );
-        let idle = engine(1, 0, "3D");
-        assert_eq!(gpu_percent([(idle.as_str(), 0.0)]), Some(0.0));
-        assert_eq!(gpu_percent([(idle.as_str(), f64::NAN)]), Some(0.0));
-    }
-
     #[test]
     fn proc_stat_counts_iowait_as_idle() {
         let text = "cpu  100 5 50 800 40 3 2 0 7 0\ncpu0 50 2 25 400 20 1 1 0 3 0\nintr 1\n";
@@ -529,14 +292,34 @@ mod tests {
     }
 
     #[test]
+    fn gpu_comes_from_the_shared_reading() {
+        let monitor = SystemMonitor::default();
+        let engine = "pid_1_luid_0x00000000_0x0000D1B5_phys_0_eng_0_engtype_3D";
+        let adapter = "luid_0x00000000_0x0000D1B5_phys_0";
+        let snapshot = GpuSnapshot::from_counters(
+            [(engine, 30.04)],
+            std::iter::empty(),
+            Some([(adapter, 2048.0)]),
+        );
+        let answer = monitor.sample(Instant::now(), || Some(Arc::new(snapshot)));
+        assert_eq!(answer.gpu, Some(30.0));
+        assert_eq!(answer.gpu_memory, Some(2048));
+        if let (Some(used), Some(total)) = (answer.memory_used, answer.memory_total) {
+            assert!(used <= total && total > 0);
+        }
+        let without = SystemMonitor::default().sample(Instant::now(), || None);
+        assert_eq!((without.gpu, without.gpu_memory), (None, None));
+    }
+
+    #[test]
     fn answers_are_cached_for_a_second() {
         let monitor = SystemMonitor::default();
         let start = Instant::now();
-        let first = monitor.sample(start);
-        let again = monitor.sample(start + Duration::from_millis(900));
+        let first = monitor.sample(start, || None);
+        let again = monitor.sample(start + Duration::from_millis(900), || None);
         assert_eq!(first, again);
         assert!(lock(&monitor.state).last.is_some_and(|(at, _)| at == start));
-        monitor.sample(start + CACHE_FOR);
+        monitor.sample(start + CACHE_FOR, || None);
         assert!(lock(&monitor.state)
             .last
             .is_some_and(|(at, _)| at == start + CACHE_FOR));
@@ -547,10 +330,10 @@ mod tests {
     fn reads_this_machine() {
         let monitor = SystemMonitor::default();
         let start = Instant::now();
-        let first = monitor.sample(start);
+        let first = monitor.sample(start, || None);
         std::thread::sleep(Duration::from_millis(1_100));
         let begun = Instant::now();
-        let second = monitor.sample(start + Duration::from_millis(1_100));
+        let second = monitor.sample(start + Duration::from_millis(1_100), || None);
         let took = begun.elapsed();
         println!("first {first:?}, second {second:?}, reading took {took:?}");
         assert_eq!(first.cpu, None, "no previous reading yet");

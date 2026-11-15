@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use zeroize::Zeroizing;
 
@@ -33,6 +33,8 @@ pub struct Recording {
     pub channels: u16,
     /// How many times the device delivered data; zero means the stream never ran.
     pub callbacks: u64,
+    /// How long the microphone was open. A quick tap may end before the first callback.
+    pub elapsed: Duration,
 }
 
 /// A running capture. `finish` closes the microphone and returns what was recorded.
@@ -144,12 +146,16 @@ pub fn display_level(samples: &[f32]) -> f32 {
     (rms(samples) * 6.0).clamp(0.0, 1.0)
 }
 
-/// Whether the device delivered nothing usable: no data at all, or only exact zeros (Windows
-/// hands out digital silence when the microphone privacy switch blocks desktop apps
-/// `[UNVERIFIED]`). Real microphones always carry some noise.
+/// How long a recording must run before missing or all-zero data says something about the device.
+const JUDGE_AFTER: Duration = Duration::from_millis(500);
+
+/// Whether the device delivered nothing usable for half a second or more: no data at all, or only
+/// exact zeros (Windows hands out digital silence when the microphone privacy switch blocks
+/// desktop apps `[UNVERIFIED]`). Real microphones always carry some noise. A shorter recording (a
+/// quick tap of the key, released before the device's first buffer) is never judged.
 pub fn looks_blocked(recording: &Recording) -> bool {
     let enough = recording.rate as usize / 2 * usize::from(recording.channels.max(1));
-    recording.callbacks == 0
+    (recording.callbacks == 0 && recording.elapsed >= JUDGE_AFTER)
         || (recording.samples.len() >= enough && recording.samples.iter().all(|s| *s == 0.0))
 }
 
@@ -189,6 +195,7 @@ struct CpalCapture {
     shared: Arc<Shared>,
     rate: u32,
     channels: u16,
+    started: Instant,
 }
 
 impl Capture for CpalCapture {
@@ -199,7 +206,9 @@ impl Capture for CpalCapture {
             shared,
             rate,
             channels,
+            started,
         } = *self;
+        let elapsed = started.elapsed();
         let _ = stop.send(());
         // The thread drops the stream (closes the microphone) before it ends.
         let _ = thread.join();
@@ -209,6 +218,7 @@ impl Capture for CpalCapture {
             rate,
             channels,
             callbacks: u64::from(shared.callbacks.load(Ordering::Relaxed)),
+            elapsed,
         }
     }
 }
@@ -335,6 +345,7 @@ impl AudioSource for CpalSource {
                 shared,
                 rate,
                 channels,
+                started: Instant::now(),
             })),
             Ok(Err(error)) => {
                 let _ = thread.join();
@@ -416,6 +427,7 @@ mod tests {
             rate: 48_000,
             channels: 2,
             callbacks: 1,
+            elapsed: Duration::from_millis(500),
         };
         assert_eq!(to_whisper(&recording).len(), 8_000);
     }
@@ -438,17 +450,19 @@ mod tests {
 
     #[test]
     fn blocked_microphone_is_recognized() {
-        let recording = |samples: Vec<f32>, callbacks| Recording {
+        let recording = |samples: Vec<f32>, callbacks, millis| Recording {
             samples: Zeroizing::new(samples),
             rate: 16_000,
             channels: 1,
             callbacks,
+            elapsed: Duration::from_millis(millis),
         };
-        assert!(looks_blocked(&recording(Vec::new(), 0)));
-        assert!(looks_blocked(&recording(vec![0.0; 16_000], 50)));
-        assert!(!looks_blocked(&recording(vec![0.0001; 16_000], 50)));
-        // Too short to judge: a quick tap of the key.
-        assert!(!looks_blocked(&recording(vec![0.0; 100], 1)));
+        assert!(looks_blocked(&recording(Vec::new(), 0, 1_000)));
+        assert!(looks_blocked(&recording(vec![0.0; 16_000], 50, 1_000)));
+        assert!(!looks_blocked(&recording(vec![0.0001; 16_000], 50, 1_000)));
+        // Too short to judge: a quick tap of the key, with or without a first buffer.
+        assert!(!looks_blocked(&recording(vec![0.0; 100], 1, 20)));
+        assert!(!looks_blocked(&recording(Vec::new(), 0, 30)));
     }
 
     #[test]

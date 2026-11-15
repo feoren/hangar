@@ -7,14 +7,16 @@
 //! session is an outlier when its tree keeps at least [`BUSY_CORES`] processors busy for
 //! [`CPU_SUSTAIN`] (a whole core for a long time, whatever the machine's size) or holds more than
 //! [`MEMORY_LIMIT`]. Answers are cached for [`CACHE_FOR`], so several callers do not multiply the
-//! system calls.
+//! system calls. GPU load and GPU memory come from the shared GPU reading (`gpu.rs`), matched to
+//! the tree by its process ids; Windows only, `None` elsewhere.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::gpu::GpuSnapshot;
 use crate::lock;
 use crate::proctree::TreeUsage;
 use crate::session::SessionId;
@@ -39,6 +41,11 @@ pub struct SessionResources {
     pub cpu: Option<f64>,
     /// Resident memory in bytes.
     pub memory: u64,
+    /// Busiest GPU engine counting only the tree's processes, in percent (0 to 100, one
+    /// decimal); `None` when the tree has no GPU engine or the platform no counters.
+    pub gpu: Option<f64>,
+    /// Dedicated GPU memory of the tree in bytes; `None` like `gpu`.
+    pub gpu_memory: Option<u64>,
     pub outlier: bool,
 }
 
@@ -78,18 +85,22 @@ impl ResourceMonitor {
     }
 
     /// The answer for `now`: the cached one when it is younger than [`CACHE_FOR`], otherwise
-    /// `read` runs (outside every lock of this monitor) and its readings are turned into a new one.
+    /// `read` and `gpu` run (outside every lock of this monitor) and their readings are turned
+    /// into a new one.
     pub fn sample(
         &self,
         now: Instant,
         read: impl FnOnce() -> Vec<(SessionId, TreeUsage)>,
+        gpu: impl FnOnce() -> Option<Arc<GpuSnapshot>>,
     ) -> Vec<SessionResources> {
         if let Some((at, answer)) = lock(&self.last).as_ref() {
             if now.saturating_duration_since(*at) < CACHE_FOR {
                 return answer.clone();
             }
         }
-        let answer = self.update(now, read());
+        let readings = read();
+        let gpu = gpu();
+        let answer = self.update(now, readings, gpu.as_deref());
         *lock(&self.last) = Some((now, answer.clone()));
         answer
     }
@@ -99,18 +110,24 @@ impl ResourceMonitor {
         &self,
         now: Instant,
         readings: Vec<(SessionId, TreeUsage)>,
+        gpu: Option<&GpuSnapshot>,
     ) -> Vec<SessionResources> {
         let mut tracks = lock(&self.tracks);
         let mut next = HashMap::with_capacity(readings.len());
         let answer = readings
             .into_iter()
             .map(|(id, usage)| {
-                let (track, shown) = step(tracks.get(&id).copied(), usage, now, self.cpus);
+                let (track, shown) = step(tracks.get(&id).copied(), &usage, now, self.cpus);
                 next.insert(id, track);
+                let tree = gpu
+                    .map(|snapshot| snapshot.tree(&usage.processes))
+                    .unwrap_or_default();
                 SessionResources {
                     id,
                     cpu: shown.cpu,
                     memory: usage.memory,
+                    gpu: tree.load,
+                    gpu_memory: tree.memory,
                     outlier: shown.outlier,
                 }
             })
@@ -126,7 +143,7 @@ struct Shown {
 }
 
 /// One session's new track and what it shows, from its previous track and the new reading.
-fn step(previous: Option<Track>, usage: TreeUsage, now: Instant, cpus: u32) -> (Track, Shown) {
+fn step(previous: Option<Track>, usage: &TreeUsage, now: Instant, cpus: u32) -> (Track, Shown) {
     let fresh = Track {
         cpu: usage.cpu,
         at: now,
@@ -187,6 +204,7 @@ mod tests {
         TreeUsage {
             cpu: Duration::from_millis(cpu_ms),
             memory,
+            processes: Vec::new(),
         }
     }
 
@@ -198,13 +216,15 @@ mod tests {
     fn first_answer_has_memory_but_no_cpu() {
         let monitor = ResourceMonitor::new(4);
         let now = Instant::now();
-        let answer = monitor.update(now, vec![(1, usage(5_000, 340 * MB))]);
+        let answer = monitor.update(now, vec![(1, usage(5_000, 340 * MB))], None);
         assert_eq!(
             answer,
             vec![SessionResources {
                 id: 1,
                 cpu: None,
                 memory: 340 * MB,
+                gpu: None,
+                gpu_memory: None,
                 outlier: false,
             }]
         );
@@ -214,9 +234,9 @@ mod tests {
     fn cpu_is_a_share_of_the_whole_machine() {
         let monitor = ResourceMonitor::new(4);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(0, MB))]);
+        monitor.update(start, vec![(1, usage(0, MB))], None);
         // 1 s of CPU time in 2 s on 4 processors: 12.5 %.
-        let answer = monitor.update(at(start, 2), vec![(1, usage(1_000, MB))]);
+        let answer = monitor.update(at(start, 2), vec![(1, usage(1_000, MB))], None);
         assert_eq!(answer[0].cpu, Some(12.5));
     }
 
@@ -241,8 +261,8 @@ mod tests {
         // A process that ended without being waited for takes its time along (Linux).
         let monitor = ResourceMonitor::new(1);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(9_000, MB))]);
-        let answer = monitor.update(at(start, 2), vec![(1, usage(4_000, MB))]);
+        monitor.update(start, vec![(1, usage(9_000, MB))], None);
+        let answer = monitor.update(at(start, 2), vec![(1, usage(4_000, MB))], None);
         assert_eq!(answer[0].cpu, Some(0.0));
     }
 
@@ -251,11 +271,11 @@ mod tests {
         let monitor = ResourceMonitor::new(1);
         let start = Instant::now();
         let mut cpu = 0;
-        monitor.update(start, vec![(1, usage(cpu, MB))]);
+        monitor.update(start, vec![(1, usage(cpu, MB))], None);
         let mut outliers = Vec::new();
         for second in (2..=34).step_by(2) {
             cpu += 1_950; // 97.5 % of the one processor
-            let answer = monitor.update(at(start, second), vec![(1, usage(cpu, MB))]);
+            let answer = monitor.update(at(start, second), vec![(1, usage(cpu, MB))], None);
             outliers.push((second, answer[0].outlier));
         }
         // Busy since the first reading at 0 s: an outlier from 30 s on.
@@ -268,13 +288,13 @@ mod tests {
     fn a_quiet_moment_resets_the_busy_window() {
         let monitor = ResourceMonitor::new(1);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(0, MB))]);
-        monitor.update(at(start, 20), vec![(1, usage(19_500, MB))]);
+        monitor.update(start, vec![(1, usage(0, MB))], None);
+        monitor.update(at(start, 20), vec![(1, usage(19_500, MB))], None);
         // 2 s at 10 %: no longer busy.
-        monitor.update(at(start, 22), vec![(1, usage(19_700, MB))]);
-        let answer = monitor.update(at(start, 40), vec![(1, usage(37_200, MB))]);
+        monitor.update(at(start, 22), vec![(1, usage(19_700, MB))], None);
+        let answer = monitor.update(at(start, 40), vec![(1, usage(37_200, MB))], None);
         assert!(!answer[0].outlier, "busy again only since 22 s");
-        let answer = monitor.update(at(start, 52), vec![(1, usage(48_900, MB))]);
+        let answer = monitor.update(at(start, 52), vec![(1, usage(48_900, MB))], None);
         assert!(answer[0].outlier, "busy for 30 s since 22 s");
     }
 
@@ -282,12 +302,12 @@ mod tests {
     fn a_long_pause_counts_by_its_average() {
         let monitor = ResourceMonitor::new(1);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(0, MB))]);
-        monitor.update(at(start, 2), vec![(1, usage(1_950, MB))]);
+        monitor.update(start, vec![(1, usage(0, MB))], None);
+        monitor.update(at(start, 2), vec![(1, usage(1_950, MB))], None);
         // The window was hidden for a minute and the tree used nearly all of it.
-        let answer = monitor.update(at(start, 62), vec![(1, usage(60_000, MB))]);
+        let answer = monitor.update(at(start, 62), vec![(1, usage(60_000, MB))], None);
         assert!(answer[0].outlier, "60 s at 96.75 %");
-        let answer = monitor.update(at(start, 122), vec![(1, usage(61_000, MB))]);
+        let answer = monitor.update(at(start, 122), vec![(1, usage(61_000, MB))], None);
         assert!(!answer[0].outlier, "the next minute was quiet");
     }
 
@@ -296,10 +316,11 @@ mod tests {
         // 16 processors: one core is 6.25 % of the machine, still an outlier after 30 s.
         let monitor = ResourceMonitor::new(16);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(0, MB)), (2, usage(0, MB))]);
+        monitor.update(start, vec![(1, usage(0, MB)), (2, usage(0, MB))], None);
         let answer = monitor.update(
             at(start, 30),
             vec![(1, usage(30_000, MB)), (2, usage(15_000, MB))],
+            None,
         );
         assert_eq!(answer[0].cpu, Some(6.3));
         assert!(answer[0].outlier, "one core for 30 s");
@@ -315,30 +336,62 @@ mod tests {
             reads.set(reads.get() + 1);
             vec![(1, usage(0, MB))]
         };
-        monitor.sample(start, read);
-        monitor.sample(start + Duration::from_millis(900), read);
+        monitor.sample(start, read, || None);
+        monitor.sample(start + Duration::from_millis(900), read, || None);
         assert_eq!(reads.get(), 1);
-        monitor.sample(start + CACHE_FOR, read);
+        monitor.sample(start + CACHE_FOR, read, || None);
         assert_eq!(reads.get(), 2);
     }
 
     #[test]
     fn much_memory_is_an_outlier_at_once() {
         let monitor = ResourceMonitor::new(8);
-        let answer = monitor.update(Instant::now(), vec![(1, usage(0, MEMORY_LIMIT + 1))]);
+        let answer = monitor.update(Instant::now(), vec![(1, usage(0, MEMORY_LIMIT + 1))], None);
         assert!(answer[0].outlier);
-        let answer = monitor.update(Instant::now(), vec![(2, usage(0, MEMORY_LIMIT))]);
+        let answer = monitor.update(Instant::now(), vec![(2, usage(0, MEMORY_LIMIT))], None);
         assert!(!answer[0].outlier, "at the limit is still fine");
+    }
+
+    #[test]
+    fn gpu_numbers_belong_to_the_tree() {
+        let luid = "luid_0x00000000_0x0000D1B5_phys_0";
+        let engine = format!("pid_10_{luid}_eng_0_engtype_3D");
+        let other = format!("pid_99_{luid}_eng_0_engtype_3D");
+        let memory = format!("pid_10_{luid}");
+        let snapshot = GpuSnapshot::from_counters(
+            [(engine.as_str(), 30.0), (other.as_str(), 50.0)],
+            [(memory.as_str(), 64.0 * MB as f64)],
+            None::<std::iter::Empty<(&str, f64)>>,
+        );
+        let on_gpu = TreeUsage {
+            processes: vec![10, 11],
+            ..usage(0, MB)
+        };
+        let monitor = ResourceMonitor::new(1);
+        let answer = monitor.update(
+            Instant::now(),
+            vec![(1, on_gpu), (2, usage(0, MB))],
+            Some(&snapshot),
+        );
+        assert_eq!(
+            (answer[0].gpu, answer[0].gpu_memory),
+            (Some(30.0), Some(64 * MB))
+        );
+        assert_eq!(
+            (answer[1].gpu, answer[1].gpu_memory),
+            (None, None),
+            "no GPU process"
+        );
     }
 
     #[test]
     fn closed_sessions_are_forgotten() {
         let monitor = ResourceMonitor::new(1);
         let start = Instant::now();
-        monitor.update(start, vec![(1, usage(0, MB)), (2, usage(0, MB))]);
-        monitor.update(at(start, 2), vec![(2, usage(100, MB))]);
+        monitor.update(start, vec![(1, usage(0, MB)), (2, usage(0, MB))], None);
+        monitor.update(at(start, 2), vec![(2, usage(100, MB))], None);
         // Session 1 comes back (same id after a restart): a first reading again.
-        let answer = monitor.update(at(start, 4), vec![(1, usage(500, MB))]);
+        let answer = monitor.update(at(start, 4), vec![(1, usage(500, MB))], None);
         assert_eq!(answer[0].cpu, None);
         assert_eq!(lock(&monitor.tracks).len(), 1);
     }

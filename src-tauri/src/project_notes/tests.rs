@@ -1086,3 +1086,157 @@ fn a_cached_note_does_not_survive_a_vault_change() {
     ));
     assert!(notes.read_note(&folder, &id).is_err());
 }
+
+/// A hook that writes `marker` when it runs; git runs hooks through `sh` (Git for Windows brings
+/// its own).
+fn marker_hook(repo: &Path, name: &str, marker: &Path) {
+    let marker = marker.to_string_lossy().replace('\\', "/");
+    let hook = repo.join(".git/hooks").join(name);
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, format!("#!/bin/sh\necho hit > '{marker}'\n")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[test]
+fn resolving_conflicts_runs_no_repository_hook() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("shared-notes-no-hooks");
+    let (repo, notes, _) = enabled(&g, dir.path());
+    let folder = shared(&repo);
+    notes.enable(&folder, LABEL, UNTITLED).unwrap();
+    let id = notes.create_note(&folder, "Plan").unwrap();
+    notes.write_note(&folder, &id, "base").unwrap();
+    git_ok(&g, &repo, &["add", "-A"]);
+    git_ok(&g, &repo, &["commit", "-qm", "notes"]);
+    git_ok(&g, &repo, &["checkout", "-qb", "other"]);
+    notes.write_note(&folder, &id, "theirs").unwrap();
+    git_ok(&g, &repo, &["commit", "-qam", "theirs"]);
+    git_ok(&g, &repo, &["checkout", "-q", "main"]);
+    std::thread::sleep(Duration::from_millis(5));
+    notes.write_note(&folder, &id, "ours").unwrap();
+    git_ok(&g, &repo, &["commit", "-qam", "ours"]);
+    assert!(!git_try(&g, &repo, &["merge", "other"]));
+    assert_eq!(unmerged_paths(&g, &repo).len(), 1);
+
+    let marker = dir.path().join("hook-ran");
+    marker_hook(&repo, "post-index-change", &marker);
+    let status = notes.status(&folder, LABEL, UNTITLED).unwrap();
+    let SharedStatus::Unlocked { resolved, .. } = status else {
+        panic!("{status:?}");
+    };
+    assert_eq!(resolved.len(), 1, "{resolved:?}");
+    assert!(unmerged_paths(&g, &repo).is_empty(), "nothing was staged");
+    assert!(!marker.exists(), "a repository hook ran while staging");
+
+    // The fixture is sound: git with the repository's hooks runs the marker hook.
+    fs::write(repo.join("scratch.txt"), "x\n").unwrap();
+    git_ok(&g.with_repo_hooks(), &repo, &["add", "scratch.txt"]);
+    assert!(
+        marker.exists(),
+        "git did not run the hook; the test is void"
+    );
+}
+
+/// The panel window names the folder: a share or device path is refused before git runs or any
+/// lookup reaches its host.
+#[test]
+fn share_folders_are_refused_before_they_are_touched() {
+    let tmp = TempDir::new("project-notes-share");
+    let (notes, _) = store(tmp.path());
+    let started = std::time::Instant::now();
+    #[cfg(windows)]
+    let shares = [
+        r"\\hangar-test.invalid\share\project",
+        "//hangar-test.invalid/share/project",
+        r"\\?\UNC\hangar-test.invalid\share",
+    ];
+    #[cfg(not(windows))]
+    let shares: [&str; 0] = [];
+    for share in shares {
+        let folder = NoteFolder {
+            path: Some(PathBuf::from(share)),
+            shared: true,
+        };
+        assert!(
+            matches!(
+                ProjectNotes::folder_path(&folder),
+                Err(ProjectNotesError::NotRepository)
+            ),
+            "{share}"
+        );
+        assert!(matches!(
+            notes.list_notes(&folder),
+            Err(ProjectNotesError::NotRepository)
+        ));
+        assert!(matches!(
+            notes.status(&folder, LABEL, UNTITLED),
+            Err(ProjectNotesError::NotRepository)
+        ));
+    }
+    let relative = NoteFolder {
+        path: Some(PathBuf::from("relative")),
+        shared: true,
+    };
+    assert!(ProjectNotes::folder_path(&relative).is_err());
+    // A name lookup or SMB connection attempt would take seconds.
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+/// Note files are read only as regular files, checked on the open handle: a link is never
+/// followed (it could lead to a share or a device) and a FIFO never blocks.
+#[test]
+fn note_files_are_read_only_as_regular_files() {
+    let dir = TempDir::new("project-notes-regular");
+    let note = dir.path().join("a.note");
+    fs::write(&note, "content").unwrap();
+    assert_eq!(read_file(&note).unwrap().as_deref(), Some(&b"content"[..]));
+    assert!(stamp(&note).is_some());
+    assert!(read_file(&dir.path().join("missing.note"))
+        .unwrap()
+        .is_none());
+    assert!(stamp(dir.path()).is_none(), "a folder has no note stamp");
+    assert!(matches!(
+        read_file(dir.path()),
+        Err(ProjectNotesError::Unreadable) | Err(ProjectNotesError::Io { .. })
+    ));
+
+    let link = dir.path().join("link.note");
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&note, &link);
+    // File symbolic links need Developer Mode or an elevated process on Windows.
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(&note, &link);
+    match made {
+        Ok(()) => {
+            assert!(
+                matches!(read_file(&link), Err(ProjectNotesError::Unreadable)),
+                "a link was followed"
+            );
+            assert!(stamp(&link).is_none(), "a link was followed");
+        }
+        Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_note_never_blocks() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = TempDir::new("project-notes-fifo");
+    let fifo = dir.path().join("b.note");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is a valid NUL-terminated path that lives for the call.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let path = fifo.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(read_file(&path).is_err() && stamp(&path).is_none());
+    });
+    assert!(rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the read blocked"));
+}

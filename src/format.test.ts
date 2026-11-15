@@ -31,7 +31,7 @@ const profile: Profile = {
 describe("shortPath", () => {
   it("shows the last two folders", () => {
     expect(shortPath("E:\\Projects\\Local\\hangar")).toBe("Local/hangar");
-    expect(shortPath("/home/feo/projects/hangar")).toBe("projects/hangar");
+    expect(shortPath("/home/me/projects/hangar")).toBe("projects/hangar");
   });
 
   it("keeps short paths and roots unchanged", () => {

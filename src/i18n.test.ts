@@ -17,7 +17,7 @@ import {
 const de = DICTIONARIES.de;
 const deKeys = Object.keys(de).sort();
 
-/** Texts with little room as a button, status or sidebar entry (sidebar from 200 px). */
+/** Texts with little room as a button, status or sidebar entry (sidebar from 305 px). */
 const SHORT_KEYS = [
   "sidebar.sessions",
   "sidebar.newSession",
@@ -38,8 +38,7 @@ const SHORT_KEYS = [
   "common.ok",
   "common.cancel",
   "common.close",
-  "teamPill.waiting",
-  "teamPill.problem",
+  "sidebar.signedIn",
   "teamPill.off",
   "teamWindow.tab.now",
   "teamWindow.tab.people",
@@ -78,14 +77,23 @@ describe("dictionaries", () => {
     }
   });
 
+  // One lookup per key and one assertion at the end: a search through the German list per key
+  // grew with the square of the key count and ran past the test timeout on slower CI runners.
   it("use the same placeholders as German in every language", () => {
+    const german = new Map<string, string>(Object.entries(de));
+    const mismatches: string[] = [];
     for (const language of LANGUAGES) {
       for (const [key, text] of Object.entries(DICTIONARIES[language])) {
-        expect(placeholders(text), `${language}:${key}`).toEqual(
-          placeholders(Object.entries(de).find(([k]) => k === key)?.[1] ?? ""),
-        );
+        const expected = placeholders(german.get(key) ?? "");
+        const actual = placeholders(text);
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+          mismatches.push(
+            `${language}:${key} ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`,
+          );
+        }
       }
     }
+    expect(mismatches).toEqual([]);
   });
 
   // SettingsDialog puts the version after this text as an element with a beta badge.

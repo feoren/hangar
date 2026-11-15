@@ -4,11 +4,13 @@ import {
   busySession,
   canStart,
   DEFAULT_DICTATION,
+  failureAfter,
   parseDictationPrefs,
   parseDictationState,
   parseDictationStatus,
   parseDictationText,
   parseLevel,
+  pasteForm,
 } from "./dictation";
 
 describe("parseDictationPrefs", () => {
@@ -102,5 +104,44 @@ describe("busySession and canStart", () => {
     expect(canStart({ kind: "notInstalled" })).toBe(false);
     expect(canStart({ kind: "recording", session: 1 })).toBe(false);
     expect(canStart({ kind: "downloading", model: "base", progress: 0 })).toBe(false);
+  });
+});
+
+describe("failureAfter", () => {
+  it("names the session whose recording ended in a failure", () => {
+    const recording = { kind: "recording", session: 3 } as const;
+    const transcribing = { kind: "transcribing", session: 3 } as const;
+    expect(failureAfter(transcribing, { kind: "permissionDenied" })).toEqual({
+      session: 3,
+      failure: "permissionDenied",
+    });
+    expect(failureAfter(recording, { kind: "noMicrophone" })).toEqual({
+      session: 3,
+      failure: "noMicrophone",
+    });
+    expect(failureAfter(transcribing, { kind: "error", message: "x" })).toEqual({
+      session: 3,
+      failure: "other",
+    });
+  });
+
+  it("stays quiet for a normal end and for failures outside a recording", () => {
+    expect(failureAfter({ kind: "transcribing", session: 3 }, { kind: "ready" })).toBeNull();
+    expect(failureAfter({ kind: "ready" }, { kind: "error", message: "x" })).toBeNull();
+    expect(
+      failureAfter(
+        { kind: "downloading", model: "base", progress: 0.5 },
+        { kind: "error", message: "" },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("pasteForm", () => {
+  it("ends with one space so the next hold continues the sentence", () => {
+    expect(pasteForm("Hallo Welt.")).toBe("Hallo Welt. ");
+    expect(pasteForm("  run the tests  ")).toBe("run the tests ");
+    expect(pasteForm("   ")).toBe("");
+    expect(pasteForm("")).toBe("");
   });
 });

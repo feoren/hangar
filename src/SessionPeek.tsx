@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -7,16 +7,16 @@ import {
   peekPosition,
   peekWidth,
   peekShows,
-  sameLines,
   type PeekAnchor,
 } from "./peek";
+import { runStyle, sameLine, samePeekContent, type PeekContent, type PeekLine } from "./peekStyle";
 
 /** Open menus and modal dialogs own the screen; a peek would cover them or hide behind them. */
 const PEEK_BLOCKERS = '.menu-panel, [aria-modal="true"]';
 
 /**
  * When the mouse rests on a session row: which row, once PEEK_DELAY_MS have passed. Leaving the
- * row, pressing a button on it, any key and the window losing focus end the peek; the sidebar ends
+ * row, pressing a mouse button anywhere, any key and the window losing focus end the peek; the sidebar ends
  * it on scrolling (`onScrollCapture`). `enabled` off (say, while a row is dragged) ends it too
  * and starts none.
  */
@@ -32,21 +32,40 @@ export function useSessionPeek(enabled: boolean) {
     setPeek(null);
   }, []);
 
+  /** Shows the peek beside `row` now; `false` when there is no room for it. */
+  const open = useCallback((id: number, row: HTMLElement): boolean => {
+    if (!row.isConnected) return false;
+    const rect = row.getBoundingClientRect();
+    const sidebar = row.closest(".sidebar")?.getBoundingClientRect().right ?? rect.right;
+    const width = peekWidth(sidebar, window.innerWidth);
+    if (width === null) return false;
+    setPeek({ id, top: rect.top, bottom: rect.bottom, sidebarRight: sidebar, width });
+    return true;
+  }, []);
+
   const enter = useCallback(
     (id: number, row: HTMLElement) => {
       leave();
       if (!enabled) return;
       timer.current = window.setTimeout(() => {
         timer.current = null;
-        if (!row.isConnected || document.querySelector(PEEK_BLOCKERS) !== null) return;
-        const rect = row.getBoundingClientRect();
-        const sidebar = row.closest(".sidebar")?.getBoundingClientRect().right ?? rect.right;
-        const width = peekWidth(sidebar, window.innerWidth);
-        if (width === null) return;
-        setPeek({ id, top: rect.top, bottom: rect.bottom, sidebarRight: sidebar, width });
+        if (document.querySelector(PEEK_BLOCKERS) !== null) return;
+        open(id, row);
       }, PEEK_DELAY_MS);
     },
-    [enabled, leave],
+    [enabled, leave, open],
+  );
+
+  /**
+   * Shows the peek at once, without the mouse on the row ("Show last lines" in the session
+   * menu). It ends like any peek: a key, a click anywhere, scrolling, the window losing focus.
+   */
+  const show = useCallback(
+    (id: number, row: HTMLElement): boolean => {
+      leave();
+      return enabled && open(id, row);
+    },
+    [enabled, leave, open],
   );
 
   // Ends a pending peek as well as a shown one, so nothing appears after the user moved on.
@@ -57,10 +76,13 @@ export function useSessionPeek(enabled: boolean) {
       leave();
     };
     window.addEventListener("keydown", onKey, true);
+    // A peek shown from the menu has no row under the mouse to leave: any click ends it.
+    window.addEventListener("pointerdown", leave, true);
     window.addEventListener("blur", leave);
     window.addEventListener("resize", leave);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", leave, true);
       window.removeEventListener("blur", leave);
       window.removeEventListener("resize", leave);
       if (timer.current !== null) window.clearTimeout(timer.current);
@@ -68,7 +90,7 @@ export function useSessionPeek(enabled: boolean) {
   }, [leave]);
 
   // A drag or rename that starts while a peek shows hides it at once.
-  return { peek: enabled ? peek : null, enter, leave };
+  return { peek: enabled ? peek : null, enter, leave, show };
 }
 
 interface Props {
@@ -86,7 +108,7 @@ interface Props {
    * The session's last lines (`null` when it has none yet); no reader for a session on screen
    * anyway, whose peek then shows only its title, status and notes.
    */
-  readLines: (() => readonly string[] | null) | null;
+  readLines: (() => PeekContent | null) | null;
 }
 
 /**
@@ -100,14 +122,15 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
   useEffect(() => {
     reader.current = readLines;
   });
-  const [lines, setLines] = useState<readonly string[] | null>(() => readLines?.() ?? null);
+  const [content, setContent] = useState<PeekContent | null>(() => readLines?.() ?? null);
+  const lines = content?.lines ?? null;
   const box = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       const fresh = reader.current?.() ?? null;
-      setLines((current) => (sameLines(current, fresh) ? current : fresh));
+      setContent((current) => (samePeekContent(current, fresh) ? current : fresh));
     }, PEEK_REFRESH_MS);
     return () => {
       window.clearInterval(timer);
@@ -155,10 +178,41 @@ export function SessionPeek({ anchor, title, status, notes, badge, edge, readLin
           {note}
         </span>
       ))}
-      {lines !== null && lines.length > 0 && (
-        <pre className="session-peek-lines">{lines.join("\n")}</pre>
+      {content !== null && content.lines.length > 0 && (
+        // The scheme's own background and text color: the colors programs pick are meant for
+        // it, and the peek then reads like a small copy of the terminal.
+        <pre
+          className="session-peek-lines"
+          style={{ background: content.background, color: content.foreground }}
+        >
+          {content.lines.map((line, index) => (
+            <PeekLineView key={index} line={line} last={index === content.lines.length - 1} />
+          ))}
+        </pre>
       )}
     </div>,
     document.body,
   );
 }
+
+/** One line of the peek; unchanged lines skip rendering (sameLine). */
+const PeekLineView = memo(
+  function PeekLineView({ line, last }: { line: PeekLine; last: boolean }) {
+    return (
+      <>
+        {line.map((run, index) => {
+          const style = runStyle(run);
+          return style === undefined ? (
+            <Fragment key={index}>{run.text}</Fragment>
+          ) : (
+            <span key={index} style={style}>
+              {run.text}
+            </span>
+          );
+        })}
+        {!last && "\n"}
+      </>
+    );
+  },
+  (before, after) => before.last === after.last && sameLine(before.line, after.line),
+);

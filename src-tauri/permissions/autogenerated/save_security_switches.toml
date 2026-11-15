@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-security-switches"
+description = "Enables the save_security_switches command without any pre-configured scope."
+commands.allow = ["save_security_switches"]
+
+[[permission]]
+identifier = "deny-save-security-switches"
+description = "Denies the save_security_switches command without any pre-configured scope."
+commands.deny = ["save_security_switches"]

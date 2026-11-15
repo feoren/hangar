@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-team-snapshot"
+description = "Enables the team_snapshot command without any pre-configured scope."
+commands.allow = ["team_snapshot"]
+
+[[permission]]
+identifier = "deny-team-snapshot"
+description = "Denies the team_snapshot command without any pre-configured scope."
+commands.deny = ["team_snapshot"]

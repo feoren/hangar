@@ -49,6 +49,9 @@ const TRASH_META_FILE: &str = "trash.json";
 const TRASH_META_VERSION: u32 = 1;
 /// At most this many hits per search; title hits first, then the newest notes.
 pub const MAX_SEARCH_RESULTS: usize = 50;
+/// IDs one reorder may name, checked before any is read: no folder holds that many notes, and
+/// every ID is compared with every note.
+pub const MAX_REORDER_IDS: usize = 10_000;
 pub const MAX_QUERY_CHARS: usize = 200;
 /// A search reads at most this many note files, so a huge notes folder cannot stall it.
 const MAX_SEARCH_FILES: usize = 5000;
@@ -324,21 +327,11 @@ fn plain_markdown_name(name: &str) -> bool {
 }
 
 /// Reads at most `max` bytes from an open file instead of trusting a size read earlier.
-/// `Ok(None)`: the file is larger than `max`. Only regular files: opening a FIFO or device
-/// named like a note could block or never end.
+/// `Ok(None)`: the file is larger than `max`. Only regular files, and no link at the last
+/// component: a FIFO or device named like a note could block or never end, and a link in a
+/// shared notes folder could lead to any file of the user ([`crate::persist::open_regular`]).
 fn read_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
-    use std::io::Read as _;
-    if !fs::metadata(path)?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    let file = fs::File::open(path)?;
-    let mut bytes = Vec::new();
-    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
-    file.take(limit).read_to_end(&mut bytes)?;
-    Ok((bytes.len() <= max).then_some(bytes))
+    crate::persist::read_regular_capped(path, max)
 }
 
 fn is_markdown(name: &str) -> bool {
@@ -1222,15 +1215,20 @@ impl NotesStore {
     /// The given IDs move to the front in this order, all others keep their
     /// order behind them. Unknown IDs are an error.
     pub fn reorder_notes(&self, folder: &NoteFolder, ids: &[String]) -> Result<(), NotesError> {
+        if ids.len() > MAX_REORDER_IDS {
+            return Err(NotesError::UnknownNote);
+        }
         let ids: Vec<String> = ids
             .iter()
             .map(|id| check_id(id))
             .collect::<Result<_, _>>()?;
         let _guard = lock(&self.guard);
         let mut opened = self.opened(folder)?;
-        if ids
-            .iter()
-            .any(|id| opened.meta.notes.iter().all(|n| &n.id != id))
+        // More IDs than notes means repeats: the order names every note once at most.
+        if ids.len() > opened.meta.notes.len()
+            || ids
+                .iter()
+                .any(|id| opened.meta.notes.iter().all(|n| &n.id != id))
         {
             return Err(NotesError::UnknownNote);
         }
@@ -1300,7 +1298,7 @@ impl NotesStore {
     /// storage, never directly from the frontend; it starts as argv without a shell.
     pub fn reveal(&self, folder: &NoteFolder) -> Result<(), NotesError> {
         let dir = self.folder_dir(folder)?;
-        crate::desktop::open(&dir, crate::desktop::Target::Folder).map_err(io_error(&dir))
+        crate::desktop::open_folder(&dir).map_err(io_error(&dir))
     }
 }
 
@@ -1535,6 +1533,17 @@ mod tests {
         assert_eq!(orders, [0, 1, 2]);
         assert!(matches!(
             t.0.reorder_notes(&folder, &[new_id()]),
+            Err(NotesError::UnknownNote)
+        ));
+        // More IDs than notes (repeats), and far too many, are refused before anything changes.
+        let repeated = vec![a.clone(), a.clone(), b.clone(), c.clone()];
+        assert!(matches!(
+            t.0.reorder_notes(&folder, &repeated),
+            Err(NotesError::UnknownNote)
+        ));
+        let flood = vec![a.clone(); MAX_REORDER_IDS + 1];
+        assert!(matches!(
+            t.0.reorder_notes(&folder, &flood),
             Err(NotesError::UnknownNote)
         ));
         // New notes go to the end.

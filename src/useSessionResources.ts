@@ -1,26 +1,39 @@
 // The sessions' CPU and memory, outside React state like the context meter (useContextUsage.ts):
 // only the row of a session whose numbers changed re-renders. The store asks the backend every
-// RESOURCE_POLL_MS, and only while the setting is on, the window is visible and a row listens.
+// RESOURCE_POLL_MS, and only while the setting is on, the window is visible and a row listens;
+// less often while saving energy on battery (power.ts).
 
 import { useSyncExternalStore } from "react";
 
 import { api } from "./api";
-import {
-  parseResources,
-  RESOURCE_POLL_MS,
-  sameResources,
-  type SessionResources,
-} from "./resources";
+import { pollInterval, PollTimer } from "./power";
+import { parseResources, sameResources, type SessionResources } from "./resources";
+import { isPowerSaving, onPowerSavingChange } from "./usePower";
 
 let sessions: ReadonlyMap<number, SessionResources> = new Map();
 const listeners = new Set<() => void>();
+/** Readers outside React (stall.ts); unlike the rows, they never make the store ask. */
+const observers = new Set<(readings: ReadonlyMap<number, SessionResources>) => void>();
 let enabled = false;
-let timer: number | null = null;
 let watchingVisibility = false;
 
 function publish(next: ReadonlyMap<number, SessionResources>): void {
   sessions = next;
   for (const listener of listeners) listener();
+  for (const observer of observers) observer(next);
+}
+
+/**
+ * Every new reading, for logic outside React. Only receives what the rows already cause to be
+ * read; observing alone starts no polling.
+ */
+export function observeResources(
+  observer: (readings: ReadonlyMap<number, SessionResources>) => void,
+): () => void {
+  observers.add(observer);
+  return () => {
+    observers.delete(observer);
+  };
 }
 
 function accept(value: unknown): void {
@@ -42,6 +55,8 @@ function poll(): void {
     .catch(() => undefined);
 }
 
+const timer = new PollTimer(poll);
+
 function visible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
 }
@@ -49,19 +64,15 @@ function visible(): boolean {
 /** Starts or stops asking, after any change of the setting, the visibility or the listeners. */
 function schedule(): void {
   const wanted = enabled && listeners.size > 0 && visible();
-  if (wanted && timer === null) {
-    poll();
-    timer = window.setInterval(poll, RESOURCE_POLL_MS);
-  } else if (!wanted && timer !== null) {
-    window.clearInterval(timer);
-    timer = null;
-  }
+  timer.set(wanted, pollInterval("resources", isPowerSaving()));
 }
 
 function watchVisibility(): void {
   if (watchingVisibility || typeof document === "undefined") return;
   watchingVisibility = true;
   document.addEventListener("visibilitychange", schedule);
+  // On battery the interval grows; back on AC it shrinks again at once.
+  onPowerSavingChange(schedule);
 }
 
 /** The setting: off stops asking and empties what the rows show. */

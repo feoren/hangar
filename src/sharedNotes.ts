@@ -130,7 +130,7 @@ export function isShared(folder: NoteFolder): boolean {
   return folder.shared === true;
 }
 
-/** Whether the panel shows the two groups "Shared" and "Only on this computer". */
+/** Whether the project has shared notes as a feature at all (any state but "unavailable"). */
 export function showsGroups(status: SharedStatus | null): boolean {
   return status !== null && status.state !== "unavailable";
 }

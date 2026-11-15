@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-destroy-panel-window"
+description = "Enables the destroy_panel_window command without any pre-configured scope."
+commands.allow = ["destroy_panel_window"]
+
+[[permission]]
+identifier = "deny-destroy-panel-window"
+description = "Denies the destroy_panel_window command without any pre-configured scope."
+commands.deny = ["destroy_panel_window"]

@@ -4,7 +4,7 @@ type: synthesis
 tags: [windows, security, portable-pty, cmd, sessions]
 sources: ["[[cmd-launcher-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Launching .cmd/.bat launcher scripts safely (Windows)
@@ -20,6 +20,9 @@ runs such a target through cmd.exe, which opens two gaps, both measured
 
 **Rule:** If the resolved program is a `.cmd` or `.bat`, Hangar sets
 `NoDefaultCurrentDirectoryInExePath=1`, as it already does for update sessions ([[program-updates]]).
+Since 2026-11-15 every catalog agent gets it as well, whatever its target ([[process-launch-hardening]]):
+an agent runs programs in a foreign project's folder itself (`cmd /c npm test`), so the gap is not
+limited to the launcher. The `.cmd`/`.bat` criterion below stays for user profiles.
 Shells (`cmd.exe`, `pwsh.exe`, `powershell.exe`, `wsl.exe`) are `.exe` files and do not get the variable.
 
 **Criterion ".cmd/.bat target" rather than "profile from the catalog"**, because:

@@ -4,7 +4,7 @@
 
 import type { MessageKey } from "./i18n";
 
-export const SIDEBAR_WIDTH = { min: 200, max: 560, default: 272 } as const;
+export const SIDEBAR_WIDTH = { min: 305, max: 505, default: 320 } as const;
 /** Same value as --sidebar-rail in styles.css. */
 export const SIDEBAR_RAIL_WIDTH = 52;
 export const FOOTER_HEIGHT = { min: 110, default: 330 } as const;
@@ -12,11 +12,11 @@ export const FOOTER_HEIGHT = { min: 110, default: 330 } as const;
 export const SESSION_LIST_MIN = 140;
 export const FONT_SIZE = { min: 9, max: 28, default: 14 } as const;
 /** Width of the right panel (notes, changes) next to the terminal. */
-export const NOTES_WIDTH = { min: 240, max: 900, default: 380 } as const;
+export const NOTES_WIDTH = { min: 305, max: 505, default: 380 } as const;
 
-import { parsePaneRatios, type PaneRatios } from "./paneRatios";
+import { parsePaneRatios, parseSubAgentRatios, type PaneRatios } from "./paneRatios";
 import { AGENT_GROUP_PREFIX, PROJECT_GROUP_PREFIX } from "./sessionGroups";
-import { migrateLayoutId, type LayoutId } from "./snapLayouts";
+import { migrateLayoutId, type LayoutId, type Ratios } from "./snapLayouts";
 
 const STORAGE_KEY = "hangar.layout";
 
@@ -51,6 +51,8 @@ export interface Layout {
   snapLayout: LayoutId;
   /** Splitter positions per snap layout, kept when switching layouts (paneRatios.ts). */
   paneRatios: PaneRatios;
+  /** Splitter between the terminal and the sub-agent view; `null`: the preset (paneRatios.ts). */
+  subAgentRatios: Ratios | null;
 }
 
 export const DEFAULT_LAYOUT: Layout = {
@@ -65,6 +67,7 @@ export const DEFAULT_LAYOUT: Layout = {
   notesWidth: NOTES_WIDTH.default,
   snapLayout: "single",
   paneRatios: {},
+  subAgentRatios: null,
 };
 
 export type SideTab = "notes" | "changes" | "files";
@@ -183,7 +186,7 @@ export interface NotesPlacement {
 /**
  * Where the right panel sits and how wide it is. `available` is the width right of the
  * sidebar, `windowWidth` the whole window. In a narrow window (below 900 px), or when terminal
- * (320 px) and panel (240 px) do not fit side by side, the panel lies over the window instead of
+ * (320 px) and panel (305 px) do not fit side by side, the panel lies over the window instead of
  * squeezing the terminal to a few columns; the remembered preferred width stays untouched.
  */
 export function placeNotes(
@@ -241,6 +244,7 @@ export function parseLayout(text: string | null): Layout {
     notesWidth: clampNotesWidth(number("notesWidth", DEFAULT_LAYOUT.notesWidth)),
     snapLayout: snapLayout ?? DEFAULT_LAYOUT.snapLayout,
     paneRatios: parsePaneRatios("paneRatios" in raw ? raw.paneRatios : undefined),
+    subAgentRatios: parseSubAgentRatios("subAgentRatios" in raw ? raw.subAgentRatios : undefined),
   };
 }
 

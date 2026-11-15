@@ -1,9 +1,11 @@
 //! Opens folders and files with the program the operating system assigns to them.
 //!
-//! Callers only pass paths the backend determined itself (notes folder, profiles.toml).
-//! The frontend never names a path, so this never becomes a command for opening arbitrary files.
-//! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages
-//! and a local dev server a session printed ([`local_dev_url`]).
+//! Callers pass paths the backend determined itself (notes folder, profiles.toml), with one
+//! exception: a path a session printed and the user clicked in the terminal, which path_links.rs
+//! checks first (local real paths only, only harmless file types open, the rest is revealed).
+//! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages,
+//! a local dev server a session printed ([`local_dev_url`]) and an address clicked in the
+//! terminal (`path_links::web_url`).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -40,7 +42,10 @@ pub fn command_for(path: &Path, target: Target) -> (PathBuf, Vec<std::ffi::OsStr
     (program, args)
 }
 
-pub fn open(path: &Path, target: Target) -> io::Result<()> {
+/// Through the platform's opener with the path as its argument. Not on Windows, where
+/// explorer.exe would parse the path itself: callers use [`open_folder`] or [`open_text_file`].
+#[cfg_attr(windows, allow(dead_code))]
+fn open(path: &Path, target: Target) -> io::Result<()> {
     let (program, args) = command_for(path, target);
     let mut command = Command::new(program);
     command.args(args);
@@ -75,7 +80,8 @@ pub fn reveal_command(file: &Path) -> (PathBuf, Vec<std::ffi::OsString>) {
     }
 }
 
-/// Shows `file` selected in Explorer or Finder; callers pass only paths from Hangar's own storage.
+/// Shows `file` selected in Explorer or Finder: paths from Hangar's own storage, and files or
+/// bundles clicked in the terminal that are not plainly harmless to open (path_links.rs).
 pub fn reveal(file: &Path) -> io::Result<()> {
     let (program, args) = reveal_command(file);
     let mut command = Command::new(program);
@@ -147,6 +153,70 @@ pub fn open_url(url: &reqwest::Url) -> io::Result<()> {
     }
 }
 
+/// Opens a file in its default program. On Windows through `ShellExecuteW` like [`open_url`]:
+/// explorer.exe parses its own command line and misreads paths with commas. Callers pass only
+/// real paths of harmless file types here (path_links.rs, `opens_directly`).
+pub fn open_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        shell_open(text)
+    }
+    #[cfg(not(windows))]
+    {
+        let (program, args) = command_for(path, Target::Folder);
+        let mut command = Command::new(program);
+        command.args(args);
+        spawn_detached(command)
+    }
+}
+
+/// Opens a folder in the file manager. On Windows through `ShellExecuteExW` with the shell's
+/// `Folder` class, so the path never goes through explorer.exe's own command line parsing, which
+/// splits at commas, and the verb is always the folder's: a folder swapped for a program between
+/// the check and this call (path_links.rs) is opened as a folder, which fails, never run.
+pub fn open_folder(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        shell_open_folder(text)
+    }
+    #[cfg(not(windows))]
+    {
+        open(path, Target::Folder)
+    }
+}
+
+/// Opens a text file of Hangar's own (profiles.toml, HANGAR.md) in the default editor. On Windows
+/// through `ShellExecuteW` like [`open_file`]; a file type without an associated program (a
+/// `.toml` on a fresh system) gets the "Open with" dialog instead, as Explorer would show.
+pub fn open_text_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        match shell_execute("open", text) {
+            Err(code) if needs_open_with(code) => shell_open_verb("openas", text),
+            other => other.map_err(shell_error),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        open(path, Target::TextFile)
+    }
+}
+
+/// `SE_ERR_NOASSOC` (31) of `ShellExecuteW`: no program is associated with the file type.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn needs_open_with(code: isize) -> bool {
+    code == 31
+}
+
 /// UTF-16 with the terminating zero the Win32 API expects.
 #[cfg(windows)]
 fn wide(text: &str) -> Vec<u16> {
@@ -155,10 +225,77 @@ fn wide(text: &str) -> Vec<u16> {
 
 #[cfg(windows)]
 fn shell_open(address: &str) -> io::Result<()> {
-    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    shell_open_verb("open", address)
+}
+
+#[cfg(windows)]
+fn shell_open_verb(verb: &str, address: &str) -> io::Result<()> {
+    shell_execute(verb, address).map_err(shell_error)
+}
+
+#[cfg(windows)]
+fn shell_error(code: isize) -> io::Error {
+    io::Error::other(format!(
+        "the default program did not open (ShellExecute {code})"
+    ))
+}
+
+/// The shell class whose verbs open a folder (`HKEY_CLASSES_ROOT\Folder`). With
+/// `SEE_MASK_CLASSNAME`, `ShellExecuteExW` takes the verb from this class instead of from the
+/// file's own type (SHELLEXECUTEINFOW, `lpClass`, Microsoft Learn).
+#[cfg_attr(not(windows), allow(dead_code))]
+const FOLDER_CLASS: &str = "Folder";
+
+/// The `fMask` of [`shell_open_folder`]: the class is given, and the call returns only once the
+/// shell is done, since the caller is a blocking thread that may end right after.
+#[cfg(windows)]
+fn folder_mask() -> u32 {
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_CLASSNAME, SEE_MASK_NOASYNC};
+    SEE_MASK_CLASSNAME | SEE_MASK_NOASYNC
+}
+
+/// "open" of the `Folder` class on `path`.
+#[cfg(windows)]
+fn shell_open_folder(path: &str) -> io::Result<()> {
+    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW};
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
     let verb = wide("open");
+    let file = wide(path);
+    let class = wide(FOLDER_CLASS);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: u32::try_from(std::mem::size_of::<SHELLEXECUTEINFOW>())
+            .map_err(io::Error::other)?,
+        fMask: folder_mask(),
+        lpVerb: verb.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpClass: class.as_ptr(),
+        nShow: SW_SHOWNORMAL,
+        ..Default::default()
+    };
+    // SAFETY: `info` is a fully initialized SHELLEXECUTEINFOW with its own size in `cbSize`; the
+    // three strings are zero-terminated UTF-16 that live until the call returns, and every other
+    // pointer and handle is null, which the documentation allows for the fields this mask uses.
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "the folder did not open: {}",
+            io::Error::last_os_error()
+        )))
+    }
+}
+
+/// `ShellExecuteW` with `verb`; the error is its result code (32 or less). The started program
+/// inherits Hangar's own environment, which `child_env::scrub_own_environment` cleared at
+/// startup of what `detached` removes for the other openers.
+#[cfg(windows)]
+fn shell_execute(verb: &str, address: &str) -> Result<(), isize> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb = wide(verb);
     let file = wide(address);
     // SAFETY: both buffers are zero-terminated UTF-16 that live until the call returns; the
     // window handle, parameters and directory may be null according to the ShellExecuteW
@@ -174,22 +311,28 @@ fn shell_open(address: &str) -> io::Result<()> {
         )
     };
     // Values above 32 mean success; smaller ones are error codes.
-    if result as isize > 32 {
+    let code = result as isize;
+    if code > 32 {
         Ok(())
     } else {
-        Err(io::Error::other(format!(
-            "the browser did not open (ShellExecute {})",
-            result as isize
-        )))
+        Err(code)
     }
 }
 
-fn spawn_detached(mut command: Command) -> io::Result<()> {
-    let mut child = command
+/// The file manager or opener as it starts: no streams, and without the variables of a calling
+/// agent session, its gate or an editor (`child_env::scrub`), which the opened program would
+/// otherwise inherit.
+fn detached(mut command: Command) -> Command {
+    crate::child_env::scrub(&mut command);
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    command
+}
+
+fn spawn_detached(command: Command) -> io::Result<()> {
+    let mut child = detached(command).spawn()?;
     // Reap it so no zombie remains on Unix; explorer.exe exits right away anyway.
     std::thread::Builder::new()
         .name("open-wait".into())
@@ -314,6 +457,42 @@ mod tests {
         let text = wide("https://example.test/device?code=BCDF-GHJK");
         assert_eq!(text.last(), Some(&0));
         assert_eq!(text.iter().filter(|&&unit| unit == 0).count(), 1);
+    }
+
+    /// The folder opens through the folder class, never through the verb of the path's own type.
+    #[cfg(windows)]
+    #[test]
+    fn folders_open_through_the_folder_class() {
+        use windows_sys::Win32::UI::Shell::SEE_MASK_CLASSNAME;
+        assert_eq!(FOLDER_CLASS, "Folder");
+        assert_ne!(folder_mask() & SEE_MASK_CLASSNAME, 0);
+        let class = wide(FOLDER_CLASS);
+        assert_eq!(class.last(), Some(&0));
+    }
+
+    #[test]
+    fn only_a_missing_association_asks_for_a_program() {
+        assert!(needs_open_with(31));
+        for other in [0, 2, 3, 5, 8, 26, 27, 28, 30, 32] {
+            assert!(!needs_open_with(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn opened_programs_inherit_no_session_or_gate_variables() {
+        let command = detached(Command::new("opener"));
+        let envs: std::collections::HashMap<&std::ffi::OsStr, Option<&std::ffi::OsStr>> =
+            command.get_envs().collect();
+        for key in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
+            assert_eq!(
+                envs.get(std::ffi::OsStr::new(key)),
+                Some(&None),
+                "{key} is inherited"
+            );
+        }
     }
 
     #[test]

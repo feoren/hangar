@@ -1,8 +1,10 @@
 // Terminal color schemes. Every scheme has a dark and a light variant and follows the app theme.
-// The values are written after the publicly documented palettes the schemes are named after, with
-// two kinds of changes: text colors are raised to readable contrast (foreground 4.5 : 1, every
-// accent and the gray of dimmed text 3 : 1, see terminalSchemes.test.ts), and schemes that only
-// exist in one variant get a light or dark sibling in the same spirit.
+// Apart from Hangar and Dusk, the values are adapted from publicly documented, openly licensed
+// palettes (origins and licenses in THIRD_PARTY_NOTICES.md). The schemes carry Hangar's own names,
+// so no picker entry suggests an affiliation with the projects the colors come from. Two kinds of
+// changes: text colors are raised to readable contrast (foreground 4.5 : 1, every accent and the
+// gray of dimmed text 3 : 1, see terminalSchemes.test.ts), and palettes that only exist in one
+// variant get a light or dark sibling in the same spirit.
 
 import type { ITheme } from "@xterm/xterm";
 
@@ -10,23 +12,24 @@ import { TERMINAL_THEMES, type AnsiColor, type Theme } from "./theme";
 
 /**
  * Order of the picker: Hangar's own, then the families of the file viewer (same order as there),
- * then popular terminal schemes. Saved values are these keys, so a key never changes once released.
+ * then popular terminal schemes. Saved values are these keys; a renamed key goes through
+ * RENAMED_SCHEMES.
  */
 export const COLOR_SCHEMES = [
   "hangar",
   "dusk",
-  "oneDarkPro",
-  "github",
-  "vscode",
-  "darcula",
-  "solarized",
-  "catppuccin",
-  "monokai",
-  "dracula",
-  "nord",
-  "gruvbox",
-  "tokyoNight",
-  "rosePine",
+  "meridian",
+  "harbor",
+  "studio",
+  "anvil",
+  "sundial",
+  "velvet",
+  "ember",
+  "nocturne",
+  "fjord",
+  "ochre",
+  "neon",
+  "heather",
 ] as const;
 export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
@@ -36,18 +39,18 @@ export type SchemeGroup = (typeof SCHEME_GROUPS)[number];
 const GROUP_OF: Record<ColorScheme, SchemeGroup> = {
   hangar: "own",
   dusk: "own",
-  oneDarkPro: "editor",
-  github: "editor",
-  vscode: "editor",
-  darcula: "editor",
-  solarized: "editor",
-  catppuccin: "editor",
-  monokai: "editor",
-  dracula: "classic",
-  nord: "classic",
-  gruvbox: "classic",
-  tokyoNight: "classic",
-  rosePine: "classic",
+  meridian: "editor",
+  harbor: "editor",
+  studio: "editor",
+  anvil: "editor",
+  sundial: "editor",
+  velvet: "editor",
+  ember: "editor",
+  nocturne: "classic",
+  fjord: "classic",
+  ochre: "classic",
+  neon: "classic",
+  heather: "classic",
 };
 
 /** The schemes of a group in picker order. */
@@ -56,12 +59,24 @@ export function schemesInGroup(group: SchemeGroup): ColorScheme[] {
 }
 
 /**
- * Keys released before 0.6.0 whose palette now lives under the name of its origin: Harbor was
- * GitHub's terminal palette, Meridian the one of One Dark Pro.
+ * Keys released in 0.6.0, named after the palettes' origins, and the scheme each one became in
+ * 0.7.0, so a stored choice carries over. Harbor and Meridian, the keys before 0.6.0, are current
+ * keys again and hold the same palettes they always had. The colors did not change, except for
+ * Ember, whose palette was redrawn.
  */
 const RENAMED_SCHEMES: Readonly<Record<string, ColorScheme>> = {
-  harbor: "github",
-  meridian: "oneDarkPro",
+  oneDarkPro: "meridian",
+  github: "harbor",
+  vscode: "studio",
+  darcula: "anvil",
+  solarized: "sundial",
+  catppuccin: "velvet",
+  monokai: "ember",
+  dracula: "nocturne",
+  nord: "fjord",
+  gruvbox: "ochre",
+  tokyoNight: "neon",
+  rosePine: "heather",
 };
 
 export function isColorScheme(value: unknown): value is ColorScheme {
@@ -125,7 +140,7 @@ function ansi(
   };
 }
 
-// Dusk: Hangar's softer sibling, a muted slate with less glare. The light variant is GitHub's
+// Dusk: Hangar's softer sibling, a muted slate with less glare. The light variant is Harbor's
 // light ink on a faintly gray page.
 const DUSK_DARK = scheme(
   {
@@ -144,8 +159,8 @@ const DUSK_DARK = scheme(
   ),
 );
 
-// GitHub (Primer): the terminal colors of GitHub's own editor themes.
-const GITHUB_DARK = scheme(
+// Harbor: after the terminal colors of Primer's github-vscode-theme (MIT).
+const HARBOR_DARK = scheme(
   {
     background: "#0d1117",
     foreground: "#e6edf3",
@@ -162,7 +177,7 @@ const GITHUB_DARK = scheme(
   ),
 );
 
-const GITHUB_LIGHT = scheme(
+const HARBOR_LIGHT = scheme(
   {
     background: "#ffffff",
     foreground: "#1f2328",
@@ -180,13 +195,14 @@ const GITHUB_LIGHT = scheme(
 );
 
 const DUSK_LIGHT: TerminalColors = {
-  ...GITHUB_LIGHT,
+  ...HARBOR_LIGHT,
   background: "#f6f8fa",
   cursorAccent: "#f6f8fa",
 };
 
-// One Dark Pro and One Light. The light brights are darker than the dark accents they come from.
-const ONE_DARK_PRO = scheme(
+// Meridian: after the terminal colors of the One Dark Pro editor theme and Atom's One Light (both
+// MIT). The light brights are darker than the dark accents they come from.
+const MERIDIAN_DARK = scheme(
   {
     background: "#282c34",
     foreground: "#abb2bf",
@@ -203,7 +219,7 @@ const ONE_DARK_PRO = scheme(
   ),
 );
 
-const ONE_LIGHT = scheme(
+const MERIDIAN_LIGHT = scheme(
   {
     background: "#fafafa",
     foreground: "#383a42",
@@ -220,8 +236,9 @@ const ONE_LIGHT = scheme(
   ),
 );
 
-// VS Code: Dark+ and Light+ with the integrated terminal's default colors.
-const DARK_PLUS = scheme(
+// Studio: after the Dark+ and Light+ themes and the integrated terminal defaults of the vscode
+// repository (MIT).
+const STUDIO_DARK = scheme(
   {
     background: "#1e1e1e",
     foreground: "#cccccc",
@@ -238,7 +255,7 @@ const DARK_PLUS = scheme(
   ),
 );
 
-const LIGHT_PLUS = scheme(
+const STUDIO_LIGHT = scheme(
   {
     background: "#ffffff",
     foreground: "#333333",
@@ -255,8 +272,9 @@ const LIGHT_PLUS = scheme(
   ),
 );
 
-// Darcula with the console colors of its IDE, and a matching light variant.
-const DARCULA = scheme(
+// Anvil: after the Darcula console colors of intellij-community (Apache-2.0), with a matching
+// light variant.
+const ANVIL_DARK = scheme(
   {
     background: "#2b2b2b",
     foreground: "#a9b7c6",
@@ -273,7 +291,7 @@ const DARCULA = scheme(
   ),
 );
 
-const DARCULA_LIGHT = scheme(
+const ANVIL_LIGHT = scheme(
   {
     background: "#ffffff",
     foreground: "#080808",
@@ -290,9 +308,9 @@ const DARCULA_LIGHT = scheme(
   ),
 );
 
-// Solarized. Unlike the original, the bright colors keep their hue: agent CLIs use them as
-// accents, and the original grays made gray text invisible.
-const SOLARIZED_DARK = scheme(
+// Sundial: after Solarized (MIT). Unlike the original, the bright colors keep their hue: agent
+// CLIs use them as accents, and the original grays made gray text invisible.
+const SUNDIAL_DARK = scheme(
   {
     background: "#002b36",
     foreground: "#93a1a1",
@@ -309,7 +327,7 @@ const SOLARIZED_DARK = scheme(
   ),
 );
 
-const SOLARIZED_LIGHT = scheme(
+const SUNDIAL_LIGHT = scheme(
   {
     background: "#fdf6e3",
     foreground: "#586e75",
@@ -326,8 +344,8 @@ const SOLARIZED_LIGHT = scheme(
   ),
 );
 
-// Catppuccin Mocha and Latte (https://catppuccin.com/palette).
-const MOCHA = scheme(
+// Velvet: after the Mocha and Latte flavors of Catppuccin (MIT).
+const VELVET_DARK = scheme(
   {
     background: "#1e1e2e",
     foreground: "#cdd6f4",
@@ -344,7 +362,7 @@ const MOCHA = scheme(
   ),
 );
 
-const LATTE = scheme(
+const VELVET_LIGHT = scheme(
   {
     background: "#eff1f5",
     foreground: "#4c4f69",
@@ -361,43 +379,46 @@ const LATTE = scheme(
   ),
 );
 
-// Monokai Pro and its light filter. As in Monokai Pro, "blue" is the orange accent.
-const MONOKAI_DARK = scheme(
+// Ember: after the publicly documented colors of the classic 2006 Monokai TextMate theme. The
+// classic theme has no blue, so blue is its cyan and cyan a lighter, greener tint of it; the
+// brights are lighter steps of the same hues, and the comment gray is raised for dimmed text.
+const EMBER_DARK = scheme(
   {
-    background: "#2d2a2e",
-    foreground: "#fcfcfa",
-    cursor: "#fcfcfa",
-    selectionBackground: "#5b595c",
+    background: "#272822",
+    foreground: "#f8f8f2",
+    cursor: "#f8f8f2",
+    selectionBackground: "#49483e",
   },
   ansi(
-    "#403e41",
-    ["#ff6188", "#a9dc76", "#ffd866", "#fc9867", "#ab9df2", "#78dce8"],
-    "#fcfcfa",
-    "#939293",
-    ["#ff6188", "#a9dc76", "#ffd866", "#fc9867", "#ab9df2", "#78dce8"],
-    "#fcfcfa",
+    "#3e3d32",
+    ["#f92672", "#a6e22e", "#e6db74", "#66d9ef", "#ae81ff", "#a1efe4"],
+    "#cfcfc2",
+    "#8f8b76",
+    ["#ff5c95", "#bdf35a", "#f2ea9b", "#8ee5f5", "#c4a5ff", "#c4f7ef"],
+    "#f8f8f2",
   ),
 );
 
-const MONOKAI_LIGHT = scheme(
+// Ember's own light variant: the same hues, deepened until they read on a warm paper white.
+const EMBER_LIGHT = scheme(
   {
-    background: "#faf4f2",
-    foreground: "#29242a",
-    cursor: "#29242a",
-    selectionBackground: "#d3cdcc",
+    background: "#f9f8f1",
+    foreground: "#272822",
+    cursor: "#272822",
+    selectionBackground: "#e2e0cf",
   },
   ansi(
-    "#29242a",
-    ["#e14775", "#269d69", "#c6760a", "#e16032", "#7058be", "#1c8ca8"],
-    "#a59fa0",
-    "#8d888a",
-    ["#e14775", "#269d69", "#c6760a", "#e16032", "#7058be", "#1c8ca8"],
-    "#c3bfbf",
+    "#272822",
+    ["#c4105a", "#5c7f00", "#8a6f00", "#1e7a96", "#7346cc", "#11806f"],
+    "#8a8775",
+    "#6b6853",
+    ["#d62a6c", "#6b9400", "#9e7f00", "#2a8bab", "#8a5ce6", "#14917f"],
+    "#b8b5a2",
   ),
 );
 
-// Dracula and its light sibling Alucard (https://draculatheme.com).
-const DRACULA = scheme(
+// Nocturne: after the Dracula theme (MIT), and its light variant.
+const NOCTURNE_DARK = scheme(
   {
     background: "#282a36",
     foreground: "#f8f8f2",
@@ -414,7 +435,7 @@ const DRACULA = scheme(
   ),
 );
 
-const ALUCARD = scheme(
+const NOCTURNE_LIGHT = scheme(
   {
     background: "#fffbeb",
     foreground: "#1f1f1f",
@@ -431,9 +452,9 @@ const ALUCARD = scheme(
   ),
 );
 
-// Nord (https://www.nordtheme.com). Red and the comment gray are raised a little on the dark
-// background; the light variant sets Nord's accents in deeper tones on Snow Storm.
-const NORD_DARK = scheme(
+// Fjord: after Nord (MIT). Red and the comment gray are raised a little on the dark background;
+// the light variant sets the accents in deeper tones on the palette's lightest gray.
+const FJORD_DARK = scheme(
   {
     background: "#2e3440",
     foreground: "#d8dee9",
@@ -450,7 +471,7 @@ const NORD_DARK = scheme(
   ),
 );
 
-const NORD_LIGHT = scheme(
+const FJORD_LIGHT = scheme(
   {
     background: "#eceff4",
     foreground: "#2e3440",
@@ -467,8 +488,8 @@ const NORD_LIGHT = scheme(
   ),
 );
 
-// Gruvbox (https://github.com/morhetz/gruvbox).
-const GRUVBOX_DARK = scheme(
+// Ochre: after gruvbox (MIT/X11).
+const OCHRE_DARK = scheme(
   {
     background: "#282828",
     foreground: "#ebdbb2",
@@ -485,7 +506,7 @@ const GRUVBOX_DARK = scheme(
   ),
 );
 
-const GRUVBOX_LIGHT = scheme(
+const OCHRE_LIGHT = scheme(
   {
     background: "#fbf1c7",
     foreground: "#3c3836",
@@ -502,8 +523,8 @@ const GRUVBOX_LIGHT = scheme(
   ),
 );
 
-// Tokyo Night: Night and Day (https://github.com/folke/tokyonight.nvim).
-const TOKYO_NIGHT = scheme(
+// Neon: after the Night and Day styles of tokyonight.nvim (Apache-2.0).
+const NEON_DARK = scheme(
   {
     background: "#1a1b26",
     foreground: "#c0caf5",
@@ -520,7 +541,7 @@ const TOKYO_NIGHT = scheme(
   ),
 );
 
-const TOKYO_DAY = scheme(
+const NEON_LIGHT = scheme(
   {
     background: "#e1e2e7",
     foreground: "#3760bf",
@@ -537,8 +558,8 @@ const TOKYO_DAY = scheme(
   ),
 );
 
-// Rosé Pine: Main and Dawn (https://rosepinetheme.com/palette).
-const ROSE_PINE = scheme(
+// Heather: after the Main and Dawn variants of Rosé Pine (MIT).
+const HEATHER_DARK = scheme(
   {
     background: "#191724",
     foreground: "#e0def4",
@@ -555,7 +576,7 @@ const ROSE_PINE = scheme(
   ),
 );
 
-const ROSE_PINE_DAWN = scheme(
+const HEATHER_LIGHT = scheme(
   {
     background: "#faf4ed",
     foreground: "#575279",
@@ -575,18 +596,18 @@ const ROSE_PINE_DAWN = scheme(
 const SCHEMES: Record<ColorScheme, Record<Theme, TerminalColors>> = {
   hangar: TERMINAL_THEMES,
   dusk: { dark: DUSK_DARK, light: DUSK_LIGHT },
-  oneDarkPro: { dark: ONE_DARK_PRO, light: ONE_LIGHT },
-  github: { dark: GITHUB_DARK, light: GITHUB_LIGHT },
-  vscode: { dark: DARK_PLUS, light: LIGHT_PLUS },
-  darcula: { dark: DARCULA, light: DARCULA_LIGHT },
-  solarized: { dark: SOLARIZED_DARK, light: SOLARIZED_LIGHT },
-  catppuccin: { dark: MOCHA, light: LATTE },
-  monokai: { dark: MONOKAI_DARK, light: MONOKAI_LIGHT },
-  dracula: { dark: DRACULA, light: ALUCARD },
-  nord: { dark: NORD_DARK, light: NORD_LIGHT },
-  gruvbox: { dark: GRUVBOX_DARK, light: GRUVBOX_LIGHT },
-  tokyoNight: { dark: TOKYO_NIGHT, light: TOKYO_DAY },
-  rosePine: { dark: ROSE_PINE, light: ROSE_PINE_DAWN },
+  meridian: { dark: MERIDIAN_DARK, light: MERIDIAN_LIGHT },
+  harbor: { dark: HARBOR_DARK, light: HARBOR_LIGHT },
+  studio: { dark: STUDIO_DARK, light: STUDIO_LIGHT },
+  anvil: { dark: ANVIL_DARK, light: ANVIL_LIGHT },
+  sundial: { dark: SUNDIAL_DARK, light: SUNDIAL_LIGHT },
+  velvet: { dark: VELVET_DARK, light: VELVET_LIGHT },
+  ember: { dark: EMBER_DARK, light: EMBER_LIGHT },
+  nocturne: { dark: NOCTURNE_DARK, light: NOCTURNE_LIGHT },
+  fjord: { dark: FJORD_DARK, light: FJORD_LIGHT },
+  ochre: { dark: OCHRE_DARK, light: OCHRE_LIGHT },
+  neon: { dark: NEON_DARK, light: NEON_LIGHT },
+  heather: { dark: HEATHER_DARK, light: HEATHER_LIGHT },
 };
 
 /** Always the same object per scheme and theme, so xterm only repaints on a real change. */
@@ -610,45 +631,45 @@ const AMBER_LIGHT: SearchColors = { match: "#fff1b8", active: "#f5c84c" };
 const SEARCH_COLORS: Record<ColorScheme, Record<Theme, SearchColors>> = {
   hangar: { dark: { match: "#4a3d14", active: "#8a6416" }, light: AMBER_LIGHT },
   dusk: { dark: { match: "#463b1a", active: "#6c5414" }, light: AMBER_LIGHT },
-  oneDarkPro: {
+  meridian: {
     dark: { match: "#45402a", active: "#6b5520" },
     light: { match: "#f6e7b0", active: "#ecc35a" },
   },
-  github: { dark: { match: "#4a3d14", active: "#8a6416" }, light: AMBER_LIGHT },
-  vscode: { dark: { match: "#4a3d14", active: "#7a5a12" }, light: AMBER_LIGHT },
-  darcula: {
+  harbor: { dark: { match: "#4a3d14", active: "#8a6416" }, light: AMBER_LIGHT },
+  studio: { dark: { match: "#4a3d14", active: "#7a5a12" }, light: AMBER_LIGHT },
+  anvil: {
     dark: { match: "#32593d", active: "#5a4a14" },
     light: { match: "#fbe7a4", active: "#f2c94c" },
   },
-  solarized: {
+  sundial: {
     dark: { match: "#2f4a2a", active: "#5c4d07" },
     light: { match: "#f0e2a8", active: "#e2c45c" },
   },
-  catppuccin: {
+  velvet: {
     dark: { match: "#4d4636", active: "#8a7346" },
     light: { match: "#f6e3bd", active: "#efc072" },
   },
-  monokai: {
+  ember: {
     dark: { match: "#5a5236", active: "#7d6a2c" },
     light: { match: "#f6e2bd", active: "#eec27a" },
   },
-  dracula: {
+  nocturne: {
     dark: { match: "#4c4a3a", active: "#6e6a3c" },
     light: { match: "#f6ecb4", active: "#ead77a" },
   },
-  nord: {
+  fjord: {
     dark: { match: "#4c4c4a", active: "#6e6346" },
     light: { match: "#f3e6c2", active: "#e8cf8a" },
   },
-  gruvbox: {
+  ochre: {
     dark: { match: "#4a3f1e", active: "#76601c" },
     light: { match: "#f2dc92", active: "#e9c252" },
   },
-  tokyoNight: {
+  neon: {
     dark: { match: "#3d3a35", active: "#5e4f33" },
     light: { match: "#f0e2b8", active: "#e6c878" },
   },
-  rosePine: {
+  heather: {
     dark: { match: "#3e3240", active: "#5f4a40" },
     light: { match: "#f6e2c2", active: "#f0c88a" },
   },

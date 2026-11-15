@@ -9,7 +9,7 @@ import {
   type AreaSize,
   type ZoneSplitter,
 } from "./paneRatios";
-import { paneResizing } from "./sidebarMotion";
+import { paneResizing, SPLITTER_KEY_SETTLE_MS } from "./sidebarMotion";
 import type { LayoutId, Ratios } from "./snapLayouts";
 
 interface Props {
@@ -17,6 +17,8 @@ interface Props {
   ratios: Ratios;
   onChange: (ratios: Ratios) => void;
   onReset: () => void;
+  /** Name of the splitters for screen readers; default: the split view's names. */
+  label?: string;
 }
 
 /** Same gaps as the panes (TerminalPane.tsx): to the area's edge and between two panes. */
@@ -24,8 +26,6 @@ const OUTER = 6;
 const INNER = 3;
 /** Grab width of a splitter (px); it is centered on the gap between two panes. */
 const GRAB = 8;
-/** After the last arrow key press, the terminals fit after this pause (ms). */
-const KEY_SETTLE_MS = 250;
 
 /** Position of a splitter in the panes area: on the gap, as long as the panes beside it. */
 function splitterStyle(splitter: ZoneSplitter): React.CSSProperties {
@@ -50,7 +50,7 @@ function areaOf(element: HTMLElement): AreaSize {
  * redraw once instead of on every frame. Arrow keys step, Home and End go to the limits, a double
  * click gives the layout its preset sizes back.
  */
-export function PaneSplitters({ layout, ratios, onChange, onReset }: Props) {
+export function PaneSplitters({ layout, ratios, onChange, onReset, label: name }: Props) {
   const t = useT();
   const drag = useRef<{
     index: number;
@@ -92,9 +92,8 @@ export function PaneSplitters({ layout, ratios, onChange, onReset }: Props) {
     <>
       {splitters(layout, ratios).map((splitter) => {
         const { orientation, index } = splitter;
-        const label = t(
-          orientation === "vertical" ? "split.splitterColumns" : "split.splitterRows",
-        );
+        const label =
+          name ?? t(orientation === "vertical" ? "split.splitterColumns" : "split.splitterRows");
         const bounds = ratioBounds(layout, ratios, index);
         const position = (event: React.PointerEvent) =>
           orientation === "vertical" ? event.clientX : event.clientY;
@@ -166,7 +165,7 @@ export function PaneSplitters({ layout, ratios, onChange, onReset }: Props) {
               window.clearTimeout(keyTimer.current);
               keyTimer.current = window.setTimeout(() => {
                 paneResizing.setMoving(false);
-              }, KEY_SETTLE_MS);
+              }, SPLITTER_KEY_SETTLE_MS);
               onChange(next);
             }}
           />

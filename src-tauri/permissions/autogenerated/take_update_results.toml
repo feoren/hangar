@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-take-update-results"
+description = "Enables the take_update_results command without any pre-configured scope."
+commands.allow = ["take_update_results"]
+
+[[permission]]
+identifier = "deny-take-update-results"
+description = "Denies the take_update_results command without any pre-configured scope."
+commands.deny = ["take_update_results"]

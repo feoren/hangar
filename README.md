@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, folder, branch and CPU, memory and GPU use, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -46,12 +46,25 @@ your own accounts, on your own machine. The desktop app is open source under the
   consistent style. PowerShell, Command Prompt, WSL and any other command work the same way.
 - **Sessions that keep running.** Every session runs in the background while you work in another
   one, and comes back with its history after Hangar restarts. The house button in the sidebar puts
-  them aside and shows a calm home view with a calendar of your commits over the last year.
+  them aside and shows a calm home view: one card per repository with its sessions, open changes,
+  newest commits and dev servers, and a calendar of your commits over the last year.
 - **Sessions you recognize.** The sidebar groups sessions by program or by project folder, and an
   agent session takes its name from your first prompt, so several sessions in one project stay
-  apart. Hovering a row shows that session's last lines without switching to it.
-- **Your last prompt in view.** Above an agent's terminal, Hangar shows the last prompt you sent; a
-  click scrolls back to it. A click in the prompt line moves the cursor there.
+  apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use in aligned
+  columns. Hovering a row shows that session's last lines in their colors without switching to it.
+- **A terminal that feels like an editor.** A click in the prompt line moves the cursor there, and
+  Shift+Enter starts a new line in an agent's prompt instead of sending it. Web addresses and
+  existing files and folders in the output open with one click; with Shift held, each folder of a
+  path opens on its own.
+- **One instruction file for all agents.** Write your rules once in HANGAR.md and Hangar hands them
+  to every agent that accepts extra instructions (Claude Code, Codex CLI, Aider), without touching
+  your repository. An agent started in a fresh worktree first checks for new upstream commits and
+  asks before pulling them.
+- **Agent commands in one click.** The session menu and quick access send an agent's own commands
+  such as `/compact`, `/clear` or `/model`, and commands that start over ask first. Add your own
+  commands to a profile.
+- **Queue the next message.** Write your next instruction while an agent works; Hangar sends it as
+  soon as the agent is done and holds it back while the agent asks you something.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
 - **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every
@@ -73,24 +86,37 @@ your own accounts, on your own machine. The desktop app is open source under the
   changed and opens them in one click. A local dev server an agent starts shows as a globe on its
   row that opens it in the browser.
 - **Load at a glance.** A one-row bar shows the machine's CPU, memory and GPU load as small live
-  graphs, and each session's own CPU and memory appear when you hover it; a mark flags a session
-  that keeps a whole core busy or holds a lot of memory.
+  graphs with the memory in use, and every session row shows its own CPU, memory and, when it uses
+  the GPU, GPU load and memory (GPU numbers on Windows); a mark flags a session that keeps a whole
+  core busy or holds a lot of memory.
 - **Context at a glance.** Claude Code sessions show how full their context window is right in
-  their row, for example `12 % · 123k / 1M`.
+  their row, for example `12 % · 123k / 1M`. From 80 % a compact button on the row sends the
+  agent's compact command.
+- **A hint when nothing moves.** When a working agent has shown nothing new for a while, its row
+  says so quietly, and the session menu offers its last lines and Ctrl+C. No sound, no alarm.
 - **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
   strength and pulse duration, previewed live in the settings.
 - **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
   with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
-  terminal the way Claude Code itself does, with recognizable keys and passwords masked.
+  terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
+  line between them to give either side more room, and close finished ones with one click.
+- **Session reports.** Export a Claude Code session as a Markdown report with its prompts, the
+  agent's answers, one line per tool call, sub-agent runs with their tokens, the open changes and
+  the commits made meanwhile.
+- **A daily review.** See what your sessions worked on each day, per project, with times, commits
+  and changed files, built from a local work log that never stores terminal content or prompts.
+  Copy it as Markdown or save it as a note.
 
 ### Changes and files
 
-- **Review and commit in place.** The Changes tab lists the files a session changed with their lines
-  and the recent commits. Stage, unstage or discard a file, write a commit or ask the agent for a
-  message, and click a diff line to send the agent a comment about it.
+- **Review and commit in place.** The Changes tab lists the files a session changed, collapsed for an
+  overview, and the recent commits. Stage, unstage or discard a file or everything at once, write a
+  commit or ask the agent for a message, and click a diff line to send the agent a comment about it.
 - **The project as a tree.** The Files tab shows the session's folder like an editor's explorer:
-  type to filter it, drag a file onto a terminal to mention it, see which files a teammate or
-  another of your sessions is changing, and switch on an activity map of where the agents worked.
+  filter it with ranked, highlighted matches, insert or drag a path into a terminal in the form its
+  program reads (an @ mention for agents, a quoted path for PowerShell, cmd, Git Bash and WSL), see
+  which files a teammate or another of your sessions is changing, and switch on an activity map of
+  where the agents worked.
 - **A file viewer that keeps up.** Files open in their own window with syntax colors, a Markdown
   preview, images, a comparison with the last commit, and a live refresh while an agent edits them.
 
@@ -102,13 +128,19 @@ your own accounts, on your own machine. The desktop app is open source under the
   sessions; the gate was measured live for each of them.
 - **Remembered answers.** Tell the gate "always" or "never" for a file or folder of a project, and it
   answers for you from then on, with a visible log.
+- **A guard for risky commands.** In team sessions the gate also asks before a shell command such
+  as a force push, a hard reset, a forced clean or a recursive delete outside the project. The
+  rules live in a plain file you can edit. It is a safety net against mistakes, not a sandbox.
+- **Worktree cleanup.** One dialog lists the worktrees Hangar created with their state and size and
+  removes the safe ones. A worktree with changes, ignored files or unmerged commits stays.
 - **Overlap warnings.** Hangar notices when two sessions change the same file or even the same
   lines, also across worktrees of the same repository.
 
 ### Notes
 
 - **Notes beside the terminal.** Write notes per project or in general, capture a quick note with one
-  shortcut, or send selected terminal text straight into a note.
+  shortcut, or send selected terminal text straight into a note. A Private | Shared switch keeps your
+  own notes apart from the team's.
 - **Shared, encrypted notes.** Turn on shared notes for a project and they live encrypted in the
   repository, so they travel with your commits. A recovery code makes sure they can always be
   opened again.
@@ -119,7 +151,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 - **The Team window.** See which teammates are online, which agents they run and which files they
   change, and reserve tasks so nobody works on the same thing twice. Devices join only after
-  confirmation, and everything shared is end-to-end encrypted.
+  confirmation, and everything shared is end-to-end encrypted. Your profile picture from your
+  Hangar account shows in the sidebar.
 - **Teammates beside your work.** The file tree shows which files their agents are changing, with
   their avatar and since when.
 
@@ -130,10 +163,13 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Paste screenshots.** Copy a screenshot and press Ctrl+V: Hangar saves the image and pastes its
   path, so the agent can attach it.
 - **Snippets and broadcast.** Reusable text snippets with variables such as `{{file}}`,
-  `{{branch}}`, `{{selection}}` and `{{diff}}`, and one message sent to several sessions at once.
+  `{{branch}}`, `{{selection}}` and `{{diff}}`, saved from selected terminal text with a right click,
+  and one message sent to several sessions at once.
 - **Your look.** Fourteen terminal color schemes, each in light and dark and readable in both, and
   seven bundled coding fonts, every one shown in its own colors and typeface. Switch between light
   and dark with one click.
+- **Easy on the battery.** On battery Hangar polls less often and holds its animations still; a
+  small leaf in the system bar shows that saving is on (Windows and Linux).
 - **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
   Polish, Russian, Turkish, Greek, Japanese and Chinese.
 - **Always up to date.** Hangar updates itself with signed updates. It looks for new versions of
@@ -172,7 +208,7 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-notes-light.png">
-        <img alt="The notes panel beside a terminal, with encrypted notes shared in the repository above notes kept only on this computer" src="docs/images/hangar-notes-dark.png">
+        <img alt="The notes panel beside a terminal on its Shared side, listing the notes kept encrypted in the repository, with a switch to the private notes" src="docs/images/hangar-notes-dark.png">
       </picture>
       <br><sub>Keep notes private or share them encrypted with the repository.</sub>
     </td>
@@ -222,8 +258,8 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
   compares a safety number and confirms it.
 - **You choose what is shared.** Sharing is switched on per project and per folder, and Hangar works
   fully without an account.
-- **Your own server.** Teams that run their own Hangar server enter its address in
-  _Settings > Account_.
+- **Your own server.** A self-hosted team server is in preparation and not published yet; Hangar
+  already accepts its address in _Settings > Account_.
 - **Shared notes stay in the repository**, encrypted per file, so the team server is not involved
   at all.
 
@@ -291,4 +327,6 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 The desktop app is licensed under the [MIT License](LICENSE). The bundled agent icons name their
 sources, licenses and trademark notes in
 [`src/assets/agent-icons/NOTICE.md`](src/assets/agent-icons/NOTICE.md); the bundled fonts carry
-their licenses next to them in `src/assets/fonts/`.
+their licenses next to them in `src/assets/fonts/`. The color schemes carry Hangar's own names;
+the palettes they are adapted from, with sources, licenses and trademark notes, are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

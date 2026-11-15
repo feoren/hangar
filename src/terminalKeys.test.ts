@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { terminalKeyAction } from "./terminalKeys";
+import { AGENT_NEWLINE, terminalKeyAction } from "./terminalKeys";
 
 function key(code: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) {
   const letter = code.startsWith("Key") ? code.slice(3).toLowerCase() : code;
@@ -12,8 +12,14 @@ function key(code: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolea
     shiftKey: mods.shift === true,
     altKey: mods.alt === true,
     metaKey: false,
+    isComposing: false,
   };
 }
+
+const enter = (mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
+  ...key("Enter", mods),
+  key: "Enter",
+});
 
 describe("terminal keys", () => {
   it("copies with Ctrl+C only when something is selected and clears the selection", () => {
@@ -80,14 +86,45 @@ describe("terminal keys", () => {
     expect(terminalKeyAction({ ...f6, ctrlKey: true }, false, true)).toEqual({ kind: "terminal" });
   });
 
+  it("turns Shift+Enter into a new line in an agent session, sent once per press", () => {
+    expect(AGENT_NEWLINE).toBe("\x1b\r");
+    expect(terminalKeyAction(enter({ shift: true }), false, false, true)).toEqual({
+      kind: "newline",
+      send: AGENT_NEWLINE,
+    });
+    // xterm asks again for keypress and keyup: swallowed, nothing sent a second time.
+    for (const type of ["keypress", "keyup"]) {
+      expect(terminalKeyAction({ ...enter({ shift: true }), type }, false, false, true)).toEqual({
+        kind: "newline",
+        send: null,
+      });
+    }
+  });
+
+  it("leaves Enter, Shift+Enter in a shell and composing input to xterm", () => {
+    expect(terminalKeyAction(enter(), false, false, true)).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(enter({ shift: true }), false)).toEqual({ kind: "terminal" });
+    expect(
+      terminalKeyAction({ ...enter({ shift: true }), isComposing: true }, false, false, true),
+    ).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(enter({ shift: true, ctrl: true }), false, false, true)).toEqual({
+      kind: "terminal",
+    });
+    expect(terminalKeyAction(enter({ shift: true, alt: true }), false, false, true)).toEqual({
+      kind: "terminal",
+    });
+  });
+
   it("keeps Ctrl+Shift+Space from the process only while dictation is on", () => {
     const chord = { ...key("Space", { ctrl: true, shift: true }), key: " " };
     expect(terminalKeyAction(chord, false)).toEqual({ kind: "terminal" });
     for (const type of ["keydown", "keypress", "keyup"]) {
-      expect(terminalKeyAction({ ...chord, type }, false, false, true)).toEqual({ kind: "app" });
+      expect(terminalKeyAction({ ...chord, type }, false, false, false, true)).toEqual({
+        kind: "app",
+      });
     }
     // Ctrl+Space alone stays with the shell (set mark) and the IME.
     const ctrlSpace = { ...key("Space", { ctrl: true }), key: " " };
-    expect(terminalKeyAction(ctrlSpace, false, false, true)).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(ctrlSpace, false, false, false, true)).toEqual({ kind: "terminal" });
   });
 });

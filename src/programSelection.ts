@@ -3,8 +3,9 @@
 // With mouse tracking on (Claude Code's full screen mode, for example), a drag in the terminal
 // goes to the program, not to xterm: the program draws its own highlight and xterm has no
 // selection at all. Such programs copy their selection on release through OSC 52. Hangar keeps
-// that text as the program's selection, but only when a mouse press in the terminal led to it,
-// so a copy started by a command (Claude Code's /copy) does not count as a selection.
+// that text as the program's selection, but only when a mouse press in the terminal led to it
+// while the program tracks the mouse, so a copy started by a command (Claude Code's /copy) or
+// by a program that never saw the press does not count as a selection.
 
 import { holdsBackFromTerminal } from "./terminalMouse";
 
@@ -55,9 +56,13 @@ export class ProgramSelection {
     this.text = "";
   }
 
-  /** The program wrote `text` to the clipboard (OSC 52). */
-  clipboardWritten(text: string): void {
-    if (this.armed) this.text = text;
+  /**
+   * The program wrote `text` to the clipboard (OSC 52). `mouseTracking`: whether it tracks the
+   * mouse right now. Without it, the press went to xterm, not to the program, so the program
+   * selected nothing and its write is no selection (a program could plant text for "Copy").
+   */
+  clipboardWritten(text: string, mouseTracking: boolean): void {
+    if (this.armed && mouseTracking) this.text = text;
   }
 
   /** Program exited or restarted. */

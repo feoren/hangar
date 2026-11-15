@@ -1,6 +1,6 @@
 [package]
 name = "hangar"
-version = "0.7.0"
+version = "0.8.0"
 description = "Terminal sessions and agent CLIs in one window"
 edition = "2021"
 # Oldest Rust the code is written for: the standard library APIs in use need 1.89 (found by
@@ -14,6 +14,20 @@ crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
+
+[dev-dependencies]
+# examples/verify_update_sig.rs: tools/release.py verifies every updater signature with the same
+# crate and call tauri-plugin-updater uses before a release is published. Both are already in the
+# tree at these versions through the plugin, so they add no code: minisign-verify (MIT, jedisct1,
+# no dependencies) and base64 (MIT/Apache-2.0, marshallpierce). The alternative, a Python
+# Ed25519 check, would need a third-party package and could drift from the plugin.
+minisign-verify = "0.3"
+base64 = "0.23"
+
+# Its unit tests (the throwaway test vectors) run with `cargo test`.
+[[example]]
+name = "verify_update_sig"
+test = true
 
 [dependencies]
 # image-png: the frontend draws the taskbar badge as a PNG (overlay icon on Windows).
@@ -131,6 +145,9 @@ windows-sys = { version = "0.61", features = [
   # PdhOpenQueryW and friends: the GPU load of the system bar from the "GPU Engine" performance
   # counter (system_usage.rs). Bindings only, pdh.dll ships with Windows.
   "Win32_System_Performance",
+  # GetSystemPowerStatus: battery or AC and the battery saver for the power saving mode
+  # (power.rs). Bindings only, kernel32.dll ships with Windows.
+  "Win32_System_Power",
   # K32GetProcessMemoryInfo: the working set of each process of a session (proctree.rs).
   "Win32_System_ProcessStatus",
   # Uninstall keys, to tell how a program was installed (install_source.rs).

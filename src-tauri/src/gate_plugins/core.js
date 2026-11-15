@@ -4,9 +4,12 @@
 // Free of dependencies: only node: modules, which Node (Pi) and Bun (Oh My Pi, OpenCode) both
 // provide. node:http rather than fetch, because Node's fetch sends Sec-Fetch-Mode, which Hangar's
 // endpoint refuses as a request from a browser page.
-// Fails open: whatever goes wrong (no variable, endpoint unreachable, an answer it cannot read)
-// lets the edit through, as every other hook of Hangar's gate does. The gate coordinates the
-// user's own sessions; it is not a security boundary.
+// Shell commands go to the same endpoint as tool "Bash" with the command line; Hangar's command
+// guard decides there whether the person is asked.
+// Edits fail open: whatever goes wrong (no variable, endpoint unreachable, an answer it cannot
+// read) lets the edit through, as every other hook of Hangar's gate does. A shell command whose
+// question to the endpoint fails is blocked instead (the command guard fails closed); only a
+// missing variable, a session without the gate, lets it through.
 import { request } from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
@@ -17,6 +20,8 @@ const ROUTE = "/v1/pre-tool-use";
 const DEADLINE_MS = 630000;
 const MAX_ANSWER = 1024 * 1024;
 const MAX_PATHS = 64;
+// Hangar's endpoint reads no longer command (command_guard.rs MAX_COMMAND_BYTES); it asks instead.
+const MAX_COMMAND_BYTES = 64 * 1024;
 const PATCH_MARKERS = ["*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"];
 const PATH_KEYS = ["path", "file_path", "filePath"];
 
@@ -68,6 +73,34 @@ function lookup(table, name) {
   return typeof name === "string" && Object.hasOwn(table, name) ? table[name] : undefined;
 }
 
+// The shell Hangar reads a tool call's command in: a known shell tool's, and "Shell" (every
+// dialect) for any other tool with a string `command` that is no edit tool, so a shell tool
+// Hangar does not know by name is still checked. Undefined for a tool that runs no command.
+function commandTool(shellTools, editTools, name, input) {
+  const known = lookup(shellTools, name);
+  if (known !== undefined) return known;
+  if (lookup(editTools, name) !== undefined) return undefined;
+  return input !== null && typeof input === "object" && typeof input.command === "string"
+    ? "Shell"
+    : undefined;
+}
+
+// After the handler itself failed: whether the call may run a shell command, which is then
+// blocked rather than let through (the command guard fails closed, edits fail open). A known
+// shell tool, any tool with a string `command`, and one whose input cannot even be read count.
+function failsClosed(shellTools, editTools, name, input) {
+  if (lookup(editTools, name) !== undefined) return false;
+  if (lookup(shellTools, name) !== undefined) return true;
+  try {
+    return input !== null && typeof input === "object" && typeof input.command === "string";
+  } catch {
+    return true;
+  }
+}
+
+const UNCHECKED_COMMAND =
+  "Hangar: the command guard could not check this command. Retry it in a moment.";
+
 // The files a write or edit tool names: a path field, a list of paths, or patch text in the
 // tool's own patch fields (`spec.patchKeys`), never in file content. At most one more than
 // MAX_PATHS, enough to know a call names too many.
@@ -96,7 +129,7 @@ function verdictOf(text) {
 }
 
 // One question to the endpoint, the same request Claude Code's HTTP hook sends. Never rejects.
-function askGate(gate, tool, path, cwd, signal) {
+function askGate(gate, tool, toolInput, cwd, signal) {
   return new Promise((done) => {
     let settled = false;
     let call;
@@ -121,7 +154,7 @@ function askGate(gate, tool, path, cwd, signal) {
     const body = JSON.stringify({
       hook_event_name: "PreToolUse",
       tool_name: tool,
-      tool_input: { file_path: path },
+      tool_input: toolInput,
       cwd,
     });
     try {
@@ -183,9 +216,37 @@ async function decideEdit(tool, paths, cwd, signal, normalize) {
   const gate = gateEndpoint();
   if (gate === undefined) return { kind: "allow", notes: [GATE_ENV + " is missing or malformed"] };
   for (const named of paths) {
-    const verdict = await askGate(gate, tool, absolutePath(normalize(named), cwd), cwd, signal);
+    const filePath = absolutePath(normalize(named), cwd);
+    const verdict = await askGate(gate, tool, { file_path: filePath }, cwd, signal);
     if (verdict.kind === "error") notes.push(verdict.note);
     else if (verdict.kind !== "allow") return { ...verdict, notes };
   }
   return { kind: "allow", notes };
+}
+
+// Asks about one shell command; anything but a non-empty string goes ahead unasked. `tool` names
+// the shell for Hangar's reading: "Bash", "PowerShell", or "Shell" when it is not known.
+async function decideCommand(tool, command, cwd, signal) {
+  if (typeof command !== "string" || command.trim() === "") return { kind: "allow", notes: [] };
+  const gate = gateEndpoint();
+  if (gate === undefined) return { kind: "allow", notes: [GATE_ENV + " is missing or malformed"] };
+  // A huge command is cut to twice the endpoint's limit: still over it, so the endpoint answers
+  // "ask" as for the whole command, without sending megabytes.
+  const limit = MAX_COMMAND_BYTES * 2;
+  const text = Buffer.byteLength(command) > limit ? command.slice(0, limit) : command;
+  const verdict = await askGate(gate, tool, { command: text }, cwd, signal);
+  // A command the guard could not check is blocked, not let through: a client that floods the
+  // endpoint must not be able to wave a command past it. The session runs inside Hangar, so the
+  // endpoint is there while the agent is.
+  if (verdict.kind === "error") {
+    return {
+      kind: "deny",
+      reason:
+        "Hangar: the command guard could not check this command (" +
+        verdict.note +
+        "). Retry it in a moment.",
+      notes: [verdict.note],
+    };
+  }
+  return { ...verdict, notes: [] };
 }

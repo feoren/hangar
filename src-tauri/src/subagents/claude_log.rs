@@ -372,7 +372,12 @@ const PATH_FIELDS: &[&str] = &["file_path", "notebook_path", "path"];
 
 /// The input field Claude Code shows next to a tool's name. Unknown tools (MCP tools, newer
 /// ones) show the first of the usual fields they have. File paths below `base` are relative.
-fn tool_detail(name: &str, input: &Value, base: Option<&str>, max: usize) -> Option<String> {
+pub(crate) fn tool_detail(
+    name: &str,
+    input: &Value,
+    base: Option<&str>,
+    max: usize,
+) -> Option<String> {
     const USUAL: &[&str] = &[
         "file_path",
         "notebook_path",

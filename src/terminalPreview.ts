@@ -52,7 +52,7 @@ export const PREVIEW_LINES: readonly PreviewLine[] = [
     ],
     "╮",
   ),
-  framed([["green", '+ scheme = "nord";']]),
+  framed([["green", '+ scheme = "fjord";']]),
   framed([["red", '- scheme = "dusk";']]),
   rule("╰", [["brightBlack", " esc to cancel "]], "╯"),
   [

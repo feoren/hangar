@@ -1,5 +1,6 @@
 // Private or team session (ADR 0008). The switch under "Starts in" picks the mode of the next
-// start; it is remembered per device. A team session always runs in a git worktree of its own,
+// start; it is remembered per device by the backend, for the main window alone (mainStore.ts):
+// a viewer that wrote it could make the next start private, without the gate. A team session always runs in a git worktree of its own,
 // gets the agent gate and is visible to the team in a shared project; a private one starts in the
 // folder itself, without the gate, and the team never sees it.
 
@@ -11,26 +12,20 @@ export type StartMode = SessionMode;
 
 export const DEFAULT_START_MODE: StartMode = "private";
 
-const STORAGE_KEY = "hangar.startMode";
+/** Where an older Hangar kept the mode, read once for the migration (mainStore.ts). */
+export const START_MODE_STORAGE_KEY = "hangar.startMode";
 
 /** A stored value; anything unknown is the default, so a broken entry never blocks a start. */
 export function parseStartMode(value: unknown): StartMode {
   return value === "team" ? "team" : DEFAULT_START_MODE;
 }
 
-export function loadStartMode(): StartMode {
+/** The mode an older Hangar kept in `storage`; private when missing, broken or blocked. */
+export function legacyStartMode(storage: Pick<Storage, "getItem">): StartMode {
   try {
-    return parseStartMode(localStorage.getItem(STORAGE_KEY));
+    return parseStartMode(storage.getItem(START_MODE_STORAGE_KEY));
   } catch {
     return DEFAULT_START_MODE;
-  }
-}
-
-export function saveStartMode(mode: StartMode): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, mode);
-  } catch {
-    // Without storage the switch simply starts private next time.
   }
 }
 

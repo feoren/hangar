@@ -4,6 +4,7 @@ import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnima
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import { PhonePushSettings } from "./PhonePushSettings";
+import { powerKnown } from "./power";
 import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
 import { edgeClass } from "./sessionChip";
@@ -34,10 +35,11 @@ import {
   type LookState,
   type PulseStrength,
 } from "./stateLook";
+import { clampStallMinutes, STALL_MINUTES } from "./stall";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
-import type { ChipKind } from "./sessionChip";
 import type { Theme } from "./theme";
+import { usePowerState } from "./usePower";
 
 interface Props {
   settings: Settings;
@@ -77,13 +79,13 @@ const COLOR_NAMES: Record<LookPresetId, MessageKey> = {
   pink: "color.pink",
 };
 
-/** What the preview row says and shows, exactly like a session in the sidebar. */
-const PREVIEWS: Record<LookState, { status: MessageKey; chip: ChipKind }> = {
-  working: { status: "status.working", chip: "working" },
-  done: { status: "status.attention", chip: "done" },
-  asks: { status: "status.asks", chip: "asks" },
-  idle: { status: "status.idle", chip: "paused" },
-  failed: { status: "status.failed", chip: "failed" },
+/** What the preview row says, exactly like a session in the sidebar. */
+const PREVIEWS: Record<LookState, MessageKey> = {
+  working: "status.short.working",
+  done: "status.short.attention",
+  asks: "status.short.asks",
+  idle: "status.short.idle",
+  failed: "status.short.failed",
 };
 
 const PREVIEW_BADGE: BadgeLook = { kind: "letters", text: "C", color: badgeColor("claude") };
@@ -98,6 +100,7 @@ const LOOKS_WITHOUT_ATTENTION: readonly LookState[] = ["idle", "failed"];
  */
 export function AttentionSettings({ settings, theme, onChange }: Props) {
   const t = useT();
+  const power = usePowerState();
   const enabled = settings.attentionEnabled;
   return (
     <>
@@ -145,6 +148,22 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ quietSeconds: clampQuietSeconds(value) });
           }}
         />
+        <RangeField
+          id="stall-minutes"
+          label={t("settings.stallTime")}
+          value={settings.stallMinutes}
+          min={STALL_MINUTES.min}
+          max={STALL_MINUTES.max}
+          display={
+            settings.stallMinutes === 0
+              ? t("settings.stallOff")
+              : t("settings.minutes", { count: settings.stallMinutes })
+          }
+          onChange={(value) => {
+            onChange({ stallMinutes: clampStallMinutes(value) });
+          }}
+        />
+        <p className="muted settings-help">{t("settings.stallHelp")}</p>
 
         <CheckField
           id="taskbar-flash"
@@ -221,6 +240,18 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ showResources });
           }}
         />
+        {/* Only where the backend can tell battery from AC (only offer what works). */}
+        {powerKnown(power) && (
+          <CheckField
+            id="power-saving"
+            checked={settings.powerSaving}
+            label={t("settings.powerSaving")}
+            help={t("settings.powerSavingHelp")}
+            onChange={(powerSaving) => {
+              onChange({ powerSaving });
+            }}
+          />
+        )}
       </fieldset>
     </>
   );
@@ -423,16 +454,19 @@ function LookCard({
             <span className="session-main">
               <Badge look={PREVIEW_BADGE} />
               <span className="session-text">
-                <span className="session-title">{t("settings.preview")}</span>
-                <span className="session-meta">
-                  <span className="state-dot" aria-hidden="true" />
-                  <span className={waits ? "session-status attention-text" : "session-status"}>
-                    {t(preview.status)}
+                {/* Like a session row's first line: the title, its state at the right edge. */}
+                <span className="row-line session-title-row">
+                  <span className="session-title">{t("settings.preview")}</span>
+                  <span className="row-push" />
+                  <span className="session-state">
+                    <span className="state-dot" aria-hidden="true" />
+                    <span className={waits ? "session-status attention-text" : "session-status"}>
+                      {t(preview)}
+                    </span>
                   </span>
                 </span>
               </span>
             </span>
-            <StatusChip kind={preview.chip} />
           </span>
         </div>
       </div>
