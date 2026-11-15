@@ -67,7 +67,7 @@ describe("cells of fixed width", () => {
     for (const cell of [".session-value", ".session-runtime", ".session-context-tokens"]) {
       expect(declarations(cell).get("text-align")).toBe("end");
     }
-    expect(declarations(".session-detail").get("font-variant-numeric")).toBe("tabular-nums");
+    expect(declarations(".row-fact").get("font-variant-numeric")).toBe("tabular-nums");
   });
 
   it("keeps the place of a column without a value", () => {
@@ -83,16 +83,16 @@ describe("cells of fixed width", () => {
 });
 
 describe("the third and fourth line", () => {
-  it("keeps each to one line and never cuts a cell mid-text", () => {
-    for (const line of [".session-detail", ".session-context"]) {
-      const rule = declarations(line);
-      expect(rule.get("display")).toBe("flex");
-      // Cells that do not fit (below the narrowest sidebar) wrap whole out of sight.
-      expect(rule.get("flex-wrap")).toBe("wrap");
-      expect(rule.get("height")).toBe("1lh");
-      expect(rule.get("overflow")).toBe("hidden");
-    }
-    expect(declarations(".session-load").get("display")).toBe("contents");
+  it("keeps the load to one line and never cuts a cell mid-text", () => {
+    const rule = declarations(".session-load");
+    expect(rule.get("display")).toBe("flex");
+    // Cells that do not fit (below the narrowest sidebar) wrap whole out of sight.
+    expect(rule.get("flex-wrap")).toBe("wrap");
+    expect(rule.get("height")).toBe("1lh");
+    expect(rule.get("overflow")).toBe("hidden");
+    // A context with a bar takes the line's free width; the share alone keeps its cell.
+    expect(declarations(".session-context.grows").get("flex")).toBe("1 1 auto");
+    expect(declarations(".session-context").get("flex")).toBe("none");
   });
 
   it("drops nothing any more: no giving-way steps", () => {
@@ -165,9 +165,8 @@ describe("the striped context bar", () => {
 });
 
 describe("the first line: signs, title, state", () => {
-  it("puts the one-word state in a fixed cell at the right edge; only the title gives way", () => {
+  it("puts the one-word state in a fixed cell; only the title gives way", () => {
     const state = declarations(".session-state");
-    expect(state.get("margin-left")).toBe("auto");
     expect(state.get("flex")).toBe("none");
     const status = declarations(".session-status");
     expect(status.get("flex")).toBe("none");
@@ -181,11 +180,16 @@ describe("the first line: signs, title, state", () => {
     expect(declarations(":root").get("--title-min")).toBe("4em");
   });
 
-  it("shows the signs before the title, never shrinking", () => {
-    const signs = declarations(".session-signs");
-    expect(signs.get("order")).toBe("-1");
-    expect(signs.get("flex")).toBe("none");
-    expect(declarations(".session-title-row > .badge").get("order")).toBe("-2");
+  it("draws what stands before the title in front of the marker and the title", () => {
+    expect(declarations(".session-signs").get("flex")).toBe("none");
+    expect(declarations(".row-before-title").get("order")).toBe("-2");
+    expect(declarations(".session-title-row > .session-marker").get("order")).toBe("-1");
+  });
+
+  it("pushes a line's right part to its edge without room of its own", () => {
+    const push = declarations(".row-push");
+    expect(push.get("margin-left")).toBe("auto");
+    expect(push.get("margin-right")).toBe(`-${declarations(".row-line").get("gap") ?? ""}`);
   });
 
   it("moves a working row's dot as the dot animation setting chooses, still without motion", () => {
@@ -197,29 +201,13 @@ describe("the first line: signs, title, state", () => {
       .join("\n");
     expect(declarations(".look-working .state-dot", reduced).get("animation")).toBe("none");
   });
-
-  it("keeps title, state and signs in that order for screen readers", () => {
-    // The row's inside lives in SessionRow.tsx; Sidebar.tsx hands it the signs.
-    const row = readFileSync(new URL("./SessionRow.tsx", import.meta.url), "utf8");
-    const title = row.indexOf('<span className="session-title">{name}</span>');
-    const state = row.indexOf('<span className="session-state">', title);
-    const signs = row.indexOf("{signs}", state);
-    expect(title).toBeGreaterThan(0);
-    expect(state).toBeGreaterThan(title);
-    expect(signs).toBeGreaterThan(state);
-    const sidebar = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
-    expect(sidebar).toContain('<span className="session-signs">');
-    // A standard row says its state in words; that it shows no status chip is checked by
-    // rendering it (SessionRow.test.tsx).
-  });
 });
 
 describe("the second line: folder at the start, branch at the right", () => {
-  it("lets folder and branch fill the line, the branch at the right edge", () => {
-    const where = declarations(".session-where");
-    expect(where.get("flex")).toBe("1 1 0");
-    expect(declarations(".session-branch").get("margin-left")).toBe("auto");
-    expect(declarations(".session-meta:empty").get("display")).toBe("none");
+  it("keeps folder and branch quieter than the state", () => {
+    const where = declarations(".row-where");
+    expect(where.get("font-size")).toBe("11.5px");
+    expect(where.get("color")).toBe("var(--muted)");
   });
 
   it("gives way with the folder first, then the branch, each down to a minimum", () => {

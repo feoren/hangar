@@ -11,7 +11,7 @@ import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./d
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
-import { DEFAULT_ROW_STYLE, parseRowStyle, type RowStyle } from "./rowStyle";
+import { DEFAULT_ROW_LAYOUT, parseRowLayout, type RowLayout } from "./rowLayout";
 import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
   DEFAULT_TERMINAL_LOOK,
@@ -101,8 +101,8 @@ export interface Settings {
   looks: StateLooks;
   /** How the dots of a working session move (dotAnimation.ts). */
   dotAnimation: DotAnimation;
-  /** How a session row in the sidebar lays out its facts (rowStyle.ts). */
-  rowStyle: RowStyle;
+  /** How a session row in the sidebar lays out its facts: the row builder (rowLayout.ts). */
+  rowLayout: RowLayout;
   quietSeconds: number;
   /**
    * Minutes without anything new on a working agent's screen before its row hints that it may be
@@ -227,7 +227,7 @@ export function defaultSettings(language: Language): Settings {
     attentionEnabled: true,
     looks: DEFAULT_LOOKS,
     dotAnimation: DEFAULT_DOT_ANIMATION,
-    rowStyle: DEFAULT_ROW_STYLE,
+    rowLayout: DEFAULT_ROW_LAYOUT,
     quietSeconds: QUIET_SECONDS.default,
     stallMinutes: STALL_MINUTES.default,
     taskbarFlash: true,
@@ -314,7 +314,9 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     // Older versions stored one attention color instead; it carries over to both waiting states.
     looks: parseStateLooks(get("looks"), Reflect.get(raw, "attentionColor")),
     dotAnimation: parseDotAnimation(get("dotAnimation")),
-    rowStyle: parseRowStyle(get("rowStyle")),
+    // Versions before the row builder stored one of fourteen row styles; it becomes its preset
+    // once, and the next save stores the layout instead.
+    rowLayout: parseRowLayout(get("rowLayout"), Reflect.get(raw, "rowStyle")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)
