@@ -6,7 +6,7 @@ superseded_by:
 tags: [daily-review, persistence, privacy, git]
 sources: []
 created: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # ADR 0011: Work log for the daily review
@@ -39,7 +39,9 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   `at` (Unix ms; a phase's end), `from` (a phase's start), `title` (control characters removed,
   at most 200 characters), `program` (display name), `cwd`, `repo` (main work tree root; for a
   linked worktree the repository it belongs to, found from the `.git` entries without running
-  git), `worktree`. Every record carries all details, so a day file stands on its own.
+  git; the `.git` file is read as a regular file of at most 4 KiB, and a `gitdir:` on another
+  network share or device than the folder is not followed, the folder then counts as its own
+  repository), `worktree`. Every record carries all details, so a day file stands on its own.
 - **Validation:** `log_work_phase` takes only a known session id and two times; the phase must
   be positive, at most 48 hours long, end no later than a minute from now and no earlier than
   48 hours ago, so the window can neither write text nor reach an old day file.
@@ -75,6 +77,9 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   shows no commits, like the activity calendar: `--remotes` would otherwise list everybody
   else's fetched work as the user's day. At most 200 commits and 300 files per project. For today only, the
   uncommitted changes (`git status`, filters switched off) of each work tree the sessions ran in.
+  A logged repository on a network share is asked only when one of the project's sessions
+  worked on that same share, so an older record can never make Hangar reach out to a host
+  (on Windows each access sends the user's NTLM credentials).
 - "Add to notes" creates a note in the General area ([[0004-notes-per-working-folder]]): a day
   spans several projects, and a note per project would scatter one review over many lists.
   "Copy" puts the same Markdown on the clipboard.

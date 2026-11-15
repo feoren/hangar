@@ -374,6 +374,8 @@ pub struct RepoLocation {
 
 /// Folders walked up at most; deeper trees are not a repository Hangar looks at.
 const MAX_DEPTH: usize = 64;
+/// A `.git` file holds one `gitdir:` line; anything larger is not one.
+const MAX_DOT_GIT_BYTES: usize = 4096;
 
 /// The nearest `.git` above `folder`: a folder marks a main work tree, a file a linked worktree
 /// (its git folder lies in `<repo>/.git/worktrees/<name>`) or a submodule (then the submodule
@@ -391,10 +393,15 @@ pub fn locate_repo(folder: &Path) -> Option<RepoLocation> {
                 worktree: false,
             });
         }
-        let main = fs::read_to_string(&dot_git)
+        // Bounded and without following links: this runs on every session start. A git folder on
+        // another share than the folder itself is not followed (each access there would send
+        // the user's NTLM credentials); the folder then counts as its own repository.
+        let main = crate::persist::read_limited(&dot_git, MAX_DOT_GIT_BYTES)
             .ok()
-            .and_then(|content| crate::git::parse_gitdir_file(&content))
+            .flatten()
+            .and_then(|content| crate::git::parse_gitdir_file(&String::from_utf8_lossy(&content)))
             .map(|git_dir| dir.join(git_dir))
+            .filter(|git_dir| crate::git::gitdir_allowed(folder, git_dir))
             .and_then(|git_dir| main_of_worktree(&git_dir));
         return Some(RepoLocation {
             root: dir.to_path_buf(),
@@ -763,6 +770,29 @@ mod tests {
             Some(RepoLocation {
                 root: sub.clone(),
                 repo: sub,
+                worktree: false
+            })
+        );
+    }
+
+    /// A `.git` file in a local folder that names a git folder on a network share: the share is
+    /// never taken as the repository (each access there would send the user's NTLM credentials).
+    #[cfg(windows)]
+    #[test]
+    fn a_worktree_never_leads_to_a_network_share() {
+        let tmp = TempDir::new("work-log-unc");
+        let linked = tmp.path().join("linked");
+        fs::create_dir_all(&linked).unwrap();
+        fs::write(
+            linked.join(".git"),
+            r"gitdir: \\example.invalid\share\.git\worktrees\feature",
+        )
+        .unwrap();
+        assert_eq!(
+            locate_repo(&linked),
+            Some(RepoLocation {
+                root: linked.clone(),
+                repo: linked,
                 worktree: false
             })
         );
