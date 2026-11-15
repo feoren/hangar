@@ -184,6 +184,20 @@
         "ru": "Быстрее: скрытые терминалы приостанавливаются, терминал меняет размер после перетаскивания, а окна загружают код только при необходимости.",
         "tr": "Daha hızlı: gizli terminaller duraklar, terminal sürükleme durunca boyutlanır ve her pencere kodunu yalnızca gerektiğinde yükler.",
         "zh": "更快：隐藏的终端会暂停，拖动停下后终端才调整大小，各窗口只在需要时加载代码。"
+      },
+      {
+        "de": "Sicherer: Links zeigen ihr Ziel, mehrzeiliges Einfügen fragt, Git-Hooks nur bei deinem Commit, versteckte riskante Befehle fallen auf, Teams bestätigen Geräte.",
+        "en": "Safer: links show their real target, multi-line pastes ask first, Git hooks run only for your commit, hidden risky commands are caught, teams confirm devices.",
+        "el": "Ασφάλεια: σύνδεσμοι δείχνουν στόχο, επικόλληση γραμμών ρωτά, Git hooks μόνο στο commit σου, κρυφές επικίνδυνες εντολές πιάνονται, ομάδες εγκρίνουν συσκευές.",
+        "es": "Más seguro: enlaces con su destino, pegar líneas pregunta, hooks de Git solo en tu commit, comandos riesgosos ocultos detectados, equipos aprueban dispositivos.",
+        "fr": "Plus sûr : liens avec leur vraie cible, coller des lignes demande, hooks Git seulement à ton commit, commandes risquées cachées repérées, appareils validés.",
+        "it": "Più sicuro: link con la vera meta, incollare più righe chiede, hook Git solo nel tuo commit, comandi rischiosi nascosti scoperti, i team confermano dispositivi.",
+        "ja": "安全性向上: リンクは本当のリンク先を表示し、複数行の貼り付けは確認し、Git フックは自分のコミット時だけ動き、隠れた危険なコマンドも検出し、チームは新しいデバイスを確認します。",
+        "pl": "Bezpieczniej: linki pokazują cel, wklejanie wierszy pyta, hooki Git tylko przy Twoim commicie, ukryte groźne polecenia wykrywane, zespoły potwierdzają sprzęt.",
+        "pt": "Mais seguro: links mostram o destino, colar linhas pergunta, hooks do Git só no seu commit, comandos arriscados ocultos são pegos, equipes confirmam aparelhos.",
+        "ru": "Безопаснее: ссылки показывают цель, вставка строк спрашивает, Git-хуки только при твоём коммите, скрытые опасные команды видны, команды подтверждают устройства.",
+        "tr": "Güvenlik: bağlantılar hedefi gösterir, çok satırlı yapıştırma sorar, Git hook’ları sadece commit’inde, gizli riskli komutlar yakalanır, ekipler cihaz onaylar.",
+        "zh": "更安全：链接显示真实目标，粘贴多行前先询问，Git 钩子只在你提交时运行，隐藏的危险命令也会被发现，团队会确认新设备。"
       }
     ]
   },
