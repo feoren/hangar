@@ -324,21 +324,11 @@ fn plain_markdown_name(name: &str) -> bool {
 }
 
 /// Reads at most `max` bytes from an open file instead of trusting a size read earlier.
-/// `Ok(None)`: the file is larger than `max`. Only regular files: opening a FIFO or device
-/// named like a note could block or never end.
+/// `Ok(None)`: the file is larger than `max`. Only regular files, and no link at the last
+/// component: a FIFO or device named like a note could block or never end, and a link in a
+/// shared notes folder could lead to any file of the user ([`crate::persist::open_regular`]).
 fn read_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
-    use std::io::Read as _;
-    if !fs::metadata(path)?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    let file = fs::File::open(path)?;
-    let mut bytes = Vec::new();
-    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
-    file.take(limit).read_to_end(&mut bytes)?;
-    Ok((bytes.len() <= max).then_some(bytes))
+    crate::persist::read_regular_capped(path, max)
 }
 
 fn is_markdown(name: &str) -> bool {
