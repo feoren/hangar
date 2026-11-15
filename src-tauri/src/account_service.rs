@@ -49,11 +49,40 @@ pub type Emit = Arc<dyn Fn(&AccountView) + Send + Sync>;
 /// Opens a page in the default browser (`desktop::open_url`); replaced in tests.
 pub type Opener = Arc<dyn Fn(&Url) -> std::io::Result<()> + Send + Sync>;
 
+/// A monotonic clock: the time since a fixed point. The device flow measures its expiry with
+/// it, so a test can move time exactly instead of depending on how busy the machine is.
+#[derive(Clone)]
+pub struct Clock(Arc<dyn Fn() -> Duration + Send + Sync>);
+
+impl Clock {
+    /// The system's monotonic clock ([`Instant`]).
+    pub fn system() -> Self {
+        let origin = Instant::now();
+        Self(Arc::new(move || origin.elapsed()))
+    }
+
+    pub fn new(now: impl Fn() -> Duration + Send + Sync + 'static) -> Self {
+        Self(Arc::new(now))
+    }
+
+    pub fn now(&self) -> Duration {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for Clock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Clock")
+    }
+}
+
 /// Run-time settings of the service.
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Length of one second of the device flow's timing (interval, expiry); shorter in tests.
     pub unit: Duration,
+    /// What the device flow's expiry is measured with.
+    pub clock: Clock,
     /// Where `account.json` (the chosen server) is written; `None` keeps it in memory only.
     pub config_dir: Option<PathBuf>,
     /// The keychain service the store writes to ([`account::KEYCHAIN_SERVICE`]); `account.json`
@@ -70,6 +99,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             unit: Duration::from_secs(1),
+            clock: Clock::system(),
             config_dir: None,
             keychain_service: account::KEYCHAIN_SERVICE.to_owned(),
             device_name: account::device_name(),
@@ -555,8 +585,8 @@ impl AccountService {
         };
         // A previous flow stops waiting and sees that it is no longer current.
         self.inner.cancel.notify_waiters();
-        let started = Instant::now();
         let options = &self.inner.options;
+        let started = options.clock.now();
         let authorization = match api
             .device_authorization(&options.device_name, &options.platform)
             .await
@@ -626,13 +656,13 @@ impl AccountService {
         flow: u64,
         device_code: Zeroizing<String>,
         mut poll: DevicePoll,
-        started: Instant,
+        started: Duration,
     ) {
         let unit = self.inner.options.unit;
         let unit_ms = unit.as_millis().max(1);
         loop {
-            let elapsed =
-                u64::try_from(started.elapsed().as_millis() / unit_ms).unwrap_or(u64::MAX);
+            let since = self.inner.options.clock.now().saturating_sub(started);
+            let elapsed = u64::try_from(since.as_millis() / unit_ms).unwrap_or(u64::MAX);
             let Some(wait) = poll.next_wait(elapsed) else {
                 self.fail_flow(
                     flow,

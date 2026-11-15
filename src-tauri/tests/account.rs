@@ -14,7 +14,7 @@ use hangar_lib::account::{
     IdleNotice, KEYCHAIN_SERVICE,
 };
 use hangar_lib::account_api::{AccountApi, ApiError};
-use hangar_lib::account_service::{AccountService, Options};
+use hangar_lib::account_service::{AccountService, Clock, Options};
 use hangar_lib::secrets::{SecretError, SecretStore};
 use zeroize::Zeroizing;
 
@@ -719,7 +719,14 @@ impl Harness {
         config_dir: Option<std::path::PathBuf>,
         keychain_service: &str,
     ) -> Self {
-        Self::built(mock, store, config_dir, keychain_service, None)
+        Self::built(
+            mock,
+            store,
+            config_dir,
+            keychain_service,
+            None,
+            Clock::system(),
+        )
     }
 
     fn built(
@@ -728,6 +735,7 @@ impl Harness {
         config_dir: Option<std::path::PathBuf>,
         keychain_service: &str,
         avatar_dir: Option<std::path::PathBuf>,
+        clock: Clock,
     ) -> Self {
         let opened = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(Mutex::new(Vec::new()));
@@ -745,6 +753,7 @@ impl Harness {
             }),
             Options {
                 unit: UNIT,
+                clock,
                 config_dir,
                 keychain_service: keychain_service.to_owned(),
                 device_name: "Test machine".to_owned(),
@@ -892,12 +901,24 @@ fn declined_sign_in_fails_with_a_reason() {
 
 #[test]
 fn polling_stops_when_the_code_expires() {
-    let harness = Harness::new();
-    // Not on a poll boundary: each poll's own request shifts the next one by its duration, and
-    // with 20 a few milliseconds of drift on a busy machine dropped the poll at 15. With 19 the
-    // third poll stays due below 19 - 5 = 14 units of elapsed time (40 ms of drift allowed), and
-    // a fourth can never fit (15 + 5 >= 19).
-    harness.mock.state().expires_in = 19;
+    // The flow's clock moves by exactly one interval (5 units) per poll the mock answers, so a
+    // busy machine cannot shift the polls against the expiry: polls at 5, 10 and 15, and the
+    // next one would come at 20, past 19.
+    let mock = Mock::start();
+    mock.state().expires_in = 19;
+    let polled = mock.clone();
+    let clock = Clock::new(move || {
+        let polls = u32::try_from(polled.state().poll_times.len()).unwrap();
+        UNIT * 5 * polls
+    });
+    let harness = Harness::built(
+        mock,
+        Arc::new(MemoryStore::default()),
+        None,
+        KEYCHAIN_SERVICE,
+        None,
+        clock,
+    );
     run(async {
         harness.service.sign_in().await.unwrap();
         let state = harness
@@ -1152,6 +1173,7 @@ fn a_server_change_that_cannot_be_saved_ends_the_waiting_flow() {
         Arc::new(|_: &AccountView| {}),
         Options {
             unit: UNIT,
+            clock: Clock::system(),
             config_dir: Some(blocked),
             keychain_service: KEYCHAIN_SERVICE.to_owned(),
             device_name: "Test machine".to_owned(),
@@ -1581,6 +1603,7 @@ fn with_avatar(mock: Mock, dir: &std::path::Path) -> Harness {
         None,
         KEYCHAIN_SERVICE,
         Some(dir.join("account-avatar")),
+        Clock::system(),
     );
     harness.stored_sign_in();
     harness
