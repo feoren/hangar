@@ -2502,13 +2502,17 @@ pub fn team_snapshot(team: State<'_, TeamService>) -> crate::team::TeamSnapshot 
 }
 
 /// This device joined the team the person expected: they compared the admitting device's and
-/// the log's safety numbers. Only then does the device share anything.
+/// the log's safety numbers. Only then does the device share anything. `log_index` and
+/// `safety_number` are the numbers the window showed; a team that moved on refuses them.
 #[tauri::command]
 pub async fn team_confirm_admission(
     team: State<'_, TeamService>,
     project_id: String,
+    log_index: u64,
+    safety_number: Vec<String>,
 ) -> Result<(), TeamError> {
-    team.confirm_admission(&project_id).await
+    team.confirm_admission(&project_id, log_index, safety_number)
+        .await
 }
 
 /// Removes another device of the signed-in person from the team (a lost one, for example).

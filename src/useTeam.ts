@@ -226,10 +226,14 @@ export const team = {
     taskCommand(projectId, task, () => api.teamAnswerRelease(projectId, task, requester, accept)),
   confirm: (request: string) => answer(request, true),
   reject: (request: string) => answer(request, false),
-  /** The person compared the safety numbers: this device joins and starts sharing. */
-  confirmAdmission: (projectId: string) =>
+  /**
+   * The person compared the safety numbers shown (`logIndex`, the admitting device's
+   * `safetyNumber`): this device joins and starts sharing. A team that moved on in the meantime
+   * answers `changed`, and the next snapshot shows the new numbers.
+   */
+  confirmAdmission: (projectId: string, logIndex: number, safetyNumber: readonly string[]) =>
     command(projectId, async () => {
-      await api.teamConfirmAdmission(projectId);
+      await api.teamConfirmAdmission(projectId, logIndex, safetyNumber);
       return true;
     }),
   /** Removes another device of the person; the busy key is `deviceKey`. */

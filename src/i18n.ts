@@ -1431,6 +1431,23 @@ const de = {
     "Dieses Mitglied wurde schon einmal aus dem Team entfernt. Bestätige nur, wenn es zurück soll.",
   "team.error.unknownProject": "Dieses Projekt gibt es nicht mehr.",
   "team.error.unknownRequest": "Diese Anfrage gibt es nicht mehr.",
+  "team.logFull.notice":
+    "Die Teamhistorie ist voll: Neue Geräte und Mitglieder können nicht mehr aufgenommen werden. Teilen, Entfernen und Schlüsselwechsel funktionieren weiter.",
+  "team.logFull.manage":
+    "Ein Mitglied, das immer wieder Geräte hinzufügt und entfernt, kann die Historie füllen. Entferne es auf der Website aus dem Projekt, dann nimmt Hangar es aus dem Team. Platz entsteht dadurch nicht: Für neue Geräte und Mitglieder leg auf der Website ein neues Projekt an und teile dieses.",
+  "team.confirm.logFull":
+    "Die Teamhistorie ist voll, deshalb kann diese Anfrage nicht mehr bestätigt werden.",
+  "team.error.logFull":
+    "Die Teamhistorie ist voll. Neue Geräte und Mitglieder können nicht mehr aufgenommen werden.",
+  "team.status.noWebsiteOwner":
+    "Die Website nennt für dieses Projekt keinen Inhaber. Ohne ihn kann dieses Gerät dem Teamverlauf nicht vertrauen. Teilen ist angehalten, bis die Website aktualisiert ist.",
+  "team.error.changed": "Inzwischen hat sich etwas geändert. Vergleiche die Nummern noch mal.",
+  "team.status.logFull":
+    "Der Teamserver hat einen längeren Teamverlauf geschickt, als ein Team haben darf. Teilen ist angehalten. Für neue Geräte und Mitglieder leg auf der Website ein neues Projekt an und teile dieses.",
+  "team.confirm.roleTitle": "Admin bestätigen",
+  "team.confirm.roleChange": "Auf der Website zum Admin gemacht",
+  "team.confirm.roleHelp":
+    "Die Website nennt dieses Mitglied Admin des Projekts. Bestätige nur, wenn du es dort zum Admin gemacht hast. Als Admin kann es Mitglieder aufnehmen und entfernen.",
   "team.error.busy": "Gerade beschäftigt. Versuch es gleich noch mal.",
   "team.status.otherAccount":
     "Das Teamgerät auf diesem Computer gehört zu einem anderen Konto. Melde dich mit diesem Konto an.",
@@ -3018,6 +3035,22 @@ const en: Record<MessageKey, string> = {
     "This member was removed from the team before. Confirm only if they should be back.",
   "team.error.unknownProject": "This project no longer exists.",
   "team.error.unknownRequest": "This request no longer exists.",
+  "team.logFull.notice":
+    "The team history is full: new devices and members can no longer be admitted. Sharing, removals and key changes keep working.",
+  "team.logFull.manage":
+    "A member who keeps adding and removing devices can fill the history. Remove them from the project on the website, and Hangar takes them out of the team. That frees no room: for new devices and members, create a new project on the website and share that one.",
+  "team.confirm.logFull": "The team history is full, so this request can no longer be confirmed.",
+  "team.error.logFull":
+    "The team history is full. New devices and members can no longer be admitted.",
+  "team.status.noWebsiteOwner":
+    "The website names no owner for this project. Without one, this device cannot trust the team history. Sharing is paused until the website is updated.",
+  "team.error.changed": "Something changed in the meantime. Compare the numbers again.",
+  "team.status.logFull":
+    "The team server sent a longer team history than a team may have. Sharing is paused. For new devices and members, create a new project on the website and share that one.",
+  "team.confirm.roleTitle": "Confirm admin",
+  "team.confirm.roleChange": "Made an admin on the website",
+  "team.confirm.roleHelp":
+    "The website names this member an admin of the project. Confirm only if you made them an admin there. As an admin they can add and remove members.",
   "team.error.busy": "Busy right now. Try again in a moment.",
   "team.status.otherAccount":
     "On this computer, the team device belongs to another account. Sign in with that account.",
@@ -4636,6 +4669,23 @@ const el: Record<MessageKey, string> = {
     "Αυτό το μέλος είχε αφαιρεθεί από την ομάδα στο παρελθόν. Επιβεβαίωσε μόνο αν πρέπει να επιστρέψει.",
   "team.error.unknownProject": "Αυτό το έργο δεν υπάρχει πια.",
   "team.error.unknownRequest": "Αυτό το αίτημα δεν υπάρχει πια.",
+  "team.logFull.notice":
+    "Το ιστορικό της ομάδας είναι γεμάτο: νέες συσκευές και μέλη δεν μπορούν πλέον να γίνουν δεκτά. Η κοινή χρήση, οι αφαιρέσεις και οι αλλαγές κλειδιού συνεχίζουν να λειτουργούν.",
+  "team.logFull.manage":
+    "Ένα μέλος που προσθέτει και αφαιρεί συνεχώς συσκευές μπορεί να γεμίσει το ιστορικό. Αφαίρεσέ το από το έργο στον ιστότοπο και το Hangar θα το βγάλει από την ομάδα. Αυτό δεν ελευθερώνει χώρο: για νέες συσκευές και μέλη, δημιούργησε νέο έργο στον ιστότοπο και μοιράσου αυτό.",
+  "team.confirm.logFull":
+    "Το ιστορικό της ομάδας είναι γεμάτο, οπότε αυτό το αίτημα δεν μπορεί πλέον να επιβεβαιωθεί.",
+  "team.error.logFull":
+    "Το ιστορικό της ομάδας είναι γεμάτο. Νέες συσκευές και μέλη δεν μπορούν πλέον να γίνουν δεκτά.",
+  "team.status.noWebsiteOwner":
+    "Ο ιστότοπος δεν ορίζει κάτοχο για αυτό το έργο. Χωρίς αυτόν, αυτή η συσκευή δεν μπορεί να εμπιστευτεί το ιστορικό της ομάδας. Η κοινή χρήση σταμάτησε μέχρι να ενημερωθεί ο ιστότοπος.",
+  "team.error.changed": "Κάτι άλλαξε στο μεταξύ. Σύγκρινε ξανά τους αριθμούς.",
+  "team.status.logFull":
+    "Ο διακομιστής της ομάδας έστειλε μεγαλύτερο ιστορικό από όσο επιτρέπεται. Η κοινή χρήση σταμάτησε. Για νέες συσκευές και μέλη, δημιούργησε νέο έργο στον ιστότοπο και μοιράσου αυτό.",
+  "team.confirm.roleTitle": "Επιβεβαίωση διαχειριστή",
+  "team.confirm.roleChange": "Έγινε διαχειριστής στον ιστότοπο",
+  "team.confirm.roleHelp":
+    "Ο ιστότοπος ορίζει αυτό το μέλος ως διαχειριστή του έργου. Επιβεβαίωσε μόνο αν το έκανες εσύ διαχειριστή εκεί. Ως διαχειριστής μπορεί να προσθέτει και να αφαιρεί μέλη.",
   "team.error.busy": "Απασχολημένο τώρα. Δοκίμασε ξανά σε λίγο.",
   "team.status.otherAccount":
     "Η συσκευή ομάδας σε αυτόν τον υπολογιστή ανήκει σε άλλον λογαριασμό. Συνδέσου με εκείνον τον λογαριασμό.",
@@ -6247,6 +6297,23 @@ const es: Record<MessageKey, string> = {
     "Este miembro ya fue eliminado del equipo antes. Confirma solo si debe volver.",
   "team.error.unknownProject": "Este proyecto ya no existe.",
   "team.error.unknownRequest": "Esta solicitud ya no existe.",
+  "team.logFull.notice":
+    "El historial del equipo está lleno: ya no se pueden admitir dispositivos ni miembros nuevos. Compartir, quitar y cambiar la clave siguen funcionando.",
+  "team.logFull.manage":
+    "Un miembro que añade y quita dispositivos una y otra vez puede llenar el historial. Quítalo del proyecto en el sitio web y Hangar lo sacará del equipo. Eso no libera espacio: para dispositivos y miembros nuevos, crea un proyecto nuevo en el sitio web y comparte ese.",
+  "team.confirm.logFull":
+    "El historial del equipo está lleno, así que esta solicitud ya no se puede confirmar.",
+  "team.error.logFull":
+    "El historial del equipo está lleno. Ya no se pueden admitir dispositivos ni miembros nuevos.",
+  "team.status.noWebsiteOwner":
+    "El sitio web no indica ningún propietario para este proyecto. Sin él, este dispositivo no puede confiar en el historial del equipo. Compartir está en pausa hasta que se actualice el sitio web.",
+  "team.error.changed": "Algo cambió mientras tanto. Compara los números de nuevo.",
+  "team.status.logFull":
+    "El servidor del equipo envió un historial más largo del que puede tener un equipo. Compartir está en pausa. Para dispositivos y miembros nuevos, crea un proyecto nuevo en el sitio web y comparte ese.",
+  "team.confirm.roleTitle": "Confirmar administrador",
+  "team.confirm.roleChange": "Nombrado administrador en el sitio web",
+  "team.confirm.roleHelp":
+    "El sitio web indica que este miembro es administrador del proyecto. Confirma solo si lo nombraste administrador allí. Como administrador puede añadir y quitar miembros.",
   "team.error.busy": "Ocupado ahora mismo. Inténtalo de nuevo en un momento.",
   "team.status.otherAccount":
     "En este ordenador, el dispositivo del equipo pertenece a otra cuenta. Inicia sesión con esa cuenta.",
@@ -7868,6 +7935,23 @@ const fr: Record<MessageKey, string> = {
     "Ce membre a déjà été retiré de l'équipe. Ne confirme que s'il doit revenir.",
   "team.error.unknownProject": "Ce projet n'existe plus.",
   "team.error.unknownRequest": "Cette demande n'existe plus.",
+  "team.logFull.notice":
+    "L'historique de l'équipe est plein : de nouveaux appareils et membres ne peuvent plus être admis. Le partage, les retraits et les changements de clé fonctionnent toujours.",
+  "team.logFull.manage":
+    "Un membre qui ajoute et retire sans cesse des appareils peut remplir l'historique. Retire-le du projet sur le site web, et Hangar le retire de l'équipe. Cela ne libère pas de place : pour de nouveaux appareils et membres, crée un nouveau projet sur le site web et partage celui-là.",
+  "team.confirm.logFull":
+    "L'historique de l'équipe est plein, cette demande ne peut donc plus être confirmée.",
+  "team.error.logFull":
+    "L'historique de l'équipe est plein. De nouveaux appareils et membres ne peuvent plus être admis.",
+  "team.status.noWebsiteOwner":
+    "Le site web n'indique aucun propriétaire pour ce projet. Sans lui, cet appareil ne peut pas faire confiance à l'historique de l'équipe. Le partage est en pause jusqu'à la mise à jour du site web.",
+  "team.error.changed": "Quelque chose a changé entre-temps. Compare à nouveau les numéros.",
+  "team.status.logFull":
+    "Le serveur d'équipe a envoyé un historique plus long qu'une équipe ne peut en avoir. Le partage est en pause. Pour de nouveaux appareils et membres, crée un nouveau projet sur le site web et partage celui-là.",
+  "team.confirm.roleTitle": "Confirmer l'admin",
+  "team.confirm.roleChange": "Nommé admin sur le site web",
+  "team.confirm.roleHelp":
+    "Le site web indique que ce membre est admin du projet. Confirme seulement si tu l'as nommé admin là-bas. En tant qu'admin, il peut ajouter et retirer des membres.",
   "team.error.busy": "Occupé pour le moment. Réessaie dans un instant.",
   "team.status.otherAccount":
     "Sur cet ordinateur, l'appareil d'équipe appartient à un autre compte. Connecte-toi avec ce compte.",
@@ -9481,6 +9565,23 @@ const it: Record<MessageKey, string> = {
     "Questo membro era già stato rimosso dal team. Conferma solo se deve tornare.",
   "team.error.unknownProject": "Questo progetto non esiste più.",
   "team.error.unknownRequest": "Questa richiesta non esiste più.",
+  "team.logFull.notice":
+    "La cronologia del team è piena: non si possono più ammettere nuovi dispositivi e membri. Condivisione, rimozioni e cambi di chiave continuano a funzionare.",
+  "team.logFull.manage":
+    "Un membro che aggiunge e rimuove continuamente dispositivi può riempire la cronologia. Rimuovilo dal progetto sul sito web e Hangar lo toglierà dal team. Questo non libera spazio: per nuovi dispositivi e membri, crea un nuovo progetto sul sito web e condividi quello.",
+  "team.confirm.logFull":
+    "La cronologia del team è piena, quindi questa richiesta non può più essere confermata.",
+  "team.error.logFull":
+    "La cronologia del team è piena. Non si possono più ammettere nuovi dispositivi e membri.",
+  "team.status.noWebsiteOwner":
+    "Il sito web non indica alcun proprietario per questo progetto. Senza, questo dispositivo non può fidarsi della cronologia del team. La condivisione è in pausa finché il sito web non viene aggiornato.",
+  "team.error.changed": "Nel frattempo qualcosa è cambiato. Confronta di nuovo i numeri.",
+  "team.status.logFull":
+    "Il server del team ha inviato una cronologia più lunga di quella consentita. La condivisione è in pausa. Per nuovi dispositivi e membri, crea un nuovo progetto sul sito web e condividi quello.",
+  "team.confirm.roleTitle": "Conferma amministratore",
+  "team.confirm.roleChange": "Nominato amministratore sul sito web",
+  "team.confirm.roleHelp":
+    "Il sito web indica questo membro come amministratore del progetto. Conferma solo se l'hai nominato tu lì. Come amministratore può aggiungere e rimuovere membri.",
   "team.error.busy": "Occupato al momento. Riprova tra poco.",
   "team.status.otherAccount":
     "Su questo computer il dispositivo del team appartiene a un altro account. Accedi con quell'account.",
@@ -11089,6 +11190,22 @@ const ja: Record<MessageKey, string> = {
     "このメンバーは以前チームから削除されています。戻すべき場合のみ確認してください。",
   "team.error.unknownProject": "このプロジェクトはもう存在しません。",
   "team.error.unknownRequest": "このリクエストはもう存在しません。",
+  "team.logFull.notice":
+    "チームの履歴がいっぱいです。新しいデバイスやメンバーはもう追加できません。共有、削除、鍵の変更は引き続き使えます。",
+  "team.logFull.manage":
+    "デバイスの追加と削除を繰り返すメンバーが履歴を埋めることがあります。ウェブサイトでそのメンバーをプロジェクトから外すと、Hangar がチームからも外します。それで空きはできません。新しいデバイスやメンバーには、ウェブサイトで新しいプロジェクトを作成し、そちらを共有してください。",
+  "team.confirm.logFull": "チームの履歴がいっぱいのため、このリクエストはもう確認できません。",
+  "team.error.logFull":
+    "チームの履歴がいっぱいです。新しいデバイスやメンバーはもう追加できません。",
+  "team.status.noWebsiteOwner":
+    "ウェブサイトにこのプロジェクトのオーナーがありません。オーナーがいないと、このデバイスはチームの履歴を信頼できません。ウェブサイトが更新されるまで共有を一時停止します。",
+  "team.error.changed": "その間に変更がありました。番号をもう一度比べてください。",
+  "team.status.logFull":
+    "チームサーバーが、チームに許される長さを超える履歴を送ってきました。共有を一時停止しました。新しいデバイスやメンバーには、ウェブサイトで新しいプロジェクトを作成し、そちらを共有してください。",
+  "team.confirm.roleTitle": "管理者を確認",
+  "team.confirm.roleChange": "ウェブサイトで管理者に設定",
+  "team.confirm.roleHelp":
+    "ウェブサイトではこのメンバーがプロジェクトの管理者になっています。あなたがそこで管理者にした場合のみ確認してください。管理者はメンバーを追加・削除できます。",
   "team.error.busy": "処理中です。少し待ってから再試行してください。",
   "team.status.otherAccount":
     "このコンピューターのチーム用デバイスは別のアカウントのものです。そのアカウントでサインインしてください。",
@@ -12678,6 +12795,23 @@ const pl: Record<MessageKey, string> = {
     "Ten członek został już wcześniej usunięty z zespołu. Potwierdź tylko, jeśli ma wrócić.",
   "team.error.unknownProject": "Ten projekt już nie istnieje.",
   "team.error.unknownRequest": "To żądanie już nie istnieje.",
+  "team.logFull.notice":
+    "Historia zespołu jest pełna: nie można już przyjmować nowych urządzeń ani członków. Udostępnianie, usuwanie i zmiana klucza nadal działają.",
+  "team.logFull.manage":
+    "Członek, który ciągle dodaje i usuwa urządzenia, może zapełnić historię. Usuń go z projektu na stronie, a Hangar usunie go z zespołu. Nie zwalnia to miejsca: dla nowych urządzeń i członków utwórz na stronie nowy projekt i udostępnij go.",
+  "team.confirm.logFull":
+    "Historia zespołu jest pełna, więc tego żądania nie można już potwierdzić.",
+  "team.error.logFull":
+    "Historia zespołu jest pełna. Nie można już przyjmować nowych urządzeń ani członków.",
+  "team.status.noWebsiteOwner":
+    "Strona nie podaje właściciela tego projektu. Bez niego to urządzenie nie może ufać historii zespołu. Udostępnianie jest wstrzymane do czasu aktualizacji strony.",
+  "team.error.changed": "W międzyczasie coś się zmieniło. Porównaj numery ponownie.",
+  "team.status.logFull":
+    "Serwer zespołu przysłał dłuższą historię, niż zespół może mieć. Udostępnianie jest wstrzymane. Dla nowych urządzeń i członków utwórz na stronie nowy projekt i udostępnij go.",
+  "team.confirm.roleTitle": "Potwierdź administratora",
+  "team.confirm.roleChange": "Mianowany administratorem na stronie",
+  "team.confirm.roleHelp":
+    "Strona podaje tego członka jako administratora projektu. Potwierdź tylko, jeśli to ty nadałeś mu tam tę rolę. Jako administrator może dodawać i usuwać członków.",
   "team.error.busy": "Zajęte. Spróbuj ponownie za chwilę.",
   "team.status.otherAccount":
     "Na tym komputerze urządzenie zespołu należy do innego konta. Zaloguj się na to konto.",
@@ -14282,6 +14416,23 @@ const pt: Record<MessageKey, string> = {
     "Este membro já foi removido da equipe antes. Confirme só se ele deve voltar.",
   "team.error.unknownProject": "Este projeto não existe mais.",
   "team.error.unknownRequest": "Esta solicitação não existe mais.",
+  "team.logFull.notice":
+    "O histórico da equipe está cheio: novos dispositivos e membros não podem mais ser admitidos. Compartilhar, remover e trocar a chave continuam funcionando.",
+  "team.logFull.manage":
+    "Um membro que adiciona e remove dispositivos sem parar pode encher o histórico. Remova-o do projeto no site, e o Hangar o tira da equipe. Isso não libera espaço: para novos dispositivos e membros, crie um novo projeto no site e compartilhe esse.",
+  "team.confirm.logFull":
+    "O histórico da equipe está cheio, então esta solicitação não pode mais ser confirmada.",
+  "team.error.logFull":
+    "O histórico da equipe está cheio. Novos dispositivos e membros não podem mais ser admitidos.",
+  "team.status.noWebsiteOwner":
+    "O site não indica nenhum proprietário para este projeto. Sem ele, este dispositivo não pode confiar no histórico da equipe. O compartilhamento está pausado até o site ser atualizado.",
+  "team.error.changed": "Algo mudou nesse meio-tempo. Compare os números de novo.",
+  "team.status.logFull":
+    "O servidor da equipe enviou um histórico mais longo do que uma equipe pode ter. O compartilhamento está pausado. Para novos dispositivos e membros, crie um novo projeto no site e compartilhe esse.",
+  "team.confirm.roleTitle": "Confirmar administrador",
+  "team.confirm.roleChange": "Tornado administrador no site",
+  "team.confirm.roleHelp":
+    "O site indica este membro como administrador do projeto. Confirme só se você o tornou administrador lá. Como administrador, ele pode adicionar e remover membros.",
   "team.error.busy": "Ocupado agora. Tente de novo em instantes.",
   "team.status.otherAccount":
     "Neste computador, o dispositivo da equipe pertence a outra conta. Entre com essa conta.",
@@ -15870,6 +16021,23 @@ const ru: Record<MessageKey, string> = {
     "Этого участника уже удаляли из команды. Подтверждай, только если он должен вернуться.",
   "team.error.unknownProject": "Этого проекта больше нет.",
   "team.error.unknownRequest": "Этого запроса больше нет.",
+  "team.logFull.notice":
+    "История команды заполнена: новые устройства и участников больше нельзя принять. Общий доступ, удаление и смена ключа продолжают работать.",
+  "team.logFull.manage":
+    "Участник, который постоянно добавляет и удаляет устройства, может заполнить историю. Удали его из проекта на сайте, и Hangar уберёт его из команды. Места от этого не прибавится: для новых устройств и участников создай на сайте новый проект и делись им.",
+  "team.confirm.logFull":
+    "История команды заполнена, поэтому этот запрос больше нельзя подтвердить.",
+  "team.error.logFull":
+    "История команды заполнена. Новые устройства и участников больше нельзя принять.",
+  "team.status.noWebsiteOwner":
+    "Сайт не указывает владельца этого проекта. Без него это устройство не может доверять истории команды. Общий доступ приостановлен, пока сайт не обновят.",
+  "team.error.changed": "За это время что-то изменилось. Сравни номера ещё раз.",
+  "team.status.logFull":
+    "Сервер команды прислал историю длиннее допустимой. Общий доступ приостановлен. Для новых устройств и участников создай на сайте новый проект и делись им.",
+  "team.confirm.roleTitle": "Подтверди администратора",
+  "team.confirm.roleChange": "Назначен администратором на сайте",
+  "team.confirm.roleHelp":
+    "Сайт называет этого участника администратором проекта. Подтверждай, только если ты сам назначил его там. Администратор может добавлять и удалять участников.",
   "team.error.busy": "Сейчас занято. Попробуй ещё раз чуть позже.",
   "team.status.otherAccount":
     "На этом компьютере устройство команды принадлежит другой учётной записи. Войди с этой учётной записью.",
@@ -17450,6 +17618,21 @@ const tr: Record<MessageKey, string> = {
     "Bu üye daha önce ekipten çıkarıldı. Yalnızca geri dönmesi gerekiyorsa onayla.",
   "team.error.unknownProject": "Bu proje artık yok.",
   "team.error.unknownRequest": "Bu istek artık yok.",
+  "team.logFull.notice":
+    "Ekip geçmişi dolu: yeni cihazlar ve üyeler artık kabul edilemez. Paylaşım, çıkarma ve anahtar değişimi çalışmaya devam ediyor.",
+  "team.logFull.manage":
+    "Sürekli cihaz ekleyip çıkaran bir üye geçmişi doldurabilir. Onu web sitesinde projeden çıkar, Hangar da ekipten çıkarır. Bu yer açmaz: yeni cihazlar ve üyeler için web sitesinde yeni bir proje oluştur ve onu paylaş.",
+  "team.confirm.logFull": "Ekip geçmişi dolu, bu yüzden bu istek artık onaylanamaz.",
+  "team.error.logFull": "Ekip geçmişi dolu. Yeni cihazlar ve üyeler artık kabul edilemez.",
+  "team.status.noWebsiteOwner":
+    "Web sitesi bu proje için bir sahip göstermiyor. Sahip olmadan bu cihaz ekip geçmişine güvenemez. Web sitesi güncellenene kadar paylaşım duraklatıldı.",
+  "team.error.changed": "Bu arada bir şey değişti. Numaraları yeniden karşılaştır.",
+  "team.status.logFull":
+    "Ekip sunucusu bir ekibin sahip olabileceğinden uzun bir geçmiş gönderdi. Paylaşım duraklatıldı. Yeni cihazlar ve üyeler için web sitesinde yeni bir proje oluştur ve onu paylaş.",
+  "team.confirm.roleTitle": "Yöneticiyi onayla",
+  "team.confirm.roleChange": "Web sitesinde yönetici yapıldı",
+  "team.confirm.roleHelp":
+    "Web sitesi bu üyeyi projenin yöneticisi olarak gösteriyor. Yalnızca onu orada sen yönetici yaptıysan onayla. Yönetici olarak üye ekleyip çıkarabilir.",
   "team.error.busy": "Şu an meşgul. Birazdan yeniden dene.",
   "team.status.otherAccount":
     "Bu bilgisayardaki ekip cihazı başka bir hesaba ait. O hesapla oturum aç.",
@@ -18974,6 +19157,21 @@ const zh: Record<MessageKey, string> = {
   "team.confirm.readmitted": "此成员曾被移出团队。只有在其应当回来时才确认。",
   "team.error.unknownProject": "此项目已不存在。",
   "team.error.unknownRequest": "此请求已不存在。",
+  "team.logFull.notice":
+    "团队历史已满：无法再接纳新设备和新成员。共享、移除和更换密钥仍可正常使用。",
+  "team.logFull.manage":
+    "反复添加和移除设备的成员可能会填满历史。在网站上将其从项目中移除，Hangar 会随之将其移出团队。这不会腾出空间：如需新设备和新成员，请在网站上创建新项目并共享该项目。",
+  "team.confirm.logFull": "团队历史已满，因此无法再确认此请求。",
+  "team.error.logFull": "团队历史已满。无法再接纳新设备和新成员。",
+  "team.status.noWebsiteOwner":
+    "网站没有为此项目指定所有者。没有所有者，此设备无法信任团队历史。共享已暂停，直到网站更新。",
+  "team.error.changed": "期间有内容发生了变化。请再次比对号码。",
+  "team.status.logFull":
+    "团队服务器发送的历史超过了团队允许的长度。共享已暂停。如需新设备和新成员，请在网站上创建新项目并共享该项目。",
+  "team.confirm.roleTitle": "确认管理员",
+  "team.confirm.roleChange": "在网站上被设为管理员",
+  "team.confirm.roleHelp":
+    "网站将此成员列为项目管理员。仅当你在网站上将其设为管理员时才确认。管理员可以添加和移除成员。",
   "team.error.busy": "正在忙碌。请稍后再试。",
   "team.status.otherAccount": "此电脑上的团队设备属于另一个账户。请用该账户登录。",
   "team.status.ownerMismatch": "团队记录中的所有者与网站不同。共享已暂停。",

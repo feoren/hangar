@@ -4,6 +4,8 @@ import { accountErrorText, isSignedIn, type Project } from "./account";
 import { AccountStateSection } from "./AccountSettings";
 import { useT, type MessageKey } from "./i18n";
 import { CloseIcon } from "./icons";
+import { revealInvisible } from "./invisible";
+import { Revealed } from "./Revealed";
 import { nextTabIndex } from "./settingsSections";
 import {
   EMPTY_ACTIVITY,
@@ -323,8 +325,8 @@ function ProjectSwitch(props: {
   const t = useT();
   if (props.projects.length < 2) {
     return (
-      <span className="team-window-project" title={props.current.name}>
-        {props.current.name}
+      <span className="team-window-project" title={revealInvisible(props.current.name)}>
+        <Revealed text={props.current.name} />
       </span>
     );
   }
@@ -339,7 +341,8 @@ function ProjectSwitch(props: {
     >
       {props.projects.map((project) => (
         <option key={project.id} value={project.id}>
-          {project.name}
+          {/* An option holds text only: the invisible characters as their placeholders. */}
+          {revealInvisible(project.name)}
         </option>
       ))}
     </select>

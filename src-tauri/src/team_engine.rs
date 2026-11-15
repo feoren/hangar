@@ -48,9 +48,8 @@
 //! fork only that sender (or the relay towards it) shows: the sending device is set aside
 //! ([`DivergentDevice`] in the Team view) and its live records are ignored until this device's
 //! verified log changes, and the log is fetched again. The team stops
-//! ([`AttentionReason::HistoryMismatch`]) when this device's own log fetch contradicts what it
-//! verified before, or when devices of two distinct members report another history (then the
-//! fork is this device's), so a single member cannot stop everyone else's sharing.
+//! ([`AttentionReason::HistoryMismatch`]) only when this device's own log fetch contradicts what
+//! it verified before, so members cannot stop everyone else's sharing with signed records.
 //!
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
@@ -59,7 +58,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use hangar_team_crypto::identity::{safety_number, DeviceIdentity, DevicePublicKeys};
 use hangar_team_crypto::memberlog::{
-    DeviceEntry, Endorsement, EntryBody, EntryKind, LogVerifier, TeamState,
+    DeviceEntry, Endorsement, EntryBody, EntryKind, LogError, LogVerifier, TeamState,
+    MAX_LOG_ENTRIES,
 };
 use hangar_team_crypto::record::{
     sealed_header, task_record_id as record_task_id, EpochCipher, OpenError, Opened, RecordContext,
@@ -185,6 +185,17 @@ pub const WEBSITE_CHECK_EVERY_MS: u64 = 30_000;
 /// An owner's or admin's device compares the log's members with the website's this often, also
 /// without any relay event (the relay may withhold `member.removed`).
 pub const MEMBERS_CHECK_EVERY_MS: u64 = 10 * 60 * 1_000;
+
+/// A due rotation that is not urgent (it only removes devices added after the current epoch
+/// began, `TeamState::rotation_urgent`) goes out from this device at most this often, so one
+/// member adding and removing devices of its own cannot keep the team changing keys. Removing a
+/// member, or a device from before the epoch, rotates at once.
+pub const DEFERRED_ROTATION_EVERY_MS: u64 = 10 * 60 * 1_000;
+
+/// Refused `key.rotate` per connection; after that this device tries again only on the next
+/// connection. A refusal other than another rotation coming first (`conflict`, `staleEpoch`)
+/// also waits for the next ping, so a relay refusing every rotation cannot make it loop.
+const MAX_ROTATE_FAILURES: u32 = 2;
 
 /// A member as the website lists it for the project: its role there, `None` for a role this
 /// Hangar does not know (it still counts as a member, but its log role is left as it is).
@@ -746,6 +757,13 @@ pub struct Engine {
     synced: bool,
     creating: bool,
     rotating: bool,
+    /// Refused `key.rotate` on this connection ([`MAX_ROTATE_FAILURES`]).
+    rotate_failures: u32,
+    /// A refused `key.rotate` waits for the next ping before the next try.
+    rotate_hold: bool,
+    /// The epoch of the `key.rotate` this device sent on this connection, until the log shows
+    /// it; a relay that acknowledges a rotation it never stores counts as refusing it.
+    rotation_sent: Option<Epoch>,
     key_get: Option<Epoch>,
     devices_get: bool,
     /// Wrapped keys from `key.rotated` for epochs above the verified current one, by epoch; at
@@ -787,6 +805,13 @@ pub struct Engine {
     heartbeat_at: Option<u64>,
     /// When the last log fetch for an unknown holder went out (clock milliseconds).
     unknown_fetch_at: Option<u64>,
+    /// When this device last sent `key.rotate` (clock milliseconds), for
+    /// [`DEFERRED_ROTATION_EVERY_MS`]; kept across connections.
+    rotated_at: Option<u64>,
+    /// The owner's confirmations of admins the website named (`PendingKind::RoleChange`).
+    promotions: Vec<PendingConfirmation>,
+    /// The most log entries the verifier takes: `MAX_LOG_ENTRIES`, smaller only in tests.
+    max_log_entries: u64,
 }
 
 impl std::fmt::Debug for Engine {
@@ -846,6 +871,7 @@ impl Engine {
         let floor = crate::team::counter_floor((setup.now)());
         Self {
             verifier: LogVerifier::new(setup.team.clone()),
+            max_log_entries: MAX_LOG_ENTRIES,
             counter: SendCounter::resume(setup.local.counter.max(floor)),
             guard: ReplayGuard::from_marks(marks),
             live: LiveMarks::from_local(&setup.local),
@@ -881,6 +907,9 @@ impl Engine {
             synced: false,
             creating: false,
             rotating: false,
+            rotate_failures: 0,
+            rotate_hold: false,
+            rotation_sent: None,
             key_get: None,
             devices_get: false,
             inline: BTreeMap::new(),
@@ -905,6 +934,8 @@ impl Engine {
             book_known: false,
             heartbeat_at: None,
             unknown_fetch_at: None,
+            rotated_at: None,
+            promotions: Vec::new(),
         }
     }
 
@@ -1010,7 +1041,11 @@ impl Engine {
     }
 
     pub fn pending(&self) -> Vec<PendingConfirmation> {
-        self.pending.iter().map(|p| p.view.clone()).collect()
+        self.pending
+            .iter()
+            .map(|p| p.view.clone())
+            .chain(self.promotions.iter().cloned())
+            .collect()
     }
 
     fn frame(&mut self, op: Op, message: ClientMessage) -> Effect {
@@ -1043,11 +1078,14 @@ impl Engine {
         self.synced = false;
         self.creating = false;
         self.rotating = false;
+        self.rotate_failures = 0;
+        self.rotate_hold = false;
+        self.rotation_sent = None;
         self.appending = false;
         self.key_get = None;
         self.devices_get = false;
         self.inline.clear();
-        self.verifier = LogVerifier::new(self.team.clone());
+        self.verifier = LogVerifier::with_max_entries(self.team.clone(), self.max_log_entries);
         self.status = TeamStatus::Connecting { retrying: false };
         // The relay keeps no claims or presence of a closed connection: everything goes again,
         // and the others' presence arrives anew.
@@ -1151,6 +1189,13 @@ impl Engine {
             self.website_wanted = true;
         }
         effects.extend(self.website_due());
+        // A due rotation that waited (a refusal, or the interval of a deferred one) is tried
+        // again from here.
+        self.rotate_hold = false;
+        let due = self.verifier.state().is_some_and(TeamState::rotation_due);
+        if due && self.synced && !self.syncing && !self.rotating && self.manages() {
+            effects.extend(self.reconcile());
+        }
         effects
     }
 
@@ -1222,8 +1267,14 @@ impl Engine {
                         return vec![Self::stop(AttentionReason::OtherAccount)];
                     }
                     Some(_) => {}
-                    // The first welcome binds the device for good: it must name the account
-                    // signed in on the website, not one the relay chose.
+                    // The first welcome binds the device for good, so only once the website
+                    // said who is signed in (`/me`): the connection ends without binding and the
+                    // worker connects again after reading it.
+                    None if self.account.is_none() => {
+                        eprintln!("hangar: the signed-in account is not known yet; not binding");
+                        return vec![Effect::End(SessionEnd::Lost)];
+                    }
+                    // It must name the account signed in on the website, not one the relay chose.
                     None if self
                         .account
                         .as_ref()
@@ -1356,6 +1407,13 @@ impl Engine {
                 // Another rotation came first: the unused secret goes, the log decides again.
                 eprintln!("hangar: team key rotation refused ({code:?})");
                 self.rotating = false;
+                self.rotate_failures = self.rotate_failures.saturating_add(1);
+                // Another rotation coming first is normal and decided by the log at once; any
+                // other refusal waits for the next ping.
+                if !matches!(code, ErrorCode::Conflict | ErrorCode::StaleEpoch) {
+                    self.rotate_hold = true;
+                }
+                self.rotation_sent = None;
                 self.keys.epochs.remove(&epoch);
                 let mut effects = vec![Effect::StoreKeys];
                 effects.extend(self.sync_log());
@@ -1415,6 +1473,7 @@ impl Engine {
                 self.sync_log()
             }
             Some(Op::Rotate(_)) => {
+                // Whether it landed, the log fetch tells (`reconcile`).
                 self.rotating = false;
                 self.sync_log()
             }
@@ -1450,7 +1509,11 @@ impl Engine {
         }
         if let Err(error) = self.verifier.apply_all(&page.entries) {
             eprintln!("hangar: team membership log refused: {error}");
-            return vec![Self::stop(AttentionReason::HistoryMismatch)];
+            let reason = match error {
+                LogError::LogFull => AttentionReason::LogFull,
+                _ => AttentionReason::HistoryMismatch,
+            };
+            return vec![Self::stop(reason)];
         }
         if page.more {
             let after = self.verifier.state().map_or(0, |s| s.head().index);
@@ -1489,6 +1552,17 @@ impl Engine {
             if state.owner() != owner {
                 eprintln!("hangar: the team log names another owner than the website");
                 return vec![Self::stop(AttentionReason::OwnerMismatch)];
+            }
+        }
+        // Without an owner from the website (an older server) nothing vouches for the log: a
+        // device admitted before goes on, a new one does not start trusting it. The device that
+        // created the team admits itself.
+        if self.owner.is_none() && !self.keys.admitted {
+            if let (Some(state), Some(me)) = (self.verifier.state(), &self.me) {
+                if state.added_by(me) != Some(me) {
+                    eprintln!("hangar: the website names no project owner to check the log by");
+                    return vec![Self::stop(AttentionReason::NoWebsiteOwner)];
+                }
             }
         }
         let mut effects = Vec::new();
@@ -1582,11 +1656,18 @@ impl Engine {
         let role = state.effective_role(&me.member, self.website_role);
         let manager = role.is_some_and(|r| role_rank(r) <= role_rank(Role::Admin));
         let current = state.current_epoch().map(|e| e.epoch);
-        if manager && !self.rotating && (current.is_none() || state.rotation_due()) {
+        let due = state.rotation_due();
+        let urgent = state.rotation_urgent();
+        self.check_rotation_landed(current);
+        let wants = current.is_none() || urgent || (due && self.deferred_rotation_free());
+        if manager && !self.rotating && wants && self.may_rotate() {
             effects.extend(self.rotate(&me));
             self.status = TeamStatus::Connecting { retrying: false };
             return effects;
         }
+        let Some(state) = self.verifier.state() else {
+            return effects;
+        };
         let Some(epoch) = current else {
             // The owner's device creates the first epoch.
             self.status = waiting;
@@ -1623,9 +1704,11 @@ impl Engine {
         let Some(state) = self.verifier.state() else {
             return effects;
         };
-        if state.rotation_due() {
+        if state.rotation_urgent() {
             // A device or member left and only an owner or admin changes the key: until then
-            // the current key may be in the removed one's hands, so nothing new is sealed.
+            // the current key may be in the removed one's hands, so nothing new is sealed. A
+            // rotation that only removes devices added after the epoch began does not hold
+            // sharing: their member had the key anyway (`TeamState::rotation_urgent`).
             self.status = TeamStatus::WaitingForKeyChange;
             return effects;
         }
@@ -1677,9 +1760,24 @@ impl Engine {
 
     /// The person compared the safety numbers of the admitting device and of the log with that
     /// device and confirms: stored with the head, then this device fetches its key and shares.
-    pub fn confirm_admission(&mut self) -> Result<Vec<Effect>, TeamError> {
-        if !matches!(self.status, TeamStatus::ConfirmAdmission { .. }) {
+    /// `log_index` and `safety_number` (the admitting device's) are what the window showed: when
+    /// the team shows something else by now, nothing is confirmed ([`TeamError::Changed`]) and
+    /// the window shows the new numbers to compare.
+    pub fn confirm_admission(
+        &mut self,
+        log_index: u64,
+        safety_number: &[String],
+    ) -> Result<Vec<Effect>, TeamError> {
+        let TeamStatus::ConfirmAdmission {
+            log_index: shown_index,
+            safety_number: shown_number,
+            ..
+        } = &self.status
+        else {
             return Err(TeamError::UnknownRequest);
+        };
+        if *shown_index != log_index || shown_number.as_slice() != safety_number {
+            return Err(TeamError::Changed);
         }
         self.keys.admitted = true;
         let mut effects = vec![Effect::StoreKeys];
@@ -1700,6 +1798,7 @@ impl Engine {
             return Vec::new();
         }
         if !self.manages() {
+            self.promotions.clear();
             return Vec::new();
         }
         let (Some(roster), Some(state), Some(me)) =
@@ -1717,6 +1816,7 @@ impl Engine {
         }
         let now = self.now();
         let mut candidates = Vec::new();
+        let mut promotions = Vec::new();
         for (member, entry) in state.members() {
             if *member == me.member || member == state.owner() {
                 continue;
@@ -1733,14 +1833,29 @@ impl Engine {
                         && entry.role != Role::Owner
                         && *listed != entry.role =>
                 {
-                    candidates.push(EntryKind::ChangeRole {
-                        member: member.clone(),
-                        role: *listed,
-                    });
+                    // Fewer rights follow the website at once; more rights only once the owner
+                    // confirmed them here, so a website (or whoever took it over) cannot make
+                    // someone an admin of the end-to-end team alone.
+                    if role_rank(*listed) > role_rank(entry.role) {
+                        candidates.push(EntryKind::ChangeRole {
+                            member: member.clone(),
+                            role: *listed,
+                        });
+                    } else {
+                        promotions.push(self.promotion_view(member, *listed, entry.added_at));
+                    }
                 }
                 _ => {}
             }
         }
+        promotions.retain(|p| !self.local.rejected.contains(&p.id));
+        self.promotions = promotions;
+        let Some(state) = self.verifier.state() else {
+            return Vec::new();
+        };
+        let Some(me) = self.me.as_ref() else {
+            return Vec::new();
+        };
         let body = candidates.into_iter().find_map(|kind| {
             let body = state.next_body(me.clone(), now, kind);
             state.check(&body).is_ok().then_some(body)
@@ -1779,6 +1894,36 @@ impl Engine {
         }
     }
 
+    /// A rotation this device sent and the relay answered: once the log fetch after it is in,
+    /// a log without its epoch means the relay did not store it (counted like a refusal).
+    fn check_rotation_landed(&mut self, current: Option<Epoch>) {
+        if self.rotating || self.syncing {
+            return;
+        }
+        let Some(sent) = self.rotation_sent.take() else {
+            return;
+        };
+        if current.is_none_or(|current| current < sent) {
+            eprintln!("hangar: a team key rotation was answered but is not in the log");
+            self.rotate_failures = self.rotate_failures.saturating_add(1);
+            self.rotate_hold = true;
+        }
+    }
+
+    /// Whether this connection may try a rotation: fewer than [`MAX_ROTATE_FAILURES`] refused,
+    /// and none waiting for the next ping.
+    fn may_rotate(&self) -> bool {
+        !self.rotate_hold && self.rotate_failures < MAX_ROTATE_FAILURES
+    }
+
+    /// Whether a rotation that is due but not urgent may go out now
+    /// ([`DEFERRED_ROTATION_EVERY_MS`] after this device's last one).
+    fn deferred_rotation_free(&self) -> bool {
+        let now = (self.now)();
+        self.rotated_at
+            .is_none_or(|at| now < at || now - at >= DEFERRED_ROTATION_EVERY_MS)
+    }
+
     /// A new epoch for every device; the secret is stored before `key.rotate` leaves.
     fn rotate(&mut self, me: &Holder) -> Vec<Effect> {
         let Some(state) = self.verifier.state() else {
@@ -1810,6 +1955,8 @@ impl Engine {
         self.wrap_queue
             .extend(rotation.failed.iter().map(|(holder, _)| holder.clone()));
         self.rotating = true;
+        self.rotation_sent = Some(rotation.epoch);
+        self.rotated_at = Some((self.now)());
         self.keys.epochs.insert(rotation.epoch, rotation.secret);
         self.keys.trim();
         vec![
@@ -1905,8 +2052,65 @@ impl Engine {
         hex(&sha.finalize()[..16])
     }
 
-    /// The entry confirming `info`, if this device may and the log would take it.
-    fn confirmation_body(&self, info: &DeviceInfo) -> Option<(PendingKind, EntryBody)> {
+    /// The owner's confirmation that `member` (in the log since `added_at`) becomes `role`, as
+    /// the website lists it. The id is stable for the member's time in the log, so a rejected
+    /// promotion stays rejected until the member is added again.
+    fn promotion_view(&self, member: &MemberId, role: Role, added_at: u64) -> PendingConfirmation {
+        let mut sha = Sha256::new();
+        for part in [
+            b"hangar-team/app/role".as_slice(),
+            self.team.as_str().as_bytes(),
+            member.as_str().as_bytes(),
+            &[role_rank(role)],
+            &added_at.to_be_bytes(),
+        ] {
+            sha.update(u32::try_from(part.len()).unwrap_or(u32::MAX).to_be_bytes());
+            sha.update(part);
+        }
+        PendingConfirmation {
+            id: hex(&sha.finalize()[..16]),
+            project_id: self.project.clone(),
+            member: member.as_str().to_owned(),
+            device: String::new(),
+            kind: PendingKind::RoleChange,
+            safety_number: Vec::new(),
+            readmitted: false,
+            log_full: self.verifier.state().is_some_and(TeamState::log_full),
+        }
+    }
+
+    /// The change role entry a promotion stands for, while the website and the log still differ.
+    fn promotion_body(&self, id: &str) -> Option<EntryBody> {
+        let view = self.promotions.iter().find(|p| p.id == id)?;
+        let state = self.verifier.state()?;
+        let me = self.me.as_ref()?;
+        let member = MemberId::new(view.member.clone()).ok()?;
+        let listed = self
+            .roster
+            .as_ref()?
+            .members
+            .get(&member)
+            .copied()
+            .flatten()?;
+        let entry = state.member(&member)?;
+        if self.promotion_view(&member, listed, entry.added_at).id != id {
+            return None;
+        }
+        let body = state.next_body(
+            me.clone(),
+            self.now(),
+            EntryKind::ChangeRole {
+                member,
+                role: listed,
+            },
+        );
+        state.check(&body).ok()?;
+        Some(body)
+    }
+
+    /// The entry confirming `info`, if this device may and the log would take it; `true` when
+    /// only the log's length stands in the way.
+    fn confirmation_body(&self, info: &DeviceInfo) -> Option<(PendingKind, EntryBody, bool)> {
         let state = self.verifier.state()?;
         let me = self.me.as_ref()?;
         state.device(me)?;
@@ -1960,14 +2164,19 @@ impl Engine {
             )
         };
         let body = state.next_body(me.clone(), self.now(), entry_kind);
-        state.check(&body).ok()?;
-        Some((kind, body))
+        // A request the full log has no room for stays visible as such (`full`), so the person
+        // learns why it cannot be confirmed instead of the device waiting unseen.
+        match state.check(&body) {
+            Ok(()) => Some((kind, body, false)),
+            Err(LogError::LogFull) => Some((kind, body, true)),
+            Err(_) => None,
+        }
     }
 
     fn update_pending(&mut self, devices: Vec<DeviceInfo>) {
         let mut pending = Vec::new();
         for info in devices {
-            let Some((kind, _)) = self.confirmation_body(&info) else {
+            let Some((kind, _, log_full)) = self.confirmation_body(&info) else {
                 continue;
             };
             let keys = DevicePublicKeys {
@@ -1992,6 +2201,7 @@ impl Engine {
                     kind,
                     safety_number: safety_groups(&safety_number(&info.holder, &keys)),
                     readmitted,
+                    log_full,
                 },
                 info,
             });
@@ -2000,12 +2210,31 @@ impl Engine {
     }
 
     pub fn has_request(&self, id: &str) -> bool {
-        self.pending.iter().any(|p| p.view.id == id)
+        self.pending.iter().any(|p| p.view.id == id) || self.promotions.iter().any(|p| p.id == id)
     }
 
     /// Confirms a waiting device: the add device or add member entry, then (after the relay
-    /// took it) the current key wrapped to the device.
+    /// took it) the current key wrapped to the device. For a promotion the website asked for,
+    /// the change role entry.
     pub fn confirm(&mut self, id: &str) -> Result<Vec<Effect>, TeamError> {
+        if self.promotions.iter().any(|p| p.id == id) {
+            if self.verifier.state().is_some_and(TeamState::log_full) {
+                return Err(TeamError::LogFull);
+            }
+            if self.syncing || self.creating || self.rotating || self.appending {
+                return Err(TeamError::Busy);
+            }
+            let body = self.promotion_body(id).ok_or(TeamError::UnknownRequest)?;
+            let append = body
+                .sign(&self.identity)
+                .map_err(|_| TeamError::UnknownRequest)?;
+            self.promotions.retain(|p| p.id != id);
+            self.appending = true;
+            return Ok(vec![
+                self.frame(Op::Append(None), ClientMessage::MemberLogAppend(append)),
+                Effect::Changed,
+            ]);
+        }
         let at = self
             .pending
             .iter()
@@ -2015,9 +2244,12 @@ impl Engine {
             return Err(TeamError::Busy);
         }
         let info = self.pending[at].info.clone();
-        let (_, body) = self
+        let (_, body, log_full) = self
             .confirmation_body(&info)
             .ok_or(TeamError::UnknownRequest)?;
+        if log_full {
+            return Err(TeamError::LogFull);
+        }
         let append = body
             .sign(&self.identity)
             .map_err(|_| TeamError::UnknownRequest)?;
@@ -2033,6 +2265,11 @@ impl Engine {
 
     /// Hides a waiting device for good (remembered in the state file).
     pub fn reject(&mut self, id: &str) -> Result<Vec<Effect>, TeamError> {
+        if self.promotions.iter().any(|p| p.id == id) {
+            self.promotions.retain(|p| p.id != id);
+            self.local.reject(id);
+            return Ok(vec![Effect::StoreLocal, Effect::Changed]);
+        }
         let at = self
             .pending
             .iter()
@@ -2676,11 +2913,11 @@ impl Engine {
     ///
     /// The fork may also be this device's: the relay can show it an entry the others never got
     /// (after a restart, past the head it stored). So every divergence fetches the log again,
-    /// and when devices of two distinct members report another history, this device is the odd
-    /// one out and the team stops. Devices of one member never stop it, however many: which
-    /// other devices are heard is the relay's word (an unsigned `offline`, a new connection),
-    /// and one person must not be able to stop everyone. A fork of this device's own log shows
-    /// in the log fetch.
+    /// and the team stops only when that fetch contradicts what this device verified before
+    /// (`after_sync`). Reports of other devices never stop it, however many and of however many
+    /// members: two members working together could otherwise stop everyone's sharing with one
+    /// record each, and which devices are heard is the relay's word anyway. Every reporting
+    /// device stays listed in the Team view, so the people can compare log safety numbers.
     fn diverged(&mut self, holder: &Holder) -> Vec<Effect> {
         eprintln!("hangar: a team device reports a different membership history");
         let at = self.verifier.state().map_or(0, |s| s.head().index);
@@ -2694,8 +2931,7 @@ impl Engine {
             .insert(holder.clone(), Divergent { at, name });
         let members: BTreeSet<&MemberId> = self.divergent.keys().map(|h| &h.member).collect();
         if members.len() >= 2 {
-            eprintln!("hangar: several team devices report another history than this one");
-            return vec![Self::stop(AttentionReason::HistoryMismatch)];
+            eprintln!("hangar: devices of several members report another team history");
         }
         let mut effects = vec![Effect::Changed];
         effects.extend(self.sync_log());
@@ -2765,6 +3001,7 @@ impl Engine {
                     safety_number: safety_groups(&n),
                 })
             }),
+            log_full: self.verifier.state().is_some_and(TeamState::log_full),
         }
     }
 
@@ -3206,6 +3443,9 @@ impl Engine {
         if hold.request.is_some() {
             return Err(TeamError::Busy);
         }
+        // Before anything changes: without the epoch's key no request goes out, and no attempt
+        // may be left behind for one that never went.
+        let (cipher, head, _) = self.current_cipher().ok_or(TeamError::Busy)?;
         let key = match self.attempt_key(&task) {
             Some(key) => key,
             None => {
@@ -3234,7 +3474,6 @@ impl Engine {
                 key
             }
         };
-        let (cipher, head, _) = self.current_cipher().ok_or(TeamError::Busy)?;
         let plaintext = team_tasks::request_plaintext(&self.share.person);
         let record = record_task_id(&task);
         let note = self.seal(
@@ -4848,7 +5087,8 @@ mod tests {
                 member: None,
                 account: Some(MemberId::new(member).unwrap()),
                 website_role: role,
-                owner: None,
+                // Every test team is alice's.
+                owner: Some(MemberId::new("alice").unwrap()),
                 keys: StoredKeys::default(),
                 local: LocalState::default(),
                 now: Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst)),
@@ -4907,12 +5147,19 @@ mod tests {
             }
             if !any && start.is_empty() {
                 for (at, client) in clients.iter_mut().enumerate() {
-                    let waits = matches!(
-                        client.engine.status(false),
-                        TeamStatus::ConfirmAdmission { .. }
-                    );
-                    if client.admit && waits {
-                        start.push((at, client.engine.confirm_admission().unwrap()));
+                    if let TeamStatus::ConfirmAdmission {
+                        log_index,
+                        safety_number,
+                        ..
+                    } = client.engine.status(false)
+                    {
+                        if client.admit {
+                            let effects = client
+                                .engine
+                                .confirm_admission(log_index, &safety_number)
+                                .unwrap();
+                            start.push((at, effects));
+                        }
                     }
                 }
                 if start.is_empty() {
@@ -5568,15 +5815,32 @@ mod tests {
             Err(TeamError::UnknownRequest)
         ));
         assert!(a1.engine.activity().peers.is_empty());
+        // A confirmation of numbers the window showed before the team moved on changes nothing.
+        assert_eq!(
+            b1.engine
+                .confirm_admission(log_index + 1, &safety_number)
+                .err(),
+            Some(TeamError::Changed)
+        );
+        let mut other = safety_number.clone();
+        other[0] = "00000".to_owned();
+        assert_eq!(
+            b1.engine.confirm_admission(log_index, &other).err(),
+            Some(TeamError::Changed)
+        );
+        assert!(!b1.engine.keys().admitted);
         // Confirmed: stored with the head first, then bob's device takes the key and shares.
-        let confirmed = b1.engine.confirm_admission().unwrap();
+        let confirmed = b1
+            .engine
+            .confirm_admission(log_index, &safety_number)
+            .unwrap();
         assert!(matches!(confirmed[0], Effect::StoreKeys));
         assert!(b1.engine.keys().admitted);
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, confirmed)]);
         assert_eq!(connected(&b1), (1, 2, 2));
         assert!(a1.engine.activity().peers.iter().any(|p| p.member == "bob"));
         assert!(matches!(
-            b1.engine.confirm_admission(),
+            b1.engine.confirm_admission(log_index, &safety_number),
             Err(TeamError::UnknownRequest)
         ));
     }
@@ -5735,31 +5999,64 @@ mod tests {
             }]),
         });
         assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
-        // The website makes bob an admin: the owner's device writes the change.
-        assert_eq!(website_checks(&a1.engine.ping()), vec![(false, true)]);
-        let effects = a1.engine.set_website(Website {
+        // The website makes bob an admin: the owner's device asks the owner first.
+        let bob_id = MemberId::new("bob").unwrap();
+        let list = |bob_role: Role| Website {
             role: Role::Owner,
             owner: Some(alice.clone()),
             members: Some(vec![
                 WebsiteMember {
-                    member: alice,
+                    member: alice.clone(),
                     role: Some(Role::Owner),
                 },
                 WebsiteMember {
-                    member: MemberId::new("bob").unwrap(),
-                    role: Some(Role::Admin),
+                    member: bob_id.clone(),
+                    role: Some(bob_role),
                 },
             ]),
-        });
+        };
+        let bob_role = |a1: &Client| a1.engine.state().unwrap().member(&bob_id).unwrap().role;
+        assert_eq!(website_checks(&a1.engine.ping()), vec![(false, true)]);
+        a1.engine.roster_asked_at = Some(3);
+        let effects = a1.engine.set_website(list(Role::Admin));
+        assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
-        let state = a1.engine.state().unwrap();
-        let bob = state.member(&MemberId::new("bob").unwrap()).unwrap();
-        assert_eq!(bob.role, Role::Admin);
+        assert_eq!(bob_role(&a1), Role::Member);
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1);
+        let promotion = pending[0].clone();
+        assert_eq!(promotion.kind, PendingKind::RoleChange);
+        assert_eq!(promotion.member, "bob");
+        // Confirmed: the change role entry goes into the log.
+        let confirm = a1.engine.confirm(&promotion.id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        assert_eq!(bob_role(&a1), Role::Admin);
+        assert!(a1.engine.pending().is_empty());
         assert_eq!(
             connected(&a1),
             (1, 2, 2),
             "a role change makes no rotation due"
         );
+        // The website takes the admin role back: fewer rights follow at once, unasked.
+        a1.engine.roster_asked_at = Some(4);
+        let effects = a1.engine.set_website(list(Role::Member));
+        assert_eq!(sends(&effects), vec!["memberlog.append"]);
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(bob_role(&a1), Role::Member);
+        assert!(a1.engine.pending().is_empty());
+        // Made an admin again and rejected: the request stays away, the log keeps the role.
+        a1.engine.roster_asked_at = Some(5);
+        let effects = a1.engine.set_website(list(Role::Admin));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let again = a1.engine.pending();
+        assert_eq!(again.len(), 1);
+        let rejected = a1.engine.reject(&again[0].id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, rejected)]);
+        a1.engine.roster_asked_at = Some(5);
+        let effects = a1.engine.set_website(list(Role::Admin));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(a1.engine.pending().is_empty());
+        assert_eq!(bob_role(&a1), Role::Member);
     }
 
     #[test]
@@ -5813,6 +6110,15 @@ mod tests {
             vec![(1, confirm)],
         );
         assert_eq!(connected(&b2), (1, 2, 3));
+        // A key change after which bob's second device holds the epoch's key from the rotation.
+        let me = a1.holder.clone();
+        let rotate = a1.engine.rotate(&me);
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut b2],
+            vec![(0, rotate)],
+        );
+        assert_eq!(connected(&b2), (2, 2, 3));
         // Bob's second device is lost; his first removes it while no owner or admin is around.
         let own = b1.engine.activity().devices;
         assert_eq!(own.len(), 2);
@@ -5836,8 +6142,255 @@ mod tests {
         let claims = relay.claim_sets;
         let hello = a1.engine.hello(ticket());
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
-        assert_eq!(connected(&b1), (2, 2, 2));
+        assert_eq!(connected(&b1), (3, 2, 2));
         assert!(relay.claim_sets > claims);
+    }
+
+    #[test]
+    fn a_full_log_is_reported_and_its_requests_stay_visible_as_full() {
+        use hangar_team_crypto::memberlog::RESERVED_LOG_ENTRIES;
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        // `team_of_two` hands bob's device alice's first broadcasts before its own hello, which
+        // ends that not yet started connection with `Gap` (the test relay sends to every client;
+        // a real one sends nothing before `welcome`). Cleared, so every end below is this test's.
+        assert_eq!(b1.ended, Some(SessionEnd::Gap));
+        a1.ended = None;
+        b1.ended = None;
+        assert!(!a1.engine.activity().log_full);
+        // Room for one more device entry: then only removals and key changes fit.
+        let max = relay.entries.len() as u64 + 1 + RESERVED_LOG_ENTRIES;
+        relay.verifier = LogVerifier::with_max_entries(team(), max);
+        relay.verifier.apply_all(&relay.entries).unwrap();
+        // The same limit on both devices, as if their connections had started with it.
+        for client in [&mut a1, &mut b1] {
+            client.engine.max_log_entries = max;
+            let mut verifier = LogVerifier::with_max_entries(team(), max);
+            verifier.apply_all(&relay.entries).unwrap();
+            client.engine.verifier = verifier;
+        }
+        assert!(!b1.engine.activity().log_full);
+        // Bob adds a device of his: the last place goes.
+        let device = holder("bob", "x0");
+        let identity = DeviceIdentity::generate(&mut OsEntropy).unwrap();
+        let keys = identity.device_keys(&team(), &device);
+        relay.devices.push(DeviceInfo {
+            holder: device,
+            sign: keys.sign,
+            kem: keys.kem,
+            proof: keys.proof,
+            at: UnixMillis(1),
+        });
+        let poll = b1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, poll)]);
+        let request = b1.engine.pending().into_iter().next().unwrap();
+        assert!(!request.log_full);
+        let confirm = b1.engine.confirm(&request.id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, confirm)]);
+        // Sharing goes on; every device reports the full log, without stopping.
+        for client in [&a1, &b1] {
+            assert!(client.engine.activity().log_full);
+            assert_eq!(client.ended, None);
+        }
+        assert_eq!(connected(&b1).0, connected(&a1).0);
+        // A new device asks to join: its request shows as full instead of vanishing, and
+        // confirming it says why.
+        let extra = holder("bob", "x1");
+        let identity = DeviceIdentity::generate(&mut OsEntropy).unwrap();
+        let keys = identity.device_keys(&team(), &extra);
+        relay.devices.push(DeviceInfo {
+            holder: extra,
+            sign: keys.sign,
+            kem: keys.kem,
+            proof: keys.proof,
+            at: UnixMillis(1),
+        });
+        let poll = b1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, poll)]);
+        let pending = b1.engine.pending();
+        assert_eq!(pending.len(), 1, "{pending:?}");
+        assert!(pending[0].log_full);
+        assert_eq!(
+            b1.engine.confirm(&pending[0].id).err(),
+            Some(TeamError::LogFull)
+        );
+        // Removing a member and the key change still fit.
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        let epoch = connected(&a1).0;
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, remove)]);
+        assert_eq!(connected(&a1).0, epoch + 1);
+        assert_eq!(a1.ended, None);
+        assert_eq!(b1.ended, Some(SessionEnd::Stop(StopReason::Removed)));
+    }
+
+    /// Bob's first device admits another device of his (`id`, registered with the relay but
+    /// never connecting, which keeps the test fast), wraps it the key and removes it again.
+    fn churn(relay: &mut Relay, a1: &mut Client, b1: &mut Client, id: &str) {
+        let extra = holder("bob", id);
+        let identity = DeviceIdentity::generate(&mut OsEntropy).unwrap();
+        let keys = identity.device_keys(&team(), &extra);
+        relay.devices.push(DeviceInfo {
+            holder: extra.clone(),
+            sign: keys.sign,
+            kem: keys.kem,
+            proof: keys.proof,
+            at: UnixMillis(1),
+        });
+        let wraps = relay.wraps;
+        let poll = b1.engine.poll_devices();
+        run(relay, &mut [&mut *a1, &mut *b1], vec![(1, poll)]);
+        let request = b1.engine.pending().into_iter().next().unwrap();
+        let confirm = b1.engine.confirm(&request.id).unwrap();
+        run(relay, &mut [&mut *a1, &mut *b1], vec![(1, confirm)]);
+        assert_eq!(relay.wraps, wraps + 1, "the new device got the key");
+        let remove = b1.engine.remove_own_device(&extra.device).unwrap();
+        run(relay, &mut [a1, b1], vec![(1, remove)]);
+    }
+
+    fn epoch_of(client: &Client) -> u32 {
+        client
+            .engine
+            .state()
+            .and_then(TeamState::current_epoch)
+            .map_or(0, |e| e.epoch.0)
+    }
+
+    #[test]
+    fn a_member_adding_and_removing_own_devices_forces_at_most_one_rotation_per_interval() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        assert_eq!(epoch_of(&a1), 1);
+        for i in 0..50 {
+            churn(&mut relay, &mut a1, &mut b1, &format!("x{i}"));
+            // Sharing goes on: the removed devices came after the epoch, from bob himself.
+            assert_eq!(connected(&b1).0, 1);
+            assert_eq!(connected(&a1).0, 1);
+        }
+        assert!(a1.engine.state().unwrap().rotation_due());
+        assert_eq!(epoch_of(&a1), 1, "no rotation within the interval");
+        // The interval passed: the next ping rotates once, and more churn waits again.
+        a1.clock.fetch_add(
+            DEFERRED_ROTATION_EVERY_MS,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        let ping = a1.engine.ping();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, ping)]);
+        assert_eq!(epoch_of(&a1), 2);
+        assert_eq!(connected(&b1).0, 2);
+        for i in 50..55 {
+            churn(&mut relay, &mut a1, &mut b1, &format!("x{i}"));
+            let ping = a1.engine.ping();
+            run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, ping)]);
+        }
+        assert_eq!(epoch_of(&a1), 2);
+        // Removing a member still rotates at once.
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, remove)]);
+        assert_eq!(epoch_of(&a1), 3);
+    }
+
+    #[test]
+    fn a_relay_refusing_every_rotation_gets_at_most_two_per_connection() {
+        let (mut relay, mut a1, b1) = team_of_two();
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        // The relay takes the removal but answers every `key.rotate` with `forbidden`.
+        let mut rotations = 0;
+        let mut queue = vec![remove];
+        for round in 0..6 {
+            while let Some(effects) = queue.pop() {
+                for effect in effects {
+                    let Effect::Send(frame) = effect else {
+                        continue;
+                    };
+                    let answers = if matches!(frame.message, ClientMessage::KeyRotate(_)) {
+                        rotations += 1;
+                        vec![relay.err(frame.id, ErrorCode::Forbidden)]
+                    } else {
+                        let (mut own, all, _) = relay.handle(&a1.holder, Role::Owner, frame);
+                        own.extend(all);
+                        own
+                    };
+                    for text in answers {
+                        queue.push(a1.engine.on_text(&text));
+                    }
+                }
+            }
+            assert!(rotations <= 2, "round {round}: {rotations} rotations");
+            queue.push(a1.engine.ping());
+        }
+        assert_eq!(rotations, 2);
+        assert_eq!(a1.engine.status(false), TeamStatus::WaitingForKeyChange);
+        drop(b1);
+    }
+
+    #[test]
+    fn a_device_binds_to_no_account_before_the_website_names_the_signed_in_one() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        a1.engine.set_account(None);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1], vec![(0, hello)]);
+        assert_eq!(a1.ended, Some(SessionEnd::Lost));
+        assert!(a1.engine.member().is_none());
+        assert!(relay.entries.is_empty(), "nothing was created");
+        // Once the account is known, the next connection binds and creates the team.
+        a1.ended = None;
+        a1.engine.set_account(Some(MemberId::new("alice").unwrap()));
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1], vec![(0, hello)]);
+        assert_eq!(a1.engine.member().map(MemberId::as_str), Some("alice"));
+        assert_eq!(connected(&a1).0, 1);
+    }
+
+    #[test]
+    fn without_a_website_owner_only_devices_admitted_before_go_on() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        // An older server names no owner: bob's admitted device and alice's go on.
+        for client in [&mut a1, &mut b1] {
+            client.engine.owner = None;
+        }
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        assert_eq!(connected(&b1).0, 1);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        assert_eq!(connected(&a1).0, 1);
+        // A new device of carol's does not start trusting a log nothing vouches for.
+        let mut c1 = client("carol", "c1", Role::Member);
+        c1.engine.owner = None;
+        let hello = c1.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(2, hello)],
+        );
+        assert_eq!(
+            c1.ended,
+            Some(SessionEnd::Stop(StopReason::Attention(
+                AttentionReason::NoWebsiteOwner
+            )))
+        );
+    }
+
+    #[test]
+    fn a_release_request_without_the_key_leaves_no_attempt_behind() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let task = b1.engine.activity().tasks[0].task.clone();
+        assert!(b1.engine.attempts.is_empty());
+        b1.engine.status = TeamStatus::WaitingForKeyChange;
+        assert_eq!(b1.engine.ask_release(&task).err(), Some(TeamError::Busy));
+        assert!(
+            b1.engine.attempts.is_empty(),
+            "no attempt for a request never sent"
+        );
     }
 
     fn range(start: u32, end: u32) -> crate::claims::LineRange {
@@ -6492,7 +7045,7 @@ mod tests {
     }
 
     #[test]
-    fn devices_of_two_members_reporting_another_history_stop_the_team() {
+    fn devices_of_two_members_reporting_another_history_only_make_the_log_fetch_decide() {
         let (mut relay, mut a1, mut b1) = team_of_two();
         let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
         assert_eq!(connected(&c1), (1, 3, 3));
@@ -6503,16 +7056,30 @@ mod tests {
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
         assert!(a1.ended.is_none());
         assert_eq!(a1.engine.activity().divergent.len(), 1);
-        // A second member's device too: this device is the odd one out.
+        // A second member's device too: two members working together must not stop everyone.
+        // Both stay set aside and named in the Team view, and the log is fetched again; while
+        // that fetch agrees with what this device verified, it goes on.
         let effects = a1.engine.on_text(&forked_status(&relay, &mut c1));
-        assert!(
-            effects.iter().any(|e| matches!(
-                e,
-                Effect::End(SessionEnd::Stop(StopReason::Attention(
-                    AttentionReason::HistoryMismatch
-                )))
-            )),
-            "{effects:?}"
+        assert!(!stops(&effects), "{effects:?}");
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(0, effects)],
+        );
+        assert!(a1.ended.is_none());
+        assert_eq!(a1.engine.activity().divergent.len(), 2);
+        assert_eq!(connected(&a1).0, 1);
+        // A log fetch that contradicts the verified head still stops it.
+        let mut stored = a1.engine.keys().head.unwrap();
+        stored.hash = hangar_team_protocol::e2e::LogHash::from_bytes([9; 32]);
+        a1.engine.keys.head = Some(stored);
+        let effects = a1.engine.sync_log();
+        run(&mut relay, &mut [&mut a1], vec![(0, effects)]);
+        assert_eq!(
+            a1.ended,
+            Some(SessionEnd::Stop(StopReason::Attention(
+                AttentionReason::HistoryMismatch
+            )))
         );
     }
 
@@ -6587,9 +7154,10 @@ mod tests {
             assert_eq!(a1.engine.activity().divergent.len(), 2);
             assert!(a1.engine.peers.len() <= 1);
         }
-        // A second member's device too: then this device is the odd one out.
+        // A second member's device too: still only set aside (see the next test).
         let effects = a1.engine.on_text(&forked_status(&relay, &mut c1));
-        assert!(stops(&effects), "{effects:?}");
+        assert!(!stops(&effects), "{effects:?}");
+        assert_eq!(a1.engine.activity().divergent.len(), 3);
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTranslator } from "./i18n";
 import {
   ARM_DELAY_MS,
+  admissionKey,
   armDelayLeft,
   canToggle,
   confirmationKindText,
@@ -10,7 +11,9 @@ import {
   isArmed,
   isSharing,
   parsePendingConfirmations,
+  parseTeamActivity,
   parseTeamError,
+  pendingContentKey,
   parseTeamSnapshot,
   parseTeamStatus,
   requestPosition,
@@ -152,6 +155,7 @@ const ACTIVITY = {
     },
   ],
   log: { index: 4, safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"] },
+  logFull: false,
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -164,6 +168,7 @@ const REQUEST = {
   kind: "ownDevice",
   safetyNumber: SAFETY,
   readmitted: false,
+  logFull: false,
 };
 
 describe("parseTeamStatus", () => {
@@ -867,5 +872,93 @@ describe("reservation review fixes", () => {
       tasks: [{ ...TASK, request: { ...TASK.request, confirmed: false } }],
     };
     expect(releaseRequests(new Map([["p", unconfirmed]]))).toEqual([]);
+  });
+});
+
+describe("second security round", () => {
+  it("reads a role change request without device or safety number, and nothing else without", () => {
+    const role = { ...REQUEST, kind: "roleChange", device: "", safetyNumber: [] };
+    expect(parsePendingConfirmations([role])).toEqual([role]);
+    // A role change with a device or numbers is malformed; a device request without them too.
+    expect(parsePendingConfirmations([{ ...role, device: "d" }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...role, safetyNumber: SAFETY }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, device: "" }])).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, safetyNumber: [] }])).toBeNull();
+    const t = createTranslator("en");
+    expect(confirmationKindText("roleChange", t)).toBe(t("team.confirm.roleChange"));
+  });
+
+  it("knows the full log and the changed admission", () => {
+    const full = parseTeamStatus({ state: "needsAttention", reason: "logFull" });
+    expect(full).toEqual({ state: "needsAttention", reason: "logFull" });
+    if (full === null) return;
+    expect(statusKey(full)).toBe("team.status.logFull");
+    expect(parseTeamError({ kind: "changed", detail: null })).toEqual({
+      kind: "changed",
+      detail: null,
+    });
+    const t = createTranslator("de");
+    expect(teamErrorText({ kind: "changed", detail: null }, t)).toBe(t("team.error.changed"));
+  });
+
+  it("re-arms a request whose content changes under the same id", () => {
+    const parsed = parsePendingConfirmations([REQUEST]);
+    const request = parsed?.[0];
+    expect(request).toBeDefined();
+    if (request === undefined) return;
+    const same = pendingContentKey({ ...request });
+    expect(pendingContentKey(request)).toBe(same);
+    for (const changed of [
+      { ...request, safetyNumber: [...SAFETY.slice(1), "99999"] },
+      { ...request, device: "device-other" },
+      { ...request, member: "member-other" },
+      { ...request, kind: "newMember" as const },
+      { ...request, readmitted: true },
+    ]) {
+      expect(pendingContentKey(changed)).not.toBe(same);
+    }
+  });
+
+  it("keys the admission check on everything it shows", () => {
+    const admission = {
+      state: "confirmAdmission" as const,
+      member: "alice",
+      device: "d1",
+      safetyNumber: SAFETY,
+      logIndex: 4,
+      logSafetyNumber: SAFETY,
+    };
+    const key = admissionKey(admission);
+    expect(admissionKey({ ...admission })).toBe(key);
+    expect(admissionKey({ ...admission, logIndex: 5 })).not.toBe(key);
+    expect(admissionKey({ ...admission, safetyNumber: [...SAFETY].reverse() })).not.toBe(key);
+    expect(admissionKey({ ...admission, logSafetyNumber: [...SAFETY].reverse() })).not.toBe(key);
+    expect(admissionKey({ ...admission, device: "d2" })).not.toBe(key);
+  });
+});
+
+describe("full team log", () => {
+  it("reads the flag on the activity and on requests, absent as room", () => {
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: true })?.logFull).toBe(true);
+    // An older backend sends no flag.
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: undefined })?.logFull).toBe(false);
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, logFull: "yes" })).toBeNull();
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: true }])?.[0]?.logFull).toBe(true);
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: undefined }])?.[0]?.logFull).toBe(
+      false,
+    );
+    expect(parsePendingConfirmations([{ ...REQUEST, logFull: 1 }])).toBeNull();
+  });
+
+  it("names the full log, the refused confirmation and the missing website owner", () => {
+    const t = createTranslator("de");
+    expect(teamErrorText({ kind: "logFull", detail: null }, t)).toBe(t("team.error.logFull"));
+    expect(parseTeamError({ kind: "logFull", detail: null }).kind).toBe("logFull");
+    const noOwner = parseTeamStatus({ state: "needsAttention", reason: "noWebsiteOwner" });
+    expect(noOwner).toEqual({ state: "needsAttention", reason: "noWebsiteOwner" });
+    if (noOwner === null) return;
+    expect(statusLine(noOwner, t)?.text).toBe(t("team.status.noWebsiteOwner"));
+    expect(t("team.status.noWebsiteOwner")).not.toBe(t("team.status.ownerMismatch"));
+    expect(t("team.logFull.notice")).toContain("voll");
   });
 });

@@ -14,7 +14,8 @@ Team service step E ([[team-service-v1]], section 3), implemented in `crates/han
 the app wires storage and transport later; the relay depends on it for the membership log
 checks. Byte formats are in each module's doc comment; this page records the decisions and the
 threat model. Not reviewed externally yet: a review is a release blocker. Hardened after an
-internal security review (2026-11-09); the findings' ids (H1 to L7) are cited below.
+internal security review (2026-11-09); the findings' ids (H1 to L7) are cited below. A second
+round on the app side (2026-11-15, ids M1 to N9 with the prefix "round 2") is cited the same way.
 
 ## Building blocks
 
@@ -97,6 +98,25 @@ A.2.1 test.
   team at most `MAX_WRAPPED_KEYS` (512), recovery devices included; an add member or add device
   entry over either is refused (`TooManyDevices`, `limit`). So every rotation fits one
   `key.rotate`, and one member cannot fill the team's device budget.
+- **Log length** (round 2, M1). A log has at most `MAX_LOG_ENTRIES` (8192) entries; the last
+  `RESERVED_LOG_ENTRIES` (64) places take only remove member and rotate epoch entries, so an
+  owner or admin can still remove the member who filled the log and change the key. Beyond,
+  `LogError::LogFull` (`limit`); the relay refuses such appends through the same verifier, and a
+  client given a longer log than that stops with `AttentionReason::LogFull`. Every device
+  verifies the whole log on each connection, so its length must stay bounded; 8192 entries are a
+  few thousand device lifecycles. Without a relay-side rate limit one member can still fill the
+  log within its own device budget (add and remove its own devices); see Open.
+  A log that reached the reserved places does not stop anyone (`TeamState::log_full`,
+  `TeamActivity::log_full`): sharing, receiving, removals and key changes go on, and every device
+  shows a notice that new devices and members can no longer be admitted. A request that no
+  longer fits stays in the confirmation list marked as such (`PendingConfirmation::log_full`,
+  confirming answers `TeamError::LogFull`), so a waiting device is not left unseen.
+  **Way out** (what exists today): owners and admins remove the member who filled the log from
+  the project on the website, and the log follows with a remove member entry (reserved place);
+  that stops further churn but frees no place, since the cap counts every entry ever written.
+  New devices and members then need a new project created on the website (a new team with its
+  own log). There is no log reset or compaction; both would need a new trust anchor and are not
+  built.
 - **Fork resistance** (M4). The epoch keys bind the log hash of the epoch's rotate entry
   (`EpochKeys::derive(secret, team, epoch, rotation)`), and that hash commits to the whole log up
   to the rotation: two sides of a fork derive different keys from the same secret. Every record
@@ -117,12 +137,15 @@ A.2.1 test.
   shown another log by the relay) could otherwise stop everyone's sharing with a single record,
   and this device's own log is still the one it verified. The fork may also be this device's
   (the relay showed it an entry the others never got, past the head it stored), so every such
-  record makes it fetch the log again, and when devices of two distinct members report another
-  history, it stops (`HistoryMismatch`). Devices of one member never stop it, however many and
-  whether or not other devices are heard: which devices are heard is the relay's word (unsigned
-  `offline`, a new connection), and one person must not stop everyone. It also stops when its
-  own log fetch contradicts the head it verified before; which side of a fork
-  is real only the people comparing log safety numbers can tell. Fork detection from live
+  record makes it fetch the log again. Reports never stop it, however many devices and members
+  send them (round 2, N7: earlier, reports of two distinct members stopped it, so two members
+  working together could stop everyone's sharing with one record each). It stops
+  (`HistoryMismatch`) only when its own log fetch contradicts the head it verified before.
+  Accepted consequence: when the relay forks this device itself and keeps showing it a
+  consistent branch, it goes on alone; every other device then shows as "reports a different
+  team history" in its Team view, records across the fork do not open (the epoch keys bind the
+  log), and which side of a fork is real only the people comparing log safety numbers can
+  tell. Fork detection from live
   records is best effort: since decryption comes before the hash comparison, a real fork whose
   branch derived another epoch key (the fork lies before the epoch's rotate entry) ends as a
   decryption failure (`Decrypt`), not as `Fork`, and such a record is simply not shown. The
@@ -184,8 +207,12 @@ A.2.1 test.
   the list no longer names, one entry at a time. That makes the rotation due, and the next epoch
   is wrapped only to the devices left. A member the log added after the list was asked for
   (log index at the moment of asking) is never removed by that list. On the owner's device a
-  role the website changed (admin or member) becomes a change role entry, and a new member gets
-  the website's role (admin only when the owner confirms). The list failing (no answer, an older
+  role the website lowered (admin to member) becomes a change role entry at once; a role it
+  raised (member to admin) only once the owner confirms it in the app (round 2, M2:
+  `PendingKind::RoleChange`, shown with the other confirmations, rejected ones stay hidden until
+  the member is added again), so the website alone cannot make anyone an admin of the
+  end-to-end team. A new member gets the website's role (admin only when the owner confirms the
+  new member). The list failing (no answer, an older
   server without the endpoint) only skips this step; a relay that refuses such an entry stops
   further ones until the next list. A list that names neither the reading member nor the log's
   owner (an empty answer, ids of another kind) removes nobody. Members are never removed by hand in the app; a person
@@ -195,21 +222,59 @@ A.2.1 test.
   person compares two numbers with the admitting device and confirms: that device's safety
   number and the log safety number at the head (`TeamStatus::ConfirmAdmission`; the admitting
   device shows both under People, Your devices). The confirmation is stored with the head in the
-  keychain (`StoredKeys::admitted`, format `v2`; a `v1` entry with a head counts as confirmed,
-  since it was trusted before). The device that created the team admits itself. Independently,
-  the log's owner (entry 1's issuer) must be the project's `owner_id` on the website, else the
-  team stops (`OwnerMismatch`).
-- **A due rotation holds sharing** (third review, M1). While the log says a rotation is due and
-  this device cannot rotate, it seals nothing new (`TeamStatus::WaitingForKeyChange`): the
-  current epoch key may be in the removed device's hands. Receiving goes on.
+  keychain (`StoredKeys::admitted`, format `v2`; a `v1` entry counts as confirmed only with a
+  head and an epoch secret, since `v1` stored the head after every log fetch, also on a device
+  the log never listed; round 2, N4). The device that created the team admits itself. The
+  confirmation is bound to what the window showed (round 2, N5): `team_confirm_admission` carries
+  the log index and the admitting device's safety number, and the engine refuses them
+  (`TeamError::Changed`) when the status shows others by now; the window then reads the new
+  numbers. Its button stays disabled for a moment after any number changes, like the device
+  confirmations, whose cards also start disarmed again when their content changes under the
+  same id. Independently, the log's owner (entry 1's issuer) must be the project's `owner_id` on
+  the website, else the team stops (`OwnerMismatch`). A website that names no owner (an older
+  server) stops a device that was not admitted before with its own reason, `NoWebsiteOwner`
+  (round 2, N2);
+  devices admitted before go on.
+- **A due rotation holds sharing** (third review, M1). While the log says an urgent rotation is
+  due and this device cannot rotate, it seals nothing new (`TeamStatus::WaitingForKeyChange`):
+  the current epoch key may be in the removed device's hands. Receiving goes on.
+- **Not every due rotation is urgent** (round 2, M1). Any member may add and remove devices of
+  its own; if each removal forced a rotation at once and held sharing, one member could keep the
+  team changing keys and waiting for them for good. `TeamState::rotation_urgent` is true when a
+  member left since the epoch began or a device was removed that the log listed when the epoch's
+  key was wrapped. A due rotation that is not urgent only removes devices added after the epoch
+  began, of members still in the team: such a device got the key, if at all, through `key.wrap`
+  from a device of its own member or an owner or admin, so its member had it anyway. For these
+  an owner's or admin's device rotates at most every `DEFERRED_ROTATION_EVERY_MS` (10 minutes,
+  checked on each ping), and sharing goes on meanwhile. Whether the removed device ever received
+  a `key.wrap` is not used: a member may wrap to its own devices (`relay::check_wrap`), and the
+  relay's `key.wrapped` events are unsigned. Accepted consequence: a lost device added after the
+  epoch began keeps the current key for up to 10 more minutes of sharing. Removing a member, or a
+  device from before the epoch, rotates at once as before.
+- **Rotation retries are bounded** (round 2, N3). A refused `key.rotate` counts per connection;
+  after two refusals the device does not rotate again until it reconnects. A refusal other than
+  `conflict` or `staleEpoch` (another rotation came first, which the log decides at once) waits
+  for the next ping, and an acknowledged rotation the next log fetch does not show counts as
+  refused. A relay that refuses every rotation therefore gets at most two per connection.
 - **The relay names the member only once it is the signed-in account** (third review, L5): the
   first `welcome` binds the device to its member id only when that id is the account `/me`
-  names; otherwise the device stops with `OtherAccount` and binds nothing.
+  names; otherwise the device stops with `OtherAccount` and binds nothing. While `/me` is not
+  known yet, an unbound device does not connect, and a `welcome` that still reaches it ends the
+  connection without binding (`SessionEnd::Lost`); it connects again with the reconnect backoff
+  once the account read `/me` (round 2, N1: before, an unknown account bound to whatever the
+  relay named).
 - **Recovery code**: 128 random bits plus version and a 24-bit checksum, Crockford base32 in
   eight groups of four; HKDF derives an offline device's Ed25519 seed and X25519 key. It is a
   device of the log (`recovery: true`), so every rotation wraps to it. Using it means signing in
   as that device, adding the new installation to its own member, removing the recovery device
   from the new one, and an owner or admin rotating.
+- **No team salt in the recovery derivation** (round 2, N9, accepted). HKDF takes no salt and no
+  team id; only the label separates the derivation. Each code is 128 fresh random bits, so a
+  salt adds nothing against guessing one code, and against all codes at once (multi-target) even
+  2^30 published recovery keys leave about 2^98 guesses, out of reach. Binding the team in now
+  would give every existing code other keys than the ones its log lists, so printed codes would
+  stop working. A later code version (version byte 2) may add the team as domain separation for
+  new codes only.
 
 ## Obligations of the app
 
@@ -257,7 +322,8 @@ anyway (delay, drop, disconnect), never for deleting keys or raising rights:
 | notices about reservations | one per event the log vouches for (deduplicated warnings), at most 8 kept; desktop notifications at most once a minute |
 | `notify` | ignored: the events it stands for reach every device of the person through the log |
 | `claim.overlap` | for one of this device's own session keys and a listed device, and only for a session the device's newest signed status lists (without any status: at most "same area", no notice, and no detail is opened or kept); the detail only as for a status (counter mark per device and session key, at most 64 sessions per device, older ones refused by a floor); a signed detail with no file of ours caps the overlap at "same area" whatever the relay's level; at most 64 overlaps per own session and teammate device (one device inventing session keys cannot take the others' room); desktop notices at most once a minute |
-| teammates' names, agents, titles (status, detail) | shown and passed on without control, invisible or reordering characters, cut at 120 characters |
+| teammates' names, agents, titles (status, detail) | shown and passed on without control, invisible or reordering characters and without line or paragraph separators (U+2028, U+2029), cut at 120 characters |
+| the website's texts (project names, people's names, error details) | without control, invisible or reordering characters and without U+2028, U+2029 (`account::clean_text`); project names are also rendered with any remaining invisible characters shown as placeholders (`Revealed`) |
 
 ## Threat model
 
@@ -282,7 +348,7 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
 
 ## Tests
 
-56 unit tests: whole-team flows where every entry passes the relay's `admit` (a removal through
+68 unit tests (round 2 added the log cap with its reserved places and `rotation_urgent`): whole-team flows where every entry passes the relay's `admit` (a removal through
 `admit_device_remove`) and a client's `apply` with the same verdict (create, add, rotate as one
 unit, unwrap on every device, records across devices, removal and history, `key.wrap` with
 garbage packages first, recovery and its limits), every log rule and binding, proofs and
@@ -363,6 +429,14 @@ Further questions from the hardening round:
 ## Open
 
 - External cryptographic review before release (questions above).
+- **Server requirement** (round 2, M1a): the relay must rate-limit `memberlog.append` and
+  `device.remove` per member (for example a handful per minute and a few hundred per day). The
+  clients bound the damage (log cap, deferred rotations), but only the relay can stop one member
+  from filling the log with add and remove pairs of its own devices up to the cap, which would
+  then block new devices for the whole team (server work, outside this repository).
+- A full log has no recovery inside the team: only a new project on the website gives room for
+  new devices and members (see Log length). A log compaction or an owner-signed restart of the
+  log would remove that dead end; neither is designed yet.
 - The website must offer `GET /api/v1/projects/{id}/members` (members with their roles, for any
   member of the project) for the log to follow removals on the website; until it does, a member
   removed there keeps receiving new epoch keys (server work, outside this repository).

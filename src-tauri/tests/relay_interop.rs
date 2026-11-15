@@ -481,9 +481,17 @@ impl App {
                 return true;
             }
             // The person compares the admitting device's safety numbers and confirms.
-            if matches!(status, TeamStatus::ConfirmAdmission { .. }) {
+            if let TeamStatus::ConfirmAdmission {
+                log_index,
+                safety_number,
+                ..
+            } = &status
+            {
                 eprintln!("interop: {what}: confirming the admission");
-                let _ = self.team.confirm_admission(project).await;
+                let _ = self
+                    .team
+                    .confirm_admission(project, *log_index, safety_number.clone())
+                    .await;
             }
             if Instant::now() >= deadline {
                 eprintln!("interop: {what}: still {status:?}");

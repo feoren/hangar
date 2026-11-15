@@ -32,6 +32,10 @@ export type AttentionReason =
   | "otherAccount"
   /** The team's log names another owner than the website: the relay may show an invented team. */
   | "ownerMismatch"
+  /** The relay sent a longer team log than a team may have. */
+  | "logFull"
+  /** The website names no owner for the project, so a new device cannot trust the log. */
+  | "noWebsiteOwner"
   | "unknown";
 
 /** State of one project's team connection (Rust: `TeamStatus`). */
@@ -62,7 +66,8 @@ export type TeamStatus =
   | { state: "removed" }
   | { state: "projectDeleted" };
 
-export type ConfirmationKind = "ownDevice" | "newMember" | "unknown";
+/** `roleChange`: the website made a member an admin; the owner confirms it for the team. */
+export type ConfirmationKind = "ownDevice" | "newMember" | "roleChange" | "unknown";
 
 /** A new device waiting for this device's confirmation (Rust: `PendingConfirmation`). */
 export interface PendingConfirmation {
@@ -75,6 +80,8 @@ export interface PendingConfirmation {
   safetyNumber: string[];
   /** The member was removed from the team before; confirming admits them again. */
   readmitted: boolean;
+  /** The team's log is full: this request can no longer be confirmed. */
+  logFull: boolean;
 }
 
 /** What a session is doing, as the window's attention logic sees it (Rust: `SessionState`). */
@@ -235,6 +242,11 @@ export interface TeamActivity {
   devices: OwnDevice[];
   /** The log's safety number at its head, for a newcomer to compare; `null` before the log. */
   log: LogSafety | null;
+  /**
+   * The team's log has room only for removals and key changes: no new device or member can be
+   * admitted any more; sharing goes on.
+   */
+  logFull: boolean;
 }
 
 /** One of the signed-in person's devices in the team (Rust: `OwnDevice`). */
@@ -271,6 +283,7 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   sessionRepos: [],
   devices: [],
   log: null,
+  logFull: false,
 };
 
 export interface TeamEntry {
@@ -294,6 +307,10 @@ export type TeamErrorKind =
   | "notSignedIn"
   | "unknownProject"
   | "unknownRequest"
+  /** What the person confirmed is no longer what the team shows; compare again. */
+  | "changed"
+  /** The team's log has no room for another device or member. */
+  | "logFull"
   | "unknownRepository"
   | "invalidTask"
   | "unknownTask"
@@ -319,12 +336,16 @@ const REASONS: readonly AttentionReason[] = [
   "otherInstance",
   "otherAccount",
   "ownerMismatch",
+  "logFull",
+  "noWebsiteOwner",
 ];
-const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember"];
+const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember", "roleChange"];
 const ERROR_KINDS: readonly TeamErrorKind[] = [
   "notSignedIn",
   "unknownProject",
   "unknownRequest",
+  "changed",
+  "logFull",
   "unknownRepository",
   "invalidTask",
   "unknownTask",
@@ -403,16 +424,28 @@ function parsePending(value: unknown): PendingConfirmation | null {
   const id = text(field(value, "id"));
   const projectId = text(field(value, "projectId"));
   const member = text(field(value, "member"));
-  const device = text(field(value, "device"));
   const kindValue = field(value, "kind");
-  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
   const readmitted = field(value, "readmitted");
-  if (id === null || projectId === null || member === null || device === null) return null;
-  if (typeof kindValue !== "string" || safetyNumber === null) return null;
+  if (id === null || projectId === null || member === null) return null;
+  if (typeof kindValue !== "string") return null;
   // Missing counts as malformed, never as "not readmitted": the warning must not get lost.
   if (typeof readmitted !== "boolean") return null;
+  // Absent from an older backend means room; anything but a flag is malformed.
+  const logFullValue = field(value, "logFull");
+  if (logFullValue !== undefined && typeof logFullValue !== "boolean") return null;
+  const logFull = logFullValue === true;
   const kind = KINDS.find((entry) => entry === kindValue) ?? "unknown";
-  return { id, projectId, member, device, kind, safetyNumber, readmitted };
+  if (kind === "roleChange") {
+    // A role change names a member only: no device, no safety number to compare.
+    if (field(value, "device") !== "") return null;
+    const groups = field(value, "safetyNumber");
+    if (!Array.isArray(groups) || groups.length !== 0) return null;
+    return { id, projectId, member, device: "", kind, safetyNumber: [], readmitted, logFull };
+  }
+  const device = text(field(value, "device"));
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (device === null || safetyNumber === null) return null;
+  return { id, projectId, member, device, kind, safetyNumber, readmitted, logFull };
 }
 
 /** Checks the list of pending confirmations; `null` if an entry is malformed or an id repeats. */
@@ -686,6 +719,9 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
   const sessionRepos = optionalList(field(value, "sessionRepos"), (v) => list(v, parseSessionRepo));
   const devices = optionalList(field(value, "devices"), (v) => list(v, parseOwnDevice));
   const log = parseLogSafety(field(value, "log"));
+  const logFullValue = field(value, "logFull");
+  if (logFullValue !== undefined && typeof logFullValue !== "boolean") return null;
+  const logFull = logFullValue === true;
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
   if (sessionRepos === null || devices === null || log === undefined) return null;
@@ -701,6 +737,7 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
     sessionRepos,
     devices,
     log,
+    logFull,
   };
 }
 
@@ -779,6 +816,8 @@ const REASON_TEXTS: Record<AttentionReason, MessageKey> = {
   otherInstance: "team.status.otherInstance",
   otherAccount: "team.status.otherAccount",
   ownerMismatch: "team.status.ownerMismatch",
+  logFull: "team.status.logFull",
+  noWebsiteOwner: "team.status.noWebsiteOwner",
   unknown: "team.status.attention",
 };
 
@@ -841,6 +880,7 @@ export function statusLine(status: TeamStatus, t: Translate): StatusLine | null 
 const KIND_TEXTS: Record<ConfirmationKind, MessageKey> = {
   ownDevice: "team.confirm.ownDevice",
   newMember: "team.confirm.newMember",
+  roleChange: "team.confirm.roleChange",
   unknown: "team.confirm.unknown",
 };
 
@@ -852,6 +892,8 @@ const ERROR_TEXTS: Record<TeamErrorKind, MessageKey> = {
   notSignedIn: "account.error.notSignedIn",
   unknownProject: "team.error.unknownProject",
   unknownRequest: "team.error.unknownRequest",
+  changed: "team.error.changed",
+  logFull: "team.error.logFull",
   unknownRepository: "team.error.unknownRepository",
   invalidTask: "team.error.invalidTask",
   unknownTask: "team.error.unknownTask",
@@ -912,6 +954,37 @@ export function armDelayLeft(shownAt: number, now: number, delay = ARM_DELAY_MS)
   // A clock running backwards counts as just shown rather than as long armed.
   if (now < shownAt) return delay;
   return Math.max(0, delay - (now - shownAt));
+}
+
+/**
+ * Everything a pending request shows, as one key: a request whose content changes under the same
+ * id (other keys, another kind) is a new request to the person and starts disarmed again.
+ */
+export function pendingContentKey(request: PendingConfirmation): string {
+  return JSON.stringify([
+    request.id,
+    request.projectId,
+    request.member,
+    request.device,
+    request.kind,
+    request.safetyNumber,
+    request.readmitted,
+    request.logFull,
+  ]);
+}
+
+/**
+ * Everything the admission check shows, as one key: new numbers are a new check and start
+ * disarmed again.
+ */
+export function admissionKey(status: Extract<TeamStatus, { state: "confirmAdmission" }>): string {
+  return JSON.stringify([
+    status.member,
+    status.device,
+    status.safetyNumber,
+    status.logIndex,
+    status.logSafetyNumber,
+  ]);
 }
 
 /** Whether Confirm and Reject of a request shown at `shownAt` may be used at `now`. */

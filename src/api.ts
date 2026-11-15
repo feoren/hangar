@@ -644,8 +644,8 @@ export const api = {
   /** Every team's connection, the pending confirmations and the repositories to link. */
   teamSnapshot: () => invoke<unknown>("team_snapshot"),
   /** This device joined the team the person expected (they compared the safety numbers). */
-  teamConfirmAdmission: (projectId: string) =>
-    invoke<unknown>("team_confirm_admission", { projectId }),
+  teamConfirmAdmission: (projectId: string, logIndex: number, safetyNumber: readonly string[]) =>
+    invoke<unknown>("team_confirm_admission", { projectId, logIndex, safetyNumber }),
   /** Removes another device of the signed-in person from the team (a lost one). */
   teamRemoveDevice: (projectId: string, device: string) =>
     invoke<unknown>("team_remove_device", { projectId, device }),

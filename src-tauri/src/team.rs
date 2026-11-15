@@ -136,6 +136,13 @@ pub enum AttentionReason {
     /// The verified log's owner is not the project's owner on the website (authenticated
     /// HTTPS): the relay may show an invented team.
     OwnerMismatch,
+    /// The website names no owner for the project (an older server) and this device was not
+    /// admitted before: nothing vouches for the log it was shown.
+    NoWebsiteOwner,
+    /// The relay sent a longer membership log than a team may have (team-crypto,
+    /// `MAX_LOG_ENTRIES`). A log that merely reached the limit does not stop the team; that is
+    /// [`crate::team_share::TeamActivity::log_full`].
+    LogFull,
 }
 
 /// A device waiting for this device's confirmation.
@@ -152,6 +159,9 @@ pub struct PendingConfirmation {
     /// The log removed this member before: confirming admits them again. The website decides
     /// who is a member and may hand an id out again, so the window says so plainly.
     pub readmitted: bool,
+    /// The team's log is full (`TeamActivity::log_full`): the request cannot be confirmed any
+    /// more and is shown as such instead of vanishing.
+    pub log_full: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -161,6 +171,9 @@ pub enum PendingKind {
     OwnDevice,
     /// The first device of a member the log does not list yet (add member, owner or admin).
     NewMember,
+    /// The website made a member an admin; the owner confirms before the log grants it (change
+    /// role). `device` and `safety_number` are empty.
+    RoleChange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -198,6 +211,13 @@ pub enum TeamError {
     UnknownProject,
     #[error("Unknown confirmation request")]
     UnknownRequest,
+    /// What the person confirmed is no longer what the team shows (the log moved on or another
+    /// device admitted this one): the window shows the new state to compare again.
+    #[error("The team changed; compare again")]
+    Changed,
+    /// The team's log has no room for another device or member.
+    #[error("The team history is full")]
+    LogFull,
     #[error("The keychain failed: {0}")]
     Keychain(String),
     #[error("Settings could not be saved: {0}")]
@@ -224,6 +244,8 @@ impl TeamError {
             Self::NotSignedIn => "notSignedIn",
             Self::UnknownProject => "unknownProject",
             Self::UnknownRequest => "unknownRequest",
+            Self::Changed => "changed",
+            Self::LogFull => "logFull",
             Self::Keychain(_) => "keychain",
             Self::Config(_) => "config",
             Self::Busy => "busy",
@@ -669,8 +691,8 @@ impl StoredDevice {
 /// The keys entry in the keychain: the newest verified log head, whether the person confirmed
 /// the admission into that log, and the newest [`KEPT_EPOCHS`] epoch secrets.
 /// `v2 <index>:<hash hex>|- a|- <epoch>:<secret hex>...`; an entry of the first format
-/// (`v1 <head> <epochs>`, no flag) counts as confirmed when it has a head: it was trusted before
-/// the confirmation existed.
+/// (`v1 <head> <epochs>`, no flag) counts as confirmed when it has a head and an epoch secret: it
+/// was in the team and trusted before the confirmation existed.
 #[derive(Default)]
 pub struct StoredKeys {
     pub head: Option<ChainHead>,
@@ -735,11 +757,11 @@ impl StoredKeys {
                 })
             }
         };
-        let admitted = match version {
-            "v1" => head.is_some(),
+        let flag = match version {
+            "v1" => None,
             _ => match parts.next()? {
-                "a" => true,
-                "-" => false,
+                "a" => Some(true),
+                "-" => Some(false),
                 _ => return None,
             },
         };
@@ -754,6 +776,9 @@ impl StoredKeys {
             array.copy_from_slice(&bytes);
             epochs.insert(Epoch(epoch.parse().ok()?), TeamSecret::from_bytes(array));
         }
+        // The first format stored the head after every log fetch, also on a device the log did
+        // not list yet: only a device that held an epoch secret was in the team and trusted.
+        let admitted = flag.unwrap_or(head.is_some() && !epochs.is_empty());
         Some(Self {
             head,
             admitted,
@@ -1282,10 +1307,13 @@ mod tests {
         assert!(back.admitted);
         keys.admitted = false;
         assert!(!StoredKeys::decode(&keys.encode()).unwrap().admitted);
-        // The first format had no flag: a head stored then was trusted, an empty entry was not.
-        let old = format!("v1 3:{}", "05".repeat(32));
+        // The first format had no flag: a head with an epoch secret was trusted, an empty entry
+        // was not, and neither was a head alone (stored by a device the log never listed).
+        let old = format!("v1 3:{} 1:{}", "05".repeat(32), "07".repeat(32));
         assert!(StoredKeys::decode(&old).unwrap().admitted);
         assert!(!StoredKeys::decode("v1 -").unwrap().admitted);
+        let head_only = format!("v1 3:{}", "05".repeat(32));
+        assert!(!StoredKeys::decode(&head_only).unwrap().admitted);
     }
 
     #[test]
@@ -1525,6 +1553,8 @@ mod tests {
             (AttentionReason::Storage, "storage"),
             (AttentionReason::OtherInstance, "otherInstance"),
             (AttentionReason::OtherAccount, "otherAccount"),
+            (AttentionReason::LogFull, "logFull"),
+            (AttentionReason::NoWebsiteOwner, "noWebsiteOwner"),
         ] {
             assert_eq!(
                 json(&TeamStatus::NeedsAttention { reason }),

@@ -816,3 +816,11 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] lint | Payload-free team and account signals after the security merge
 The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
 Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].
+
+## [2026-11-15] update | Second security round on teams, accounts and crypto
+Membership log capped at 8192 entries with 64 places kept for removing a member and rotating; a due rotation that only removes devices added after the epoch began is deferred to at most one per 10 minutes and holds no sharing; refused rotations are bounded per connection; a website promotion to admin waits for the owner's confirmation while demotions follow at once; the admission confirmation is bound to the numbers shown and armed with a delay; no binding before `/me` is known; no trust without a website owner for devices not admitted before; reports of other devices no longer stop the team; the `v1` keys migration needs an epoch secret; text cleaning drops invisible characters and line separators. Recovery derivation without team salt accepted with reasoning; relay rate limit filed as a server requirement.
+Pages changed: [[team-crypto]].
+
+## [2026-11-15] update | A full team log stays visible and names its way out
+A log that reached its reserved places no longer goes unnoticed: every device reports it without stopping, requests that no longer fit stay listed as such, and owners and admins are told the way out that exists (remove the member on the website, a new project for new devices). A website without a project owner now stops new devices with its own reason, `NoWebsiteOwner`.
+Pages changed: [[team-crypto]].
