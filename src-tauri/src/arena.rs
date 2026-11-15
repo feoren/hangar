@@ -21,6 +21,7 @@ use serde::{Serialize, Serializer};
 
 use crate::batch::{self, UnsafeBatch};
 use crate::git::{self, Git, GitError};
+use crate::git_actions;
 use crate::proctree::ProcTree;
 use crate::worktree::{self, Worktree, WorktreeError, BRANCH_PREFIX};
 
@@ -71,6 +72,14 @@ pub enum ArenaError {
     Apply(String),
     #[error("{path} cannot be taken over: {reason}")]
     Copy { path: String, reason: String },
+    #[error("{0} cannot be taken over: the path could lead into a git folder or to a device")]
+    UnsafePath(String),
+    #[error("{0} is a link or a submodule, which is never taken over")]
+    Link(String),
+    #[error("The changes are no longer the ones that were shown")]
+    Changed,
+    #[error("The worktree could not be deleted: {0}")]
+    Remove(String),
     #[error("The test command is not usable: {0}")]
     Command(String),
     #[error("The program {0} was not found")]
@@ -95,6 +104,10 @@ impl ArenaError {
             Self::TooLarge => Some("arena_too_large"),
             Self::Apply(_) => Some("arena_apply"),
             Self::Copy { .. } => Some("arena_copy"),
+            Self::UnsafePath(_) => Some("arena_unsafe_path"),
+            Self::Link(_) => Some("arena_link"),
+            Self::Changed => Some("arena_changed"),
+            Self::Remove(_) => Some("arena_remove"),
             Self::Command(_) => Some("arena_command"),
             Self::ProgramNotFound(_) => Some("arena_program_not_found"),
             Self::Batch(_) => Some("arena_unsafe_batch"),
@@ -364,7 +377,7 @@ pub fn count_lines(content: &[u8]) -> u64 {
 }
 
 /// A relative path from git (`a/b.txt`) as a path below a folder: plain names only, so it can
-/// never leave the folder or name a drive or an alternate data stream.
+/// never leave the folder, name a drive or an alternate data stream, or reach a git folder.
 pub fn safe_relative(path: &str) -> Option<PathBuf> {
     let mut out = PathBuf::new();
     for part in path.split('/') {
@@ -373,6 +386,7 @@ pub fn safe_relative(path: &str) -> Option<PathBuf> {
             || part == ".."
             || part.contains(['\\', ':', '\0'])
             || Path::new(part).is_absolute()
+            || !plain_name(part)
         {
             return None;
         }
@@ -382,6 +396,80 @@ pub fn safe_relative(path: &str) -> Option<PathBuf> {
         .components()
         .all(|component| matches!(component, Component::Normal(_)));
     (plain && !out.as_os_str().is_empty()).then_some(out)
+}
+
+/// One component the file system takes as written and that names no git folder. Windows drops
+/// trailing dots and spaces (`.git.` opens `.git`, measured in the wiki page) and opens a device
+/// for `nul` or `com1.txt`; the NTFS short name `git~1` and the HFS+ spellings of `.git` are
+/// refused everywhere ([`git_actions::names_git_folder`]).
+fn plain_name(part: &str) -> bool {
+    let trimmed = part.trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() || git_actions::names_git_folder(trimmed) {
+        return false;
+    }
+    !(cfg!(windows) && (trimmed.len() != part.len() || is_device_name(part)))
+}
+
+/// A Windows device name, also with an extension or trailing spaces: `CON`, `nul.txt`, `COM1`,
+/// `lpt²`.
+fn is_device_name(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or(part).trim_end_matches(' ');
+    let upper = stem.to_ascii_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    let Some(number) = upper
+        .strip_prefix("COM")
+        .or_else(|| upper.strip_prefix("LPT"))
+    else {
+        return false;
+    };
+    let mut chars = number.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+    )
+}
+
+/// The paths of a `git diff --raw -z` whose old or new mode is a symbolic link (120000) or a
+/// submodule (160000).
+pub fn linked_entries(raw: &[u8]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut records = raw.split(|b| *b == 0);
+    while let Some(header) = records.next() {
+        let Some(header) = header.strip_prefix(b":") else {
+            continue;
+        };
+        let Some(path) = records.next() else {
+            break;
+        };
+        let linked = header
+            .split(|b| *b == b' ')
+            .take(2)
+            .any(|mode| mode == b"120000" || mode == b"160000");
+        if linked {
+            found.push(String::from_utf8_lossy(path).into_owned());
+        }
+    }
+    found
+}
+
+/// Whether a component of `relative` below `root` is a link (on Windows any reparse point, so
+/// junctions too). The walk ends at the first component that does not exist.
+fn linked_on_the_way(root: &Path, relative: &Path) -> bool {
+    let mut current = root.to_path_buf();
+    for part in relative.components() {
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if git_actions::is_link(&meta) => return true,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 /// The contestant's changes against the base commit, per file and summed up.
@@ -498,13 +586,17 @@ fn check_owner(git: &Git, worktree: &Worktree, deadline: Instant) -> Result<(), 
 
 /// Takes the contestant's changes over into the project folder (`worktree.repoRoot`) as
 /// uncommitted changes: tracked changes as a patch through `git apply` (all or nothing), new files
-/// copied. Refuses, before touching anything, when the project folder has its own changes in any
-/// of those files or a new file is already there.
+/// copied. `expected` is the file list the user confirmed (from [`diff_stat`]); when the changes
+/// differ from it by now, nothing is touched. Refuses, before touching anything, when the project
+/// folder has its own changes in any of those files or a new file is already there, and when a
+/// path could reach a git folder or passes a link. New files go in before the patch, and are
+/// taken back when the patch fails.
 pub fn apply(
     git: &Git,
     base: &Path,
     worktree: &Worktree,
     base_commit: &str,
+    expected: &[String],
 ) -> Result<ApplyOutcome, ArenaError> {
     check_contestant(base, worktree)?;
     check_commit(base_commit)?;
@@ -522,18 +614,52 @@ pub fn apply(
     if tracked.is_empty() && untracked.is_empty() {
         return Err(ArenaError::NothingToApply);
     }
-    let mut new_files = Vec::with_capacity(untracked.len());
-    for name in &untracked {
-        let relative = safe_relative(name).ok_or_else(|| ArenaError::Copy {
-            path: name.clone(),
-            reason: "unusual path".to_owned(),
-        })?;
-        new_files.push((name.clone(), relative));
+    let mut all_changed: Vec<String> = tracked.iter().chain(untracked.iter()).cloned().collect();
+    all_changed.sort();
+    all_changed.dedup();
+    let mut confirmed = expected.to_vec();
+    confirmed.sort();
+    confirmed.dedup();
+    if all_changed != confirmed {
+        return Err(ArenaError::Changed);
+    }
+    let relative_paths = |names: &[String]| -> Result<Vec<(String, PathBuf)>, ArenaError> {
+        names
+            .iter()
+            .map(|name| {
+                safe_relative(name)
+                    .map(|relative| (name.clone(), relative))
+                    .ok_or_else(|| ArenaError::UnsafePath(name.clone()))
+            })
+            .collect()
+    };
+    let tracked_files = relative_paths(&tracked)?;
+    let new_files = relative_paths(&untracked)?;
+    if !tracked.is_empty() {
+        // The same arguments as the patch below, so this sees exactly what `git apply` would get.
+        let mut args = neutral_args(&neutral, git::DIFF_ARGS);
+        args.extend([
+            "--raw",
+            "-z",
+            "--no-renames",
+            "--no-abbrev",
+            base_commit,
+            "--",
+        ]);
+        let raw = git.run(&worktree.path, args, deadline, git::MAX_LIST_BYTES)?;
+        if raw.truncated {
+            return Err(ArenaError::TooLarge);
+        }
+        if !raw.success {
+            return Err(raw.failure().into());
+        }
+        if let Some(linked) = linked_entries(&raw.stdout).into_iter().next() {
+            return Err(ArenaError::Link(linked));
+        }
     }
 
     let target_neutral = git::filter_overrides(git, target, deadline)?;
     let dirty = dirty_files(git, target, &target_neutral, deadline)?;
-    let all_changed: Vec<String> = tracked.iter().chain(untracked.iter()).cloned().collect();
     let mut blocked = conflicts(&all_changed, &dirty);
     for (name, relative) in &new_files {
         if fs::symlink_metadata(target.join(relative)).is_ok() && !blocked.contains(name) {
@@ -544,8 +670,12 @@ pub fn apply(
         blocked.sort();
         return Ok(ApplyOutcome::Conflict { files: blocked });
     }
-    // New files must be plain files; links and the like are refused before anything changes.
+    // New files must be plain files reached without a link; checked again on the open handle
+    // when copied.
     for (name, relative) in &new_files {
+        if linked_on_the_way(&worktree.path, relative) {
+            return Err(ArenaError::Link(name.clone()));
+        }
         let meta = fs::symlink_metadata(worktree.path.join(relative)).map_err(|error| {
             ArenaError::Copy {
                 path: name.clone(),
@@ -559,8 +689,24 @@ pub fn apply(
             });
         }
     }
+    // Nothing is written through a link in the project folder, and no new folder lands in its
+    // git folder (a short name or an alias of `.git` that got past the name check).
+    let place = Place::of(git, target, deadline)?;
+    for (name, relative) in tracked_files.iter().chain(new_files.iter()) {
+        if linked_on_the_way(target, relative) {
+            return Err(ArenaError::Link(name.clone()));
+        }
+    }
+    for (name, relative) in &new_files {
+        place.check(name, &target.join(relative))?;
+    }
 
-    if !tracked.is_empty() {
+    // The patch is made before anything changes; new files go in first, because only the copy
+    // can fail halfway (and is taken back), while `git apply` is all or nothing. Taking a patch
+    // back with `git apply -R` would not restore the bytes (line endings), so it is never needed.
+    let patch = if tracked.is_empty() {
+        None
+    } else {
         let mut args = neutral_args(&neutral, git::DIFF_ARGS);
         args.extend([
             "--binary",
@@ -576,61 +722,200 @@ pub fn apply(
         if !patch.success {
             return Err(patch.failure().into());
         }
+        Some(patch.stdout)
+    };
+    let created = copy_new_files(&worktree.path, target, &place, &new_files)?;
+    if let Some(patch) = patch {
         let args = neutral_args(&target_neutral, &["apply", "--whitespace=nowarn", "-"]);
-        let applied = git.run_with_input(target, args, Some(patch.stdout), deadline, 64 * 1024)?;
-        if !applied.success {
-            return Err(ArenaError::Apply(git::message(&applied.stderr)));
+        let applied = git
+            .run_with_input(target, args, Some(patch), deadline, 64 * 1024)
+            .map_err(ArenaError::from)
+            .and_then(|applied| {
+                if applied.success {
+                    Ok(())
+                } else {
+                    Err(ArenaError::Apply(git::message(&applied.stderr)))
+                }
+            });
+        if let Err(error) = applied {
+            created.undo();
+            return Err(error);
         }
     }
-    copy_new_files(&worktree.path, target, &new_files)?;
-    let mut files = all_changed;
-    files.sort();
-    Ok(ApplyOutcome::Applied { files })
+    Ok(ApplyOutcome::Applied { files: all_changed })
 }
 
-/// Copies new files from the worktree into the project folder; each target folder must stay
-/// inside the project folder once resolved (a linked folder there could lead elsewhere).
+/// Where new files may go: inside the project folder once resolved, never in its git folder.
+struct Place {
+    real_target: PathBuf,
+    git_dir: PathBuf,
+}
+
+impl Place {
+    fn of(git: &Git, target: &Path, deadline: Instant) -> Result<Self, ArenaError> {
+        let real_target = target.canonicalize().map_err(|error| ArenaError::Copy {
+            path: ".".to_owned(),
+            reason: error.to_string(),
+        })?;
+        let output = git.run(
+            target,
+            ["rev-parse", "--absolute-git-dir"],
+            deadline,
+            64 * 1024,
+        )?;
+        if !output.success {
+            return Err(output.failure().into());
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let git_dir = Path::new(text.trim_end_matches(['\r', '\n']))
+            .canonicalize()
+            .map_err(|error| ArenaError::Copy {
+                path: ".git".to_owned(),
+                reason: error.to_string(),
+            })?;
+        Ok(Self {
+            real_target,
+            git_dir,
+        })
+    }
+
+    /// The deepest folder of `destination` that exists, resolved, must be inside the project
+    /// folder and outside its git folder, so no folder is ever created behind a link or in `.git`.
+    fn check(&self, name: &str, destination: &Path) -> Result<(), ArenaError> {
+        let Some(parent) = destination.parent() else {
+            return Ok(());
+        };
+        let existing = parent
+            .ancestors()
+            .find(|dir| dir.exists())
+            .unwrap_or(parent);
+        self.check_folder(name, existing)
+    }
+
+    fn check_folder(&self, name: &str, dir: &Path) -> Result<(), ArenaError> {
+        let real = dir.canonicalize().map_err(|error| ArenaError::Copy {
+            path: name.to_owned(),
+            reason: error.to_string(),
+        })?;
+        if !real.starts_with(&self.real_target) {
+            return Err(ArenaError::Copy {
+                path: name.to_owned(),
+                reason: "the folder leads outside the project".to_owned(),
+            });
+        }
+        if real.starts_with(&self.git_dir) {
+            return Err(ArenaError::UnsafePath(name.to_owned()));
+        }
+        Ok(())
+    }
+}
+
+/// Files and folders a copy created, so a failed copy can take them back.
+#[derive(Debug, Default)]
+struct Created {
+    files: Vec<PathBuf>,
+    /// In the order they were made, the outermost first.
+    dirs: Vec<PathBuf>,
+}
+
+impl Created {
+    fn undo(self) {
+        for file in &self.files {
+            let _ = fs::remove_file(file);
+        }
+        for dir in self.dirs.iter().rev() {
+            // Only empty folders go; anything else in them was there before or is not ours.
+            let _ = fs::remove_dir(dir);
+        }
+    }
+}
+
+/// Opens a new file of the worktree for reading without following a link at its end, and checks
+/// its type on the open handle: an agent could swap the checked file for a link in between.
+fn open_plain(path: &Path) -> std::io::Result<(fs::File, fs::Metadata)> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || git_actions::is_link(&meta) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok((file, meta))
+}
+
+/// Copies new files from the worktree into the project folder. Each target folder is checked by
+/// [`Place`] before and after it is created, each file is created new (never written through
+/// something already there). On the first failure everything this copy created goes again;
+/// otherwise the caller gets what was created, to take it back if the patch fails.
 fn copy_new_files(
     from: &Path,
     target: &Path,
+    place: &Place,
     files: &[(String, PathBuf)],
-) -> Result<(), ArenaError> {
-    let copy_error = |name: &str, reason: String| ArenaError::Copy {
-        path: name.to_owned(),
-        reason,
-    };
-    let real_target = target
-        .canonicalize()
-        .map_err(|error| copy_error(".", error.to_string()))?;
-    let check_inside = |name: &str, dir: &Path| -> Result<(), ArenaError> {
-        let real = dir
-            .canonicalize()
-            .map_err(|error| copy_error(name, error.to_string()))?;
-        if real.starts_with(&real_target) {
-            Ok(())
-        } else {
-            Err(copy_error(
-                name,
-                "the folder leads outside the project".to_owned(),
-            ))
-        }
-    };
+) -> Result<Created, ArenaError> {
+    let mut created = Created::default();
     for (name, relative) in files {
-        let destination = target.join(relative);
-        if let Some(parent) = destination.parent() {
-            // The deepest folder that exists already is checked first, so no folder is ever
-            // created behind a link that leads elsewhere.
-            let existing = parent
-                .ancestors()
-                .find(|dir| dir.exists())
-                .unwrap_or(target);
-            check_inside(name, existing)?;
-            fs::create_dir_all(parent).map_err(|error| copy_error(name, error.to_string()))?;
-            check_inside(name, parent)?;
+        if let Err(error) = copy_new_file(from, target, place, name, relative, &mut created) {
+            created.undo();
+            return Err(error);
         }
-        fs::copy(from.join(relative), &destination)
-            .map_err(|error| copy_error(name, error.to_string()))?;
     }
+    Ok(created)
+}
+
+fn copy_new_file(
+    from: &Path,
+    target: &Path,
+    place: &Place,
+    name: &str,
+    relative: &Path,
+    created: &mut Created,
+) -> Result<(), ArenaError> {
+    let copy_error = |error: std::io::Error| ArenaError::Copy {
+        path: name.to_owned(),
+        reason: error.to_string(),
+    };
+    let destination = target.join(relative);
+    if let Some(parent) = destination.parent() {
+        place.check(name, &destination)?;
+        let missing: Vec<PathBuf> = parent
+            .ancestors()
+            // `symlink_metadata`, not `exists`: a dangling link is there already and not ours, and
+            // `remove_dir` in `undo` would take a dangling junction away.
+            .take_while(|dir| fs::symlink_metadata(dir).is_err())
+            .map(Path::to_path_buf)
+            .collect();
+        // Noted first, so a folder made before `create_dir_all` failed goes again too.
+        created.dirs.extend(missing.into_iter().rev());
+        fs::create_dir_all(parent).map_err(copy_error)?;
+        place.check_folder(name, parent)?;
+    }
+    let (mut source, meta) = open_plain(&from.join(relative)).map_err(copy_error)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(meta.permissions().mode() & 0o777);
+    }
+    #[cfg(not(unix))]
+    let _ = &meta;
+    let mut out = options.open(&destination).map_err(copy_error)?;
+    created.files.push(destination);
+    std::io::copy(&mut source, &mut out).map_err(copy_error)?;
     Ok(())
 }
 
@@ -638,9 +923,12 @@ fn copy_new_files(
 // Discarding a contestant
 
 /// Removes a contestant's worktree and branch with everything in it, after the user confirmed
-/// it in the arena (unlike [`worktree::remove`], which never forces). Only arena branches; no
-/// hook (switched off by [`Git`] itself) and no filter of the repository runs. A folder deleted by
-/// hand leaves only git's record, which `worktree remove` takes away for this one worktree;
+/// it in the arena (unlike [`worktree::remove`], which never forces). Only arena branches and only
+/// a folder git lists as a worktree of the repository; no hook (switched off by [`Git`] itself)
+/// and no filter of the repository runs. Hangar deletes the folder itself, because its content
+/// comes from an agent: `remove_dir_all` removes a link or junction without entering it (Rust
+/// 1.58.1 and later, CVE-2022-21658), while `git worktree remove --force` left a junction behind
+/// (measured, wiki page). git's record then goes with `worktree remove` for this one worktree;
 /// `worktree prune` would also take the records of the user's own worktrees.
 pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaError> {
     worktree::check_shape(worktree)?;
@@ -652,12 +940,22 @@ pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaE
     git::check_git_links(&worktree.path)?;
     let deadline = Instant::now() + GIT_TIMEOUT;
     let root = &worktree.repo_root;
-    let existed = worktree.path.exists();
-    let neutral = if existed {
-        git::filter_overrides(git, &worktree.path, deadline)?
-    } else {
-        git::filter_overrides(git, root, deadline)?
+    let listed = |deadline: Instant| {
+        worktree::list(git, root, deadline).map(|listed| {
+            listed
+                .iter()
+                .any(|entry| git::path_key(&entry.path) == git::path_key(&worktree.path))
+        })
     };
+    if fs::symlink_metadata(&worktree.path).is_ok() {
+        // Only a folder git names as this repository's worktree is ever deleted.
+        if !listed(deadline)? {
+            return Err(WorktreeError::OutsideFolder.into());
+        }
+        fs::remove_dir_all(&worktree.path)
+            .map_err(|error| ArenaError::Remove(error.to_string()))?;
+    }
+    let neutral = git::filter_overrides(git, root, deadline)?;
     let args: Vec<&OsStr> = neutral
         .iter()
         .map(OsStr::new)
@@ -669,17 +967,9 @@ pub fn discard(git: &Git, base: &Path, worktree: &Worktree) -> Result<(), ArenaE
         ])
         .collect();
     let output = git.run(root, args, deadline, 64 * 1024)?;
-    if !output.success {
-        // Folder and record both gone already (deleted by hand, then pruned): nothing is left.
-        let gone = !existed
-            && worktree::list(git, root, deadline).is_ok_and(|listed| {
-                !listed
-                    .iter()
-                    .any(|entry| git::path_key(&entry.path) == git::path_key(&worktree.path))
-            });
-        if !gone {
-            return Err(output.failure().into());
-        }
+    // Record gone already (pruned after the folder was deleted by hand): nothing is left.
+    if !output.success && listed(deadline).unwrap_or(true) {
+        return Err(output.failure().into());
     }
     if let Some(parent) = worktree.path.parent() {
         // Only succeeds when no other worktree of this repository is left.
@@ -930,6 +1220,13 @@ mod tests {
                 },
                 "arena_copy",
             ),
+            (
+                ArenaError::UnsafePath(".git./x".to_owned()),
+                "arena_unsafe_path",
+            ),
+            (ArenaError::Link("lnk".to_owned()), "arena_link"),
+            (ArenaError::Changed, "arena_changed"),
+            (ArenaError::Remove("in use".to_owned()), "arena_remove"),
             (ArenaError::Command("empty".to_owned()), "arena_command"),
             (
                 ArenaError::ProgramNotFound("pnpm".to_owned()),
@@ -1022,6 +1319,240 @@ mod tests {
         ] {
             assert_eq!(safe_relative(bad), None, "{bad}");
         }
+        // Every spelling of a git folder, on every platform.
+        for bad in [
+            ".git/x",
+            ".GIT/x",
+            "sub/.Git/hooks/pre-commit",
+            ".git./x",
+            ".git /x",
+            ".git. ./x",
+            "GIT~1/hooks/x",
+            "sub/git~12/config",
+            ".g\u{200c}it/x",
+            "\u{feff}.git/x",
+            "...",
+        ] {
+            assert_eq!(safe_relative(bad), None, "{bad:?}");
+        }
+        for good in [
+            ".github/workflows/ci.yml",
+            ".gitignore",
+            "git~notes.txt",
+            "git~/x",
+            "nullable.rs",
+            "console.txt",
+            "com10",
+        ] {
+            assert!(safe_relative(good).is_some(), "{good}");
+        }
+        // Names Windows changes on the way: trailing dots and spaces, devices.
+        for name in [
+            "a./b",
+            "a /b",
+            "notes.",
+            "nul",
+            "NUL.txt",
+            "sub/aux.c",
+            "con ",
+            "COM1",
+            "lpt9.log",
+            "com\u{b9}",
+            "CONOUT$",
+        ] {
+            assert_eq!(safe_relative(name).is_none(), cfg!(windows), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn raw_diff_names_links_and_submodules() {
+        let zero = "0".repeat(40);
+        let one = "1".repeat(40);
+        let raw = format!(
+            ":100644 100644 {one} {zero} M\0plain.txt\0\
+             :000000 120000 {zero} {one} A\0new link\0\
+             :120000 100644 {one} {zero} T\0was a link\0\
+             :160000 000000 {one} {zero} D\0vendor/sub\0\
+             :100755 100644 {one} {zero} M\0script.sh\0"
+        );
+        assert_eq!(
+            linked_entries(raw.as_bytes()),
+            ["new link", "was a link", "vendor/sub"]
+        );
+        assert!(linked_entries(b"").is_empty());
+        // A hash that starts like a mode is no mode.
+        let raw = format!(":100644 100644 120000{} {zero} M\0a\0", &one[6..]);
+        assert!(linked_entries(raw.as_bytes()).is_empty());
+    }
+
+    /// A place for new files in `target`, with `target/.git` as its git folder.
+    fn place(target: &Path) -> Place {
+        fs::create_dir_all(target.join(".git").join("hooks")).unwrap();
+        Place {
+            real_target: target.canonicalize().unwrap(),
+            git_dir: target.join(".git").canonicalize().unwrap(),
+        }
+    }
+
+    fn new_file(name: &str) -> (String, PathBuf) {
+        (name.to_owned(), name.split('/').collect())
+    }
+
+    #[test]
+    fn new_files_never_land_in_the_git_folder() {
+        let tmp = TempDir::new("arena-gitdir");
+        let from = tmp.path().join("from");
+        let target = tmp.path().join("target");
+        let place = place(&target);
+        fs::create_dir_all(from.join(".git").join("hooks")).unwrap();
+        fs::write(from.join(".git").join("hooks").join("x"), "x\n").unwrap();
+        // Past the name check (apply never hands such a name over): the resolved folder still
+        // stops it.
+        let refused = copy_new_files(&from, &target, &place, &[new_file(".git/hooks/x")]);
+        assert!(
+            matches!(refused, Err(ArenaError::UnsafePath(_))),
+            "{refused:?}"
+        );
+        assert!(!target.join(".git").join("hooks").join("x").exists());
+        if cfg!(windows) {
+            // Measured: Windows drops the trailing dot, so `.git.` opens the git folder.
+            assert!(target.join(".git.").join("hooks").is_dir());
+            let refused = copy_new_files(
+                &from,
+                &target,
+                &place,
+                &[(
+                    ".git./hooks/x".to_owned(),
+                    Path::new(".git.").join("hooks").join("x"),
+                )],
+            );
+            assert!(
+                matches!(refused, Err(ArenaError::UnsafePath(_))),
+                "{refused:?}"
+            );
+            assert!(!target.join(".git").join("hooks").join("x").exists());
+        }
+        #[cfg(windows)]
+        {
+            // The NTFS short name, where the volume has one or fsutil may set one (it needs the
+            // privilege to restore files; without it this case is skipped).
+            let _ = Command::new("fsutil")
+                .args(["file", "setshortname"])
+                .arg(target.join(".git"))
+                .arg("GIT~1")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if target.join("GIT~1").join("hooks").is_dir() {
+                let refused = copy_new_files(
+                    &from,
+                    &target,
+                    &place,
+                    &[(
+                        "GIT~1/hooks/x".to_owned(),
+                        Path::new("GIT~1").join("hooks").join("x"),
+                    )],
+                );
+                assert!(
+                    matches!(refused, Err(ArenaError::UnsafePath(_))),
+                    "{refused:?}"
+                );
+                assert!(!target.join(".git").join("hooks").join("x").exists());
+            }
+        }
+    }
+
+    /// A link to a folder: a junction on Windows (no privilege needed), a symlink elsewhere.
+    fn folder_link(link: &Path, to: &Path) {
+        #[cfg(windows)]
+        {
+            let status = Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(to)
+                .stdout(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "mklink /J failed");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(to, link).unwrap();
+    }
+
+    #[test]
+    fn new_files_never_create_folders_behind_a_link() {
+        let tmp = TempDir::new("arena-link");
+        let from = tmp.path().join("from");
+        let target = tmp.path().join("target");
+        let elsewhere = tmp.path().join("elsewhere");
+        for dir in [&from, &target, &elsewhere] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        let place = place(&target);
+        fs::create_dir_all(from.join("link").join("a")).unwrap();
+        fs::write(from.join("link").join("a").join("x.txt"), "x\n").unwrap();
+        folder_link(&target.join("link"), &elsewhere);
+        assert!(linked_on_the_way(&target, &Path::new("link").join("a")));
+        assert!(!linked_on_the_way(&from, &Path::new("link").join("a")));
+        let refused = copy_new_files(&from, &target, &place, &[new_file("link/a/x.txt")]);
+        assert!(
+            matches!(refused, Err(ArenaError::Copy { .. })),
+            "{refused:?}"
+        );
+        assert!(!elsewhere.join("a").exists());
+    }
+
+    #[test]
+    fn a_failed_copy_takes_back_what_it_made() {
+        let tmp = TempDir::new("arena-undo");
+        let from = tmp.path().join("from");
+        let target = tmp.path().join("target");
+        let place = place(&target);
+        fs::create_dir_all(from.join("a").join("b")).unwrap();
+        fs::write(from.join("a").join("b").join("one.txt"), "1\n").unwrap();
+        fs::write(from.join("mine.txt"), "agent\n").unwrap();
+        fs::write(target.join("mine.txt"), "mine\n").unwrap();
+        // A source that is gone, and a file that would overwrite the user's own.
+        for second in ["a/c/missing.txt", "mine.txt"] {
+            let files = [new_file("a/b/one.txt"), new_file(second)];
+            let refused = copy_new_files(&from, &target, &place, &files);
+            assert!(
+                matches!(refused, Err(ArenaError::Copy { .. })),
+                "{second}: {refused:?}"
+            );
+            assert!(!target.join("a").exists(), "{second}");
+            assert_eq!(
+                fs::read_to_string(target.join("mine.txt")).unwrap(),
+                "mine\n"
+            );
+        }
+        copy_new_files(&from, &target, &place, &[new_file("a/b/one.txt")]).unwrap();
+        assert_eq!(
+            fs::read_to_string(target.join("a").join("b").join("one.txt")).unwrap(),
+            "1\n"
+        );
+    }
+
+    #[test]
+    fn sources_are_opened_without_following_a_link() {
+        let tmp = TempDir::new("arena-open");
+        let real = tmp.path().join("real.txt");
+        fs::write(&real, "secret\n").unwrap();
+        assert!(open_plain(&real).is_ok());
+        assert!(open_plain(tmp.path()).is_err());
+        let folder = tmp.path().join("folder");
+        fs::create_dir_all(&folder).unwrap();
+        folder_link(&tmp.path().join("folder-link"), &folder);
+        assert!(open_plain(&tmp.path().join("folder-link")).is_err());
+        let link = tmp.path().join("link.txt");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&real, &link).is_ok();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&real, &link).is_ok();
+        // A file symlink needs developer mode on Windows; without it the junction case stands.
+        if made {
+            assert!(open_plain(&link).is_err());
+        }
     }
 
     #[test]
@@ -1059,28 +1590,26 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn new_files_never_create_folders_behind_a_link() {
-        let tmp = TempDir::new("arena-link");
-        let from = tmp.path().join("from");
-        let target = tmp.path().join("target");
-        let elsewhere = tmp.path().join("elsewhere");
-        for dir in [&from, &target, &elsewhere] {
-            fs::create_dir_all(dir).unwrap();
-        }
-        fs::create_dir_all(from.join("link").join("a")).unwrap();
-        fs::write(from.join("link").join("a").join("x.txt"), "x\n").unwrap();
-        std::os::unix::fs::symlink(&elsewhere, target.join("link")).unwrap();
-        let files = vec![(
-            "link/a/x.txt".to_owned(),
-            Path::new("link").join("a").join("x.txt"),
-        )];
-        assert!(matches!(
-            copy_new_files(&from, &target, &files),
-            Err(ArenaError::Copy { .. })
-        ));
-        assert!(!elsewhere.join("a").exists());
+    /// The file list the comparison shows, as the user confirms it.
+    fn shown(git: &Git, base: &Path, worktree: &Worktree, base_commit: &str) -> Vec<String> {
+        diff_stat(git, base, worktree, base_commit)
+            .map(|stat| stat.files.into_iter().map(|file| file.path).collect())
+            .unwrap_or_default()
+    }
+
+    fn apply_shown(
+        git: &Git,
+        base: &Path,
+        worktree: &Worktree,
+        base_commit: &str,
+    ) -> Result<ApplyOutcome, ArenaError> {
+        apply(
+            git,
+            base,
+            worktree,
+            base_commit,
+            &shown(git, base, worktree, base_commit),
+        )
     }
 
     fn commit_all(git: &Git, repo: &Path, message: &str) {
@@ -1149,7 +1678,7 @@ mod tests {
         let empty = diff_stat(&git, &base, winner, &base_commit).unwrap();
         assert!(empty.files.is_empty());
         assert!(matches!(
-            apply(&git, &base, winner, &base_commit),
+            apply_shown(&git, &base, winner, &base_commit),
             Err(ArenaError::NothingToApply)
         ));
 
@@ -1179,7 +1708,7 @@ mod tests {
 
         // The project folder changed the same file: refused, nothing touched.
         fs::write(repo.join("readme.txt"), "mine\n").unwrap();
-        let outcome = apply(&git, &base, winner, &base_commit).unwrap();
+        let outcome = apply_shown(&git, &base, winner, &base_commit).unwrap();
         assert_eq!(
             outcome,
             ApplyOutcome::Conflict {
@@ -1197,7 +1726,7 @@ mod tests {
         git_ok(&git, &repo, &["checkout", "--quiet", "--", "readme.txt"]);
         fs::create_dir_all(repo.join("src")).unwrap();
         fs::write(repo.join("src").join("new file.txt"), "mine\n").unwrap();
-        let outcome = apply(&git, &base, winner, &base_commit).unwrap();
+        let outcome = apply_shown(&git, &base, winner, &base_commit).unwrap();
         assert_eq!(
             outcome,
             ApplyOutcome::Conflict {
@@ -1220,7 +1749,7 @@ mod tests {
                 repo_root: root.clone(),
             };
             fs::create_dir_all(&moved.path).unwrap();
-            let refused = apply(&git, &base, &moved, &base_commit);
+            let refused = apply_shown(&git, &base, &moved, &base_commit);
             assert!(
                 matches!(
                     refused,
@@ -1234,7 +1763,7 @@ mod tests {
         assert!(!repo.join("src").exists());
 
         // Clean project folder: the changes arrive, uncommitted, HEAD unchanged.
-        let outcome = apply(&git, &base, winner, &base_commit).unwrap();
+        let outcome = apply_shown(&git, &base, winner, &base_commit).unwrap();
         assert_eq!(
             outcome,
             ApplyOutcome::Applied {
@@ -1335,9 +1864,206 @@ mod tests {
             Err(ArenaError::NotArena)
         ));
         assert!(matches!(
-            apply(&git, &base, &plain, &base_commit),
+            apply_shown(&git, &base, &plain, &base_commit),
             Err(ArenaError::NotArena)
         ));
         assert!(plain.path.exists());
+    }
+
+    /// A repository with one committed `readme.txt` and an arena of two from that commit.
+    fn small_arena(git: &Git, tmp: &TempDir) -> (PathBuf, PathBuf, String, Arena) {
+        let base = tmp.path().join(worktree::DIR_NAME);
+        let repo = tmp.path().join("repo");
+        init_repo(git, &repo);
+        fs::write(repo.join("readme.txt"), "one\n").unwrap();
+        commit_all(git, &repo, "first");
+        let base_commit = head(git, &repo);
+        let arena = create(git, &base, &repo, &labels(&["A", "B"])).unwrap();
+        (base, repo, base_commit, arena)
+    }
+
+    fn remove_folder_link(link: &Path) {
+        // A junction goes as a folder, a symlink as a file; neither touches what it points to.
+        fs::remove_dir(link)
+            .or_else(|_| fs::remove_file(link))
+            .unwrap();
+    }
+
+    #[test]
+    fn links_late_changes_and_failed_copies_leave_the_project_untouched() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("arena-guard");
+        let (base, repo, base_commit, arena) = small_arena(&git, &tmp);
+        let winner = &arena.worktrees[0];
+        let readme = || fs::read_to_string(repo.join("readme.txt")).unwrap();
+
+        // A tracked symbolic link (where symlinks are off a plain file, mode 120000 still).
+        let blob = git
+            .run_with_input(
+                &winner.path,
+                ["hash-object", "-w", "--stdin"],
+                Some(b"../outside".to_vec()),
+                Instant::now() + Duration::from_secs(30),
+                4096,
+            )
+            .unwrap();
+        let blob = String::from_utf8_lossy(&blob.stdout).trim().to_owned();
+        let entry = format!("120000,{blob},lnk");
+        git_ok(
+            &git,
+            &winner.path,
+            &["update-index", "--add", "--cacheinfo", &entry],
+        );
+        git_ok(&git, &winner.path, &["checkout", "--", "lnk"]);
+        fs::write(winner.path.join("readme.txt"), "two\n").unwrap();
+        let refused = apply_shown(&git, &base, winner, &base_commit);
+        assert!(
+            matches!(&refused, Err(ArenaError::Link(path)) if path == "lnk"),
+            "{refused:?}"
+        );
+        assert_eq!(status(&git, &repo), "");
+        git_ok(&git, &winner.path, &["rm", "--quiet", "--cached", "lnk"]);
+        fs::remove_file(winner.path.join("lnk")).unwrap();
+
+        // The user confirmed a list; a file the agent adds afterwards never comes along unseen.
+        let confirmed = shown(&git, &base, winner, &base_commit);
+        assert_eq!(confirmed, ["readme.txt"]);
+        fs::write(winner.path.join(".envrc"), "x\n").unwrap();
+        assert!(matches!(
+            apply(&git, &base, winner, &base_commit, &confirmed),
+            Err(ArenaError::Changed)
+        ));
+        fs::remove_file(winner.path.join(".envrc")).unwrap();
+        assert_eq!(status(&git, &repo), "");
+
+        // A new file whose folder in the project is a link: refused before the patch goes in.
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(winner.path.join("docs")).unwrap();
+        let new_md = winner.path.join("docs").join("new.md");
+        fs::write(&new_md, "new\n").unwrap();
+        folder_link(&repo.join("docs"), &outside);
+        let refused = apply_shown(&git, &base, winner, &base_commit);
+        assert!(matches!(refused, Err(ArenaError::Link(_))), "{refused:?}");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        assert_eq!(readme(), "one\n");
+        remove_folder_link(&repo.join("docs"));
+
+        // A new file that cannot be read once the patch is in: the patch is taken back.
+        {
+            #[cfg(windows)]
+            let lock = {
+                use std::os::windows::fs::OpenOptionsExt;
+                Some(
+                    fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(0)
+                        .open(&new_md)
+                        .unwrap(),
+                )
+            };
+            #[cfg(unix)]
+            let lock = {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&new_md, fs::Permissions::from_mode(0o000)).unwrap();
+                // Root reads it anyway; then there is no failure to provoke.
+                fs::File::open(&new_md).is_err().then_some(())
+            };
+            if lock.is_some() {
+                let refused = apply_shown(&git, &base, winner, &base_commit);
+                assert!(
+                    matches!(refused, Err(ArenaError::Copy { .. })),
+                    "{refused:?}"
+                );
+                assert_eq!(readme(), "one\n");
+                assert_eq!(status(&git, &repo), "");
+                assert!(!repo.join("docs").exists());
+            }
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&new_md, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let outcome = apply_shown(&git, &base, winner, &base_commit).unwrap();
+        assert_eq!(
+            outcome,
+            ApplyOutcome::Applied {
+                files: labels(&["docs/new.md", "readme.txt"])
+            }
+        );
+        assert_eq!(readme().replace("\r\n", "\n"), "two\n");
+    }
+
+    #[test]
+    fn discarding_never_follows_a_link_out_of_the_worktree() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("arena-discard");
+        let (base, repo, _, arena) = small_arena(&git, &tmp);
+        let loser = &arena.worktrees[1];
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("marker.txt"), "keep\n").unwrap();
+        folder_link(&loser.path.join("linked"), &outside);
+        // A read-only file an agent left behind goes too.
+        let read_only = loser.path.join("read-only.txt");
+        fs::write(&read_only, "x\n").unwrap();
+        let mut permissions = fs::metadata(&read_only).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&read_only, permissions).unwrap();
+
+        discard(&git, &base, loser).unwrap();
+        assert!(!loser.path.exists());
+        assert_eq!(
+            fs::read_to_string(outside.join("marker.txt")).unwrap(),
+            "keep\n"
+        );
+        let listed = worktree::list(&git, &repo, Instant::now() + Duration::from_secs(30)).unwrap();
+        assert!(!listed
+            .iter()
+            .any(|entry| git::path_key(&entry.path) == git::path_key(&loser.path)));
+
+        // A folder of the right shape that git does not list as a worktree is never deleted.
+        let fake = Worktree {
+            path: base
+                .join(worktree::repo_dir_name(&repo))
+                .join("arena-1a2b3c-fake"),
+            branch: "hangar/arena-1a2b3c-fake".to_owned(),
+            repo_root: repo.clone(),
+        };
+        fs::create_dir_all(&fake.path).unwrap();
+        fs::write(fake.path.join("keep.txt"), "keep\n").unwrap();
+        let refused = discard(&git, &base, &fake);
+        assert!(
+            matches!(
+                refused,
+                Err(ArenaError::Worktree(WorktreeError::OutsideFolder))
+            ),
+            "{refused:?}"
+        );
+        assert!(fake.path.join("keep.txt").is_file());
+    }
+
+    #[test]
+    fn a_failed_patch_takes_the_new_files_back() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("arena-patch");
+        let (base, repo, base_commit, arena) = small_arena(&git, &tmp);
+        let winner = &arena.worktrees[0];
+        fs::write(winner.path.join("readme.txt"), "agent\n").unwrap();
+        fs::create_dir_all(winner.path.join("docs").join("deep")).unwrap();
+        fs::write(
+            winner.path.join("docs").join("deep").join("new.md"),
+            "new\n",
+        )
+        .unwrap();
+        // The project moved on in the same file: the patch no longer fits.
+        fs::write(repo.join("readme.txt"), "user\n").unwrap();
+        commit_all(&git, &repo, "user");
+        let refused = apply_shown(&git, &base, winner, &base_commit);
+        assert!(matches!(refused, Err(ArenaError::Apply(_))), "{refused:?}");
+        assert!(!repo.join("docs").exists());
+        assert_eq!(status(&git, &repo), "");
     }
 }

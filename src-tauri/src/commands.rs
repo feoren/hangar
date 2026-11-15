@@ -2551,15 +2551,17 @@ pub async fn arena_diff_stat(
 }
 
 /// Takes the winner's changes over into the project folder, uncommitted; refuses shared files.
+/// `files` is the list the user confirmed; changes that differ from it by now are refused.
 #[tauri::command]
 pub async fn arena_apply(
     store: State<'_, Store>,
     worktree: Worktree,
     base_commit: String,
+    files: Vec<String>,
 ) -> Result<arena::ApplyOutcome, ArenaError> {
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
-        arena::apply(&Git::locate()?, &base, &worktree, &base_commit)
+        arena::apply(&Git::locate()?, &base, &worktree, &base_commit, &files)
     })
     .await
     .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?

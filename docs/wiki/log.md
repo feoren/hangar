@@ -911,3 +911,7 @@ Pages changed: [[session-row-layout]].
 ## [2026-11-15] update | Agent arena on the hardened worktree code
 After merging the security rounds the arena follows the worktree rules of main: worktrees are added with `--no-checkout` and checked out inside, discarding names no `core.hooksPath` of its own and takes a hand-deleted folder's record with `worktree remove` instead of `worktree prune`, `arena_create` refuses share and device paths and marks its worktrees as pending for the cleanup, and arena sessions get no upstream check. Taking over now requires the project folder to be the top of the repository that lists the contestant's worktree.
 Pages changed: [[agent-arena]].
+
+## [2026-11-15] update | Agent arena: take-over and discard hardened
+Paths into a git folder (any case, trailing dots or spaces, HFS+ ignorables, NTFS short names) and Windows device names are refused, new files are checked against the resolved git folder, links and submodules in the patch and links on the way are refused, new files are opened without following a link and created new, they go in before the patch and are taken back if it fails, the user confirms the exact file list (files that can run code marked), and discarding deletes the folder with `remove_dir_all` before git takes its record. Measured: Win32 trailing dot normalization, `git worktree remove --force` leaving a junction behind, `git apply -R` not restoring bytes under autocrlf.
+Pages changed: [[agent-arena]].

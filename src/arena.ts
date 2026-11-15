@@ -303,9 +303,90 @@ export function leader(standings: readonly Standing[]): number | null {
   return ready[0]?.sessionId ?? null;
 }
 
-/** A winner can be taken over once it stopped working and changed something. */
+/**
+ * A winner can be taken over once it stopped working and changed something, and only with the
+ * whole file list known: the user confirms exactly the files that arrive.
+ */
 export function canApply(state: ContestantState, stat: DiffStat | null): boolean {
-  return (state === "done" || state === "ended") && stat !== null && stat.files.length > 0;
+  return (
+    (state === "done" || state === "ended") &&
+    stat !== null &&
+    stat.files.length > 0 &&
+    !stat.truncated
+  );
+}
+
+/** File names that run code once the project is opened, built, installed or tested. */
+const RUNS_CODE_NAMES: ReadonlySet<string> = new Set([
+  ".envrc",
+  "package.json",
+  ".npmrc",
+  ".yarnrc",
+  ".yarnrc.yml",
+  ".pnpmfile.cjs",
+  "makefile",
+  "justfile",
+  "build.rs",
+  "setup.py",
+  "conftest.py",
+  ".gitattributes",
+  ".gitmodules",
+  ".pre-commit-config.yaml",
+  "lefthook.yml",
+  ".lefthook.yml",
+  ".mcp.json",
+]);
+
+/** Folders whose files an editor, CI, git or an agent CLI runs (tasks, workflows, hooks). */
+const RUNS_CODE_FOLDERS: readonly string[] = [
+  ".vscode/",
+  ".idea/",
+  ".devcontainer/",
+  ".github/workflows/",
+  ".husky/",
+  ".githooks/",
+  ".cargo/",
+  ".claude/",
+  ".codex/",
+  ".gemini/",
+];
+
+/**
+ * Whether a changed file can run code without being called by name: editor tasks, CI workflows,
+ * git and package hooks, package scripts, build tool configs, agent settings. Paths as the
+ * backend lists them (relative, `/`); compared without case.
+ */
+export function runsCode(path: string): boolean {
+  const lower = path.toLowerCase();
+  const name = lower.slice(lower.lastIndexOf("/") + 1);
+  if (RUNS_CODE_NAMES.has(name)) return true;
+  if (RUNS_CODE_FOLDERS.some((folder) => lower.startsWith(folder) || lower.includes(`/${folder}`)))
+    return true;
+  // `vite.config.ts`, `.eslintrc.cjs` and the like are programs the build runs.
+  return /\.config\.[cm]?[jt]s$/.test(name) || /^\.[a-z]+rc\.[cm]?js$/.test(name);
+}
+
+/** Files listed in the confirmation before the rest is summed up. */
+export const APPLY_PREVIEW_MAX = 8;
+
+export interface ApplyPreview {
+  /** Files that run code first, so they are never hidden in the rest. */
+  shown: { path: string; runsCode: boolean }[];
+  /** Files not listed. */
+  more: number;
+  runsCode: number;
+}
+
+/** The file list of the take-over confirmation. */
+export function applyPreview(
+  files: readonly FileStat[],
+  max: number = APPLY_PREVIEW_MAX,
+): ApplyPreview {
+  const marked = files.map((file) => ({ path: file.path, runsCode: runsCode(file.path) }));
+  const risky = marked.filter((file) => file.runsCode);
+  const plain = marked.filter((file) => !file.runsCode);
+  const shown = [...risky, ...plain.slice(0, Math.max(0, max - risky.length))];
+  return { shown, more: marked.length - shown.length, runsCode: risky.length };
 }
 
 /** Start checks of the dialog; `null` when the arena can start. */
@@ -340,6 +421,10 @@ const ERROR_MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageK
   ["arena_too_large", "arena.errorTooLarge"],
   ["arena_apply", "arena.errorApply"],
   ["arena_copy", "arena.errorCopy"],
+  ["arena_unsafe_path", "arena.errorUnsafePath"],
+  ["arena_link", "arena.errorLink"],
+  ["arena_changed", "arena.errorChanged"],
+  ["arena_remove", "arena.errorRemove"],
   ["arena_command", "arena.errorCommand"],
   ["arena_unsafe_batch", "arena.errorUnsafe"],
   ["arena_spawn", "arena.errorSpawn"],

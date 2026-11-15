@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyPreview,
   arenaErrorText,
   arenaProblem,
   canApply,
@@ -16,6 +17,7 @@ import {
   parseTestRun,
   promptReady,
   PROMPT_MAX_WAIT_MS,
+  runsCode,
   testsDue,
   trackAttention,
   type ArenaRun,
@@ -202,6 +204,8 @@ describe("comparison", () => {
     expect(canApply("working", stat(1))).toBe(false);
     expect(canApply("done", stat(0))).toBe(false);
     expect(canApply("done", null)).toBe(false);
+    // A cut list cannot be confirmed file by file.
+    expect(canApply("done", { ...stat(3), truncated: true })).toBe(false);
   });
 
   it("names what is missing before the start", () => {
@@ -226,6 +230,13 @@ describe("arenaErrorText", () => {
       ["[arena_too_large] The changes are too large to take over", de("arena.errorTooLarge")],
       ["[arena_apply] git could not apply the changes: patch failed", de("arena.errorApply")],
       ["[arena_copy] a.txt cannot be taken over: outside", de("arena.errorCopy")],
+      ["[arena_unsafe_path] .git./x cannot be taken over", de("arena.errorUnsafePath")],
+      ["[arena_link] lnk is a link or a submodule", de("arena.errorLink")],
+      [
+        "[arena_changed] The changes are no longer the ones that were shown",
+        de("arena.errorChanged"),
+      ],
+      ["[arena_remove] The worktree could not be deleted: in use", de("arena.errorRemove")],
       ["[arena_command] The test command is not usable: empty", de("arena.errorCommand")],
       ["[arena_unsafe_batch] Argument 1 contains '&'", de("arena.errorUnsafe")],
       ["[arena_spawn] The test command could not be started: denied", de("arena.errorSpawn")],
@@ -256,5 +267,63 @@ describe("arenaErrorText", () => {
     expect(arenaErrorText("fatal: bad object HEAD", de)).toBe(unknown);
     expect(arenaErrorText(new Error("invoke failed"), de)).toBe(unknown);
     expect(arenaErrorText(null, de)).toBe(unknown);
+  });
+});
+
+describe("take-over confirmation", () => {
+  it("marks files that can run code", () => {
+    for (const path of [
+      ".envrc",
+      "package.json",
+      "web/package.json",
+      ".vscode/tasks.json",
+      ".VSCode/settings.json",
+      ".github/workflows/ci.yml",
+      ".husky/pre-commit",
+      ".claude/settings.json",
+      "packages/app/.vscode/launch.json",
+      "vite.config.ts",
+      "tools/eslint.config.mjs",
+      ".eslintrc.cjs",
+      "Makefile",
+      "build.rs",
+      "tests/conftest.py",
+      ".gitattributes",
+    ]) {
+      expect(runsCode(path), path).toBe(true);
+    }
+    for (const path of [
+      "src/main.ts",
+      "README.md",
+      "src/hooks/useThing.ts",
+      ".github/ISSUE_TEMPLATE/bug.md",
+      "docs/package.json.md",
+      "config.ts",
+      "my.vscode/x",
+    ]) {
+      expect(runsCode(path), path).toBe(false);
+    }
+  });
+
+  it("lists files that run code first and never hides them", () => {
+    const files = ["a.ts", "b.ts", "c.ts", ".envrc", "d.ts", ".vscode/tasks.json"].map((path) => ({
+      path,
+      added: 1,
+      removed: 0,
+    }));
+    const preview = applyPreview(files, 3);
+    expect(preview.shown).toEqual([
+      { path: ".envrc", runsCode: true },
+      { path: ".vscode/tasks.json", runsCode: true },
+      { path: "a.ts", runsCode: false },
+    ]);
+    expect(preview.more).toBe(3);
+    expect(preview.runsCode).toBe(2);
+    const tight = applyPreview(files, 1);
+    expect(tight.shown.map((file) => file.path)).toEqual([".envrc", ".vscode/tasks.json"]);
+    expect(tight.more).toBe(4);
+    const all = applyPreview(files.slice(0, 2));
+    expect(all.more).toBe(0);
+    expect(all.runsCode).toBe(0);
   });
 });

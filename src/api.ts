@@ -605,9 +605,12 @@ export const api = {
   /** A contestant's changes against the base commit; check with `parseDiffStat`. */
   arenaDiffStat: (worktree: Worktree, baseCommit: string) =>
     invoke<unknown>("arena_diff_stat", { worktree, baseCommit }),
-  /** Takes the winner over, uncommitted; check with `parseApplyOutcome`. */
-  arenaApply: (worktree: Worktree, baseCommit: string) =>
-    invoke<unknown>("arena_apply", { worktree, baseCommit }),
+  /**
+   * Takes the winner over, uncommitted; check with `parseApplyOutcome`. `files` is the list the
+   * user confirmed; the backend refuses when the changes differ from it by now.
+   */
+  arenaApply: (worktree: Worktree, baseCommit: string, files: string[]) =>
+    invoke<unknown>("arena_apply", { worktree, baseCommit, files }),
   /** Removes an arena worktree and its branch with all changes (the user confirmed it). */
   arenaDiscard: (worktree: Worktree) => invoke<null>("arena_discard", { worktree }),
   /** The test command in a contestant's worktree; check with `parseTestRun`. */

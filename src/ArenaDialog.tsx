@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 
 import { api, type Profile } from "./api";
 import {
+  applyPreview,
   ARENA_MAX,
   arenaProblem,
   canApply,
@@ -51,8 +52,8 @@ interface Props {
   onShow: (sessionId: number) => void;
   onResend: (sessionId: number) => void;
   onRunTests: (sessionId: number) => void;
-  /** Takes the winner over; a text when it failed outright. */
-  onApply: (sessionId: number) => Promise<ApplyOutcome | string>;
+  /** Takes the winner over with the files the user confirmed; a text when it failed outright. */
+  onApply: (sessionId: number, files: string[]) => Promise<ApplyOutcome | string>;
   /** Closes the other contestants and deletes their worktrees with all changes. */
   onCloseOthers: (winnerId: number) => void;
   onClose: () => void;
@@ -348,10 +349,13 @@ function ArenaCompare({
   }));
   const lead = leader(standings);
   const confirmRow = rows.find((row) => row.contestant.sessionId === confirming);
+  // The list the user sees is the list that is taken over; the backend refuses any other.
+  const confirmStat = confirmRow?.stat ?? null;
+  const preview = confirmStat === null ? null : applyPreview(confirmStat.files);
 
-  const apply = (sessionId: number) => {
+  const apply = (sessionId: number, files: string[]) => {
     setApplying(true);
-    void onApply(sessionId).then((outcome) => {
+    void onApply(sessionId, files).then((outcome) => {
       setApplying(false);
       setConfirming(null);
       if (typeof outcome === "string") setApplied({ kind: "error", message: outcome });
@@ -515,7 +519,7 @@ function ArenaCompare({
           })}
         </tbody>
       </table>
-      {confirmRow !== undefined && (
+      {confirmRow !== undefined && confirmStat !== null && preview !== null && (
         <div className="arena-confirm" role="group" aria-labelledby="arena-confirm-text">
           <p id="arena-confirm-text">
             {t("arena.applyConfirm", {
@@ -523,6 +527,21 @@ function ArenaCompare({
               folder: folderName(arena.repoRoot),
             })}
           </p>
+          <p className="muted arena-help">{t("arena.applyFiles")}</p>
+          <ul className="arena-files arena-apply-files">
+            {preview.shown.map((file) => (
+              <li key={file.path}>
+                <span className="arena-file" title={file.path}>
+                  {file.path}
+                </span>
+                {file.runsCode && <span className="arena-runs-code">{t("arena.runsCode")}</span>}
+              </li>
+            ))}
+          </ul>
+          {preview.more > 0 && (
+            <p className="muted arena-help">{t("arena.moreFiles", { count: preview.more })}</p>
+          )}
+          {preview.runsCode > 0 && <p className="arena-help">{t("arena.runsCodeHint")}</p>}
           <div className="dialog-actions">
             <button
               type="button"
@@ -536,9 +555,12 @@ function ArenaCompare({
             <button
               type="button"
               className="primary-button"
-              disabled={applying}
+              disabled={applying || !canApply(confirmRow.state, confirmStat)}
               onClick={() => {
-                apply(confirmRow.contestant.sessionId);
+                apply(
+                  confirmRow.contestant.sessionId,
+                  confirmStat.files.map((file) => file.path),
+                );
               }}
             >
               {t("arena.apply")}
