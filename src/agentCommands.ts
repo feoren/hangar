@@ -7,7 +7,7 @@
 import type { AgentCommand, AgentCommandLabel, Profile } from "./api";
 import type { AttentionReason, AttentionState } from "./attention";
 import { HIGH_SHARE } from "./contextUsage";
-import { sendToTargets, type BroadcastTarget } from "./broadcast";
+import { blockedFor, sendToTargets, type BroadcastTarget } from "./broadcast";
 import type { MessageKey, Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
 import { looksLikeQuestion } from "./promptGuard";
@@ -116,18 +116,22 @@ export function startsOver(command: AgentCommand): boolean {
 
 /**
  * Types the command into one session the way "Send to several" does: a bracketed paste, then,
- * when the command submits, Enter as a separate write after `pause`.
+ * when the command submits, Enter as a separate write after `pause`. Resolves to `false` when
+ * nothing was sent: a command with a line break or hidden characters never goes into a program
+ * without bracketed paste (`blockedFor`).
  */
 export async function sendCommand(
   target: BroadcastTarget,
   command: AgentCommand,
   pause: () => Promise<void>,
-): Promise<void> {
+): Promise<boolean> {
+  if (blockedFor(target, command.text)) return false;
   if (command.submit) {
-    await sendToTargets([target], command.text, pause);
-    return;
+    const blocked = await sendToTargets([target], command.text, pause);
+    return blocked.length === 0;
   }
   await target.pasteAndWait(command.text);
+  return true;
 }
 
 /** An entry of the commands submenu; the caller attaches what choosing it does. */

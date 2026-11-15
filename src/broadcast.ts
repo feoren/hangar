@@ -1,6 +1,7 @@
 // "Send to several": the same text to several running sessions at once, each as a bracketed paste
 // followed by Enter. Pure choice of the candidates and the default selection.
 
+import { pasteWarning } from "./appPaste";
 import { shellKind } from "./pathQuote";
 import type { SessionView } from "./sessions";
 
@@ -27,6 +28,8 @@ export function defaultTargets(
 
 /** What sending needs from a terminal (`SessionTerminal`). */
 export interface BroadcastTarget {
+  /** Whether the program in the session has turned on bracketed paste right now. */
+  bracketedPaste: () => boolean;
   /** Bracketed paste; resolves once the backend has the text. */
   pasteAndWait: (text: string) => Promise<void>;
   /** Enter as a separate write. */
@@ -34,21 +37,36 @@ export interface BroadcastTarget {
 }
 
 /**
+ * Text sent without a question (a broadcast, a queued message, an agent command) may carry
+ * content the user did not read, such as a diff or a selection filled in for a variable. Without
+ * bracketed paste a line break runs what follows it, and invisible characters make the text run
+ * differently than it reads, so such text does not go to that target at all.
+ */
+export function blockedFor(target: Pick<BroadcastTarget, "bracketedPaste">, text: string): boolean {
+  return !target.bracketedPaste() && pasteWarning(text, false) !== null;
+}
+
+/**
  * Pastes into all targets at once; each gets Enter only after its own paste has reached the
  * backend and `pause` has passed, so a TUI does not take the Enter as part of the paste.
+ * Resolves to the targets left out (`blockedFor`), so the caller can say so.
  */
-export async function sendToTargets(
-  targets: readonly BroadcastTarget[],
+export async function sendToTargets<T extends BroadcastTarget>(
+  targets: readonly T[],
   text: string,
   pause: () => Promise<void>,
-): Promise<void> {
+): Promise<T[]> {
+  const blocked = targets.filter((target) => blockedFor(target, text));
   await Promise.all(
-    targets.map(async (target) => {
-      await target.pasteAndWait(text);
-      await pause();
-      target.submit();
-    }),
+    targets
+      .filter((target) => !blocked.includes(target))
+      .map(async (target) => {
+        await target.pasteAndWait(text);
+        await pause();
+        target.submit();
+      }),
   );
+  return blocked;
 }
 
 /** Text can be sent when it is not blank and at least one session is chosen. */

@@ -197,11 +197,20 @@ export function insertPathText(item: TreePath, sessionCwd: string, kind: ShellKi
   }
 }
 
+/** The path holds a control character (a line break, ESC), which no quoting makes safe. */
+export function hasControl(path: string): boolean {
+  return CONTROL.test(path);
+}
+
 /**
  * Text inserted for dropped paths: quoted, separated by spaces, with a trailing space so the
- * next drop or word does not stick to it. Empty for no paths.
+ * next drop or word does not stick to it. Empty for no paths. Paths with control characters are
+ * left out, as in `insertPathText`: a program without bracketed paste would run what follows a
+ * line break.
  */
 export function dropText(paths: readonly string[], kind: ShellKind): string {
-  const quoted = paths.filter((path) => path !== "").map((path) => quotePath(path, kind));
+  const quoted = paths
+    .filter((path) => path !== "" && !hasControl(path))
+    .map((path) => quotePath(path, kind));
   return quoted.length === 0 ? "" : `${quoted.join(" ")} `;
 }

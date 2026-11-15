@@ -30,7 +30,8 @@ const BEFORE_QUOTE = /[\s([{=:,]/u;
 /** And closes it only before these (or at the line end). */
 const AFTER_QUOTE = /[\s)\]}.,;:!?]/u;
 const LEADING_JUNK = /^[([{<'"`]+/u;
-const TRAILING_JUNK = /[.,;:!?'"`>]+$/u;
+/** Sentence punctuation stripped from the end of a candidate (`trimEnd`). */
+const TRAILING_JUNK = new Set([".", ",", ";", ":", "!", "?", "'", '"', "`", ">"]);
 /** Characters a path never holds; `?` and `*` are wildcards in what a program prints. */
 const NOT_IN_PATH = /[<>|?*"\p{Cc}]/u;
 const LINE_SUFFIX = /:(\d{1,7})(?::(\d{1,5}))?$/u;
@@ -91,26 +92,40 @@ function findUrls(line: string): TextLink[] {
  * so `(see src/a.ts).` gives `src/a.ts` but `f(x)` keeps its bracket.
  */
 function trimEnd(text: string): string {
-  let result = text;
-  for (;;) {
-    const before = result;
-    result = result.replace(TRAILING_JUNK, "");
-    for (const [open, close] of [
-      ["(", ")"],
-      ["[", "]"],
-      ["{", "}"],
-    ] as const) {
-      while (result.endsWith(close) && count(result, close) > count(result, open)) {
-        result = result.slice(0, -1);
-      }
-    }
-    if (result === before) return result;
+  // Brackets are counted once; stripping walks back from the end, one character at a time, so
+  // a line of thousands of closing brackets costs one pass instead of one pass per bracket.
+  const balance = new Map<string, number>([
+    [")", 0],
+    ["]", 0],
+    ["}", 0],
+  ]);
+  for (const char of text) {
+    const close = CLOSING_OF.get(char);
+    if (close !== undefined) balance.set(close, (balance.get(close) ?? 0) - 1);
+    else if (balance.has(char)) balance.set(char, (balance.get(char) ?? 0) + 1);
   }
+  let end = text.length;
+  while (end > 0) {
+    const char = text.charAt(end - 1);
+    const unopened = balance.get(char) ?? 0;
+    if (TRAILING_JUNK.has(char)) {
+      end -= 1;
+    } else if (unopened > 0) {
+      balance.set(char, unopened - 1);
+      end -= 1;
+    } else {
+      break;
+    }
+  }
+  return text.slice(0, end);
 }
 
-function count(text: string, char: string): number {
-  return text.split(char).length - 1;
-}
+/** The closing bracket for each opening one, for `trimEnd`. */
+const CLOSING_OF = new Map([
+  ["(", ")"],
+  ["[", "]"],
+  ["{", "}"],
+]);
 
 /** Spans between matching quotes, the quotes left out. */
 function quotedSpans(line: string): { start: number; end: number }[] {

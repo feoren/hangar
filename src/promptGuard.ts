@@ -32,6 +32,8 @@ const QUESTION_PHRASES: readonly RegExp[] = [
   /\bno, and tell \w+ what to do differently\b/iu,
   /\((?:y\/n|yes\/no)\)/iu,
   /\[(?:y\/n|yes\/no)\]/iu,
+  // Aider: "Run shell command? (Y)es/(N)o [Yes]:". From the security audit, not yet measured.
+  /\(y\)es\/\(n\)o/iu,
   /\besc to cancel\b/iu,
 ];
 

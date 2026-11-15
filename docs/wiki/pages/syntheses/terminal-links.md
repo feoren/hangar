@@ -4,7 +4,7 @@ type: synthesis
 tags: [terminal, links, xterm, security]
 sources: ["[[xterm-linkifier]]", "[[windows-path-normalization-measurement]]"]
 created: 2026-11-13
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Terminal links
@@ -26,7 +26,14 @@ Web addresses and existing file or folder paths in a session's output are links.
   When the program tracks the mouse, plain clicks stay the program's (links invisible and inert),
   Shift+click still opens.
 - Address: default browser (`open_web_url`, plain http(s) without credentials). OSC 8 links open
-  the same way.
+  the same way, with one guard (security audit 2026-11-15): their visible text can claim another
+  address than they lead to. Hovering shows the real target in a tip; a click whose visible text
+  names another host (with a scheme, or a bare host such as `github.com/org`, `localhost:3000`,
+  an IPv4 address) or looks like a path shows the real address with an Open button first
+  (`osc8Decision` in `src/termSafety.ts`). Plain words, versions (`v0.8.0`) and bare file names
+  (`README.md`: a common file ending and no path or port) claim no host and open at once.
+- Link trimming walks back from the end once, with the brackets counted in one pass; the former
+  loop was quadratic and took about 30 ms for a line of 4,000 closing brackets.
 - File inside the session's folder: Hangar's viewer, unless the viewer could only show "binary";
   otherwise and on refusal `open_path`.
 

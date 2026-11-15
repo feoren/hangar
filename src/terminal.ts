@@ -4,8 +4,9 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type IBufferRange } from "@xterm/xterm";
 
+import type { PasteWarning } from "./appPaste";
 import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
 import {
   AttentionTracker,
@@ -151,8 +152,13 @@ export class SessionTerminal {
    */
   fallback: SessionFallback | undefined = undefined;
   onFallback: ((fallback: SessionFallback) => void) | null = null;
-  /** Click on a link (OSC 8) with an allowed address; only http and https get this far. */
-  onLink: ((url: string) => void) | null = null;
+  /**
+   * Click on a link (OSC 8) with an allowed address; only http and https get this far. `shown`
+   * is the link's visible text in the terminal, which may claim another address.
+   */
+  onLink: ((url: string, shown: string) => void) | null = null;
+  /** The real target of the OSC 8 link under the mouse; inside the xterm element. */
+  private linkTip: HTMLElement | null = null;
   /** Click on an address or existing path in the output (terminalLinkProvider.ts). */
   onOpenLink: ((request: LinkRequest) => void) | null = null;
   /** The session's folder, for relative paths in the output; the app knows the session. */
@@ -178,6 +184,10 @@ export class SessionTerminal {
   shellKind: () => ShellKind = () => "agent";
   /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
   imagePasteInFlight = false;
+  /** Whether Ctrl+V asks before text that would run lines or hides characters (a setting). */
+  warnsBeforePaste: () => boolean = () => true;
+  /** Asks the user about such a paste; the app shows the question. Until then nothing goes in. */
+  confirmPaste: (warning: PasteWarning) => Promise<boolean> = () => Promise.resolve(false);
   /** Active session in a focused window; the app sets it as soon as the ID is known. */
   isWatched: () => boolean = () => false;
   readonly attention: AttentionTracker;
@@ -222,11 +232,21 @@ export class SessionTerminal {
       minimumContrastRatio: MINIMUM_CONTRAST[theme],
       // Replaces xterm's default, which asks via confirm() and opened the address in the WebView
       // via window.open. xterm does not even let schemes other than http and https through here.
+      // An OSC 8 link's visible text can claim another address than it leads to: hovering shows
+      // the real target, and the click hands both to the app (termSafety.ts `osc8Decision`).
       linkHandler: {
-        activate: (event, text) => {
+        activate: (event, text, range) => {
           event.preventDefault();
+          this.hideLinkTip();
           const url = safeLinkUrl(text);
-          if (url !== null) this.onLink?.(url);
+          if (url !== null) this.onLink?.(url, this.rangeText(range));
+        },
+        hover: (event, text) => {
+          const url = safeLinkUrl(text);
+          if (url !== null) this.showLinkTip(event, url);
+        },
+        leave: () => {
+          this.hideLinkTip();
         },
         allowNonHttpProtocols: false,
       },
@@ -619,6 +639,48 @@ export class SessionTerminal {
     this.term.selectAll();
   }
 
+  /** The visible text of a link's cells; xterm's ranges are 1 based, `end.x` inclusive. */
+  private rangeText(range: IBufferRange): string {
+    const buffer = this.term.buffer.active;
+    let text = "";
+    for (let y = range.start.y; y <= range.end.y; y += 1) {
+      const from = y === range.start.y ? range.start.x - 1 : 0;
+      const to = y === range.end.y ? range.end.x : undefined;
+      text += buffer.getLine(y - 1)?.translateToString(true, from, to) ?? "";
+    }
+    return text;
+  }
+
+  /**
+   * Shows the link's real address next to the mouse. The `xterm-hover` class keeps xterm from
+   * treating the mouse over the tip as leaving the link or clicking the cells below it.
+   */
+  private showLinkTip(event: MouseEvent, url: string): void {
+    const host = this.term.element;
+    if (host === undefined) return;
+    const tip = this.linkTip ?? document.createElement("div");
+    tip.className = "xterm-hover terminal-link-tip";
+    tip.setAttribute("role", "tooltip");
+    tip.textContent = t("link.leadsTo", { url });
+    const box = host.getBoundingClientRect();
+    const x = event.clientX - box.left;
+    const y = event.clientY - box.top;
+    // Towards the roomier side, so a long address stays inside the terminal.
+    const right = x > box.width / 2;
+    const below = y < box.height / 2;
+    tip.style.left = right ? "" : `${String(Math.max(4, x))}px`;
+    tip.style.right = right ? `${String(Math.max(4, box.width - x))}px` : "";
+    tip.style.top = below ? `${String(y + 18)}px` : "";
+    tip.style.bottom = below ? "" : `${String(box.height - y + 8)}px`;
+    if (tip.parentElement !== host) host.appendChild(tip);
+    this.linkTip = tip;
+  }
+
+  private hideLinkTip(): void {
+    this.linkTip?.remove();
+    this.linkTip = null;
+  }
+
   copySelection(): void {
     const text = this.selectionText();
     if (text) writeClipboard(text).catch(ignore);
@@ -637,7 +699,10 @@ export class SessionTerminal {
       .catch(ignore);
   }
 
-  /** Text pastes synchronously, before the first await; only the image path waits. */
+  /**
+   * Text without anything to warn about pastes synchronously, before the first await; text that
+   * would run lines or hides characters waits for the user's answer (clipboardPaste.ts).
+   */
   private async pasteClipboardContent(text: string): Promise<void> {
     const result = await pasteFromClipboard(this, text, () => api.pasteClipboardImage());
     if (result === "failed") this.onImagePasteFailed?.();
@@ -807,6 +872,7 @@ export class SessionTerminal {
     this.onExit = null;
     this.onFallback = null;
     this.onLink = null;
+    this.hideLinkTip();
     this.onOpenLink = null;
     this.links.dispose();
     this.onImagePasteFailed = null;

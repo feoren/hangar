@@ -154,7 +154,7 @@ import {
   type SendTarget,
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
-import { dropText, insertPathText, shellKind, type TreePath } from "./pathQuote";
+import { dropText, hasControl, insertPathText, shellKind, type TreePath } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
@@ -264,6 +264,7 @@ import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
 import { openLink } from "./terminalLinkOpen";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
+import { osc8Decision } from "./termSafety";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
 import { ratiosFor, sameRatios, SUB_AGENT_LAYOUT, subAgentRatios } from "./paneRatios";
@@ -630,7 +631,11 @@ export function App() {
   /** Most recently started program (Ctrl+Shift+T, empty state). */
   const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
   /** Clicked terminal link, for as long as its hint is shown. */
-  const [link, setLink] = useState<{ url: string; copied: boolean } | null>(null);
+  /**
+   * The link notice: an address to copy when the browser could not open it, or, with `ask`, an
+   * OSC 8 link whose visible text claims another address, shown with an Open button.
+   */
+  const [link, setLink] = useState<{ url: string; copied: boolean; ask?: boolean } | null>(null);
   /** Newest local dev server address per session, from its current process (devServer.ts). */
   const [devServers, setDevServers] = useState<ReadonlyMap<number, string>>(() => new Map());
   /** An agent session just finished with changed files in its folder (doneNotice.ts). */
@@ -1821,7 +1826,13 @@ export function App() {
       };
       terminal.isWatched = () => activeIdRef.current === id && windowWatched();
       // An OSC 8 link opens like a printed address; the notice shows it to copy if that fails.
-      terminal.onLink = (url) => {
+      // When its visible text claims another host or a path, the notice shows the real address
+      // and opens it only on request (termSafety.ts `osc8Decision`).
+      terminal.onLink = (url, shown) => {
+        if (osc8Decision(shown, url) === "confirm") {
+          setLink({ url, copied: false, ask: true });
+          return;
+        }
         api.openWebUrl(url).catch(() => {
           setLink({ url, copied: false });
         });
@@ -1850,6 +1861,10 @@ export function App() {
         const profile = profilesRef.current.find((p) => p.id === session?.profileId);
         return shellKind(profile?.command ?? "");
       };
+      // Ctrl+V and Shift+Insert ask like "Send to" when the text would run lines or hides some.
+      terminal.warnsBeforePaste = () => settingsRef.current.warnMultilinePaste;
+      terminal.confirmPaste = (warning) =>
+        confirmPaste(stateRef.current.sessions.find((s) => s.id === id)?.title ?? "")(warning);
       terminal.onImagePasteFailed = () => {
         setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
       };
@@ -1988,7 +2003,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher, chimes, pushes, offerDone, changeQueue, stallMonitor],
+    [flasher, chimes, pushes, offerDone, changeQueue, stallMonitor, confirmPaste],
   );
 
   /**
@@ -2968,6 +2983,9 @@ export function App() {
       if (!target || !terminal) return;
       const profile = profilesRef.current.find((p) => p.id === target.profileId);
       const text = dropText(event.paths, shellKind(profile?.command ?? ""));
+      if (event.paths.some(hasControl)) {
+        setStartHint(createTranslator(settingsRef.current.language)("paste.dropSkipped"));
+      }
       if (text === "") return;
       terminal.pasteText(text);
       if (target.id !== activeIdRef.current) dispatch({ type: "activated", id: target.id });
@@ -3441,12 +3459,23 @@ export function App() {
     setChangesFocusToken((token) => token + 1);
   };
 
+  /** "Open" on a link whose visible text differed: the user saw the real address and agreed. */
+  const openCheckedLink = () => {
+    if (link === null) return;
+    const url = link.url;
+    setLink(null);
+    focusTerminal();
+    api.openWebUrl(url).catch(() => {
+      setLink({ url, copied: false });
+    });
+  };
+
   const copyLink = () => {
     if (link === null) return;
     const url = link.url;
     writeClipboard(url)
       .then(() => {
-        setLink((current) => (current?.url === url ? { url, copied: true } : current));
+        setLink((current) => (current?.url === url ? { ...current, copied: true } : current));
       })
       .catch(showError);
   };
@@ -3610,10 +3639,22 @@ export function App() {
     });
   };
 
-  /** Pastes filled text into one session and sends Enter after it (broadcast.ts). */
-  const submitText = (id: number, text: string) => {
+  /**
+   * Pastes filled text into one session and sends Enter after it (broadcast.ts). Resolves to
+   * `false` only when the text was held back: several lines or hidden characters for a program
+   * without bracketed paste (`blockedFor`). A session closed meanwhile gets nothing, as before.
+   */
+  const submitText = async (id: number, text: string): Promise<boolean> => {
     const terminal = terminals.get(id);
-    if (terminal) void sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS));
+    if (!terminal) return true;
+    const blocked = await sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS));
+    return blocked.length === 0;
+  };
+
+  /** Says which sessions got nothing because of `blockedFor`. */
+  const reportBlocked = (ids: readonly number[]) => {
+    if (ids.length === 0) return;
+    setError(t("send.blocked", { sessions: ids.map(sessionName).join(", ") }));
   };
 
   /**
@@ -3631,7 +3672,12 @@ export function App() {
       }
     }
     setDialog(null);
-    for (const { id, result } of filled) if (result.ok) submitText(id, result.text);
+    const sent = filled.map(async ({ id, result }) =>
+      result.ok && !(await submitText(id, result.text)) ? id : null,
+    );
+    void Promise.all(sent).then((blocked) => {
+      reportBlocked(blocked.filter((id) => id !== null));
+    });
     splitView.showOnly(ids);
     return null;
   };
@@ -3645,7 +3691,12 @@ export function App() {
     const key = terminals.get(id)?.key;
     void fillVariables(id, text).then((filled) => {
       if (filled.ok) {
-        submitText(id, filled.text);
+        // A message that cannot go in safely stays queued, like one with a missing variable.
+        void submitText(id, filled.text).then((sent) => {
+          if (sent) return;
+          if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
+          reportBlocked([id]);
+        });
         return;
       }
       if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
@@ -3669,7 +3720,9 @@ export function App() {
     const session = state.sessions.find((s) => s.id === id);
     const terminal = terminals.get(id);
     if (session?.status !== "running" || !terminal || withholdCommand(id, command)) return;
-    void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS));
+    void sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS)).then((sent) => {
+      if (!sent) reportBlocked([id]);
+    });
     dispatch({ type: "activated", id });
     focusTerminal();
   };
@@ -5606,10 +5659,15 @@ export function App() {
               </div>
             )}
             {link !== null && (
-              <div className="link-notice" role="status">
-                <span>{t("link.notice")}</span>
+              <div className={link.ask ? "link-notice link-check" : "link-notice"} role="status">
+                <span>{t(link.ask ? "link.checkTarget" : "link.notice")}</span>
                 <span className="link-url selectable">{link.url}</span>
                 <div className="link-actions">
+                  {link.ask && (
+                    <button type="button" className="primary-button" onClick={openCheckedLink}>
+                      {t("link.open")}
+                    </button>
+                  )}
                   <button type="button" className="secondary-button" onClick={copyLink}>
                     {link.copied ? t("link.copied") : t("menu.copy")}
                   </button>

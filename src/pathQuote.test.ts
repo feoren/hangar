@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dropText,
+  hasControl,
   insertPathText,
   isShellKind,
   quotePath,
@@ -153,6 +154,20 @@ describe("dropText", () => {
   it("is empty without paths", () => {
     expect(dropText([], "cmd")).toBe("");
     expect(dropText([""], "cmd")).toBe("");
+  });
+
+  it("leaves out paths with control characters, which no quoting makes safe", () => {
+    expect(dropText(["/tmp/a\nb"], "agent")).toBe("");
+    expect(dropText(["/tmp/a\nb", "/tmp/ok"], "posix")).toBe("/tmp/ok ");
+    expect(dropText(["C:\\a\u001b[201~b.txt"], "powershell")).toBe("");
+  });
+});
+
+describe("hasControl", () => {
+  it("finds line breaks, ESC and C1 characters", () => {
+    expect(hasControl("/tmp/a\rb")).toBe(true);
+    expect(hasControl("C:\\a\u009bb")).toBe(true);
+    expect(hasControl("C:\\Users\\Jane Doe\\ä.txt")).toBe(false);
   });
 });
 

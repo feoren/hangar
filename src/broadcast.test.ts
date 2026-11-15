@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blockedFor,
   broadcastCandidates,
   canBroadcast,
   defaultTargets,
@@ -75,6 +76,7 @@ describe("sendToTargets", () => {
       releaseSlow = resolve;
     });
     const target = (name: string, arrived: Promise<void>): BroadcastTarget => ({
+      bracketedPaste: () => true,
       pasteAndWait: (text) => {
         events.push(`paste ${name} ${text}`);
         return arrived;
@@ -100,6 +102,52 @@ describe("sendToTargets", () => {
   });
 
   it("does nothing without targets", async () => {
-    await expect(sendToTargets([], "hi", () => Promise.resolve())).resolves.toBeUndefined();
+    await expect(sendToTargets([], "hi", () => Promise.resolve())).resolves.toEqual([]);
+  });
+
+  const recorder = (name: string, bracketed: boolean, events: string[]): BroadcastTarget => ({
+    bracketedPaste: () => bracketed,
+    pasteAndWait: (text) => {
+      events.push(`paste ${name} ${text}`);
+      return Promise.resolve();
+    },
+    submit: () => {
+      events.push(`enter ${name}`);
+    },
+  });
+  const noPause = () => Promise.resolve();
+
+  it("skips a target without bracketed paste when the text has a line break", async () => {
+    const events: string[] = [];
+    const safe = recorder("a", true, events);
+    const raw = recorder("b", false, events);
+    const text = "summary\necho marker";
+    await expect(sendToTargets([safe, raw], text, noPause)).resolves.toEqual([raw]);
+    expect(events).toEqual([`paste a ${text}`, "enter a"]);
+  });
+
+  it("skips a target without bracketed paste when the text hides characters", async () => {
+    const events: string[] = [];
+    const raw = recorder("b", false, events);
+    await expect(sendToTargets([raw], "marker\u202etxt", noPause)).resolves.toEqual([raw]);
+    expect(events).toEqual([]);
+  });
+
+  it("sends one plain line to a target without bracketed paste", async () => {
+    const events: string[] = [];
+    const raw = recorder("b", false, events);
+    await expect(sendToTargets([raw], "/compact", noPause)).resolves.toEqual([]);
+    expect(events).toEqual(["paste b /compact", "enter b"]);
+  });
+});
+
+describe("blockedFor", () => {
+  it("blocks only targets without bracketed paste, and only risky text", () => {
+    const off = { bracketedPaste: () => false };
+    const on = { bracketedPaste: () => true };
+    expect(blockedFor(off, "one\ntwo")).toBe(true);
+    expect(blockedFor(off, "one\rtwo")).toBe(true);
+    expect(blockedFor(off, "one line")).toBe(false);
+    expect(blockedFor(on, "one\ntwo")).toBe(false);
   });
 });
