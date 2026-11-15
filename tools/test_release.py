@@ -163,9 +163,11 @@ class BuildCommandTest(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
 
         environ = dict(os.environ, **(environ or {}))
-        with mock.patch.object(release.shutil, "which", return_value=NODE), mock.patch.object(
-            release.subprocess, "run", side_effect=fake_run
-        ), mock.patch.dict(release.os.environ, environ, clear=True):
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release, "cli_problem", return_value=None
+        ), mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.dict(
+            release.os.environ, environ, clear=True
+        ):
             release.build(signing)
         self.assertEqual(len(calls), 1)
         return calls[0]
@@ -195,6 +197,12 @@ class BuildCommandTest(unittest.TestCase):
 
 
 NODE = r"C:\Program Files\nodejs\node.exe"
+CARGO = r"C:\Users\builder\.cargo\bin\cargo.exe"
+
+
+def fake_tool(*names):
+    """Stands in for resolve_tool: fixed absolute programs, no PATH lookup."""
+    return {"node": NODE, "cargo": CARGO, "git": r"C:\Program Files\Git\cmd\git.exe"}[names[0]]
 
 
 def minisign_text(comment, key_id, payload_length):
@@ -215,22 +223,153 @@ def throwaway_key_pair(folder, key_id):
 
 class TauriCommandTest(unittest.TestCase):
     def test_the_cli_runs_through_node_never_through_a_cmd_shim(self):
-        with mock.patch.object(release.shutil, "which", return_value=NODE):
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release, "cli_problem", return_value=None
+        ):
             command = release.tauri_command("build")
         self.assertEqual(command, [NODE, str(release.TAURI_JS), "build"])
-        self.assertNotIn(Path(command[0]).suffix.lower(), (".cmd", ".bat"))
 
-    def test_a_node_that_is_a_cmd_script_is_refused(self):
-        for shim in (r"C:\tools\node.cmd", r"C:\tools\NODE.BAT"):
-            with mock.patch.object(release.shutil, "which", return_value=shim):
-                with self.assertRaises(SystemExit):
-                    release.tauri_command("build")
+    def test_a_cli_that_does_not_match_the_lock_file_is_refused(self):
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release, "cli_problem", return_value="mismatch"
+        ), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            release.tauri_command("build")
 
-    def test_the_real_node_is_no_cmd_script(self):
-        node = shutil.which("node")
-        if node is None:
+
+LOCK_TEXT = """lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    devDependencies:
+      '@tauri-apps/api':
+        specifier: ^2.10.0
+        version: 2.10.1
+      '@tauri-apps/cli':
+        specifier: ^2.12.4
+        version: 2.12.4
+
+packages:
+
+  '@tauri-apps/cli@2.12.4':
+    resolution: {integrity: sha512-marker}
+"""
+
+
+class CliVersionTest(unittest.TestCase):
+    def test_the_locked_version_is_read_from_the_root_importer(self):
+        self.assertEqual(release.locked_cli_version(LOCK_TEXT), "2.12.4")
+        self.assertIsNone(release.locked_cli_version("lockfileVersion: '9.0'\n"))
+
+    def test_installed_cli_must_match_the_lock_file(self):
+        self.assertIsNone(release.cli_version_problem('{"version": "2.12.4"}', LOCK_TEXT))
+        self.assertIn("2.12.5", release.cli_version_problem('{"version": "2.12.5"}', LOCK_TEXT))
+        self.assertIsNotNone(release.cli_version_problem("not json", LOCK_TEXT))
+        self.assertIsNotNone(release.cli_version_problem('{"version": "2.12.4"}', ""))
+
+    def test_the_checked_out_cli_matches(self):
+        if not (release.ROOT / "node_modules" / "@tauri-apps" / "cli" / "package.json").is_file():
+            self.skipTest("node_modules not installed")
+        self.assertIsNone(release.cli_problem())
+
+
+class FindProgramTest(unittest.TestCase):
+    """Programs come from absolute PATH folders outside the repository and the working folder."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release path ")
+        self.tools = self.folder / "tools"
+        self.planted = self.folder / "planted"
+        self.tools.mkdir()
+        self.planted.mkdir()
+
+    def find(self, name, entries, excluded=(), windows=True):
+        search_path = os.pathsep.join(str(entry) for entry in entries)
+        return release.find_program(name, search_path, list(excluded), windows)
+
+    def test_only_an_exe_counts_on_windows(self):
+        (self.tools / "node.cmd").write_bytes(b"")
+        (self.tools / "node.com").write_bytes(b"")
+        self.assertIsNone(self.find("node", [self.tools]))
+        (self.tools / "node.exe").write_bytes(b"")
+        self.assertEqual(self.find("node", [self.tools]), str((self.tools / "node.exe").resolve()))
+
+    def test_excluded_folders_and_relative_entries_are_skipped(self):
+        for folder in (self.tools, self.planted):
+            (folder / "git.exe").write_bytes(b"")
+        found = self.find("git", ["", ".", "planted", self.planted, self.tools], excluded=[self.planted])
+        self.assertEqual(found, str((self.tools / "git.exe").resolve()))
+        self.assertIsNone(self.find("git", [self.planted], excluded=[self.folder]))
+
+    def test_a_working_folder_above_the_path_folder_does_not_hide_it(self):
+        # Started from the home folder, ~/.cargo/bin or AppData\...\nodejs lie below the working
+        # folder; Windows only searches the working folder itself, not its subfolders.
+        program = "cargo.exe" if sys.platform == "win32" else "cargo"
+        (self.tools / program).write_bytes(b"")
+        (self.tools / program).chmod(0o755)
+        (self.folder / program).write_bytes(b"")
+        previous = os.getcwd()
+        os.chdir(self.folder)
+        self.addCleanup(os.chdir, previous)
+        with mock.patch.object(release, "ROOT", self.planted), mock.patch.dict(
+            release.os.environ, {"PATH": os.pathsep.join([str(self.folder), str(self.tools)])}
+        ):
+            self.assertEqual(release.resolve_tool("cargo"), str((self.tools / program).resolve()))
+
+    @unittest.skipIf(sys.platform == "win32", "execute permission exists only on POSIX")
+    def test_posix_needs_an_executable_file(self):
+        program = self.tools / "git"
+        program.write_bytes(b"")
+        program.chmod(0o644)
+        self.assertIsNone(self.find("git", [self.tools], windows=False))
+        program.chmod(0o755)
+        self.assertEqual(self.find("git", [self.tools], windows=False), str(program.resolve()))
+
+
+def on_path(name):
+    program = name + ".exe" if sys.platform == "win32" else name
+    entries = os.environ.get("PATH", "").split(os.pathsep)
+    return any(os.path.isabs(entry) and Path(entry, program).is_file() for entry in entries)
+
+
+class CurrentFolderProgramTest(unittest.TestCase):
+    """A file-write-only agent in the repository plants node.com or git.exe in the working
+    folder; Windows searched it before PATH (shutil.which and CreateProcess both did)."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release cwd ")
+        for name in ("node.com", "node.exe", "git.exe", "git.com"):
+            (self.folder / name).write_bytes(b"")
+        previous = os.getcwd()
+        os.chdir(self.folder)
+        self.addCleanup(os.chdir, previous)
+
+    def assert_from_path(self, program):
+        self.assertTrue(os.path.isabs(program), program)
+        self.assertFalse(release.is_inside(Path(program), self.folder), program)
+        self.assertFalse(release.is_inside(Path(program), release.ROOT), program)
+        if sys.platform == "win32":
+            self.assertTrue(program.endswith(".exe"), program)
+
+    def test_node_for_the_tauri_cli_comes_from_path(self):
+        if not on_path("node"):
             self.skipTest("node not installed")
-        self.assertNotIn(Path(node).suffix.lower(), (".cmd", ".bat"))
+        with mock.patch.object(release, "cli_problem", return_value=None):
+            command = release.tauri_command("build")
+        self.assert_from_path(command[0])
+
+    def test_git_comes_from_path(self):
+        if not on_path("git"):
+            self.skipTest("git not installed")
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch.object(release.subprocess, "run", side_effect=fake_run):
+            release.git("status", "--porcelain")
+        self.assert_from_path(calls[0][0])
 
 
 class SignatureKeyTest(unittest.TestCase):
@@ -239,18 +378,22 @@ class SignatureKeyTest(unittest.TestCase):
 
     def test_the_key_id_is_read_from_both_forms(self):
         public, signature = throwaway_key_pair(self.folder, bytes.fromhex("0102030405060708"))
-        self.assertEqual(release.minisign_key_id(public), "0102030405060708")
-        self.assertEqual(release.minisign_key_id(signature), "0102030405060708")
+        # minisign shows the id as a little-endian number, so the bytes appear reversed.
+        self.assertEqual(release.minisign_key_id(public), "0807060504030201")
+        self.assertEqual(release.minisign_key_id(signature), "0807060504030201")
         self.assertIsNone(release.signature_key_problem(signature, public))
 
     def test_the_shipped_key_is_readable(self):
-        self.assertEqual(release.minisign_key_id(release.updater_pubkey()), "C815B1C58F164CE3")
+        # The same id the untrusted comment of the shipped public key names.
+        self.assertEqual(release.minisign_key_id(release.updater_pubkey()), "E34C168FC5B115C8")
+        public = base64.b64decode(release.updater_pubkey()).decode("utf-8")
+        self.assertTrue(public.splitlines()[0].endswith("E34C168FC5B115C8"))
 
     def test_another_key_is_refused(self):
         public, _ = throwaway_key_pair(self.folder, bytes.fromhex("0102030405060708"))
         _, other = throwaway_key_pair(self.folder, bytes.fromhex("1112131415161718"))
         problem = release.signature_key_problem(other, public)
-        self.assertIn("1112131415161718", problem)
+        self.assertIn("1817161514131211", problem)
 
     def test_garbage_is_refused(self):
         public, _ = throwaway_key_pair(self.folder, bytes(8))
@@ -270,11 +413,13 @@ class UpdaterSigningTest(unittest.TestCase):
         self.setup.write_bytes(b"installer")
         self.public, self.signature = throwaway_key_pair(self.folder, bytes.fromhex("A1A2A3A4A5A6A7A8"))
 
-    def run_sign(self, environ=None, writes_signature=True, returncode=0, signature=None):
+    def run_sign(self, environ=None, writes_signature=True, returncode=0, signature=None, verify_returncode=0):
         calls = []
 
         def fake_run(command, **kwargs):
             calls.append((command, kwargs.get("env")))
+            if "verify_update_sig" in command:
+                return subprocess.CompletedProcess(command, verify_returncode)
             if writes_signature:
                 Path(command[-1] + ".sig").write_text(signature or self.signature, encoding="utf-8")
             return subprocess.CompletedProcess(command, returncode)
@@ -285,13 +430,13 @@ class UpdaterSigningTest(unittest.TestCase):
             if not name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")
         }
         clean.update(environ or {})
-        with mock.patch.object(release.shutil, "which", return_value=NODE), mock.patch.object(
-            release.subprocess, "run", side_effect=fake_run
-        ), mock.patch.dict(release.os.environ, clean, clear=True), mock.patch.object(
-            release, "updater_pubkey", return_value=self.public
-        ):
+        self.calls = calls
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release, "cli_problem", return_value=None
+        ), mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.dict(
+            release.os.environ, clean, clear=True
+        ), mock.patch.object(release, "updater_pubkey", return_value=self.public):
             signature = release.sign_update(self.key, self.setup, "0.2.0+31")
-        self.assertEqual(len(calls), 1)
         return calls[0], signature
 
     def test_signs_the_installer_bound_to_the_version(self):
@@ -330,6 +475,51 @@ class UpdaterSigningTest(unittest.TestCase):
     def test_a_failed_signer_aborts(self):
         with self.assertRaises(SystemExit):
             self.run_sign(returncode=1)
+
+    def test_node_settings_never_reach_the_signer(self):
+        injected = {
+            "NODE_OPTIONS": "--require=planted-marker",
+            "NODE_PATH": "planted-marker",
+            "npm_config_prefix": "planted-marker",
+            "HANGAR_CERT_THUMBPRINT": THUMB,
+        }
+        (_, env), _ = self.run_sign(injected)
+        self.assertNotIn("planted-marker", " ".join(env.values()))
+        self.assertNotIn(THUMB, env.values())
+        self.assertEqual(env["NoDefaultCurrentDirectoryInExePath"], "1")
+        if "PATH" in os.environ:
+            self.assertEqual(env["PATH"], os.environ["PATH"])
+
+    def test_the_signature_is_verified_without_the_key(self):
+        self.run_sign()
+        self.assertEqual(len(self.calls), 2)
+        command, env = self.calls[1]
+        self.assertEqual(
+            command,
+            [
+                CARGO,
+                "run",
+                "--quiet",
+                "--locked",
+                "--offline",
+                "--manifest-path",
+                str(release.CARGO_TOML),
+                "--example",
+                "verify_update_sig",
+                "--",
+                str(self.setup),
+                str(self.setup) + ".sig",
+                self.public,
+                "0.2.0+31",
+            ],
+        )
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        self.assertNotIn("key-content-marker", env.values())
+
+    def test_a_signature_that_does_not_verify_aborts_and_is_removed(self):
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.run_sign(verify_returncode=1)
+        self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
 
     def test_a_signature_of_another_key_aborts_and_is_removed(self):
         _, foreign = throwaway_key_pair(self.folder, bytes.fromhex("B1B2B3B4B5B6B7B8"))

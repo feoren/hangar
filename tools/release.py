@@ -34,9 +34,13 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
    the updater key in its environment (no build script or dependency ever sees it). Afterwards a separate
    `tauri signer sign --app-version <version>` signs the finished installer, the only process
    that gets the private key (default: %USERPROFILE%\.tauri\hangar.key, override with
-   HANGAR_SIGNING_KEY) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD. The signature is the same `.sig`
-   next to the installer that `tauri build` writes, with the version in its trusted comment.
-   Its key id must match the public key in tauri.conf.json, otherwise the script aborts.
+   HANGAR_SIGNING_KEY) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, with a reduced environment (no
+   NODE_OPTIONS or other Node settings). The signature is the same `.sig` next to the installer
+   that `tauri build` writes, with the version in its trusted comment. Its key id must match the
+   public key in tauri.conf.json, and `cargo run --example verify_update_sig` (no key in its
+   environment) must verify it the way installed apps do; otherwise the script aborts.
+   git, node, cargo and PowerShell are taken only as absolute programs from PATH (on Windows only
+   `.exe`), never from the repository or the working folder.
 3. Puts everything to upload under release/<version>/:
      Hangar_<x.y.z-build>_x64-setup.exe   installer for this version (target of the update URL)
      Hangar-Setup.exe                 same file under a fixed name for the download link
@@ -90,12 +94,14 @@ BUNDLE_DIR = ROOT / "src-tauri" / "target" / "release" / "bundle" / "nsis"
 MAIN_EXE = ROOT / "src-tauri" / "target" / "release" / "hangar.exe"
 RELEASE_DIR = ROOT / "release"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
+PNPM_LOCK = ROOT / "pnpm-lock.yaml"
 GITHUB_REPO = "feoren/hangar"
 # Older installations only poll this server; it gets a copy of latest.json (see release-rollout.md).
 LEGACY_UPDATE_URL = "https://hangar.feoren.com/download/"
 DEFAULT_KEY = Path.home() / ".tauri" / "hangar.key"
 # The Tauri CLI's own entry point; run with node.exe, not through a .cmd shim.
 TAURI_JS = ROOT / "node_modules" / "@tauri-apps" / "cli" / "tauri.js"
+TAURI_CLI_PACKAGE = TAURI_JS.with_name("package.json")
 BASE_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 FULL_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$")
 DEFAULT_TIMESTAMP_URL = "http://time.certum.pl"
@@ -191,9 +197,7 @@ def signature_problem(report_text):
 
 
 def verify_signature(path):
-    shell = shutil.which("pwsh") or shutil.which("powershell")
-    if not shell:
-        fail("pwsh/powershell not found; cannot check the signature of %s" % path.name)
+    shell = resolve_tool("pwsh", "powershell")
     env = dict(os.environ)
     env["HANGAR_VERIFY_PATH"] = str(path)
     result = subprocess.run(
@@ -214,6 +218,68 @@ def verify_signature(path):
 def fail(message):
     print("ERROR: " + message, file=sys.stderr)
     sys.exit(1)
+
+
+def is_inside(path, folder):
+    """Whether `path` is `folder` or lies below it (Windows: ignoring case)."""
+    inner = os.path.normcase(os.path.abspath(path))
+    outer = os.path.normcase(os.path.abspath(folder))
+    try:
+        return os.path.commonpath([inner, outer]) == outer
+    except ValueError:
+        # Different drives.
+        return False
+
+
+def find_program(name, search_path, excluded, windows, working_folder=None):
+    """The first `name` in an absolute folder of `search_path` outside every `excluded` folder.
+
+    Windows looks for programs in the working folder before PATH (CreateProcess and, depending on
+    the Python version, shutil.which) and prefers `.com` over `.exe` (PATHEXT); a file planted in
+    the repository could then run instead of git or node and read the signing key. So only
+    `<name>.exe` counts there (a .cmd or .bat would also run through cmd.exe), relative PATH
+    entries are skipped because they resolve against the working folder, folders inside
+    `excluded` (the repository) never count, also not through a link, and neither does
+    `working_folder` itself. Only that folder, not its subfolders: Windows searches nothing below
+    it, and started from the home folder, ~/.cargo/bin would otherwise never be found.
+    """
+    program = name + ".exe" if windows else name
+    excluded = [Path(folder).resolve() for folder in excluded]
+    working = os.path.normcase(str(Path(working_folder).resolve())) if working_folder else None
+    for entry in search_path.split(os.pathsep):
+        entry = entry.strip().strip('"')
+        if not entry or not os.path.isabs(entry):
+            continue
+        try:
+            folder = Path(entry).resolve(strict=True)
+        except OSError:
+            continue
+        candidate = folder / program
+        if not candidate.is_file() or (not windows and not os.access(candidate, os.X_OK)):
+            continue
+        real = candidate.resolve()
+        if any(is_inside(path, other) for path in (folder, real) for other in excluded):
+            continue
+        if working in (os.path.normcase(str(folder)), os.path.normcase(str(real.parent))):
+            continue
+        return str(candidate)
+    return None
+
+
+def resolve_tool(*names):
+    """Absolute path of the first of `names` on PATH; aborts when none is there."""
+    try:
+        working_folder = Path.cwd()
+    except OSError:
+        working_folder = None
+    for name in names:
+        found = find_program(name, os.environ.get("PATH", ""), [ROOT], os.name == "nt", working_folder)
+        if found:
+            return found
+    fail(
+        "%s not found on PATH (programs in the repository or the working folder are never used)"
+        % " or ".join(names)
+    )
 
 
 def read_json(path):
@@ -303,7 +369,7 @@ def date_changelog(entries, entry):
 
 
 def git(*args):
-    result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
+    result = subprocess.run([resolve_tool("git"), *args], cwd=ROOT, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         fail("git %s failed: %s" % (" ".join(args), result.stderr.strip()))
     return result.stdout.strip()
@@ -530,20 +596,86 @@ def build_config(signing):
     return config
 
 
+def locked_cli_version(lock_text):
+    """The @tauri-apps/cli version the root importer of pnpm-lock.yaml pins, or None."""
+    match = re.search(
+        r"(?m)^      '@tauri-apps/cli':\n        specifier: [^\n]*\n        version: ([^\s(]+)", lock_text
+    )
+    return match.group(1) if match else None
+
+
+def cli_version_problem(package_text, lock_text):
+    """None when the installed CLI has the version the lock file pins, otherwise the reason."""
+    locked = locked_cli_version(lock_text)
+    if locked is None:
+        return "pnpm-lock.yaml names no version of @tauri-apps/cli"
+    try:
+        installed = json.loads(package_text).get("version")
+    except (ValueError, AttributeError):
+        installed = None
+    if installed != locked:
+        return "node_modules has @tauri-apps/cli %s, but pnpm-lock.yaml pins %s; run pnpm install --frozen-lockfile" % (
+            installed,
+            locked,
+        )
+    return None
+
+
+def cli_problem():
+    """Compares the installed Tauri CLI with the lock file. Only a consistency check: whoever can
+    write node_modules can change both, see release-rollout.md (residual risk)."""
+    try:
+        package_text = TAURI_CLI_PACKAGE.read_text(encoding="utf-8")
+        lock_text = PNPM_LOCK.read_text(encoding="utf-8")
+    except OSError as error:
+        return "Tauri CLI or pnpm-lock.yaml not readable: %s (run pnpm install)" % error
+    return cli_version_problem(package_text, lock_text)
+
+
 def tauri_command(*args):
     """argv for the Tauri CLI: node.exe with the CLI's tauri.js, then `args`.
 
     pnpm and npx are .cmd files on Windows; CreateProcess runs those through cmd.exe, which
     interprets `&`, `%` and quotes in every argument (BatBadBut). node.exe takes the argv as is.
     """
-    node = shutil.which("node")
-    if not node:
-        fail("node not found")
-    if Path(node).suffix.lower() in (".cmd", ".bat"):
-        fail("node resolves to a cmd.exe script (%s); install Node.js itself" % node)
+    node = resolve_tool("node")
     if not TAURI_JS.is_file():
         fail("Tauri CLI missing: %s (run pnpm install)" % TAURI_JS)
+    problem = cli_problem()
+    if problem:
+        fail(problem)
     return [node, str(TAURI_JS), *args]
+
+
+# The only variables the signer inherits: what Windows, macOS and Linux programs need to start and
+# find their temporary and profile folders. Everything else stays out, above all NODE_OPTIONS and
+# NODE_PATH, through which node would load other code into the process that holds the key.
+SIGNER_VARIABLES = frozenset(
+    name.upper()
+    for name in (
+        "PATH",
+        "PATHEXT",
+        "SystemRoot",
+        "SystemDrive",
+        "windir",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "HOME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "LANG",
+        "LC_ALL",
+    )
+)
+
+
+def signer_environment(environ):
+    """The reduced environment of the signer process, without any updater key variable."""
+    env = {name: value for name, value in environ.items() if name.upper() in SIGNER_VARIABLES}
+    env["NoDefaultCurrentDirectoryInExePath"] = "1"
+    return env
 
 
 def build(signing):
@@ -571,7 +703,9 @@ def minisign_key_id(encoded):
     """The 8-byte key id of a Tauri updater signature or public key, as hex.
 
     Both are base64 of minisign's text form: a comment line, then base64 of two algorithm bytes,
-    the key id and the key or signature. None when the text has another shape.
+    the key id and the key or signature. minisign shows the id as a little-endian number (the
+    "minisign public key: ..." comment), so the bytes are printed in reverse to match it. None
+    when the text has another shape.
     """
     try:
         text = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
@@ -581,7 +715,7 @@ def minisign_key_id(encoded):
         return None
     if len(blob) < 10:
         return None
-    return blob[2:10].hex().upper()
+    return blob[2:10][::-1].hex().upper()
 
 
 def updater_pubkey():
@@ -612,7 +746,7 @@ def sign_update(key_path, setup, version):
     into the signed trusted comment, as `tauri build` does (`version:<version>`); the updater
     compares it with the version latest.json announces.
     """
-    env = without_updater_key(os.environ)
+    env = signer_environment(os.environ)
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
     # The current key has none; an empty value keeps the signer from asking for one.
@@ -635,10 +769,39 @@ def sign_update(key_path, setup, version):
     # A wrong key file would sign without complaint, and every installed copy would then refuse
     # the update; caught here before anything is published.
     problem = signature_key_problem(signature.read_text(encoding="utf-8"), updater_pubkey())
+    if problem is None and not update_signature_verifies(setup, signature, version):
+        problem = "the updater signature failed the verification installed apps run (reason above)"
     if problem:
         signature.unlink(missing_ok=True)
         fail(problem)
     return signature
+
+
+def update_signature_verifies(setup, signature, version):
+    """Checks the signature the way installed apps do: minisign's signature over the installer and
+    the global signature over the trusted comment, which must carry `version:<version>`
+    (src-tauri/examples/verify_update_sig.rs, the same crate and call as tauri-plugin-updater).
+    The key id check above only compares labels; this proves the signature."""
+    command = [
+        resolve_tool("cargo"),
+        "run",
+        "--quiet",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        str(CARGO_TOML),
+        "--example",
+        "verify_update_sig",
+        "--",
+        str(setup),
+        str(signature),
+        updater_pubkey(),
+        version,
+    ]
+    result = subprocess.run(
+        command, cwd=ROOT, env=without_updater_key(os.environ), check=False, stdin=subprocess.DEVNULL
+    )
+    return result.returncode == 0
 
 
 def find_setup(built_after):
@@ -706,6 +869,9 @@ def main():
         help="self-hosted download folder instead of a GitHub release (default: GitHub)",
     )
     args = parser.parse_args()
+    # Windows would otherwise search the working folder for programs before PATH, also in every
+    # child process (cargo, node, the signer).
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
 
     if args.next is not None:
         # Needs neither the key nor a build; it only changes files in the repo.
