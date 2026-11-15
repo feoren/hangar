@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { addressParts, osc8Decision, safeLinkUrl, sanitizePaste } from "./termSafety";
+import {
+  addressParts,
+  osc8Decision,
+  osc8DecisionOf,
+  safeLinkUrl,
+  sanitizePaste,
+} from "./termSafety";
 
 describe("sanitizePaste", () => {
   it("keeps normal text, tabs and line breaks", () => {
@@ -351,5 +357,130 @@ describe("osc8Decision compares the named port and scheme", () => {
     expect(osc8Decision("Open", "https://xn--gthub-n4a.com/acme")).toBe("confirm");
     expect(osc8Decision("gіthub.com/acme", "https://gіthub.com/acme")).toBe("confirm");
     expect(osc8Decision("docs", "https://docs.xn--bcher-kva.example/")).toBe("confirm");
+  });
+});
+
+describe("osc8Decision reads digits glued to a host's last label as part of it", () => {
+  const target = "https://evil.example/login";
+  it.each([
+    "github.com1",
+    "github.com1/acme",
+    "github.com9",
+    "github.com1.",
+    "console.anthropic.com2",
+    "pypi.org3",
+    "github.com10:42:01",
+    // Superscript, circled and subscript digits fold to plain ones first (NFKC).
+    "github.com¹",
+    "docs.anthropic.com²,³",
+    "github.com①",
+    "github.com₁",
+    "github.com⁰",
+  ])("asks for %j", (shown) => {
+    expect(osc8Decision(shown, target)).toBe("confirm");
+  });
+
+  it("still opens versions and numbers, which name no host", () => {
+    const target = "https://example.com/";
+    for (const shown of ["v1.2.3", "1.2.3", "Python 3.12", "Fig.1", "e.g.2"]) {
+      expect(osc8Decision(shown, target), shown).toBe("open");
+    }
+  });
+});
+
+describe("osc8DecisionOf judges every text a link is read by", () => {
+  it("asks when either the link's own text or the word around it claims another host", () => {
+    const target = "https://evil.example/";
+    expect(osc8DecisionOf(["github.com", "github.com"], target)).toBe("confirm");
+    // The word around reads like a sentence, the link's own cells still name a host.
+    expect(osc8DecisionOf(["github.com", "github.com1"], target)).toBe("confirm");
+    expect(osc8DecisionOf(["acme", "github.com/acme"], target)).toBe("confirm");
+    expect(osc8DecisionOf(["Docs", "Docs"], target)).toBe("open");
+    // No text at all shows nothing of where it leads.
+    expect(osc8DecisionOf([], target)).toBe("confirm");
+  });
+});
+
+describe("osc8Decision keeps the file name exception to clear file names", () => {
+  const evil = "https://evil.example";
+  it.each([
+    // Endings that are delegated top-level domains name a host first.
+    ["brew.sh", `${evil}/brew.sh`],
+    ["bun.sh", `${evil}/x/bun.sh`],
+    ["rustup.rs", `${evil}/rustup.rs`],
+    ["sh.rustup.rs", `${evil}/sh.rustup.rs`],
+    ["docs.rs/serde", `${evil}/docs.rs`],
+    ["see docs.rs/serde/latest", `${evil}/a/docs.rs`],
+    ["github.md/x", `${evil}/github.md`],
+    ["openai.zip", `${evil}/openai.zip`],
+    ["pypi.py", `${evil}/pypi.py`],
+    ["oracle.java", `${evil}/oracle.java`],
+    // Domain names ignore case: a capital at the start or all capitals make no file name.
+    ["Brew.sh", `${evil}/Brew.sh`],
+    ["DOCS.RS", `${evil}/DOCS.RS`],
+    // A clear file name, but not the target's file.
+    ["README.md", `${evil}/x`],
+    ["main.rs", `${evil}/lib.rs`],
+  ])("asks for %j pointing to %s", (shown, target) => {
+    expect(osc8Decision(shown, target)).toBe("confirm");
+  });
+
+  it.each([
+    ["README.md", "https://github.com/o/r/blob/main/README.md"],
+    ["readme.md", "https://github.com/o/r/blob/main/README.md"],
+    ["CHANGELOG.md#v2", "https://github.com/o/r/blob/main/CHANGELOG.md#v2"],
+    ["main.rs", "https://github.com/o/r/blob/main/src/main.rs"],
+    ["main.rs:10:5", "https://github.com/o/r/blob/main/src/main.rs#L10"],
+    ["lib.rs", "https://github.com/o/r/blob/main/src/lib.rs"],
+    ["__init__.py", "https://github.com/o/r/blob/main/pkg/__init__.py"],
+    ["my_tool.py", "https://github.com/o/r/blob/main/my_tool.py"],
+    ["MyComponent.java", "https://github.com/o/r/blob/main/MyComponent.java"],
+    ["install.sh", "https://github.com/o/r/blob/main/install.sh"],
+    ["docs.rs", "https://docs.rs/"],
+    ["Learn more at docs.rs", "https://docs.rs/"],
+    ["brew.sh", "https://brew.sh/"],
+    // Endings that are no domain keep the exception as before.
+    ["Cargo.toml", "https://github.com/o/r/blob/main/Cargo.toml"],
+    ["install.ps1", "https://github.com/o/r/blob/main/install.ps1"],
+  ])("opens %j pointing to %s", (shown, target) => {
+    expect(osc8Decision(shown, target)).toBe("open");
+  });
+});
+
+describe("osc8Decision reads more look-alikes of the dot", () => {
+  const target = "https://evil.example/acme";
+  it.each([
+    // Letters and modifiers that Unicode's confusables list as a full stop or middle dot.
+    "githubꞏcom/acme",
+    "githubᐧcom/acme",
+    "github˙com/acme",
+    "githubˑcom/acme",
+    "githubᣟcom/acme",
+    "github꘎com/acme",
+    "github᛫com/acme",
+    "github\u{10101}com/acme",
+    // Modifier letters and symbols between two ASCII letters.
+    "githubˌcom",
+    "github¸com/acme",
+    // Combining marks that look like a dot below, also precomposed.
+    "githuḅcom/acme",
+    "githuḅcom/acme",
+    "github଼com",
+    "githubׅcom",
+    "github\u{1d16d}com",
+  ])("asks for %j", (shown) => {
+    expect(osc8Decision(shown, target)).toBe("confirm");
+  });
+
+  it("opens them when they name the target's own site", () => {
+    expect(osc8Decision("githubꞏcom/acme", "https://github.com/acme")).toBe("open");
+    expect(osc8Decision("githuḅcom/acme", "https://github.com/acme")).toBe("open");
+  });
+
+  it("keeps prose in other scripts and marks on letters readable", () => {
+    const target = "https://example.com/pr/1";
+    for (const shown of ["Việt Nam", "ह़िंदी", "café"]) {
+      expect(osc8Decision(shown, target), shown).toBe("open");
+    }
   });
 });

@@ -2,9 +2,12 @@
 //! version query (`version.rs`) get [`apply`]; helper programs (git in `git.rs`, the file manager
 //! and opened files in `desktop.rs`) get [`scrub`], the same removals without the terminal and
 //! profile settings. One rule for all, so a protection added for one cannot be missing in the
-//! other.
+//! other. Programs Windows starts for Hangar through `ShellExecuteW` (`desktop.rs`) inherit
+//! Hangar's own environment with no way to change it per call, so [`scrub_own_environment`]
+//! takes the same removals out of Hangar's own process once at startup.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use crate::manager::{INHERITED_SESSION_MARKERS, NO_CWD_IN_EXE_PATH};
 
@@ -45,10 +48,19 @@ impl Target for portable_pty::CommandBuilder {
 /// profile's `env`. That comes after the protection so a profile can change it deliberately; an
 /// empty value for the variable removes it (only its presence counts, not its value).
 pub fn changes(profile_env: &BTreeMap<String, String>, no_cwd_lookup: bool) -> Vec<Change<'_>> {
-    let inside_gate = [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some());
-    changes_with(profile_env, no_cwd_lookup, inside_gate)
+    changes_with(profile_env, no_cwd_lookup, inside_gate())
+}
+
+/// Whether Hangar started inside a gated session (it inherited a gate token), as its environment
+/// said on the first call. [`scrub_own_environment`] asks first, before it removes the token, so
+/// the answer stays what Hangar inherited.
+fn inside_gate() -> bool {
+    static INSIDE_GATE: OnceLock<bool> = OnceLock::new();
+    *INSIDE_GATE.get_or_init(|| {
+        [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
+            .iter()
+            .any(|name| std::env::var_os(name).is_some())
+    })
 }
 
 /// [`changes`] with `inside_gate`: Hangar itself runs inside a gated session (it inherited a
@@ -185,14 +197,28 @@ pub fn removals<'a>(
 /// a terminal type nor a profile's variables.
 pub fn scrub(target: &mut impl Target) {
     let inherited = inherited();
-    let inside_gate = [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some());
+    for name in removals(
+        inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        inside_gate(),
+    ) {
+        target.remove(&name);
+    }
+}
+
+/// Removes [`removals`] from Hangar's own process environment. Called once at the start of
+/// [`crate::run`], while the process has a single thread: changing the environment while another
+/// thread reads it is undefined behavior on Unix (`setenv`/`getenv` are not thread safe), which
+/// is why edition 2024 marks `remove_var` unsafe. Afterwards a program Windows' shell starts
+/// for Hangar (an opened file, page or folder) inherits nothing of a calling agent session, its
+/// gate or an editor, like every program Hangar starts itself.
+pub fn scrub_own_environment() {
+    let inside_gate = inside_gate();
+    let inherited = inherited();
     for name in removals(
         inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
         inside_gate,
     ) {
-        target.remove(&name);
+        std::env::remove_var(name);
     }
 }
 
@@ -326,9 +352,38 @@ mod tests {
         }
     }
 
+    /// Held by every test here that changes or reads the process environment: the startup scrub
+    /// removes every `VSCODE_GIT_` variable, the markers of the other tests included.
+    static PROCESS_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn startup_takes_the_removals_out_of_hangars_own_environment() {
+        let _env = crate::lock(&PROCESS_ENV);
+        // Names only this test uses; an unrelated variable stays.
+        std::env::set_var("VSCODE_GIT_HANGAR_STARTUP_MARKER", "1");
+        std::env::set_var("HANGAR_STARTUP_KEEP_MARKER", "1");
+        let gated = inside_gate();
+        scrub_own_environment();
+        assert!(std::env::var_os("VSCODE_GIT_HANGAR_STARTUP_MARKER").is_none());
+        assert_eq!(
+            std::env::var_os("HANGAR_STARTUP_KEEP_MARKER").as_deref(),
+            Some(std::ffi::OsStr::new("1"))
+        );
+        std::env::remove_var("HANGAR_STARTUP_KEEP_MARKER");
+        for name in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
+            assert!(std::env::var_os(name).is_none(), "{name} stayed");
+        }
+        // What Hangar inherited stays remembered after its token is gone.
+        assert_eq!(inside_gate(), gated);
+    }
+
     #[test]
     fn apply_removes_editor_variables_before_the_profile() {
-        // The variable is only read here; no other test depends on it.
+        // The variable is only read here; the startup scrub test waits for the lock.
+        let _env = crate::lock(&PROCESS_ENV);
         std::env::set_var("VSCODE_GIT_HANGAR_TEST_MARKER", "1");
         let profile = env(&[("VSCODE_GIT_HANGAR_TEST_MARKER", "again")]);
         let mut target = Recorded::default();

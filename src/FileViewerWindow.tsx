@@ -258,8 +258,8 @@ function FileViewer({ language }: { language: string }) {
   };
 
   /** A click on a Markdown link: opens it, or first shows where it really leads. */
-  const requestLink = (href: string, shown: string, from: HTMLElement) => {
-    const action = viewerLinkAction(href, shown);
+  const requestLink = (href: string, shown: string, own: string, from: HTMLElement) => {
+    const action = viewerLinkAction(href, shown, own);
     if (action.kind === "open") openLink(action.url);
     if (action.kind === "confirm") {
       linkCheckFrom.current = from;
@@ -480,11 +480,12 @@ function shownAround(link: HTMLElement): string {
 
 /**
  * The rendered Markdown of the file; http(s) links open in the browser through the backend.
- * `onOpenLink` gets the address and the link's visible text, which may claim another one.
+ * `onOpenLink` gets the address, the text around the link and its own visible text, which may
+ * claim another one.
  */
 function MarkdownView(props: {
   text: string;
-  onOpenLink: (href: string, shown: string, from: HTMLElement) => void;
+  onOpenLink: (href: string, shown: string, own: string, from: HTMLElement) => void;
 }) {
   const { text, onOpenLink } = props;
   const t = useT();
@@ -506,12 +507,12 @@ function MarkdownView(props: {
 
   const linkOf = (
     target: EventTarget | null,
-  ): { href: string; shown: string; element: HTMLElement } | null => {
+  ): { href: string; shown: string; own: string; element: HTMLElement } | null => {
     if (!(target instanceof Element)) return null;
     const element = target.closest<HTMLElement>("[data-href]");
     const href = element?.dataset.href;
     if (element === null || href === undefined) return null;
-    return { href, shown: shownAround(element), element };
+    return { href, shown: shownAround(element), own: element.textContent, element };
   };
 
   if (failed) {
@@ -532,14 +533,14 @@ function MarkdownView(props: {
         const link = linkOf(event.target);
         if (link === null) return;
         event.preventDefault();
-        onOpenLink(link.href, link.shown, link.element);
+        onOpenLink(link.href, link.shown, link.own, link.element);
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter") return;
         const link = linkOf(event.target);
         if (link === null) return;
         event.preventDefault();
-        onOpenLink(link.href, link.shown, link.element);
+        onOpenLink(link.href, link.shown, link.own, link.element);
       }}
     />
   );

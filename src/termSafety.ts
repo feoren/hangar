@@ -71,6 +71,11 @@ const RUN = /[\p{L}\p{N}.-]+/gu;
 const IPV6 = /\[[0-9a-f:.]*:[0-9a-f:.]*\](?::(?<port>\d+))?/giu;
 /** A top-level domain: letters, or an internationalized one in Punycode. */
 const TLD = /^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/iu;
+/**
+ * Digits glued to the end of the last label: `github.com1` (a footnote, or the next row's `1 file
+ * changed` joined by a hard break) still reads as `github.com` with something after it.
+ */
+const TRAILING_DIGITS = /\p{N}+$/u;
 const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
 /** A port right after a host: `:3000`. */
 const PORT = /:(\d+)/y;
@@ -87,6 +92,21 @@ const FILE_ENDINGS = new Set(
   ).split(" "),
 );
 /**
+ * The `FILE_ENDINGS` that are delegated top-level domains as well (IANA root zone list): `brew.sh`,
+ * `rustup.rs` and `docs.rs` are hosts. With one of these a name counts as a file only when it
+ * reads as one (`fileForm`) and is the target's file; otherwise it is a host like any other.
+ */
+const DOMAIN_ENDINGS = new Set(["java", "md", "py", "rs", "sh", "zip"]);
+/** Names of files that no one reads as a host: `README.md`, `main.rs`, `setup.py`. */
+const FILE_STEMS = new Set(
+  (
+    "readme changelog license setup install main lib mod build index manage __init__ cargo " +
+    "package dockerfile makefile"
+  ).split(" "),
+);
+/** The characters of a file name around a run: `_` belongs to names, never to a host. */
+const FILE_NAME_CHAR = /[\p{L}\p{N}._-]/u;
+/**
  * Characters nobody sees: zero-width spaces and joiners, the soft hyphen, the word joiner, bidi
  * marks and overrides, variation selectors. In link text they split a host name so that it reads
  * `github.com` while no check recognizes it as one, or turn its letters around.
@@ -97,30 +117,58 @@ const EMOJI_GLUE =
   /(?<=\p{Extended_Pictographic})\uFE0F|(?<=\p{Extended_Pictographic}\uFE0F?)\u200d(?=\p{Extended_Pictographic})/gu;
 /** Combining marks: drawn onto the letter before them, so `githu\u0325b` still reads `github`. */
 const MARKS = /\p{M}/gu;
-/**
- * Characters that look like the dot of a host name (Unicode's confusables, UTS 39): ideographic
- * and fullwidth full stops, the Lisu tone mark, Arabic-Indic zeros, katakana and other middle
- * dots, bullet and dot operators.
+/*
+ * Look-alikes of the dot of a host name, from Unicode's confusables (UTS 39, confusables.txt of
+ * 2026-08-06): every single character whose prototype is U+002E FULL STOP, U+00B7 MIDDLE DOT,
+ * U+0323 COMBINING DOT BELOW or U+0971 DEVANAGARI SIGN HIGH SPACING DOT, plus the ideographic
+ * full stops. They are mapped before NFKC, which would turn some of them into a space and a mark
+ * (U+02D9 DOT ABOVE) that no later step reads as a dot any more.
  */
-const DOT_LIKE = /[\u3002\uFF0E\uFF61\uA4F8\u0660\u06F0\u30FB\uFF65\u00B7\u2027\u2219\u22C5]/gu;
+/** Signs and digits: a dot wherever they stand. */
+const DOT_SIGNS =
+  /[\u00B7\u02D9\u0660\u06F0\u0701\u0702\u0830\u0A76\u16EB\u2022\u2024\u2027\u2219\u22C5\u2E31\u3002\u30FB\uA60E\uFE52\uFF0E\uFF61\uFF65\u{10101}\u{1091F}\u{10A50}\u{11174}\u{111C7}\u{115C4}\u{116B9}\u{12562}\u{1ECAE}]/gu;
+/** Letters and combining marks: a dot only between two ASCII letters or digits. */
+const DOT_LETTERS_AND_MARKS =
+  "\\u02D1\\u0971\\u0D4E\\u1427\\u18DF\\uA4F8\\uA78F" +
+  "\\u0323\\u05B4\\u05C5\\u065C\\u073C\\u0742\\u07F2\\u085B\\u08ED\\u093C\\u09BC\\u0A3C\\u0ABC" +
+  "\\u0B3C\\u0E3A\\u0EBA\\u1C37\\u1CDD\\uABEC\\u{10A3A}\\u{10F46}\\u{110BA}\\u{11173}\\u{111CA}" +
+  "\\u{112E9}\\u{1133B}\\u{11446}\\u{114C3}\\u{115C0}\\u{116B7}\\u{1183A}\\u{1D16D}";
+/** An ASCII letter or digit, also in its fullwidth form (NFKC has not run yet). */
+const ALNUM = "[A-Za-z0-9\\uFF10-\\uFF19\\uFF21-\\uFF3A\\uFF41-\\uFF5A]";
+const DOT_BETWEEN = new RegExp(
+  // eslint-disable-next-line no-misleading-character-class -- each mark stands for itself here.
+  `(?<=${ALNUM}\\p{M}*)[${DOT_LETTERS_AND_MARKS}](?=\\p{M}*${ALNUM})`,
+  "gu",
+);
 /** Characters that look like a slash: division, fraction and big solidus. */
 const SLASH_LIKE = /[\u2215\u2044\u29F8]/gu;
 /**
  * Any other sign outside ASCII between two ASCII letters or digits may pass for a dot as well
- * (`github\u2E31com`). Only between ASCII ones, so prose in other scripts keeps its punctuation.
+ * (`github\u2E31com`), modifier letters too (`github\u02CCcom`). Only between ASCII ones, so
+ * prose in other scripts keeps its punctuation; marks stay on their letter (`githu\u0325b`).
  */
-const SIGN_BETWEEN = /(?<=[A-Za-z0-9])[^\p{L}\p{N}\s\p{ASCII}](?=[A-Za-z0-9])/gu;
+const SIGN_BETWEEN = new RegExp(
+  `(?<=${ALNUM}\\p{M}*)(?:[^\\p{L}\\p{N}\\p{M}\\s\\p{ASCII}]|\\p{Lm})(?=\\p{M}*${ALNUM})`,
+  "gu",
+);
 /** A character outside ASCII right before or after a dot. */
 const NON_ASCII_AT_DOT = /\P{ASCII}\.|\.\P{ASCII}/u;
 const NON_ASCII = /\P{ASCII}/u;
 
-/** The link text as it reads: look-alikes of the dot and the slash become the real ones. */
+/**
+ * The link text as it reads: look-alikes of the dot and the slash become the real ones. The dots
+ * are mapped on the decomposed text (`\u1E05` is `b` with a dot below), before and after NFKC.
+ */
 function readable(shown: string): string {
   return (
     shown
+      .normalize("NFD")
+      .replace(DOT_SIGNS, ".")
+      .replace(DOT_BETWEEN, ".")
+      .replace(SIGN_BETWEEN, ".")
       .normalize("NFKC")
       .replace(MARKS, "")
-      .replace(DOT_LIKE, ".")
+      .replace(DOT_SIGNS, ".")
       .replace(SLASH_LIKE, "/")
       .replace(SIGN_BETWEEN, ".")
       // `github .com` and `github . com` still read as one host name.
@@ -132,14 +180,39 @@ function readable(shown: string): string {
 function hostLike(run: string): boolean {
   if (run.toLowerCase() === "localhost" || IPV4.test(run)) return true;
   const labels = run.split(".");
-  const tld = labels[labels.length - 1] ?? "";
+  const tld = (labels[labels.length - 1] ?? "").replace(TRAILING_DIGITS, "");
   return labels.length > 1 && TLD.test(tld);
+}
+
+/** The ending of a run after its last dot, in lower case; "" for none. */
+function endingOf(run: string): string {
+  const dot = run.lastIndexOf(".");
+  return dot > 0 ? run.slice(dot + 1).toLowerCase() : "";
 }
 
 /** Whether a run names a file (`README.md`): a name, a dot and one of `FILE_ENDINGS`. */
 function isFileName(run: string): boolean {
-  const dot = run.lastIndexOf(".");
-  return dot > 0 && FILE_ENDINGS.has(run.slice(dot + 1).toLowerCase());
+  return FILE_ENDINGS.has(endingOf(run));
+}
+
+/** The whole file name around a run, with the `_` a host never has (`my_tool.py`). */
+function fileNameAround(word: string, begin: number, end: number): string {
+  let from = begin;
+  while (from > 0 && FILE_NAME_CHAR.test(word.charAt(from - 1))) from -= 1;
+  let to = end;
+  while (to < word.length && FILE_NAME_CHAR.test(word.charAt(to))) to += 1;
+  return word.slice(from, to).replace(/^[.-]+|[.-]+$/gu, "");
+}
+
+/**
+ * Whether a name reads as a file and not as a host: a known file name (`README`, `main`), a `_`,
+ * or capitals inside a word in lower case (`MyComponent`). Host names ignore case, so neither a
+ * capital at the start (`Brew.sh`) nor all capitals (`DOCS.RS`) make a file of one.
+ */
+function fileForm(name: string): boolean {
+  const stem = name.slice(0, name.lastIndexOf("."));
+  if (FILE_STEMS.has(stem.toLowerCase()) || stem.includes("_")) return true;
+  return /\p{Ll}/u.test(stem) && /\p{Lu}/u.test(stem.slice(1));
 }
 
 /** A host name without a leading `www.`, which names the same site as the bare host. */
@@ -219,7 +292,11 @@ function wordMisleads(word: string, target: URL): boolean {
     // page of that site, not another host.
     if (onTargetSite && !afterScheme && word[begin - 1] === "/") continue;
     const addressy = word[end] === "/" || /^:\d/u.test(word.slice(end, end + 2));
-    if (!afterScheme && isFileName(core)) {
+    if (!afterScheme && DOMAIN_ENDINGS.has(endingOf(core))) {
+      // `README.md` and `main.rs` as the target's own file; `brew.sh` and `docs.rs` are hosts.
+      const name = fileNameAround(word, begin, end);
+      if (fileForm(name) && lastPathName(target).toLowerCase() === name.toLowerCase()) continue;
+    } else if (!afterScheme && isFileName(core)) {
       if (lastPathName(target).toLowerCase() === core.toLowerCase()) continue;
       if (!addressy) return true;
     } else if (!afterScheme && !hostLike(core)) continue;
@@ -245,9 +322,10 @@ function wordMisleads(word: string, target: URL): boolean {
  * dropped, look-alikes of the dot and the slash taken for them. Hosts are searched, not matched
  * against the whole word, so no sign around them (`**`, `|`, `=`, `@`, `~`) hides one.
  *
- * `shown` is the whole word around the link on screen (`linkWord` in terminalLinkWord.ts), so
- * text printed right before or after the link counts too. `target` is the link's address, already
- * checked by `safeLinkUrl`.
+ * `shown` is one text the link is read by: its own text, or the whole word around it on screen
+ * (`linkTexts` in terminalLinkWord.ts), so text printed right before or after the link counts too.
+ * Callers judge both with `osc8DecisionOf`. `target` is the link's address, already checked by
+ * `safeLinkUrl`.
  */
 export function osc8Decision(shown: string, target: string): Osc8Decision {
   if (IGNORABLE.test(shown.replace(EMOJI_GLUE, ""))) return "confirm";
@@ -263,4 +341,16 @@ export function osc8Decision(shown: string, target: string): Osc8Decision {
     .split(/\s+/u)
     .some((word) => word !== "" && wordMisleads(word, real));
   return misleads ? "confirm" : "open";
+}
+
+/**
+ * The decision for a link read by several texts (its own text and the word around it): it opens
+ * at once only when none of them misleads. The word around can hide what the link's own text
+ * names (`github.com` at the end of a row, `1 file changed` below), the own text can miss what
+ * the text around adds.
+ */
+export function osc8DecisionOf(shown: readonly string[], target: string): Osc8Decision {
+  // Without any text to read it by, nothing shows where the link leads.
+  if (shown.length === 0) return "confirm";
+  return shown.some((text) => osc8Decision(text, target) === "confirm") ? "confirm" : "open";
 }

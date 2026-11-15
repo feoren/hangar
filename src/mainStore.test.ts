@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  defaultMainPrefs,
+  legacyMainPrefs,
+  loadMainPrefs,
   loadProtectedSettings,
   loadQueuedMessages,
   loadSecuritySwitches,
   loadStoredTemplates,
   parseProtected,
+  parseMainPrefs,
   parseSwitches,
+  saveMainPrefs,
   saveProtectedSettings,
   saveQueuedMessages,
   saveStoredTemplates,
   type MainBackend,
+  type MainPrefs,
 } from "./mainStore";
 import { QUEUE_STORAGE_KEY } from "./messageQueue";
 import { SETTINGS_STORAGE_KEY, type ProtectedSettings, type SecuritySwitches } from "./settings";
@@ -44,22 +50,30 @@ function backend(
   queue: unknown,
   settings: unknown = null,
   templates: unknown = null,
+  prefs: unknown = null,
 ) {
   const saved: {
     switches: SecuritySwitches[];
     queues: Record<string, string>[];
     settings: ProtectedSettings[];
     templates: (readonly WorkspaceTemplate[])[];
+    prefs: MainPrefs[];
   } = {
     switches: [],
     queues: [],
     settings: [],
     templates: [],
+    prefs: [],
   };
   const fake: MainBackend = {
     protectedSettings: () => Promise.resolve(settings),
     saveProtectedSettings: (value) => {
       saved.settings.push(value);
+      return Promise.resolve(null);
+    },
+    mainPrefs: () => Promise.resolve(prefs),
+    saveMainPrefs: (value) => {
+      saved.prefs.push(value);
       return Promise.resolve(null);
     },
     loadTemplates: () => Promise.resolve(templates),
@@ -270,5 +284,134 @@ describe("workspace templates", () => {
     const broken = { ...TEMPLATE, id: "t-2", name: "Broken", sessions: [] };
     await saveStoredTemplates([TEMPLATE, broken], fake);
     expect(saved.templates).toEqual([[TEMPLATE]]);
+  });
+});
+
+describe("start and notice preferences", () => {
+  const MINE: MainPrefs = {
+    startMode: "team",
+    lastProgram: "claude",
+    favorites: ["C:\\Work"],
+    recent: ["/home/a/repo"],
+    restoreSessions: false,
+    attentionEnabled: true,
+    taskbarFlash: false,
+    notifyDesktop: true,
+    chime: false,
+    quietHours: { enabled: true, from: 1320, to: 420 },
+  };
+  /** What a viewer of the same origin could write to the old places after the migration. */
+  const PLANTED = {
+    "hangar.startMode": "private",
+    "hangar.lastProgram": "planted",
+    "hangar.folders": JSON.stringify({ favorites: [], recent: ["C:\\planted"] }),
+    "hangar.lastCwd": "C:\\planted",
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({
+      language: "de",
+      restoreSessions: false,
+      attentionEnabled: false,
+      notifyDesktop: false,
+      quietHours: { enabled: true, from: 0, to: 1439 },
+    }),
+  };
+
+  it("reads only complete answers", () => {
+    expect(parseMainPrefs(MINE)).toEqual(MINE);
+    expect(parseMainPrefs(null)).toBeNull();
+    expect(parseMainPrefs({ ...MINE, startMode: "root" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, lastProgram: "a\u0007b" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, chime: "no" })).toBeNull();
+    // Folders and quiet hours are read as the menu and the settings read them.
+    expect(parseMainPrefs({ ...MINE, recent: ["/r", "a\nb"] })?.recent).toEqual(["/r"]);
+  });
+
+  it("migrates the old values once and removes them from localStorage", async () => {
+    const storage = memoryStorage({
+      "hangar.startMode": "team",
+      "hangar.lastProgram": "claude",
+      "hangar.lastCwd": "/home/a/repo",
+      "hangar.folders": JSON.stringify({ favorites: ["C:\\Work"], recent: [] }),
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({
+        language: "de",
+        restoreSessions: false,
+        taskbarFlash: false,
+        chime: false,
+      }),
+    });
+    const legacy = legacyMainPrefs(storage, storage.getItem(SETTINGS_STORAGE_KEY));
+    expect(legacy).toEqual({ ...MINE, quietHours: defaultMainPrefs().quietHours });
+    const { fake, saved } = backend(null, null);
+    expect(await loadMainPrefs(legacy, fake, storage)).toEqual(legacy);
+    expect(saved.prefs).toEqual([legacy]);
+    for (const key of [
+      "hangar.startMode",
+      "hangar.lastProgram",
+      "hangar.folders",
+      "hangar.lastCwd",
+    ]) {
+      expect(storage.store.has(key), key).toBe(false);
+    }
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({ language: "de" });
+  });
+
+  it("stores the defaults when there was nothing to migrate", async () => {
+    const { fake, saved } = backend(null, null);
+    const legacy = legacyMainPrefs(memoryStorage(), null);
+    expect(legacy).toEqual(defaultMainPrefs());
+    expect(await loadMainPrefs(legacy, fake, memoryStorage())).toEqual(defaultMainPrefs());
+    expect(saved.prefs).toEqual([defaultMainPrefs()]);
+  });
+
+  it("takes the backend's values once stored and ignores what a viewer wrote", async () => {
+    const storage = memoryStorage(PLANTED);
+    const { fake, saved } = backend(null, null, null, null, MINE);
+    const legacy = legacyMainPrefs(storage, storage.getItem(SETTINGS_STORAGE_KEY));
+    expect(await loadMainPrefs(legacy, fake, storage)).toEqual(MINE);
+    expect(saved.prefs).toEqual([]);
+    expect(storage.store.has("hangar.folders")).toBe(false);
+    expect(storage.store.has("hangar.lastCwd")).toBe(false);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({ language: "de" });
+  });
+
+  it("starts private with every notice on without a backend", async () => {
+    const fake: MainBackend = {
+      ...backend(null, null).fake,
+      mainPrefs: () => Promise.reject(new Error("no backend")),
+    };
+    const storage = memoryStorage(PLANTED);
+    const legacy = legacyMainPrefs(storage, storage.getItem(SETTINGS_STORAGE_KEY));
+    expect(await loadMainPrefs(legacy, fake, storage)).toEqual(defaultMainPrefs());
+    expect(defaultMainPrefs().startMode).toBe("private");
+    expect(defaultMainPrefs().restoreSessions).toBe(true);
+    expect(defaultMainPrefs().notifyDesktop).toBe(true);
+  });
+
+  it("keeps the old values when the backend cannot store them, for the next start", async () => {
+    const old = {
+      "hangar.startMode": "team",
+      "hangar.lastProgram": "claude",
+      "hangar.folders": JSON.stringify({ favorites: ["C:\\Work"], recent: ["/home/a/repo"] }),
+    };
+    const storage = memoryStorage(old);
+    const fake: MainBackend = {
+      ...backend(null, null).fake,
+      saveMainPrefs: () => Promise.reject(new Error("disk full")),
+    };
+    const legacy = legacyMainPrefs(storage, null);
+    // This run still uses what was migrated.
+    expect(await loadMainPrefs(legacy, fake, storage)).toEqual(legacy);
+    expect(legacy.startMode).toBe("team");
+    for (const [key, value] of Object.entries(old)) {
+      expect(storage.store.get(key), key).toBe(value);
+    }
+  });
+
+  it("saves only what the backend takes", async () => {
+    const { fake, saved } = backend(null, null);
+    await saveMainPrefs(
+      { ...MINE, lastProgram: " ", recent: ["/r", "", "/r"], startMode: "team" },
+      fake,
+    );
+    expect(saved.prefs).toEqual([{ ...MINE, lastProgram: null, recent: ["/r"] }]);
   });
 });

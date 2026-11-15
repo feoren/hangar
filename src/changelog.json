@@ -226,6 +226,34 @@
         "ru": "Безопаснее: защита команд читает их как оболочка и блокирует, если Hangar не может проверить; вспомогательные окна и важные настройки защищены лучше.",
         "tr": "Güvenlik: komut koruması komutları kabuk gibi okur ve Hangar denetleyemediğinde engeller; yan pencereler ve önemli ayarlar daha iyi korunur.",
         "zh": "更安全：命令防护像 shell 一样解读命令，Hangar 无法检查时直接拦截；附属窗口和关键设置也得到更好保护。"
+      },
+      {
+        "de": "Sicherer: Hangar sieht Befehle auch hinter Startprogrammen und Containern, schützt die Hooks von Claude Code und prüft Links nach ihrem Text.",
+        "en": "Safer: Hangar sees commands behind launchers and containers too, protects Claude Code's hook settings and judges links by their own text.",
+        "el": "Ασφάλεια: το Hangar βλέπει εντολές πίσω από εκκινητές και containers, προστατεύει τα hooks του Claude Code και κρίνει συνδέσμους από το κείμενό τους.",
+        "es": "Más seguro: Hangar ve los comandos también tras lanzadores y contenedores, protege los ajustes de hooks de Claude Code y juzga los enlaces por su propio texto.",
+        "fr": "Plus sûr : Hangar voit les commandes derrière lanceurs et conteneurs, protège les hooks de Claude Code et juge les liens sur leur texte.",
+        "it": "Più sicuro: Hangar vede i comandi anche dietro launcher e container, protegge le impostazioni hook di Claude Code e giudica i link dal loro testo.",
+        "ja": "安全性向上: ランチャーやコンテナ越しのコマンドも検出し、Claude Code のフック設定を保護し、リンクはその文字列自体で判定します。",
+        "pl": "Bezpieczniej: Hangar widzi polecenia także za programami startowymi i kontenerami, chroni ustawienia hooków Claude Code i ocenia linki po ich własnym tekście.",
+        "pt": "Mais seguro: o Hangar vê comandos também por trás de lançadores e contêineres, protege os ajustes de hooks do Claude Code e julga links pelo próprio texto.",
+        "ru": "Безопаснее: Hangar видит команды и за программами запуска и контейнерами, защищает настройки хуков Claude Code и оценивает ссылки по их собственному тексту.",
+        "tr": "Güvenlik: Hangar başlatıcı ve konteyner ardındaki komutları da görür, Claude Code kancalarını korur, bağlantıları kendi metnine göre değerlendirir.",
+        "zh": "更安全：Hangar 也能识别启动器和容器背后的命令，保护 Claude Code 的钩子设置，并按链接自身的文字判断链接。"
+      },
+      {
+        "de": "Der Commit-Kalender steht jetzt immer oben auf der Startseite, auch wenn es noch keine eigenen Commits gibt.",
+        "en": "The commit calendar now always sits at the top of the home view, even before your first own commit.",
+        "el": "Το ημερολόγιο commit βρίσκεται πλέον πάντα στην κορυφή της αρχικής, ακόμη και πριν από το πρώτο σου commit.",
+        "es": "El calendario de commits aparece siempre arriba en la vista de inicio, incluso antes de tu primer commit.",
+        "fr": "Le calendrier des commits est désormais toujours en haut de l'accueil, même avant ton premier commit.",
+        "it": "Il calendario dei commit ora sta sempre in alto nella home, anche prima del tuo primo commit.",
+        "ja": "コミットカレンダーは、自分のコミットがまだなくても常にホームの一番上に表示されます。",
+        "pl": "Kalendarz commitów jest teraz zawsze na górze ekranu startowego, nawet przed twoim pierwszym commitem.",
+        "pt": "O calendário de commits agora fica sempre no topo da tela inicial, mesmo antes do seu primeiro commit.",
+        "ru": "Календарь коммитов теперь всегда вверху главного экрана, даже до твоего первого коммита.",
+        "tr": "Commit takvimi artık ilk commit'inden önce bile ana ekranın en üstünde.",
+        "zh": "提交日历现在始终显示在主页顶部，即使你还没有自己的提交。"
       }
     ]
   },

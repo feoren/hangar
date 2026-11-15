@@ -463,7 +463,10 @@ impl Git {
             .arg("--no-pager")
             .args(["-c", "core.fsmonitor=false"])
             .args(["-c", "core.quotepath=false"])
-            .args(["-c", "color.ui=false"]);
+            .args(["-c", "color.ui=false"])
+            // A restore or checkout would otherwise also run in the submodules a repository's
+            // `submodule.recurse` names, with filters the guard never read there.
+            .args(["-c", "submodule.recurse=false"]);
         if !self.repo_hooks {
             // A hook path below a regular file (git itself) can never exist, so git finds no
             // hook at all. Unlike an empty folder it needs no writable place that something
@@ -1617,6 +1620,31 @@ pub(crate) mod tests {
             .any(|(key, _)| key == OsStr::new("GIT_ALLOW_PROTOCOL")));
     }
 
+    /// A repository's `submodule.recurse=true` would take a restore or checkout into its
+    /// submodules, whose own filters the guard never read; every call switches it off, also with
+    /// the repository's hooks or transports allowed.
+    #[test]
+    fn calls_never_recurse_into_submodules() {
+        let git = Git {
+            program: PathBuf::from("git"),
+            network: false,
+            repo_hooks: false,
+        };
+        for git in [git.clone(), git.with_repo_hooks(), git.with_network()] {
+            let args: Vec<String> = git
+                .command(Path::new("."), ["restore", "x"], false)
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let at = args
+                .iter()
+                .position(|arg| arg == "submodule.recurse=false")
+                .expect("submodule recursion is switched off");
+            assert_eq!(args.get(at - 1).map(String::as_str), Some("-c"));
+            assert!(at < args.iter().position(|arg| arg == "restore").unwrap());
+        }
+    }
+
     #[test]
     fn calls_run_no_repository_hook_unless_asked() {
         let git = Git {
@@ -2209,6 +2237,54 @@ pub(crate) mod tests {
             "../../elsewhere/objects\n",
         );
         assert_eq!(changed_count(&git, &repo).unwrap(), Some(0));
+    }
+
+    /// git opens the folder each `worktrees/<id>/gitdir` of the common git folder names on
+    /// `worktree list`, `add`, `remove` and a commit. A back-link to a share is refused before
+    /// git runs, also once a local one was checked and cached.
+    #[cfg(windows)]
+    #[test]
+    fn worktree_back_links_to_a_share_are_refused_before_git_runs() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-worktree-unc");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let entry = repo.join(".git").join("worktrees").join("x");
+        write(&entry.join("HEAD"), "ref: refs/heads/main\n");
+        write(&entry.join("commondir"), "../..\n");
+        let deadline = || Instant::now() + Duration::from_secs(30);
+        let refused = |at: &Path| {
+            let started = Instant::now();
+            let result = crate::worktree::list(&git, at, deadline());
+            // An SMB attempt to the unreachable host would take seconds.
+            assert!(started.elapsed() < Duration::from_secs(5));
+            matches!(result, Err(GitError::RemoteGitDir))
+        };
+
+        write(&entry.join("gitdir"), "//host.invalid/share/x/.git\n");
+        assert!(refused(&repo));
+        write(&entry.join("gitdir"), "\\\\host.invalid\\share\\x\\.git\n");
+        assert!(refused(&repo));
+
+        // A local back-link, absolute or relative to the entry, works.
+        let local = tmp.path().join("wt").join(".git");
+        write(&entry.join("gitdir"), &format!("{}\n", local.display()));
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+        write(&entry.join("gitdir"), "../../../../wt/.git\n");
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+
+        // Turned towards a share after the check was cached: noticed.
+        write(&entry.join("gitdir"), "//host.invalid/share/x/.git\n");
+        assert!(refused(&repo));
+
+        // An entry added later, next to the checked one.
+        write(&entry.join("gitdir"), "../../../../wt/.git\n");
+        assert!(crate::worktree::list(&git, &repo, deadline()).is_ok());
+        let added = repo.join(".git").join("worktrees").join("y");
+        write(&added.join("HEAD"), "ref: refs/heads/main\n");
+        write(&added.join("commondir"), "../..\n");
+        write(&added.join("gitdir"), "//host.invalid/share/y/.git\n");
+        assert!(refused(&repo));
     }
 
     #[test]

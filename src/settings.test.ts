@@ -5,8 +5,11 @@ import {
   defaultSettings,
   gateActive,
   BACKEND_KEYS,
+  legacyNotices,
   legacyProtected,
   legacySwitches,
+  NOTICE_KEYS,
+  noticesOf,
   parseSettings,
   PROTECTED_KEYS,
   QUIET_SECONDS,
@@ -14,6 +17,7 @@ import {
   SECURITY_SWITCH_KEYS,
   withoutBackendKeys,
 } from "./settings";
+import { DEFAULT_QUIET_HOURS } from "./quietHours";
 import { DEFAULT_ROW_LAYOUT, presetLayout, ROW_PRESETS } from "./rowLayout";
 import { defaultSnippets } from "./snippets";
 import { DEFAULT_LOOKS } from "./stateLook";
@@ -79,8 +83,14 @@ describe("parseSettings", () => {
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
-      // The security switches and the protected settings come from the backend only
-      // (mainStore.ts), never from storage.
+      // The security switches, the protected and the notice settings come from the backend
+      // only (mainStore.ts), never from storage.
+      attentionEnabled: true,
+      taskbarFlash: true,
+      notifyDesktop: true,
+      chime: true,
+      quietHours: DEFAULT_QUIET_HOURS,
+      restoreSessions: true,
       claimsEnabled: true,
       gateEnabled: true,
       commandGuardEnabled: true,
@@ -325,7 +335,31 @@ describe("parseSettings", () => {
   it("flashes the taskbar by default, also for older settings", () => {
     expect(defaultSettings("de").taskbarFlash).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").taskbarFlash).toBe(true);
-    expect(parseSettings(JSON.stringify({ taskbarFlash: false }), "de").taskbarFlash).toBe(false);
+    // Stored by an older version, it is taken over once by the migration, never read here.
+    expect(parseSettings(JSON.stringify({ taskbarFlash: false }), "de").taskbarFlash).toBe(true);
+    expect(legacyNotices(JSON.stringify({ taskbarFlash: false })).taskbarFlash).toBe(false);
+  });
+
+  it("never reads or writes the notice settings in localStorage", () => {
+    const stored = {
+      restoreSessions: false,
+      attentionEnabled: false,
+      taskbarFlash: false,
+      notifyDesktop: false,
+      chime: false,
+      quietHours: { enabled: true, from: 1380, to: 360 },
+    };
+    expect(noticesOf(parseSettings(JSON.stringify(stored), "de"))).toEqual(
+      noticesOf(defaultSettings("de")),
+    );
+    expect(legacyNotices(JSON.stringify(stored))).toEqual(stored);
+    const kept = withoutBackendKeys({ ...defaultSettings("de"), ...stored });
+    for (const key of NOTICE_KEYS) expect(kept).not.toHaveProperty(key);
+    expect(legacyNotices(null)).toEqual(noticesOf(defaultSettings("de")));
+    expect(legacyNotices("{broken")).toEqual(noticesOf(defaultSettings("de")));
+    expect(legacyNotices(JSON.stringify({ chime: "no", quietHours: 5 }))).toEqual(
+      noticesOf(defaultSettings("de")),
+    );
   });
 
   it("notifies by default and keeps running in the notification area only when chosen", () => {
@@ -382,7 +416,7 @@ describe("parseSettings", () => {
   it("never writes the security switches or the protected settings to localStorage", () => {
     const settings = { ...defaultSettings("de"), gateEnabled: false, commandGuardEnabled: false };
     const stored = withoutBackendKeys(settings);
-    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS]) {
+    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS, ...NOTICE_KEYS]) {
       expect(key in stored).toBe(false);
       expect(BACKEND_KEYS).toContain(key);
     }
@@ -501,7 +535,9 @@ describe("chime", () => {
 
   it("takes a stored choice, rounds the volume to its step and clamps it", () => {
     const parsed = parseSettings('{"chime":false,"chimeVolume":62}', "de");
-    expect(parsed.chime).toBe(false);
+    // The switch itself lives in the backend (mainStore.ts); the old value migrates once.
+    expect(parsed.chime).toBe(true);
+    expect(legacyNotices('{"chime":false}').chime).toBe(false);
     expect(parsed.chimeVolume).toBe(60);
     expect(parseSettings('{"chimeVolume":0}', "de").chimeVolume).toBe(CHIME_VOLUME.min);
     expect(parseSettings('{"chimeVolume":900}', "de").chimeVolume).toBe(CHIME_VOLUME.max);

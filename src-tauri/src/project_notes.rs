@@ -784,8 +784,9 @@ impl ProjectNotes {
             .then(|| main_worktree(&list.stdout))
             .flatten()
             .filter(|main| {
-                main.is_dir()
-                    && git::gitdir_allowed(folder, main)
+                // The text first: `is_dir` on a share would already contact its host.
+                git::gitdir_allowed(folder, main)
+                    && main.is_dir()
                     && fs::symlink_metadata(main.join(".git")).is_ok()
                     && own.is_some()
                     && common(main) == own

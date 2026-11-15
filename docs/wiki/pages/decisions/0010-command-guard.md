@@ -346,11 +346,80 @@ Option 2 with reach A.
     `dropdb`, `mysqladmin-drop`; `sql-drop` also covers `Invoke-Sqlcmd`. A rules file written
     before keeps its rules (it is never migrated); Settings says it holds fewer than Hangar
     ships.
+- **Fourth audit (2026-11-15).** More ways the shells hide a command are read, and a few false
+  alarms are gone.
+  - *cmd `@` and `for` sets.* A leading `@` (echo off) is stripped from the first word of every
+    cmd command, not only at the line's start, so `do @rd`, `if <cond> @git` and `else @rd` are
+    read. A `for` set of literal paths places the loop variable: `for %d in (.git) do rd /s /q
+    "%d"` reads `.git`, `for /d /r <root> %d in (<name>) do ...` reads `<root>/<name>` (a
+    recursive loop finds entries of that name below the root). cmd splits the set at blanks,
+    commas, semicolons and equals signs. A `/f` set (command output), a `/l` set (numbers), a
+    wildcard set (`for %i in (*)`) and a set with a quote, caret, percent or any other special
+    character keep the variable (unplaceable, asked about).
+  - *`find -exec` and `.git`.* `{}` reads as `<start>/*`, which a leading-dot name escapes, so a
+    `find` whose entries are not limited by name, whose `-name`/`-path`/`-regex` test can match
+    `.git` (ignoring case), or that negates or combines tests (`!`, `-not`, `-o`, `,`), is also
+    read with `{}` as `<start>/.git`.
+  - *Program launchers and container exec, read at every offset.* `docker|podman exec|run|create`
+    (also `docker container exec`), `docker compose exec|run`, `kubectl exec`, `su (-c|--command=)`,
+    `runuser ... --`, `gsudo`, `npx`, `pnpm|yarn exec|dlx`, `bunx`, `uvx`, `uv|poetry|pipenv run`,
+    `conda run`, `mise exec`, `direnv exec`, `dotenv`, `cross-env`, `op|doppler|infisical run`,
+    `aws-vault exec`, `nix-shell --run`, `nix develop -c`, `systemd-run`, `xvfb-run`, `strace`,
+    `gtimeout`. The launcher option sets are open, so after the global options (`docker -H`/
+    `--context`, `compose -f`/`-p`, `kubectl -n`/`--context`, `uv --directory`, `pnpm -C`,
+    `poetry -C`, `gsudo -u`, `strace -o`) and the subcommand, the inner command is read starting at
+    every word that is no option (bounded by `MAX_LAUNCH_OFFSETS`), so an option Hangar does not
+    know cannot hide the command behind it (`docker run --platform x img git push --force` asks). A
+    lone interactive shell in a container (`docker run -it app sh`, `docker exec -it db bash -l`) is
+    not read as a stdin script, unless the launcher is fed by a pipe (`echo ... | docker exec -i db
+    sh`), which it reads as a script from stdin.
+  - *Writes into the config parent.* A write whose argument is the folder that holds Hangar's
+    settings folder (its parent, or an `APP_FOLDERS` root such as `$env:APPDATA`, `~/.config`) is
+    asked about when another argument names the identifier, a settings file, or a wildcard (also
+    inside the project, also in a PowerShell `-Name`), and always for an extractor or mirror tool
+    pointed at that parent: `tar` (`-x`, `-C`, old style `tar xf`), `unzip`, `7z x`,
+    `Expand-Archive -DestinationPath`, `robocopy`, `xcopy`, `rsync`, with the destination also read
+    from a glued option (`-C<dir>`, `-o<dir>`, `--directory=<dir>`) or from the working folder when
+    the extractor runs in the parent. A plain listing of the parent passes.
+  - *Claude Code hook settings.* A command that touches, or an edit of, a `.claude/settings.json`
+    or `.claude/settings.local.json` (in the project or the home folder) is asked about like
+    Hangar's own settings, since writing one can turn the gate hook off (`disableAllHooks`,
+    `allowedHttpHookUrls`; `raw/2026-11-09-claude-hooks-reference.md`). Any touch asks, reads
+    (`cat`, `git diff`) included, because the guard cannot see the file's content and so cannot
+    tell a read from a write: it fails closed. The file is recognized through an NTFS data stream
+    on the name (`settings.json::$DATA`, `:x`), a Windows 8.3 short name, and a wildcard that could
+    match it, and when a `.claude` folder and a settings file are named in two separate arguments
+    (`cp settings.json .claude/`).
+  - *dotglob.* With `shopt -s dotglob`, zsh `globdots` (any case, with or without underscores)
+    or bash's `GLOBIGNORE` (setting it turns dotglob on) in the text a leading `*` may match
+    `.git`, so `rm -rf *` is read as reaching it.
+  - *False alarms gone.* `git push --dry-run --force` (and `-nf`) passes: `--dry-run`/`-n` is a
+    `none` option of the push rules, and a `none` lifts a rule only on a definite match, never a
+    wildcard (`git push -?`) or an unexpandable brace, never as the value of the option before it
+    (`git push -o -n --force`, `--repo -n`, a group `-on`; `command_guard::LIFT_VALUE_OPTIONS`),
+    and never when a negation (`--no-dry-run`, also abbreviated) is given anywhere: each of these
+    still force-pushes. A literal `for`/`foreach` loop over folder names places the variable in its
+    body, so `for d in build dist; do rm -rf "$d"; done`, the PowerShell `foreach ($d in
+    'build','dist')` and `'build','dist' | ForEach-Object { Remove-Item $_ }` pass when the items
+    lie inside the project. The variable is bound only when the whole command writes it exactly
+    once, by that one literal loop header, and runs no inline script (`sh -c`, `eval`, a sourced
+    file): a second write anywhere (another loop, `d=...`, `d+=...`, `export d=`, `read d`, `printf
+    -v d`, `mapfile`/`getopts d`, PowerShell `$d = ...`, `$d++`, `Set-Variable d`) leaves the
+    variable unplaced, so a later rebinding to an outside path cannot hide behind a safe-looking
+    loop (`command_split` records every write it sees in the raw words, also after a reserved
+    word such as `do` or `then`). PowerShell names are compared ignoring case and without scope
+    or braces (`$D`, `$global:d`, `${d}`), every variable before an assignment operator counts
+    (`$d, $e = ...`), and so does any bare word, which may name a variable to a cmdlet
+    (`-OutVariable d`). A dot-sourced script or a bash name reference (`declare -n`) may write any
+    variable, so no loop variable is bound then. Inside a `.claude` folder any wildcard that can
+    match a settings file asks (`.claude/*`), and a glued option value counts as a path
+    (`--target-directory=.claude`).
 - **Bounded reading.** Every recursion over the agent's text has a fixed bound: inline scripts
   and substitutions 6 levels (`command_split::MAX_DEPTH`), brace expansion 8 braces per word
-  (`command_guard::MAX_BRACE_GROUPS`, more fall back to the prefix rule). Each hook connection
-  runs on a thread with an 8 MiB stack (`gate_service.rs`, `CONNECTION_STACK`), since an
-  overflow there would end the app and every session in it.
+  (`command_guard::MAX_BRACE_GROUPS`, more fall back to the prefix rule), a `for`-set or loop-body
+  expansion at most `MAX_FIND_STARTS`/`MAX_CWDS` readings. Each hook connection runs on a thread
+  with an 8 MiB stack (`gate_service.rs`, `CONNECTION_STACK`), since an overflow there would end
+  the app and every session in it.
 - **Honest limits.** A safety net, not a sandbox. Not recognized: a script file (`bash x.sh`,
   `pwsh -File`, `psql -f`, `\i`, `source`, `.read`), a program in a variable (`$x`,
   `$(echo git)`, `"$(which git)"`, cmd's `%x%` and `for` variables), a value only known at run
@@ -370,7 +439,24 @@ Option 2 with reach A.
   set to something else than blanks. Brace expansion and default values are an extra reading
   of the call, so a quoted brace may ask without need. Asked about but not read: scripts from
   stdin, encoded or too complex commands. Nothing is enforced when Claude Code's hook fails
-  open (the endpoint unreachable or overloaded).
+  open (the endpoint unreachable or overloaded). The fourth audit leaves these gaps standing:
+  wrappers outside the unwrapped set (`proxychains`, `firejail`, `flatpak-spawn`, `distrobox`,
+  `toolbox`, `lxc exec`, `vagrant`, `hub`, `gh`), node deletion tools not in the rules (`rimraf`,
+  `shx rm`), a database or extraction tool fed from a file the guard cannot read (`prisma db
+  execute --stdin`, `sqlite3 app.db < drop.sql`), a copy into the config parent that names no
+  identifier (`cp -r .config/. ~/.config/`), a Windows path written unquoted in bash where the
+  backslash is stripped before cmd sees it (`cmd /c rd /s /q ..\x` becomes `..x`, a name in the
+  folder), cmd `del /s` and PowerShell `Get-ChildItem -Force | Remove-Item` reaching `.git`
+  through a runtime wildcard, and `ls -A | xargs rm -rf`.
+- **Fail-closed version probe with a short negative cache.** The gate reads Claude Code's version
+  to decide whether its hook blocks a call it cannot check (`onFailure: "block"` from 2.1.295,
+  `gate::claude_blocks_on_failure`). A version probe that fails (a timeout, no output) is remembered
+  as failed only for `version::NEGATIVE_TTL` (60 s), then queried again (`version::cached_version`,
+  a `Cached` value with a `retry_after`): the short window keeps a program hanging on `--version`
+  from blocking every profile list for the full `TIMEOUT` each time, while the fail-closed step
+  comes back on the first list after the window instead of staying off for good behind a cached
+  `None`. Surfacing "fail-closed not active" in `GateStatus` is left for the frontend (a new
+  `session.rs` variant and i18n keys, not in this change).
 
 ## Consequences
 - Claude Code team sessions started before this version keep their old matcher until restart.

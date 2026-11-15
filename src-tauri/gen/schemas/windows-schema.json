@@ -597,6 +597,12 @@
           "markdownDescription": "Enables the log_work_phase command without any pre-configured scope."
         },
         {
+          "description": "Enables the main_prefs command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-main-prefs",
+          "markdownDescription": "Enables the main_prefs command without any pre-configured scope."
+        },
+        {
           "description": "Enables the move_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-move-note",
@@ -805,6 +811,12 @@
           "type": "string",
           "const": "allow-reveal-session-folder",
           "markdownDescription": "Enables the reveal_session_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_main_prefs command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-main-prefs",
+          "markdownDescription": "Enables the save_main_prefs command without any pre-configured scope."
         },
         {
           "description": "Enables the save_message_queue command without any pre-configured scope.",
@@ -1479,6 +1491,12 @@
           "markdownDescription": "Denies the log_work_phase command without any pre-configured scope."
         },
         {
+          "description": "Denies the main_prefs command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-main-prefs",
+          "markdownDescription": "Denies the main_prefs command without any pre-configured scope."
+        },
+        {
           "description": "Denies the move_note command without any pre-configured scope.",
           "type": "string",
           "const": "deny-move-note",
@@ -1687,6 +1705,12 @@
           "type": "string",
           "const": "deny-reveal-session-folder",
           "markdownDescription": "Denies the reveal_session_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_main_prefs command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-main-prefs",
+          "markdownDescription": "Denies the save_main_prefs command without any pre-configured scope."
         },
         {
           "description": "Denies the save_message_queue command without any pre-configured scope.",

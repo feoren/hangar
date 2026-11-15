@@ -166,6 +166,8 @@ fn blocking_commands_run_off_the_main_thread() {
         "command_guard_info",
         "protected_settings",
         "save_protected_settings",
+        "main_prefs",
+        "save_main_prefs",
         "load_templates",
         "save_templates",
     ] {
