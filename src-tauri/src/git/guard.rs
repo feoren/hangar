@@ -176,13 +176,18 @@ pub(super) fn link_allowed(start: &Path, path: &Path) -> bool {
 /// The metadata of `path` once every folder on the way to it was found to stay on this machine
 /// ([`crate::no_links`]): a junction or symbolic link in the middle of the path (a folder in
 /// `.git` linked to a share) would take the lookup itself off the machine. `Ok(None)` while
-/// something on the way does not exist; git skips such a file as well.
+/// something on the way does not exist; git skips such a file as well. A file in place of a
+/// folder on the way (`objects` as a plain file) is missing too: Unix reports ENOTDIR there,
+/// Windows "path not found".
 fn reach(path: &Path) -> Result<Option<fs::Metadata>, Refusal> {
     use crate::no_links::{metadata, Links, NoLinksError};
     match metadata(path, Links::FollowLocal) {
         Ok(meta) => Ok(Some(meta)),
         Err(NoLinksError::Unreadable { source, .. })
-            if source.kind() == io::ErrorKind::NotFound =>
+            if matches!(
+                source.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
         {
             Ok(None)
         }
@@ -852,6 +857,19 @@ mod tests {
         put(&dir.join("config"), SHARE_INCLUDE.as_bytes());
         fs::create_dir_all(dir.join("objects")).unwrap();
         fs::create_dir_all(dir.join("refs")).unwrap();
+    }
+
+    /// A file where a folder should be on the way (`objects` as a plain file) is missing, as
+    /// git sees it, not a refusal: Unix reports ENOTDIR for the path below it.
+    #[test]
+    fn a_file_in_place_of_a_folder_is_missing() {
+        let tmp = TempDir::new("git-guard-file-as-folder");
+        let objects = tmp.path().join("objects");
+        put(&objects, b"");
+        assert!(matches!(
+            reach(&objects.join("info").join("alternates")),
+            Ok(None)
+        ));
     }
 
     /// git takes a folder with HEAD whose `commondir` names a folder with `objects` and `refs`
