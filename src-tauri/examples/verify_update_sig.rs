@@ -1,9 +1,10 @@
 //! Verifies a Tauri updater signature the way installed copies of Hangar do, before a release is
-//! published. `tools/release.py` runs it after `tauri signer sign`, without the key in its
-//! environment:
+//! published. `tools/release.py` builds it before `tauri build` (`cargo build --locked --offline
+//! --example verify_update_sig`), notes its SHA-256 and runs the built program after `tauri signer
+//! sign`, only if that hash is unchanged and without the key in its environment:
 //!
 //! ```text
-//! cargo run --locked --offline --example verify_update_sig -- <file> <file.sig> <pubkey> <version>
+//! verify_update_sig <file> <file.sig> <pubkey> <version>
 //! ```
 //!
 //! `<pubkey>` is `plugins.updater.pubkey` from tauri.conf.json and `<file.sig>` the file the signer

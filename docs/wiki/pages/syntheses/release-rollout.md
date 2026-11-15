@@ -37,29 +37,55 @@ collects its items under that same version without a date. `src/versionSync.test
    - must be higher than the last published one (highest dated changelog entry or folder under
      `release/`), otherwise the updater does not detect the update
    - dates the changelog entry to today
-   - builds only from a clean working tree
+   - builds only from a clean working tree. git runs with `-c core.fsmonitor=false`, a
+     `core.hooksPath` below the git program itself (a folder that can never exist), no `GIT_*` or
+     `TAURI_SIGNING_PRIVATE_KEY*` variable, and the status check additionally switches off every
+     configured filter driver (`filter.<name>.clean=` etc.) and runs
+     `status --porcelain --ignore-submodules=all --untracked-files=all`, so no program the
+     repository's config names runs and `status.showUntrackedFiles` cannot hide files
+   - refuses to build (also with `--allow-dirty`) when a file exists that changes the build
+     although `git status` does not show it when it is ignored or excluded:
+     `src-tauri/tauri.<anything>.conf.json`, `Tauri.toml`, `tauri.conf.json5` and their platform
+     forms next to `tauri.conf.json`; `.cargo/config`, `.cargo/config.toml`, `rust-toolchain` and
+     `rust-toolchain.toml` in `src-tauri`, the repository and every folder above it up to the drive
+     root; `.npmrc` in the repository. Cargo's own `%USERPROFILE%\.cargo\config.toml` is not
+     checked (see "Release from a fresh clone")
+   - refuses to run while `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is set in the environment (every
+     program started from that shell could read it); the password is asked for at the console
+     when the installer is signed
    - sets the version in `tauri.conf.json`, `Cargo.toml` and `package.json`
+   - builds the signature verifier first (`cargo build --locked --offline --example
+     verify_update_sig`, its path taken from Cargo's JSON report and its SHA-256 noted), so nothing
+     compiles between signing and collecting the installer
    - builds with `node.exe node_modules/@tauri-apps/cli/tauri.js build` (never through
      `pnpm.cmd`) with `bundle.createUpdaterArtifacts: false` (a `--config` override) and without
      any `TAURI_SIGNING_PRIVATE_KEY*` variable in its environment, so no build script or
      dependency sees the key
    - then signs the finished installer in a separate
      `node.exe node_modules/@tauri-apps/cli/tauri.js signer sign --app-version <X.Y.Z+Build>` with
-     `%USERPROFILE%\.tauri\hangar.key`. Only this process gets the key, and with a reduced
+     `%USERPROFILE%\.tauri\hangar.key`. Only this process gets the key and the password typed at
+     the prompt (`getpass`, never `os.environ`), and with a reduced
      environment: `PATH`, the system, profile and temporary folders and the locale, nothing else
      (no `NODE_OPTIONS` or `NODE_PATH`, through which node would load other code). The `.sig` is
      the same as from `tauri build` (trusted comment
      `timestamp:...<TAB>file:<installer>.exe<TAB>version:<X.Y.Z+Build>`, measured with Tauri CLI 2.12.4
-     and a throwaway key); the script warns when the key is used without a password
+     and a throwaway key). An empty password is refused; a key without one is used only with
+     `--allow-unencrypted-key`, and the script then warns
    - verifies the signature before anything is published: the key id in the `.sig` must match the
      `pubkey` in `tauri.conf.json` (printed in minisign's order, the same id as the comment
      `minisign public key: E34C168FC5B115C8`), and
-     `cargo run --locked --offline --example verify_update_sig -- <installer> <.sig> <pubkey> <X.Y.Z+Build>`
-     (`src-tauri/examples/verify_update_sig.rs`, no key in its environment) checks it the way
+     the verifier built before the build (`verify_update_sig <installer> <.sig> <pubkey> <X.Y.Z+Build>`,
+     `src-tauri/examples/verify_update_sig.rs`, run only if its SHA-256 is unchanged, no key in its
+     environment) checks it the way
      installed apps do: the same `minisign-verify` call as `tauri-plugin-updater` 2.14.1, including
      the global signature over the trusted comment, which must carry exactly `version:<X.Y.Z+Build>`.
      On failure the `.sig` is deleted and the script aborts. The app itself requires the signed
      version (`requireSignedVersion`, [[process-launch-hardening]])
+   - notes the installer's SHA-256 right after the signer exits, before the verification, and
+     requires both copies under `release/` to have it; a file changed in between aborts and leaves
+     no installer behind. `latest.json` gets the signature text that was verified, not a fresh
+     read of the `.sig`
+   - runs PowerShell (`Get-AuthenticodeSignature`) without any `TAURI_SIGNING_PRIVATE_KEY*` variable
    - runs `git`, `node`, `cargo` and PowerShell only as absolute programs from `PATH` (on Windows
      only `<name>.exe`), never from a `PATH` folder inside the repository, the working folder itself or a
      relative `PATH` entry, and sets `NoDefaultCurrentDirectoryInExePath=1` for itself and every
@@ -113,25 +139,153 @@ Website, download button (always the newest release):
 <a href="https://github.com/feoren/hangar/releases/latest/download/Hangar-Setup.exe" download>Download Hangar for Windows</a>
 ```
 
+## Release from a fresh clone
+The clean tree check and the build input check cover the files the script knows about. Whatever
+else an ignored file, an old `node_modules` or a file planted outside the checked names could
+change is ruled out only by a checkout nothing has run in. Recommended for every release:
+
+```powershell
+git clone --no-local <path of the working repository> <new empty folder>
+cd <new empty folder>
+pnpm install --frozen-lockfile
+cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+py -3 tools/release.py --version X.Y.Z
+```
+
+`--no-local` copies the objects instead of hard-linking them, so the clone shares no files with
+the working repository. `cargo fetch` is needed because the verifier builds `--offline`. Close
+every agent and editor working in the clone first, and check `%USERPROFILE%\.cargo\config.toml`
+(Cargo reads it for every build; the script does not check it). Afterwards take
+`release/X.Y.Z-Build/` and the version and changelog commit from the clone. A `--fresh-clone` mode
+in the script is not implemented: it would have to run `pnpm install` itself, through the
+`pnpm.cmd` shim the script otherwise avoids.
+
 ## Keys
-- Private key: `%USERPROFILE%\.tauri\hangar.key`, without a password, deliberately outside the repo
-  and any cloud sync folder. Public key: in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`.
+- Private key: `%USERPROFILE%\.tauri\hangar.key`, deliberately outside the repo and any cloud sync
+  folder. Public key: in `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`.
 - > [!warning] Keep it safe
   > If the private key is lost, installed apps can **no longer accept updates**;
   > users would have to reinstall. If it falls into the wrong hands, someone can sign updates
   > that every installation trusts. So keep an offline copy (e.g. a
   > password manager or USB stick), never in a cloud sync folder or Git.
 - Different key file: set the environment variable `HANGAR_SIGNING_KEY`.
-- **Recommended: give the key a password.** `tauri signer generate -p` (or re-encrypting the
-  existing key) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` set only for the release run. Without
-  one, every program that can read `%USERPROFILE%\.tauri\hangar.key` can sign updates.
+- **The key needs a password.** `release.py` asks for it when it signs and refuses an empty one;
+  `--allow-unencrypted-key` exists only for the transition. Without a password, every program that
+  can read `%USERPROFILE%\.tauri\hangar.key` can sign updates. Never set
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in the shell: the script refuses to run then.
+
 - > [!warning] Residual risk: `node_modules` is not integrity-checked
   > The signer is the Tauri CLI from `node_modules`, and it holds the key. The script only compares
   > the CLI's `package.json` version with `pnpm-lock.yaml`; whoever can write `node_modules`
   > (any build script or agent running in the repository) can change the CLI's code and both files.
-  > So run the release from a fresh `pnpm install --frozen-lockfile` in a clean checkout, with no
-  > agent or untrusted build running in it, and use a key password, which a planted CLI would
-  > still see but which keeps a merely copied key file useless.
+  > So run the release from a fresh clone (see "Release from a fresh clone"), with no agent or
+  > untrusted build running in it, and use a key password, which a planted CLI would still see
+  > but which keeps a merely copied key file useless.
+
+### Giving the existing key a password
+A new key would change the public key, and installed copies would refuse every update signed with
+it. Re-encrypting keeps the key pair and only changes the password.
+
+Format, measured with Tauri CLI 2.12.4 and throwaway keys (2026-11-15): the key file is base64 of a
+minisign secret key file (`untrusted comment: rsign encrypted secret key`, then base64 of the
+158-byte key). The key is scrypt-encrypted **even with an empty password**: the bytes start with
+`Ed` `Sc` `B2` (Ed25519, scrypt, BLAKE2b), then a 32-byte salt, opslimit 1048576 and memlimit
+33554432 (8 bytes each, little-endian), then the 104 encrypted bytes (key id, secret key,
+checksum), XORed with scrypt(password, salt). For these limits libsodium's parameter choice gives
+N = 2^15, r = 8, p = 1, and the checksum is BLAKE2b-256 over `Ed`, key id and secret key.
+
+Procedure. **Try every step on a throwaway key first**, and only then on `hangar.key`:
+
+1. Back up `hangar.key` first (offline copy, see "Keep it safe"); without the key no update can
+   ever be signed again.
+2. Save the script below as `reencrypt_key.py` in `%USERPROFILE%\.tauri\` (it holds no secret).
+   It reads both passwords with `getpass` (never from an argument, a variable or the shell
+   history), keeps the decrypted key only in memory, checks the current password against the
+   key's checksum, uses a new random salt and writes only the re-encrypted key, to
+   `<key>.new`, which it never overwrites.
+3. Throwaway run, in PowerShell in the repository:
+   `node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -p "" -w tests/.tmp/rekey/test.key`,
+   then `py -3 $env:USERPROFILE\.tauri\reencrypt_key.py tests/.tmp/rekey/test.key` (Enter for
+   the current password). The key id it prints must match the `.pub` file (for `hangar.key`:
+   `minisign public key: E34C168FC5B115C8`, the comment of the `pubkey` in `tauri.conf.json`).
+4. Check the result by signing a harmless file. Never pass the password with `-p` (shell history),
+   and note that `tauri signer sign` does not ask for one: without the variable it assumes an
+   empty password (measured with Tauri CLI 2.12.4). So set the variable for this one test only:
+   ```powershell
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = [Net.NetworkCredential]::new('', (Read-Host -AsSecureString 'New password')).Password
+   node node_modules/@tauri-apps/cli/tauri.js signer sign -f <key>.new --app-version 0.0.1 <file>
+   Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+   ```
+   It must succeed (and fail without the variable, which means the empty password). Then
+   `cargo run --locked --offline --manifest-path src-tauri/Cargo.toml --example verify_update_sig --
+   <file> <file>.sig "<pubkey>" 0.0.1` must print "Updater signature verified". Close that
+   PowerShell window afterwards; `release.py` refuses to run while the variable is set. Delete the
+   throwaway folder.
+5. Real run: `py -3 $env:USERPROFILE\.tauri\reencrypt_key.py $env:USERPROFILE\.tauri\hangar.key`,
+   check `hangar.key.new` as in step 4, then replace `hangar.key` with it.
+6. Replace the offline copy with the new file, and destroy every copy without a password (the old
+   `hangar.key`, the old offline copy and any backup made in step 1) once a release has been
+   signed with the new one. Delete `reencrypt_key.py`.
+
+Verified on a throwaway key with this script (2026-11-15, Python 3.14, Tauri CLI 2.12.4): a wrong
+current password writes nothing; the new key signs with the new password, the empty password is
+refused, and the signature carries the unchanged key id and passes `verify_update_sig` against
+the throwaway key's original public key.
+
+```python
+"""Gives a Tauri updater key a new password; the key pair and its key id stay the same.
+
+Usage: py -3 reencrypt_key.py <key file>
+Writes <key file>.new (never overwrites). Passwords are read with getpass only.
+"""
+import base64
+import getpass
+import hashlib
+import hmac
+import os
+import sys
+
+OPSLIMIT = 1048576
+MEMLIMIT = 33554432
+
+
+def keystream(password, salt):
+    # libsodium's parameter choice for these limits: N = 2^15, r = 8, p = 1.
+    return hashlib.scrypt(password.encode("utf-8"), salt=salt, n=1 << 15, r=8, p=1, maxmem=64 << 20, dklen=104)
+
+
+def xor(data, stream):
+    return bytes(a ^ b for a, b in zip(data, stream))
+
+
+def main():
+    source = sys.argv[1]
+    target = source + ".new"
+    lines = base64.b64decode(open(source, "rb").read()).decode("ascii").splitlines()
+    raw = base64.b64decode(lines[1])
+    if len(raw) != 158 or raw[:6] != b"EdScB2":
+        sys.exit("not an scrypt-encrypted minisign key")
+    salt = raw[6:38]
+    if int.from_bytes(raw[38:46], "little") != OPSLIMIT or int.from_bytes(raw[46:54], "little") != MEMLIMIT:
+        sys.exit("unexpected scrypt limits; nothing written")
+    plain = xor(raw[54:], keystream(getpass.getpass("Current password (Enter if none): "), salt))
+    key_id, secret, checksum = plain[:8], plain[8:72], plain[72:]
+    if not hmac.compare_digest(hashlib.blake2b(b"Ed" + key_id + secret, digest_size=32).digest(), checksum):
+        sys.exit("wrong current password; nothing written")
+    new = getpass.getpass("New password: ")
+    if not new or new != getpass.getpass("New password again: "):
+        sys.exit("empty or different passwords; nothing written")
+    new_salt = os.urandom(32)
+    body = raw[:6] + new_salt + raw[38:54] + xor(plain, keystream(new, new_salt))
+    text = "%s\n%s\n" % (lines[0], base64.b64encode(body).decode("ascii"))
+    with open(target, "xb") as handle:
+        handle.write(base64.b64encode(text.encode("ascii")))
+    print("Written %s (key id %s). Test it before replacing the old key." % (target, key_id[::-1].hex().upper()))
+
+
+if __name__ == "__main__":
+    main()
+```
 
 ## Code signing (Authenticode)
 Without a code signing certificate, Windows shows "Windows protected your PC" (SmartScreen) the first

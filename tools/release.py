@@ -29,24 +29,34 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
   so every release must raise the major, minor or revision number.
 
 1. Sets the version in src-tauri/tauri.conf.json, src-tauri/Cargo.toml and package.json.
-2. Builds with `tauri build` (the CLI's tauri.js run by node.exe directly, never through the
-   pnpm.cmd shim, so no argument passes cmd.exe), with updater signing switched off and without
-   the updater key in its environment (no build script or dependency ever sees it). Afterwards a separate
+2. Refuses to build when a file Git does not see could change the build: a Tauri config next to
+   tauri.conf.json (tauri.<platform>.conf.json, Tauri.toml, tauri.conf.json5), a Cargo config or
+   rust-toolchain file in src-tauri, the repository or any folder above it, or an .npmrc in the
+   repository. The clean tree check alone misses them when they are ignored or excluded.
+3. Builds the verifier (`cargo build --example verify_update_sig`), then the app with `tauri build`
+   (the CLI's tauri.js run by node.exe directly, never through the pnpm.cmd shim, so no argument
+   passes cmd.exe), with updater signing switched off and without the updater key in its
+   environment (no build script or dependency ever sees it). Afterwards a separate
    `tauri signer sign --app-version <version>` signs the finished installer, the only process
-   that gets the private key (default: %USERPROFILE%\.tauri\hangar.key, override with
-   HANGAR_SIGNING_KEY) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, with a reduced environment (no
-   NODE_OPTIONS or other Node settings). The signature is the same `.sig` next to the installer
-   that `tauri build` writes, with the version in its trusted comment. Its key id must match the
-   public key in tauri.conf.json, and `cargo run --example verify_update_sig` (no key in its
-   environment) must verify it the way installed apps do; otherwise the script aborts.
+   that gets the private key (default: %USERPROFILE%\\.tauri\\hangar.key, override with
+   HANGAR_SIGNING_KEY) and its password, with a reduced environment (no NODE_OPTIONS or other
+   Node settings). The script asks for the password at that point; it never takes it from the
+   environment and refuses to run while TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set there. A key
+   without a password is used only with --allow-unencrypted-key. The signature is the same `.sig`
+   next to the installer that `tauri build` writes, with the version in its trusted comment. Its
+   key id must match the public key in tauri.conf.json, and the verifier built before the build
+   (no key in its environment) must verify it the way installed apps do; otherwise the script
+   aborts. The installer's SHA-256 is taken right after signing, and the copies under release/
+   must have it.
    git, node, cargo and PowerShell are taken only as absolute programs from PATH (on Windows only
-   `.exe`), never from the repository or the working folder.
-3. Puts everything to upload under release/<version>/:
+   `.exe`), never from the repository or the working folder. git runs without the repository's
+   fsmonitor, hooks and filters, and none of these programs sees an updater key variable.
+4. Puts everything to upload under release/<version>/:
      Hangar_<x.y.z-build>_x64-setup.exe   installer for this version (target of the update URL)
      Hangar-Setup.exe                 same file under a fixed name for the download link
      SHA256SUMS.txt                   SHA-256 checksums of both installers (sha256sum format, LF)
      latest.json                      polled by installed apps
-4. Publish. By default the files go to a GitHub release with the tag vX.Y.Z; the script prints the
+5. Publish. By default the files go to a GitHub release with the tag vX.Y.Z; the script prints the
    `gh` commands for it (it never publishes by itself). The release is created as a draft, the files
    are attached, and only then is it published, so .../releases/latest/download/latest.json never
    announces a version whose installer is missing. With --base-url, upload to that folder instead:
@@ -72,7 +82,9 @@ signing commands.
 """
 import argparse
 import base64
+import collections
 import datetime
+import getpass
 import hashlib
 import json
 import os
@@ -198,7 +210,7 @@ def signature_problem(report_text):
 
 def verify_signature(path):
     shell = resolve_tool("pwsh", "powershell")
-    env = dict(os.environ)
+    env = without_updater_key(os.environ)
     env["HANGAR_VERIFY_PATH"] = str(path)
     result = subprocess.run(
         [shell, "-NoProfile", "-NonInteractive", "-Command", VERIFY_SCRIPT],
@@ -368,11 +380,142 @@ def date_changelog(entries, entry):
     print("Changelog %s dated %s." % (entry["version"], entry["date"]))
 
 
-def git(*args):
-    result = subprocess.run([resolve_tool("git"), *args], cwd=ROOT, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
+def git_environment(environ):
+    """The environment of every git call: no updater key variable and no GIT_* variable, through
+    which GIT_DIR, GIT_INDEX_FILE or GIT_CONFIG_* would point git at another repository or config
+    than the one checked (Windows names ignore case)."""
+    return {
+        name: value
+        for name, value in without_updater_key(environ).items()
+        if not name.upper().startswith("GIT_")
+    }
+
+
+def git_run(*args, allowed=(0,)):
+    """Runs git in ROOT and returns the finished process; aborts on an exit code outside `allowed`.
+
+    The repository's config can name programs git runs on its own: an fsmonitor for status, hooks
+    for some commands. `core.fsmonitor=false` and a hooks path below a regular file (git itself,
+    where no folder can ever exist) switch both off; the command line wins over every config file.
+    """
+    program = resolve_tool("git")
+    command = [program, "--no-pager", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=" + program, *args]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=git_environment(os.environ),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode not in allowed:
         fail("git %s failed: %s" % (" ".join(args), result.stderr.strip()))
-    return result.stdout.strip()
+    return result
+
+
+def git(*args):
+    return git_run(*args).stdout.strip()
+
+
+# Settings through which a repository makes git run a program on a file (clean, smudge, process).
+FILTER_KEYS = r"^filter\..*\.(clean|smudge|process)$"
+
+
+def filter_overrides(config_output):
+    """`-c` arguments that switch off every filter driver `git config -z --get-regexp` listed:
+    git skips a filter whose command is empty, and `required=false` keeps it from failing the call
+    instead. None when a driver name cannot be passed back through `-c`, which splits at the first
+    `=`."""
+    names = set()
+    for record in config_output.split("\0"):
+        key = record.split("\n", 1)[0]
+        if not key:
+            continue
+        name = key[len("filter.") :].rpartition(".")[0] if key.startswith("filter.") else ""
+        if not name or "=" in name:
+            return None
+        names.add(name)
+    overrides = []
+    for name in sorted(names):
+        for setting in ("clean=", "smudge=", "process=", "required=false"):
+            overrides += ["-c", "filter.%s.%s" % (name, setting)]
+    return overrides
+
+
+def working_tree_dirty():
+    """Whether `git status` reports any change, without running a program the repository names.
+
+    `status` runs a clean filter on files whose stat data changed, so the configured drivers are
+    read first (reading the config runs nothing) and switched off. Submodules are not entered
+    (each has a config of its own), and untracked files are listed even when the repository's
+    config hides them. Ignored and excluded files stay invisible here; check_build_inputs() covers
+    the ones that change the build.
+    """
+    config = git_run("config", "-z", "--get-regexp", FILTER_KEYS, allowed=(0, 1))
+    # 1: no such key, the normal case.
+    overrides = filter_overrides(config.stdout if config.returncode == 0 else "")
+    if overrides is None:
+        fail("the repository configures a filter whose name git cannot switch off; check .git/config")
+    status = git_run(
+        *overrides,
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--ignore-submodules=all",
+        "--untracked-files=all",
+    )
+    return bool(status.stdout.strip())
+
+
+# Tauri merges these into tauri.conf.json (platform files, TOML and JSON5 forms); any of them can
+# change the build commands or the bundle.
+TAURI_CONFIG_OVERRIDE = re.compile(r"^tauri(\.[^.]+)?\.(conf\.json5?|toml)$", re.IGNORECASE)
+# Read by Cargo and rustup in the build folder and every folder above it.
+CARGO_INPUTS = (
+    Path(".cargo") / "config",
+    Path(".cargo") / "config.toml",
+    Path("rust-toolchain"),
+    Path("rust-toolchain.toml"),
+)
+
+
+def build_input_problems(root, ancestors=None):
+    """Files that change the build although `git status` may not show them (ignored, excluded or
+    outside the repository): Tauri config overrides next to tauri.conf.json, Cargo configs and
+    toolchain files in src-tauri, the repository and every folder above it (`ancestors`, default
+    all of them up to the drive root) and an .npmrc in the repository."""
+    root = Path(root)
+    tauri_dir = root / "src-tauri"
+    found = []
+    if tauri_dir.is_dir():
+        found += sorted(
+            path
+            for path in tauri_dir.iterdir()
+            if TAURI_CONFIG_OVERRIDE.match(path.name) and path.name != "tauri.conf.json"
+        )
+    if ancestors is None:
+        ancestors = list(root.resolve().parents)
+    for folder in [tauri_dir, root, *ancestors]:
+        for name in CARGO_INPUTS:
+            # lexists: a dangling link or a folder in its place counts as well.
+            if os.path.lexists(folder / name):
+                found.append(folder / name)
+    if os.path.lexists(root / ".npmrc"):
+        found.append(root / ".npmrc")
+    return found
+
+
+def check_build_inputs(root=None, ancestors=None):
+    """Aborts when build_input_problems() finds anything; names the files, never their content."""
+    found = build_input_problems(ROOT if root is None else root, ancestors)
+    if found:
+        fail(
+            "these files would change the build but Git does not check them; move them away or "
+            "release from a fresh clone (release-rollout.md):\n  %s" % "\n  ".join(str(path) for path in found)
+        )
 
 
 def build_number_from(package, commit_count):
@@ -739,69 +882,165 @@ def signature_key_problem(signature_text, pubkey):
     return None
 
 
-def sign_update(key_path, setup, version):
-    """Signs the finished installer for the updater and returns the path of its `.sig`.
+PASSWORD_VARIABLE = "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+
+
+def password_variable_problem(environ):
+    """Why the key password must not come from `environ`, or None.
+
+    A password in the environment of the release shell reached every program started from that
+    shell before (installs, editors, agents), so it is refused even when the key has none; the
+    script asks for it instead. Names only the variable, never its value.
+    """
+    if any(name.upper() == PASSWORD_VARIABLE for name in environ):
+        return (
+            "%s is set in the environment, where every program started from this shell can read it. "
+            "Unset it (PowerShell: Remove-Item Env:%s); the script asks for the password when it signs."
+            % (PASSWORD_VARIABLE, PASSWORD_VARIABLE)
+        )
+    return None
+
+
+def key_password(allow_unencrypted_key):
+    """The updater key's password, typed at the console; never taken from the environment.
+
+    An empty password is refused unless --allow-unencrypted-key says the key has none.
+    """
+    if allow_unencrypted_key:
+        print(
+            "Warning: the updater key is used with no password (--allow-unencrypted-key). Anyone who "
+            "can read the key file can sign updates; give it a password (release-rollout.md)."
+        )
+        return ""
+    try:
+        password = getpass.getpass("Password of the updater key: ")
+    except EOFError:
+        password = ""
+    if not password:
+        fail(
+            "no password for the updater key. Give the key one (release-rollout.md), or pass "
+            "--allow-unencrypted-key if it really has none."
+        )
+    return password
+
+
+# What sign_update() hands to collect(): the `.sig`, its text as verified and the installer's
+# SHA-256 taken right after signing.
+Signed = collections.namedtuple("Signed", "signature text sha256")
+# The signature verifier built before `tauri build`, and its SHA-256 at that point.
+Verifier = collections.namedtuple("Verifier", "path sha256")
+
+
+def sign_update(key_path, setup, version, verifier, allow_unencrypted_key=False):
+    """Signs the finished installer for the updater and returns what collect() needs (Signed).
 
     Runs after Authenticode signing, which changes the file. `--app-version` binds the version
     into the signed trusted comment, as `tauri build` does (`version:<version>`); the updater
-    compares it with the version latest.json announces.
+    compares it with the version latest.json announces. The password goes only into the signer's
+    environment, never into os.environ, so no other child process sees it.
     """
+    problem = password_variable_problem(os.environ)
+    if problem:
+        fail(problem)
     env = signer_environment(os.environ)
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
-    # The current key has none; an empty value keeps the signer from asking for one.
-    password = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
-    env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"] = password
-    if not password:
-        print(
-            "Warning: the updater key is used with no password (TAURI_SIGNING_PRIVATE_KEY_PASSWORD "
-            "is empty). Anyone who can read the key file can sign updates; keep it off synced folders."
-        )
+    # Always set: without the variable the signer assumes an empty password (Tauri CLI 2.12.4).
+    env[PASSWORD_VARIABLE] = key_password(allow_unencrypted_key)
     signature = setup.with_name(setup.name + ".sig")
     # Only a signature written by this run counts.
     signature.unlink(missing_ok=True)
     command = tauri_command("signer", "sign", "--app-version", version, str(setup))
     result = subprocess.run(command, cwd=ROOT, env=env, check=False, stdin=subprocess.DEVNULL)
+    del env
     if result.returncode != 0:
         fail("tauri signer sign failed (exit code %d)" % result.returncode)
     if not signature.is_file():
         fail("updater signature missing: %s" % signature)
+    # Taken before the verification, so the bytes verified are the bytes collect() accepts.
+    digest = sha256_hex(setup)
+    text = signature.read_text(encoding="utf-8").strip()
     # A wrong key file would sign without complaint, and every installed copy would then refuse
     # the update; caught here before anything is published.
-    problem = signature_key_problem(signature.read_text(encoding="utf-8"), updater_pubkey())
-    if problem is None and not update_signature_verifies(setup, signature, version):
-        problem = "the updater signature failed the verification installed apps run (reason above)"
+    problem = signature_key_problem(text, updater_pubkey()) or update_signature_problem(
+        verifier, setup, signature, version
+    )
     if problem:
         signature.unlink(missing_ok=True)
         fail(problem)
-    return signature
+    return Signed(signature, text, digest)
 
 
-def update_signature_verifies(setup, signature, version):
-    """Checks the signature the way installed apps do: minisign's signature over the installer and
-    the global signature over the trusted comment, which must carry `version:<version>`
-    (src-tauri/examples/verify_update_sig.rs, the same crate and call as tauri-plugin-updater).
-    The key id check above only compares labels; this proves the signature."""
+VERIFIER_NAME = "verify_update_sig"
+
+
+def build_verifier():
+    """Builds src-tauri/examples/verify_update_sig.rs before `tauri build` and returns it.
+
+    `cargo run` after signing would compile, and build scripts would run, between signing and
+    collecting the installer. The path comes from Cargo's own report, so CARGO_TARGET_DIR or a
+    profile setting cannot send the check to another file.
+    """
     command = [
         resolve_tool("cargo"),
-        "run",
-        "--quiet",
+        "build",
         "--locked",
         "--offline",
+        "--message-format=json",
         "--manifest-path",
         str(CARGO_TOML),
         "--example",
-        "verify_update_sig",
-        "--",
-        str(setup),
-        str(signature),
-        updater_pubkey(),
-        version,
+        VERIFIER_NAME,
     ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=without_updater_key(os.environ),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        fail("building the signature verifier failed (exit code %d)" % result.returncode)
+    executable = None
+    for line in (result.stdout or "").splitlines():
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(message, dict):
+            continue
+        target = message.get("target")
+        if (
+            message.get("reason") == "compiler-artifact"
+            and isinstance(target, dict)
+            and target.get("name") == VERIFIER_NAME
+            and "example" in (target.get("kind") or [])
+            and isinstance(message.get("executable"), str)
+        ):
+            executable = Path(message["executable"])
+    if executable is None or not executable.is_file():
+        fail("cargo built no %s example" % VERIFIER_NAME)
+    return Verifier(executable, sha256_hex(executable))
+
+
+def update_signature_problem(verifier, setup, signature, version):
+    """Checks the signature the way installed apps do: minisign's signature over the installer and
+    the global signature over the trusted comment, which must carry `version:<version>`
+    (src-tauri/examples/verify_update_sig.rs, the same crate and call as tauri-plugin-updater).
+    The key id check above only compares labels; this proves the signature. None when it holds."""
+    if not verifier.path.is_file() or sha256_hex(verifier.path) != verifier.sha256:
+        return "the signature verifier changed after it was built; nothing was verified"
+    command = [str(verifier.path), str(setup), str(signature), updater_pubkey(), version]
     result = subprocess.run(
         command, cwd=ROOT, env=without_updater_key(os.environ), check=False, stdin=subprocess.DEVNULL
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        return "the updater signature failed the verification installed apps run (reason above)"
+    return None
 
 
 def find_setup(built_after):
@@ -816,17 +1055,23 @@ def find_setup(built_after):
     return candidates[0]
 
 
-def collect(setup, version, base_url, notes):
-    signature = setup.with_name(setup.name + ".sig")
-    if not signature.is_file():
-        fail("updater signature missing: %s" % signature)
+def collect(setup, signed, version, base_url, notes):
+    """Copies the signed installer under release/ and writes the checksums and latest.json.
 
+    The copies must have the SHA-256 taken right after signing; a file changed in between (by
+    anything that ran after the signer) aborts and leaves nothing behind.
+    """
     shown = display(version)
     setup_name = "Hangar_%s_x64-setup.exe" % shown
     target = RELEASE_DIR / shown
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(setup, target / setup_name)
-    shutil.copy2(setup, target / "Hangar-Setup.exe")
+    copies = [target / setup_name, target / "Hangar-Setup.exe"]
+    for copy in copies:
+        shutil.copy2(setup, copy)
+    if any(sha256_hex(copy) != signed.sha256 for copy in copies):
+        for copy in copies:
+            copy.unlink(missing_ok=True)
+        fail("%s changed after it was signed; nothing was collected" % setup.name)
     write_checksums(target, [setup_name, "Hangar-Setup.exe"])
 
     manifest = {
@@ -835,7 +1080,7 @@ def collect(setup, version, base_url, notes):
         "pub_date": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
         "platforms": {
             "windows-x86_64": {
-                "signature": signature.read_text(encoding="utf-8").strip(),
+                "signature": signed.text,
                 "url": "%s/%s" % (base_url.rstrip("/"), setup_name),
             }
         },
@@ -858,6 +1103,11 @@ def main():
     )
     parser.add_argument("--no-build", action="store_true", help="only set the version, do not build")
     parser.add_argument("--allow-dirty", action="store_true", help="build even with uncommitted changes")
+    parser.add_argument(
+        "--allow-unencrypted-key",
+        action="store_true",
+        help="sign with an updater key that has no password (otherwise the script asks for it)",
+    )
     parser.add_argument(
         "--notes",
         default=None,
@@ -895,8 +1145,15 @@ def main():
         fail(problem)
     if entry is None:
         fail("no changelog entry for %s in %s" % (args.version, CHANGELOG_JSON.relative_to(ROOT)))
-    if not args.no_build and not args.allow_dirty and git("status", "--porcelain"):
-        fail("the working tree is not clean. Commit first (or pass --allow-dirty).")
+    if not args.no_build:
+        # Before the build, which takes minutes, not only when signing.
+        problem = password_variable_problem(os.environ)
+        if problem:
+            fail(problem)
+        if not args.allow_dirty and working_tree_dirty():
+            fail("the working tree is not clean. Commit first (or pass --allow-dirty).")
+        # Not skipped by --allow-dirty: these files never show up as changes.
+        check_build_inputs()
 
     # Check before setting the version, so a missing entry never leaves a half-done change.
     # The date belongs to the release, not to where the notes come from, so set it with --notes too.
@@ -924,6 +1181,7 @@ def main():
     else:
         print("Authenticode code signing active (setting from the environment, values are not printed).")
 
+    verifier = build_verifier()
     started = time.time()
     build(signing)
     setup = find_setup(started)
@@ -934,9 +1192,9 @@ def main():
         if MAIN_EXE.is_file() and MAIN_EXE.stat().st_mtime >= started:
             verify_signature(MAIN_EXE)
     # After Authenticode, which rewrites the installer: the signature covers the final bytes.
-    sign_update(key_path, setup, version)
+    signed = sign_update(key_path, setup, version, verifier, args.allow_unencrypted_key)
     base_url = args.base_url or github_base_url(args.version)
-    target, setup_name = collect(setup, version, base_url, notes or "")
+    target, setup_name = collect(setup, signed, version, base_url, notes or "")
     print()
     print("Done: %s" % target)
     if args.base_url is None:

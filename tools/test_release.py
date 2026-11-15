@@ -412,13 +412,27 @@ class UpdaterSigningTest(unittest.TestCase):
         self.setup = self.folder / "Hangar_0.2.0+31_x64-setup.exe"
         self.setup.write_bytes(b"installer")
         self.public, self.signature = throwaway_key_pair(self.folder, bytes.fromhex("A1A2A3A4A5A6A7A8"))
+        verifier = self.folder / "verify update sig.exe"
+        verifier.write_bytes(b"verifier-marker")
+        self.verifier = release.Verifier(verifier, release.sha256_hex(verifier))
 
-    def run_sign(self, environ=None, writes_signature=True, returncode=0, signature=None, verify_returncode=0):
+    def run_sign(
+        self,
+        environ=None,
+        writes_signature=True,
+        returncode=0,
+        signature=None,
+        verify_returncode=0,
+        password="pw-marker",
+        allow_unencrypted_key=False,
+    ):
         calls = []
+        self.calls = calls
+        self.prompts = []
 
         def fake_run(command, **kwargs):
             calls.append((command, kwargs.get("env")))
-            if "verify_update_sig" in command:
+            if command[0] == str(self.verifier.path):
                 return subprocess.CompletedProcess(command, verify_returncode)
             if writes_signature:
                 Path(command[-1] + ".sig").write_text(signature or self.signature, encoding="utf-8")
@@ -430,40 +444,82 @@ class UpdaterSigningTest(unittest.TestCase):
             if not name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")
         }
         clean.update(environ or {})
-        self.calls = calls
+
+        def fake_prompt(prompt=""):
+            self.prompts.append(prompt)
+            return password
+
         with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
             release, "cli_problem", return_value=None
         ), mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.dict(
             release.os.environ, clean, clear=True
-        ), mock.patch.object(release, "updater_pubkey", return_value=self.public):
-            signature = release.sign_update(self.key, self.setup, "0.2.0+31")
-        return calls[0], signature
+        ), mock.patch.object(release, "updater_pubkey", return_value=self.public), mock.patch.object(
+            release.getpass, "getpass", side_effect=fake_prompt
+        ):
+            signed = release.sign_update(
+                self.key, self.setup, "0.2.0+31", self.verifier, allow_unencrypted_key=allow_unencrypted_key
+            )
+            self.environ_after = dict(release.os.environ)
+        return calls[0], signed
+
+    def printed(self, stream):
+        return "".join(str(call.args[0]) for call in stream.write.call_args_list if call.args)
 
     def test_signs_the_installer_bound_to_the_version(self):
-        (command, env), signature = self.run_sign()
+        (command, env), signed = self.run_sign()
         self.assertEqual(
             command,
             [NODE, str(release.TAURI_JS), "signer", "sign", "--app-version", "0.2.0+31", str(self.setup)],
         )
-        self.assertEqual(signature, self.setup.with_name(self.setup.name + ".sig"))
+        self.assertEqual(signed.signature, self.setup.with_name(self.setup.name + ".sig"))
+        self.assertEqual(signed.text, self.signature)
+        self.assertEqual(signed.sha256, release.sha256_hex(self.setup))
         self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY"], "key-content-marker")
-        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "")
+        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "pw-marker")
         # Neither key nor password on the command line, where the process list shows them.
         self.assertNotIn("key-content-marker", " ".join(command))
+        self.assertNotIn("pw-marker", " ".join(command))
 
-    def test_a_given_password_reaches_only_the_signer(self):
-        (_, env), _ = self.run_sign({"TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "pw-marker"})
-        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "pw-marker")
+    def test_the_password_is_asked_for_once(self):
+        self.run_sign()
+        self.assertEqual(len(self.prompts), 1)
+
+    def test_the_password_reaches_only_the_signer(self):
+        self.run_sign()
+        self.assertEqual(len(self.calls), 2)
+        _, verify_env = self.calls[1]
+        self.assertNotIn("pw-marker", verify_env.values())
+        self.assertNotIn("pw-marker", self.environ_after.values())
+        self.assertEqual(
+            [name for name in self.environ_after if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], []
+        )
+
+    def test_an_empty_password_aborts_before_the_signer_runs(self):
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_sign(password="")
+        self.assertEqual(self.calls, [])
+        self.assertIn("--allow-unencrypted-key", self.printed(err))
+
+    def test_an_unencrypted_key_signs_only_with_the_flag(self):
+        with mock.patch("sys.stdout") as out:
+            (_, env), _ = self.run_sign(password="", allow_unencrypted_key=True)
+        self.assertEqual(self.prompts, [])
+        self.assertEqual(env["TAURI_SIGNING_PRIVATE_KEY_PASSWORD"], "")
+        self.assertIn("no password", self.printed(out))
+
+    def test_a_password_in_the_environment_is_refused(self):
+        # Even with the flag: whatever ran in that shell before could read it.
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_sign({"tauri_signing_private_key_password": "env-pw-marker"}, allow_unencrypted_key=True)
+        self.assertEqual(self.calls, [])
+        self.assertIn("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", self.printed(err))
+        self.assertNotIn("env-pw-marker", self.printed(err))
+        self.assertIsNotNone(release.password_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PASSWORD": ""}))
+        self.assertIsNone(release.password_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PATH": "x"}))
 
     def test_an_inherited_key_path_does_not_win_over_the_chosen_key(self):
         (_, env), _ = self.run_sign({"TAURI_SIGNING_PRIVATE_KEY_PATH": "inherited-path-marker"})
         self.assertNotIn("TAURI_SIGNING_PRIVATE_KEY_PATH", env)
-
-    def test_warns_when_the_key_has_no_password(self):
-        with mock.patch("sys.stdout") as out:
-            self.run_sign()
-        printed = "".join(str(call.args[0]) for call in out.write.call_args_list if call.args)
-        self.assertIn("no password", printed)
 
     def test_a_stale_signature_never_counts(self):
         stale = self.setup.with_name(self.setup.name + ".sig")
@@ -494,27 +550,20 @@ class UpdaterSigningTest(unittest.TestCase):
         self.run_sign()
         self.assertEqual(len(self.calls), 2)
         command, env = self.calls[1]
+        # The verifier built before `tauri build`; nothing compiles between signing and collecting.
         self.assertEqual(
             command,
-            [
-                CARGO,
-                "run",
-                "--quiet",
-                "--locked",
-                "--offline",
-                "--manifest-path",
-                str(release.CARGO_TOML),
-                "--example",
-                "verify_update_sig",
-                "--",
-                str(self.setup),
-                str(self.setup) + ".sig",
-                self.public,
-                "0.2.0+31",
-            ],
+            [str(self.verifier.path), str(self.setup), str(self.setup) + ".sig", self.public, "0.2.0+31"],
         )
         self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
         self.assertNotIn("key-content-marker", env.values())
+
+    def test_a_changed_verifier_is_never_run(self):
+        self.verifier.path.write_bytes(b"replaced-verifier")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.run_sign()
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
 
     def test_a_signature_that_does_not_verify_aborts_and_is_removed(self):
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
@@ -526,6 +575,251 @@ class UpdaterSigningTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_sign(signature=foreign)
         self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
+
+
+class VerifierBuildTest(unittest.TestCase):
+    """build_verifier(): compiled before `tauri build`, path taken from Cargo's own report."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release verifier ")
+        self.binary = self.folder / "verify_update_sig.exe"
+        self.binary.write_bytes(b"verifier-marker")
+
+    def run_build(self, messages, returncode=0, environ=None):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs.get("env")))
+            stdout = "".join(json.dumps(message) + "\n" for message in messages)
+            return subprocess.CompletedProcess(command, returncode, stdout=stdout)
+
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release.subprocess, "run", side_effect=fake_run
+        ), mock.patch.dict(release.os.environ, dict(os.environ, **(environ or {})), clear=True):
+            verifier = release.build_verifier()
+        return calls, verifier
+
+    def artifact(self, name="verify_update_sig", kind="example", executable=None):
+        return {
+            "reason": "compiler-artifact",
+            "target": {"name": name, "kind": [kind]},
+            "executable": str(executable or self.binary),
+        }
+
+    def test_builds_the_example_offline_from_the_lock_file_without_the_key(self):
+        calls, verifier = self.run_build(
+            [{"reason": "build-script-executed"}, self.artifact("hangar", "lib"), self.artifact()],
+            environ=SIGNING_ENVIRONMENT,
+        )
+        command, env = calls[0]
+        self.assertEqual(command[:2], [CARGO, "build"])
+        for flag in ("--locked", "--offline", "--message-format=json"):
+            self.assertIn(flag, command)
+        self.assertEqual(command[command.index("--example") + 1], "verify_update_sig")
+        self.assertEqual(command[command.index("--manifest-path") + 1], str(release.CARGO_TOML))
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        self.assertEqual(verifier, release.Verifier(self.binary, release.sha256_hex(self.binary)))
+
+    def test_a_failed_build_or_missing_binary_aborts(self):
+        for messages, code in (
+            ([self.artifact()], 101),
+            ([self.artifact("hangar", "lib")], 0),
+            ([self.artifact(executable=self.folder / "missing.exe")], 0),
+        ):
+            with self.subTest(code=code), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                self.run_build(messages, returncode=code)
+
+
+class CollectTest(unittest.TestCase):
+    """collect(): the copies under release/ must be the bytes that were signed."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release collect ")
+        self.setup = self.folder / "Hangar_0.2.0+31_x64-setup.exe"
+        self.setup.write_bytes(b"signed installer")
+        signature = self.setup.with_name(self.setup.name + ".sig")
+        signature.write_text("signature-marker", encoding="utf-8")
+        self.signed = release.Signed(signature, "signature-marker", release.sha256_hex(self.setup))
+        patch = mock.patch.object(release, "RELEASE_DIR", self.folder / "release")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def collect(self):
+        return release.collect(self.setup, self.signed, "0.2.0+31", "https://example.org/dl", "notes")
+
+    def test_writes_the_signed_installer_and_manifest(self):
+        target, setup_name = self.collect()
+        self.assertEqual(setup_name, "Hangar_0.2.0-31_x64-setup.exe")
+        self.assertEqual((target / setup_name).read_bytes(), b"signed installer")
+        manifest = json.loads((target / "latest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["platforms"]["windows-x86_64"]["signature"], "signature-marker")
+
+    def test_a_signature_file_changed_after_signing_does_not_count(self):
+        self.signed.signature.write_text("replaced-marker", encoding="utf-8")
+        target, _ = self.collect()
+        self.assertNotIn("replaced-marker", (target / "latest.json").read_text(encoding="utf-8"))
+
+    def test_an_installer_changed_after_signing_aborts(self):
+        self.setup.write_bytes(b"changed installer")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.collect()
+        target = self.folder / "release" / "0.2.0-31"
+        for name in ("Hangar_0.2.0-31_x64-setup.exe", "Hangar-Setup.exe", "SHA256SUMS.txt", "latest.json"):
+            self.assertFalse((target / name).exists(), name)
+
+
+class BuildInputTest(unittest.TestCase):
+    """Files Git does not see (ignored or excluded) that would still change the build."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release inputs ")
+        self.parent = self.folder / "parent"
+        self.root = self.parent / "hangar"
+        (self.root / "src-tauri").mkdir(parents=True)
+        (self.root / "src-tauri" / "tauri.conf.json").write_text("{}", encoding="utf-8")
+
+    def problems(self):
+        return release.build_input_problems(self.root, [self.parent, self.folder])
+
+    def test_a_clean_layout_passes(self):
+        self.assertEqual(self.problems(), [])
+
+    def test_a_hidden_platform_config_aborts(self):
+        planted = self.root / "src-tauri" / "tauri.windows.conf.json"
+        planted.write_text('{"build": {"beforeBuildCommand": "marker"}}', encoding="utf-8")
+        self.assertEqual(self.problems(), [planted])
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.check_build_inputs(self.root, [self.parent, self.folder])
+        printed = "".join(str(call.args[0]) for call in err.write.call_args_list if call.args)
+        self.assertIn("tauri.windows.conf.json", printed)
+
+    def test_every_config_override_name_counts(self):
+        names = [
+            "Tauri.toml",
+            "tauri.linux.toml",
+            "tauri.conf.json5",
+            "tauri.macos.conf.json5",
+            "TAURI.Windows.conf.json",
+        ]
+        for name in names:
+            (self.root / "src-tauri" / name).write_text("", encoding="utf-8")
+        self.assertEqual(sorted(path.name for path in self.problems()), sorted(names))
+
+    def test_cargo_and_toolchain_files_in_every_folder_above(self):
+        planted = [
+            self.root / "src-tauri" / ".cargo" / "config.toml",
+            self.root / ".cargo" / "config",
+            self.parent / ".cargo" / "config.toml",
+            self.folder / "rust-toolchain.toml",
+            self.root / "src-tauri" / "rust-toolchain",
+            self.root / ".npmrc",
+        ]
+        for path in planted:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+        self.assertEqual(sorted(self.problems()), sorted(planted))
+
+    def test_an_npmrc_above_the_repository_is_not_a_build_input(self):
+        (self.parent / ".npmrc").write_text("", encoding="utf-8")
+        self.assertEqual(self.problems(), [])
+
+    def test_the_folders_above_default_to_every_parent(self):
+        planted = self.folder / ".cargo" / "config.toml"
+        planted.parent.mkdir()
+        planted.write_text("", encoding="utf-8")
+        self.assertIn(planted, release.build_input_problems(self.root))
+
+
+class GitCommandTest(unittest.TestCase):
+    """git(): no updater key, no repository fsmonitor, hooks or filters."""
+
+    def run_git(self, *args, environ=None, config_output="", config_code=1):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            code = config_code if "config" in command else 0
+            stdout = config_output if "config" in command else ""
+            return subprocess.CompletedProcess(command, code, stdout=stdout, stderr="")
+
+        with mock.patch.object(release, "resolve_tool", side_effect=fake_tool), mock.patch.object(
+            release.subprocess, "run", side_effect=fake_run
+        ), mock.patch.dict(release.os.environ, dict(os.environ, **(environ or {})), clear=True):
+            if args:
+                release.git(*args)
+            else:
+                release.working_tree_dirty()
+        return calls
+
+    def test_git_never_sees_the_updater_key(self):
+        environ = dict(SIGNING_ENVIRONMENT, GIT_DIR="elsewhere-marker")
+        ((_, kwargs),) = self.run_git("rev-list", "--count", "HEAD", environ=environ)
+        env = kwargs["env"]
+        self.assertIsNotNone(env)
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        self.assertNotIn("inherited-key-marker", env.values())
+        # GIT_DIR and friends would point git at another repository than the one checked.
+        self.assertNotIn("elsewhere-marker", env.values())
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+
+    def test_git_runs_without_fsmonitor_and_hooks(self):
+        ((command, _),) = self.run_git("rev-list", "--count", "HEAD")
+        program = fake_tool("git")
+        self.assertEqual(command[0], program)
+        options = command[: command.index("rev-list")]
+        self.assertIn("core.fsmonitor=false", options)
+        # A hooks folder below a regular file can never exist.
+        self.assertIn("core.hooksPath=" + program, options)
+
+    def test_the_status_check_switches_off_filters_and_submodules(self):
+        output = "filter.lfs.clean\ngit-lfs clean -- %f\0filter.my.dotted.process\nmarker\0"
+        calls = self.run_git(config_output=output, config_code=0)
+        self.assertEqual(len(calls), 2)
+        status = calls[1][0]
+        options = status[: status.index("status")]
+        for name in ("lfs", "my.dotted"):
+            for setting in ("clean=", "smudge=", "process=", "required=false"):
+                self.assertIn("filter.%s.%s" % (name, setting), options)
+        self.assertIn("core.fsmonitor=false", options)
+        self.assertIn("--no-optional-locks", options)
+        arguments = status[status.index("status") :]
+        for flag in ("--porcelain", "--ignore-submodules=all", "--untracked-files=all"):
+            self.assertIn(flag, arguments)
+
+    def test_a_filter_name_that_cannot_be_switched_off_aborts(self):
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.run_git(config_output="filter.a=b.clean\nmarker\0", config_code=0)
+
+    def test_a_failed_config_read_aborts(self):
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.run_git(config_code=128)
+
+    def test_the_status_check_runs_in_a_real_repository(self):
+        if not on_path("git"):
+            self.skipTest("git not installed")
+        self.assertIsInstance(release.working_tree_dirty(), bool)
+
+
+class VerifySignatureEnvironmentTest(unittest.TestCase):
+    def test_powershell_never_sees_the_updater_key(self):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(kwargs.get("env"))
+            report = '{"Status":"Valid","Timestamped":true}'
+            return subprocess.CompletedProcess(command, 0, stdout=report, stderr="")
+
+        path = Path("with space") / "Hangar-Setup.exe"
+        with mock.patch.object(release, "resolve_tool", return_value=r"C:\pwsh\pwsh.exe"), mock.patch.object(
+            release.subprocess, "run", side_effect=fake_run
+        ), mock.patch.dict(release.os.environ, dict(os.environ, **SIGNING_ENVIRONMENT), clear=True), mock.patch(
+            "sys.stdout"
+        ):
+            release.verify_signature(path)
+        env = calls[0]
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        self.assertEqual(env["HANGAR_VERIFY_PATH"], str(path))
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
 
 
 TAURI_CONF_TEXT = """{
