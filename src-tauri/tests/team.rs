@@ -1392,9 +1392,12 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
             unreachable!()
         };
         assert!(a2.keys().is_some_and(|k| !k.admitted));
-        until("the first device's view", || {
-            activity(&a1).is_some_and(|a| a.log.is_some())
-        })
+        // The first device shows its own endorsement once its view has caught up with the log;
+        // the person compares both screens at the same log entry.
+        until(
+            "the first device's view of the admission's log entry",
+            || activity(&a1).is_some_and(|a| a.log.is_some_and(|log| log.index == log_index)),
+        )
         .await;
         let first = activity(&a1).unwrap();
         let this = first.devices.iter().find(|d| d.this).unwrap();

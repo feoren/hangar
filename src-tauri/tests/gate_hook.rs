@@ -8,7 +8,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -279,22 +279,50 @@ fn through_shell(command_line: &str, _powershell: bool) -> Command {
     command
 }
 
-/// Answers the next held edit with `answer` once it shows up in the window's snapshot.
-fn answer_next(fixture: &Fixture, answer: Answer) -> std::thread::JoinHandle<()> {
-    let service = fixture.service.clone();
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    let snapshot = loop {
-        let snapshot = fixture
-            .events
-            .recv_timeout(Duration::from_secs(30))
-            .unwrap();
-        if !snapshot.pending.is_empty() {
-            break snapshot;
-        }
-        assert!(std::time::Instant::now() < deadline, "no held edit");
+/// Answers the next held edit with `answer` once it shows up in the window's snapshot, and gives
+/// what `hook` (the thread that runs the hook and waits for the answer) returned. A hook that
+/// ends before the gate holds its edit fails the test with the hook's own output: a bare timeout
+/// of this wait would hide why the edit never arrived.
+fn answer_while<T: std::fmt::Debug>(
+    fixture: &Fixture,
+    answer: Answer,
+    hook: std::thread::JoinHandle<T>,
+) -> T {
+    let join = |hook: std::thread::JoinHandle<T>| {
+        hook.join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     };
-    let id = snapshot.pending[0].id;
-    std::thread::spawn(move || assert!(service.answer(id, answer)))
+    // `run` kills a hook after RUN_LIMIT, so the hook ends first; this only bounds the wait.
+    let deadline = Instant::now() + RUN_LIMIT + Duration::from_secs(10);
+    let started = Instant::now();
+    let id = loop {
+        match fixture.events.recv_timeout(Duration::from_millis(50)) {
+            Ok(snapshot) => {
+                if let Some(pending) = snapshot.pending.first() {
+                    break pending.id;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => panic!("the gate stopped sending snapshots"),
+        }
+        if hook.is_finished() {
+            // The snapshot holding the edit may still be on its way.
+            if let Some(pending) = fixture.service.snapshot().pending.first() {
+                break pending.id;
+            }
+            let output = join(hook);
+            panic!(
+                "the hook ended after {:?} without the gate holding its edit: {output:?}",
+                started.elapsed()
+            );
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no held edit and the hook still runs"
+        );
+    };
+    assert!(fixture.service.answer(id, answer));
+    join(hook)
 }
 
 fn patch(files: &[(&str, &str)]) -> String {
@@ -361,8 +389,7 @@ fn codex_hook_command_round_trips_through_the_shell() {
         let command_line = command_line.clone();
         std::thread::spawn(move || run(through_shell(&command_line, false), &gate, &input))
     };
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let output = answering.join().unwrap();
+    let output = answer_while(&fixture, Answer::Deny, answering);
     // Exit 0 with the JSON deny: the answer Codex 0.167.2 was measured to block on.
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -419,8 +446,7 @@ fn gemini_hook_command_round_trips_through_the_shell() {
         let gate = gate.clone();
         std::thread::spawn(move || run(through_shell(&command_line, true), &gate, &input))
     };
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let output = answering.join().unwrap();
+    let output = answer_while(&fixture, Answer::Deny, answering);
     // Exit 0 whichever build PowerShell starts; the JSON on stdout carries the deny.
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stdout: serde_json::Value =
@@ -460,8 +486,7 @@ fn copilot_hook_runs_the_helper_as_a_program() {
     })
     .to_string();
     let answering = std::thread::spawn(move || run(command, &gate, &input));
-    answer_next(&fixture, Answer::AllowOnce).join().unwrap();
-    let output = answering.join().unwrap();
+    let output = answer_while(&fixture, Answer::AllowOnce, answering);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     // Removed with the session's end.
@@ -499,8 +524,7 @@ fn droid_hook_command_round_trips_through_the_shell() {
     .to_string();
     let answering =
         std::thread::spawn(move || run(through_shell(&command_line, false), &gate, &input));
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let output = answering.join().unwrap();
+    let output = answer_while(&fixture, Answer::Deny, answering);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(stdout["hookSpecificOutput"]["permissionDecision"], "deny");
@@ -652,8 +676,7 @@ fn pi_extension_asks_the_endpoint_and_blocks_on_a_deny() {
             )
         })
     };
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let answer = plugin_answer(&answering.join().unwrap());
+    let answer = plugin_answer(&answer_while(&fixture, Answer::Deny, answering));
     assert_eq!(answer["result"]["block"], true);
     let reason = answer["result"]["reason"].as_str().unwrap();
     assert!(reason.contains("src/shared.rs"), "{reason}");
@@ -756,8 +779,7 @@ fn opencode_plugin_asks_the_endpoint_and_throws_on_a_deny() {
             )
         })
     };
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let answer = plugin_answer(&answering.join().unwrap());
+    let answer = plugin_answer(&answer_while(&fixture, Answer::Deny, answering));
     let thrown = answer["thrown"].as_str().unwrap();
     assert!(thrown.contains("src/shared.rs"), "{thrown}");
 }
@@ -826,8 +848,7 @@ fn claude_bash_hook_holds_a_risky_command_until_the_person_answers() {
         let token = token.clone();
         std::thread::spawn(move || post_hook(port, &token, &body))
     };
-    answer_next(&fixture, Answer::Deny).join().unwrap();
-    let (status, body) = held.join().unwrap();
+    let (status, body) = answer_while(&fixture, Answer::Deny, held);
     assert_eq!(status, 200);
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
@@ -904,8 +925,7 @@ fn pi_and_opencode_extensions_send_shell_commands_to_the_guard() {
                 )
             })
         };
-        answer_next(&fixture, Answer::Deny).join().unwrap();
-        let answer = plugin_answer(&held.join().unwrap());
+        let answer = plugin_answer(&answer_while(&fixture, Answer::Deny, held));
         let reason = if kind == "pi" {
             assert_eq!(answer["result"]["block"], true, "{answer}");
             answer["result"]["reason"].as_str().unwrap().to_owned()
@@ -1072,8 +1092,7 @@ fn extension_failures_block_shell_commands_and_unknown_command_tools_are_checked
                 &gate_held,
             )
         });
-        answer_next(&fixture, Answer::Deny).join().unwrap();
-        let answer = plugin_answer(&run.join().unwrap());
+        let answer = plugin_answer(&answer_while(&fixture, Answer::Deny, run));
         assert!(
             reason_of(&answer).contains("git-push-force"),
             "{kind} {answer}"
@@ -1133,8 +1152,7 @@ fn extension_shell_tools_carry_their_dialect_and_working_folder() {
         let dir = TempDir::new(&format!("gate-guard-dialect-{kind}"));
         let run =
             std::thread::spawn(move || run_plugin(&dir, &kind, &file, &tool, args, &root, &gate));
-        answer_next(&fixture, Answer::Deny).join().unwrap();
-        plugin_answer(&run.join().unwrap())
+        plugin_answer(&answer_while(&fixture, Answer::Deny, run))
     };
     // A quoted path ending in a backslash closes the string in PowerShell: the delete is seen.
     let answer = held(
