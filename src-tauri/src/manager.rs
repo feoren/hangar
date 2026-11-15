@@ -253,6 +253,10 @@ pub enum ManagerError {
     CliSessionId(#[from] cli_session::InvalidId),
     #[error("Session {0} has no sub-agents Hangar can show")]
     NoSubAgents(SessionId),
+    #[error("'{0}' is no valid sub-agent name")]
+    InvalidSubAgent(String),
+    #[error("{0} cannot start as a sub-agent")]
+    NoSubAgentStart(String),
     #[error("The update of {0} is already running")]
     UpdateRunning(String),
     #[error("The update of {0} changed since it was shown; check for updates again")]
@@ -429,6 +433,8 @@ struct Entry {
     size: TermSize,
     /// `HANGAR.md` when the session was started with it; restarts and fallbacks read it again.
     instructions: Option<PathBuf>,
+    /// The sub-agent definition the session runs as; restarts and fallbacks keep it.
+    sub_agent: Option<String>,
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
@@ -550,7 +556,11 @@ impl Shared {
                 entry.info.cwd.clone(),
                 entry.size,
                 entry.generation,
-                (plan, entry.info.mode, entry.instructions.clone()),
+                (
+                    plan,
+                    entry.info.mode,
+                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                ),
                 entry.info.sub_agents,
             )
         };
@@ -685,12 +695,12 @@ struct Launch<'a> {
 }
 
 impl<'a> Launch<'a> {
-    /// A restart or a fallback: `HANGAR.md` again, but no first prompt.
+    /// A restart or a fallback: `HANGAR.md` and the sub-agent again, but no first prompt.
     fn normal(
         args: &'a [String],
         kind: SessionKind,
         mode: SessionMode,
-        instructions: Option<PathBuf>,
+        (instructions, sub_agent): (Option<PathBuf>, Option<String>),
     ) -> Self {
         Self {
             args,
@@ -700,6 +710,7 @@ impl<'a> Launch<'a> {
             extras: StartExtras {
                 instructions,
                 prompt: None,
+                sub_agent,
             },
         }
     }
@@ -707,12 +718,15 @@ impl<'a> Launch<'a> {
 
 /// What the window asks a new agent session to get besides its program's arguments
 /// ([`crate::instructions`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StartRequest {
     /// `HANGAR.md` for the agent, where its program takes instructions.
     pub instructions: bool,
     /// A first prompt, where its program takes one; ignored when the session resumes.
     pub prompt: Option<StartPrompt>,
+    /// Start as this sub-agent definition (`agent_args`); only programs that take one, and only
+    /// a name [`crate::agent_defs::valid_name`] accepts.
+    pub sub_agent: Option<String>,
 }
 
 /// [`StartRequest`] resolved by the manager: the file's path and the prompt's text.
@@ -722,6 +736,8 @@ pub struct StartExtras {
     pub instructions: Option<PathBuf>,
     /// The first user message; only the first process of a fresh session gets it.
     pub prompt: Option<String>,
+    /// The sub-agent definition, every process of the session.
+    pub sub_agent: Option<String>,
 }
 
 /// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
@@ -745,14 +761,20 @@ pub fn extra_args(
         }),
         _ => Vec::new(),
     };
-    let after = match (&agent.prompting.prompt_args, &extras.prompt) {
+    // The name passed `valid_name` at the start, so it needs no launcher check; it goes right
+    // after the start arguments, before a positional first prompt.
+    let mut after = match (&agent.prompting.agent_args, &extras.sub_agent) {
+        (Some(spec), Some(name)) => instructions::agent_args(spec, name),
+        _ => Vec::new(),
+    };
+    after.extend(match (&agent.prompting.prompt_args, &extras.prompt) {
         (Some(spec), Some(prompt)) => {
             let args = instructions::prompt_args(spec, prompt);
             instructions::check_launcher(program, spec, args)
                 .unwrap_or_else(|skipped| leave_out("the first prompt", skipped))
         }
         _ => Vec::new(),
-    };
+    });
     (before, after)
 }
 
@@ -1170,9 +1192,18 @@ impl SessionManager {
                     .as_ref()
                     .map(|texts| texts.text(prompt).to_owned())
             }),
+            sub_agent: request.sub_agent,
         };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        if let Some(name) = &extras.sub_agent {
+            if !crate::agent_defs::valid_name(name) {
+                return Err(ManagerError::InvalidSubAgent(name.clone()));
+            }
+            if agent.prompting.agent_args.is_none() {
+                return Err(ManagerError::NoSubAgentStart(agent.profile.name.clone()));
+            }
+        }
         if mode == SessionMode::Team {
             let ready = self
                 .team_ready_for(std::slice::from_ref(&agent))
@@ -1324,6 +1355,7 @@ impl SessionManager {
             info.resumed = plan.resume;
             info.kind = kind;
             info.mode = mode;
+            info.sub_agent.clone_from(&extras.sub_agent);
             set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
             sessions.insert(
                 id,
@@ -1334,6 +1366,7 @@ impl SessionManager {
                     runtime: None,
                     size,
                     instructions: extras.instructions.clone(),
+                    sub_agent: extras.sub_agent.clone(),
                     kill_requested: false,
                 },
             );
@@ -1408,7 +1441,10 @@ impl SessionManager {
                 entry.info.cwd.clone(),
                 entry.generation,
                 kind,
-                (entry.info.mode, entry.instructions.clone()),
+                (
+                    entry.info.mode,
+                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                ),
                 plan,
             )
         };
@@ -2004,6 +2040,7 @@ mod tests {
         let extras = StartExtras {
             instructions: Some(file.clone()),
             prompt: Some("Check upstream.".into()),
+            sub_agent: None,
         };
         let both = prompted_agent(
             "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
@@ -2036,6 +2073,28 @@ mod tests {
         );
         std::fs::write(&file, "<!-- only the template -->\n").unwrap();
         assert_eq!(extra_args(&both, program, &extras).0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_sub_agent_goes_before_the_first_prompt() {
+        let program = Path::new("/bin/p");
+        let agent =
+            prompted_agent("prompt_args = ['{prompt}']\nagent_args = ['--agent', '{agent}']\n");
+        let extras = StartExtras {
+            instructions: None,
+            prompt: Some("Go.".into()),
+            sub_agent: Some("backend".into()),
+        };
+        assert_eq!(
+            extra_args(&agent, program, &extras),
+            (Vec::new(), strings(&["--agent", "backend", "Go."]))
+        );
+        // A program without agent_args never gets the option.
+        let plain = prompted_agent("prompt_args = ['{prompt}']\n");
+        assert_eq!(
+            extra_args(&plain, program, &extras),
+            (Vec::new(), strings(&["Go."]))
+        );
     }
 
     #[test]
@@ -2428,6 +2487,7 @@ mod tests {
                 runtime: None,
                 size: TermSize { cols: 80, rows: 24 },
                 instructions: None,
+                sub_agent: None,
                 kill_requested: false,
             },
         );

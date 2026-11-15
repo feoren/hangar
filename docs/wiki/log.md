@@ -1011,3 +1011,18 @@ wave's features move to 0.9.0 in the changelog. The bar no longer keeps a tracke
 terminal's one prompt line tracker feeds the handover's `SubmittedLines`, the timeline's
 `StepPrompt` and the bar, so deleting a selection in the prompt reaches all three alike.
 Pages changed: [[costs-and-handover]].
+
+## [2026-11-15] ingest | Sub-agent library and figures
+Read `claude --help` of Claude Code 2.1.325 (`--agent <agent>`) and searched the binary for a name
+rule (none for agents). Specified and built the sub-agent library: listing global and project
+definitions, adding from text, figures (bundled, own images, clipboard) and starting Claude Code as
+a definition; duplicates of one name in global and project folders are one row, project first.
+Pages changed: [[sub-agent-library]] (new), [[claude-agent-flag-measurement]] (new), index.
+
+## [2026-11-15] ingest | Sub-agent library after review
+Read the Claude Code 2.1.325 binary for agent frontmatter fields (hooks and MCP servers apply to
+the main-thread agent, untrusted folders skip them, a widening permissionMode is ignored). The
+figure became a session's look, the figure row gave way to a start menu, project definitions are
+marked and never wear a global figure, new files never overwrite and pick a free name, and the
+figure store reads with limits.
+Pages changed: [[sub-agent-library]], [[claude-agent-frontmatter-reading]] (new), index.

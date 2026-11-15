@@ -74,6 +74,9 @@ pub struct CatalogAgent {
     /// How the program takes a first prompt (see [`Prompting::prompt_args`]).
     #[serde(default)]
     pub prompt_args: Option<Vec<String>>,
+    /// How the program starts as one of its sub-agent definitions (see [`Prompting::agent_args`]).
+    #[serde(default)]
+    pub agent_args: Option<Vec<String>>,
     /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
     #[serde(default)]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
@@ -91,6 +94,10 @@ pub struct Prompting {
     /// Arguments appended to a fresh interactive start that make `{prompt}` its first user
     /// message. `None`: the program gets no first prompt.
     pub prompt_args: Option<Vec<String>>,
+    /// Arguments placed right after the start arguments that start the session as the sub-agent
+    /// definition `{agent}` (Claude Code `--agent <name>`, `agent_defs.rs`). `None`: the program
+    /// cannot start as one, and the window offers none.
+    pub agent_args: Option<Vec<String>>,
 }
 
 /// What Hangar's agent gate (team service step B, `gate.rs`) can do with a program. All false
@@ -420,6 +427,9 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         ) {
             return Err(invalid(problem));
         }
+        if let Err(problem) = crate::instructions::check_agent_args(agent.agent_args.as_deref()) {
+            return Err(invalid(problem));
+        }
     }
     Ok(file.agents)
 }
@@ -543,6 +553,7 @@ impl Agent {
             prompting: Prompting {
                 instruction_args: agent.instruction_args,
                 prompt_args: agent.prompt_args,
+                agent_args: agent.agent_args,
             },
         }
     }
@@ -601,6 +612,7 @@ impl Agent {
                 resolved.as_ref().map(|r| r.program.as_path()),
             ),
             agent_commands: self.profile.agent_commands.clone(),
+            takes_agent: self.prompting.agent_args.is_some(),
         }
     }
 }
@@ -647,6 +659,8 @@ pub struct ProfileView {
     pub instructions: crate::instructions::InstructionsReach,
     /// Commands the session menu offers for running sessions of the program, catalog first.
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
+    /// The program can start as a sub-agent definition ([`Prompting::agent_args`]).
+    pub takes_agent: bool,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -825,6 +839,7 @@ mod tests {
             capabilities: Capabilities::default(),
             instruction_args: None,
             prompt_args: None,
+            agent_args: None,
             agent_commands: Vec::new(),
         }
     }

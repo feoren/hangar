@@ -14,6 +14,7 @@ import type { PushEvent, PushInput } from "./phonePush";
 import type { ProtectedSettings, SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
+import type { FigureInput } from "./subAgentLibrary";
 import type { WorkspaceTemplate } from "./templates";
 import type { SessionState } from "./team";
 
@@ -68,6 +69,11 @@ export interface Profile {
    * session of the program, the catalog's first. Older backends send none.
    */
   agentCommands?: AgentCommand[];
+  /**
+   * The program can start as a Claude Code sub-agent definition (`agent_args` in the catalog,
+   * subAgentLibrary.ts). Older backends send none.
+   */
+  takesAgent?: boolean;
 }
 
 /** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */
@@ -144,6 +150,8 @@ export interface SessionInfo {
   gate?: GateStatus;
   /** Private or team session (ADR 0008); older backends send none. */
   mode?: SessionMode;
+  /** The sub-agent definition the session runs as (`--agent`); kept across restarts. */
+  subAgent?: string | null;
 }
 
 /**
@@ -208,6 +216,8 @@ export interface StartOptions {
   /** Hand the agent HANGAR.md. */
   instructions: boolean;
   startPrompt: StartPrompt | null;
+  /** Start as this sub-agent definition; only for profiles with `takesAgent`. */
+  subAgent?: string | null;
 }
 
 export const NO_START_OPTIONS: StartOptions = { instructions: false, startPrompt: null };
@@ -241,6 +251,7 @@ export const api = {
       mode,
       instructions: options.instructions,
       startPrompt: options.startPrompt,
+      subAgent: options.subAgent ?? null,
     }),
   /** Opens HANGAR.md in the default editor; the backend creates it from a template if missing. */
   openHangarMd: () => invoke<null>("open_hangar_md"),
@@ -313,6 +324,25 @@ export const api = {
   reloadProfiles: () => invoke<Profile[]>("reload_profiles"),
   /** Opens profiles.toml in the default editor, creating it from a template if needed. No path. */
   openProfileFile: () => invoke<null>("open_profile_file"),
+
+  // Sub-agent definitions and figures (contract: docs/wiki/pages/syntheses/sub-agent-library.md).
+  /** Global definitions and those of `folders`; check with `parseLibrary` (subAgentLibrary.ts). */
+  subAgentLibrary: (folders: readonly string[]) =>
+    invoke<unknown>("sub_agent_library", { folders }),
+  /** Saves a definition's text as a global one; rejects with a `DefError` (`parseDefError`). */
+  createSubAgent: (text: string, replace: boolean) =>
+    invoke<unknown>("create_sub_agent", { text, replace }),
+  deleteSubAgent: (name: string) => invoke<null>("delete_sub_agent", { name }),
+  /** Opens the definition's file in the editor; `folder` null: the global one. */
+  openSubAgent: (name: string, folder: string | null) =>
+    invoke<null>("open_sub_agent", { name, folder }),
+  /** Chosen figure per agent name; check with `parseFigures`. */
+  subAgentFigures: () => invoke<unknown>("sub_agent_figures"),
+  /** Answers with every figure, as `subAgentFigures`. */
+  setSubAgentFigure: (name: string, figure: FigureInput) =>
+    invoke<unknown>("set_sub_agent_figure", { name, figure }),
+  /** The clipboard's image as the figure; answers like `setSubAgentFigure`. */
+  pasteSubAgentFigure: (name: string) => invoke<unknown>("paste_sub_agent_figure", { name }),
   /**
    * State per profile ID (installed, latest version, update command). Asks npm, PyPI or GitHub
    * in the backend; `force` bypasses its disk cache, `redetect` asks the programs for their

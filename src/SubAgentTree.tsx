@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from "react";
 
+import { AgentFigure, useKnownFigure } from "./AgentFigure";
 import { useT } from "./i18n";
 import {
   activityText,
@@ -169,6 +170,8 @@ export function SubAgentItem({
   const tokensLabel = tokens === null ? null : t("subAgents.tokens", { tokens });
   const closable = agent.status === "finished";
   const closeLabel = t("subAgents.close");
+  // The figure of a known definition of that type (Settings > Sub-agents).
+  const figure = useKnownFigure(agent.agentType);
   const details = [
     name === title ? null : title,
     // A finished one's activity line repeats its status.
@@ -199,6 +202,9 @@ export function SubAgentItem({
         }}
       >
         <span className={`subagent-dot ${agent.status}`} aria-hidden="true" />
+        {figure !== null && (
+          <AgentFigure figure={figure} size={20} crop="head" busy={agent.status === "running"} />
+        )}
         <span className="subagent-node-main" aria-hidden="true">
           <span className="subagent-node-head">
             <span className="subagent-node-name">{name}</span>

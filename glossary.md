@@ -24,6 +24,11 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Aktivitätsprotokoll                             | activity log                      | console-like log of the focused sub-agent, `LogBatch`, never stored                  |
 | Fokus (Sub-Agent)                               | focus                             | the one sub-agent whose activity log is streamed, `focus_sub_agent`                  |
 | Schließen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay                        |
+| Sub-Agent-Definition                            | sub-agent definition              | Markdown file with a frontmatter in `.claude/agents`; `agent_defs.rs`                |
+| Sub-Agent-Bibliothek                            | sub-agent library                 | the listed definitions, Settings > Sub-agents; `subAgentLibrary.ts`                  |
+| Figur (Sub-Agent)                               | figure                            | picture of a definition: bundled, own image or initial; `agent_figures.rs`           |
+| Grundfigur                                      | built-in figure                   | bundled figure `src/assets/sub-agents/<id>.webp`, `tools/figures.py`                 |
+| Aussehen der Session (Figur)                    | session look                      | a sub-agent session's figure in place of the program badge; `SessionLook.tsx`        |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextLine.tsx`                 |
 | Kostenübersicht                                 | cost overview                     | tokens and estimated cost per session and day, `cost_service.rs`, `CostDialog.tsx`   |
 | Preistabelle                                    | price table                       | dollars per million tokens per model, `model_prices.toml`, user `model-prices.toml`  |

@@ -12,10 +12,12 @@ import type { Settings } from "./settings";
 export function startOptions(
   settings: Pick<Settings, "hangarMd" | "worktreeUpstreamCheck">,
   freshWorktree: boolean,
+  subAgent: string | null = null,
 ): StartOptions {
   return {
     instructions: settings.hangarMd,
     startPrompt: freshWorktree && settings.worktreeUpstreamCheck ? "worktree" : null,
+    ...(subAgent === null ? {} : { subAgent }),
   };
 }
 

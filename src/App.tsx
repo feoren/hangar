@@ -58,6 +58,11 @@ import { loadChangelog } from "./changelogData";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
+import { AgentFigure } from "./AgentFigure";
+import { SessionLook } from "./SessionLook";
+import { agentOrigin } from "./agentStartMenu";
+import { defFigure, defsFor, type AgentDef } from "./subAgentLibrary";
+import { setLibraryFolders, useSubAgentLibrary } from "./subAgentLibraryStore";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
 import {
@@ -2327,8 +2332,9 @@ export function App() {
    * takes a failure's text instead of the error notice (a template reports once at the end).
    * `prepared`: a worktree made before the start; the session runs there privately unless `mode`
    * is "team" and gets `onStarted` with its id. A `fresh` one (the arena's) is taken away again
-   * when the session does not run, a reused one (a handover) never. Resolves to the new
-   * session's id, `null` when it does not run.
+   * when the session does not run, a reused one (a handover) never. `subAgent`: Claude Code
+   * starts as that sub-agent definition (subAgentLibrary.ts) and the session is named after it.
+   * Resolves to the new session's id, `null` when it does not run.
    */
   const start = useCallback(
     async (
@@ -2338,6 +2344,7 @@ export function App() {
       title?: string,
       onError?: (text: string) => void,
       prepared?: PreparedWorktree,
+      subAgent: string | null = null,
     ): Promise<number | null> => {
       const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
@@ -2375,7 +2382,11 @@ export function App() {
           mode === "team" && worktree !== undefined ? "team" : "private",
           // A prepared worktree (a handover, the arena) is not fresh from the project: no
           // upstream check as the first prompt.
-          startOptions(settingsRef.current, worktree !== undefined && prepared === undefined),
+          startOptions(
+            settingsRef.current,
+            worktree !== undefined && prepared === undefined,
+            subAgent,
+          ),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -2387,8 +2398,10 @@ export function App() {
           ...claimedTitles.current.values(),
         ];
         // In an own worktree the branch tells sessions apart: "Claude Code · 1a2b3c".
+        // A sub-agent session is named after its agent: "backend".
+        const programTitle = subAgent ?? info.title;
         const named = numberedTitle(
-          title ?? (worktree ? worktreeTitle(info.title, worktree.branch) : info.title),
+          title ?? (worktree ? worktreeTitle(programTitle, worktree.branch) : programTitle),
           others,
         );
         claimedTitles.current.set(info.id, named);
@@ -2545,6 +2558,7 @@ export function App() {
           createdAt: Date.now(),
           // Kept, so the next save does not lose it and "Restart" resumes this conversation.
           cliSessionId: saved.cliSessionId,
+          subAgent: saved.subAgent,
           mode: sessionMode(
             saved,
             profilesRef.current.find((p) => p.id === saved.profileId),
@@ -2605,7 +2619,7 @@ export function App() {
           // Worktree sessions of older workspaces come back as team sessions where the program
           // can be one.
           sessionMode(saved, profile),
-          startOptions(settingsRef.current, false),
+          startOptions(settingsRef.current, false, saved.subAgent),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -2662,7 +2676,7 @@ export function App() {
               session,
               profilesRef.current.find((p) => p.id === session.profileId),
             ),
-            startOptions(settingsRef.current, false),
+            startOptions(settingsRef.current, false, session.subAgent ?? null),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -2832,6 +2846,7 @@ export function App() {
               emoji: session.marker?.emoji ?? null,
               worktree: session.worktree ?? null,
               cliSessionId: session.cliSessionId ?? null,
+              subAgent: session.subAgent ?? null,
             },
           ]
         : [];
@@ -4154,6 +4169,29 @@ export function App() {
     void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
 
+  // Sub-agent definitions (subAgentLibrary.ts): those of the start places and the sessions'
+  // folders, read again whenever that set of folders changes.
+  const agentLibrary = useSubAgentLibrary();
+  const libraryKey = [...places, ...state.sessions.map((session) => session.cwd)].join("\n");
+  useEffect(() => {
+    setLibraryFolders(libraryKey === "" ? [] : libraryKey.split("\n"));
+  }, [libraryKey]);
+  /** The definitions a start in the target folder can run as. */
+  const targetAgents = defsFor(agentLibrary.library, targetPath);
+  const subAgentIcon = (def: AgentDef) => (
+    <AgentFigure
+      figure={defFigure(def, agentLibrary.library, agentLibrary.figures)}
+      size={16}
+      crop="head"
+    />
+  );
+  /** Start Claude Code in the target as a sub-agent, in the mode the switch says. */
+  const startAgentHere = (profile: Profile, agent: string) => {
+    if (!prefsReady) return;
+    const mode = startModeFor(nextMode, profile) ?? "private";
+    void start(profile, undefined, mode, undefined, undefined, undefined, agent);
+  };
+
   // Agent arena (arena.ts, ArenaDialog.tsx, backend arena.rs).
 
   /** Installed agents that can take part: programs that are not a known shell. */
@@ -5361,6 +5399,9 @@ export function App() {
       changesOpen: changesShown,
       t,
       badge: (profileId) => <Badge look={badgeFor(profileId)} />,
+      sessionIcon: (session) => (
+        <SessionLook look={badgeFor(session.profileId)} session={session} />
+      ),
       notesIcon: <NotesIcon size={14} />,
       activate: (id) => {
         dispatch({ type: "activated", id });
@@ -5368,6 +5409,13 @@ export function App() {
       },
       start: (profile, folder) => void start(profile, folder),
       startAsTeam: (profile, folder) => void start(profile, folder, "team"),
+      subAgentStarts: {
+        defsFor: (folder) => defsFor(agentLibrary.library, folder),
+        icon: subAgentIcon,
+        origin: (def) => agentOrigin(def, agentLibrary.library, t),
+        start: (profile, folder, agent) =>
+          void start(profile, folder, "private", undefined, undefined, undefined, agent),
+      },
       templates,
       templateIcon: <TemplateIcon size={14} />,
       startTemplate: (id) => void startTemplate(id),
@@ -5448,7 +5496,14 @@ export function App() {
       return {
         id: session.id,
         title: [session.marker?.emoji, session.title].filter(Boolean).join(" "),
-        badge: <Badge look={badgeFor(session.profileId)} />,
+        badge: (
+          <SessionLook
+            look={badgeFor(session.profileId)}
+            session={session}
+            busy={tileState === "working"}
+            programName={profileById.get(session.profileId)?.name ?? session.profileId}
+          />
+        ),
         edge: edgeClass(rowEdge(session, tileState, chip)),
         status: statusText(session, t, tileState, reasons.get(session.id) ?? null),
       };
@@ -5540,6 +5595,8 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
+          agentStarts={targetAgents}
+          onStartAgent={startAgentHere}
           updatingPrograms={updatingPrograms}
           confirmUpdate={confirmUpdate}
           onRequestUpdate={updateActions.request}
@@ -6517,7 +6574,9 @@ export function App() {
             seed={searchAllSeed}
             badge={(sessionId) => {
               const session = state.sessions.find((s) => s.id === sessionId);
-              return session ? <Badge look={badgeFor(session.profileId)} /> : null;
+              return session ? (
+                <SessionLook look={badgeFor(session.profileId)} session={session} />
+              ) : null;
             }}
             onClose={closeDialog}
             onReveal={revealMatch}
@@ -6625,7 +6684,7 @@ export function App() {
         </div>
         {draggedSession && (
           <div ref={attachDragGhost} className="drag-ghost" aria-hidden="true">
-            <Badge look={badgeFor(draggedSession.profileId)} />
+            <SessionLook look={badgeFor(draggedSession.profileId)} session={draggedSession} />
             <span className="drag-ghost-title">{draggedSession.title}</span>
           </div>
         )}

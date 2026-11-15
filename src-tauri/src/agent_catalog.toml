@@ -77,6 +77,10 @@
 #                    user message of an interactive session (never one that runs the prompt and
 #                    exits, as Aider's --message). Used for the [start_prompts] below.
 #                    A user profile with the same id and program inherits both.
+#   agent_args       Optional. Arguments placed right after the start arguments that start the
+#                    session as the sub-agent definition {agent} (a checked name, see
+#                    src-tauri/src/agent_defs.rs). Only programs that read the definitions in
+#                    ~/.claude/agents and <project>/.claude/agents. Inherited like prompt_args.
 #   latest          Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
@@ -142,6 +146,9 @@ capabilities = { pre_edit_block = true, context_inject = true, per_session_confi
 # input error, not "unknown option"). No file form is listed as an option.
 instruction_args = ["--append-system-prompt={text}"]
 prompt_args = ["{prompt}"]
+# `claude --help` 2.1.325: `--agent <agent>  Agent for the current session. Overrides the 'agent'
+# setting.` (docs/wiki/pages/sources/claude-agent-flag-measurement.md).
+agent_args = ["--agent", "{agent}"]
 # Command table of the 2.1.325 binary (/usage has the aliases cost and stats):
 # docs/wiki/pages/sources/agent-commands-measurement.md.
 agent_commands = [

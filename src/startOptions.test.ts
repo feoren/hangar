@@ -33,4 +33,13 @@ describe("startOptions", () => {
       startPrompt: "worktree",
     });
   });
+
+  it("names the sub-agent only when one is asked for", () => {
+    expect(startOptions(on, false, "backend")).toEqual({
+      instructions: true,
+      startPrompt: null,
+      subAgent: "backend",
+    });
+    expect(startOptions(on, false, null)).not.toHaveProperty("subAgent");
+  });
 });

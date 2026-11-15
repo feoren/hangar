@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-sub-agent"
+description = "Enables the create_sub_agent command without any pre-configured scope."
+commands.allow = ["create_sub_agent"]
+
+[[permission]]
+identifier = "deny-create-sub-agent"
+description = "Denies the create_sub_agent command without any pre-configured scope."
+commands.deny = ["create_sub_agent"]

@@ -1,12 +1,12 @@
 import { useState } from "react";
 
-import { Badge } from "./Badge";
 import { canBroadcast } from "./broadcast";
 import { Dialog } from "./Dialog";
 import { shortPath } from "./format";
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
 import type { BadgeLook } from "./programPrefs";
+import { SessionLook } from "./SessionLook";
 import { SessionMarker } from "./SessionMarker";
 import type { SessionView } from "./sessions";
 import { snippetLabel, type Snippet } from "./snippets";
@@ -147,7 +147,7 @@ export function BroadcastDialog({
                       });
                     }}
                   />
-                  <Badge look={badgeFor(session.profileId)} />
+                  <SessionLook look={badgeFor(session.profileId)} session={session} />
                   <SessionMarker marker={session.marker} />
                   <span className="broadcast-title">{session.title}</span>
                   <span className="broadcast-path">{shortPath(session.cwd)}</span>

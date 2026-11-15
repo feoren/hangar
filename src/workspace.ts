@@ -4,6 +4,7 @@
 
 import type { SessionKind, Worktree } from "./api";
 import { normalizeMarkerColor, storedEmoji } from "./marker";
+import { validAgentName } from "./subAgentLibrary";
 import { parseWorktree } from "./worktree";
 
 export const WORKSPACE_VERSION = 1;
@@ -32,6 +33,8 @@ export interface SavedSession {
    * files and programs without one.
    */
   cliSessionId: string | null;
+  /** The sub-agent definition the session runs as, started as that one again; else `null`. */
+  subAgent: string | null;
 }
 
 export interface Workspace {
@@ -67,6 +70,7 @@ export interface SessionEntry {
   emoji?: string | null | undefined;
   worktree?: Worktree | null | undefined;
   cliSessionId?: string | null | undefined;
+  subAgent?: string | null | undefined;
 }
 
 /** A conversation id as the backend accepts it: a UUID, stored in lower case; else `null`. */
@@ -116,6 +120,7 @@ export function buildWorkspace(
       emoji: storedEmoji(entry.emoji),
       worktree: parseWorktree(entry.worktree ?? null),
       cliSessionId,
+      subAgent: validAgentName(entry.subAgent) ? entry.subAgent : null,
     });
   }
   const active = activeKey?.toLowerCase() ?? null;
@@ -144,6 +149,8 @@ function savedSession(value: unknown): SavedSession | null {
   const worktree = parseWorktree(field("worktree"));
   // Missing before 0.3.0; an invalid id only costs the exact resume, not the session.
   const cliSessionId = normalizeCliSessionId(field("cliSessionId"));
+  // Missing before 0.9.0; an invalid name only costs the agent, not the session.
+  const subAgent = field("subAgent");
   return {
     key: key.toLowerCase(),
     profileId,
@@ -154,6 +161,7 @@ function savedSession(value: unknown): SavedSession | null {
     emoji,
     worktree,
     cliSessionId,
+    subAgent: validAgentName(subAgent) ? subAgent : null,
   };
 }
 

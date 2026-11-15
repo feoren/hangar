@@ -11,6 +11,7 @@ import { folderName } from "./folders";
 import { teamCapable } from "./startMode";
 import { shortPath } from "./format";
 import type { CommitSummary } from "./gitHistory";
+import type { AgentDef } from "./subAgentLibrary";
 import type { Translate } from "./i18n";
 import type { LauncherItem } from "./LauncherDialog";
 import type { NoteFolderInfo } from "./notes";
@@ -118,11 +119,24 @@ export interface LauncherContext {
   changesOpen: boolean;
   t: Translate;
   badge: (profileId: string) => ReactNode;
+  /** A session's look (SessionLook.tsx: a sub-agent session wears its figure); missing: `badge`. */
+  sessionIcon?: (session: SessionView) => ReactNode;
   notesIcon: ReactNode;
   activate: (id: number) => void;
   start: (profile: Profile, folder: string) => void;
   /** A team session (startMode.ts): its own worktree, the agent gate, visible to the team. */
   startAsTeam: (profile: Profile, folder: string) => void;
+  /**
+   * Starting Claude Code as a sub-agent definition (subAgentLibrary.ts): the definitions a session
+   * in `folder` can run as, each with its figure. Missing: no such entries.
+   */
+  subAgentStarts?: {
+    defsFor: (folder: string) => readonly AgentDef[];
+    icon: (def: AgentDef) => ReactNode;
+    /** A project definition's origin in words, `null` for a global one. */
+    origin: (def: AgentDef) => string | null;
+    start: (profile: Profile, folder: string, agent: string) => void;
+  };
   /** Workspace templates: each starts its whole set of sessions. */
   templates: readonly WorkspaceTemplate[];
   templateIcon: ReactNode;
@@ -173,7 +187,7 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       detail: shortPath(session.cwd),
       keywords: [ctx.programName(session.profileId) ?? "", session.cwd].join(" "),
       primary: true,
-      icon: ctx.badge(session.profileId),
+      icon: ctx.sessionIcon?.(session) ?? ctx.badge(session.profileId),
       run: () => {
         ctx.activate(session.id);
       },
@@ -211,6 +225,35 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
           ctx.start(profile, place.path);
         },
       });
+    }
+  }
+  // Sub-agent starts: found by searching for the agent, its description or the folder.
+  const agentStarts = ctx.subAgentStarts;
+  if (agentStarts !== undefined) {
+    for (const place of ctx.places) {
+      for (const profile of ctx.startable) {
+        if (profile.takesAgent !== true) continue;
+        for (const def of agentStarts.defsFor(place.path)) {
+          // A project's own definition says so: it may override the global one.
+          const origin = agentStarts.origin(def);
+          items.push({
+            key: `agent:${profile.id}:${def.name}:${place.path}`,
+            section: "start",
+            label: t("subAgentLib.startAsIn", {
+              program: profile.name,
+              agent: def.name,
+              folder: folderName(place.path),
+            }),
+            detail:
+              origin === null ? shortPath(place.path) : `${origin} · ${shortPath(place.path)}`,
+            keywords: `${place.path} sub-agent subagent ${def.description.slice(0, 200)}`,
+            icon: agentStarts.icon(def),
+            run: () => {
+              agentStarts.start(profile, place.path, def.name);
+            },
+          });
+        }
+      }
     }
   }
   // Team sessions only where git allows a worktree and only for programs that can be one.

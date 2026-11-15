@@ -2035,6 +2035,7 @@ commands = [{command:?}]
 args = {args:?}
 resume_args = {resume:?}
 prompt_args = [\"{{prompt}}\"]
+agent_args = [\"--agent\", \"{{agent}}\"]
 "
     );
     agent_catalog::parse(&toml).unwrap().remove(0)
@@ -2070,12 +2071,12 @@ fn only_a_fresh_worktree_start_gets_the_first_prompt() {
         std::env::temp_dir(),
     );
     let worktree = StartRequest {
-        instructions: false,
         prompt: Some(StartPrompt::Worktree),
+        ..StartRequest::default()
     };
     let marker = "Run git fetch";
 
-    let (info, rx) = start_requested(&manager, "prompted", false, worktree);
+    let (info, rx) = start_requested(&manager, "prompted", false, worktree.clone());
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
     assert!(output.contains(marker), "{output:?}");
 
@@ -2098,4 +2099,76 @@ fn only_a_fresh_worktree_start_gets_the_first_prompt() {
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
     assert!(output.contains("RESUMED"), "{output:?}");
     assert!(!output.contains(marker), "{output:?}");
+}
+
+// --- Starting as a sub-agent definition (agent_defs.rs, `agent_args`) ---
+
+#[test]
+fn a_sub_agent_session_keeps_its_agent_across_a_restart() {
+    let manager = SessionManager::new(
+        Vec::new(),
+        vec![prompt_probe("prompted")],
+        std::env::temp_dir(),
+    );
+    let request = StartRequest {
+        sub_agent: Some("backend".into()),
+        ..StartRequest::default()
+    };
+    let (info, rx) = start_requested(&manager, "prompted", false, request);
+    assert_eq!(info.sub_agent.as_deref(), Some("backend"));
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--agent backend"), "{output:?}");
+
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(restarted.sub_agent.as_deref(), Some("backend"));
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--agent backend"), "{output:?}");
+
+    // Only a checked name, and only for programs that take one.
+    let refuse = |profile: &str, name: &str| {
+        manager.create_requested(
+            profile,
+            None,
+            SIZE,
+            false,
+            None,
+            SessionMode::Private,
+            StartRequest {
+                sub_agent: Some(name.to_owned()),
+                ..StartRequest::default()
+            },
+            |_| {},
+        )
+    };
+    assert!(matches!(
+        refuse("prompted", "a & b"),
+        Err(ManagerError::InvalidSubAgent(_))
+    ));
+    let plain = SessionManager::new(
+        vec![profile(
+            "plain",
+            if cfg!(windows) { "cmd" } else { "sh" },
+            &[],
+        )],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let refused = plain.create_requested(
+        "plain",
+        None,
+        SIZE,
+        false,
+        None,
+        SessionMode::Private,
+        StartRequest {
+            sub_agent: Some("backend".into()),
+            ..StartRequest::default()
+        },
+        |_| {},
+    );
+    assert!(matches!(refused, Err(ManagerError::NoSubAgentStart(_))));
 }

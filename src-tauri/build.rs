@@ -169,6 +169,13 @@ const COMMANDS: &[&str] = &[
     "dictation_take_text",
     "dictation_install_model",
     "dictation_remove_model",
+    "sub_agent_library",
+    "create_sub_agent",
+    "delete_sub_agent",
+    "open_sub_agent",
+    "sub_agent_figures",
+    "set_sub_agent_figure",
+    "paste_sub_agent_figure",
 ];
 
 fn main() {

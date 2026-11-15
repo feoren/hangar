@@ -48,6 +48,7 @@ describe("buildWorkspace", () => {
           emoji: null,
           worktree: null,
           cliSessionId: null,
+          subAgent: null,
         },
         {
           ...entry(A, "a"),
@@ -56,6 +57,7 @@ describe("buildWorkspace", () => {
           emoji: null,
           worktree: null,
           cliSessionId: null,
+          subAgent: null,
         },
       ],
       activeKey: A,
@@ -83,12 +85,35 @@ describe("buildWorkspace", () => {
       "key",
       "order",
       "profileId",
+      "subAgent",
       "title",
       "worktree",
     ]);
     expect(restorable({ kind: "update" })).toBe(false);
     expect(restorable({ kind: "agent" })).toBe(true);
     expect(restorable({})).toBe(true);
+  });
+
+  it("keeps a valid sub-agent name and drops any other", () => {
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), subAgent: "backend" },
+        { ...entry(B), subAgent: "Big Name" },
+        { ...entry(C), subAgent: null },
+      ],
+      null,
+    );
+    expect(workspace.sessions.map((s) => s.subAgent)).toEqual(["backend", null, null]);
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, subAgent: "tester" },
+        { ...entry(B), order: 1, subAgent: "a & b" },
+        { ...entry(C), order: 2 },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => s.subAgent)).toEqual(["tester", null, null]);
   });
 
   it("leaves out invalid and duplicate entries instead of dropping everything", () => {

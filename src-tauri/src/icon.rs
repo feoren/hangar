@@ -105,6 +105,41 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Standard Base64 (RFC 4648) back to bytes. Whitespace is skipped and the text ends at the
+/// first `=`; any other character outside the alphabet, or more than `max_symbols` symbols,
+/// gives `None` before anything large is allocated.
+pub fn base64_decode(text: &str, max_symbols: usize) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => u32::from(c - b'A'),
+            b'a'..=b'z' => u32::from(c - b'a') + 26,
+            b'0'..=b'9' => u32::from(c - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        })
+    };
+    let symbols = text
+        .bytes()
+        .filter(|b| !b.is_ascii_whitespace())
+        .take_while(|b| *b != b'=');
+    let mut out = Vec::with_capacity(text.len().min(max_symbols) * 3 / 4);
+    let mut buffer = 0u32;
+    let mut bits = 0;
+    for (count, symbol) in symbols.enumerate() {
+        if count >= max_symbols {
+            return None;
+        }
+        buffer = (buffer << 6) | value(symbol)?;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((buffer >> bits) & 0xff).ok()?);
+        }
+    }
+    Some(out)
+}
+
 #[cfg(windows)]
 mod windows {
     use std::ffi::c_void;
@@ -280,6 +315,22 @@ mod tests {
             assert_eq!(base64(input.as_bytes()), expected, "{input:?}");
         }
         assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
+        for input in ["", "f", "fo", "foo", "foob", "fooba", "foobar"] {
+            assert_eq!(
+                base64_decode(&base64(input.as_bytes()), 64).as_deref(),
+                Some(input.as_bytes())
+            );
+        }
+        assert_eq!(
+            base64_decode("Zm9v\r\nYmFy", 64).as_deref(),
+            Some(&b"foobar"[..])
+        );
+        assert_eq!(base64_decode("Zm9v!", 64), None);
+        assert_eq!(base64_decode("Zm9vYmFy", 7), None);
+        assert_eq!(
+            base64_decode("Zm9vYmFy", 8).as_deref(),
+            Some(&b"foobar"[..])
+        );
     }
 
     #[test]

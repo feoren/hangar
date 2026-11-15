@@ -44,6 +44,9 @@ const INSTRUCTION_PLACEHOLDERS: [&str; 3] = [TEXT, TOML_TEXT, FILE];
 /// Placeholder in `prompt_args`.
 pub const PROMPT: &str = "{prompt}";
 
+/// Placeholder in `agent_args`.
+pub const AGENT: &str = "{agent}";
+
 /// Most UTF-16 units a whole command line may take: Windows' 32 767 including the terminating
 /// zero. Checked on the fully quoted line with every argument of the start (gate options
 /// included); when the instructions would push it over, they are left out with a logged warning,
@@ -202,6 +205,25 @@ pub fn instruction_args(spec: &[String], instructions: &Instructions) -> Vec<Str
     spec.iter().map(|arg| fill(arg, &values)).collect()
 }
 
+/// `agent_args` must name [`AGENT`] exactly once. Checked when the catalog is read.
+pub fn check_agent_args(agent_args: Option<&[String]>) -> Result<(), &'static str> {
+    let count = |args: &[String]| {
+        args.iter()
+            .map(|arg| arg.matches(AGENT).count())
+            .sum::<usize>()
+    };
+    if agent_args.is_some_and(|args| count(args) != 1) {
+        return Err("agent_args needs {agent} exactly once");
+    }
+    Ok(())
+}
+
+/// `spec` with the sub-agent's name filled in; the name was checked with
+/// [`crate::agent_defs::valid_name`], so it passes a cmd.exe launcher as it is.
+pub fn agent_args(spec: &[String], name: &str) -> Vec<String> {
+    spec.iter().map(|arg| fill(arg, &[(AGENT, name)])).collect()
+}
+
 /// `spec` with the first prompt filled in.
 pub fn prompt_args(spec: &[String], prompt: &str) -> Vec<String> {
     spec.iter()
@@ -338,6 +360,23 @@ mod tests {
             text: text.to_owned(),
             path: PathBuf::from("/config/HANGAR.md"),
         }
+    }
+
+    #[test]
+    fn agent_args_name_the_agent_once() {
+        let spec = strings(&["--agent", "{agent}"]);
+        assert_eq!(check_agent_args(Some(&spec)), Ok(()));
+        assert_eq!(check_agent_args(None), Ok(()));
+        assert!(check_agent_args(Some(&strings(&["--agent"]))).is_err());
+        assert!(check_agent_args(Some(&strings(&["{agent}", "{agent}"]))).is_err());
+        assert_eq!(
+            agent_args(&spec, "backend"),
+            strings(&["--agent", "backend"])
+        );
+        assert_eq!(
+            agent_args(&strings(&["--agent={agent}"]), "code-reviewer"),
+            strings(&["--agent=code-reviewer"])
+        );
     }
 
     #[test]

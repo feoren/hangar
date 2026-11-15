@@ -1266,6 +1266,7 @@ mod tests {
             capabilities: Default::default(),
             instruction_args: None,
             prompt_args: None,
+            agent_args: None,
             agent_commands: Vec::new(),
         });
         agent

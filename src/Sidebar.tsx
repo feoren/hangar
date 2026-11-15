@@ -3,11 +3,15 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
+import { agentStartItems } from "./agentStartMenu";
 import { Badge } from "./Badge";
 import { costNote } from "./costs";
 import { FolderMenu } from "./FolderMenu";
 import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
+import type { AgentDef } from "./subAgentLibrary";
+import { useSubAgentLibrary } from "./subAgentLibraryStore";
+import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
@@ -191,6 +195,13 @@ interface Props {
   onActivate: (id: number) => void;
   /** Starts a program in the target, as the switch says (private or team session). */
   onStart: (profile: Profile) => void;
+  /**
+   * Sub-agent definitions a start in the target can run as (subAgentLibrary.ts `defsFor`),
+   * offered in a menu beside each program that takes one (Claude Code). Missing: none.
+   */
+  agentStarts?: readonly AgentDef[];
+  /** Starts the program in the target as that sub-agent. */
+  onStartAgent?: (profile: Profile, agent: string) => void;
   /** Profile IDs whose update session runs right now. */
   updatingPrograms: ReadonlySet<string>;
   /** Program whose update waits for "Update anyway" (it is running), otherwise `null`. */
@@ -303,6 +314,14 @@ export function Sidebar(props: Props) {
   const newButton = useRef<HTMLButtonElement>(null);
   /** Program picker of the collapsed bar, open at this position. */
   const [programMenu, setProgramMenu] = useState<{ x: number; y: number } | null>(null);
+  /** The open "start as sub-agent" menu: its program and where it opens. */
+  const [agentMenu, setAgentMenu] = useState<{
+    profile: Profile;
+    x: number;
+    y: number;
+  } | null>(null);
+  const agentMenuButton = useRef<HTMLButtonElement | null>(null);
+  const agentLibrary = useSubAgentLibrary();
   const cwdButton = useRef<HTMLButtonElement>(null);
   /** "Starts in" menu, open at this position (below the button, or above it if space is short). */
   const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(
@@ -572,7 +591,13 @@ export function Sidebar(props: Props) {
           program: programLine(profileById.get(peekSession.profileId), versions),
           cwd: peekSession.cwd,
         })}
-        badge={<Badge look={badgeFor(peekSession.profileId)} />}
+        badge={
+          <SessionLook
+            look={badgeFor(peekSession.profileId)}
+            session={peekSession}
+            programName={profileById.get(peekSession.profileId)?.name ?? peekSession.profileId}
+          />
+        }
         edge={edgeClass(
           rowEdge(peekSession, attention.get(peekSession.id) ?? "idle", chipOf(peekSession)),
         )}
@@ -763,7 +788,11 @@ export function Sidebar(props: Props) {
                       openSessionMenu(event, session.id, props.onSessionMenu);
                     }}
                   >
-                    <Badge look={badgeFor(session.profileId)} />
+                    <SessionLook
+                      look={badgeFor(session.profileId)}
+                      session={session}
+                      busy={attention.get(session.id) === "working"}
+                    />
                     {session.marker?.color != null && (
                       <span
                         className="rail-marker"
@@ -1195,6 +1224,29 @@ export function Sidebar(props: Props) {
                     )}
                     <PlusIcon />
                   </button>
+                  {profile.takesAgent === true &&
+                    props.onStartAgent !== undefined &&
+                    (props.agentStarts ?? []).length > 0 && (
+                      <button
+                        type="button"
+                        className="profile-agents"
+                        aria-haspopup="menu"
+                        aria-expanded={agentMenu?.profile.id === profile.id}
+                        aria-label={t("subAgentLib.startHeading", { program: profile.name })}
+                        title={t("subAgentLib.startHeading", { program: profile.name })}
+                        onClick={(event) => {
+                          if (agentMenu !== null) {
+                            setAgentMenu(null);
+                            return;
+                          }
+                          agentMenuButton.current = event.currentTarget;
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setAgentMenu({ profile, x: rect.left, y: rect.bottom + 4 });
+                        }}
+                      >
+                        <ChevronIcon size={12} />
+                      </button>
+                    )}
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"
@@ -1215,6 +1267,26 @@ export function Sidebar(props: Props) {
               );
             })}
         </ul>
+        {agentMenu !== null && props.onStartAgent !== undefined && (
+          <PopupMenu
+            items={agentStartItems(
+              agentMenu.profile,
+              props.agentStarts ?? [],
+              agentLibrary.library,
+              agentLibrary.figures,
+              t,
+              props.onStartAgent,
+            )}
+            label={t("subAgentLib.startHeading", { program: agentMenu.profile.name })}
+            position={{ x: agentMenu.x, y: agentMenu.y }}
+            anchor={agentMenuButton}
+            onClose={(reason) => {
+              setAgentMenu(null);
+              if (reason === "dismiss") agentMenuButton.current?.focus();
+              else props.onMenuClose();
+            }}
+          />
+        )}
         {mode === "team" && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 
@@ -1624,6 +1696,8 @@ function SessionItem({
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
   const queued = queuedMessages.has(session.id);
+  const programName =
+    profiles.find((profile) => profile.id === session.profileId)?.name ?? session.profileId;
   // Only while the setting is on and the window visible; the third line shows the numbers, the
   // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
@@ -1705,6 +1779,9 @@ function SessionItem({
             name={name}
             badge={badge}
             program={badgeFor(session.profileId)}
+            session={session}
+            busy={state === "working"}
+            programName={programName}
             marker={session.marker}
             line={line}
             waiting={waiting}

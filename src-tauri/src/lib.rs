@@ -5,6 +5,8 @@ pub mod account_api;
 pub mod account_service;
 pub mod agent_catalog;
 pub mod agent_commands;
+pub mod agent_defs;
+pub mod agent_figures;
 pub mod arena;
 pub mod avatar;
 pub mod batch;
@@ -120,6 +122,7 @@ pub fn run() -> tauri::Result<()> {
             let profile_path = config_dir.join(profile::FILE_NAME);
             // The command guard's rules sit next to the profiles: the user edits both.
             let guard_file = config_dir.join(command_guard::FILE_NAME);
+            let config_dir_for_figures = config_dir.clone();
             let (profiles, error) = match profile::load_or_init(&config_dir) {
                 Ok(profiles) => (profiles, None),
                 Err(error) => (
@@ -228,6 +231,12 @@ pub fn run() -> tauri::Result<()> {
                     app.handle().clone(),
                 )));
             app.manage(file_tree::FileTree::default());
+            // Figures of the sub-agent definitions: the choice next to the profiles, own images in
+            // the app's data folder (never in the user's .claude folder).
+            app.manage(std::sync::Arc::new(agent_figures::FigureStore::new(
+                &config_dir_for_figures,
+                &app.path().app_data_dir()?,
+            )));
             app.manage(git_snapshots::Snapshots::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
@@ -615,6 +624,13 @@ pub fn run() -> tauri::Result<()> {
             commands::dictation_take_text,
             commands::dictation_install_model,
             commands::dictation_remove_model,
+            commands::sub_agent_library,
+            commands::create_sub_agent,
+            commands::delete_sub_agent,
+            commands::open_sub_agent,
+            commands::sub_agent_figures,
+            commands::set_sub_agent_figure,
+            commands::paste_sub_agent_figure,
         ])
         .build(tauri::generate_context!())?;
 

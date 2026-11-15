@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import type { AttentionState } from "./attention";
-import { Badge } from "./Badge";
+import { SessionLook } from "./SessionLook";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
@@ -160,7 +160,7 @@ export function TerminalPane(props: Props) {
             props.onHeaderMenu(sessionId, event.clientX, event.clientY);
           }}
         >
-          <Badge look={split.look} />
+          <SessionLook look={split.look} session={split.session} busy={split.state === "working"} />
           <SessionMarker marker={split.session.marker} />
           <span className="pane-title">{split.session.title}</span>
           <span

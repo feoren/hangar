@@ -242,7 +242,8 @@ fn make_opaque_if_blank(rgba: &mut [u8]) {
     }
 }
 
-fn encode(image: &RgbaImage) -> Result<Vec<u8>, PasteImageError> {
+/// `image` as PNG bytes (also the agent figures' clipboard paste, `agent_figures.rs`).
+pub(crate) fn encode(image: &RgbaImage) -> Result<Vec<u8>, PasteImageError> {
     let too_large = || PasteImageError::TooLarge {
         width: image.width,
         height: image.height,

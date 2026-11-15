@@ -100,6 +100,20 @@
         "ru": "Щелчок в поле ввода агента больше не принимает серую подсказку. Выделенный текст в поле ввода удаляй клавишей Backspace или Delete.",
         "tr": "Bir ajanın giriş satırına tıklamak artık gri öneriyi kabul etmez. Girişte seçtiğin metni Backspace veya Delete ile sil.",
         "zh": "点击智能体的输入框不再会采纳灰色建议。在输入框中选中的文字可以用 Backspace 或 Delete 删除。"
+      },
+      {
+        "de": "Sub-Agenten mit Figur: Lege eigene Claude-Code-Agenten an und starte Claude Code über den Pfeil daneben als einer von ihnen. Die Session trägt seine Figur.",
+        "en": "Sub-agents with figures: add your own Claude Code agents and start Claude Code as one of them from the arrow beside it. The session wears its figure.",
+        "el": "Υπο-agents με φιγούρα: πρόσθεσε δικούς σου agents και ξεκίνα το Claude Code ως έναν από αυτούς από το βέλος δίπλα του. Η συνεδρία φορά τη φιγούρα του.",
+        "es": "Subagentes con figura: crea tus agentes de Claude Code e inicia Claude Code como uno de ellos desde la flecha junto a él. La sesión lleva su figura.",
+        "fr": "Sous-agents avec figure : crée tes agents Claude Code et lance Claude Code comme l’un d’eux via la flèche à côté. La session porte sa figure.",
+        "it": "Sub-agenti con figura: crea i tuoi agenti di Claude Code e avvia Claude Code come uno di loro dalla freccia accanto. La sessione mostra la sua figura.",
+        "ja": "フィギュア付きサブエージェント: 独自の Claude Code エージェントを作成し、横の矢印からそのエージェントとして起動できます。セッションにフィギュアが表示されます。",
+        "pl": "Subagenci z postacią: dodaj własnych agentów Claude Code i uruchom Claude Code jako jednego z nich strzałką obok. Sesja nosi jego postać.",
+        "pt": "Subagentes com figura: crie seus agentes do Claude Code e inicie o Claude Code como um deles pela seta ao lado. A sessão mostra a figura dele.",
+        "ru": "Субагенты с фигуркой: создавай своих агентов Claude Code и запускай Claude Code как одного из них стрелкой рядом. Сессия носит его фигурку.",
+        "tr": "Figürlü alt agent’lar: kendi Claude Code agent’larını ekle, yanındaki oktan Claude Code’u onlardan biri olarak başlat. Oturum onun figürünü taşır.",
+        "zh": "带形象的子代理：添加自己的 Claude Code 代理，并通过旁边的箭头以其身份启动 Claude Code。会话会显示它的形象。"
       }
     ]
   },

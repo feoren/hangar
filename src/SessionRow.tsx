@@ -19,6 +19,7 @@ import { Revealed } from "./Revealed";
 import type { PlannedLine, RowElement, RowPlan } from "./rowLayout";
 import type { ChipKind } from "./sessionChip";
 import { SessionLoad } from "./SessionLoad";
+import { SessionLook } from "./SessionLook";
 import { SessionMarker } from "./SessionMarker";
 import type { StatusLine } from "./statusLine";
 import { StatusChip } from "./StatusChip";
@@ -49,6 +50,32 @@ export interface RowBodyProps {
   runtime: string | null;
   context: SessionContext | undefined;
   language: string;
+  /**
+   * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
+   * takes the badge's place in every form, also in a program group. Missing: the badge.
+   */
+  session?: { subAgent?: string | null; cwd: string };
+  /** The program's name for the figure's tooltip. */
+  programName?: string;
+  /** The session works right now: its figure moves a little more. */
+  busy?: boolean;
+}
+
+function hasFigure(props: RowBodyProps): boolean {
+  return (props.session?.subAgent ?? null) !== null;
+}
+
+/** The badge, or a sub-agent session's figure with the badge on its corner. */
+function Look({ look, ...props }: { look: BadgeLook } & RowBodyProps) {
+  if (props.session === undefined) return <Badge look={look} />;
+  return (
+    <SessionLook
+      look={look}
+      session={props.session}
+      busy={props.busy === true}
+      {...(props.programName === undefined ? {} : { programName: props.programName })}
+    />
+  );
 }
 
 /** Whether an element has anything to show in this row; a line with none of them is left out. */
@@ -59,8 +86,9 @@ function present(element: RowElement, props: RowBodyProps): boolean {
     case "state":
       return true;
     case "program":
-      // The small icon only where the group header does not name the program.
-      return plan.layout.forms.program === "avatar" || props.badge !== null;
+      // The small icon only where the group header does not name the program; a sub-agent's
+      // figure always, since the header names the program, not the agent.
+      return plan.layout.forms.program === "avatar" || props.badge !== null || hasFigure(props);
     case "signs":
       return props.signs !== null && props.signs !== false && props.signs !== undefined;
     case "folder":
@@ -110,15 +138,19 @@ function Spanning({
 }: { kind: "avatar" | "ring"; end: boolean } & RowBodyProps) {
   return (
     <span className={end ? "row-span row-trail" : "row-span row-lead"}>
-      {kind === "ring" ? <ContextRing context={props.context} /> : <Avatar look={props.program} />}
+      {kind === "ring" ? (
+        <ContextRing context={props.context} />
+      ) : (
+        <Avatar {...props} look={props.program} />
+      )}
     </span>
   );
 }
 
-function Avatar({ look }: { look: BadgeLook }) {
+function Avatar({ look, ...props }: { look: BadgeLook } & RowBodyProps) {
   return (
     <span className="session-avatar" aria-hidden="true">
-      <Badge look={look} />
+      <Look look={look} {...props} />
       <span className="state-dot" />
     </span>
   );
@@ -178,8 +210,9 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
     case "state":
       return <StateView {...props} />;
     case "program":
-      if (forms.program === "avatar") return <Avatar look={props.program} />;
-      return props.badge === null ? null : <Badge look={props.badge} />;
+      if (forms.program === "avatar") return <Avatar {...props} look={props.program} />;
+      if (props.badge === null && hasFigure(props)) return <Look {...props} look={props.program} />;
+      return props.badge === null ? null : <Look {...props} look={props.badge} />;
     case "signs":
       return props.signs;
     case "folder":

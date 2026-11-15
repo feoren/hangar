@@ -338,3 +338,30 @@ describe("the builder", () => {
     expect(html).toMatch(/<button type="button" class="secondary-button" disabled="">Reset/);
   });
 });
+
+describe("a session running as a sub-agent", () => {
+  const session = { subAgent: "backend", cwd: "C:\\src\\hangar" };
+
+  it("shows the figure with the program's badge on its corner in the avatar form", () => {
+    const html = row(presetLayout("avatar"), { session, busy: true, programName: "Claude Code" });
+    expect(html).toMatch(
+      /class="session-avatar"[^>]*><span class="session-figure" title="Claude Code as backend" data-agent="backend"><span class="agent-figure head busy"/,
+    );
+    expect(html).toMatch(/class="figure-corner" aria-hidden="true"><span class="badge"[^>]*>C</);
+  });
+
+  it("shows the figure in a program group too, where the badge itself stays away", () => {
+    const plain = row(DEFAULT_ROW_LAYOUT);
+    const figured = row(DEFAULT_ROW_LAYOUT, { session });
+    expect(count(plain, "session-figure")).toBe(0);
+    expect(count(plain, "badge")).toBe(0);
+    expect(count(figured, "session-figure")).toBe(1);
+    expect(count(figured, "figure-corner")).toBe(1);
+  });
+
+  it("leaves a session without one as it was", () => {
+    const html = row(presetLayout("avatar"), { session: { subAgent: null, cwd: "C:\\src" } });
+    expect(count(html, "session-figure")).toBe(0);
+    expect(html).toMatch(/class="session-avatar"[^>]*><span class="badge"/);
+  });
+});

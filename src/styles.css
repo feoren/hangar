@@ -12293,3 +12293,302 @@ body.session-dragging .session-actions {
 .dictation-progress {
   width: 120px;
 }
+
+/* Sub-agent figures (AgentFigure.tsx): a bundled figure, an own image or an initial. The idle
+   motion is transform only (compositor friendly), a little more while the sub-agent works, and
+   none for reduced motion or in the power saving mode. `head` shows the face of a full figure. */
+.agent-figure {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.agent-figure img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 92%;
+  animation: figure-breathe 3.6s ease-in-out infinite;
+  user-select: none;
+}
+
+.agent-figure.head {
+  border-radius: 50%;
+  background: var(--avatar-bg);
+}
+
+.agent-figure.head img {
+  position: absolute;
+  top: -6.5%;
+  left: -58.5%;
+  width: 217%;
+  max-width: none;
+  height: auto;
+  transform-origin: 50% 40%;
+}
+
+.agent-figure.busy img {
+  animation: figure-bob 0.9s ease-in-out infinite;
+}
+
+.agent-figure.still img {
+  animation: none;
+}
+
+.agent-figure.initial {
+  border-radius: 50%;
+  color: var(--on-badge);
+  font-weight: 600;
+  line-height: 1;
+}
+
+@keyframes figure-breathe {
+  50% {
+    transform: translateY(-1.5%) scale(1.015, 0.99);
+  }
+}
+
+@keyframes figure-bob {
+  50% {
+    transform: translateY(-5%) rotate(-2deg);
+  }
+}
+
+/* `.busy img` named too: its own rule is more specific than `.agent-figure img`. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-figure img,
+  .agent-figure.busy img {
+    animation: none;
+  }
+}
+
+:root.power-saving .agent-figure img,
+:root.power-saving .agent-figure.busy img {
+  animation: none;
+}
+
+/* A session running as a sub-agent (SessionLook.tsx): the figure's face in the badge's place,
+   same size, the program's badge small on its lower right corner. */
+.session-figure {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.session-figure .agent-figure {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.session-avatar .session-figure .agent-figure {
+  width: var(--row-avatar);
+  height: var(--row-avatar);
+  font-size: 9px;
+}
+
+/* In every place the face takes the size the program's badge has there. */
+[data-row-frame="card"] .row-span .session-avatar .session-figure .agent-figure {
+  width: var(--row-avatar-card);
+  height: var(--row-avatar-card);
+  font-size: 11px;
+}
+
+.session-title-row .session-figure .agent-figure {
+  width: 14px;
+  height: 14px;
+  font-size: 7px;
+}
+
+.search-session .session-figure .agent-figure {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+}
+
+.pane-header .session-figure .agent-figure,
+.overview-head .session-figure .agent-figure,
+.session-peek-head .session-figure .agent-figure,
+.drag-ghost .session-figure .agent-figure {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+
+.launcher-option .session-figure .agent-figure,
+.broadcast-session .session-figure .agent-figure {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+}
+
+/* A waiting session in the rail: the ring breathes around the face, not the small badge. */
+.rail-session.attention .session-figure .agent-figure {
+  outline: 2px solid var(--attention-strong);
+  outline-offset: 2px;
+  animation: var(--row-ring-pulse) var(--row-seconds) ease-in-out infinite;
+}
+
+.rail-session.attention .figure-corner .badge {
+  outline: none;
+  animation: none;
+}
+
+:root.power-saving .rail-session.attention .session-figure .agent-figure {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-session.attention .session-figure .agent-figure {
+    animation: none;
+    outline-width: 2.5px;
+  }
+}
+
+.figure-corner {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  transform: scale(0.42);
+  transform-origin: 100% 100%;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* The start menu's button beside a program that starts as a sub-agent (Sidebar.tsx). */
+.profile-agents {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.profile-agents:hover,
+.profile-agents[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.profile-agents:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.sub-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.sub-agent-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.sub-agent-row:hover {
+  background: var(--hover);
+}
+
+.sub-agent-figure-button {
+  flex: none;
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.sub-agent-figure-button:focus-visible,
+.figure-choice:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sub-agent-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sub-agent-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.sub-agent-description {
+  display: -webkit-box;
+  margin: 2px 0 4px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.sub-agent-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.sub-agent-confirm {
+  margin-top: 6px;
+}
+
+.figure-picker {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.figure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.figure-choice {
+  display: inline-flex;
+  justify-content: center;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+.figure-choice.selected {
+  border-color: var(--accent);
+}
+
+.sub-agent-new textarea {
+  width: 100%;
+  min-height: 160px;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.sub-agent-problems {
+  margin-bottom: 12px;
+}
+
+.sub-agent-problems ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.subagent-node .agent-figure {
+  margin-right: 2px;
+}

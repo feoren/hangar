@@ -11,6 +11,8 @@ use tauri::{Emitter as _, Manager as _, State};
 use crate::account::{AccountError, AccountPage, AccountView, Project};
 use crate::account_service::AccountService;
 use crate::agent_catalog::ProfileView;
+use crate::agent_defs::{self, AgentDef, DefError, Library};
+use crate::agent_figures::{FigureError, FigureInput, FigureStore, FigureView};
 use crate::arena::{self, ArenaError};
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
@@ -595,6 +597,7 @@ pub async fn create_session(
     mode: Option<SessionMode>,
     instructions: Option<bool>,
     start_prompt: Option<StartPrompt>,
+    sub_agent: Option<String>,
 ) -> Result<SessionInfo, ManagerError> {
     tauri::async_runtime::spawn_blocking(move || {
         let manager = app.state::<SessionManager>();
@@ -616,6 +619,7 @@ pub async fn create_session(
             StartRequest {
                 instructions: instructions.unwrap_or(false),
                 prompt: start_prompt,
+                sub_agent,
             },
             sink,
         )?;
@@ -837,6 +841,109 @@ pub fn cost_report(
     costs: State<'_, crate::cost_service::CostService>,
 ) -> crate::cost_service::CostReport {
     costs.report()
+}
+
+// Sub-agent definitions and their figures (agent_defs.rs, agent_figures.rs). Contract:
+// docs/wiki/pages/syntheses/sub-agent-library.md. File access on a blocking thread.
+
+async fn defs_blocking<T: Send + 'static>(
+    manager: Manager<'_>,
+    work: impl FnOnce(&std::path::Path) -> Result<T, DefError> + Send + 'static,
+) -> Result<T, DefError> {
+    let home = manager.home().to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || work(&home))
+        .await
+        .map_err(|error| DefError::Task(error.to_string()))?
+}
+
+/// The global sub-agent definitions and those of the named project folders (at most 32,
+/// absolute; only their `.claude/agents` is read). Broken files come back as problems.
+#[tauri::command]
+pub async fn sub_agent_library(
+    manager: Manager<'_>,
+    folders: Vec<PathBuf>,
+) -> Result<Library, DefError> {
+    defs_blocking(manager, move |home| Ok(agent_defs::library(home, &folders))).await
+}
+
+/// Saves a pasted or loaded definition as a global one (`~/.claude/agents/<name>.md`); an
+/// existing one of that name only with `replace`.
+#[tauri::command]
+pub async fn create_sub_agent(
+    manager: Manager<'_>,
+    text: String,
+    replace: bool,
+) -> Result<AgentDef, DefError> {
+    defs_blocking(manager, move |home| {
+        agent_defs::create(home, &text, replace)
+    })
+    .await
+}
+
+/// Deletes a global definition by name; project definitions stay.
+#[tauri::command]
+pub async fn delete_sub_agent(manager: Manager<'_>, name: String) -> Result<(), DefError> {
+    defs_blocking(manager, move |home| agent_defs::delete(home, &name)).await
+}
+
+/// Opens a definition's file in the default editor: the global one without `folder`, else that
+/// project's. The path comes from the backend's own listing, never from the window.
+#[tauri::command]
+pub async fn open_sub_agent(
+    manager: Manager<'_>,
+    name: String,
+    folder: Option<PathBuf>,
+) -> Result<(), DefError> {
+    defs_blocking(manager, move |home| {
+        let path = agent_defs::def_path(home, &name, folder.as_deref())?;
+        desktop::open_text_file(&path).map_err(|source| DefError::Io { path, source })
+    })
+    .await
+}
+
+async fn figures_blocking<T: Send + 'static>(
+    store: State<'_, Arc<FigureStore>>,
+    work: impl FnOnce(&FigureStore) -> Result<T, FigureError> + Send + 'static,
+) -> Result<T, FigureError> {
+    let store = Arc::clone(store.inner());
+    tauri::async_runtime::spawn_blocking(move || work(&store))
+        .await
+        .map_err(|error| FigureError::Task(error.to_string()))?
+}
+
+/// The chosen figure per sub-agent name; own images as checked `data:` URLs.
+#[tauri::command]
+pub async fn sub_agent_figures(
+    store: State<'_, Arc<FigureStore>>,
+) -> Result<BTreeMap<String, FigureView>, FigureError> {
+    figures_blocking(store, |store| Ok(store.views())).await
+}
+
+/// Chooses a built-in figure, an own image (Base64 of the file, at most 2 MiB, PNG, GIF, WebP
+/// or JPEG by its bytes) or the default for `name`; answers with every figure.
+#[tauri::command]
+pub async fn set_sub_agent_figure(
+    store: State<'_, Arc<FigureStore>>,
+    name: String,
+    figure: FigureInput,
+) -> Result<BTreeMap<String, FigureView>, FigureError> {
+    figures_blocking(store, move |store| store.set(&name, figure)).await
+}
+
+/// The clipboard's image as the figure of `name`, scaled down and saved as PNG. Off the main
+/// thread: reading the clipboard there may deadlock on Linux.
+#[tauri::command]
+pub async fn paste_sub_agent_figure(
+    store: State<'_, Arc<FigureStore>>,
+    name: String,
+) -> Result<BTreeMap<String, FigureView>, FigureError> {
+    figures_blocking(store, move |store| {
+        let image = clipboard_image::read()
+            .map_err(|error| FigureError::Clipboard(error.to_string()))?
+            .ok_or(FigureError::NoImage)?;
+        store.set_pasted(&name, image)
+    })
+    .await
 }
 
 // Workspace and scrollback (persist.rs). File access runs on a blocking thread because

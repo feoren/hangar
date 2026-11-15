@@ -12,6 +12,7 @@ import {
   type LauncherContext,
 } from "./launcherItems";
 import type { SessionView } from "./sessions";
+import type { AgentDef } from "./subAgentLibrary";
 
 function profile(id: string, teamCapable = false): Profile {
   return {
@@ -81,6 +82,60 @@ function context(patch: Partial<LauncherContext> = {}): LauncherContext {
   };
 }
 
+describe("sub-agent starts", () => {
+  const def = (name: string): AgentDef => ({
+    name,
+    description: `${name} work`,
+    model: null,
+    color: null,
+    tools: [],
+    scope: "global",
+    folder: null,
+    file: `${name}.md`,
+  });
+
+  it("offers each agent in each place, only for programs that take one", () => {
+    const start = vi.fn();
+    const claude = { ...profile("claude"), takesAgent: true };
+    const items = buildLauncherItems(
+      context({
+        startable: [claude, profile("pwsh")],
+        subAgentStarts: {
+          defsFor: (folder) => (folder.endsWith("hangar") ? [def("backend"), def("tester")] : []),
+          icon: () => null,
+          origin: (def) => (def.scope === "project" ? "from project hangar" : null),
+          start,
+        },
+      }),
+    );
+    const agents = items.filter((item) => item.key.startsWith("agent:"));
+    expect(agents.map((item) => item.label)).toEqual([
+      "Start claude as backend in hangar",
+      "Start claude as tester in hangar",
+    ]);
+    expect(agents.every((item) => item.primary !== true)).toBe(true);
+    expect(agents[0]?.keywords).toContain("backend work");
+    agents[1]?.run();
+    expect(start).toHaveBeenCalledWith(claude, "C:\\src\\hangar", "tester");
+  });
+
+  it("shows a session's own look where one is given, else its program's badge", () => {
+    const sessions = [session(1)];
+    const plain = buildLauncherItems(context({ sessions, badge: () => "badge" }));
+    expect(plain.find((item) => item.key === "session:1")?.icon).toBe("badge");
+    const looked = buildLauncherItems(
+      context({ sessions, badge: () => "badge", sessionIcon: (s) => `look ${String(s.id)}` }),
+    );
+    expect(looked.find((item) => item.key === "session:1")?.icon).toBe("look 1");
+  });
+
+  it("offers none without the library", () => {
+    const claude = { ...profile("claude"), takesAgent: true };
+    const items = buildLauncherItems(context({ startable: [claude] }));
+    expect(items.some((item) => item.key.startsWith("agent:"))).toBe(false);
+  });
+});
+
 describe("quick access beyond sessions", () => {
   it("offers every settings section", () => {
     const openSettings = vi.fn();
@@ -91,6 +146,7 @@ describe("quick access beyond sessions", () => {
       "settings:appearance",
       "settings:attention",
       "settings:programs",
+      "settings:subAgents",
       "settings:snippets",
       "settings:dictation",
       "settings:account",

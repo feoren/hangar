@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sub-agent-library"
+description = "Enables the sub_agent_library command without any pre-configured scope."
+commands.allow = ["sub_agent_library"]
+
+[[permission]]
+identifier = "deny-sub-agent-library"
+description = "Denies the sub_agent_library command without any pre-configured scope."
+commands.deny = ["sub_agent_library"]

@@ -27,6 +27,7 @@ import { RowLayoutField } from "./RowLayoutSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { DictationSettings } from "./DictationSettings";
 import { SnippetsSettings } from "./SnippetsSettings";
+import { SubAgentSettings } from "./SubAgentSettings";
 import { instructionsUnavailable } from "./startOptions";
 import {
   nextTabIndex,
@@ -291,6 +292,8 @@ function SectionContent(props: Props & { section: SettingsSection }) {
       return <AttentionSettings {...props} />;
     case "programs":
       return <ProgramsSection {...props} />;
+    case "subAgents":
+      return <SubAgentSettings />;
     case "snippets":
       return (
         <SnippetsSettings

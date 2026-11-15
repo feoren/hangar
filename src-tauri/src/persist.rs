@@ -70,6 +70,10 @@ pub struct SavedSession {
     /// from before 0.3.0 and for programs without `session_id_args`.
     #[serde(default)]
     pub cli_session_id: Option<String>,
+    /// The sub-agent definition the session runs as (`SessionInfo.subAgent`), started as that
+    /// one again on restore. Absent in files from before 0.9.0.
+    #[serde(default)]
+    pub sub_agent: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -165,6 +169,13 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
             if crate::worktree::check_shape(worktree).is_err() {
                 return invalid("worktree is not one Hangar created");
             }
+        }
+        if session
+            .sub_agent
+            .as_deref()
+            .is_some_and(|name| !crate::agent_defs::valid_name(name))
+        {
+            return invalid("subAgent is no valid sub-agent name");
         }
     }
     if let Some(active) = &workspace.active_key {
@@ -794,6 +805,7 @@ mod tests {
             emoji: None,
             worktree: None,
             cli_session_id: None,
+            sub_agent: None,
         }
     }
 
@@ -825,6 +837,18 @@ mod tests {
             sessions: vec![session(KEY, 0), session(KEY2, 1)],
             active_key: Some(KEY2.into()),
         }
+    }
+
+    #[test]
+    fn sub_agent_names_are_checked() {
+        let mut workspace = workspace();
+        workspace.sessions[0].sub_agent = Some("backend".into());
+        assert!(validate(&workspace).is_ok());
+        workspace.sessions[0].sub_agent = Some("a & b".into());
+        assert!(matches!(
+            validate(&workspace),
+            Err(PersistError::InvalidWorkspace(_))
+        ));
     }
 
     #[test]

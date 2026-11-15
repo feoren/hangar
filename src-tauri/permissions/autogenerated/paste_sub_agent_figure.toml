@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-paste-sub-agent-figure"
+description = "Enables the paste_sub_agent_figure command without any pre-configured scope."
+commands.allow = ["paste_sub_agent_figure"]
+
+[[permission]]
+identifier = "deny-paste-sub-agent-figure"
+description = "Denies the paste_sub_agent_figure command without any pre-configured scope."
+commands.deny = ["paste_sub_agent_figure"]

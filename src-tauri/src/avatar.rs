@@ -18,6 +18,22 @@ const IMAGE_FILE: &str = "avatar.img";
 /// What the backend asks for and accepts.
 pub const ACCEPT: &str = "image/webp, image/png, image/jpeg";
 
+/// The type of a raster image by its first bytes alone: PNG, JPEG, GIF (87a and 89a) or WebP.
+/// Anything else, SVG above all (it can carry script), is `None`.
+pub fn sniff(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
 /// The checked type of an image: the `Content-Type` the server sent (parameters ignored), and
 /// only when the bytes start like that type, so a mislabeled answer never reaches the window.
 pub fn image_type(content_type: Option<&str>, bytes: &[u8]) -> Option<&'static str> {
@@ -27,16 +43,13 @@ pub fn image_type(content_type: Option<&str>, bytes: &[u8]) -> Option<&'static s
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    let (mime, fits) = match essence.as_str() {
-        "image/png" => ("image/png", bytes.starts_with(b"\x89PNG\r\n\x1a\n")),
-        "image/jpeg" => ("image/jpeg", bytes.starts_with(&[0xFF, 0xD8, 0xFF])),
-        "image/webp" => (
-            "image/webp",
-            bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
-        ),
+    let mime = match essence.as_str() {
+        "image/png" => "image/png",
+        "image/jpeg" => "image/jpeg",
+        "image/webp" => "image/webp",
         _ => return None,
     };
-    (fits && bytes.len() <= MAX_BYTES).then_some(mime)
+    (sniff(bytes) == Some(mime) && bytes.len() <= MAX_BYTES).then_some(mime)
 }
 
 /// `data:<mime>;base64,...` for the window.
@@ -169,6 +182,18 @@ mod tests {
         assert_eq!(image_type(Some("image/png"), &large), None);
         large.truncate(MAX_BYTES);
         assert_eq!(image_type(Some("image/png"), &large), Some("image/png"));
+    }
+
+    #[test]
+    fn sniffing_knows_raster_images_only() {
+        assert_eq!(sniff(PNG), Some("image/png"));
+        assert_eq!(sniff(JPEG), Some("image/jpeg"));
+        assert_eq!(sniff(WEBP), Some("image/webp"));
+        assert_eq!(sniff(b"GIF89a\x01\0"), Some("image/gif"));
+        assert_eq!(sniff(b"GIF87a\x01\0"), Some("image/gif"));
+        assert_eq!(sniff(b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
+        assert_eq!(sniff(b"RIFF\0\0\0\0WAVE"), None);
+        assert_eq!(sniff(b""), None);
     }
 
     #[test]

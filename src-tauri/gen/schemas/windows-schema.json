@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the create_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the create_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-sub-agent",
+          "markdownDescription": "Enables the create_sub_agent command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_update_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-update-session",
@@ -403,6 +409,12 @@
           "type": "string",
           "const": "allow-delete-scrollback",
           "markdownDescription": "Enables the delete_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-sub-agent",
+          "markdownDescription": "Enables the delete_sub_agent command without any pre-configured scope."
         },
         {
           "description": "Enables the destroy_panel_window command without any pre-configured scope.",
@@ -723,6 +735,12 @@
           "markdownDescription": "Enables the open_profile_file command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-sub-agent",
+          "markdownDescription": "Enables the open_sub_agent command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_web_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-web-url",
@@ -739,6 +757,12 @@
           "type": "string",
           "const": "allow-paste-clipboard-image",
           "markdownDescription": "Enables the paste_clipboard_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the paste_sub_agent_figure command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-paste-sub-agent-figure",
+          "markdownDescription": "Enables the paste_sub_agent_figure command without any pre-configured scope."
         },
         {
           "description": "Enables the power_state command without any pre-configured scope.",
@@ -969,6 +993,12 @@
           "markdownDescription": "Enables the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_sub_agent_figure command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-sub-agent-figure",
+          "markdownDescription": "Enables the set_sub_agent_figure command without any pre-configured scope."
+        },
+        {
           "description": "Enables the shared_notes_cancel command without any pre-configured scope.",
           "type": "string",
           "const": "allow-shared-notes-cancel",
@@ -1051,6 +1081,18 @@
           "type": "string",
           "const": "allow-stat-paths",
           "markdownDescription": "Enables the stat_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sub_agent_figures command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sub-agent-figures",
+          "markdownDescription": "Enables the sub_agent_figures command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sub_agent_library command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sub-agent-library",
+          "markdownDescription": "Enables the sub_agent_library command without any pre-configured scope."
         },
         {
           "description": "Enables the system_usage command without any pre-configured scope.",
@@ -1353,6 +1395,12 @@
           "markdownDescription": "Denies the create_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the create_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-sub-agent",
+          "markdownDescription": "Denies the create_sub_agent command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_update_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-create-update-session",
@@ -1405,6 +1453,12 @@
           "type": "string",
           "const": "deny-delete-scrollback",
           "markdownDescription": "Denies the delete_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-sub-agent",
+          "markdownDescription": "Denies the delete_sub_agent command without any pre-configured scope."
         },
         {
           "description": "Denies the destroy_panel_window command without any pre-configured scope.",
@@ -1725,6 +1779,12 @@
           "markdownDescription": "Denies the open_profile_file command without any pre-configured scope."
         },
         {
+          "description": "Denies the open_sub_agent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-sub-agent",
+          "markdownDescription": "Denies the open_sub_agent command without any pre-configured scope."
+        },
+        {
           "description": "Denies the open_web_url command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-web-url",
@@ -1741,6 +1801,12 @@
           "type": "string",
           "const": "deny-paste-clipboard-image",
           "markdownDescription": "Denies the paste_clipboard_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the paste_sub_agent_figure command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-paste-sub-agent-figure",
+          "markdownDescription": "Denies the paste_sub_agent_figure command without any pre-configured scope."
         },
         {
           "description": "Denies the power_state command without any pre-configured scope.",
@@ -1971,6 +2037,12 @@
           "markdownDescription": "Denies the set_profile_secret command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_sub_agent_figure command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-sub-agent-figure",
+          "markdownDescription": "Denies the set_sub_agent_figure command without any pre-configured scope."
+        },
+        {
           "description": "Denies the shared_notes_cancel command without any pre-configured scope.",
           "type": "string",
           "const": "deny-shared-notes-cancel",
@@ -2053,6 +2125,18 @@
           "type": "string",
           "const": "deny-stat-paths",
           "markdownDescription": "Denies the stat_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sub_agent_figures command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sub-agent-figures",
+          "markdownDescription": "Denies the sub_agent_figures command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sub_agent_library command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sub-agent-library",
+          "markdownDescription": "Denies the sub_agent_library command without any pre-configured scope."
         },
         {
           "description": "Denies the system_usage command without any pre-configured scope.",

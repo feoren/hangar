@@ -91,6 +91,9 @@ pub struct SessionInfo {
     pub sub_agents: bool,
     /// The agent gate for the current process.
     pub gate: GateStatus,
+    /// The sub-agent definition the session runs as (`--agent`), kept across restarts; the
+    /// window stores it in the workspace to start it as that one again.
+    pub sub_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -122,6 +125,7 @@ impl SessionInfo {
             cli_session_id: None,
             sub_agents: false,
             gate: GateStatus::None,
+            sub_agent: None,
         }
     }
 

@@ -3919,36 +3919,7 @@ fn decode_powershell(text: &str) -> Option<String> {
 }
 
 fn base64_decode(text: &str) -> Option<Vec<u8>> {
-    let value = |c: u8| -> Option<u32> {
-        Some(match c {
-            b'A'..=b'Z' => u32::from(c - b'A'),
-            b'a'..=b'z' => u32::from(c - b'a') + 26,
-            b'0'..=b'9' => u32::from(c - b'0') + 52,
-            b'+' => 62,
-            b'/' => 63,
-            _ => return None,
-        })
-    };
-    let symbols: Vec<u8> = text
-        .bytes()
-        .filter(|b| !b.is_ascii_whitespace())
-        .take_while(|b| *b != b'=')
-        .collect();
-    if symbols.len() > MAX_ENCODED {
-        return None;
-    }
-    let mut out = Vec::with_capacity(symbols.len() * 3 / 4);
-    let mut buffer = 0u32;
-    let mut bits = 0;
-    for symbol in symbols {
-        buffer = (buffer << 6) | value(symbol)?;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push(u8::try_from((buffer >> bits) & 0xff).ok()?);
-        }
-    }
-    Some(out)
+    crate::icon::base64_decode(text, MAX_ENCODED)
 }
 
 /// The command lines a shell may get as its remaining arguments: one argument is the line
