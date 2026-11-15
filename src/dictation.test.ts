@@ -4,24 +4,30 @@ import {
   busySession,
   canStart,
   DEFAULT_DICTATION,
+  endStaleRecording,
   failureAfter,
+  LatestOnly,
+  legacyDictationEnabled,
   parseDictationPrefs,
   parseDictationState,
   parseDictationStatus,
   parseDictationText,
+  parseDictationTexts,
   parseLevel,
   pasteForm,
+  takeDictationTexts,
+  type DictationText,
 } from "./dictation";
 
 describe("parseDictationPrefs", () => {
-  it("is off with the fast model by default", () => {
+  it("takes the fast model by default", () => {
     expect(parseDictationPrefs(undefined)).toEqual(DEFAULT_DICTATION);
-    expect(DEFAULT_DICTATION).toEqual({ enabled: false, model: "base", language: "auto" });
+    expect(DEFAULT_DICTATION).toEqual({ model: "base", language: "auto" });
   });
 
-  it("keeps valid values and replaces invalid ones", () => {
+  it("keeps valid values and replaces invalid ones, never the key", () => {
+    // Whether the key is on comes from the backend only (mainStore.ts).
     expect(parseDictationPrefs({ enabled: true, model: "small", language: "de" })).toEqual({
-      enabled: true,
       model: "small",
       language: "de",
     });
@@ -69,13 +75,106 @@ describe("parseDictationStatus", () => {
           { id: "huge", bytes: 1, installed: true },
         ],
         source: "huggingface.co",
+        microphone: false,
       }),
     ).toEqual({
       state: { kind: "notInstalled" },
       models: [{ id: "base", bytes: 59_707_625, installed: false }],
       source: "huggingface.co",
+      microphone: false,
     });
     expect(parseDictationStatus({ state: { kind: "ready" } })).toBeNull();
+  });
+
+  it("needs to know whether a microphone is there", () => {
+    const status = { state: { kind: "ready" }, models: [], source: "huggingface.co" };
+    expect(parseDictationStatus({ ...status, microphone: true })?.microphone).toBe(true);
+    expect(parseDictationStatus(status)).toBeNull();
+    expect(parseDictationStatus({ ...status, microphone: "yes" })).toBeNull();
+  });
+});
+
+describe("the dictation key before the backend kept it", () => {
+  it("reads only a stored true", () => {
+    expect(legacyDictationEnabled(JSON.stringify({ dictation: { enabled: true } }))).toBe(true);
+    expect(legacyDictationEnabled(JSON.stringify({ dictation: { enabled: "yes" } }))).toBe(false);
+    expect(legacyDictationEnabled(JSON.stringify({ dictation: [] }))).toBe(false);
+    expect(legacyDictationEnabled("{")).toBe(false);
+    expect(legacyDictationEnabled(null)).toBe(false);
+  });
+});
+
+describe("taking the dictated text", () => {
+  it("hands out the valid, non-blank texts, oldest first", async () => {
+    const got: DictationText[] = [];
+    await takeDictationTexts(
+      () =>
+        Promise.resolve([
+          { session: 1, text: "one" },
+          { session: "2", text: "broken" },
+          { session: 3, text: "" },
+          { session: 4, text: "four" },
+        ]),
+      (text) => got.push(text),
+    );
+    expect(got).toEqual([
+      { session: 1, text: "one" },
+      { session: 4, text: "four" },
+    ]);
+    expect(parseDictationTexts({ session: 1, text: "x" })).toEqual([]);
+  });
+
+  it("stays quiet when the backend refuses", async () => {
+    const got: DictationText[] = [];
+    await takeDictationTexts(
+      () => Promise.reject(new Error("wrongWindow")),
+      (text) => got.push(text),
+    );
+    expect(got).toEqual([]);
+  });
+});
+
+describe("LatestOnly", () => {
+  it("keeps only the newest answer", () => {
+    const reads = new LatestOnly();
+    const first = reads.next();
+    const second = reads.next();
+    expect(reads.current(first)).toBe(false);
+    expect(reads.current(second)).toBe(true);
+  });
+});
+
+describe("endStaleRecording", () => {
+  it("stops a recording left over from before the window loaded, errors included", async () => {
+    let stops = 0;
+    const take = () => Promise.resolve([]);
+    await endStaleRecording(() => {
+      stops += 1;
+      return Promise.resolve(null);
+    }, take);
+    await endStaleRecording(
+      () => {
+        stops += 1;
+        return Promise.reject(new Error("no backend"));
+      },
+      () => Promise.reject(new Error("no backend")),
+    );
+    expect(stops).toBe(2);
+  });
+
+  it("drops the texts the old window never took before it stops, so the stop's text survives", async () => {
+    const calls: string[] = [];
+    await endStaleRecording(
+      () => {
+        calls.push("stop");
+        return Promise.resolve(null);
+      },
+      () => {
+        calls.push("take");
+        return Promise.resolve([{ session: 1, text: "from before the reload" }]);
+      },
+    );
+    expect(calls).toEqual(["take", "stop"]);
   });
 });
 

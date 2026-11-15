@@ -266,4 +266,5 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sprachmodell                                    | speech model                      | a whisper model file, downloaded after consent; `model.rs`                          |
 | Aufnahmeanzeige                                 | recording indicator               | the pill on the pane while the microphone is open; `DictationIndicator.tsx`         |
 | Energieschwelle                                 | energy gate                       | drops silence before recognition; `has_speech`                                      |
-| Erkannter Text (Diktieren)                      | transcript (dictation)            | inside `dictation/` only; never stored, `clean_transcript`, `DictationText`         |
+| Erkannter Text (Diktieren)                      | transcript (dictation)            | in memory until taken once; `clean_transcript`, `dictation_take_text`               |
+| Aufnahmefrist                                   | recording deadline                | a recording without stop ends on its own; `RECORDING_DEADLINE`                      |

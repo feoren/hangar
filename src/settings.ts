@@ -2,8 +2,8 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
 // command guard), the protected settings (paste warning, automatic updates, HANGAR.md,
-// snippets) and the notice settings (session restore, attention, taskbar flash, desktop
-// notifications, chime, quiet hours, daily budget) are the exception: the panel and file viewer windows share
+// snippets), the notice settings (session restore, attention, taskbar flash, desktop
+// notifications, chime, quiet hours, daily budget) and whether the dictation key is on are the exception: the panel and file viewer windows share
 // this localStorage, so the backend keeps them for the main window alone (mainStore.ts); they are
 // neither read from nor written to localStorage here.
 
@@ -78,11 +78,19 @@ export type NoticeKey = (typeof NOTICE_KEYS)[number];
 /** The notice settings as the backend stores them (`main_store.rs`, `MainPrefs`). */
 export type NoticeSettings = Pick<Settings, NoticeKey>;
 
+/**
+ * Whether holding the dictation key opens the microphone, kept by the backend with the start
+ * preferences (mainStore.ts `MainPrefs`): a viewer that could write it could turn the key on, so
+ * that the next Ctrl+Shift+Space opens the microphone instead of reaching the program.
+ */
+export const DICTATION_KEY = "dictationEnabled";
+
 /** Every setting the backend keeps and localStorage never holds. */
 export const BACKEND_KEYS: readonly string[] = [
   ...SECURITY_SWITCH_KEYS,
   ...PROTECTED_KEYS,
   ...NOTICE_KEYS,
+  DICTATION_KEY,
 ];
 
 export const QUIET_SECONDS = { min: 1, max: 30, default: 3 } as const;
@@ -205,10 +213,14 @@ export interface Settings {
    */
   dailyBudget: number | null;
   /**
-   * Hold a key to dictate into the session (dictation.ts); off by default. Kept in localStorage,
-   * not with the protected settings: another window that rewrote it could only claim the key. The
-   * microphone opens only while the user holds it in the main window, and a model is downloaded
-   * only through the main window's consent box (main-window commands).
+   * Hold a key to dictate into the session (dictation.ts); off by default. Kept by the backend
+   * (`DICTATION_KEY`), never in localStorage.
+   */
+  dictationEnabled: boolean;
+  /**
+   * Model and language of the dictation. Kept in localStorage: another window that rewrote them
+   * could only pick the other pinned model or language. A model is downloaded only through the
+   * main window's consent box (main-window commands).
    */
   dictation: DictationPrefs;
 }
@@ -275,6 +287,7 @@ export function defaultSettings(language: Language): Settings {
     sessionGrouping: "program",
     snippets: defaultSnippets(language),
     dailyBudget: null,
+    dictationEnabled: false,
     dictation: DEFAULT_DICTATION,
   };
 }
@@ -381,6 +394,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     snippets: defaultSnippets(chosenLanguage),
     // Never from localStorage either: the backend keeps it with the notices (mainStore.ts).
     dailyBudget: defaults.dailyBudget,
+    // Never from localStorage, like the switches: the backend keeps it (mainStore.ts).
+    dictationEnabled: defaults.dictationEnabled,
     dictation: parseDictationPrefs(get("dictation")),
   };
 }

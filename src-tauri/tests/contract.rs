@@ -173,6 +173,7 @@ fn commands_are_registered_allowed_and_wired() {
         "dictation_status",
         "dictation_start",
         "dictation_stop",
+        "dictation_take_text",
         "dictation_install_model",
         "dictation_remove_model",
     ] {
@@ -391,4 +392,64 @@ fn file_viewer_capability_is_narrow() {
         let permission = format!("allow-{}", command.replace('_', "-"));
         assert!(!panel.contains(&permission), "{permission} in panel.json");
     }
+}
+
+/// Like the gate's and the claims': a listener in any window receives events emitted to the main
+/// one, and the panel may listen. The dictation state and the dictated text therefore go out as
+/// bare signals; the main window reads them through `dictation_status` and `dictation_take_text`.
+/// Only the level carries data, a number from 0 to 1 (`Notice::Level(f32)`). Every dictation
+/// command checks that the main window called it.
+#[test]
+fn dictation_signals_carry_no_text_and_commands_check_the_window() {
+    let lib = read("src/lib.rs");
+    for event in ["dictation::STATUS_EVENT", "dictation::TEXT_EVENT"] {
+        assert!(
+            lib.contains(&format!("emit_to(main, {event}, ())")),
+            "{event} must be emitted without payload"
+        );
+        assert_eq!(lib.matches(event).count(), 1, "{event} emitted elsewhere");
+    }
+    assert!(lib.contains("emit_to(main, dictation::LEVEL_EVENT, level)"));
+    let service = read("src/dictation/mod.rs");
+    assert!(
+        service.contains("    Level(f32),"),
+        "the level is a number only"
+    );
+    let commands = read("src/commands.rs");
+    for name in [
+        "dictation_status",
+        "dictation_start",
+        "dictation_stop",
+        "dictation_take_text",
+        "dictation_install_model",
+        "dictation_remove_model",
+    ] {
+        assert!(
+            command_body(&commands, name).contains("dictation_main(&window)?;"),
+            "{name} does not check the caller"
+        );
+    }
+    assert!(commands.contains("panel_window::check_main(window.label()).map_err("));
+    for path in ["capabilities/panel.json", "capabilities/file-viewer.json"] {
+        let capability = read(path);
+        assert!(
+            !capability.contains("allow-dictation-"),
+            "{path} grants dictation"
+        );
+    }
+}
+
+/// macOS asks for two things before an app with the hardened runtime may open the microphone: the
+/// usage text in Info.plist (merged by the Tauri bundler from the file next to tauri.conf.json)
+/// and the audio-input entitlement in the signature.
+#[test]
+fn macos_bundle_may_open_the_microphone() {
+    let config: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
+    assert_eq!(
+        config["bundle"]["macOS"]["entitlements"],
+        serde_json::json!("Entitlements.plist")
+    );
+    let entitlements = read("Entitlements.plist");
+    assert!(entitlements.contains("<key>com.apple.security.device.audio-input</key>\n  <true/>"));
+    assert!(read("Info.plist").contains("<key>NSMicrophoneUsageDescription</key>"));
 }

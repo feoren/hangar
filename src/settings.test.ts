@@ -5,6 +5,7 @@ import {
   defaultSettings,
   gateActive,
   BACKEND_KEYS,
+  DICTATION_KEY,
   legacyNotices,
   legacyProtected,
   legacySwitches,
@@ -101,6 +102,9 @@ describe("parseSettings", () => {
       hangarMd: true,
       warnMultilinePaste: true,
       snippets: defaultSnippets("en"),
+      // The dictation key too; model and language stay in storage.
+      dictationEnabled: false,
+      dictation: { model: "small", language: "de" },
       looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });
@@ -418,9 +422,14 @@ describe("parseSettings", () => {
   });
 
   it("never writes the security switches or the protected settings to localStorage", () => {
-    const settings = { ...defaultSettings("de"), gateEnabled: false, commandGuardEnabled: false };
+    const settings = {
+      ...defaultSettings("de"),
+      gateEnabled: false,
+      commandGuardEnabled: false,
+      dictationEnabled: true,
+    };
     const stored = withoutBackendKeys(settings);
-    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS, ...NOTICE_KEYS]) {
+    for (const key of [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS, ...NOTICE_KEYS, DICTATION_KEY]) {
       expect(key in stored).toBe(false);
       expect(BACKEND_KEYS).toContain(key);
     }

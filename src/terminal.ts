@@ -45,7 +45,7 @@ import {
   type RowSource,
 } from "./sessionSearch";
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
-import { terminalKeyAction } from "./terminalKeys";
+import { dictationTail, terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
@@ -1001,6 +1001,12 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
+    const tail = dictationTail(dictationTailArmed, event, dictationKeyActive);
+    dictationTailArmed = tail.armed;
+    if (tail.swallow) {
+      event.preventDefault();
+      return false;
+    }
     const action = terminalKeyAction(
       event,
       this.term.hasSelection(),
@@ -1049,6 +1055,8 @@ export function setFocusCycleActive(active: boolean): void {
 
 /** Dictation is on (App): Ctrl+Shift+Space belongs to the app, not to the program. */
 let dictationKeyActive = false;
+/** Space is still down after a dictation hold (`dictationTail`); shared, the focus may move. */
+let dictationTailArmed = false;
 
 export function setDictationKeyActive(active: boolean): void {
   dictationKeyActive = active;

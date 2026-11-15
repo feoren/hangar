@@ -1,8 +1,11 @@
 //! The whisper models Hangar offers: pinned file, size and SHA-256, downloaded only after the
 //! user agreed, into the app's local data folder. Download, check and removal.
 
-use std::io::Write as _;
+use std::collections::HashMap;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -61,7 +64,8 @@ pub fn path(dir: &Path, spec: &ModelSpec) -> PathBuf {
     dir.join(spec.file)
 }
 
-/// Installed means the file is there with the pinned size; the hash was checked on download.
+/// Installed means the file is there with the pinned size. The hash is checked on download and
+/// once per run before the first load ([`VerifiedModels`]).
 pub fn installed(dir: &Path, spec: &ModelSpec) -> bool {
     std::fs::metadata(path(dir, spec)).is_ok_and(|meta| meta.is_file() && meta.len() == spec.bytes)
 }
@@ -94,6 +98,64 @@ pub fn verify(spec: &ModelSpec, bytes: u64, digest: &[u8]) -> Result<(), ModelEr
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// SHA-256 of a file, read in blocks.
+fn hash_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut block = vec![0u8; 1 << 20];
+    loop {
+        let read = file.read(&mut block)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&block[..read]);
+    }
+    Ok(hasher.finalize().to_vec())
+}
+
+/// The size and modification time a model file had when its hash last matched.
+type Stamp = (u64, SystemTime);
+
+fn stamp(path: &Path) -> std::io::Result<Stamp> {
+    let meta = std::fs::metadata(path)?;
+    Ok((meta.len(), meta.modified()?))
+}
+
+/// Models whose hash matched in this run. whisper.cpp reads a model file as it is; one that
+/// changed on disk after the download (another program, a damaged disk) is caught before the
+/// first load of each run. Size and modification time stand for "unchanged" afterwards, so the
+/// hash (0.2 to 0.6 s) runs once per run and file, not per recording.
+#[derive(Default)]
+pub struct VerifiedModels(Mutex<HashMap<ModelId, Stamp>>);
+
+impl VerifiedModels {
+    /// `Ok` when the file of `spec` in `dir` has the pinned size and hash; hashed only when it
+    /// changed since the last match.
+    pub fn ensure(&self, dir: &Path, spec: &ModelSpec) -> Result<(), ModelError> {
+        let file = path(dir, spec);
+        let current = stamp(&file)?;
+        if crate::lock(&self.0).get(&spec.id) == Some(&current) {
+            return Ok(());
+        }
+        let digest = hash_file(&file)?;
+        verify(spec, current.0, &digest)?;
+        crate::lock(&self.0).insert(spec.id, current);
+        Ok(())
+    }
+
+    /// Marks the file of `spec` as checked, for a download whose hash just matched.
+    pub fn mark(&self, dir: &Path, spec: &ModelSpec) {
+        if let Ok(current) = stamp(&path(dir, spec)) {
+            crate::lock(&self.0).insert(spec.id, current);
+        }
+    }
+
+    /// Forgets the check, for a removed model.
+    pub fn forget(&self, id: ModelId) {
+        crate::lock(&self.0).remove(&id);
+    }
 }
 
 /// Only Hugging Face and its download CDN, https, a few hops.
@@ -234,6 +296,57 @@ mod tests {
             verify(&spec, 3, &Sha256::digest(b"abd")),
             Err(ModelError::Mismatch)
         );
+    }
+
+    /// SHA-256 of "abc", for a three-byte model.
+    const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    fn set_time(file: &Path, time: SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_model_is_hashed_once_until_it_changes() {
+        let dir = temp_dir("verified");
+        let spec = ModelSpec {
+            id: ModelId::Base,
+            file: "v.bin",
+            bytes: 3,
+            sha256: ABC,
+        };
+        let verified = VerifiedModels::default();
+        assert!(matches!(
+            verified.ensure(&dir, &spec),
+            Err(ModelError::Io(_))
+        ));
+        let file = path(&dir, &spec);
+        std::fs::write(&file, b"abd").unwrap();
+        assert_eq!(verified.ensure(&dir, &spec), Err(ModelError::Mismatch));
+        std::fs::write(&file, b"abc").unwrap();
+        assert_eq!(verified.ensure(&dir, &spec), Ok(()));
+        // Same size and time: taken as unchanged, not hashed again.
+        let time = std::fs::metadata(&file).unwrap().modified().unwrap();
+        std::fs::write(&file, b"xyz").unwrap();
+        set_time(&file, time);
+        assert_eq!(verified.ensure(&dir, &spec), Ok(()));
+        // Another time: hashed again, and the changed bytes are caught.
+        set_time(&file, time + std::time::Duration::from_secs(5));
+        assert_eq!(verified.ensure(&dir, &spec), Err(ModelError::Mismatch));
+        // A fresh download marks itself; forgetting makes the next load hash again.
+        std::fs::write(&file, b"abc").unwrap();
+        verified.mark(&dir, &spec);
+        assert_eq!(verified.ensure(&dir, &spec), Ok(()));
+        verified.forget(ModelId::Base);
+        let time = std::fs::metadata(&file).unwrap().modified().unwrap();
+        std::fs::write(&file, b"abz").unwrap();
+        set_time(&file, time);
+        assert_eq!(verified.ensure(&dir, &spec), Err(ModelError::Mismatch));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

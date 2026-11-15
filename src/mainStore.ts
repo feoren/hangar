@@ -2,13 +2,13 @@
 // (claims, gate, command guard), the queued messages, the protected settings (paste warning,
 // automatic updates, HANGAR.md, snippets), the workspace templates and the start and notice
 // preferences (private or team start, last program, folders, session restore, notices, the daily
-// budget and the day its notice last showed). The
+// budget and the day its notice last showed, the dictation key). The
 // panel and file viewer windows share the main window's origin and with it its localStorage; a
 // compromised viewer could otherwise turn the gate or the paste warning off, queue a message or
 // plant a snippet Hangar later pastes into an agent session, plant a template or a recent folder
 // that starts a program in a folder of its choice, make the next start private (without the
-// gate), silence the notices of an agent that waits for approval, or hide the budget notice. The
-// backend commands answer
+// gate), silence the notices of an agent that waits for approval, hide the budget notice, or turn
+// the dictation key on so that the next hold opens the microphone. The backend commands answer
 // the main window only (`main_store.rs`).
 //
 // Migration: as long as the backend has stored nothing, the values an older version kept in
@@ -17,6 +17,7 @@
 
 import { api } from "./api";
 import { BUDGET_WARNED_STORAGE_KEY, parseBudget, parseWarnedDay } from "./costs";
+import { legacyDictationEnabled } from "./dictation";
 import {
   FOLDERS_STORAGE_KEY,
   LAST_CWD_STORAGE_KEY,
@@ -81,7 +82,17 @@ export interface MainPrefs extends FolderPrefs, NoticeSettings {
   lastProgram: string | null;
   /** The local day ("YYYY-MM-DD") the budget notice last showed; it shows once a day. */
   budgetWarnedDay: string | null;
+  /** Holding Ctrl+Shift+Space dictates (useDictation.ts). */
+  dictationEnabled: boolean;
 }
+
+/**
+ * The preferences as the backend answered them. `dictationEnabled` is `null` in a file written
+ * before dictation existed: the window then takes over its old localStorage value once.
+ */
+export type StoredMainPrefs = Omit<MainPrefs, "dictationEnabled"> & {
+  dictationEnabled: boolean | null;
+};
 
 type LegacyStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -115,6 +126,14 @@ function dropLegacyKeys(storage: LegacyStorage, keys: readonly string[]): void {
     const raw: unknown = JSON.parse(text);
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
     const kept = Object.fromEntries(Object.entries(raw).filter(([key]) => !keys.includes(key)));
+    // An older Hangar kept the dictation key inside the dictation settings; model and language
+    // stay there.
+    const dictation: unknown = kept.dictation;
+    if (typeof dictation === "object" && dictation !== null && !Array.isArray(dictation)) {
+      kept.dictation = Object.fromEntries(
+        Object.entries(dictation).filter(([key]) => key !== "enabled"),
+      );
+    }
     storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(kept));
   } catch {
     // Blocked or broken storage: nothing there is read again anyway.
@@ -293,6 +312,7 @@ export function defaultMainPrefs(): MainPrefs {
     recent: [],
     ...noticesOf(defaultSettings("en")),
     budgetWarnedDay: null,
+    dictationEnabled: false,
   };
 }
 
@@ -300,7 +320,7 @@ export function defaultMainPrefs(): MainPrefs {
  * The preferences the backend answered; `null` for "nothing stored yet" and for anything
  * malformed. Folders are read as the menu always reads them (`parseFolderPrefs`).
  */
-export function parseMainPrefs(value: unknown): MainPrefs | null {
+export function parseMainPrefs(value: unknown): StoredMainPrefs | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const read = (
     key: "restoreSessions" | "attentionEnabled" | "taskbarFlash" | "notifyDesktop" | "chime",
@@ -317,9 +337,11 @@ export function parseMainPrefs(value: unknown): MainPrefs | null {
   const chime = read("chime");
   const dailyBudget: unknown = Reflect.get(value, "dailyBudget") ?? null;
   const budgetWarnedDay: unknown = Reflect.get(value, "budgetWarnedDay") ?? null;
+  const dictation: unknown = Reflect.get(value, "dictationEnabled");
   if (startMode !== "private" && startMode !== "team") return null;
   if (dailyBudget !== null && parseBudget(dailyBudget) === null) return null;
   if (budgetWarnedDay !== null && parseWarnedDay(budgetWarnedDay) === null) return null;
+  if (typeof dictation !== "boolean" && dictation !== null && dictation !== undefined) return null;
   if (lastProgram !== null && parseLastProgram(lastProgram) === null) return null;
   if (
     restoreSessions === null ||
@@ -344,6 +366,7 @@ export function parseMainPrefs(value: unknown): MainPrefs | null {
     quietHours: parseQuietHours(Reflect.get(value, "quietHours")),
     dailyBudget: parseBudget(dailyBudget),
     budgetWarnedDay: parseWarnedDay(budgetWarnedDay),
+    dictationEnabled: typeof dictation === "boolean" ? dictation : null,
   };
 }
 
@@ -359,21 +382,23 @@ export function persistableMainPrefs(prefs: MainPrefs): MainPrefs {
     quietHours: parseQuietHours(prefs.quietHours),
     dailyBudget: parseBudget(prefs.dailyBudget),
     budgetWarnedDay: parseWarnedDay(prefs.budgetWarnedDay),
+    dictationEnabled: prefs.dictationEnabled,
   };
 }
 
 /**
  * What an older Hangar kept of the preferences in localStorage, for the one migration: the
  * start mode, the last program, the folders, the day the budget notice last showed and the
- * notice settings with the budget in the stored settings text (`settingsText`, read at start
- * before anything saves).
+ * notice settings with the budget and the dictation key in the stored settings text
+ * (`settingsText`, read at start before anything saves).
  */
 export function legacyMainPrefs(
   storage: LegacyStorage | null,
   settingsText: string | null,
 ): MainPrefs {
   const notices = legacyNotices(settingsText);
-  if (storage === null) return { ...defaultMainPrefs(), ...notices };
+  const dictationEnabled = legacyDictationEnabled(settingsText);
+  if (storage === null) return { ...defaultMainPrefs(), ...notices, dictationEnabled };
   let warnedDay: string | null = null;
   try {
     warnedDay = parseWarnedDay(storage.getItem(BUDGET_WARNED_STORAGE_KEY));
@@ -386,6 +411,7 @@ export function legacyMainPrefs(
     ...legacyFolderPrefs(storage),
     ...notices,
     budgetWarnedDay: warnedDay,
+    dictationEnabled,
   };
 }
 
@@ -401,9 +427,10 @@ const LEGACY_PREF_KEYS = [
 /**
  * The preferences for this run. `legacy`: what localStorage held at start (`legacyMainPrefs`),
  * taken over only while the backend has nothing yet, and stored then even when it is all
- * defaults, so a value a viewer writes to the old places later is never migrated. The old copies
- * are removed once the backend holds the preferences; a failed save keeps them for the next start.
- * Without a backend (browser preview) or on an error, the defaults apply.
+ * defaults, so a value a viewer writes to the old places later is never migrated. A file from
+ * before dictation (`dictationEnabled` missing) takes over the old dictation key the same way,
+ * once. The old copies are removed once the backend holds the preferences; a failed save keeps
+ * them for the next start. Without a backend (browser preview) or on an error, the defaults apply.
  */
 export async function loadMainPrefs(
   legacy: MainPrefs,
@@ -416,14 +443,22 @@ export async function loadMainPrefs(
   } catch {
     return defaultMainPrefs();
   }
-  let prefs = parseMainPrefs(answer);
+  const answered = parseMainPrefs(answer);
+  let prefs: MainPrefs | null = null;
   let stored = answer !== null;
-  if (answer === null) {
-    prefs = persistableMainPrefs(legacy);
-    stored = await backend.saveMainPrefs(prefs).then(
+  const store = (next: MainPrefs) =>
+    backend.saveMainPrefs(next).then(
       () => true,
       () => false,
     );
+  if (answer === null) {
+    prefs = persistableMainPrefs(legacy);
+    stored = await store(prefs);
+  } else if (answered !== null && answered.dictationEnabled === null) {
+    prefs = persistableMainPrefs({ ...answered, dictationEnabled: legacy.dictationEnabled });
+    stored = await store(prefs);
+  } else if (answered !== null) {
+    prefs = { ...answered, dictationEnabled: answered.dictationEnabled === true };
   }
   // Only once the backend holds them: after a failed save the old copies stay for the next try.
   if (stored && storage !== null) {

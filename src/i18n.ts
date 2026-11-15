@@ -928,6 +928,8 @@ const de = {
   "dictation.recording": "Hört zu",
   "dictation.transcribing": "Erkennt Text …",
   "dictation.noMicrophone": "Kein Mikrofon gefunden.",
+  "dictation.noMicrophoneSetup":
+    "Kein Mikrofon gefunden. Schließ eins an, dann kannst du hier diktieren.",
   "dictation.permissionDenied":
     "Hangar hört nichts. Prüfe, ob Apps auf das Mikrofon zugreifen dürfen.",
   "dictation.microphoneFailed": "Das Mikrofon ließ sich nicht öffnen.",
@@ -2757,6 +2759,7 @@ const en: Record<MessageKey, string> = {
   "dictation.recording": "Listening",
   "dictation.transcribing": "Writing it down …",
   "dictation.noMicrophone": "No microphone found.",
+  "dictation.noMicrophoneSetup": "No microphone found. Connect one, then you can dictate here.",
   "dictation.permissionDenied": "Hangar hears nothing. Check that apps may use the microphone.",
   "dictation.microphoneFailed": "The microphone could not be opened.",
   "dictation.failed": "Dictation did not work.",
@@ -4587,6 +4590,8 @@ const el: Record<MessageKey, string> = {
   "dictation.recording": "Ακούει",
   "dictation.transcribing": "Γράφει …",
   "dictation.noMicrophone": "Δεν βρέθηκε μικρόφωνο.",
+  "dictation.noMicrophoneSetup":
+    "Δεν βρέθηκε μικρόφωνο. Σύνδεσε ένα και μετά μπορείς να υπαγορεύεις εδώ.",
   "dictation.permissionDenied":
     "Το Hangar δεν ακούει τίποτα. Έλεγξε αν οι εφαρμογές έχουν πρόσβαση στο μικρόφωνο.",
   "dictation.microphoneFailed": "Το μικρόφωνο δεν άνοιξε.",
@@ -6436,6 +6441,8 @@ const es: Record<MessageKey, string> = {
   "dictation.recording": "Escuchando",
   "dictation.transcribing": "Transcribiendo …",
   "dictation.noMicrophone": "No se encontró ningún micrófono.",
+  "dictation.noMicrophoneSetup":
+    "No se encontró ningún micrófono. Conecta uno y podrás dictar aquí.",
   "dictation.permissionDenied":
     "Hangar no oye nada. Comprueba que las apps puedan usar el micrófono.",
   "dictation.microphoneFailed": "No se pudo abrir el micrófono.",
@@ -8278,6 +8285,7 @@ const fr: Record<MessageKey, string> = {
   "dictation.recording": "À l’écoute",
   "dictation.transcribing": "Transcription …",
   "dictation.noMicrophone": "Aucun micro trouvé.",
+  "dictation.noMicrophoneSetup": "Aucun micro trouvé. Branches-en un, puis tu pourras dicter ici.",
   "dictation.permissionDenied": "Hangar n’entend rien. Vérifie que les applis ont accès au micro.",
   "dictation.microphoneFailed": "Impossible d’ouvrir le micro.",
   "dictation.failed": "La dictée n’a pas fonctionné.",
@@ -10127,6 +10135,7 @@ const it: Record<MessageKey, string> = {
   "dictation.recording": "In ascolto",
   "dictation.transcribing": "Trascrizione …",
   "dictation.noMicrophone": "Nessun microfono trovato.",
+  "dictation.noMicrophoneSetup": "Nessun microfono trovato. Collegane uno, poi potrai dettare qui.",
   "dictation.permissionDenied":
     "Hangar non sente nulla. Controlla che le app possano usare il microfono.",
   "dictation.microphoneFailed": "Impossibile aprire il microfono.",
@@ -11966,6 +11975,8 @@ const ja: Record<MessageKey, string> = {
   "dictation.recording": "聞き取り中",
   "dictation.transcribing": "文字に変換中 …",
   "dictation.noMicrophone": "マイクが見つかりません。",
+  "dictation.noMicrophoneSetup":
+    "マイクが見つかりません。マイクを接続すると、ここで音声入力できます。",
   "dictation.permissionDenied":
     "Hangar に何も聞こえません。アプリがマイクを使えるか確認してください。",
   "dictation.microphoneFailed": "マイクを開けませんでした。",
@@ -13793,6 +13804,8 @@ const pl: Record<MessageKey, string> = {
   "dictation.recording": "Słucha",
   "dictation.transcribing": "Zapisuje …",
   "dictation.noMicrophone": "Nie znaleziono mikrofonu.",
+  "dictation.noMicrophoneSetup":
+    "Nie znaleziono mikrofonu. Podłącz jakiś, a potem możesz tu dyktować.",
   "dictation.permissionDenied":
     "Hangar nic nie słyszy. Sprawdź, czy aplikacje mają dostęp do mikrofonu.",
   "dictation.microphoneFailed": "Nie udało się otworzyć mikrofonu.",
@@ -15619,6 +15632,7 @@ const pt: Record<MessageKey, string> = {
   "dictation.recording": "Ouvindo",
   "dictation.transcribing": "Transcrevendo …",
   "dictation.noMicrophone": "Nenhum microfone encontrado.",
+  "dictation.noMicrophoneSetup": "Nenhum microfone encontrado. Conecte um para poder ditar aqui.",
   "dictation.permissionDenied":
     "O Hangar não ouve nada. Verifique se os apps podem usar o microfone.",
   "dictation.microphoneFailed": "Não foi possível abrir o microfone.",
@@ -17445,6 +17459,8 @@ const ru: Record<MessageKey, string> = {
   "dictation.recording": "Слушает",
   "dictation.transcribing": "Распознаёт …",
   "dictation.noMicrophone": "Микрофон не найден.",
+  "dictation.noMicrophoneSetup":
+    "Микрофон не найден. Подключи его, и тогда здесь можно будет диктовать.",
   "dictation.permissionDenied":
     "Hangar ничего не слышит. Проверь, есть ли у приложений доступ к микрофону.",
   "dictation.microphoneFailed": "Не удалось открыть микрофон.",
@@ -19259,6 +19275,8 @@ const tr: Record<MessageKey, string> = {
   "dictation.recording": "Dinliyor",
   "dictation.transcribing": "Yazıya döküyor …",
   "dictation.noMicrophone": "Mikrofon bulunamadı.",
+  "dictation.noMicrophoneSetup":
+    "Mikrofon bulunamadı. Bir tane bağla, sonra burada dikte edebilirsin.",
   "dictation.permissionDenied":
     "Hangar hiçbir şey duymuyor. Uygulamaların mikrofonu kullanabildiğini kontrol et.",
   "dictation.microphoneFailed": "Mikrofon açılamadı.",
@@ -21030,6 +21048,7 @@ const zh: Record<MessageKey, string> = {
   "dictation.recording": "正在听",
   "dictation.transcribing": "正在转写 …",
   "dictation.noMicrophone": "未找到麦克风。",
+  "dictation.noMicrophoneSetup": "未找到麦克风。连接一个后，就可以在这里语音输入。",
   "dictation.permissionDenied": "Hangar 听不到任何声音。请检查是否允许应用使用麦克风。",
   "dictation.microphoneFailed": "无法打开麦克风。",
   "dictation.failed": "语音输入未成功。",

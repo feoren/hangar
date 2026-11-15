@@ -9,6 +9,9 @@ projects are included.
 The names below are trademarks or names of their respective owners. Hangar is not affiliated with
 or endorsed by them.
 
+The libraries the local dictation builds into the program (whisper.cpp, ggml, whisper-rs, cpal)
+have their own section further down.
+
 | Hangar scheme | Colors adapted from                       | License    |
 | ------------- | ----------------------------------------- | ---------- |
 | Harbor        | Primer github-vscode-theme                | MIT        |
@@ -377,9 +380,97 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Local dictation: libraries in the program
+
+The local dictation builds the following libraries into Hangar's program file. whisper.cpp and
+ggml are compiled from source and linked statically.
+
+| Library        | Version                            | Used for                                   | License    |
+| -------------- | ---------------------------------- | ------------------------------------------ | ---------- |
+| whisper.cpp    | bundled with whisper-rs-sys 0.15.0 | speech recognition                         | MIT        |
+| ggml           | part of the whisper.cpp tree above | tensor library under whisper.cpp           | MIT        |
+| whisper-rs     | 0.16.0                             | Rust bindings to whisper.cpp               | Unlicense  |
+| whisper-rs-sys | 0.15.0                             | raw bindings and build of whisper.cpp      | Unlicense  |
+| cpal           | 0.18.2                             | microphone input (WASAPI, CoreAudio, ALSA) | Apache-2.0 |
+
+The speech models are not part of Hangar; they are downloaded only after the user agrees, from the
+host named in the consent dialog.
+
+### whisper.cpp and ggml
+
+- Source: <https://github.com/ggml-org/whisper.cpp>, <https://github.com/ggml-org/ggml>
+- Copyright: Copyright (c) 2023-2024 The ggml authors
+- License: MIT
+- The ggml sources ship inside the whisper.cpp tree that whisper-rs-sys 0.15.0 bundles; that tree
+  carries the one license file below.
+
+```text
+MIT License
+
+Copyright (c) 2023-2024 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### whisper-rs and whisper-rs-sys
+
+- Source: <https://codeberg.org/tazz4843/whisper-rs>
+- License: Unlicense (public domain dedication); reproduced as a courtesy, no notice is required.
+
+```text
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <https://unlicense.org>
+```
+
+### cpal
+
+- Source: <https://github.com/RustAudio/cpal>
+- Copyright: The cpal contributors
+- License: Apache License 2.0. The crate ships no NOTICE file.
+
+The full text of the Apache License 2.0 is reproduced once, at the end of this file.
+
 ## Apache License 2.0
 
-Applies to the Darcula and Tokyo Night entries above.
+Applies to the Darcula, Tokyo Night and cpal entries above.
 
 ```text
 Apache License

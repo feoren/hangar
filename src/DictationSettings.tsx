@@ -106,6 +106,8 @@ export function DictationSettings({ settings, onChange }: Props) {
     return bytes === undefined ? "" : formatBytes(bytes, language);
   };
   const shortcut = formatShortcut(DICTATION_SHORTCUT, t);
+  // Without an input device a download would only fill the disk: the section says so instead.
+  const noMicrophone = !status.microphone;
 
   return (
     <>
@@ -116,10 +118,10 @@ export function DictationSettings({ settings, onChange }: Props) {
         <label className="check">
           <input
             type="checkbox"
-            checked={prefs.enabled}
+            checked={settings.dictationEnabled}
             aria-describedby="dictation-enabled-help"
             onChange={(event) => {
-              change({ enabled: event.currentTarget.checked });
+              onChange({ dictationEnabled: event.currentTarget.checked });
             }}
           />
           <span>{t("dictation.enabled")}</span>
@@ -183,7 +185,7 @@ export function DictationSettings({ settings, onChange }: Props) {
                     >
                       {t("dictation.remove")}
                     </button>
-                  ) : (
+                  ) : noMicrophone ? null : (
                     <button
                       type="button"
                       className="secondary-button"
@@ -201,7 +203,8 @@ export function DictationSettings({ settings, onChange }: Props) {
             );
           })}
         </div>
-        {consent !== null && (
+        {noMicrophone && <p className="settings-help">{t("dictation.noMicrophoneSetup")}</p>}
+        {consent !== null && !noMicrophone && (
           <div
             className="confirm-box"
             role="alertdialog"

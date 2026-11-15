@@ -8,10 +8,12 @@ import { api, DICTATION_LEVEL, DICTATION_STATUS, DICTATION_TEXT, errorText } fro
 import {
   canStart,
   EMPTY_DICTATION_STATUS,
+  endStaleRecording,
   failureAfter,
+  LatestOnly,
   parseDictationStatus,
-  parseDictationText,
   parseLevel,
+  takeDictationTexts,
   type DictationModel,
   type DictationPrefs,
   type DictationState,
@@ -48,26 +50,35 @@ function useBackendEvent(name: string, onPayload: (payload: unknown) => void): v
   }, [name]);
 }
 
-/** The dictation state for `model`, kept fresh by the backend's events. */
+/**
+ * The dictation state for `model`. The backend's signal carries nothing; each one reads the
+ * state again, and only the newest answer counts.
+ */
 export function useDictationStatus(model: DictationModel): DictationStatus {
   const [status, setStatus] = useState<DictationStatus>(EMPTY_DICTATION_STATUS);
-  useBackendEvent(DICTATION_STATUS, (payload) => {
-    const parsed = parseDictationStatus(payload);
-    if (parsed !== null) setStatus(parsed);
-  });
+  const reads = useRef(new LatestOnly());
+  const read = useRef<() => void>(() => undefined);
   useEffect(() => {
-    let current = true;
-    api
-      .dictationStatus(model)
-      .then((value) => {
-        const parsed = parseDictationStatus(value);
-        if (current && parsed !== null) setStatus(parsed);
-      })
-      .catch(() => undefined);
+    let mounted = true;
+    read.current = () => {
+      const ticket = reads.current.next();
+      api
+        .dictationStatus(model)
+        .then((value) => {
+          const parsed = parseDictationStatus(value);
+          if (mounted && reads.current.current(ticket) && parsed !== null) setStatus(parsed);
+        })
+        .catch(() => undefined);
+    };
+    read.current();
     return () => {
-      current = false;
+      mounted = false;
+      read.current = () => undefined;
     };
   }, [model]);
+  useBackendEvent(DICTATION_STATUS, () => {
+    read.current();
+  });
   return status;
 }
 
@@ -122,6 +133,8 @@ function problemOf(error: unknown): DictationProblem {
 }
 
 interface KeyOptions {
+  /** Off: the key goes to the program in the terminal as before. */
+  enabled: boolean;
   prefs: DictationPrefs;
   status: DictationStatus;
   /** The session the text goes to, read on key down; `null`: nothing to dictate into. */
@@ -143,10 +156,16 @@ export function useDictationKey(options: KeyOptions): void {
   useEffect(() => {
     latest.current = options;
   });
-  useBackendEvent(DICTATION_TEXT, (payload) => {
-    const text = parseDictationText(payload);
-    if (text !== null && text.text !== "") latest.current.onText(text);
+  useBackendEvent(DICTATION_TEXT, () => {
+    void takeDictationTexts(api.dictationTakeText, (text) => {
+      latest.current.onText(text);
+    });
   });
+  // Loaded while a recording ran (reloaded with the key held): no key belongs to it any more,
+  // and texts nobody took belong to the window before.
+  useEffect(() => {
+    void endStaleRecording(api.dictationStop, api.dictationTakeText);
+  }, []);
 
   // A failure that shows only after the start (a blocked microphone, a failed recognition)
   // arrives as a state change; its notice goes to the pane the recording was for.
@@ -158,7 +177,7 @@ export function useDictationKey(options: KeyOptions): void {
     if (failed !== null) latest.current.onProblem(failed.failure, failed.session);
   }, [state]);
 
-  const enabled = options.prefs.enabled;
+  const enabled = options.enabled;
   useEffect(() => {
     if (!enabled) return;
     // Stop waits for the start: a quick tap must not leave the microphone open because the stop

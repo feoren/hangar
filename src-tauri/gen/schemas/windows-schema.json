@@ -447,6 +447,12 @@
           "markdownDescription": "Enables the dictation_stop command without any pre-configured scope."
         },
         {
+          "description": "Enables the dictation_take_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-take-text",
+          "markdownDescription": "Enables the dictation_take_text command without any pre-configured scope."
+        },
+        {
           "description": "Enables the export_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-export-note",
@@ -1405,6 +1411,12 @@
           "type": "string",
           "const": "deny-dictation-stop",
           "markdownDescription": "Denies the dictation_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_take_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-take-text",
+          "markdownDescription": "Denies the dictation_take_text command without any pre-configured scope."
         },
         {
           "description": "Denies the export_note command without any pre-configured scope.",

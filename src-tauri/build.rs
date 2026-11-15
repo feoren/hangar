@@ -160,6 +160,7 @@ const COMMANDS: &[&str] = &[
     "dictation_status",
     "dictation_start",
     "dictation_stop",
+    "dictation_take_text",
     "dictation_install_model",
     "dictation_remove_model",
 ];
