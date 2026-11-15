@@ -38,8 +38,8 @@ the backend changes.
 
 ## States, colors, texts
 
-The plinth is a low round pedestal: an elliptic top face in the state color for the figure's feet
-and a front face tinted with the same color mixed into the panel color and shaded towards the
+The plinth is a low block seen slightly from above: a trapezoid top face in the state color, the
+figure standing in its middle, and a front face tinted with the same color mixed into the panel color and shaded towards the
 bottom, so its label (text color) keeps 4.5:1 in both themes. The label is the sub-agent's name
 (the user's choice): on screen only the color tells the state. The state word stays in the tooltip
 and the accessible name. The color changes with a short transition (color only, allowed under

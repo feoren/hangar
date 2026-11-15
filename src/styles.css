@@ -12821,15 +12821,16 @@ body.session-dragging .session-actions {
 
 .crew-column .agent-figure {
   z-index: 1;
-  /* The feet stand on the plinth's top face. */
-  margin-bottom: -9px;
+  /* The feet stand in the middle of the plinth's top face. */
+  margin-bottom: -6px;
   border-radius: 0;
 }
 
 /*
- * A low, round pedestal: the elliptic top face (::before) in the state color, which the figure
- * stands on, and the front face below it, shaded from light to dark and curved at the bottom.
- * Gradients are only overlays, so the state colors still fade (background-color, border-color).
+ * A low block seen slightly from above: the top face (::before) in the state color, drawn as a
+ * trapezoid for depth, which the figure stands on in its middle, and the front face below it,
+ * shaded from light to dark. Gradients are only overlays, so the state colors still fade
+ * (background-color, border-color).
  */
 .crew-plinth {
   position: relative;
@@ -12837,18 +12838,17 @@ body.session-dragging .session-actions {
   display: grid;
   place-items: center;
   width: 112px;
-  height: 28px;
-  margin-top: 2px;
-  padding-top: 7px;
+  height: 22px;
+  margin-top: 12px;
   background-color: color-mix(in srgb, var(--crew-color) var(--crew-tint), var(--panel-raised));
   background-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, white 10%, transparent),
-    color-mix(in srgb, black 24%, transparent)
+    color-mix(in srgb, white 8%, transparent),
+    color-mix(in srgb, black 22%, transparent)
   );
   border: 1px solid color-mix(in srgb, var(--crew-color) 40%, var(--border));
-  border-top: 0;
-  border-radius: 0 0 50% 50% / 0 0 8px 8px;
+  border-top-color: color-mix(in srgb, var(--crew-color) 70%, black);
+  border-radius: 1px 1px 3px 3px;
   box-shadow: 0 5px 7px -3px color-mix(in srgb, black 45%, transparent);
   transition:
     background-color var(--crew-fade),
@@ -12858,25 +12858,18 @@ body.session-dragging .session-actions {
 .crew-plinth::before {
   content: "";
   position: absolute;
-  top: -7px;
+  top: -13px;
   left: -1px;
   right: -1px;
-  height: 14px;
+  height: 12px;
   background-color: var(--crew-color);
-  background-image: radial-gradient(
-    ellipse at 50% 40%,
-    color-mix(in srgb, white 32%, transparent),
-    transparent 70%
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, black 12%, transparent),
+    color-mix(in srgb, white 22%, transparent)
   );
-  border: 1px solid color-mix(in srgb, var(--crew-color) 70%, black);
-  border-radius: 50%;
-  transition:
-    background-color var(--crew-fade),
-    border-color var(--crew-fade);
-}
-
-.crew-chip-name {
-  font-weight: 600;
+  clip-path: polygon(9% 0, 91% 0, 100% 100%, 0 100%);
+  transition: background-color var(--crew-fade);
 }
 
 .crew-item.state-waiting .crew-plinth {
