@@ -26,6 +26,7 @@ describe("session report", () => {
   it("names the file as Markdown and counts the offset east of UTC", () => {
     const date = new Date(2026, 10, 14, 15, 30);
     expect(exportFileName("Claude Code", date, "report")).toBe("Claude Code 2026-11-14 15-30.md");
-    expect(utcOffsetMinutes(date)).toBe(-date.getTimezoneOffset());
+    // `+ 0` turns the -0 of a UTC machine into 0, as utcOffsetMinutes does.
+    expect(utcOffsetMinutes(date)).toBe(-date.getTimezoneOffset() + 0);
   });
 });
