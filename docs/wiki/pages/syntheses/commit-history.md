@@ -128,12 +128,12 @@ before git runs: empty, absolute, a drive or `:` on Windows, a NUL, an empty, `.
 component (on Windows also one that is empty after trailing dots and spaces), and any `.git`
 component. git itself refuses a path beyond a symbolic link.
 
-- Hooks: stage, unstage and discard pass `-c core.hooksPath=<folder>`, an empty folder
-  `git-no-hooks` below Hangar's local data folder (created on first use; refused if anything is
-  in it), so no repository hook (`post-index-change`, for example) runs for them. Only a commit
-  runs hooks (`Git::with_repo_hooks`); every other git call of Hangar already points
-  `core.hooksPath` below the git program file, where no hook can exist ([[agent-workflow-features]],
-  "Git").
+- Hooks: stage, unstage and discard run like every other git call of Hangar, with
+  `core.hooksPath` below the git program file, where no hook can exist, and every hook event
+  switched off by name, so no repository hook (`post-index-change`, for example) runs for them.
+  They create no folder of their own; the former `git-no-hooks` folder below Hangar's local data
+  folder is no longer used, and a file left in it blocks nothing. Only a commit runs hooks
+  (`Git::with_repo_hooks`) ([[agent-workflow-features]], "Git").
 - Links (discard only, checked before git runs): every component of every path below the work
   tree root is read with `symlink_metadata`; a symbolic link or, on Windows, any reparse point
   (junctions included, which Git for Windows may take for a plain folder, so `git clean -f -d`

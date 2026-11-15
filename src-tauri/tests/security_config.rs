@@ -228,3 +228,20 @@ fn panel_session_commands_check_the_handed_session() {
         );
     }
 }
+
+/// Stage, unstage and discard switch hooks off through git itself (git.rs, `core.hooksPath` below
+/// the git program); they create no folder of their own, so nothing left in Hangar's data folder
+/// can block them.
+#[test]
+fn git_actions_create_no_hooks_folder() {
+    let commands = read("src/commands.rs");
+    for name in ["git_stage", "git_unstage", "git_discard"] {
+        let body = command_body(&commands, name);
+        assert!(!body.contains("AppHandle"), "{name} takes the app handle");
+        assert!(
+            !body.contains("app_local_data_dir"),
+            "{name} touches the data folder"
+        );
+    }
+    assert!(!read("src/git_actions.rs").contains("git-no-hooks"));
+}

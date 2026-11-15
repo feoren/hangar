@@ -1807,29 +1807,18 @@ async fn git_action(
         .map_err(|error| ActionError::Task(error.to_string()))?
 }
 
-/// The empty folder stage, unstage and discard name as `core.hooksPath`, below Hangar's local
-/// data folder (git_actions.rs, `no_hooks_folder`).
-fn no_hooks(app: &tauri::AppHandle) -> Result<PathBuf, ActionError> {
-    let data = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| ActionError::NoHooksFolder(error.to_string()))?;
-    git_actions::no_hooks_folder(&data)
-}
-
 /// Stages files of the session's repository; `paths` relative to its root, as `git_diff` lists
 /// them. The repository's hooks do not run.
 #[tauri::command]
 pub async fn git_stage(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
-    app: tauri::AppHandle,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
     git_action(&window, &scope, &manager, id, move |git, cwd| {
-        git_actions::stage(git, &no_hooks(&app)?, cwd, &paths)
+        git_actions::stage(git, cwd, &paths)
     })
     .await
 }
@@ -1840,13 +1829,12 @@ pub async fn git_stage(
 pub async fn git_unstage(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
-    app: tauri::AppHandle,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
     git_action(&window, &scope, &manager, id, move |git, cwd| {
-        git_actions::unstage(git, &no_hooks(&app)?, cwd, &paths)
+        git_actions::unstage(git, cwd, &paths)
     })
     .await
 }
@@ -1857,13 +1845,12 @@ pub async fn git_unstage(
 pub async fn git_discard(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
-    app: tauri::AppHandle,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
     git_action(&window, &scope, &manager, id, move |git, cwd| {
-        git_actions::discard(git, &no_hooks(&app)?, cwd, &paths)
+        git_actions::discard(git, cwd, &paths)
     })
     .await
 }

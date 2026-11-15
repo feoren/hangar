@@ -192,7 +192,7 @@ unchecked; that needs write access to the git folder, which already allows far m
   would also drop the records of the user's own worktrees ([[worktree-remove-missing-measurement]]);
   a record already gone counts as removed. `worktree remove`, `branch -d`, `worktree add` and the
   checkout run without any repository hook (the `core.hooksPath` every call gets, see above; the
-  former empty `.no-hooks` folder is no longer named and stays reserved as no valid slug) and with
+  former empty `.no-hooks` folder is no longer named; a dot name is no valid slug) and with
   the filter overrides, so neither a post-checkout or reference-transaction hook nor a smudge
   filter runs; a fresh worktree therefore holds Git LFS files as pointers. Refuses any path outside
   the app's worktrees folder, and any record whose path does not end in

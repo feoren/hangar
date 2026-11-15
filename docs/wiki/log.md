@@ -844,3 +844,7 @@ Pages changed: [[agent-workflow-features]].
 ## [2026-11-15] decision | Command guard fails closed after a second audit
 The command guard asks instead of guessing where it does not model a construct (here-document delimiters with `$`, backticks or CR, open `${`, brace expansions and nesting past their caps), reads `#` comments and `case` patterns inside `$(...)` and arithmetic contexts as bash 5.3 does, ends PowerShell words at script block braces, reads PowerShell parameters with every dash and `:value`, wrapper options as getopt does, cmd `if` conditions and `for` sets, every change of folder, Windows path parts of dots and spaces, SQL behind comments and `psql -f -`, git's value options before the subcommand in code for every git rule, `$_` in a piped `ForEach-Object` block as the listed items (only a listing call's paths count for a piped delete). No built-in rule can be remembered; an unreadable hook request of a known session is denied instead of refused; a connection whose head is read cannot be closed for a newcomer.
 Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] update | Stage, unstage and discard create no hooks folder
+The commands no longer create the empty `git-no-hooks` folder below the local data folder or take a path to it; git switches hooks off for them like for every other call, so a file left in that folder no longer blocks staging. The `.no-hooks` constant of the worktree folder is gone too; a dot name stays no valid slug.
+Pages changed: [[commit-history]], [[agent-workflow-features]].

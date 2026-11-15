@@ -305,11 +305,6 @@ fn discard_new(
     let _ = fs::remove_dir(parent);
 }
 
-/// Folder below `base` that earlier versions named as `core.hooksPath`. Git itself now points
-/// `core.hooksPath` at a place that can never hold a hook; the name stays reserved, it is no
-/// valid slug and can never be taken for a worktree.
-pub const NO_HOOKS_DIR: &str = ".no-hooks";
-
 /// How many ignored names the reason lists before "and N more".
 const LISTED_IGNORED: usize = 3;
 
@@ -599,7 +594,8 @@ mod tests {
             base.join(&dir).join("..").join("x"),
             base.join("..").join(&dir).join("x"),
             base.join("Repo").join("x"),
-            base.join(NO_HOOKS_DIR).join("x"),
+            // A dot name is no valid slug, such as the hooks folder of earlier versions.
+            base.join(".no-hooks").join("x"),
             tmp.path().join("elsewhere").join(&dir).join("x"),
             PathBuf::from("relative").join("a").join("b"),
         ] {

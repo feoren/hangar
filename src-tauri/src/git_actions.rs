@@ -14,7 +14,6 @@
 //! repository's hooks like a commit in the terminal does; nothing is bypassed there.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -39,11 +38,6 @@ pub const MAX_LINK_SCAN: usize = 100_000;
 /// Commands without a pathspec file (`ls-files`, `clean`) take their paths as arguments; a few
 /// per call keep the command line short.
 const CLEAN_CHUNK: usize = 64;
-/// Folder below Hangar's local data folder that stage, unstage and discard once named as
-/// `core.hooksPath`. They no longer pass it to git: Git itself points `core.hooksPath` at a place
-/// that can never hold a hook, and a second `-c` would replace that. The `_no_hooks` parameters
-/// stay until the command layer stops creating the folder.
-pub const NO_HOOKS_FOLDER: &str = "git-no-hooks";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ActionError {
@@ -69,8 +63,6 @@ pub enum ActionError {
     EmptyMessage,
     #[error("The commit message is too long or holds control characters")]
     InvalidMessage,
-    #[error("Hangar's empty hooks folder cannot be used: {0}")]
-    NoHooksFolder(String),
     #[error("Background task aborted: {0}")]
     Task(String),
 }
@@ -88,18 +80,6 @@ fn explain_timeout(error: ActionError) -> ActionError {
         ActionError::Git(GitError::Timeout) => ActionError::TimedOut,
         other => other,
     }
-}
-
-/// The empty hooks folder below `data_dir`, created on first use. A folder that holds anything
-/// is refused, so nothing placed there can run as a hook.
-pub fn no_hooks_folder(data_dir: &Path) -> Result<PathBuf, ActionError> {
-    let folder = data_dir.join(NO_HOOKS_FOLDER);
-    let problem = |error: io::Error| ActionError::NoHooksFolder(error.to_string());
-    fs::create_dir_all(&folder).map_err(problem)?;
-    if fs::read_dir(&folder).map_err(problem)?.next().is_some() {
-        return Err(ActionError::NoHooksFolder("it is not empty".to_owned()));
-    }
-    Ok(folder)
 }
 
 /// One record of `git status --porcelain=v1 -z`, with the original path of a rename or copy.
@@ -475,7 +455,7 @@ fn with_originals(paths: &[String], entries: &[StatusEntry]) -> Vec<String> {
 }
 
 /// `git add --all` for the paths: new, changed and deleted files go into the index. Hooks off.
-pub fn stage(git: &Git, _no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
+pub fn stage(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
         let repo = Repo::open(git, cwd, paths.len())?;
@@ -488,12 +468,7 @@ pub fn stage(git: &Git, _no_hooks: &Path, cwd: &Path, paths: &[String]) -> Resul
 
 /// `git reset` for the paths: the index takes them from HEAD again (or drops them in a repository
 /// without commits); the work tree stays as it is. Hooks off.
-pub fn unstage(
-    git: &Git,
-    _no_hooks: &Path,
-    cwd: &Path,
-    paths: &[String],
-) -> Result<(), ActionError> {
+pub fn unstage(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
         let repo = Repo::open(git, cwd, paths.len())?;
@@ -510,12 +485,7 @@ pub fn unstage(
 /// `git clean`, which keeps ignored files and nested repositories. Paths without changes are
 /// skipped; a path through or holding a link is refused before git runs. Hooks off. The window
 /// asks before it calls this.
-pub fn discard(
-    git: &Git,
-    _no_hooks: &Path,
-    cwd: &Path,
-    paths: &[String],
-) -> Result<(), ActionError> {
+pub fn discard(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
         let repo = Repo::open(git, cwd, paths.len())?;
@@ -610,11 +580,6 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, content).unwrap();
-    }
-
-    /// The empty hooks folder, inside the test's own folder.
-    fn hooks(tmp: &TempDir) -> PathBuf {
-        no_hooks_folder(tmp.path()).unwrap()
     }
 
     fn owned(paths: &[&str]) -> Vec<String> {
@@ -752,13 +717,7 @@ mod tests {
 
         // From a subfolder; paths stay relative to the root.
         let sub = repo.join("new folder");
-        stage(
-            &git,
-            &hooks(&tmp),
-            &sub,
-            &owned(&["a.txt", "b.txt", "new folder/", "-n"]),
-        )
-        .unwrap();
+        stage(&git, &sub, &owned(&["a.txt", "b.txt", "new folder/", "-n"])).unwrap();
         let mut got = codes(&git, &repo);
         got.sort();
         let mut expected = vec![
@@ -772,8 +731,8 @@ mod tests {
         assert_eq!(got, expected);
 
         // `[ab].txt` is a literal name, not a glob that would stage `a.txt` and `b.txt`.
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt", "b.txt", "-n"])).unwrap();
-        stage(&git, &hooks(&tmp), &repo, &owned(&["[ab].txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt", "b.txt", "-n"])).unwrap();
+        stage(&git, &repo, &owned(&["[ab].txt"])).unwrap();
         let mut got = codes(&git, &repo);
         got.sort();
         let mut expected = vec![
@@ -792,7 +751,7 @@ mod tests {
 
         // A rename is unstaged as a whole.
         git_ok(&git, &repo, &["mv", "a.txt", "renamed.txt"]);
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["renamed.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["renamed.txt"])).unwrap();
         let got = codes(&git, &repo);
         assert!(got.contains(&pair(" D", "a.txt")), "{got:?}");
         assert!(got.contains(&pair("??", "renamed.txt")), "{got:?}");
@@ -805,13 +764,13 @@ mod tests {
         let repo = tmp.path().join("repo");
         init_repo(&git, &repo);
         write(&repo.join("a.txt"), "one\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert_eq!(codes(&git, &repo), [pair("A ", "a.txt")]);
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert_eq!(codes(&git, &repo), [pair("??", "a.txt")]);
         // Discarding a file that exists only in the index and the work tree removes it.
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!repo.join("a.txt").exists());
         assert!(codes(&git, &repo).is_empty());
     }
@@ -838,7 +797,6 @@ mod tests {
 
         discard(
             &git,
-            &hooks(&tmp),
             &repo,
             &owned(&["a.txt", "b.txt", "added.txt", "loose.txt", "scratch/"]),
         )
@@ -854,7 +812,7 @@ mod tests {
 
         // A rename goes back as a whole; a path without changes is skipped.
         git_ok(&git, &repo, &["mv", "a.txt", "moved.txt"]);
-        discard(&git, &hooks(&tmp), &repo, &owned(&["moved.txt", "b.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["moved.txt", "b.txt"])).unwrap();
         assert!(repo.join("a.txt").exists());
         assert!(!repo.join("moved.txt").exists());
         assert_eq!(codes(&git, &repo), [pair("??", "kept.txt")]);
@@ -870,22 +828,22 @@ mod tests {
         for bad in ["../outside.txt", ".git/config", "/outside.txt"] {
             let paths = owned(&[bad]);
             assert!(matches!(
-                stage(&git, &hooks(&tmp), &repo, &paths),
+                stage(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
             assert!(matches!(
-                unstage(&git, &hooks(&tmp), &repo, &paths),
+                unstage(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
             assert!(matches!(
-                discard(&git, &hooks(&tmp), &repo, &paths),
+                discard(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
         }
         assert!(outside.exists());
         // No work tree: the test folder lies inside Hangar's own checkout, so only the git
         // directory itself is a folder outside any work tree (as in git.rs).
-        let error = stage(&git, &hooks(&tmp), &repo.join(".git"), &owned(&["a.txt"])).unwrap_err();
+        let error = stage(&git, &repo.join(".git"), &owned(&["a.txt"])).unwrap_err();
         assert!(
             matches!(error, ActionError::Git(GitError::NotARepository)),
             "{error}"
@@ -908,16 +866,16 @@ mod tests {
         write(&repo.join("a.txt"), "one\nmore\n");
 
         assert!(matches!(
-            stage(&git, &hooks(&tmp), &repo, &owned(&["data/"])),
+            stage(&git, &repo, &owned(&["data/"])),
             Err(ActionError::Filtered)
         ));
         assert!(matches!(
-            stage(&git, &hooks(&tmp), &repo, &owned(&["data/big.bin"])),
+            stage(&git, &repo, &owned(&["data/big.bin"])),
             Err(ActionError::Filtered)
         ));
         // Files without the attribute still work, and no filter ran for them.
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!marker.exists(), "a repository filter ran");
     }
 
@@ -928,7 +886,7 @@ mod tests {
         let repo = committed_repo(&git, &tmp);
         write(&repo.join("a.txt"), "one\nnew\n");
         write(&repo.join("b.txt"), "two\nnot staged\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         commit(&git, &repo, "  feat: a change\n\n--looks like an option\n").unwrap();
         let log = git
             .run(
@@ -969,7 +927,7 @@ mod tests {
         git_ok(&git, &repo, &["config", "user.name", ""]);
         git_ok(&git, &repo, &["config", "user.email", ""]);
         write(&repo.join("a.txt"), "one\nnew\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         let error = commit(&git, &repo, "fix: something").unwrap_err();
         assert!(
             matches!(error, ActionError::Git(GitError::Failed(_))),
@@ -1005,17 +963,16 @@ mod tests {
         git_ok(&git, &repo, &["reset", "--quiet"]);
         fs::remove_file(&marker).unwrap();
 
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!marker.exists(), "a repository hook ran");
-        assert!(fs::read_dir(hooks(&tmp)).unwrap().next().is_none());
 
         // A commit keeps the repository's hooks.
         let committed = tmp.path().join("commit-hook-ran");
         marker_hook(&repo, "post-commit", &committed);
         write(&repo.join("b.txt"), "two\nchanged\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["b.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["b.txt"])).unwrap();
         commit(&git, &repo, "test: hooks").unwrap();
         assert!(committed.exists(), "the commit hook did not run");
     }
@@ -1040,18 +997,6 @@ mod tests {
             .filter(|arg| arg.to_ascii_lowercase().starts_with("core.hookspath"))
             .count();
         assert_eq!(named, 1, "{argv:?}");
-    }
-
-    #[test]
-    fn a_hooks_folder_with_content_is_refused() {
-        let tmp = TempDir::new("git-actions-no-hooks");
-        let folder = no_hooks_folder(tmp.path()).unwrap();
-        assert!(folder.is_dir());
-        write(&folder.join("pre-commit"), "#!/bin/sh\n");
-        assert!(matches!(
-            no_hooks_folder(tmp.path()),
-            Err(ActionError::NoHooksFolder(_))
-        ));
     }
 
     #[test]
@@ -1111,8 +1056,7 @@ mod tests {
         let listed = codes(&git, &repo);
         for (code, path) in &listed {
             if code == "??" || path.starts_with("sub") {
-                let error =
-                    discard(&git, &hooks(&tmp), &repo, std::slice::from_ref(path)).unwrap_err();
+                let error = discard(&git, &repo, std::slice::from_ref(path)).unwrap_err();
                 assert!(matches!(error, ActionError::Linked(_)), "{path}: {error}");
             }
         }
