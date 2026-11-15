@@ -60,29 +60,20 @@ jobs:
 
       # After pnpm build, because tauri::generate_context! expects the dist/ folder. --locked:
       # the build uses exactly Cargo.lock and fails if it would have to change it.
+      # --no-fail-fast: a failing test binary must not hide the binaries after it (the
+      # integration tests run only after the library's own tests).
       - name: Backend
         shell: bash
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml --check
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
-          cargo test --manifest-path src-tauri/Cargo.toml --locked
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --no-fail-fast
 
-      # The team protocol crate builds on its own (no Tauri, own lock file).
-      - name: Team protocol crate
+      # The team crates build on their own (no Tauri, own lock files); each Python reference
+      # recomputes its crate's test vectors with the standard library.
+      - name: Team crates
         shell: bash
         run: |
-          cargo fmt --manifest-path crates/hangar-team-protocol/Cargo.toml --check
-          cargo clippy --manifest-path crates/hangar-team-protocol/Cargo.toml --all-targets --locked -- -D warnings
-          cargo test --manifest-path crates/hangar-team-protocol/Cargo.toml --locked
-
-      # The team crypto crate builds on its own as well (own lock file); the Python reference
-      # recomputes its test vectors with the standard library.
-      - name: Team crypto crate
-        shell: bash
-        run: |
-          cargo fmt --manifest-path crates/hangar-team-crypto/Cargo.toml --check
-          cargo clippy --manifest-path crates/hangar-team-crypto/Cargo.toml --all-targets --locked -- -D warnings
-          cargo test --manifest-path crates/hangar-team-crypto/Cargo.toml --locked
           # macOS and Linux runners name the interpreter python3, Windows runners python; a
           # python3 that is only the Microsoft Store stub exists but does not run, so each
           # candidate has to start before it is used.
@@ -92,7 +83,13 @@ jobs:
               break
             fi
           done
-          "${py:?no Python 3.8 or newer found}" crates/hangar-team-crypto/test_vectors.py
+          : "${py:?no Python 3.8 or newer found}"
+          for crate in hangar-team-protocol hangar-team-crypto; do
+            cargo fmt --manifest-path "crates/$crate/Cargo.toml" --check
+            cargo clippy --manifest-path "crates/$crate/Cargo.toml" --all-targets --locked -- -D warnings
+            cargo test --manifest-path "crates/$crate/Cargo.toml" --locked --no-fail-fast
+            "$py" "crates/$crate/test_vectors.py"
+          done
 
   # Known vulnerabilities in the locked dependencies. cargo-audit is installed at a fixed version
   # from its own lock file; it fails on vulnerabilities and only warns about unmaintained crates.
