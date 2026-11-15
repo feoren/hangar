@@ -20,7 +20,8 @@
 #   program         program names, without folder or ".exe"; "*" matches any characters
 #   subcommand      the first argument that is not an option must be one of these
 #   value_options   options that take the next argument as their value (so it is not taken for
-#                   the subcommand or a path)
+#                   the subcommand or a path); git's own ones before its subcommand ("-C",
+#                   "-c", "--git-dir", ...) Hangar always knows
 #   any             at least one of these options is given
 #   all             every one of these options is given
 #   none            none of these options is given
@@ -41,7 +42,7 @@ version = 1
 id = "git-push-force"
 description = "git push --force overwrites the branch on the remote"
 program = ["git"]
-value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
 subcommand = ["push"]
 any = ["--force", "-f"]
 
@@ -49,7 +50,7 @@ any = ["--force", "-f"]
 id = "git-reset-hard"
 description = "git reset --hard throws away uncommitted changes"
 program = ["git"]
-value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
 subcommand = ["reset"]
 any = ["--hard"]
 
@@ -57,7 +58,7 @@ any = ["--hard"]
 id = "git-clean-force"
 description = "git clean -f deletes untracked files"
 program = ["git"]
-value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
 subcommand = ["clean"]
 any = ["-f", "--force"]
 none = ["-n", "--dry-run"]

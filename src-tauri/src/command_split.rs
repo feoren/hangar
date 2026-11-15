@@ -58,6 +58,14 @@ pub struct CallInfo {
     pub upstream: Option<usize>,
     /// Here-strings and here-document bodies it reads on stdin, as the shell passes them.
     pub fed: Vec<String>,
+    /// A POSIX call with a brace outside quotes: only then does the shell expand braces, so a
+    /// quoted JSON text is not taken apart.
+    pub braces: bool,
+    /// A PowerShell call inside the script block of a piped `ForEach-Object` (`%`): its `$_`
+    /// is each item the call before the `ForEach-Object` hands on.
+    pub per_item: bool,
+    /// That call, when it is one call of [`Analysis::calls`].
+    pub items: Option<usize>,
 }
 
 /// A word whose value Hangar cannot know (a substitution); it reads as a variable, so a path
@@ -81,12 +89,19 @@ struct Simple {
     piped: bool,
     /// Here-strings and here-document bodies it reads.
     fed: Vec<String>,
+    /// A brace stood outside quotes in one of its words.
+    braces: bool,
+    /// The piece of the piped `ForEach-Object` whose script block holds it.
+    item_of: Option<usize>,
 }
 
-/// One part of a script in order: a simple command, or a nested script to split.
+/// One part of a script in order: a simple command, a nested script to split, or the inside of
+/// a POSIX arithmetic context (`((...))`, `$((...))`), read as commands without here-documents
+/// so its substitutions and any subshell bash may make of it are still seen.
 enum Piece {
     Command(Simple),
     Script(String, Dialect),
+    Arithmetic(String),
 }
 
 /// A POSIX here-document whose body is still to come.
@@ -121,6 +136,15 @@ struct Words {
     /// Here-documents of finished commands; their bodies start after the next line break.
     ready_docs: Vec<Heredoc>,
     unclosed: bool,
+    /// Open `${` in the current word: `<<` inside is text, not a here-document.
+    params: usize,
+    /// Open `$[` (old arithmetic) in the current word.
+    brackets: usize,
+    /// A brace outside quotes went into a word of the current command.
+    braces: bool,
+    /// Open PowerShell script blocks, each with the piece of the piped `ForEach-Object` whose
+    /// items its `$_` stands for (inherited by blocks nested in one).
+    blocks: Vec<Option<usize>>,
 }
 
 impl Words {
@@ -161,16 +185,52 @@ impl Words {
                 redirects: std::mem::take(&mut self.redirects),
                 piped: self.piped,
                 fed: std::mem::take(&mut self.fed),
+                braces: self.braces,
+                item_of: self.blocks.last().copied().flatten(),
             }));
             Some(self.pieces.len() - 1)
         } else {
             None
         };
         self.piped = false;
+        self.braces = false;
+        if self.params > 0 || self.brackets > 0 {
+            // A `${` or `$[` left open: the shell reads on where the lexer stopped.
+            self.unclosed = true;
+        }
+        self.params = 0;
+        self.brackets = 0;
         for mut doc in std::mem::take(&mut self.open_docs) {
             doc.owner = owner;
             self.ready_docs.push(doc);
         }
+    }
+
+    /// A PowerShell script block opens: a piped `ForEach-Object` (`%`, `foreach`) in front of
+    /// it, with no more than parameters (`-Process`), makes its `$_` that command's items.
+    fn open_block(&mut self) {
+        self.end_word();
+        let for_each = self.piped
+            && self.words.first().is_some_and(|first| {
+                ["foreach-object", "%", "foreach"]
+                    .iter()
+                    .any(|name| first.eq_ignore_ascii_case(name))
+            })
+            && self.words[1..].iter().all(|word| word.starts_with('-'));
+        let inherited = self.blocks.last().copied().flatten();
+        self.end_command();
+        let owner = if for_each {
+            self.pieces.len().checked_sub(1)
+        } else {
+            inherited
+        };
+        self.blocks.push(owner);
+    }
+
+    /// A PowerShell script block closes.
+    fn close_block(&mut self) {
+        self.end_command();
+        self.blocks.pop();
     }
 
     /// A pipe: the command after it reads this one's output.
@@ -213,20 +273,85 @@ impl Words {
 /// here-document bodies (a quote or `)` in one is text, as in `$(cat <<'EOF' ... EOF)`); `None`
 /// when it never closes.
 fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize> {
+    closing_paren_nested(chars, start, dialect, 0)
+}
+
+/// Substitutions inside double quotes inside a substitution followed by [`closing_paren`]; a
+/// deeper one is not looked for and counts as unclosed.
+const MAX_QUOTED_NESTING: usize = 32;
+
+/// Reserved words after which a POSIX word is still in command position (`if case`, `do ((`).
+const KEEP_COMMAND_POSITION: &[&str] = &[
+    "if", "then", "else", "elif", "do", "while", "until", "for", "!", "{", "time",
+];
+
+/// [`closing_paren`] `nesting` substitutions deep. Modelled as bash reads a `$(...)`: `#`
+/// comments at a word start, `case ... esac` (whose pattern `)` closes nothing), arithmetic
+/// `((...))`, `$((...))`, `${...}` and `$[...]` (where `<<` shifts), `$'...'`, backticks and
+/// substitutions inside double quotes. What it cannot place (a here-document delimiter bash
+/// reads differently, nesting past [`MAX_QUOTED_NESTING`]) gives `None`: asked about.
+fn closing_paren_nested(
+    chars: &[char],
+    start: usize,
+    dialect: Dialect,
+    nesting: usize,
+) -> Option<usize> {
+    if nesting > MAX_QUOTED_NESTING {
+        return None;
+    }
     let posix = dialect == Dialect::Posix;
     // `$((...))` is arithmetic: `<<` there shifts.
     let arithmetic = chars.get(start) == Some(&'(');
     // Here-documents opened on the current line: delimiter and whether tabs are stripped.
     let mut docs: Vec<(String, bool)> = Vec::new();
     let mut depth = 1usize;
+    // The paren depth an arithmetic `((` started at, open `${` and `$[`.
+    let mut arith_at: Option<usize> = None;
+    let mut params = 0usize;
+    let mut brackets = 0usize;
+    // Paren depths of open `case` statements: a `)` at that depth ends a pattern.
+    let mut cases: Vec<usize> = Vec::new();
+    let mut command_position = true;
     let mut i = start;
     while i < chars.len() {
-        match chars[i] {
+        let c = chars[i];
+        let quiet = arithmetic || arith_at.is_some() || params > 0 || brackets > 0;
+        let word_start = i == start
+            || chars
+                .get(i.wrapping_sub(1))
+                .is_some_and(|p| p.is_whitespace() || ";&|()".contains(*p));
+        if word_start && !quiet && !c.is_whitespace() && !";&|()<>".contains(c) {
+            if c == '#' {
+                // A comment up to the line break, which is read next (here-document bodies).
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if posix {
+                let word: String = chars[i..]
+                    .iter()
+                    .take_while(|w| !w.is_whitespace() && !";&|()<>".contains(**w))
+                    .take(8)
+                    .collect();
+                if command_position && word == "case" {
+                    cases.push(depth);
+                } else if command_position && word == "esac" {
+                    cases.pop();
+                }
+                command_position = KEEP_COMMAND_POSITION.contains(&word.as_str());
+            }
+        }
+        match c {
+            ';' | '&' | '|' | '\n' => command_position = true,
+            _ => {}
+        }
+        match c {
             // A here-string (`<<<`) is no here-document.
             '<' if posix && chars.get(i + 1) == Some(&'<') && chars.get(i + 2) == Some(&'<') => {
                 i += 2;
             }
-            '<' if posix && !arithmetic && chars.get(i + 1) == Some(&'<') => {
+            '<' if posix && !quiet && chars.get(i + 1) == Some(&'<') => {
                 let mut j = i + 2;
                 let strip_tabs = chars.get(j) == Some(&'-');
                 if strip_tabs {
@@ -236,6 +361,9 @@ fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize
                     j += 1;
                 }
                 let (delimiter, _, end) = heredoc_word(chars, j);
+                if !plain_delimiter(&delimiter) {
+                    return None;
+                }
                 if !delimiter.is_empty() {
                     docs.push((delimiter, strip_tabs));
                 }
@@ -246,8 +374,22 @@ fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize
                 i = after_heredoc_bodies(chars, i + 1, &std::mem::take(&mut docs));
                 continue;
             }
-            '\\' if dialect == Dialect::Posix => i += 1,
+            '\\' if posix => i += 1,
             '`' if dialect == Dialect::PowerShell => i += 1,
+            '`' if posix => i = closing_backtick(chars, i + 1)?,
+            '$' if posix && chars.get(i + 1) == Some(&'\'') => {
+                i = ansi_c(chars, i + 2).1?;
+            }
+            '$' if posix && chars.get(i + 1) == Some(&'{') => {
+                params += 1;
+                i += 1;
+            }
+            '$' if posix && chars.get(i + 1) == Some(&'[') => {
+                brackets += 1;
+                i += 1;
+            }
+            '}' if params > 0 => params -= 1,
+            ']' if brackets > 0 => brackets -= 1,
             '\'' => {
                 i += 1;
                 while i < chars.len() && chars[i] != '\'' {
@@ -257,26 +399,50 @@ fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize
             '"' => {
                 i += 1;
                 while i < chars.len() && chars[i] != '"' {
-                    if (dialect == Dialect::Posix && chars[i] == '\\')
-                        || (dialect == Dialect::PowerShell && chars[i] == '`')
-                    {
-                        i += 1;
+                    match chars[i] {
+                        '\\' if posix => i += 1,
+                        '`' if dialect == Dialect::PowerShell => i += 1,
+                        '`' if posix => i = closing_backtick(chars, i + 1)?,
+                        '$' if chars.get(i + 1) == Some(&'(') => {
+                            i = closing_paren_nested(chars, i + 2, dialect, nesting + 1)?;
+                        }
+                        _ => {}
                     }
                     i += 1;
                 }
             }
-            '(' => depth += 1,
+            '(' => {
+                let dollar = i > 0 && chars[i - 1] == '$';
+                if posix && !quiet && chars.get(i + 1) == Some(&'(') && (command_position || dollar)
+                {
+                    arith_at = Some(depth);
+                }
+                depth += 1;
+                command_position = true;
+            }
+            ')' if !quiet && cases.last() == Some(&depth) => command_position = true,
             ')' => {
                 depth -= 1;
+                if arith_at == Some(depth) {
+                    arith_at = None;
+                }
                 if depth == 0 {
                     return Some(i);
                 }
+                command_position = true;
             }
             _ => {}
         }
         i += 1;
     }
     None
+}
+
+/// Whether bash reads a here-document delimiter the way [`heredoc_word`] does: one with a `$`,
+/// a backtick or a carriage return is read differently (`<<a$(b)`, `<<'EOF\r'`), so its body
+/// cannot be placed.
+fn plain_delimiter(delimiter: &str) -> bool {
+    !delimiter.contains(['$', '`', '\r'])
 }
 
 /// Where the line after the bodies of `docs` begins, the first body starting at `start`, read as
@@ -332,6 +498,11 @@ fn text_of(chars: &[char], from: usize, to: usize) -> String {
 /// POSIX shell: quotes, every backslash outside quotes escapes, `$'...'`, `$(...)`, backticks,
 /// here-documents and here-strings, process substitutions.
 fn lex_posix(text: &str) -> Words {
+    lex_posix_in(text, false)
+}
+
+/// [`lex_posix`]; in an arithmetic context (`arithmetic`) `<` and `>` only separate words.
+fn lex_posix_in(text: &str, arithmetic: bool) -> Words {
     let chars: Vec<char> = text.chars().collect();
     let mut w = Words::default();
     let mut i = 0;
@@ -340,6 +511,52 @@ fn lex_posix(text: &str) -> Words {
         let next = chars.get(i + 1).copied();
         match c {
             ' ' | '\t' | '\r' => w.end_word(),
+            '<' | '>' if arithmetic => w.end_word(),
+            // Inside `${...}` and `$[...]` a `<<` shifts and nothing groups.
+            '<' | '>' | '#' | '(' | ')' | '{' | '|' | '&' | ';'
+                if w.params > 0 || w.brackets > 0 =>
+            {
+                w.push(c)
+            }
+            '}' if w.params > 0 => {
+                w.params -= 1;
+                w.push(c);
+            }
+            ']' if w.brackets > 0 => {
+                w.brackets -= 1;
+                w.push(c);
+            }
+            '$' if next == Some('{') => {
+                w.params += 1;
+                w.push_str("${");
+                i += 1;
+            }
+            '$' if next == Some('[') => {
+                w.brackets += 1;
+                w.push_str("$[");
+                i += 1;
+            }
+            // `((...))` at the start of a command is arithmetic: what it holds is read as
+            // commands without here-documents.
+            '(' if next == Some('(')
+                && !w.in_word
+                && w.words
+                    .iter()
+                    .all(|word| KEEP_COMMAND_POSITION.contains(&word.as_str())) =>
+            {
+                w.end_command();
+                match closing_paren(&chars, i + 1, Dialect::Posix) {
+                    Some(end) => {
+                        w.pieces
+                            .push(Piece::Arithmetic(text_of(&chars, i + 1, end)));
+                        i = end;
+                    }
+                    None => {
+                        w.unclosed = true;
+                        i = chars.len();
+                    }
+                }
+            }
             '\n' => {
                 w.end_command();
                 if !w.ready_docs.is_empty() {
@@ -399,7 +616,7 @@ fn lex_posix(text: &str) -> Words {
                     i += 1;
                 }
                 let (delimiter, quoted, end) = heredoc_word(&chars, i);
-                if delimiter.is_empty() && !quoted {
+                if (delimiter.is_empty() && !quoted) || !plain_delimiter(&delimiter) {
                     w.unclosed = true;
                 }
                 w.open_docs.push(Heredoc {
@@ -490,7 +707,12 @@ fn lex_posix(text: &str) -> Words {
                 }
                 None => {}
             },
-            other => w.push(other),
+            other => {
+                if other == '{' {
+                    w.braces = true;
+                }
+                w.push(other)
+            }
         }
         i += 1;
     }
@@ -521,7 +743,14 @@ fn posix_substitution_as(
         w.unclosed = true;
         chars.len()
     });
-    w.substitution(text_of(chars, start, end), Dialect::Posix, value);
+    let text = text_of(chars, start, end);
+    if paren && chars.get(start) == Some(&'(') {
+        // `$((...))`: arithmetic.
+        w.pieces.push(Piece::Arithmetic(text));
+        w.push_str(value);
+    } else {
+        w.substitution(text, Dialect::Posix, value);
+    }
     end
 }
 
@@ -634,8 +863,12 @@ fn heredoc_substitutions(w: &mut Words, body: &str) -> String {
                     w.unclosed = true;
                     chars.len()
                 });
-                w.pieces
-                    .push(Piece::Script(text_of(&chars, i + 2, end), Dialect::Posix));
+                let text = text_of(&chars, i + 2, end);
+                w.pieces.push(if chars.get(i + 2) == Some(&'(') {
+                    Piece::Arithmetic(text)
+                } else {
+                    Piece::Script(text, Dialect::Posix)
+                });
                 out.push_str(UNKNOWN);
                 i = end;
             }
@@ -790,7 +1023,39 @@ fn lex_powershell(text: &str) -> Words {
                 }
             }
             '(' | ')' => w.end_command(),
-            '{' | '}' if !w.in_word => w.end_command(),
+            // `${env:x}`: a variable name, up to the first `}` not escaped by a backtick.
+            '{' if w.in_word && w.word.ends_with('$') => {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j] != '}' {
+                    j += if chars[j] == '`' { 2 } else { 1 };
+                }
+                if j >= chars.len() {
+                    w.unclosed = true;
+                }
+                w.push_str(&text_of(&chars, i, (j + 1).min(chars.len())));
+                i = j;
+            }
+            // `@{a=1}`: a hashtable, one word; what it holds is split as a script of its own,
+            // since a value may run a command (`@{a=$(...)}`).
+            '{' if w.in_word && w.word.ends_with('@') => match ps_closing_brace(&chars, i + 1) {
+                Some(end) => {
+                    w.substitution(
+                        text_of(&chars, i + 1, end),
+                        Dialect::PowerShell,
+                        &text_of(&chars, i, end + 1),
+                    );
+                    i = end;
+                }
+                None => {
+                    w.unclosed = true;
+                    i = chars.len();
+                }
+            },
+            // A script block (`& {...}`, `%{...}`, `if (x) {...}`, `-ScriptBlock {...}`): its
+            // braces end the word and the command wherever they stand, so what runs in it is
+            // a call of its own.
+            '{' => w.open_block(),
+            '}' => w.close_block(),
             '<' if next == Some('#') => {
                 // Block comment `<# ... #>`.
                 i += 2;
@@ -930,6 +1195,43 @@ fn ps_substitution(w: &mut Words, chars: &[char], start: usize) -> usize {
     end
 }
 
+/// The index of the `}` closing a PowerShell `{` before `start`, nested braces counted and
+/// quotes skipped; `None` when it never closes.
+fn ps_closing_brace(chars: &[char], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut i = start;
+    while i < chars.len() {
+        match chars[i] {
+            '`' => i += 1,
+            q if ps_single(q) => {
+                i += 1;
+                while i < chars.len() && !ps_single(chars[i]) {
+                    i += 1;
+                }
+            }
+            q if ps_double(q) => {
+                i += 1;
+                while i < chars.len() && !ps_double(chars[i]) {
+                    if chars[i] == '`' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Whether a PowerShell word ends in a method that turns its string argument into a script.
 fn creates_script(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
@@ -1015,6 +1317,34 @@ fn lex_cmd(text: &str) -> Words {
                 i += 1;
             }
             '|' => w.pipe(),
+            // The set of `for ... in (set) do`: one word; `for /f` runs a set in single quotes
+            // (or backticks with `usebackq`) as a command.
+            '(' if w
+                .words
+                .first()
+                .is_some_and(|f| f.eq_ignore_ascii_case("for"))
+                && (if w.in_word {
+                    w.word.eq_ignore_ascii_case("in")
+                } else {
+                    w.words.last().is_some_and(|l| l.eq_ignore_ascii_case("in"))
+                }) =>
+            {
+                w.end_word();
+                match cmd_for_set(&chars, i + 1) {
+                    Some((set, command, end)) => {
+                        if let Some(command) = command {
+                            w.pieces.push(Piece::Script(command, Dialect::Cmd));
+                        }
+                        w.push_str(&set);
+                        w.end_word();
+                        i = end;
+                    }
+                    None => {
+                        w.unclosed = true;
+                        i = chars.len();
+                    }
+                }
+            }
             '(' | ')' if !w.in_word => w.end_command(),
             '<' | '>' => {
                 w.redirect();
@@ -1058,6 +1388,42 @@ fn lex_cmd(text: &str) -> Words {
     w
 }
 
+/// The set of a cmd `for` from `start` (after its `(`): the text, the command it runs when it is
+/// one in single quotes or backticks (`for /f`), and the index of the closing `)`. `None` when
+/// it never closes.
+fn cmd_for_set(chars: &[char], start: usize) -> Option<(String, Option<String>, usize)> {
+    let mut i = start;
+    while matches!(chars.get(i), Some(' ' | '\t')) {
+        i += 1;
+    }
+    if let Some(&quote) = chars.get(i).filter(|q| matches!(q, '\'' | '`')) {
+        let close = chars[i + 1..].iter().position(|c| *c == quote)? + i + 1;
+        let mut end = close + 1;
+        while matches!(chars.get(end), Some(' ' | '\t')) {
+            end += 1;
+        }
+        if chars.get(end) != Some(&')') {
+            return None;
+        }
+        return Some((
+            text_of(chars, start, end),
+            Some(text_of(chars, i + 1, close)),
+            end,
+        ));
+    }
+    let mut in_quotes = false;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            ')' if !in_quotes => return Some((text_of(chars, start, i), None, i)),
+            '\n' => return None,
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// The index of the `%` closing a cmd substring or replace expansion (`%name:...%`) that starts
 /// at `start`; `None` when none starts there.
 fn cmd_edit_end(chars: &[char], start: usize) -> Option<usize> {
@@ -1091,11 +1457,26 @@ impl Splitter {
             Dialect::PowerShell => lex_powershell(text),
             Dialect::Cmd => lex_cmd(text),
         };
+        self.pieces(words, dialect, depth);
+    }
+
+    /// The inside of a POSIX arithmetic context, read as commands without here-documents.
+    fn arithmetic(&mut self, text: &str, depth: usize) {
+        if depth > MAX_DEPTH {
+            self.analysis.truncated = true;
+            return;
+        }
+        self.pieces(lex_posix_in(text, true), Dialect::Posix, depth);
+    }
+
+    fn pieces(&mut self, words: Words, dialect: Dialect, depth: usize) {
         if words.unclosed {
             self.analysis.unclosed = true;
         }
         // The call of the last command at this level, which a pipe hands its output on from.
         let mut last: Option<usize> = None;
+        // The last call each piece made, for the script blocks of a `ForEach-Object`.
+        let mut call_of: Vec<Option<usize>> = Vec::with_capacity(words.pieces.len());
         for piece in words.pieces {
             match piece {
                 Piece::Command(simple) => {
@@ -1103,17 +1484,33 @@ impl Splitter {
                     self.analysis
                         .redirects
                         .extend(simple.redirects.into_iter().map(|target| (at, target)));
+                    let for_each = simple
+                        .item_of
+                        .and_then(|piece| call_of.get(piece).copied().flatten());
                     let meta = CallInfo {
                         dialect,
                         piped: simple.piped,
                         upstream: if simple.piped { last } else { None },
                         fed: simple.fed,
+                        braces: simple.braces,
+                        per_item: simple.item_of.is_some(),
+                        items: for_each
+                            .and_then(|call| self.analysis.info.get(call))
+                            .and_then(|info| info.upstream),
                     };
                     self.command(&simple.words, dialect, depth, &meta);
                     let now = self.analysis.calls.len();
                     last = (now > at).then(|| now - 1);
+                    call_of.push(last);
                 }
-                Piece::Script(inner, dialect) => self.script(&inner, dialect, depth + 1),
+                Piece::Script(inner, dialect) => {
+                    self.script(&inner, dialect, depth + 1);
+                    call_of.push(None);
+                }
+                Piece::Arithmetic(inner) => {
+                    self.arithmetic(&inner, depth + 1);
+                    call_of.push(None);
+                }
             }
         }
     }
@@ -1154,13 +1551,29 @@ impl Splitter {
                     self.push(rest, meta);
                     return;
                 }
+                // cmd's `if [/i] [not] <condition> command`: the condition is skipped.
+                "if" if dialect == Dialect::Cmd => rest = after_cmd_condition(args),
+                // cmd's `for ... in (set) do command`.
+                "for" if dialect == Dialect::Cmd => {
+                    match args.iter().position(|a| a.eq_ignore_ascii_case("do")) {
+                        Some(at) => rest = &args[at + 1..],
+                        None => {
+                            self.push(rest, meta);
+                            return;
+                        }
+                    }
+                }
                 "{" | "}" | "!" | "then" | "do" | "else" | "elif" | "if" | "while" | "until"
-                | "time" | "command" | "builtin" | "exec" | "nohup" | "&" | "." | "call"
-                | "noglob" | "busybox" => rest = args,
-                "winpty" => rest = skip_options(args, &["--title"]),
-                "setsid" => rest = skip_options(args, &[]),
-                "stdbuf" => rest = skip_options(args, &["-i", "-o", "-e"]),
-                "ionice" => rest = skip_options(args, &["-c", "-n", "-p", "-P", "-u"]),
+                | "builtin" | "&" | "." | "call" | "noglob" | "busybox" => rest = args,
+                "command" | "nohup" => rest = skip_options_with(args, "", &[]),
+                "exec" => rest = skip_options_with(args, "a", &[]),
+                "time" => rest = skip_options_with(args, "fo", &["--format", "--output"]),
+                "winpty" => rest = skip_options_with(args, "", &["--title"]),
+                "setsid" => rest = skip_options_with(args, "", &[]),
+                "stdbuf" => {
+                    rest = skip_options_with(args, "ioe", &["--input", "--output", "--error"])
+                }
+                "ionice" => rest = skip_options_with(args, "cnpPu", &["--class", "--classdata"]),
                 "trap" if dialect == Dialect::Posix => {
                     // `trap 'cmd' EXIT` runs its first argument as a script later.
                     if let Some(script) = skip_options(args, &[]).first().filter(|s| *s != "-") {
@@ -1175,32 +1588,48 @@ impl Splitter {
                         dialect,
                         ..CallInfo::default()
                     };
-                    for call in find_commands(args) {
+                    let (calls, all_starts) = find_commands(args);
+                    if !all_starts {
+                        self.analysis.truncated = true;
+                    }
+                    for call in calls {
                         self.command(&call, dialect, depth + 1, &inline);
                     }
                     return;
                 }
                 "sudo" | "doas" => {
-                    rest = skip_options(
+                    rest = skip_options_with(
                         args,
-                        &["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"],
+                        "ugCDhprtUTac",
+                        &[
+                            "--user",
+                            "--group",
+                            "--close-from",
+                            "--chdir",
+                            "--host",
+                            "--prompt",
+                            "--role",
+                            "--type",
+                            "--other-user",
+                            "--command-timeout",
+                            "--auth-type",
+                            "--login-class",
+                        ],
                     )
                 }
                 "env" => {
-                    if let Some(position) =
-                        args.iter().position(|a| a == "-S" || a == "--split-string")
-                    {
-                        match args.get(position + 1) {
-                            Some(script) => self.script(script, Dialect::Posix, depth + 1),
+                    if let Some(script) = env_split_string(args) {
+                        match script {
+                            Some(script) => self.script(&script, Dialect::Posix, depth + 1),
                             None => self.analysis.stdin_script = true,
                         }
                         return;
                     }
-                    rest = skip_options(args, &["-u", "-C", "--unset", "--chdir"]);
+                    rest = skip_options_with(args, "uC", &["--unset", "--chdir"]);
                 }
-                "nice" => rest = skip_options(args, &["-n", "--adjustment"]),
+                "nice" => rest = skip_options_with(args, "n", &["--adjustment"]),
                 "timeout" => {
-                    let after = skip_options(args, &["-s", "-k", "--signal", "--kill-after"]);
+                    let after = skip_options_with(args, "sk", &["--signal", "--kill-after"]);
                     rest = after.get(1..).unwrap_or_default();
                 }
                 "sh" | "bash" | "zsh" | "dash" | "ksh" | "ash" | "mksh" | "fish" => {
@@ -1255,15 +1684,26 @@ impl Splitter {
                     return;
                 }
                 "iex" | "invoke-expression" => {
-                    let args = match args.first() {
-                        Some(name) if is_ps_param(name, "command", 1) => &args[1..],
-                        _ => args,
+                    let script = match args.first() {
+                        Some(name) if is_ps_param(name, "command", 1) => {
+                            match ps_colon_value(name) {
+                                Some(value) => {
+                                    let mut words = vec![value.to_owned()];
+                                    words.extend(args[1..].iter().cloned());
+                                    script_of(&words, Dialect::PowerShell)
+                                }
+                                None => script_of(&args[1..], Dialect::PowerShell),
+                            }
+                        }
+                        _ => script_of(args, Dialect::PowerShell),
                     };
-                    self.script(
-                        &script_of(args, Dialect::PowerShell),
-                        Dialect::PowerShell,
-                        depth + 1,
-                    );
+                    // `... | iex` runs what the pipe brings: not on the command line.
+                    if script.trim().is_empty() && meta.piped {
+                        self.analysis.stdin_script = true;
+                        self.push(rest, meta);
+                        return;
+                    }
+                    self.script(&script, Dialect::PowerShell, depth + 1);
                     return;
                 }
                 "wsl" => {
@@ -1335,7 +1775,7 @@ fn is_stdin_path(path: &str) -> bool {
 /// The commands `find` runs for what it finds (`-exec`, `-execdir`, `-ok`, `-okdir` up to `;`
 /// or `+`), with `{}` read as `<start>/*` for each of its start folders: what it finds lies
 /// below them, and a wildcard right in the project counts as inside it.
-fn find_commands(args: &[String]) -> Vec<Vec<String>> {
+fn find_commands(args: &[String]) -> (Vec<Vec<String>>, bool) {
     let mut i = 0;
     while let Some(arg) = args.get(i) {
         match arg.as_str() {
@@ -1357,6 +1797,7 @@ fn find_commands(args: &[String]) -> Vec<Vec<String>> {
         starts.push(".");
     }
     let mut out = Vec::new();
+    let all_starts = starts.len() <= MAX_FIND_STARTS;
     while i < args.len() {
         if !matches!(args[i].as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
             i += 1;
@@ -1377,7 +1818,8 @@ fn find_commands(args: &[String]) -> Vec<Vec<String>> {
         }
         i = end + 1;
     }
-    out
+    let commands = !out.is_empty();
+    (out, all_starts || !commands)
 }
 
 /// `NAME=value` in front of a program.
@@ -1407,6 +1849,158 @@ fn skip_options<'a>(args: &'a [String], with_value: &[&str]) -> &'a [String] {
         };
     }
     args.get(i..).unwrap_or_default()
+}
+
+/// The words after the options of a wrapper, read as getopt reads them: `short_values` are the
+/// short options that take a value (in a group `-Eu root` the last one takes the next word,
+/// `-uroot` holds it), `long_values` the long ones (`--user root`; `--user=root` holds it).
+/// `--` ends them.
+fn skip_options_with<'a>(
+    args: &'a [String],
+    short_values: &str,
+    long_values: &[&str],
+) -> &'a [String] {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        if arg == "--" {
+            return &args[i + 1..];
+        }
+        if arg == "-" || !arg.starts_with('-') {
+            break;
+        }
+        if arg.starts_with("--") {
+            i += if long_values.contains(&arg.as_str()) {
+                2
+            } else {
+                1
+            };
+            continue;
+        }
+        let group = &arg[1..];
+        let mut skip = 1;
+        for (at, c) in group.char_indices() {
+            if short_values.contains(c) {
+                if at + c.len_utf8() == group.len() {
+                    skip = 2;
+                }
+                break;
+            }
+        }
+        i += skip;
+    }
+    args.get(i..).unwrap_or_default()
+}
+
+/// `env -S <text>` (also `-S<text>`, `--split-string[=]<text>`, in a group `-iS<text>`): the
+/// command line it splits, with the arguments after it; `Some(None)` when the text is missing,
+/// `None` without `-S`.
+fn env_split_string(args: &[String]) -> Option<Option<String>> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        if arg == "--" || arg == "-" || !arg.starts_with('-') {
+            return None;
+        }
+        let (value, after) = if arg == "--split-string" {
+            (args.get(i + 1).cloned(), i + 2)
+        } else if let Some(value) = arg.strip_prefix("--split-string=") {
+            (Some(value.to_owned()), i + 1)
+        } else if arg.starts_with("--") {
+            i += if arg == "--unset" || arg == "--chdir" {
+                2
+            } else {
+                1
+            };
+            continue;
+        } else {
+            let group = &arg[1..];
+            let mut found = None;
+            let mut skip = 1;
+            for (at, c) in group.char_indices() {
+                let tail = &group[at + c.len_utf8()..];
+                match c {
+                    'S' => {
+                        found = Some(tail);
+                        break;
+                    }
+                    'u' | 'C' => {
+                        if tail.is_empty() {
+                            skip = 2;
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            match found {
+                Some("") => (args.get(i + 1).cloned(), i + 2),
+                Some(tail) => (Some(tail.to_owned()), i + 1),
+                None => {
+                    i += skip;
+                    continue;
+                }
+            }
+        };
+        return Some(value.map(|value| {
+            let mut words = vec![value];
+            words.extend(args.get(after..).unwrap_or_default().iter().cloned());
+            words.join(" ")
+        }));
+    }
+    None
+}
+
+/// What follows the condition of cmd's `if [/i] [not] <condition>`: `exist x`, `defined x`,
+/// `errorlevel n`, `cmdextversion n`, `a==b` (also `a== b`, which cmd's lexer leaves as two
+/// words, or `a == b`, left as `a b`), `a equ b`.
+fn after_cmd_condition(args: &[String]) -> &[String] {
+    let mut i = 0;
+    let is = |at: usize, word: &str| args.get(at).is_some_and(|a| a.eq_ignore_ascii_case(word));
+    if is(i, "/i") {
+        i += 1;
+    }
+    if is(i, "not") {
+        i += 1;
+    }
+    let Some(first) = args.get(i) else {
+        return &[];
+    };
+    let lower = first.to_ascii_lowercase();
+    i += if matches!(
+        lower.as_str(),
+        "exist" | "defined" | "errorlevel" | "cmdextversion"
+    ) {
+        2
+    } else if lower.contains("==") {
+        if lower.ends_with("==") {
+            2
+        } else {
+            1
+        }
+    } else if ["equ", "neq", "lss", "leq", "gtr", "geq"]
+        .iter()
+        .any(|op| is(i + 1, op))
+    {
+        3
+    } else {
+        2
+    };
+    args.get(i..).unwrap_or_default()
+}
+
+/// The value of a PowerShell `-Name:value` parameter word, when it holds one.
+fn ps_colon_value(arg: &str) -> Option<&str> {
+    ps_param_rest(arg)?
+        .split_once(':')
+        .map(|(_, value)| value)
+        .filter(|value| !value.is_empty())
+}
+
+/// A PowerShell parameter word without its lead: `-`, `--`, `/` or the dashes PowerShell reads
+/// as `-` (U+2013, U+2014, U+2015). `None` for a word that is no parameter.
+fn ps_param_rest(arg: &str) -> Option<&str> {
+    arg.strip_prefix("--")
+        .or_else(|| arg.strip_prefix(['-', '/']))
+        .or_else(|| arg.strip_prefix(ps_dash))
 }
 
 enum ShellScript<'a> {
@@ -1486,8 +2080,8 @@ const START_PROCESS_VALUES: &[(&str, usize)] = &[
 /// starts; empty when there is none. After the program, a word that is none of
 /// `Start-Process`'s own parameters is the program's argument (cmd's `start git push --force`).
 fn started_program(args: &[String]) -> Vec<String> {
-    let mut program = None;
-    let mut list: Option<&String> = None;
+    let mut program: Option<String> = None;
+    let mut list: Option<String> = None;
     let mut positional: Vec<&String> = Vec::new();
     let mut i = 0;
     while let Some(arg) = args.get(i) {
@@ -1507,12 +2101,28 @@ fn started_program(args: &[String]) -> Vec<String> {
         {
             positional.push(arg);
             i += 1;
-        } else if is_ps_param(arg, "filepath", 2) && arg.starts_with('-') {
-            program = args.get(i + 1);
-            i += 2;
-        } else if is_ps_param(arg, "argumentlist", 2) && arg.starts_with('-') {
-            list = args.get(i + 1);
-            i += 2;
+        } else if is_ps_param(arg, "filepath", 2) && !arg.starts_with('/') {
+            match ps_colon_value(arg) {
+                Some(value) => {
+                    program = Some(value.to_owned());
+                    i += 1;
+                }
+                None => {
+                    program = args.get(i + 1).cloned();
+                    i += 2;
+                }
+            }
+        } else if is_ps_param(arg, "argumentlist", 2) && !arg.starts_with('/') {
+            match ps_colon_value(arg) {
+                Some(value) => {
+                    list = Some(value.to_owned());
+                    i += 1;
+                }
+                None => {
+                    list = args.get(i + 1).cloned();
+                    i += 2;
+                }
+            }
         } else if arg.starts_with('-') && arg.len() > 1 {
             i += if own_switch { 1 } else { 2 };
         } else if !found && arg.starts_with('/') && arg.len() <= 12 && !arg[1..].contains('/') {
@@ -1526,13 +2136,13 @@ fn started_program(args: &[String]) -> Vec<String> {
         }
     }
     let mut positional = positional.into_iter();
-    let Some(program) = program.or_else(|| positional.next()) else {
+    let Some(program) = program.or_else(|| positional.next().cloned()) else {
         return Vec::new();
     };
-    let mut call = vec![program.clone()];
-    let extra: Vec<&String> = match list {
+    let mut call = vec![program];
+    let extra: Vec<String> = match list {
         Some(list) => vec![list],
-        None => positional.collect(),
+        None => positional.cloned().collect(),
     };
     for value in extra {
         for part in value.split(',') {
@@ -1550,14 +2160,16 @@ enum ShellScriptOwned {
 }
 
 /// Whether `arg` names the PowerShell parameter `full` (lowercase), abbreviated to at least
-/// `min` characters, with `-` or `/` and an optional `:value`.
+/// `min` characters, with any lead [`ps_param_rest`] takes and an optional `:value`.
 fn is_ps_param(arg: &str, full: &str, min: usize) -> bool {
-    let lower = arg.to_ascii_lowercase();
-    let Some(name) = lower.strip_prefix('-').or_else(|| lower.strip_prefix('/')) else {
+    let Some(rest) = ps_param_rest(arg) else {
         return false;
     };
-    let name = name.split_once(':').map_or(name, |(name, _)| name);
-    name.len() >= min && full.starts_with(name)
+    let name = rest
+        .split_once(':')
+        .map_or(rest, |(name, _)| name)
+        .to_ascii_lowercase();
+    name.len() >= min && full.starts_with(&name)
 }
 
 /// PowerShell parameters that take a value, with the shortest abbreviation PowerShell accepts.
@@ -1573,14 +2185,39 @@ const POWERSHELL_VALUES: &[(&str, usize)] = &[
     ("inputformat", 2),
     ("settingsfile", 2),
     ("custompipename", 2),
+    ("configurationfile", 14),
+    ("encodedarguments", 8),
 ];
 
 /// What `pwsh` runs: `-Command ...`, `-CommandWithArgs <script> args`, `-EncodedCommand
 /// <base64>`, Windows PowerShell's first positional words, a file, or stdin.
 fn powershell_script(args: &[String], windows_powershell: bool) -> ShellScriptOwned {
+    let found = powershell_script_from(args, windows_powershell);
+    if !matches!(found, ShellScriptOwned::File) {
+        return found;
+    }
+    // A parameter Hangar does not know may have taken the script for a file: any `-Command`,
+    // `-CommandWithArgs` or `-EncodedCommand` later in the line is read too.
+    let later = args.iter().position(|arg| {
+        is_ps_param(arg, "command", 1)
+            || is_ps_param(arg, "commandwithargs", 8)
+            || is_ps_param(arg, "encodedcommand", 3)
+            || ps_param_rest(arg).is_some_and(|rest| rest.eq_ignore_ascii_case("cwa"))
+            || ps_param_rest(arg).is_some_and(|rest| rest.eq_ignore_ascii_case("ec"))
+    });
+    match later {
+        Some(at) if at > 0 => match powershell_script_from(&args[at..], windows_powershell) {
+            ShellScriptOwned::File => found,
+            other => other,
+        },
+        _ => found,
+    }
+}
+
+fn powershell_script_from(args: &[String], windows_powershell: bool) -> ShellScriptOwned {
     let mut i = 0;
     while let Some(arg) = args.get(i) {
-        if !arg.starts_with(['-', '/']) {
+        if ps_param_rest(arg).is_none() {
             // Windows PowerShell reads positional words as a command; pwsh as a script file.
             return if windows_powershell {
                 ShellScriptOwned::Inline(join_for(&args[i..], Dialect::PowerShell))
@@ -1588,7 +2225,11 @@ fn powershell_script(args: &[String], windows_powershell: bool) -> ShellScriptOw
                 ShellScriptOwned::File
             };
         }
-        if is_ps_param(arg, "commandwithargs", 8) || arg.eq_ignore_ascii_case("-cwa") {
+        let rest = ps_param_rest(arg).unwrap_or_default();
+        if is_ps_param(arg, "commandwithargs", 8) || rest.eq_ignore_ascii_case("cwa") {
+            if let Some(value) = ps_colon_value(arg) {
+                return ShellScriptOwned::Inline(value.to_owned());
+            }
             return match args.get(i + 1) {
                 Some(script) if script == "-" => ShellScriptOwned::Stdin,
                 Some(script) => ShellScriptOwned::Inline(script.clone()),
@@ -1597,20 +2238,26 @@ fn powershell_script(args: &[String], windows_powershell: bool) -> ShellScriptOw
         }
         if is_ps_param(arg, "command", 1) && !is_ps_param(arg, "configurationname", 3) {
             let rest = &args[i + 1..];
+            if let Some(value) = ps_colon_value(arg) {
+                let mut words = vec![value.to_owned()];
+                words.extend(rest.iter().cloned());
+                return ShellScriptOwned::Inline(script_of(&words, Dialect::PowerShell));
+            }
             return match rest {
                 [] => ShellScriptOwned::Stdin,
                 [one] if one == "-" => ShellScriptOwned::Stdin,
                 _ => ShellScriptOwned::Inline(script_of(rest, Dialect::PowerShell)),
             };
         }
-        if is_ps_param(arg, "encodedcommand", 1) || arg.eq_ignore_ascii_case("-ec") {
-            return match args.get(i + 1).and_then(|text| decode_powershell(text)) {
+        if is_ps_param(arg, "encodedcommand", 1) || rest.eq_ignore_ascii_case("ec") {
+            let text = ps_colon_value(arg).or_else(|| args.get(i + 1).map(String::as_str));
+            return match text.and_then(decode_powershell) {
                 Some(script) => ShellScriptOwned::Inline(script),
                 None => ShellScriptOwned::Undecodable,
             };
         }
         if is_ps_param(arg, "file", 1) {
-            return match args.get(i + 1) {
+            return match ps_colon_value(arg).or_else(|| args.get(i + 1).map(String::as_str)) {
                 Some(file) if file == "-" || is_stdin_path(file) => ShellScriptOwned::Stdin,
                 _ => ShellScriptOwned::File,
             };
@@ -1629,8 +2276,13 @@ fn powershell_script(args: &[String], windows_powershell: bool) -> ShellScriptOw
         }
         let takes_value = POWERSHELL_VALUES
             .iter()
-            .any(|(full, min)| is_ps_param(arg, full, *min));
-        i += if takes_value { 2 } else { 1 };
+            .any(|(full, min)| is_ps_param(arg, full, *min))
+            || rest.eq_ignore_ascii_case("ea");
+        i += if takes_value && ps_colon_value(arg).is_none() {
+            2
+        } else {
+            1
+        };
     }
     ShellScriptOwned::Stdin
 }
@@ -2239,5 +2891,76 @@ mod tests {
             assert!(analysis.calls.len() <= MAX_CALLS);
             assert!(started.elapsed() < std::time::Duration::from_secs(5));
         }
+    }
+
+    #[test]
+    fn powershell_braces_end_words_except_variables_and_hashtables() {
+        assert_eq!(
+            calls("1|%{git push --force}", Dialect::PowerShell),
+            vec![vec!["1".to_owned()], vec!["%".into()], push_force()]
+        );
+        assert_eq!(
+            calls("echo ${env:x}", Dialect::PowerShell),
+            vec![vec!["echo", "${env:x}"]]
+        );
+        let analysis = split("$h = @{a=1}", Dialect::PowerShell);
+        assert!(!analysis.unclosed);
+        assert!(analysis
+            .calls
+            .contains(&vec!["$h".to_owned(), "=".into(), "@{a=1}".into()]));
+        // A value of a hashtable may run a command.
+        assert!(calls("$h = @{a=$(git push --force)}", Dialect::PowerShell).contains(&push_force()));
+        assert!(split("echo ${env:x", Dialect::PowerShell).unclosed);
+    }
+
+    #[test]
+    fn arithmetic_holds_no_here_documents() {
+        for command in [
+            "(( x = 1 << EOF ))\ngit push --force\nEOF",
+            "echo $((1 << EOF))\ngit push --force\nEOF",
+            "echo $[1<<EOF]\ngit push --force\nEOF",
+            "echo ${x:0:1<<EOF}\ngit push --force\nEOF",
+        ] {
+            let analysis = split(command, Dialect::Posix);
+            assert!(analysis.calls.contains(&push_force()), "{command:?}");
+            assert!(!analysis.unclosed, "{command:?}");
+        }
+        // Two subshells bash may read where `((` starts are still seen.
+        assert!(calls("((echo a); (git push --force))", Dialect::Posix).contains(&push_force()));
+        assert!(split("echo ${x", Dialect::Posix).unclosed);
+    }
+
+    #[test]
+    fn a_substitution_ends_where_bash_ends_it() {
+        for (command, end) in [
+            ("$(echo x # )\n)", 13),
+            ("$(case a in a) :;; esac)", 23),
+            ("$(case a in (a) :;; esac)", 24),
+            ("$(echo \"$(echo \")\")\")", 20),
+            (r"$(echo $'\'' )", 13),
+            ("$(echo `echo )`)", 15),
+        ] {
+            let chars: Vec<char> = command.chars().collect();
+            assert_eq!(
+                closing_paren(&chars, 2, Dialect::Posix),
+                Some(end),
+                "{command:?}"
+            );
+        }
+        // Past the nesting bound nothing is guessed.
+        let deep = format!("$({}", "\"$(".repeat(40));
+        let chars: Vec<char> = deep.chars().collect();
+        assert_eq!(closing_paren(&chars, 2, Dialect::Posix), None);
+    }
+
+    #[test]
+    fn find_with_more_start_folders_than_read_is_reported() {
+        let starts = (0..9)
+            .map(|i| format!("d{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let command = format!("find {starts} -exec rm -r {{}} +");
+        assert!(split(&command, Dialect::Posix).truncated);
+        assert!(!split("find a b -name x -print", Dialect::Posix).truncated);
     }
 }

@@ -816,3 +816,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] lint | Payload-free team and account signals after the security merge
 The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
 Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].
+
+## [2026-11-15] decision | Command guard fails closed after a second audit
+The command guard asks instead of guessing where it does not model a construct (here-document delimiters with `$`, backticks or CR, open `${`, brace expansions and nesting past their caps), reads `#` comments and `case` patterns inside `$(...)` and arithmetic contexts as bash 5.3 does, ends PowerShell words at script block braces, reads PowerShell parameters with every dash and `:value`, wrapper options as getopt does, cmd `if` conditions and `for` sets, every change of folder, Windows path parts of dots and spaces, SQL behind comments and `psql -f -`, git's value options before the subcommand in code for every git rule, `$_` in a piped `ForEach-Object` block as the listed items (only a listing call's paths count for a piped delete). No built-in rule can be remembered; an unreadable hook request of a known session is denied instead of refused; a connection whose head is read cannot be closed for a newcomer.
+Pages changed: [[0010-command-guard]].

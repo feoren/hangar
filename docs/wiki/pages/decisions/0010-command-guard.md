@@ -238,6 +238,45 @@ Option 2 with reach A.
 - **Setting.** On by default, under the gate setting and only effective while the gate is
   (Settings > General); its help text names the agents it works for (Claude Code, Pi, OpenCode).
   Turning it off lets held commands go on, except `hangar-config`.
+- **Fail closed (amended 2026-11-15, second audit).** Where a lexer meets a construct it does
+  not model exactly, the command asks with `hangar-too-complex` instead of a guess: a
+  here-document delimiter with `$`, a backtick or a carriage return (`<<a$(b)`, `<<'EOF\r'`), a
+  `${` or `$[` left open, a `$(...)` nested in quotes more than 32 deep, a brace expansion past
+  64 variants, 8 braces or 1024 words, default values nested more than 16 deep, a `find` with
+  more than 8 start folders before its `-exec`. Modelled now as bash reads them: `#` comments at
+  a word start and `case ... esac` patterns inside `$(...)` (verified with bash 5.3; a
+  backtick substitution has no comments, as in bash), arithmetic `((...))`, `$((...))`,
+  `${...}` and `$[...]` (where `<<` shifts; the inside of `((...))` is still read as commands,
+  so a substitution or the subshells bash may make of it are seen), brace expansion only for a
+  call with a brace outside quotes (a quoted JSON text is never expanded). PowerShell: `{` and
+  `}` end the word and the command wherever they stand (`& {...}`, `%{...}`, `if (x) {...}`,
+  `-ScriptBlock {...}`), except `${env:x}` and the hashtable `@{...}` (one word, its inside read
+  as a script). Parameters with `--`, `/` or a typographic dash, `-Name:value` for `-Command`,
+  `-EncodedCommand`, `-File`, `-FilePath` and `-ArgumentList`, a `-Command` anywhere later in
+  the line, `-ConfigurationFile` and `-EncodedArguments` with their values; `... | iex` is a
+  script from stdin. Wrappers take their options as getopt does (`sudo -Eu root`,
+  `--user root`, `exec -a x`, `command -p`, `time -p`, `env -S'...'`, `--split-string=`,
+  `nohup --`). cmd: `if [/i] [not] <condition>` skips its condition, `for ... in (set) do`
+  runs what follows `do`, and a set in single quotes or backticks (`for /f`) is a command. A
+  change of folder counts in every reading of the call (`{cd,..}`, `cd${IFS}..`), also
+  `Push-Location`, `Set-Location -Path:x` and a drive switch `D:` (an unknown folder). On
+  Windows trailing dots and spaces of a path part are dropped (`c:\proj\...` is the project
+  folder itself, which is not inside it). SQL words also count with `/* */`, `--` and `#`
+  comments taken out, and `psql -f -` (or `/dev/stdin`) fed by a pipe is a script from stdin.
+  git's own options before the subcommand that take a value (`-C`, `-c`, `--git-dir`,
+  `--work-tree`, `--namespace`, `--super-prefix`, `--config-env`, `--attr-source`) are skipped
+  in code for every rule of program `git`, so a rules file written before one was known (the
+  file is written once and never migrated) or a user's own git rule still finds the
+  subcommand. A piped delete without paths takes the paths of the call before it only when that
+  call lists items below them (`Get-ChildItem`, `gci`, `ls`, `dir`, `Get-Item`, `gi`); the
+  output of another program (`Get-Content list.txt | Remove-Item -Recurse`) may name any path
+  and is asked about. In a piped `ForEach-Object` (`%`) block, `$_`, `$PSItem` and their
+  `.FullName` stand for those listed items, so `Get-ChildItem src | % { Remove-Item $_ -Recurse }`
+  inside the project does not ask. No built-in rule (`hangar-*`) offers "Always allow". A
+  hook request for a known session that does not parse (a lone surrogate escape in
+  `tool_input.command`, `cwd`, `file_path` or `tool_name`, broken JSON) is answered 200 with a
+  deny while the gate is on, since a refused request lets Claude Code go on. A connection
+  leaves the slots a newcomer may take as soon as its head is read.
 - **Bounded reading.** Every recursion over the agent's text has a fixed bound: inline scripts
   and substitutions 6 levels (`command_split::MAX_DEPTH`), brace expansion 8 braces per word
   (`command_guard::MAX_BRACE_GROUPS`, more fall back to the prefix rule). Each hook connection
@@ -313,7 +352,26 @@ Option 2 with reach A.
   `a_command_found_before_the_guard_was_switched_off_opens_no_card`,
   `an_edit_through_a_link_into_hangars_folder_is_asked_about`;
   `gate_hook::tests::a_path_the_gate_cannot_read_is_asked_about_not_skipped`;
-  `gate_rules::tests::the_largest_id_in_a_file_does_not_overflow`; `tests/gate_hook.rs`
+  `gate_rules::tests::the_largest_id_in_a_file_does_not_overflow`; second audit:
+  `command_guard::tests` `powershell_script_blocks_glued_to_words_are_read`,
+  `substitutions_with_comments_cases_and_arithmetic_are_read_as_bash_does`,
+  `here_document_delimiters_bash_reads_differently_are_asked_about`,
+  `pipelines_into_invoke_expression_are_scripts_from_stdin`,
+  `powershell_parameters_in_every_spelling_are_read`, `wrappers_with_options_are_looked_through`,
+  `cmd_conditions_and_for_sets_are_read`, `every_change_of_folder_moves_the_working_folder`,
+  `brace_expansions_past_the_caps_are_asked_about`,
+  `windows_parts_of_dots_and_spaces_name_the_folder_itself`,
+  `a_long_unclosed_bracket_pattern_is_checked_quickly`, `git_attr_source_takes_its_value`,
+  `sql_from_stdin_files_and_behind_comments_is_seen`, `no_built_in_rule_can_be_remembered`,
+  `a_deeply_nested_default_value_is_asked_about_on_a_small_stack`,
+  `a_for_each_block_deletes_the_items_the_call_before_it_lists`,
+  `git_options_before_the_subcommand_take_their_value_in_every_rules_file`,
+  `adversarial_nesting_is_checked_quickly`; `command_split::tests`
+  `powershell_braces_end_words_except_variables_and_hashtables`,
+  `arithmetic_holds_no_here_documents`, `a_substitution_ends_where_bash_ends_it`,
+  `find_with_more_start_folders_than_read_is_reported`; `gate_service::tests`
+  `a_tool_call_hangar_cannot_read_is_blocked_not_refused`,
+  `a_connection_whose_head_is_read_is_never_closed_for_a_newcomer`; `tests/gate_hook.rs`
   `extension_shell_commands_fail_closed_when_the_endpoint_is_unreachable`,
   `claude_bash_hook_holds_a_risky_command_until_the_person_answers`,
   `pi_and_opencode_extensions_send_shell_commands_to_the_guard`,
