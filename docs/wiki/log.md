@@ -848,3 +848,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] update | Stage, unstage and discard create no hooks folder
 The commands no longer create the empty `git-no-hooks` folder below the local data folder or take a path to it; git switches hooks off for them like for every other call, so a file left in that folder no longer blocks staging. The `.no-hooks` constant of the worktree folder is gone too; a dot name stays no valid slug.
 Pages changed: [[commit-history]], [[agent-workflow-features]].
+
+## [2026-11-15] update | Third security round on team membership freshness
+A new member always joins the log as a member; a higher website role becomes the owner's own role change confirmation. Every admitted device reads the website's member list: when the log still names a member the list left out for 10 minutes, a device that cannot remove members stops sealing with its own notice, and without a list nothing changes. A deferred rotation no owner or admin makes stops sealing on other devices after 10 minutes. A teammate's signed newer log head the relay does not hand over shows as held back history. Paged member and project lists count as no answer. The last log place is kept for the rotation a removal makes due (crate rule, relay and clients agree), and only people the website lists are offered for admission. The 256 entry bound of rejected confirmations is documented as accepted.
+Pages changed: [[team-crypto]].

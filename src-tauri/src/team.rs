@@ -98,7 +98,9 @@ pub enum TeamStatus {
     /// A device or member left the team and an owner or admin has not changed the key yet: this
     /// device shares nothing new until the next epoch (the old key may be in the removed
     /// device's hands).
-    WaitingForKeyChange,
+    WaitingForKeyChange {
+        reason: KeyChangeWait,
+    },
     NeedsAttention {
         reason: AttentionReason,
     },
@@ -106,6 +108,20 @@ pub enum TeamStatus {
     Removed,
     /// The project was deleted on the website (close 4404).
     ProjectDeleted,
+}
+
+/// Why a device waits for a new team key ([`TeamStatus::WaitingForKeyChange`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyChangeWait {
+    /// The verified log removed a device or member since the key was handed out.
+    Removal,
+    /// The website no longer lists a member the log still names, for longer than the grace
+    /// period: the relay may hold back the removal (team-crypto, membership follows the website).
+    MemberLeft,
+    /// A key change that may wait (only devices added after the key was handed out left) is
+    /// overdue: no owner or admin has made it.
+    Overdue,
 }
 
 /// Why a team needs the person.

@@ -572,12 +572,62 @@ pub struct Project {
 #[derive(Deserialize)]
 struct RawProjects {
     projects: Vec<Project>,
+    #[serde(flatten)]
+    paging: Paging,
+}
+
+/// Paging markers next to a list. Hangar reads the whole list in one answer: one that says more
+/// follows is incomplete, and an incomplete list would look like members or projects that are
+/// gone (removing members from the team's log, retiring a team's keys).
+#[derive(Deserialize)]
+struct Paging {
+    #[serde(default)]
+    next: Option<serde_json::Value>,
+    #[serde(default)]
+    next_cursor: Option<serde_json::Value>,
+    #[serde(default)]
+    cursor: Option<serde_json::Value>,
+    #[serde(default)]
+    has_more: Option<serde_json::Value>,
+    #[serde(default)]
+    page: Option<serde_json::Value>,
+    #[serde(default)]
+    total: Option<serde_json::Value>,
+}
+
+impl Paging {
+    /// Whether nothing says the `len` entries are only part of the list: no link or cursor to
+    /// more, `has_more` absent or `false`, `total` absent or `len`, and a `page` only together
+    /// with such a `total`.
+    fn complete(&self, len: usize) -> bool {
+        let total = match &self.total {
+            None => None,
+            Some(total) => match total.as_u64() {
+                Some(total) => Some(total),
+                None => return false,
+            },
+        };
+        let total_fits = total.is_none_or(|t| usize::try_from(t).is_ok_and(|t| t == len));
+        self.next.is_none()
+            && self.next_cursor.is_none()
+            && self.cursor.is_none()
+            && self
+                .has_more
+                .as_ref()
+                .is_none_or(|more| *more == serde_json::Value::Bool(false))
+            && total_fits
+            && (self.page.is_none() || total.is_some())
+    }
 }
 
 impl Project {
-    /// The list, with `can_invite` decided against `base`.
+    /// The list, with `can_invite` decided against `base`; `None` when it says it is only part
+    /// of one ([`Paging`]), so a project on a later page never looks gone.
     pub fn parse_list(body: &[u8], base: &BaseUrl) -> Option<Vec<Self>> {
         let raw: RawProjects = serde_json::from_slice(body).ok()?;
+        if !raw.paging.complete(raw.projects.len()) {
+            return None;
+        }
         Some(
             raw.projects
                 .into_iter()
@@ -608,14 +658,19 @@ pub struct ProjectMember {
 #[derive(Deserialize)]
 struct RawMembers {
     members: Vec<ProjectMember>,
+    #[serde(flatten)]
+    paging: Paging,
 }
 
 impl ProjectMember {
     /// `{"members": [{"id": "...", "role": "owner" | "admin" | "member"}]}`; `None` when the
-    /// answer is not such a list. Extra fields are ignored.
+    /// answer is not such a list or says it is only part of one ([`Paging`]). Extra fields are
+    /// ignored.
     pub fn parse_list(body: &[u8]) -> Option<Vec<Self>> {
         let raw: RawMembers = serde_json::from_slice(body).ok()?;
-        Some(raw.members)
+        raw.paging
+            .complete(raw.members.len())
+            .then_some(raw.members)
     }
 }
 
@@ -1404,6 +1459,58 @@ mod tests {
         assert_eq!(members[2].role, Role::Other);
         assert!(ProjectMember::parse_list(b"{}").is_none());
         assert!(ProjectMember::parse_list(br#"{"members":[{"id":"","role":"member"}]}"#).is_none());
+    }
+
+    #[test]
+    fn member_lists_with_paging_markers_are_refused_as_incomplete() {
+        let one = r#""members":[{"id":"1","role":"owner"}]"#;
+        for marker in [
+            r#""next":"/api/v1/projects/3/members?page=2""#,
+            r#""next_cursor":"abc""#,
+            r#""cursor":"abc""#,
+            r#""has_more":true"#,
+            r#""has_more":"yes""#,
+            r#""page":1"#,
+            r#""total":2"#,
+            r#""total":"1""#,
+        ] {
+            let body = format!("{{{one},{marker}}}");
+            assert!(
+                ProjectMember::parse_list(body.as_bytes()).is_none(),
+                "{marker}"
+            );
+        }
+        // Markers that say the list is complete, or say nothing, keep it.
+        for marker in [
+            r#""next":null"#,
+            r#""has_more":false"#,
+            r#""total":1"#,
+            r#""page":1,"total":1"#,
+        ] {
+            let body = format!("{{{one},{marker}}}");
+            assert_eq!(
+                ProjectMember::parse_list(body.as_bytes()).map(|m| m.len()),
+                Some(1),
+                "{marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn project_lists_with_paging_markers_are_refused_so_none_looks_gone() {
+        let one = r#""projects":[{"id":"1","name":"Core","role":"member"}]"#;
+        for marker in [r#""next":"?page=2""#, r#""has_more":true"#, r#""total":5"#] {
+            let body = format!("{{{one},{marker}}}");
+            assert!(
+                Project::parse_list(body.as_bytes(), &base()).is_none(),
+                "{marker}"
+            );
+        }
+        let body = format!(r#"{{{one},"has_more":false,"total":1}}"#);
+        assert_eq!(
+            Project::parse_list(body.as_bytes(), &base()).map(|p| p.len()),
+            Some(1)
+        );
     }
 
     #[test]

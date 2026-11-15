@@ -1457,6 +1457,11 @@ const de = {
   "team.status.confirmAdmission": "Prüfe, wer dich aufgenommen hat",
   "team.status.waitingForKeyChange":
     "Wartet auf einen neuen Teamschlüssel von einem Inhaber oder Admin",
+  "team.status.memberLeftKeyUnchanged":
+    "Der Teamschlüssel wurde nicht gewechselt, seit ein Mitglied gegangen ist. Teilen wartet auf den Inhaber oder einen Admin.",
+  "team.status.keyChangeOverdue":
+    "Ein Gerät wurde entfernt, der Teamschlüssel aber noch nicht gewechselt. Teilen wartet auf den Inhaber oder einen Admin.",
+  "team.historyWithheld": "Der Server hält einen Teil der Teamhistorie zurück. Teilen geht weiter.",
   "team.admission.title": "Wer hat dich aufgenommen?",
   "team.admission.help":
     "Vergleiche beide Nummern mit dem Gerät, das dich bestätigt hat. Dort stehen sie im Teamfenster unter Leute bei Deine Geräte. Erst danach teilt dieses Gerät etwas.",
@@ -3060,6 +3065,11 @@ const en: Record<MessageKey, string> = {
     "The team history names another owner than the website. Sharing is paused.",
   "team.status.confirmAdmission": "Check who admitted you",
   "team.status.waitingForKeyChange": "Waiting for a new team key from an owner or admin",
+  "team.status.memberLeftKeyUnchanged":
+    "The team key has not been changed since a member left. Waiting for the owner or an admin.",
+  "team.status.keyChangeOverdue":
+    "A device was removed and the team key has not been changed yet. Waiting for the owner or an admin.",
+  "team.historyWithheld": "The server is holding back part of the team history. Sharing goes on.",
   "team.admission.title": "Who admitted you?",
   "team.admission.help":
     "Compare both numbers with the device that confirmed you. It shows them in the Team window under People, Your devices. Only then does this device share anything.",
@@ -4696,6 +4706,12 @@ const el: Record<MessageKey, string> = {
     "Το ιστορικό της ομάδας αναφέρει άλλον ιδιοκτήτη από τον ιστότοπο. Η κοινή χρήση σταμάτησε.",
   "team.status.confirmAdmission": "Έλεγξε ποιος σε δέχτηκε",
   "team.status.waitingForKeyChange": "Αναμονή για νέο κλειδί ομάδας από ιδιοκτήτη ή διαχειριστή",
+  "team.status.memberLeftKeyUnchanged":
+    "Το κλειδί ομάδας δεν έχει αλλάξει από τότε που αποχώρησε ένα μέλος. Αναμονή για τον ιδιοκτήτη ή έναν διαχειριστή.",
+  "team.status.keyChangeOverdue":
+    "Μια συσκευή αφαιρέθηκε, αλλά το κλειδί ομάδας δεν έχει αλλάξει ακόμη. Αναμονή για τον ιδιοκτήτη ή έναν διαχειριστή.",
+  "team.historyWithheld":
+    "Ο διακομιστής κρατά πίσω μέρος του ιστορικού της ομάδας. Η κοινή χρήση συνεχίζεται.",
   "team.admission.title": "Ποιος σε δέχτηκε;",
   "team.admission.help":
     "Σύγκρινε και τους δύο αριθμούς με τη συσκευή που σε επιβεβαίωσε. Τους δείχνει στο παράθυρο ομάδας στα Άτομα, Οι συσκευές σου. Μόνο τότε αυτή η συσκευή μοιράζεται κάτι.",
@@ -6325,6 +6341,12 @@ const es: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Comprueba quién te admitió",
   "team.status.waitingForKeyChange":
     "Esperando una nueva clave de equipo de un propietario o administrador",
+  "team.status.memberLeftKeyUnchanged":
+    "La clave del equipo no ha cambiado desde que se fue un miembro. Esperando al propietario o a un administrador.",
+  "team.status.keyChangeOverdue":
+    "Se quitó un dispositivo y la clave del equipo aún no ha cambiado. Esperando al propietario o a un administrador.",
+  "team.historyWithheld":
+    "El servidor retiene parte del historial del equipo. Se sigue compartiendo.",
   "team.admission.title": "¿Quién te admitió?",
   "team.admission.help":
     "Compara ambos números con el dispositivo que te confirmó. Los muestra en la ventana del equipo en Personas, Tus dispositivos. Solo entonces este dispositivo comparte algo.",
@@ -7962,6 +7984,12 @@ const fr: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Vérifie qui t'a admis",
   "team.status.waitingForKeyChange":
     "En attente d'une nouvelle clé d'équipe d'un propriétaire ou d'un admin",
+  "team.status.memberLeftKeyUnchanged":
+    "La clé d'équipe n'a pas été changée depuis le départ d'un membre. En attente du propriétaire ou d'un admin.",
+  "team.status.keyChangeOverdue":
+    "Un appareil a été retiré et la clé d'équipe n'a pas encore été changée. En attente du propriétaire ou d'un admin.",
+  "team.historyWithheld":
+    "Le serveur retient une partie de l'historique de l'équipe. Le partage continue.",
   "team.admission.title": "Qui t'a admis ?",
   "team.admission.help":
     "Compare les deux numéros avec l'appareil qui t'a confirmé. Il les affiche dans la fenêtre Équipe sous Personnes, Tes appareils. Ce n'est qu'ensuite que cet appareil partage quelque chose.",
@@ -9592,6 +9620,12 @@ const it: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Controlla chi ti ha ammesso",
   "team.status.waitingForKeyChange":
     "In attesa di una nuova chiave del team da un proprietario o admin",
+  "team.status.memberLeftKeyUnchanged":
+    "La chiave del team non è stata cambiata da quando un membro è uscito. In attesa del proprietario o di un admin.",
+  "team.status.keyChangeOverdue":
+    "Un dispositivo è stato rimosso, ma la chiave del team non è ancora stata cambiata. In attesa del proprietario o di un admin.",
+  "team.historyWithheld":
+    "Il server trattiene una parte della cronologia del team. La condivisione continua.",
   "team.admission.title": "Chi ti ha ammesso?",
   "team.admission.help":
     "Confronta entrambi i numeri con il dispositivo che ti ha confermato. Li mostra nella finestra del team in Persone, I tuoi dispositivi. Solo dopo questo dispositivo condivide qualcosa.",
@@ -11215,6 +11249,11 @@ const ja: Record<MessageKey, string> = {
     "チームの履歴がウェブサイトとは別のオーナーを示しています。共有を停止しました。",
   "team.status.confirmAdmission": "あなたを承認した人を確認してください",
   "team.status.waitingForKeyChange": "オーナーまたは管理者による新しいチームキーを待っています",
+  "team.status.memberLeftKeyUnchanged":
+    "メンバーが抜けてからチームキーが変更されていません。オーナーまたは管理者を待っています。",
+  "team.status.keyChangeOverdue":
+    "デバイスが削除されましたが、チームキーはまだ変更されていません。オーナーまたは管理者を待っています。",
+  "team.historyWithheld": "サーバーがチームの履歴の一部を渡していません。共有は続きます。",
   "team.admission.title": "誰があなたを承認しましたか?",
   "team.admission.help":
     "両方の番号を、あなたを承認したデバイスと照合してください。そのデバイスのチームウィンドウの メンバー の あなたのデバイス に表示されます。照合後にのみ、このデバイスは共有を始めます。",
@@ -12823,6 +12862,11 @@ const pl: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Sprawdź, kto cię przyjął",
   "team.status.waitingForKeyChange":
     "Czeka na nowy klucz zespołu od właściciela lub administratora",
+  "team.status.memberLeftKeyUnchanged":
+    "Klucz zespołu nie został zmieniony, odkąd odszedł członek. Czeka na właściciela lub administratora.",
+  "team.status.keyChangeOverdue":
+    "Usunięto urządzenie, ale klucz zespołu nie został jeszcze zmieniony. Czeka na właściciela lub administratora.",
+  "team.historyWithheld": "Serwer wstrzymuje część historii zespołu. Udostępnianie trwa dalej.",
   "team.admission.title": "Kto cię przyjął?",
   "team.admission.help":
     "Porównaj oba numery z urządzeniem, które cię potwierdziło. Pokazuje je w oknie zespołu w Osoby, Twoje urządzenia. Dopiero wtedy to urządzenie coś udostępnia.",
@@ -14444,6 +14488,12 @@ const pt: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Verifique quem admitiu você",
   "team.status.waitingForKeyChange":
     "Aguardando uma nova chave da equipe de um proprietário ou administrador",
+  "team.status.memberLeftKeyUnchanged":
+    "A chave da equipe não foi trocada desde que um membro saiu. Aguardando o proprietário ou um administrador.",
+  "team.status.keyChangeOverdue":
+    "Um dispositivo foi removido e a chave da equipe ainda não foi trocada. Aguardando o proprietário ou um administrador.",
+  "team.historyWithheld":
+    "O servidor está retendo parte do histórico da equipe. O compartilhamento continua.",
   "team.admission.title": "Quem admitiu você?",
   "team.admission.help":
     "Compare os dois números com o dispositivo que confirmou você. Ele os mostra na janela da equipe em Pessoas, Seus dispositivos. Só então este dispositivo compartilha algo.",
@@ -16048,6 +16098,11 @@ const ru: Record<MessageKey, string> = {
   "team.status.confirmAdmission": "Проверь, кто тебя принял",
   "team.status.waitingForKeyChange":
     "Ожидание нового ключа команды от владельца или администратора",
+  "team.status.memberLeftKeyUnchanged":
+    "Ключ команды не меняли с тех пор, как ушёл участник. Ожидание владельца или администратора.",
+  "team.status.keyChangeOverdue":
+    "Устройство удалено, но ключ команды ещё не сменён. Ожидание владельца или администратора.",
+  "team.historyWithheld": "Сервер придерживает часть истории команды. Общий доступ продолжается.",
   "team.admission.title": "Кто тебя принял?",
   "team.admission.help":
     "Сравни оба номера с устройством, которое тебя подтвердило. Оно показывает их в окне команды в разделе Люди, Твои устройства. Только после этого это устройство чем-то делится.",
@@ -17643,6 +17698,11 @@ const tr: Record<MessageKey, string> = {
     "Ekip geçmişi web sitesinden farklı bir sahip gösteriyor. Paylaşım duraklatıldı.",
   "team.status.confirmAdmission": "Seni kimin kabul ettiğini kontrol et",
   "team.status.waitingForKeyChange": "Bir sahip veya yöneticiden yeni ekip anahtarı bekleniyor",
+  "team.status.memberLeftKeyUnchanged":
+    "Bir üye ayrıldığından beri ekip anahtarı değiştirilmedi. Sahip veya bir yönetici bekleniyor.",
+  "team.status.keyChangeOverdue":
+    "Bir cihaz kaldırıldı ancak ekip anahtarı henüz değiştirilmedi. Sahip veya bir yönetici bekleniyor.",
+  "team.historyWithheld": "Sunucu ekip geçmişinin bir kısmını geri tutuyor. Paylaşım devam ediyor.",
   "team.admission.title": "Seni kim kabul etti?",
   "team.admission.help":
     "İki numarayı da seni onaylayan cihazla karşılaştır. O cihaz bunları ekip penceresinde Kişiler, Cihazların altında gösterir. Ancak ondan sonra bu cihaz bir şey paylaşır.",
@@ -19180,6 +19240,10 @@ const zh: Record<MessageKey, string> = {
   "team.status.ownerMismatch": "团队记录中的所有者与网站不同。共享已暂停。",
   "team.status.confirmAdmission": "确认是谁接纳了你",
   "team.status.waitingForKeyChange": "正在等待所有者或管理员提供新的团队密钥",
+  "team.status.memberLeftKeyUnchanged":
+    "自从有成员离开后，团队密钥一直未更换。正在等待所有者或管理员。",
+  "team.status.keyChangeOverdue": "已移除一台设备，但团队密钥尚未更换。正在等待所有者或管理员。",
+  "team.historyWithheld": "服务器正在扣留部分团队历史。共享仍在继续。",
   "team.admission.title": "是谁接纳了你?",
   "team.admission.help":
     "将两个号码与确认你的设备进行比对。它会在团队窗口的 成员, 你的设备 中显示这些号码。比对之后此设备才会共享内容。",

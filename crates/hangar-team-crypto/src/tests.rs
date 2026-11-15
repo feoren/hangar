@@ -619,9 +619,21 @@ fn record_heads_detect_forks_and_newer_logs() {
     let ahead = seal_as(&cipher, team.state(), &team.admin, 1, &context, b"x");
     assert_eq!(
         cipher.open_verified(&behind, &context, &ahead).err(),
-        Some(OpenError::AheadOfLog { index: 5 })
+        Some(OpenError::AheadOfLog {
+            index: 5,
+            signed: true
+        })
     );
     assert!(cipher.open_verified(team.state(), &context, &ahead).is_ok());
+    // A newer head the sender's keys did not sign (the relay's word alone) says so.
+    let unsigned = seal_as(&cipher, team.state(), &team.member, 1, &context, b"x");
+    assert_eq!(
+        cipher.open_verified(&behind, &context, &unsigned).err(),
+        Some(OpenError::AheadOfLog {
+            index: 5,
+            signed: false
+        })
+    );
 
     // A record naming another hash at a known index: the relay forked the log.
     let forged_head = ChainHead {
@@ -2836,4 +2848,44 @@ fn only_removals_of_devices_from_before_the_epoch_or_of_members_are_urgent() {
     team.next_epoch(Who::Owner, None);
     assert!(!team.state().rotation_due());
     assert!(!team.state().rotation_urgent());
+}
+
+#[test]
+fn the_last_log_place_is_kept_for_the_rotation_a_removal_makes_due() {
+    let max = 70;
+    let mut team = Team::with_max_entries(max);
+    // Rotations take reserved places too; fill up to one place before the end.
+    while team.state().head().index < max - 1 {
+        team.next_epoch(Who::Owner, None);
+    }
+    // A removal into the last place would leave no room for the rotation it makes due.
+    assert_eq!(
+        team.submit(
+            Who::Owner,
+            EntryKind::RemoveMember {
+                member: team.member.holder.member.clone(),
+            },
+        ),
+        Err(LogError::LogFull)
+    );
+    // The rotation itself still fits.
+    team.next_epoch(Who::Owner, None);
+    assert_eq!(team.state().head().index, max);
+
+    // One place earlier the removal fits, and so does its rotation after it.
+    let mut team = Team::with_max_entries(max);
+    while team.state().head().index < max - 2 {
+        team.next_epoch(Who::Owner, None);
+    }
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: team.member.holder.member.clone(),
+        },
+    )
+    .expect("one place stays for the rotation");
+    assert!(team.state().rotation_urgent());
+    team.next_epoch(Who::Owner, None);
+    assert_eq!(team.state().head().index, max);
+    assert!(!team.state().rotation_due());
 }

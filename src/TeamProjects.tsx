@@ -137,6 +137,11 @@ export function ProjectDetails(props: {
           </p>
         )}
         {props.activity.logFull && <LogFullNotice manages={manages(project)} />}
+        {props.activity.historyWithheld && (
+          <p className="team-help" role="status">
+            {t("team.historyWithheld")}
+          </p>
+        )}
       </TeamCard>
       {status.state === "connected" && (
         <TeamRepos

@@ -60,11 +60,17 @@ export type TeamStatus =
       logSafetyNumber: string[];
     }
   /** A device or member left; nothing new is shared until an owner or admin changes the key. */
-  | { state: "waitingForKeyChange" }
+  | { state: "waitingForKeyChange"; reason: KeyChangeWait }
   /** `unknown`: a reason (or a state) this Hangar does not know yet. */
   | { state: "needsAttention"; reason: AttentionReason }
   | { state: "removed" }
   | { state: "projectDeleted" };
+
+/**
+ * Why a device waits for a new team key (Rust: `KeyChangeWait`): the log removed someone, the
+ * website removed a member the log still names, or a key change that could wait is overdue.
+ */
+export type KeyChangeWait = "removal" | "memberLeft" | "overdue";
 
 /** `roleChange`: the website made a member an admin; the owner confirms it for the team. */
 export type ConfirmationKind = "ownDevice" | "newMember" | "roleChange" | "unknown";
@@ -247,6 +253,11 @@ export interface TeamActivity {
    * admitted any more; sharing goes on.
    */
   logFull: boolean;
+  /**
+   * A teammate's signed record names newer team history than the relay hands this device, also
+   * after asking again: the relay holds entries back.
+   */
+  historyWithheld: boolean;
 }
 
 /** One of the signed-in person's devices in the team (Rust: `OwnDevice`). */
@@ -284,6 +295,7 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   devices: [],
   log: null,
   logFull: false,
+  historyWithheld: false,
 };
 
 export interface TeamEntry {
@@ -380,8 +392,15 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
     case "off":
     case "removed":
     case "projectDeleted":
-    case "waitingForKeyChange":
       return { state };
+    case "waitingForKeyChange": {
+      // Absent or unknown (an older or newer backend): the general reason.
+      const reason = field(value, "reason");
+      return {
+        state,
+        reason: reason === "memberLeft" || reason === "overdue" ? reason : "removal",
+      };
+    }
     case "connecting": {
       const retrying = field(value, "retrying");
       return typeof retrying === "boolean" ? { state, retrying } : null;
@@ -722,6 +741,9 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
   const logFullValue = field(value, "logFull");
   if (logFullValue !== undefined && typeof logFullValue !== "boolean") return null;
   const logFull = logFullValue === true;
+  const withheldValue = field(value, "historyWithheld");
+  if (withheldValue !== undefined && typeof withheldValue !== "boolean") return null;
+  const historyWithheld = withheldValue === true;
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
   if (sessionRepos === null || devices === null || log === undefined) return null;
@@ -738,6 +760,7 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
     devices,
     log,
     logFull,
+    historyWithheld,
   };
 }
 
@@ -821,6 +844,12 @@ const REASON_TEXTS: Record<AttentionReason, MessageKey> = {
   unknown: "team.status.attention",
 };
 
+const KEY_CHANGE_TEXTS: Record<KeyChangeWait, MessageKey> = {
+  removal: "team.status.waitingForKeyChange",
+  memberLeft: "team.status.memberLeftKeyUnchanged",
+  overdue: "team.status.keyChangeOverdue",
+};
+
 /** The text key of a status; `null` for off, which shows nothing below the switch. */
 export function statusKey(status: TeamStatus): MessageKey | null {
   switch (status.state) {
@@ -835,7 +864,7 @@ export function statusKey(status: TeamStatus): MessageKey | null {
     case "confirmAdmission":
       return "team.status.confirmAdmission";
     case "waitingForKeyChange":
-      return "team.status.waitingForKeyChange";
+      return KEY_CHANGE_TEXTS[status.reason];
     case "needsAttention":
       return REASON_TEXTS[status.reason];
     case "removed":
