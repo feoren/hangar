@@ -122,6 +122,9 @@ pub enum KeyChangeWait {
     /// A key change that may wait (only devices added after the key was handed out left) is
     /// overdue: no owner or admin has made it.
     Overdue,
+    /// A member the website no longer lists cannot be removed: the log has no room left for the
+    /// removal and its rotation. Only a new project helps.
+    LogFull,
 }
 
 /// Why a team needs the person.

@@ -44,10 +44,12 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
    environment and refuses to run while TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set there. A key
    without a password is used only with --allow-unencrypted-key. The signature is the same `.sig`
    next to the installer that `tauri build` writes, with the version in its trusted comment. Its
-   key id must match the public key in tauri.conf.json, and the verifier built before the build
-   (no key in its environment) must verify it the way installed apps do; otherwise the script
-   aborts. The installer's SHA-256 is taken right after signing, and the copies under release/
-   must have it.
+   key id must match the public key in tauri.conf.json; otherwise the script aborts. The
+   installer's SHA-256 is taken right after the Authenticode check (or, unsigned, right before the
+   updater signer) and must still hold before and after the signer, and the copies under release/
+   must have it. The verifier built before the build (no key in its environment) then checks the
+   copy under release/ the way installed apps do, against the signature text latest.json gets
+   (from a file of its own, not the `.sig` again).
    git, node, cargo and PowerShell are taken only as absolute programs from PATH (on Windows only
    `.exe`), never from the repository or the working folder. git runs without the repository's
    fsmonitor, hooks and filters, and none of these programs sees an updater key variable.
@@ -924,24 +926,28 @@ def key_password(allow_unencrypted_key):
     return password
 
 
-# What sign_update() hands to collect(): the `.sig`, its text as verified and the installer's
-# SHA-256 taken right after signing.
+# What sign_update() hands to collect(): the `.sig`, its text as read once and the installer's
+# SHA-256 that held from the Authenticode check through the updater signer.
 Signed = collections.namedtuple("Signed", "signature text sha256")
 # The signature verifier built before `tauri build`, and its SHA-256 at that point.
 Verifier = collections.namedtuple("Verifier", "path sha256")
 
 
-def sign_update(key_path, setup, version, verifier, allow_unencrypted_key=False):
+def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key=False):
     """Signs the finished installer for the updater and returns what collect() needs (Signed).
 
-    Runs after Authenticode signing, which changes the file. `--app-version` binds the version
-    into the signed trusted comment, as `tauri build` does (`version:<version>`); the updater
-    compares it with the version latest.json announces. The password goes only into the signer's
-    environment, never into os.environ, so no other child process sees it.
+    Runs after Authenticode signing, which changes the file. `expected_sha256` is the installer's
+    hash taken right after the Authenticode check: the signer signs those bytes or nothing, and
+    they must be the same after it. `--app-version` binds the version into the signed trusted
+    comment, as `tauri build` does (`version:<version>`); the updater compares it with the
+    version latest.json announces. The password goes only into the signer's environment, never
+    into os.environ, so no other child process sees it.
     """
     problem = password_variable_problem(os.environ)
     if problem:
         fail(problem)
+    if sha256_hex(setup) != expected_sha256:
+        fail("%s changed after its Authenticode signature was checked; nothing was signed" % setup.name)
     env = signer_environment(os.environ)
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
@@ -957,18 +963,17 @@ def sign_update(key_path, setup, version, verifier, allow_unencrypted_key=False)
         fail("tauri signer sign failed (exit code %d)" % result.returncode)
     if not signature.is_file():
         fail("updater signature missing: %s" % signature)
-    # Taken before the verification, so the bytes verified are the bytes collect() accepts.
-    digest = sha256_hex(setup)
+    if sha256_hex(setup) != expected_sha256:
+        signature.unlink(missing_ok=True)
+        fail("%s changed while it was signed for the updater" % setup.name)
     text = signature.read_text(encoding="utf-8").strip()
     # A wrong key file would sign without complaint, and every installed copy would then refuse
-    # the update; caught here before anything is published.
-    problem = signature_key_problem(text, updater_pubkey()) or update_signature_problem(
-        verifier, setup, signature, version
-    )
+    # the update; caught here before anything is collected. collect() proves the signature.
+    problem = signature_key_problem(text, updater_pubkey())
     if problem:
         signature.unlink(missing_ok=True)
         fail(problem)
-    return Signed(signature, text, digest)
+    return Signed(signature, text, expected_sha256)
 
 
 VERIFIER_NAME = "verify_update_sig"
@@ -1055,23 +1060,43 @@ def find_setup(built_after):
     return candidates[0]
 
 
-def collect(setup, signed, version, base_url, notes):
+# The signature text the verifier checks in collect(), next to the copies; removed right after.
+VERIFY_SIGNATURE_NAME = ".updater-signature.tmp"
+
+
+def collect(setup, signed, version, base_url, notes, verifier):
     """Copies the signed installer under release/ and writes the checksums and latest.json.
 
-    The copies must have the SHA-256 taken right after signing; a file changed in between (by
-    anything that ran after the signer) aborts and leaves nothing behind.
+    The copies must have the SHA-256 that held through signing; a file changed in between (by
+    anything that ran after the signer) aborts and leaves nothing behind. The verifier then
+    checks the copy that is uploaded against `signed.text`, the signature latest.json announces,
+    written to a file of its own: neither a changed installer nor a changed `.sig` can slip
+    between what was verified and what is published.
     """
     shown = display(version)
     setup_name = "Hangar_%s_x64-setup.exe" % shown
     target = RELEASE_DIR / shown
     target.mkdir(parents=True, exist_ok=True)
     copies = [target / setup_name, target / "Hangar-Setup.exe"]
+
+    def discard(message):
+        for copy in copies:
+            copy.unlink(missing_ok=True)
+        fail(message)
+
     for copy in copies:
         shutil.copy2(setup, copy)
     if any(sha256_hex(copy) != signed.sha256 for copy in copies):
-        for copy in copies:
-            copy.unlink(missing_ok=True)
-        fail("%s changed after it was signed; nothing was collected" % setup.name)
+        discard("%s changed after it was signed; nothing was collected" % setup.name)
+    text_file = target / VERIFY_SIGNATURE_NAME
+    try:
+        text_file.write_text(signed.text, encoding="utf-8")
+        problem = update_signature_problem(verifier, copies[0], text_file, version)
+    finally:
+        text_file.unlink(missing_ok=True)
+    if problem:
+        signed.signature.unlink(missing_ok=True)
+        discard(problem)
     write_checksums(target, [setup_name, "Hangar-Setup.exe"])
 
     manifest = {
@@ -1188,13 +1213,19 @@ def main():
     if signing is not None:
         # According to the Tauri repo it signs the program, the uninstaller and the installer; the
         # docs do not say so explicitly for NSIS, so verify here instead of trusting it.
+        # Taken around the check: the updater signer must sign exactly the bytes it accepted.
+        verified_sha256 = sha256_hex(setup)
         verify_signature(setup)
+        if sha256_hex(setup) != verified_sha256:
+            fail("%s changed while its Authenticode signature was checked" % setup.name)
         if MAIN_EXE.is_file() and MAIN_EXE.stat().st_mtime >= started:
             verify_signature(MAIN_EXE)
+    else:
+        verified_sha256 = sha256_hex(setup)
     # After Authenticode, which rewrites the installer: the signature covers the final bytes.
-    signed = sign_update(key_path, setup, version, verifier, args.allow_unencrypted_key)
+    signed = sign_update(key_path, setup, version, verified_sha256, args.allow_unencrypted_key)
     base_url = args.base_url or github_base_url(args.version)
-    target, setup_name = collect(setup, signed, version, base_url, notes or "")
+    target, setup_name = collect(setup, signed, version, base_url, notes or "", verifier)
     print()
     print("Done: %s" % target)
     if args.base_url is None:

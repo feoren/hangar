@@ -71,20 +71,24 @@ collects its items under that same version without a date. `src/versionSync.test
      `timestamp:...<TAB>file:<installer>.exe<TAB>version:<X.Y.Z+Build>`, measured with Tauri CLI 2.12.4
      and a throwaway key). An empty password is refused; a key without one is used only with
      `--allow-unencrypted-key`, and the script then warns
+   - notes the installer's SHA-256 around the Authenticode check (the same before and after it;
+     unsigned: right before the updater signer) and requires it before and after the signer, so the updater signs exactly
+     the bytes Windows' signature check accepted
    - verifies the signature before anything is published: the key id in the `.sig` must match the
      `pubkey` in `tauri.conf.json` (printed in minisign's order, the same id as the comment
-     `minisign public key: E34C168FC5B115C8`), and
-     the verifier built before the build (`verify_update_sig <installer> <.sig> <pubkey> <X.Y.Z+Build>`,
+     `minisign public key: E34C168FC5B115C8`), and, once the copies under `release/` are made,
+     the verifier built before the build (`verify_update_sig <release copy> <text file> <pubkey> <X.Y.Z+Build>`,
      `src-tauri/examples/verify_update_sig.rs`, run only if its SHA-256 is unchanged, no key in its
      environment) checks it the way
      installed apps do: the same `minisign-verify` call as `tauri-plugin-updater` 2.14.1, including
      the global signature over the trusted comment, which must carry exactly `version:<X.Y.Z+Build>`.
-     On failure the `.sig` is deleted and the script aborts. The app itself requires the signed
-     version (`requireSignedVersion`, [[process-launch-hardening]])
-   - notes the installer's SHA-256 right after the signer exits, before the verification, and
-     requires both copies under `release/` to have it; a file changed in between aborts and leaves
-     no installer behind. `latest.json` gets the signature text that was verified, not a fresh
-     read of the `.sig`
+     It checks the copy that is uploaded against the signature text `latest.json` gets, written
+     to a file of its own next to the copies (`.updater-signature.tmp`, removed right after), never
+     the `.sig` again. On failure the `.sig` and the copies are deleted and the script aborts. The
+     app itself requires the signed version (`requireSignedVersion`, [[process-launch-hardening]])
+   - requires both copies under `release/` to have that SHA-256; a file changed in between
+     aborts and leaves no installer behind. `latest.json` gets the signature text that was
+     verified, not a fresh read of the `.sig`
    - runs PowerShell (`Get-AuthenticodeSignature`) without any `TAURI_SIGNING_PRIVATE_KEY*` variable
    - runs `git`, `node`, `cargo` and PowerShell only as absolute programs from `PATH` (on Windows
      only `<name>.exe`), never from a `PATH` folder inside the repository, the working folder itself or a

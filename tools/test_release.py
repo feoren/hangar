@@ -412,9 +412,6 @@ class UpdaterSigningTest(unittest.TestCase):
         self.setup = self.folder / "Hangar_0.2.0+31_x64-setup.exe"
         self.setup.write_bytes(b"installer")
         self.public, self.signature = throwaway_key_pair(self.folder, bytes.fromhex("A1A2A3A4A5A6A7A8"))
-        verifier = self.folder / "verify update sig.exe"
-        verifier.write_bytes(b"verifier-marker")
-        self.verifier = release.Verifier(verifier, release.sha256_hex(verifier))
 
     def run_sign(
         self,
@@ -422,20 +419,22 @@ class UpdaterSigningTest(unittest.TestCase):
         writes_signature=True,
         returncode=0,
         signature=None,
-        verify_returncode=0,
         password="pw-marker",
         allow_unencrypted_key=False,
+        expected_sha256=None,
+        changes_installer=False,
     ):
         calls = []
         self.calls = calls
         self.prompts = []
+        expected = expected_sha256 or release.sha256_hex(self.setup)
 
         def fake_run(command, **kwargs):
             calls.append((command, kwargs.get("env")))
-            if command[0] == str(self.verifier.path):
-                return subprocess.CompletedProcess(command, verify_returncode)
             if writes_signature:
                 Path(command[-1] + ".sig").write_text(signature or self.signature, encoding="utf-8")
+            if changes_installer:
+                Path(command[-1]).write_bytes(b"installer changed by the signer")
             return subprocess.CompletedProcess(command, returncode)
 
         clean = {
@@ -457,7 +456,7 @@ class UpdaterSigningTest(unittest.TestCase):
             release.getpass, "getpass", side_effect=fake_prompt
         ):
             signed = release.sign_update(
-                self.key, self.setup, "0.2.0+31", self.verifier, allow_unencrypted_key=allow_unencrypted_key
+                self.key, self.setup, "0.2.0+31", expected, allow_unencrypted_key=allow_unencrypted_key
             )
             self.environ_after = dict(release.os.environ)
         return calls[0], signed
@@ -486,9 +485,7 @@ class UpdaterSigningTest(unittest.TestCase):
 
     def test_the_password_reaches_only_the_signer(self):
         self.run_sign()
-        self.assertEqual(len(self.calls), 2)
-        _, verify_env = self.calls[1]
-        self.assertNotIn("pw-marker", verify_env.values())
+        self.assertEqual(len(self.calls), 1)
         self.assertNotIn("pw-marker", self.environ_after.values())
         self.assertEqual(
             [name for name in self.environ_after if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], []
@@ -546,29 +543,22 @@ class UpdaterSigningTest(unittest.TestCase):
         if "PATH" in os.environ:
             self.assertEqual(env["PATH"], os.environ["PATH"])
 
-    def test_the_signature_is_verified_without_the_key(self):
-        self.run_sign()
-        self.assertEqual(len(self.calls), 2)
-        command, env = self.calls[1]
-        # The verifier built before `tauri build`; nothing compiles between signing and collecting.
-        self.assertEqual(
-            command,
-            [str(self.verifier.path), str(self.setup), str(self.setup) + ".sig", self.public, "0.2.0+31"],
-        )
-        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
-        self.assertNotIn("key-content-marker", env.values())
+    def test_an_installer_changed_after_its_authenticode_check_is_never_signed(self):
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_sign(expected_sha256="0" * 64)
+        self.assertEqual(self.calls, [])
+        self.assertIn("Authenticode", self.printed(err))
 
-    def test_a_changed_verifier_is_never_run(self):
-        self.verifier.path.write_bytes(b"replaced-verifier")
+    def test_an_installer_changed_while_it_is_signed_aborts_and_the_signature_goes(self):
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-            self.run_sign()
+            self.run_sign(changes_installer=True)
         self.assertEqual(len(self.calls), 1)
         self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
 
-    def test_a_signature_that_does_not_verify_aborts_and_is_removed(self):
-        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-            self.run_sign(verify_returncode=1)
-        self.assertFalse(self.setup.with_name(self.setup.name + ".sig").exists())
+    def test_the_hash_is_the_one_from_the_authenticode_check(self):
+        expected = release.sha256_hex(self.setup)
+        _, signed = self.run_sign(expected_sha256=expected)
+        self.assertEqual(signed.sha256, expected)
 
     def test_a_signature_of_another_key_aborts_and_is_removed(self):
         _, foreign = throwaway_key_pair(self.folder, bytes.fromhex("B1B2B3B4B5B6B7B8"))
@@ -640,12 +630,46 @@ class CollectTest(unittest.TestCase):
         signature = self.setup.with_name(self.setup.name + ".sig")
         signature.write_text("signature-marker", encoding="utf-8")
         self.signed = release.Signed(signature, "signature-marker", release.sha256_hex(self.setup))
+        verifier = self.folder / "verify update sig.exe"
+        verifier.write_bytes(b"verifier-marker")
+        self.verifier = release.Verifier(verifier, release.sha256_hex(verifier))
         patch = mock.patch.object(release, "RELEASE_DIR", self.folder / "release")
         patch.start()
         self.addCleanup(patch.stop)
 
-    def collect(self):
-        return release.collect(self.setup, self.signed, "0.2.0+31", "https://example.org/dl", "notes")
+    def collect(self, verify_returncode=0, environ=None):
+        # Each verifier run: its command, environment, and the installer and signature text it
+        # was handed, read while it runs.
+        self.verified = []
+
+        def fake_run(command, **kwargs):
+            self.verified.append(
+                (
+                    command,
+                    kwargs.get("env"),
+                    Path(command[1]).read_bytes(),
+                    Path(command[2]).read_text(encoding="utf-8"),
+                )
+            )
+            return subprocess.CompletedProcess(command, verify_returncode)
+
+        with mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.object(
+            release, "updater_pubkey", return_value="pubkey-marker"
+        ), mock.patch.dict(release.os.environ, dict(os.environ, **(environ or {})), clear=True):
+            return release.collect(
+                self.setup, self.signed, "0.2.0+31", "https://example.org/dl", "notes", self.verifier
+            )
+
+    def assert_nothing_collected(self):
+        target = self.folder / "release" / "0.2.0-31"
+        for name in (
+            "Hangar_0.2.0-31_x64-setup.exe",
+            "Hangar-Setup.exe",
+            "SHA256SUMS.txt",
+            "latest.json",
+            release.VERIFY_SIGNATURE_NAME,
+        ):
+            self.assertFalse((target / name).exists(), name)
 
     def test_writes_the_signed_installer_and_manifest(self):
         target, setup_name = self.collect()
@@ -658,14 +682,44 @@ class CollectTest(unittest.TestCase):
         self.signed.signature.write_text("replaced-marker", encoding="utf-8")
         target, _ = self.collect()
         self.assertNotIn("replaced-marker", (target / "latest.json").read_text(encoding="utf-8"))
+        # The verifier saw the text latest.json carries, never the `.sig` again.
+        _, _, _, text = self.verified[0]
+        self.assertEqual(text, "signature-marker")
+
+    def test_the_uploaded_copy_is_verified_without_the_key(self):
+        target, setup_name = self.collect(environ=SIGNING_ENVIRONMENT)
+        self.assertEqual(len(self.verified), 1)
+        command, env, installer, text = self.verified[0]
+        # The verifier built before `tauri build`; nothing compiles between signing and collecting.
+        self.assertEqual(command[0], str(self.verifier.path))
+        self.assertEqual(command[1], str(target / setup_name))
+        self.assertEqual(Path(command[2]).parent, target)
+        self.assertEqual(command[3:], ["pubkey-marker", "0.2.0+31"])
+        self.assertEqual(installer, b"signed installer")
+        self.assertEqual(text, "signature-marker")
+        self.assertEqual([name for name in env if name.upper().startswith("TAURI_SIGNING_PRIVATE_KEY")], [])
+        # The text file goes right after.
+        self.assertFalse((target / release.VERIFY_SIGNATURE_NAME).exists())
+
+    def test_a_changed_verifier_is_never_run(self):
+        self.verifier.path.write_bytes(b"replaced-verifier")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.collect()
+        self.assertEqual(self.verified, [])
+        self.assert_nothing_collected()
+
+    def test_a_signature_that_does_not_verify_aborts_and_is_removed(self):
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.collect(verify_returncode=1)
+        self.assertFalse(self.signed.signature.exists())
+        self.assert_nothing_collected()
 
     def test_an_installer_changed_after_signing_aborts(self):
         self.setup.write_bytes(b"changed installer")
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             self.collect()
-        target = self.folder / "release" / "0.2.0-31"
-        for name in ("Hangar_0.2.0-31_x64-setup.exe", "Hangar-Setup.exe", "SHA256SUMS.txt", "latest.json"):
-            self.assertFalse((target / name).exists(), name)
+        self.assertEqual(self.verified, [])
+        self.assert_nothing_collected()
 
 
 class BuildInputTest(unittest.TestCase):

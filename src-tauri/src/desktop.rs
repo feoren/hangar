@@ -287,7 +287,9 @@ fn shell_open_folder(path: &str) -> io::Result<()> {
     }
 }
 
-/// `ShellExecuteW` with `verb`; the error is its result code (32 or less).
+/// `ShellExecuteW` with `verb`; the error is its result code (32 or less). The started program
+/// inherits Hangar's own environment, which `child_env::scrub_own_environment` cleared at
+/// startup of what `detached` removes for the other openers.
 #[cfg(windows)]
 fn shell_execute(verb: &str, address: &str) -> Result<(), isize> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;

@@ -1250,7 +1250,8 @@ impl Engine {
         effects.extend(self.website_due());
         // A departure or a deferred rotation that waits may have run past its time.
         let sharing = matches!(self.status, TeamStatus::Connected { .. });
-        if sharing && self.synced && !self.syncing && !self.manages() && self.overdue_at(now) {
+        let overdue = (!self.manages() && self.overdue_at(now)) || self.departure_stuck(now);
+        if sharing && self.synced && !self.syncing && overdue {
             effects.extend(self.reconcile());
         }
         // A due rotation that waited (a refusal, or the interval of a deferred one) is tried
@@ -1719,8 +1720,14 @@ impl Engine {
                     self.keys.admitted = true;
                     effects.push(Effect::StoreKeys);
                 }
-                by => {
+                Some(by) => {
                     self.status = Self::admission(state, by);
+                    return effects;
+                }
+                // A listed device always has the entry that added it (`TeamState` keeps both
+                // together); without one there is nothing to compare, so nothing to confirm.
+                None => {
+                    self.status = waiting;
                     return effects;
                 }
             }
@@ -1804,33 +1811,25 @@ impl Engine {
     }
 
     /// The status asking the person to check who admitted this device (`by`, from the log).
-    fn admission(state: &TeamState, by: Option<&Holder>) -> TeamStatus {
+    fn admission(state: &TeamState, by: &Holder) -> TeamStatus {
         let head = *state.head();
         let log_safety_number = state
             .log_safety_number_at(head.index)
             .map(|n| safety_groups(&n))
             .unwrap_or_default();
-        let (member, device, number) = match by {
-            Some(by) => {
-                let keys = state
-                    .key_periods(by)
-                    .iter()
-                    .rev()
-                    .find(|p| p.removed_at.is_none())
-                    .or_else(|| state.key_periods(by).last())
-                    .map(|p| p.keys);
-                (
-                    by.member.as_str().to_owned(),
-                    by.device.as_str().to_owned(),
-                    keys.map(|k| safety_groups(&safety_number(by, &k)))
-                        .unwrap_or_default(),
-                )
-            }
-            None => (String::new(), String::new(), Vec::new()),
-        };
+        let keys = state
+            .key_periods(by)
+            .iter()
+            .rev()
+            .find(|p| p.removed_at.is_none())
+            .or_else(|| state.key_periods(by).last())
+            .map(|p| p.keys);
+        let number = keys
+            .map(|k| safety_groups(&safety_number(by, &k)))
+            .unwrap_or_default();
         TeamStatus::ConfirmAdmission {
-            member,
-            device,
+            member: by.member.as_str().to_owned(),
+            device: by.device.as_str().to_owned(),
             safety_number: number,
             log_index: head.index,
             log_safety_number,
@@ -1850,11 +1849,16 @@ impl Engine {
         let TeamStatus::ConfirmAdmission {
             log_index: shown_index,
             safety_number: shown_number,
+            log_safety_number,
             ..
         } = &self.status
         else {
             return Err(TeamError::UnknownRequest);
         };
+        // An empty number compares nothing: no admitting device or keys behind it.
+        if shown_number.is_empty() || log_safety_number.is_empty() {
+            return Err(TeamError::UnknownRequest);
+        }
         if *shown_index != log_index || shown_number.as_slice() != safety_number {
             return Err(TeamError::Changed);
         }
@@ -1886,9 +1890,7 @@ impl Engine {
         let Some(role) = state.effective_role(&me.member, self.website_role) else {
             return Vec::new();
         };
-        // A removal needs the place after it for the rotation it makes due (the log refuses it
-        // otherwise as well).
-        let removal_fits = state.head().index.saturating_add(2) <= self.max_log_entries;
+        let removal_fits = self.removal_fits();
         // A list that names neither this member nor the log's owner is not this project's
         // member list (an empty answer, ids of another kind): it removes nobody.
         if !roster.members.contains_key(&me.member) || !roster.members.contains_key(state.owner()) {
@@ -2042,11 +2044,22 @@ impl Engine {
                 .departed
                 .retain(|member, _| state.member(member).is_some()),
         }
-        let deferred = state.rotation_due() && !state.rotation_urgent();
+        // A deferred rotation only removes devices a member added after the epoch began; such a
+        // device got nothing its own member did not already have. Only a removal of one of this
+        // member's own devices makes the wait count here, so another member's churn never stops
+        // this device's sharing.
+        let deferred = state.rotation_due()
+            && !state.rotation_urgent()
+            && state
+                .removed_since_epoch()
+                .any(|holder| holder.member == me.member);
         if !deferred {
             self.deferred_since = None;
         } else if self.deferred_since.is_none() {
             self.deferred_since = Some(now);
+        }
+        if self.departure_stuck(now) {
+            return Some(KeyChangeWait::LogFull);
         }
         // An owner's or admin's device removes the member and rotates itself.
         if manager {
@@ -2065,6 +2078,20 @@ impl Engine {
     /// `now` (the ping then decides again).
     fn overdue_at(&self, now: u64) -> bool {
         self.departure_overdue(now) || self.deferred_overdue(now)
+    }
+
+    /// Whether the log still has room for a removal and the rotation it makes due (the log
+    /// refuses the removal otherwise as well).
+    fn removal_fits(&self) -> bool {
+        self.verifier
+            .state()
+            .is_some_and(|state| state.head().index.saturating_add(2) <= self.max_log_entries)
+    }
+
+    /// A departure past its grace period that nobody can carry out: the log has no room for the
+    /// removal, so only a new project helps.
+    fn departure_stuck(&self, now: u64) -> bool {
+        !self.removal_fits() && self.departure_overdue(now)
     }
 
     fn departure_overdue(&self, now: u64) -> bool {
@@ -2521,7 +2548,10 @@ impl Engine {
             return Err(TeamError::Busy);
         };
         let body = state.next_body(me.clone(), self.now(), kind);
-        state.check(&body).map_err(|_| TeamError::UnknownRequest)?;
+        state.check(&body).map_err(|error| match error {
+            LogError::LogFull => TeamError::LogFull,
+            _ => TeamError::UnknownRequest,
+        })?;
         Ok(body)
     }
 
@@ -6502,6 +6532,88 @@ mod tests {
     }
 
     #[test]
+    fn an_admission_without_safety_numbers_cannot_be_confirmed() {
+        let (_relay, _a1, mut b1) = team_of_two();
+        let head = b1.engine.state().unwrap().head().index;
+        b1.engine.keys.admitted = false;
+        for (number, log) in [
+            (Vec::new(), vec!["00001".to_owned()]),
+            (vec!["00001".to_owned()], Vec::new()),
+        ] {
+            b1.engine.status = TeamStatus::ConfirmAdmission {
+                member: String::new(),
+                device: String::new(),
+                safety_number: number.clone(),
+                log_index: head,
+                log_safety_number: log,
+            };
+            assert_eq!(
+                b1.engine.confirm_admission(head, &number).err(),
+                Some(TeamError::UnknownRequest)
+            );
+            assert!(!b1.engine.keys.admitted);
+        }
+    }
+
+    #[test]
+    fn a_member_who_left_a_log_without_room_for_the_removal_shows_the_full_log() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        use hangar_team_crypto::memberlog::RESERVED_LOG_ENTRIES;
+        let max = b1.engine.state().unwrap().head().index + 1 + RESERVED_LOG_ENTRIES;
+        relay.verifier = LogVerifier::with_max_entries(team(), max);
+        relay.verifier.apply_all(&relay.entries).unwrap();
+        for client in [&mut a1, &mut b1, &mut c1] {
+            client.engine.max_log_entries = max;
+            let mut verifier = LogVerifier::with_max_entries(team(), max);
+            verifier.apply_all(&relay.entries).unwrap();
+            client.engine.verifier = verifier;
+        }
+        // Key changes fill the log up to one place before the end: a rotation fits there, a
+        // removal and its rotation do not.
+        let me = a1.holder.clone();
+        while a1.engine.state().unwrap().head().index < max - 1 {
+            let rotate = a1.engine.rotate(&me);
+            run(
+                &mut relay,
+                &mut [&mut a1, &mut b1, &mut c1],
+                vec![(0, rotate)],
+            );
+        }
+        let head = b1.engine.state().unwrap().head().index;
+        assert_eq!(head, max - 1);
+        // Carol leaves the project on the website; nobody can take her out of the team.
+        let list = listing(&[("alice", Role::Owner), ("bob", Role::Member)]);
+        for client in [&mut a1, &mut b1] {
+            client.engine.roster_asked_at = Some(head);
+            let role = client.role;
+            let effects = client.engine.set_website(website(role, Some(list.clone())));
+            assert!(
+                !sends(&effects).contains(&"memberlog.append"),
+                "{:?}",
+                sends(&effects)
+            );
+        }
+        advance(&b1, DEPARTURE_GRACE_MS - 1);
+        b1.engine.ping();
+        connected(&b1);
+        // After the grace period both devices say the history is full instead of waiting for a
+        // removal that cannot come.
+        for client in [&mut a1, &mut b1] {
+            advance(client, DEPARTURE_GRACE_MS);
+            client.engine.ping();
+            assert_eq!(
+                client.engine.status(false),
+                TeamStatus::WaitingForKeyChange {
+                    reason: KeyChangeWait::LogFull
+                },
+                "{}",
+                client.holder.device.as_str()
+            );
+        }
+    }
+
+    #[test]
     fn a_removal_the_relay_withholds_stops_member_devices_after_the_grace_period() {
         let (mut relay, _a1, mut b1, head) = withheld_removal();
         // Bob's device reads the website's list as well, on connecting and every interval.
@@ -6604,6 +6716,56 @@ mod tests {
     }
 
     #[test]
+    fn another_members_own_device_churn_never_makes_a_member_device_overdue() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        let epoch = connected(&c1).0;
+        // With the owner's device offline, bob adds a device of his after the key was handed
+        // out and removes it again: due, not urgent.
+        let mut b2 = client("bob", "b2", Role::Member);
+        let hello = b2.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut b1, &mut c1, &mut b2],
+            vec![(2, hello)],
+        );
+        let poll = b1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut b1, &mut c1, &mut b2],
+            vec![(0, poll)],
+        );
+        let pending = b1.engine.pending().into_iter().next().unwrap();
+        let confirm = b1.engine.confirm(&pending.id).unwrap();
+        run(
+            &mut relay,
+            &mut [&mut b1, &mut c1, &mut b2],
+            vec![(0, confirm)],
+        );
+        let remove = b1
+            .engine
+            .remove_own_device(&DeviceId::new("b2").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut b1, &mut c1], vec![(0, remove)]);
+        let state = c1.engine.state().unwrap();
+        assert!(state.rotation_due() && !state.rotation_urgent());
+        for _ in 0..3 {
+            advance(&c1, DEFERRED_ROTATION_EVERY_MS);
+            c1.engine.ping();
+            assert_eq!(connected(&c1).0, epoch, "carol's device keeps sharing");
+        }
+        // Bob's own device waits for the key change: the removed device was his.
+        advance(&b1, DEFERRED_ROTATION_EVERY_MS);
+        b1.engine.ping();
+        assert_eq!(
+            b1.engine.status(false),
+            TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::Overdue
+            }
+        );
+    }
+
+    #[test]
     fn a_signed_newer_head_the_relay_does_not_hand_over_shows_held_back_history() {
         let (mut relay, mut a1, mut b1) = team_of_two();
         let head = b1.engine.state().unwrap().head().index;
@@ -6691,6 +6853,20 @@ mod tests {
             b1.engine.confirm(&pending[0].id).err(),
             Some(TeamError::LogFull)
         );
+        // A stolen device of bob's still goes: removals take the reserved places.
+        let stolen = DeviceId::new("x0").unwrap();
+        let remove = b1
+            .engine
+            .remove_own_device(&stolen)
+            .expect("a full log still takes a device removal");
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, remove)]);
+        assert!(b1
+            .engine
+            .state()
+            .unwrap()
+            .member(&MemberId::new("bob").unwrap())
+            .is_some_and(|bob| !bob.devices.contains_key(&stolen)));
+        assert_eq!(b1.ended, None);
         // Removing a member and the key change still fit.
         let remove = a1
             .engine
