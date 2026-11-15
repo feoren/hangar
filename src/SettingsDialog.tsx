@@ -66,6 +66,7 @@ import {
 } from "./viewerThemes";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 import type { UpdateState } from "./useUpdater";
+import { useScrollToTop } from "./useScrollToTop";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -202,12 +203,15 @@ export function SettingsDialog(props: Props) {
   const t = useT();
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? lastSection);
   const tabs = useRef(new Map<SettingsSection, HTMLButtonElement>());
+  const panel = useRef<HTMLDivElement>(null);
   const narrow = useSyncExternalStore(subscribeNarrow, isNarrow);
   const size = useDialogSize(SIZE_BOUNDS);
 
   useEffect(() => {
     lastSection = section;
   }, [section]);
+  // Every section opens at its top, also when the dialog opens on the last one.
+  useScrollToTop(panel, section);
 
   const select = (next: SettingsSection, focus: boolean) => {
     setSection(next);
@@ -279,6 +283,7 @@ export function SettingsDialog(props: Props) {
         </div>
 
         <div
+          ref={panel}
           className="settings-panel"
           role="tabpanel"
           id={`settings-panel-${section}`}
