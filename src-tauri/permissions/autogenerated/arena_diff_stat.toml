@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-arena-diff-stat"
+description = "Enables the arena_diff_stat command without any pre-configured scope."
+commands.allow = ["arena_diff_stat"]
+
+[[permission]]
+identifier = "deny-arena-diff-stat"
+description = "Denies the arena_diff_stat command without any pre-configured scope."
+commands.deny = ["arena_diff_stat"]

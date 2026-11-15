@@ -237,6 +237,36 @@
           "markdownDescription": "Enables the answer_gate command without any pre-configured scope."
         },
         {
+          "description": "Enables the arena_apply command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-arena-apply",
+          "markdownDescription": "Enables the arena_apply command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the arena_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-arena-create",
+          "markdownDescription": "Enables the arena_create command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the arena_diff_stat command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-arena-diff-stat",
+          "markdownDescription": "Enables the arena_diff_stat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the arena_discard command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-arena-discard",
+          "markdownDescription": "Enables the arena_discard command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the arena_run_tests command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-arena-run-tests",
+          "markdownDescription": "Enables the arena_run_tests command without any pre-configured scope."
+        },
+        {
           "description": "Enables the check_program_updates command without any pre-configured scope.",
           "type": "string",
           "const": "allow-check-program-updates",
@@ -1135,6 +1165,36 @@
           "type": "string",
           "const": "deny-answer-gate",
           "markdownDescription": "Denies the answer_gate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the arena_apply command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-arena-apply",
+          "markdownDescription": "Denies the arena_apply command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the arena_create command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-arena-create",
+          "markdownDescription": "Denies the arena_create command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the arena_diff_stat command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-arena-diff-stat",
+          "markdownDescription": "Denies the arena_diff_stat command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the arena_discard command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-arena-discard",
+          "markdownDescription": "Denies the arena_discard command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the arena_run_tests command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-arena-run-tests",
+          "markdownDescription": "Denies the arena_run_tests command without any pre-configured scope."
         },
         {
           "description": "Denies the check_program_updates command without any pre-configured scope.",

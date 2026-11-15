@@ -258,3 +258,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Globale Anweisungen (HANGAR.md)                 | global instructions               | `HANGAR.md` in the config folder; `instructions.rs`, `instruction_args`             |
 | Erster Prompt (beim Start)                      | first prompt                      | user message a fresh start begins with; `StartPrompt`, `prompt_args`                |
 | Upstream-Prüfung (Worktree)                     | upstream check                    | first prompt of a fresh worktree session; `[start_prompts] worktree`                |
+| Arena (Agenten-Arena)                           | agent arena, arena                | one task for 2 to 4 agents in worktrees from one commit; `arena.rs`, `arena.ts`     |
+| Teilnehmer (Arena)                              | contestant                        | one agent of an arena with its session and worktree; `Contestant`                   |
+| Übernehmen (Arena)                              | take over                         | the winner's changes into the project folder, uncommitted; `arena_apply`            |

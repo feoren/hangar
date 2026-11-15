@@ -643,6 +643,15 @@ assistant records, 771 ids, identical usage per id) and filed the price table's 
 contracts of the cost overview (per session and local day, ledger, price table, budget notice) and
 of the session handover; Codex and the other agents show no costs.
 Pages changed: [[token-usage-measurement]] (new), [[costs-and-handover]] (new), index.
+
+## [2026-11-13] query | Agent arena
+Filed the design of the agent arena: worktrees `hangar/arena-<id>-<agent>` from one commit read
+once, the task pasted with Enter once a session is quiet, diff stats against the base commit with
+new files counted, the test command split into argv (no shell, PATH only, time limit, process tree
+ended), taking the winner over through `git apply` plus copied new files with refusal on files the
+project folder changed, and forced removal only for confirmed arena worktrees. No cost column yet.
+Pages changed: [[agent-arena]] (new), index.
+
 ## [2026-11-13] ingest | Notes panel split into Private and Shared
 The notes panel's two groups (Shared, Only on this computer) became a segmented switch
 Private | Shared with counts above the list, shown only where the project can have shared notes.
@@ -920,3 +929,7 @@ The daily budget and the day its notice last showed moved from localStorage into
 read with a byte cap instead of a size check before the read. A handover whose new agent never
 turned on bracketed paste is no longer pasted; a notice offers to copy it.
 Pages changed: [[costs-and-handover]].
+
+## [2026-11-15] update | Agent arena on the hardened worktree code
+After merging the security rounds the arena follows the worktree rules of main: worktrees are added with `--no-checkout` and checked out inside, discarding names no `core.hooksPath` of its own and takes a hand-deleted folder's record with `worktree remove` instead of `worktree prune`, `arena_create` refuses share and device paths and marks its worktrees as pending for the cleanup, and arena sessions get no upstream check. Taking over now requires the project folder to be the top of the repository that lists the contestant's worktree.
+Pages changed: [[agent-arena]].

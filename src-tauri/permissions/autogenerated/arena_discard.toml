@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-arena-discard"
+description = "Enables the arena_discard command without any pre-configured scope."
+commands.allow = ["arena_discard"]
+
+[[permission]]
+identifier = "deny-arena-discard"
+description = "Denies the arena_discard command without any pre-configured scope."
+commands.deny = ["arena_discard"]

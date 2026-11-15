@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-arena-create"
+description = "Enables the arena_create command without any pre-configured scope."
+commands.allow = ["arena_create"]
+
+[[permission]]
+identifier = "deny-arena-create"
+description = "Denies the arena_create command without any pre-configured scope."
+commands.deny = ["arena_create"]

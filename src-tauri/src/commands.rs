@@ -11,6 +11,7 @@ use tauri::{Emitter as _, Manager as _, State};
 use crate::account::{AccountError, AccountPage, AccountView, Project};
 use crate::account_service::AccountService;
 use crate::agent_catalog::ProfileView;
+use crate::arena::{self, ArenaError};
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
@@ -2513,6 +2514,108 @@ async fn clean_up_worktree(
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Agent arena (arena.rs), on a blocking thread because git and the test command take time.
+
+/// One worktree per agent label from the current commit of the repository around `cwd`. Like
+/// `create_worktree`, never on a share or a device, and each new worktree counts as in use for
+/// the cleanup until its contestant's session works in it.
+#[tauri::command]
+pub async fn arena_create(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    cwd: PathBuf,
+    labels: Vec<String>,
+) -> Result<arena::Arena, ArenaError> {
+    if crate::no_links::folder_place(&cwd) == crate::no_links::FolderPlace::Remote {
+        return Err(GitError::InvalidPath("a network share or device path").into());
+    }
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        let created = arena::create(&Git::locate()?, &base, &cwd, &labels)?;
+        let pending = app.state::<worktree_cleanup::PendingWorktrees>();
+        let now = std::time::Instant::now();
+        for worktree in &created.worktrees {
+            pending.add(&worktree.path, now);
+        }
+        Ok(created)
+    })
+    .await
+    .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?
+}
+
+/// A contestant's changed files and lines against the arena's base commit.
+#[tauri::command]
+pub async fn arena_diff_stat(
+    store: State<'_, Store>,
+    worktree: Worktree,
+    base_commit: String,
+) -> Result<arena::DiffStat, ArenaError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        arena::diff_stat(&Git::locate()?, &base, &worktree, &base_commit)
+    })
+    .await
+    .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?
+}
+
+/// Takes the winner's changes over into the project folder, uncommitted; refuses shared files.
+#[tauri::command]
+pub async fn arena_apply(
+    store: State<'_, Store>,
+    worktree: Worktree,
+    base_commit: String,
+) -> Result<arena::ApplyOutcome, ArenaError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        arena::apply(&Git::locate()?, &base, &worktree, &base_commit)
+    })
+    .await
+    .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?
+}
+
+/// Removes a contestant's worktree and branch with its changes, after the user confirmed it.
+/// The claims let go of the folder first, as for `remove_worktree`.
+#[tauri::command]
+pub async fn arena_discard(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    worktree: Worktree,
+) -> Result<(), ArenaError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree::check_shape(&worktree)?;
+        worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .remove(&worktree.path);
+        let claims = app.state::<ClaimsService>();
+        let released = claims.release(&worktree.path);
+        let result = Git::locate()
+            .map_err(ArenaError::from)
+            .and_then(|git| arena::discard(&git, &base, &worktree));
+        if result.is_err() {
+            claims.unrelease(released);
+        }
+        result
+    })
+    .await
+    .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?
+}
+
+/// The user's test command in a contestant's worktree (argv without a shell, with a time limit).
+#[tauri::command]
+pub async fn arena_run_tests(
+    store: State<'_, Store>,
+    worktree: Worktree,
+    command: String,
+) -> Result<arena::TestRun, ArenaError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        arena::run_tests(&base, &worktree, &command, arena::TEST_TIMEOUT)
+    })
+    .await
+    .map_err(|error| ArenaError::from(GitError::Task(error.to_string())))?
 }
 
 // Local claims (claims.rs, claims_service.rs). Contract: team-service-v1.md, step A.
