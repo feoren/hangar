@@ -28,8 +28,6 @@ import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
 import { PathChecker } from "./pathCheck";
-import { promptWorthShowing } from "./lastPrompt";
-import { PromptLineTracker } from "./promptTitle";
 import { SubmittedLines } from "./handover";
 import { StepPrompt } from "./timeline";
 import { PtySizeSync } from "./ptySize";
@@ -59,6 +57,7 @@ import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
+import { TypedInput } from "./typedInput";
 import {
   createFontLoader,
   DEFAULT_TERMINAL_LOOK,
@@ -183,7 +182,17 @@ export class SessionTerminal {
    * task (promptTitle.ts); `null` stops the calls, not the tracking.
    */
   onPromptLine: ((line: string) => void) | null = null;
-  private readonly promptLines = new PromptLineTracker();
+  /** One tracker for every reader of submitted lines (typedInput.ts). */
+  private readonly typedInput = new TypedInput({
+    line: (line, agent) => {
+      this.submitted.record(line, agent);
+      this.stepPrompt.submitted(line, this.attention.state, this.cursorRow());
+      this.emitPromptLine(line);
+    },
+    lastPrompts: (texts) => {
+      this.trackLastPrompt(texts);
+    },
+  });
   /** What the user submitted in an agent session (handover.ts): the handover's last request. */
   private readonly submitted = new SubmittedLines();
   /** The step's prompt for its snapshot (timeline.ts): never a line typed while it works. */
@@ -858,21 +867,12 @@ export class SessionTerminal {
   }
 
   /**
-   * Every input that reaches the program as typed goes through here. One tracker feeds the
-   * handover, the timeline, the title and the last prompt bar, so they never disagree on a line.
-   * Runs for the whole session; typed input is small, so this costs nothing measurable.
+   * Every input that reaches the program as typed goes through here, so the handover, the
+   * timeline, the title and the last prompt bar never disagree on a line. Runs for the whole
+   * session; typed input is small, so this costs nothing measurable.
    */
   private trackTyped(data: string): void {
-    const lines = this.promptLines.feed(data);
-    if (lines.length === 0) return;
-    // A shell's command line is no request to hand over and no prompt to come back to.
-    const agent = this.shellKind() === "agent";
-    for (const line of lines) {
-      this.submitted.record(line, agent);
-      this.stepPrompt.submitted(line, this.attention.state, this.cursorRow());
-      this.emitPromptLine(line);
-    }
-    if (agent) this.trackLastPrompt(lines);
+    this.typedInput.feed(data, this.shellKind() === "agent");
   }
 
   /** The user's last request in this agent session (handover.ts), `null` before one. */
@@ -896,17 +896,13 @@ export class SessionTerminal {
   }
 
   /** The last prompt bar's entry follows the newest line worth showing (lastPrompt.ts). */
-  private trackLastPrompt(lines: readonly string[]): void {
-    let changed = false;
-    for (const line of lines) {
-      const text = promptWorthShowing(line);
-      if (text === null) continue;
+  private trackLastPrompt(texts: readonly string[]): void {
+    for (const text of texts) {
       this.lastPromptEntry?.marker?.dispose();
       // The cursor still stands on the prompt's line: the program has not answered yet.
       this.lastPromptEntry = { text, marker: this.term.registerMarker(0) };
-      changed = true;
     }
-    if (changed) for (const listener of this.lastPromptListeners) listener();
+    for (const listener of this.lastPromptListeners) listener();
   }
 
   /** The bar above the terminal reads this; `null` until the user sent a prompt. Stable object. */
