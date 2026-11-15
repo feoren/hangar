@@ -583,7 +583,7 @@ pub fn commit(git: &Git, cwd: &Path, message: &str) -> Result<(), ActionError> {
         let root = repo_root(git, cwd, deadline)?;
         let mut input = message.as_bytes().to_vec();
         input.push(b'\n');
-        let output = git.run_with_input(
+        let output = git.with_repo_hooks().run_with_input(
             &root,
             ["commit", "--quiet", "--file=-"],
             Some(input),
@@ -1000,8 +1000,8 @@ mod tests {
         marker_hook(&repo, "post-index-change", &marker);
         write(&repo.join("a.txt"), "one\nchanged\n");
 
-        // The test is only meaningful if plain git runs the hook here.
-        git_ok(&git, &repo, &["add", "a.txt"]);
+        // The test is only meaningful if git with the repository's hooks runs the hook here.
+        git_ok(&git.with_repo_hooks(), &repo, &["add", "a.txt"]);
         assert!(marker.exists(), "git did not run the hook; test is void");
         git_ok(&git, &repo, &["reset", "--quiet"]);
         fs::remove_file(&marker).unwrap();

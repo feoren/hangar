@@ -692,7 +692,7 @@ mod tests {
         let probe = tmp.path().join("probe");
         let probe_arg = probe.to_string_lossy().into_owned();
         git_ok(
-            &git,
+            &git.with_repo_hooks(),
             &repo,
             &["worktree", "add", "-b", "probe", &probe_arg, "HEAD"],
         );
@@ -837,7 +837,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
         }
-        git_ok(&git, &repo, &["branch", "hook-probe"]);
+        git_ok(&git.with_repo_hooks(), &repo, &["branch", "hook-probe"]);
         assert!(marker.exists(), "git did not run the hook; test is void");
         fs::remove_file(&marker).unwrap();
         let removal = remove(&git, &base, &ignored).unwrap();

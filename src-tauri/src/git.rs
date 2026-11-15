@@ -4,8 +4,9 @@
 //! Branches are read from the files under `.git` without starting a process, because the sidebar
 //! asks for them every 15 seconds. Everything else runs `git` from PATH as an argv array, with
 //! optional locks off (a status in the background must not block the agent's own git calls),
-//! no prompts, no pager, no fsmonitor, no external diff or textconv, and a time limit after which
-//! the whole process tree is killed.
+//! no prompts, no pager, no fsmonitor, no external diff or textconv, no repository hooks (only a
+//! commit opts in, [`Git::with_repo_hooks`]), and a time limit after which the whole process tree
+//! is killed.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -335,12 +336,43 @@ pub fn message(stderr: &[u8]) -> String {
     joined.chars().take(MAX_MESSAGE_CHARS).collect()
 }
 
+/// Every hook event git knows (githooks(5) of git 2.56); only a hook for one of these runs
+/// without an explicit `git hook run`, which Hangar never calls.
+const HOOK_EVENTS: [&str; 24] = [
+    "applypatch-msg",
+    "pre-applypatch",
+    "post-applypatch",
+    "pre-commit",
+    "pre-merge-commit",
+    "prepare-commit-msg",
+    "commit-msg",
+    "post-commit",
+    "pre-rebase",
+    "post-checkout",
+    "post-merge",
+    "pre-push",
+    "pre-receive",
+    "update",
+    "proc-receive",
+    "post-receive",
+    "post-update",
+    "reference-transaction",
+    "push-to-checkout",
+    "pre-auto-gc",
+    "post-rewrite",
+    "sendemail-validate",
+    "fsmonitor-watchman",
+    "post-index-change",
+];
+
 /// The `git` program found on PATH.
 #[derive(Debug, Clone)]
 pub struct Git {
     program: PathBuf,
     /// Transports and lazy fetches allowed; only test setups (cloning a fixture) need them.
     network: bool,
+    /// The repository's hooks run; only a commit the user asked for opts in.
+    repo_hooks: bool,
 }
 
 impl Git {
@@ -352,6 +384,7 @@ impl Git {
             .map(|program| Self {
                 program,
                 network: false,
+                repo_hooks: false,
             })
             .ok_or(GitError::NotFound)
     }
@@ -360,8 +393,17 @@ impl Git {
     #[cfg(test)]
     pub(crate) fn with_network(&self) -> Self {
         Self {
-            program: self.program.clone(),
             network: true,
+            ..self.clone()
+        }
+    }
+
+    /// The same git with the repository's hooks, for the one call where the user expects them
+    /// to run as in the terminal: a commit.
+    pub fn with_repo_hooks(&self) -> Self {
+        Self {
+            repo_hooks: true,
+            ..self.clone()
         }
     }
 
@@ -377,7 +419,22 @@ impl Git {
             .arg("--no-pager")
             .args(["-c", "core.fsmonitor=false"])
             .args(["-c", "core.quotepath=false"])
-            .args(["-c", "color.ui=false"])
+            .args(["-c", "color.ui=false"]);
+        if !self.repo_hooks {
+            // A hook path below a regular file (git itself) can never exist, so git finds no
+            // hook at all. Unlike an empty folder it needs no writable place that something
+            // could later fill. Callers may still name their own `core.hooksPath` after this.
+            let mut hooks = std::ffi::OsString::from("core.hooksPath=");
+            hooks.push(self.program.as_os_str());
+            command.arg("-c").arg(hooks);
+            // Hooks named in the config (git 2.54 and later) are not found through the hooks
+            // folder; switching off each event stops them and the folder's hooks alike. Older
+            // git ignores these keys, and the command line wins over every config file.
+            for event in HOOK_EVENTS {
+                command.arg("-c").arg(format!("hook.{event}.enabled=false"));
+            }
+        }
+        command
             .args(args)
             .current_dir(cwd)
             .stdin(if stdin { Stdio::piped() } else { Stdio::null() })
@@ -1365,6 +1422,7 @@ pub(crate) mod tests {
         let git = Git {
             program: PathBuf::from("git"),
             network: false,
+            repo_hooks: false,
         };
         let command = git.command(Path::new("."), ["status"], false);
         let envs: HashMap<&OsStr, Option<&OsStr>> = command.get_envs().collect();
@@ -1386,6 +1444,68 @@ pub(crate) mod tests {
         assert!(!fixture
             .get_envs()
             .any(|(key, _)| key == OsStr::new("GIT_ALLOW_PROTOCOL")));
+    }
+
+    #[test]
+    fn calls_run_no_repository_hook_unless_asked() {
+        let git = Git {
+            program: PathBuf::from("git"),
+            network: false,
+            repo_hooks: false,
+        };
+        let args = |git: &Git| -> Vec<String> {
+            git.command(Path::new("."), ["status"], false)
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        };
+        let default = args(&git);
+        let at = default
+            .iter()
+            .position(|arg| arg == "core.hooksPath=git")
+            .expect("hooks are switched off");
+        assert_eq!(default.get(at - 1).map(String::as_str), Some("-c"));
+        assert!(at < default.iter().position(|arg| arg == "status").unwrap());
+        for event in HOOK_EVENTS {
+            let off = format!("hook.{event}.enabled=false");
+            assert!(default.contains(&off), "{off}");
+        }
+        assert!(!args(&git.with_repo_hooks())
+            .iter()
+            .any(|arg| arg.starts_with("core.hooksPath") || arg.starts_with("hook.")));
+        assert!(args(&git.with_network())
+            .iter()
+            .any(|arg| arg.starts_with("core.hooksPath")));
+    }
+
+    /// Since git 2.54 a hook can also live in the repository's config (`hook.<name>.command`
+    /// with `hook.<name>.event`), where `core.hooksPath` does not reach it.
+    #[test]
+    fn hooks_named_in_the_repository_config_do_not_run_either() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-config-hooks");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let marker = tmp.path().join("config-hook-ran");
+        let command = format!(
+            "echo hit > '{}'",
+            marker.to_string_lossy().replace('\\', "/")
+        );
+        git_ok(&git, &repo, &["config", "hook.probe.command", &command]);
+        git_ok(
+            &git,
+            &repo,
+            &["config", "hook.probe.event", "post-index-change"],
+        );
+        fs::write(repo.join("a.txt"), "a\n").unwrap();
+
+        git_ok(&git, &repo, &["add", "a.txt"]);
+        assert!(!marker.exists(), "a hook from the repository config ran");
+
+        git_ok(&git.with_repo_hooks(), &repo, &["reset", "--quiet"]);
+        if !marker.exists() {
+            eprintln!("this git has no config-defined hooks, the opt-in case is skipped");
+        }
     }
 
     /// A partial clone whose config names a marker as its upload program: reading a missing

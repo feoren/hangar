@@ -4,7 +4,7 @@ type: synthesis
 tags: [git, changes-panel, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Commit history (contract)
@@ -127,7 +127,9 @@ component. git itself refuses a path beyond a symbolic link.
 - Hooks: stage, unstage and discard pass `-c core.hooksPath=<folder>`, an empty folder
   `git-no-hooks` below Hangar's local data folder (created on first use; refused if anything is
   in it), so no repository hook (`post-index-change`, for example) runs for them. Only a commit
-  runs hooks.
+  runs hooks (`Git::with_repo_hooks`); every other git call of Hangar already points
+  `core.hooksPath` below the git program file, where no hook can exist ([[agent-workflow-features]],
+  "Git").
 - Links (discard only, checked before git runs): every component of every path below the work
   tree root is read with `symlink_metadata`; a symbolic link or, on Windows, any reparse point
   (junctions included, which Git for Windows may take for a plain folder, so `git clean -f -d`
