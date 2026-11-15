@@ -5,7 +5,7 @@
 // As in the terminal, the link is judged with the text that touches it: `github.com/[acme](...)`
 // shows `github.com/acme`, also when the text before is code or another link.
 
-import { osc8Decision, safeLinkUrl } from "./termSafety";
+import { osc8DecisionOf, safeLinkUrl } from "./termSafety";
 import { WORD_LIMIT } from "./terminalLinkWord";
 
 export type ViewerLinkAction =
@@ -14,11 +14,16 @@ export type ViewerLinkAction =
   /** No http(s) address, or one with a user name: nothing opens. */
   | { kind: "ignore" };
 
-/** What a click on a link with the address `href` and the visible text `shown` does. */
-export function viewerLinkAction(href: string, shown: string): ViewerLinkAction {
+/**
+ * What a click on a link with the address `href` does. `shown` are the texts it reads by: the
+ * word around it (`wordAround`) and its own text. It opens at once only when none misleads.
+ */
+export function viewerLinkAction(href: string, shown: string, ...more: string[]): ViewerLinkAction {
   const url = safeLinkUrl(href);
   if (url === null) return { kind: "ignore" };
-  return osc8Decision(shown, url) === "confirm" ? { kind: "confirm", url } : { kind: "open", url };
+  return osc8DecisionOf([shown, ...more], url) === "confirm"
+    ? { kind: "confirm", url }
+    : { kind: "open", url };
 }
 
 /**

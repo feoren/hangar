@@ -515,6 +515,8 @@ pub fn run() -> tauri::Result<()> {
             commands::save_message_queue,
             commands::protected_settings,
             commands::save_protected_settings,
+            commands::main_prefs,
+            commands::save_main_prefs,
             commands::load_templates,
             commands::save_templates,
             commands::set_panel_session,

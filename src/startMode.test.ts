@@ -6,9 +6,9 @@ import { createTranslator } from "./i18n";
 import {
   DEFAULT_START_MODE,
   effectiveMode,
-  loadStartMode,
+  legacyStartMode,
   parseStartMode,
-  saveStartMode,
+  START_MODE_STORAGE_KEY,
   isTeamSession,
   listedFor,
   sessionMode,
@@ -37,36 +37,24 @@ describe("startMode", () => {
     }
   });
 
-  it("remembers the choice", () => {
+  it("reads the choice an older version stored, once, for the migration", () => {
     const store = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        store.set(key, value);
-      },
-    });
-    expect(loadStartMode()).toBe("private");
-    saveStartMode("team");
-    expect(loadStartMode()).toBe("team");
-    saveStartMode("private");
-    expect(loadStartMode()).toBe("private");
-    store.set("hangar.startMode", "garbage");
-    expect(loadStartMode()).toBe("private");
+    const storage = { getItem: (key: string) => store.get(key) ?? null };
+    expect(START_MODE_STORAGE_KEY).toBe("hangar.startMode");
+    expect(legacyStartMode(storage)).toBe("private");
+    store.set(START_MODE_STORAGE_KEY, "team");
+    expect(legacyStartMode(storage)).toBe("team");
+    store.set(START_MODE_STORAGE_KEY, "garbage");
+    expect(legacyStartMode(storage)).toBe("private");
   });
 
   it("starts private when storage fails", () => {
-    vi.stubGlobal("localStorage", {
-      getItem: () => {
+    const blocked = {
+      getItem: (): string | null => {
         throw new Error("blocked");
       },
-      setItem: () => {
-        throw new Error("blocked");
-      },
-    });
-    expect(loadStartMode()).toBe("private");
-    expect(() => {
-      saveStartMode("team");
-    }).not.toThrow();
+    };
+    expect(legacyStartMode(blocked)).toBe("private");
   });
 
   it("falls back to private outside a git repository", () => {

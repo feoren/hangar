@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-main-prefs"
+description = "Enables the main_prefs command without any pre-configured scope."
+commands.allow = ["main_prefs"]
+
+[[permission]]
+identifier = "deny-main-prefs"
+description = "Denies the main_prefs command without any pre-configured scope."
+commands.deny = ["main_prefs"]

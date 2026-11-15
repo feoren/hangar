@@ -7,6 +7,8 @@
 // in the color of their background) end a word like a space. Pure logic over a small view of
 // xterm's buffer, so it can be tested without xterm.
 
+import { paletteColor } from "./peekStyle";
+import { schemeColors, type TerminalColors } from "./terminalSchemes";
 import { contrastRatio } from "./theme";
 
 /**
@@ -26,6 +28,8 @@ export interface WordCell {
 export interface CellStyle {
   isInvisible?(): number;
   isBold?(): number;
+  isDim?(): number;
+  isInverse?(): number;
   getFgColor?(): number;
   getBgColor?(): number;
   isFgRGB?(): boolean;
@@ -36,33 +40,80 @@ export interface CellStyle {
 
 /** Colors this close (WCAG contrast ratio) read as one: text in them cannot be told apart. */
 const SAME_COLOR = 1.1;
+/**
+ * And this close in every channel (0 to 255). Contrast alone measures lightness: green text on a
+ * blue background of the same lightness reads well, and counting it hidden would blank it out.
+ */
+const SAME_CHANNEL = 24;
+/** The scheme a cell is judged against when none is given (tests, the default look). */
+const DEFAULT_COLORS = schemeColors("hangar", "dark");
 
 function hex(rgb: number): string {
-  return `#${rgb.toString(16).padStart(6, "0")}`;
+  return `#${(rgb & 0xffffff).toString(16).padStart(6, "0")}`;
+}
+
+/** A cell color as CSS: RGB as it is, a palette index or the default through the scheme. */
+function cellColor(
+  rgb: boolean | undefined,
+  palette: boolean | undefined,
+  value: number,
+  fallback: string,
+  colors: TerminalColors,
+): string {
+  if (rgb === true) return hex(value);
+  if (palette === true) return paletteColor(value, colors);
+  return fallback;
+}
+
+/** The red, green and blue channels of a `#rrggbb` color. */
+function channels(color: string): number[] {
+  return [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16) || 0);
+}
+
+/** `fg` half way towards `bg`, as xterm draws dim text (SGR 2) at half opacity. */
+function halfWay(fg: string, bg: string): string {
+  const back = channels(bg);
+  const mixed = channels(fg).map((value, at) => Math.round((value + (back[at] ?? 0)) / 2));
+  return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Whether text in `fg` on `bg` cannot be told apart: close in lightness and in every channel. */
+function indistinct(fg: string, bg: string): boolean {
+  if (contrastRatio(fg, bg) >= SAME_COLOR) return false;
+  const back = channels(bg);
+  return channels(fg).every((value, at) => Math.abs(value - (back[at] ?? 0)) <= SAME_CHANNEL);
 }
 
 /**
- * Whether nobody sees a cell's text: drawn invisible (SGR 8), or in its own background color.
- * Colors compare as far as they can be known without the color scheme: two palette colors by
- * index (bold base colors are drawn bright), two RGB colors by contrast. Default colors and mixed
- * kinds count as visible.
+ * Whether nobody sees a cell's text: drawn invisible (SGR 8), or in a color too close to its
+ * background, in lightness and in every channel. Both colors resolve as the terminal draws them, through the active scheme
+ * (`colors`): default colors, palette indices (bold base colors drawn bright), RGB, swapped by
+ * inverse (SGR 7), dim text (SGR 2) half way towards the background.
  *
  * `minimumContrast` is the terminal's `minimumContrastRatio`: above 1, xterm lifts text in its
  * background color until it reads, so such text is seen and only SGR 8 hides a cell.
  */
-export function cellHidden(cell: CellStyle, minimumContrast = 1): boolean {
+export function cellHidden(
+  cell: CellStyle,
+  minimumContrast = 1,
+  colors: TerminalColors = DEFAULT_COLORS,
+): boolean {
   if ((cell.isInvisible?.() ?? 0) !== 0) return true;
   if (minimumContrast > 1) return false;
-  const fg = cell.getFgColor?.() ?? 0;
-  const bg = cell.getBgColor?.() ?? 0;
-  if (cell.isFgPalette?.() === true && cell.isBgPalette?.() === true) {
-    const bold = (cell.isBold?.() ?? 0) !== 0;
-    return (bold && fg < 8 ? fg + 8 : fg) === bg;
-  }
-  if (cell.isFgRGB?.() === true && cell.isBgRGB?.() === true) {
-    return contrastRatio(hex(fg), hex(bg)) < SAME_COLOR;
-  }
-  return false;
+  let fgIndex = cell.getFgColor?.() ?? 0;
+  const fgPalette = cell.isFgPalette?.();
+  if (fgPalette === true && (cell.isBold?.() ?? 0) !== 0 && fgIndex < 8) fgIndex += 8;
+  let fg = cellColor(cell.isFgRGB?.(), fgPalette, fgIndex, colors.foreground, colors);
+  let bg = cellColor(
+    cell.isBgRGB?.(),
+    cell.isBgPalette?.(),
+    cell.getBgColor?.() ?? 0,
+    colors.background,
+    colors,
+  );
+  if ((cell.isInverse?.() ?? 0) !== 0) [fg, bg] = [bg, fg];
+  if ((cell.isDim?.() ?? 0) !== 0) fg = halfWay(fg, bg);
+  return indistinct(fg, bg);
 }
 
 /** One buffer row; `isWrapped` means it continues the row above. */
@@ -110,11 +161,31 @@ function continues(source: WordSource, y: number): boolean {
   return last !== undefined && first !== undefined && !isGap(last) && !isGap(first);
 }
 
+/** The texts a link is judged by (termSafety.ts `osc8DecisionOf`). */
+export interface LinkTexts {
+  /** The link's own cells, from its start to its end. */
+  own: string;
+  /** Those cells widened by the non-blank cells that touch them (`linkWord`). */
+  word: string;
+}
+
+function cellText(cell: WordCell): string {
+  return cell.width !== 0 && (cell.chars === "" || cell.hidden === true) ? " " : cell.chars;
+}
+
 /**
  * The visible text from `start` to `end` (both inclusive), widened by the non-blank cells that
  * touch it, through wrapped rows and breaks that look like a wrap. Hidden cells read as spaces.
  */
 export function linkWord(source: WordSource, start: CellAt, end: CellAt): string {
+  return linkTexts(source, start, end).word;
+}
+
+/**
+ * The link's own text and the word around it (`linkWord`); both empty for a range outside the
+ * buffer. Hidden cells read as spaces in both.
+ */
+export function linkTexts(source: WordSource, start: CellAt, end: CellAt): LinkTexts {
   let first = start.y;
   while (first > 0 && start.y - first < ROW_LIMIT && continues(source, first)) first -= 1;
   let last = end.y;
@@ -132,7 +203,7 @@ export function linkWord(source: WordSource, start: CellAt, end: CellAt): string
       cells.push(line.cell(x) ?? { chars: "", width: 1 });
     }
   }
-  if (from < 0 || to < from) return "";
+  if (from < 0 || to < from) return { own: "", word: "" };
 
   let left = from;
   while (left > 0 && from - left < WORD_LIMIT) {
@@ -146,10 +217,6 @@ export function linkWord(source: WordSource, start: CellAt, end: CellAt): string
     if (after === undefined || isGap(after)) break;
     right += 1;
   }
-  return cells
-    .slice(left, right + 1)
-    .map((cell) =>
-      cell.width !== 0 && (cell.chars === "" || cell.hidden === true) ? " " : cell.chars,
-    )
-    .join("");
+  const text = (cut: WordCell[]) => cut.map(cellText).join("");
+  return { own: text(cells.slice(from, to + 1)), word: text(cells.slice(left, right + 1)) };
 }

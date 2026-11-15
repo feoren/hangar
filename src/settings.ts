@@ -1,10 +1,11 @@
 // App settings (language, appearance, attention, program details, updates).
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
-// command guard) and the protected settings (paste warning, automatic updates, HANGAR.md,
-// snippets) are the exception: the panel and file viewer windows share this localStorage, so the
-// backend keeps them for the main window alone (mainStore.ts); they are neither read from nor
-// written to localStorage here.
+// command guard), the protected settings (paste warning, automatic updates, HANGAR.md,
+// snippets) and the notice settings (session restore, attention, taskbar flash, desktop
+// notifications, chime, quiet hours) are the exception: the panel and file viewer windows share
+// this localStorage, so the backend keeps them for the main window alone (mainStore.ts); they are
+// neither read from nor written to localStorage here.
 
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
@@ -54,8 +55,32 @@ export type ProtectedKey = (typeof PROTECTED_KEYS)[number];
 /** The protected settings as the backend stores them (`main_store.rs`, `ProtectedSettings`). */
 export type ProtectedSettings = Pick<Settings, ProtectedKey>;
 
+/**
+ * Settings that decide whether sessions come back and whether a session that waits for the
+ * person shows itself, kept by the backend with the start preferences (mainStore.ts `MainPrefs`):
+ * a viewer that could write them could silence the notices of an agent asking for approval, or
+ * turn the restore off.
+ */
+export const NOTICE_KEYS = [
+  "restoreSessions",
+  "attentionEnabled",
+  "taskbarFlash",
+  "notifyDesktop",
+  "chime",
+  "quietHours",
+] as const;
+
+export type NoticeKey = (typeof NOTICE_KEYS)[number];
+
+/** The notice settings as the backend stores them (`main_store.rs`, `MainPrefs`). */
+export type NoticeSettings = Pick<Settings, NoticeKey>;
+
 /** Every setting the backend keeps and localStorage never holds. */
-export const BACKEND_KEYS: readonly string[] = [...SECURITY_SWITCH_KEYS, ...PROTECTED_KEYS];
+export const BACKEND_KEYS: readonly string[] = [
+  ...SECURITY_SWITCH_KEYS,
+  ...PROTECTED_KEYS,
+  ...NOTICE_KEYS,
+];
 
 export const QUIET_SECONDS = { min: 1, max: 30, default: 3 } as const;
 /**
@@ -284,7 +309,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   return {
     language: chosenLanguage,
     theme: isThemeSetting(theme) ? theme : defaults.theme,
-    attentionEnabled: flag("attentionEnabled"),
+    // Never from localStorage, like the notice settings below: the backend keeps them.
+    attentionEnabled: defaults.attentionEnabled,
     // Older versions stored one attention color instead; it carries over to both waiting states.
     looks: parseStateLooks(get("looks"), Reflect.get(raw, "attentionColor")),
     dotAnimation: parseDotAnimation(get("dotAnimation")),
@@ -297,14 +323,14 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
       typeof stall === "number" && Number.isFinite(stall)
         ? clampStallMinutes(stall)
         : defaults.stallMinutes,
-    taskbarFlash: flag("taskbarFlash"),
-    notifyDesktop: flag("notifyDesktop"),
-    chime: flag("chime"),
+    taskbarFlash: defaults.taskbarFlash,
+    notifyDesktop: defaults.notifyDesktop,
+    chime: defaults.chime,
     chimeVolume:
       typeof volume === "number" && Number.isFinite(volume)
         ? clampChimeVolume(volume)
         : defaults.chimeVolume,
-    quietHours: parseQuietHours(get("quietHours")),
+    quietHours: defaults.quietHours,
     showResources: flag("showResources"),
     powerSaving: flag("powerSaving"),
     keepInTray: flag("keepInTray"),
@@ -313,7 +339,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     // Never from localStorage, like the switches below: the backend keeps them (mainStore.ts).
     autoUpdate: defaults.autoUpdate,
     checkProgramUpdates: flag("checkProgramUpdates"),
-    restoreSessions: flag("restoreSessions"),
+    restoreSessions: defaults.restoreSessions,
     scrollbackLines:
       typeof lines === "number" && Number.isFinite(lines)
         ? clampScrollbackLines(lines)
@@ -411,6 +437,45 @@ export function legacyProtected(text: string | null, language: Language): Protec
       "snippets" in raw ? Reflect.get(raw, "snippets") : undefined,
       isLanguage(storedLanguage) ? storedLanguage : language,
     ),
+  };
+}
+
+/** The notice settings of `settings`. */
+export function noticesOf(settings: NoticeSettings): NoticeSettings {
+  return {
+    restoreSessions: settings.restoreSessions,
+    attentionEnabled: settings.attentionEnabled,
+    taskbarFlash: settings.taskbarFlash,
+    notifyDesktop: settings.notifyDesktop,
+    chime: settings.chime,
+    quietHours: settings.quietHours,
+  };
+}
+
+/**
+ * The notice settings an older Hangar kept in the stored settings text, for the one migration to
+ * the backend (mainStore.ts); missing or invalid values are the defaults.
+ */
+export function legacyNotices(text: string | null): NoticeSettings {
+  const defaults = noticesOf(defaultSettings("en"));
+  let raw: unknown = null;
+  try {
+    raw = text === null ? null : JSON.parse(text);
+  } catch {
+    return defaults;
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return defaults;
+  const flag = (key: Exclude<NoticeKey, "quietHours">): boolean => {
+    const value: unknown = Reflect.get(raw, key);
+    return typeof value === "boolean" ? value : defaults[key];
+  };
+  return {
+    restoreSessions: flag("restoreSessions"),
+    attentionEnabled: flag("attentionEnabled"),
+    taskbarFlash: flag("taskbarFlash"),
+    notifyDesktop: flag("notifyDesktop"),
+    chime: flag("chime"),
+    quietHours: parseQuietHours(Reflect.get(raw, "quietHours")),
   };
 }
 

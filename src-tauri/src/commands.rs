@@ -33,8 +33,8 @@ use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
 use crate::main_store::{
-    self, MainStore, MainStoreError, ProtectedSettings, QueuedMessages, SecuritySwitches,
-    WorkspaceTemplate,
+    self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
+    SecuritySwitches, WorkspaceTemplate,
 };
 use crate::manager::{
     EventSink, ManagerError, SessionEvent, SessionManager, StartRequest, TermSize,
@@ -3027,6 +3027,33 @@ pub async fn save_protected_settings(
     main_store::check_main(window.label())?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || store.save_settings(settings))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// Where and how the next session starts and whether a waiting session shows itself (start
+/// mode, last program, folders, session restore, notices); `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn main_prefs(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<MainPrefs>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_prefs())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn save_main_prefs(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    prefs: MainPrefs,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_prefs(prefs))
         .await
         .map_err(|error| MainStoreError::Task(error.to_string()))?
 }

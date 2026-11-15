@@ -301,13 +301,24 @@ export const WINDOW_PREFS_KEY = "hangar.panelWindow";
 /** Before ADR 0007 only the notes could be detached; their prefs carry over once. */
 export const LEGACY_WINDOW_PREFS_KEY = "hangar.notesWindow";
 
+/** The largest side of a window (as `panel_window.rs` `MAX_SIDE`) and the farthest position. */
+const MAX_SIDE = 16_384;
+const MAX_POSITION = 100_000;
+const BOUNDS_FIELDS = ["x", "y", "width", "height"];
+
+/**
+ * A remembered place, read strictly: any window of this origin can write the prefs, so only the
+ * four numbers within what a screen can hold count, and nothing else may come along.
+ */
 function parseBounds(value: unknown): PanelBounds | null {
   const entry = record(value);
   if (!entry) return null;
-  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => field(entry, name));
+  if (Object.keys(entry).some((key) => !BOUNDS_FIELDS.includes(key))) return null;
+  const [x, y, width, height] = BOUNDS_FIELDS.map((name) => field(entry, name));
   const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
   if (!finite(x) || !finite(y) || !finite(width) || !finite(height)) return null;
-  if (width <= 0 || height <= 0) return null;
+  if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) return null;
+  if (Math.abs(x) > MAX_POSITION || Math.abs(y) > MAX_POSITION) return null;
   return { x, y, width, height };
 }
 

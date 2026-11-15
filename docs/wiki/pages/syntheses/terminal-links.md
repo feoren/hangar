@@ -37,28 +37,53 @@ Web addresses and existing file or folder paths in a session's output are links.
   hard line break counts as a wrap when it looks like one: the row above is filled up to its
   last column and the row below starts with text. So plain `https://github.com/` printed right
   before a link whose own text is `acme` counts as `https://github.com/acme`, also across such a
-  break. Cells nobody sees end the word like a space: drawn invisible (SGR 8), two palette colors
-  of the same index (bold base colors count as their bright variant) or two RGB colors with a
-  contrast ratio below 1.1 (`cellHidden`). Default colors and mixed color kinds count as visible,
-  since the color scheme is not known there. The color rules apply only while
+  break. Cells nobody sees end the word like a space: drawn invisible (SGR 8), or in a color too
+  close to its background (`cellHidden`). Since the fourth round both colors resolve as the
+  terminal draws them, through the active scheme (`schemeColors`): default colors, palette
+  indices (`paletteColor`; bold base colors as their bright variant), RGB, swapped by inverse
+  (SGR 7), dim text (SGR 2) half way towards the background. A cell counts as hidden when the
+  contrast ratio is below 1.1 and every channel is within 24: contrast alone measures lightness,
+  and green text on a blue background of the same lightness reads well (counting it hidden would
+  blank it out of the judged text). So RGB text in the scheme's background on the default
+  background is hidden, which mixed color kinds were not before. The color rules apply only while
   `minimumContrastRatio` is 1 (dark theme): above it (light theme, 4.5) xterm's renderer lifts
   text in its background color until it reads (`_applyMinimumContrast` in
   `DomRendererRowFactory.ts`), so there only SGR 8 hides a cell; otherwise a shown prefix would
   drop out of the word and a misleading link would open at once.
+- Two texts are judged (fourth round): the link's own cells and the word around them
+  (`linkTexts`), and a click opens at once only when neither misleads (`osc8DecisionOf`). The
+  word around can hide what the own text names: `github.com` in the last column with
+  `1 file changed` below reads `github.com1`, and `evil.example/` printed before a link whose own
+  text is `github.com` makes the word a page of the target. The file viewer passes both as well.
 - Decision (third audit round, inverted from a blocklist): a click opens at once only when the
   visible text names no address at all, or when everything it names is the target. The text is
-  read as a person sees it: NFKC, combining marks (`\p{M}`) dropped, UTS 39 look-alikes of the
-  dot (U+3002, U+FF0E, U+FF61, U+A4F8, U+0660, U+06F0, U+30FB, U+FF65, U+00B7, U+2027, U+2219,
-  U+22C5) and of the slash (U+2215, U+2044, U+29F8) taken for them, any other non-ASCII sign
-  between two ASCII letters or digits taken for a dot, `github .com` joined. Each word (split at
+  read as a person sees it: decomposed (NFD), look-alikes of the dot mapped, then NFKC, combining
+  marks (`\p{M}`) dropped, look-alikes of the slash (U+2215, U+2044, U+29F8) taken for it,
+  `github .com` joined. The dot look-alikes (fourth round) come from `confusables.txt` (UTS 39,
+  2026-08-06): every single character whose prototype is U+002E, U+00B7, U+0323 or U+0971, plus
+  the ideographic full stops. Signs and digits among them are dots anywhere; letters (U+A78F,
+  U+1427, U+A4F8, U+02D1, ...) and combining marks (U+0323 and the nuktas and dots below that
+  map to it, U+1D16D) only between two ASCII letters or digits, also in fullwidth form, so
+  `githu\u1E05com` (b with a dot below) reads `github.com` while Hindi or Vietnamese prose keeps
+  its marks. They are mapped before NFKC, which would turn U+02D9 or U+00B8 into a space and a
+  mark. Any other non-ASCII sign and any modifier letter (`Lm`, such as U+02CC) between two ASCII
+  letters or digits counts as a dot too, before and after NFKC. Each word (split at
   white space) is then searched, not matched whole: every run of letters, digits, dots and
   hyphens is a candidate, so no sign around a host hides it (`**github.com**`, `|...|`,
   `url=github.com`, `x;github.com`, `git@github.com:org/repo`, `github.com:org/repo`). A host run
   (`localhost`, IPv4, labels ending in a letter TLD or `xn--`, or anything right after
-  `scheme://`) must be the target's site (`www.` ignored), with the target's port if it names one
+  `scheme://`; digits glued to the last label are cut before the TLD check since the fourth round,
+  so `github.com1`, `github.com\u00b9` (NFKC makes it `1`), `pypi.org3` and `github.com10:42:01`
+  are hosts) must be the target's site (`www.` ignored), with the target's port if it names one
   (`:3000`, compared with the default port of the target's scheme) and the target's scheme if it
-  names one; a non-ASCII letter at a dot of a host run asks. A file name (`README.md`,
-  `install.sh`) must be the target's last path name (also `app.ts:42` on `.../app.ts#L42`); any
+  names one; a non-ASCII letter at a dot of a host run asks. A file name (`Cargo.toml`,
+  `app.ts`) must be the target's last path name (also `app.ts:42` on `.../app.ts#L42`). Endings
+  that are delegated TLDs as well (`java`, `md`, `py`, `rs`, `sh`, `zip`, checked against the IANA
+  root zone list of 2026-11-14) make a host first (`brew.sh`, `rustup.rs`, `docs.rs`, `openai.zip`
+  must be the target's site); such a name is a file only in clear file form (a known stem such as
+  `readme`, `changelog`, `main`, `lib`, `setup`, `install`, `__init__`, a `_` in the name, or a
+  capital inside a lower case word such as `MyComponent`) and when it is the target's last path
+  name. Host names ignore case, so `Brew.sh` or `DOCS.RS` are no file form. Any
   name in the path behind the target's own host (`vercel/next.js`, `acme/app.git`) is a page of
   that site, not a host. A path (`/x`, `./x`, `~/x`, `C:\x`, `\\server`,
   also behind a sign) and any `Default_Ignorable_Code_Point` (an emoji's own joiner and variation
@@ -67,10 +92,14 @@ Web addresses and existing file or folder paths in a session's output are links.
   texts that must not ask (`PR #123`, `#42`, `docs`, `v0.8.0`, `Python 3.12`, `README.md` and
   `app.ts:42` on that file, `localhost:3000` on the same port, `github.com/org/repo` on that URL,
   `www.` variants).
-- Known limits: `github. com` (space only after the dot) and short IPv4 forms (`127.1`) are not
-  read as hosts. Some honest texts ask once: `Node.js` on `nodejs.org` (reads like a file name),
-  library names that read like hosts (`socket.io`, `lodash.debounce`, `foo.bar()`), `St.Louis`, `http://` shown for an
-  `https://` target, any link to an internationalized host.
+- Known limits: `github. com` (space only after the dot), `github com`, ASCII punctuation in place
+  of the dot (`github,com`, `github;com`, `github_com`), a ring below (U+0F37) and short IPv4
+  forms (`127.1`) are not read as hosts. A shown host without a port opens on the target's other
+  port (`github.com` on `github.com:8443`). Some honest texts ask once: `Node.js` on `nodejs.org`
+  (reads like a file name), library names that read like hosts (`socket.io`, `lodash.debounce`,
+  `foo.bar()`), `St.Louis`, `http://` shown for an `https://` target, any link to an
+  internationalized host, a file name with a TLD ending outside clear file form (`app.py` on its
+  own blob URL), a footnote digit after a host (`github.com1` on `github.com`).
 - Printed (plain text) addresses: hovering shows where they lead in the same tip as OSC 8 links.
   An address is read from visible cells only, so an invisible rest printed right after a shown
   address is not part of it (`logicalLine` in `src/terminalLinkProvider.ts`).

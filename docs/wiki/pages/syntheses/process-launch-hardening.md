@@ -150,6 +150,32 @@ job and survives the session. Not changed, because:
   (`protected_settings_round_trip_and_start_unset`, `templates_are_checked_like_the_window_checks_them`
   and others), Vitest "never reads X from localStorage" per key and the migration cases in
   `mainStore.test.ts`.
+  Since the fourth review the store also keeps where and how the next session starts and whether
+  a waiting session shows itself (`main-prefs.json`, `MainPrefs`: `startMode`, `lastProgram`,
+  `favorites`, `recent`, `restoreSessions`, `attentionEnabled`, `taskbarFlash`, `notifyDesktop`,
+  `chime`, `quietHours`). A viewer that wrote them could make the next start private (no gate),
+  point the next start (the first recent folder) or Ctrl+Shift+T at a folder or program of its
+  choice, turn the restore off, or silence the notices of an agent that asks for approval.
+  Commands `main_prefs` and `save_main_prefs`, main window only, off the main thread. Rust checks
+  the window's bounds: program id not blank, no control characters, up to 200 UTF-16 units; at
+  most 8 recent and 50 favorite folders, each not blank, without C0 controls, up to 4096 UTF-16
+  units; quiet hours below 1440 minutes; unknown fields refused; a damaged file gives the
+  defaults (private, no program or folders, restore and every notice on). The one migration
+  reads `hangar.startMode`, `hangar.lastProgram`, `hangar.folders`, `hangar.lastCwd` (taken as
+  the first recent folder when the list is empty) and the six keys of the settings text, stores
+  them even when they are defaults, and removes the four own keys only once the backend stored
+  them (a failed save keeps them for the next start); `parseSettings` ignores the six keys and
+  `saveSettings` leaves them out, so after a failed first save those six fall back to the
+  defaults (restore and every notice on). Sessions are restored, and a start from the sidebar
+  or Ctrl+Shift+T runs, only once the preferences are read.
+  The panel's window prefs (`hangar.panelWindow`) stay in `localStorage` and reach the main
+  window through the `storage` event, since both windows write them; the main window reads them
+  strictly (`parseWindowPrefs`: only the four bounds fields, sides up to 16,384, positions within
+  100,000; `open_panel_window` still places the window on a monitor). Tests: `main_store` units
+  `main_prefs_round_trip_and_start_unset` and `main_prefs_are_checked_like_the_window_checks_them`,
+  Vitest "start and notice preferences" in `mainStore.test.ts`, the legacy readers in
+  `startMode.test.ts`, `launch.test.ts`, `folders.test.ts`, `settings.test.ts`, and
+  `panelBridge.test.ts` for the bounds.
 - **The file viewer's own storage (investigated, not built).** Tauri 2.12.5 offers
   `WebviewWindowBuilder::incognito` and `data_directory`; wry 0.57.1 maps `incognito` on Windows
   to `ICoreWebView2ControllerOptions::SetIsInPrivateModeEnabled` in the same WebView2
@@ -165,8 +191,8 @@ job and survives the session. Not changed, because:
   change while open (no `storage` event across profiles), and whether the app's custom protocol
   and IPC behave the same in an InPrivate WebView2 controller is not measured
   [UNVERIFIED]; that needs a run of the built app. With the security-relevant values out of
-  `localStorage`, what a viewer could still change there is appearance, layout, folder lists and
-  the panel's window prefs.
+  `localStorage`, what a viewer could still change there is appearance, layout and the panel's
+  window prefs (folder lists moved to the backend in the fourth review).
 - **Gate commands off the main thread.** `answer_gate` (an "always" answer writes the rules file)
   and `command_guard_info` (reads the rules file) run on `spawn_blocking` (static test
   `blocking_commands_run_off_the_main_thread`, which also lists the new store commands).

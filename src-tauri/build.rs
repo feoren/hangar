@@ -145,6 +145,8 @@ const COMMANDS: &[&str] = &[
     "save_message_queue",
     "protected_settings",
     "save_protected_settings",
+    "main_prefs",
+    "save_main_prefs",
     "load_templates",
     "save_templates",
     "set_panel_session",

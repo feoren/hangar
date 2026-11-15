@@ -63,13 +63,12 @@ import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import {
+  EMPTY_FOLDERS,
   folderName,
   forgetFolder,
-  loadFolderPrefs,
   moveFavorite,
   recordRecent,
   samePath,
-  saveFolderPrefs,
   toggleFavorite,
   type FolderPrefs,
 } from "./folders";
@@ -111,7 +110,7 @@ import { dropLine } from "./sessionDrag";
 import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
 import { LAYOUT_IDS, LAYOUT_NAMES, type Ratios, type SnapTarget } from "./snapLayouts";
-import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
+import { pickProgram } from "./launch";
 import {
   clampFontSize,
   clampNotesWidth,
@@ -209,9 +208,8 @@ import type { UpdateActions } from "./ProgramUpdateOffer";
 import { startOptions } from "./startOptions";
 import { resolveStartTarget, runningProjects, startPlaces, worktreeChance } from "./startTarget";
 import {
+  DEFAULT_START_MODE,
   effectiveMode,
-  loadStartMode,
-  saveStartMode,
   sessionMode,
   startModeFor,
   type StartMode,
@@ -236,13 +234,17 @@ import {
   type ExportFormat,
 } from "./sessionExport";
 import {
+  legacyMainPrefs,
+  loadMainPrefs,
   loadProtectedSettings,
   loadQueuedMessages,
   loadSecuritySwitches,
   loadStoredTemplates,
+  saveMainPrefs,
   saveProtectedSettings,
   saveQueuedMessages,
   saveStoredTemplates,
+  type MainPrefs,
 } from "./mainStore";
 import {
   gateActive,
@@ -250,6 +252,7 @@ import {
   legacyProtected,
   legacySwitches,
   loadSettings,
+  noticesOf,
   protectedOf,
   readStoredSettingsText,
   saveSettings,
@@ -279,7 +282,7 @@ import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
 import { openLink } from "./terminalLinkOpen";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
-import { osc8Decision } from "./termSafety";
+import { osc8DecisionOf } from "./termSafety";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
 import { ratiosFor, sameRatios, SUB_AGENT_LAYOUT, subAgentRatios } from "./paneRatios";
@@ -417,7 +420,6 @@ import {
   type Workspace,
 } from "./workspace";
 
-const LAST_CWD_KEY = "hangar.lastCwd";
 /** How long "Claude Code starts in hangar" stays after Ctrl+Shift+T. */
 const START_HINT_MS = 2500;
 /** How long a successful update result stays. */
@@ -551,15 +553,6 @@ function isPlaceholder(id: number): boolean {
   return id < 0;
 }
 
-/** Start folder of older versions; only a fallback until the first start is recorded as recent. */
-function readLastCwd(): string | null {
-  try {
-    return localStorage.getItem(LAST_CWD_KEY);
-  } catch {
-    return null;
-  }
-}
-
 /**
  * How a session ended, for the chime: the exit code may reach the terminal before the reducer
  * has stored it, so the terminal's own code counts too.
@@ -584,13 +577,8 @@ export function App() {
   /** Folder chosen in the folder menu for the next start only (startTarget.ts). */
   const [chosenCwd, setChosenCwd] = useState<string | null>(null);
   /** Private or team session for the next start, as the switch shows it (startMode.ts). */
-  const [startMode, setStartModeState] = useState<StartMode>(loadStartMode);
-  const setStartMode = useCallback((mode: StartMode) => {
-    setStartModeState(mode);
-    saveStartMode(mode);
-  }, []);
+  const [startMode, setStartMode] = useState<StartMode>(DEFAULT_START_MODE);
   const [home, setHome] = useState<string | null>(null);
-  const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>(loadLayout);
   /** The app grid; its sidebar column glides when the sidebar folds (sidebarMotion.ts). */
@@ -633,6 +621,23 @@ export function App() {
       setProtectedReady(true);
     });
   }, [oldProtected]);
+  /** What an older version stored of the start and notice preferences, read before any save. */
+  const [oldPrefs] = useState(() => {
+    let storage: Storage | null = null;
+    try {
+      storage = localStorage;
+    } catch {
+      // Blocked storage: nothing to migrate.
+    }
+    return legacyMainPrefs(storage, readStoredSettingsText());
+  });
+  /**
+   * The start and notice preferences as the backend keeps them (mainStore.ts), as JSON for the
+   * comparison; `null` until they are read. Sessions are restored only afterwards, so the restore
+   * setting and the start folder are the user's, not the defaults.
+   */
+  const savedPrefs = useRef<string | null>(null);
+  const [prefsReady, setPrefsReady] = useState(false);
   const grouping = settings.sessionGrouping;
   // The session list follows the sidebar's grouping, so cycling and the rail match it.
   useEffect(() => {
@@ -675,7 +680,7 @@ export function App() {
   /** "Save as snippet": the cleaned selection the dialog starts with; `null` while closed. */
   const [snippetDraft, setSnippetDraft] = useState<string | null>(null);
   /** Most recently started program (Ctrl+Shift+T, empty state). */
-  const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
+  const [lastProgramId, setLastProgramId] = useState<string | null>(null);
   /** Clicked terminal link, for as long as its hint is shown. */
   /**
    * The link notice: an address to copy when the browser could not open it, or, with `ask`, an
@@ -702,7 +707,18 @@ export function App() {
   const viewportWidth = useSyncExternalStore(subscribeWindowWidth, windowWidth);
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
-  const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
+  const [folders, setFolders] = useState<FolderPrefs>(EMPTY_FOLDERS);
+  useEffect(() => {
+    void loadMainPrefs(oldPrefs).then((stored) => {
+      const { startMode: mode, lastProgram, favorites, recent, ...notices } = stored;
+      savedPrefs.current = JSON.stringify(stored);
+      setStartMode(mode);
+      setLastProgramId(lastProgram);
+      setFolders({ favorites, recent });
+      setSettings((current) => ({ ...current, ...notices }));
+      setPrefsReady(true);
+    });
+  }, [oldPrefs]);
   /** Workspace templates (templates.ts), kept by the backend for this window (mainStore.ts). */
   const [templates, setTemplates] = useState<WorkspaceTemplate[]>([]);
   /** The list the backend holds; the templates are saved only once it was read, and changed. */
@@ -1191,9 +1207,22 @@ export function App() {
     for (const terminal of terminals.values()) terminal.setLook(terminalLook, theme);
   }, [theme, terminalLook]);
 
+  // The start and notice preferences go to the backend too, once they were read, and only when
+  // they changed.
   useEffect(() => {
-    saveFolderPrefs(folders);
-  }, [folders]);
+    if (!prefsReady) return;
+    const next: MainPrefs = {
+      startMode,
+      lastProgram: lastProgramId,
+      favorites: folders.favorites,
+      recent: folders.recent,
+      ...noticesOf(settings),
+    };
+    const text = JSON.stringify(next);
+    if (text === savedPrefs.current) return;
+    savedPrefs.current = text;
+    saveMainPrefs(next).catch(() => undefined);
+  }, [prefsReady, startMode, lastProgramId, folders, settings]);
 
   // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
@@ -1489,7 +1518,7 @@ export function App() {
   const target = resolveStartTarget({
     chosen: chosenCwd,
     active: activeSession,
-    lastUsed: folders.recent[0] ?? legacyLastCwd,
+    lastUsed: folders.recent[0] ?? null,
     home,
   });
   const targetPath = target.path;
@@ -1917,9 +1946,10 @@ export function App() {
       terminal.isWatched = () => activeIdRef.current === id && windowWatched();
       // An OSC 8 link opens like a printed address; the notice shows it to copy if that fails.
       // When its visible text claims another host or a path, the notice shows the real address
-      // and opens it only on request (termSafety.ts `osc8Decision`).
+      // and opens it only on request. Its own text and the word around it are judged both
+      // (termSafety.ts `osc8DecisionOf`).
       terminal.onLink = (url, shown) => {
-        if (osc8Decision(shown, url) === "confirm") {
+        if (osc8DecisionOf([shown.own, shown.word], url) === "confirm") {
           setLink({ url, copied: false, ask: true });
           return;
         }
@@ -2209,7 +2239,6 @@ export function App() {
           session: await withTitle(info, named),
           ...(worktree ? { worktree } : {}),
         });
-        saveLastProgram(profile.id);
         setLastProgramId(profile.id);
         // The folder the session really runs in (the backend may fall back to the home folder);
         // for a worktree the repository's folder, so recent folders do not fill with worktrees.
@@ -2778,7 +2807,7 @@ export function App() {
   // reloaded (development, WebView restart) and the old processes are still running: then a
   // hint appears, and saving merges with the saved state.
   useEffect(() => {
-    if (!profilesReady || !protectedReady || restoreStarted) return;
+    if (!profilesReady || !protectedReady || !prefsReady || restoreStarted) return;
     restoreStarted = true;
     /**
      * `false`: after a reload the saved state could not be read. Saving then stays off
@@ -2833,7 +2862,7 @@ export function App() {
         savingAllowed.current = true;
         setRestored(true);
       });
-  }, [profilesReady, protectedReady, restoreSession, showError]);
+  }, [profilesReady, protectedReady, prefsReady, restoreSession, showError]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
@@ -3924,6 +3953,9 @@ export function App() {
    * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
    */
   const startHere = (profile: Profile) => {
+    // Until the backend answered, the mode and folder are the defaults, not the user's: a start
+    // then could run private (without the gate) in the home folder.
+    if (!prefsReady) return;
     void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
   /**

@@ -92,6 +92,14 @@ describe("the viewer judges a link with the text around it", () => {
     expect(viewerLinkAction(href, shown).kind).toBe("confirm");
   });
 
+  it("asks when the link's own text names another host, whatever the text around it says", () => {
+    const markdown = "evil.example/[github.com](https://evil.example/)";
+    const { href, shown } = clickedShown(markdown, 0);
+    expect(shown).toBe("evil.example/github.com");
+    expect(viewerLinkAction(href, shown).kind).toBe("open");
+    expect(viewerLinkAction(href, shown, "github.com").kind).toBe("confirm");
+  });
+
   it("opens a link inside a sentence that names no host", () => {
     const { href, shown } = clickedShown("Read [the docs](https://example.com/docs) first.", 0);
     expect(shown).toBe("the docs");
