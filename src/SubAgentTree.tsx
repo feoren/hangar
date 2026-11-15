@@ -1,13 +1,12 @@
 // The active session's sub-agents as a small tree below its row in the sidebar: two lines each
 // (name, run time and tokens; what it does right now), a click shows that sub-agent's activity
-// beside the terminal. Finished rows carry a remove
-// button (on hover or keyboard focus), and with several finished ones a last row removes them
-// all. Which rows show is decided by subAgentTree in subAgents.ts; this component renders them.
+// beside the terminal. A finished row carries a quiet "close" text button at the end of its second
+// line, and with several finished ones a last row closes them all. Which rows show is decided by
+// subAgentTree in subAgents.ts; this component renders them.
 
 import { useEffect, useRef } from "react";
 
 import { useT } from "./i18n";
-import { CloseIcon } from "./icons";
 import {
   activityText,
   agentName,
@@ -19,6 +18,7 @@ import {
   STATUS_LABELS,
   subAgentTree,
   visibleAgents,
+  type SubAgent,
 } from "./subAgents";
 import { useClock } from "./useClock";
 import { useSubAgentView } from "./useSubAgents";
@@ -58,7 +58,6 @@ export function SubAgentTree({
   const agents = visibleAgents(useSubAgentView(watchKey).view.agents, hidden);
   const tree = subAgentTree(agents, undefined, picked);
   const finished = finishedIds(agents);
-  const hint = t("subAgents.treeHint");
   const list = useRef<HTMLUListElement>(null);
   /** Row that gets the keyboard focus once a removal has re-rendered the tree. */
   const focusAfter = useRef<string | null>(null);
@@ -87,84 +86,20 @@ export function SubAgentTree({
       aria-label={t("subAgents.region", { title: sessionTitle })}
       ref={list}
     >
-      {tree.agents.map((agent) => {
-        // Like Claude Code's list of background agents: the type as the name, what it does
-        // now below it, run time and tokens on the right. The task's description is the title.
-        const name = agentName(agent, t);
-        const title = agentTitle(agent, t);
-        const activity = activityText(agent, t);
-        const status = t(STATUS_LABELS[agent.status]);
-        const ms = elapsedMs(agent, now);
-        const time = ms === null ? null : formatElapsed(ms);
-        const tokens = agent.tokens === null ? null : formatTokens(agent.tokens);
-        const tokensLabel = tokens === null ? null : t("subAgents.tokens", { tokens });
-        const isPicked = agent.id === picked;
-        const removable = agent.status === "finished";
-        const details = [
-          name === title ? null : title,
-          // A finished one's activity line repeats its status.
-          removable ? null : activity,
-          [status, time, tokensLabel].filter((part) => part !== null).join(" · "),
-        ].filter((part) => part !== null);
-        return (
-          <li
-            key={agent.id}
-            className={removable ? "subagent-tree-item removable" : "subagent-tree-item"}
-            data-agent={agent.id}
-          >
-            <button
-              type="button"
-              className={`subagent-node agent ${agent.status}${isPicked ? " picked" : ""}`}
-              title={[name, ...details, hint].join("\n")}
-              aria-label={[
-                name,
-                ...details.slice(0, -1),
-                status,
-                time === null ? null : `${t("subAgents.elapsed")} ${time}`,
-                tokensLabel,
-              ]
-                .filter((part) => part !== null)
-                .join(", ")}
-              aria-current={isPicked ? "true" : undefined}
-              onClick={(event) => {
-                onShow(sessionId, agent.id, event.detail === 0);
-              }}
-            >
-              <span className={`subagent-dot ${agent.status}`} aria-hidden="true" />
-              <span className="subagent-node-main" aria-hidden="true">
-                <span className="subagent-node-head">
-                  <span className="subagent-node-name">{name}</span>
-                  {(time !== null || tokens !== null) && (
-                    <span className="subagent-node-time">
-                      {time}
-                      {tokens !== null && (
-                        <span className="subagent-node-tokens">
-                          {time === null ? "" : " · "}
-                          {`↓ ${tokens}`}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </span>
-                <span className="subagent-node-activity">{activity}</span>
-              </span>
-            </button>
-            {removable && (
-              <button
-                type="button"
-                className="icon-button subagent-dismiss"
-                aria-label={t("subAgents.dismiss", { name })}
-                title={`${t("subAgents.dismiss", { name })}\n${t("subAgents.dismissHelp")}`}
-                onClick={(event) => {
-                  dismissOne(agent.id, event.detail === 0);
-                }}
-              >
-                <CloseIcon size={12} />
-              </button>
-            )}
-          </li>
-        );
-      })}
+      {tree.agents.map((agent) => (
+        <SubAgentItem
+          key={agent.id}
+          agent={agent}
+          now={now}
+          picked={agent.id === picked}
+          onShow={(byKeyboard) => {
+            onShow(sessionId, agent.id, byKeyboard);
+          }}
+          onClose={(byKeyboard) => {
+            dismissOne(agent.id, byKeyboard);
+          }}
+        />
+      ))}
       {tree.more > 0 && (
         <li className="subagent-tree-item">
           <button
@@ -201,5 +136,104 @@ export function SubAgentTree({
         </li>
       )}
     </ul>
+  );
+}
+
+/**
+ * One sub-agent: like Claude Code's list of background agents, the type as the name, what it does
+ * now below it, run time and tokens on the right; the task's description is the title. A finished
+ * one closes with the text button at the end of its second line, always visible but quiet.
+ */
+export function SubAgentItem({
+  agent,
+  now,
+  picked,
+  onShow,
+  onClose,
+}: {
+  agent: SubAgent;
+  now: number;
+  /** Shown in the open view. */
+  picked: boolean;
+  onShow: (byKeyboard: boolean) => void;
+  onClose: (byKeyboard: boolean) => void;
+}) {
+  const t = useT();
+  const name = agentName(agent, t);
+  const title = agentTitle(agent, t);
+  const activity = activityText(agent, t);
+  const status = t(STATUS_LABELS[agent.status]);
+  const ms = elapsedMs(agent, now);
+  const time = ms === null ? null : formatElapsed(ms);
+  const tokens = agent.tokens === null ? null : formatTokens(agent.tokens);
+  const tokensLabel = tokens === null ? null : t("subAgents.tokens", { tokens });
+  const closable = agent.status === "finished";
+  const closeLabel = t("subAgents.close");
+  const details = [
+    name === title ? null : title,
+    // A finished one's activity line repeats its status.
+    closable ? null : activity,
+    [status, time, tokensLabel].filter((part) => part !== null).join(" · "),
+  ].filter((part) => part !== null);
+  return (
+    <li
+      className={closable ? "subagent-tree-item closable" : "subagent-tree-item"}
+      data-agent={agent.id}
+    >
+      <button
+        type="button"
+        className={`subagent-node agent ${agent.status}${picked ? " picked" : ""}`}
+        title={[name, ...details, t("subAgents.treeHint")].join("\n")}
+        aria-label={[
+          name,
+          ...details.slice(0, -1),
+          status,
+          time === null ? null : `${t("subAgents.elapsed")} ${time}`,
+          tokensLabel,
+        ]
+          .filter((part) => part !== null)
+          .join(", ")}
+        aria-current={picked ? "true" : undefined}
+        onClick={(event) => {
+          onShow(event.detail === 0);
+        }}
+      >
+        <span className={`subagent-dot ${agent.status}`} aria-hidden="true" />
+        <span className="subagent-node-main" aria-hidden="true">
+          <span className="subagent-node-head">
+            <span className="subagent-node-name">{name}</span>
+            {(time !== null || tokens !== null) && (
+              <span className="subagent-node-time">
+                {time}
+                {tokens !== null && (
+                  <span className="subagent-node-tokens">
+                    {time === null ? "" : " · "}
+                    {`↓ ${tokens}`}
+                  </span>
+                )}
+              </span>
+            )}
+          </span>
+          <span className="subagent-node-activity">
+            <span className="subagent-activity-text">{activity}</span>
+            {/* Keeps the room the close button covers, in its own font and width. */}
+            {closable && <span className="subagent-close-room">{closeLabel}</span>}
+          </span>
+        </span>
+      </button>
+      {closable && (
+        <button
+          type="button"
+          className="subagent-close-text"
+          aria-label={t("subAgents.dismiss", { name })}
+          title={`${t("subAgents.dismiss", { name })}\n${t("subAgents.dismissHelp")}`}
+          onClick={(event) => {
+            onClose(event.detail === 0);
+          }}
+        >
+          {closeLabel}
+        </button>
+      )}
+    </li>
   );
 }

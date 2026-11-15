@@ -6,14 +6,15 @@ import {
   forgetFolder,
   folderName,
   isFavorite,
-  loadFolderPrefs,
+  FOLDERS_STORAGE_KEY,
+  LAST_CWD_STORAGE_KEY,
+  legacyFolderPrefs,
   moveFavorite,
   parseFolderPrefs,
   RECENT_LIMIT,
   recentOnly,
   recordRecent,
   samePath,
-  saveFolderPrefs,
   toggleFavorite,
 } from "./folders";
 
@@ -149,51 +150,42 @@ describe("storage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("round-trips through localStorage", () => {
-    const store = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        store.set(key, value);
-      },
-    });
+  it("reads the lists an older version stored, once, for the migration", () => {
     const prefs = toggleFavorite(recordRecent(EMPTY_FOLDERS, "/r"), "/f");
-    saveFolderPrefs(prefs);
-    expect(loadFolderPrefs()).toEqual(prefs);
+    const store = new Map([[FOLDERS_STORAGE_KEY, JSON.stringify(prefs)]]);
+    const storage = { getItem: (key: string) => store.get(key) ?? null };
+    expect(FOLDERS_STORAGE_KEY).toBe("hangar.folders");
+    expect(legacyFolderPrefs(storage)).toEqual(prefs);
   });
 
-  it("does not write stored folder colors back", () => {
-    const store = new Map<string, string>([
-      [
-        "hangar.folders",
-        JSON.stringify({ favorites: ["/f"], recent: [], colors: { "/f": "red" } }),
-      ],
-    ]);
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        store.set(key, value);
-      },
-    });
-    saveFolderPrefs(loadFolderPrefs());
-    expect(store.get("hangar.folders")).toBe('{"favorites":["/f"],"recent":[]}');
+  it("drops stored folder colors", () => {
+    const text = JSON.stringify({ favorites: ["/f"], recent: [], colors: { "/f": "red" } });
+    const storage = { getItem: (key: string) => (key === FOLDERS_STORAGE_KEY ? text : null) };
+    expect(legacyFolderPrefs(storage)).toEqual({ favorites: ["/f"], recent: [] });
+  });
+
+  it("takes the start folder of still older versions as the first recent folder", () => {
+    const store = new Map([[LAST_CWD_STORAGE_KEY, "C:\\Work"]]);
+    const storage = { getItem: (key: string) => store.get(key) ?? null };
+    expect(LAST_CWD_STORAGE_KEY).toBe("hangar.lastCwd");
+    expect(legacyFolderPrefs(storage)).toEqual({ favorites: [], recent: ["C:\\Work"] });
+    // A recent list wins; an invalid old folder is left out.
+    store.set(FOLDERS_STORAGE_KEY, JSON.stringify({ favorites: [], recent: ["/r"] }));
+    expect(legacyFolderPrefs(storage).recent).toEqual(["/r"]);
+    store.delete(FOLDERS_STORAGE_KEY);
+    store.set(LAST_CWD_STORAGE_KEY, "a\nb");
+    expect(legacyFolderPrefs(storage)).toEqual(EMPTY_FOLDERS);
   });
 
   it("falls back to empty lists when storage fails or holds garbage", () => {
-    vi.stubGlobal("localStorage", {
-      getItem: () => {
+    const blocked = {
+      getItem: (): string | null => {
         throw new Error("blocked");
       },
-      setItem: () => {
-        throw new Error("blocked");
-      },
-    });
-    expect(loadFolderPrefs()).toEqual(EMPTY_FOLDERS);
-    expect(() => {
-      saveFolderPrefs(EMPTY_FOLDERS);
-    }).not.toThrow();
-    vi.stubGlobal("localStorage", { getItem: () => "{broken" });
-    expect(loadFolderPrefs()).toEqual(EMPTY_FOLDERS);
+    };
+    expect(legacyFolderPrefs(blocked)).toEqual(EMPTY_FOLDERS);
+    const broken = { getItem: (key: string) => (key === FOLDERS_STORAGE_KEY ? "{broken" : null) };
+    expect(legacyFolderPrefs(broken)).toEqual(EMPTY_FOLDERS);
   });
 });
 

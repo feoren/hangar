@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { pasteFromApp, pasteWarning, type PasteTarget, type PasteWarning } from "./appPaste";
+import {
+  askBeforePaste,
+  pasteFromApp,
+  pasteWarning,
+  type PasteTarget,
+  type PasteWarning,
+} from "./appPaste";
 
 function target(bracketed: boolean): PasteTarget & { written: string[] } {
   const written: string[] = [];
@@ -82,5 +88,66 @@ describe("pasteFromApp", () => {
     const session = target(false);
     await expect(pasteFromApp(session, "", () => Promise.resolve(true))).resolves.toBe(false);
     expect(session.written).toEqual([]);
+  });
+
+  it("asks again when the program turned bracketed paste off during the question", async () => {
+    // Hidden characters warn even with bracketed paste; the user agreed to that, not to lines
+    // that run one by one, which is what the text does once the program turned it off.
+    let bracketed = true;
+    const written: string[] = [];
+    const session: PasteTarget = {
+      bracketedPaste: () => bracketed,
+      pasteText: (text) => {
+        written.push(text);
+      },
+    };
+    const asked: PasteWarning[] = [];
+    const pasted = await pasteFromApp(session, "a\u200b\nrm b", (warning) => {
+      asked.push(warning);
+      bracketed = false;
+      return Promise.resolve(asked.length === 1);
+    });
+    expect(asked).toEqual([
+      { runsLines: false, hidden: true },
+      { runsLines: true, hidden: true },
+    ]);
+    expect(pasted).toBe(false);
+    expect(written).toEqual([]);
+  });
+
+  it("pastes after a yes to the new question", async () => {
+    let bracketed = true;
+    const answers: PasteWarning[] = [];
+    const allowed = await askBeforePaste(
+      "a\u200b\nb",
+      { runsLines: false, hidden: true },
+      () => bracketed,
+      (warning) => {
+        answers.push(warning);
+        bracketed = false;
+        return Promise.resolve(true);
+      },
+    );
+    expect(allowed).toBe(true);
+    expect(answers).toHaveLength(2);
+  });
+
+  it("keeps the yes when the mode changed in the harmless direction", async () => {
+    let bracketed = false;
+    const written: string[] = [];
+    const session: PasteTarget = {
+      bracketedPaste: () => bracketed,
+      pasteText: (text) => {
+        written.push(text);
+      },
+    };
+    let questions = 0;
+    await pasteFromApp(session, "a\nb", () => {
+      questions += 1;
+      bracketed = true;
+      return Promise.resolve(true);
+    });
+    expect(questions).toBe(1);
+    expect(written).toEqual(["a\nb"]);
   });
 });

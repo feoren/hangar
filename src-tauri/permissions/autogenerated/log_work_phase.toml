@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-log-work-phase"
+description = "Enables the log_work_phase command without any pre-configured scope."
+commands.allow = ["log_work_phase"]
+
+[[permission]]
+identifier = "deny-log-work-phase"
+description = "Denies the log_work_phase command without any pre-configured scope."
+commands.deny = ["log_work_phase"]

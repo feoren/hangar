@@ -286,14 +286,23 @@ fn resolve_target(target: &Target) -> Result<PathBuf, FileViewerError> {
     Ok(path)
 }
 
+/// Opens a resolved file without following a link and without blocking on a FIFO: the path was
+/// checked, but the file may have been swapped since.
+fn open_file(path: &Path) -> Result<fs::File, FileViewerError> {
+    crate::persist::open_regular(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidInput {
+            FileViewerError::NotAFile
+        } else {
+            not_found_or_io(error)
+        }
+    })
+}
+
 /// Resolves the target again and reads its content.
 pub fn read_target(target: &Target) -> Result<FileContent, FileViewerError> {
     let path = resolve_target(target)?;
-    let mut file = fs::File::open(&path).map_err(not_found_or_io)?;
+    let mut file = open_file(&path)?;
     let meta = file.metadata().map_err(FileViewerError::Io)?;
-    if !meta.is_file() {
-        return Err(FileViewerError::NotAFile);
-    }
     let name = target.name();
     let mime = image_mime(&name);
     let limit = if mime.is_some() {
@@ -799,6 +808,33 @@ mod tests {
             read_target(&target),
             Err(FileViewerError::NotAFile)
         ));
+    }
+
+    /// A file swapped for a FIFO after the path was checked is refused at once instead of
+    /// blocking the read until a writer appears.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_swapped_for_a_fifo_is_refused_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = TempDir::new("file-viewer-fifo");
+        let file = dir.path().join("notes.txt");
+        fs::write(&file, "x").unwrap();
+        let target = target_for(dir.path(), "notes.txt");
+        fs::remove_file(&file).unwrap();
+        let name = std::ffi::CString::new(target.path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a valid NUL-terminated path that lives for the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(matches!(
+                open_file(&target.path),
+                Err(FileViewerError::NotAFile)
+            ));
+        });
+        let refused = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the read blocked");
+        assert!(refused);
     }
 
     #[test]

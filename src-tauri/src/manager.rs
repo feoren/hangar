@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -27,7 +27,9 @@ use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source, 
 use crate::batch;
 use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
+use crate::instructions::{self, StartPrompt, StartPrompts};
 use crate::lock;
+use crate::no_links::{self, FolderPlace};
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::{self, ProcTree, TreeUsage};
 use crate::profile::Profile;
@@ -46,6 +48,11 @@ const READ_BUFFER: usize = 64 * 1024;
 /// At most this many read buffers sit between PTY and batcher; beyond that reading blocks
 /// and the child process is slowed down when it writes.
 const CHANNEL_DEPTH: usize = 64;
+/// Input messages waiting for the PTY at most; beyond that a write is answered with
+/// [`ManagerError::Busy`] and the window sends it again.
+const INPUT_DEPTH: usize = 16;
+/// Largest input of one write; the window splits a larger paste.
+pub const MAX_WRITE: usize = 1024 * 1024;
 /// At most this many unacknowledged bytes are in flight to the frontend.
 const HIGH_WATER: usize = 2 * 1024 * 1024;
 const FLOW_STALL: Duration = Duration::from_secs(5);
@@ -72,14 +79,18 @@ pub const INHERITED_SESSION_MARKERS: &[&str] = &[
     "CLAUDE_CODE_MESSAGING_TOKEN",
     "CLAUDE_CODE_SESSION_ATTENDED",
     "CLAUDE_CODE_SESSION_ID",
+    // The IDE connection of the calling Claude Code: a child would talk to that editor.
+    "CLAUDE_CODE_SSE_PORT",
     "CLAUDE_EFFORT",
     "CLAUDE_PID",
+    // VS Code's handle for its `code` command inside its terminal; the git extension's own
+    // variables are found by prefix (`child_env::ide_variables`).
+    "VSCODE_IPC_HOOK_CLI",
 ];
 
 /// Windows: while the variable is set, the program search (`NeedCurrentDirectoryForExePath`,
-/// used by cmd.exe among others) no longer looks in the current folder. Set for update sessions
-/// and for every session whose program is a `.cmd`/`.bat` ([`batch::is_batch`]); an empty value
-/// in the profile `env` removes it.
+/// used by cmd.exe among others) no longer looks in the current folder. Set as
+/// [`no_cwd_lookup`] says; an empty value in the profile `env` removes it.
 pub const NO_CWD_IN_EXE_PATH: &str = "NoDefaultCurrentDirectoryInExePath";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -147,13 +158,16 @@ pub trait LaunchGate: Send + Sync {
     /// Whether a start of `agent` would get the gate now (program and setting), without
     /// registering anything or starting the endpoint.
     fn applies(&self, agent: &Agent) -> bool;
-    /// `args`: the start arguments the gate's own are added to.
+    /// `args`: the start arguments the gate's own are added to. `version`: the installed
+    /// version of the program as the version query found it, for a hook format whose settings
+    /// depend on it (Claude Code's `onFailure`); `None` when unknown or not asked.
     fn prepare(
         &self,
         session: SessionId,
         agent: &Agent,
         program: &Path,
         args: &[String],
+        version: Option<&str>,
     ) -> GatePlan;
     fn ended(&self, session: SessionId);
 }
@@ -179,11 +193,25 @@ pub struct TermSize {
     pub rows: u16,
 }
 
+/// Largest terminal Hangar hands to a PTY. A window never gets near it; a larger request would
+/// only make ConPTY and the programs allocate screen buffers for nothing.
+pub const MAX_COLS: u16 = 4096;
+pub const MAX_ROWS: u16 = 2048;
+
 impl TermSize {
+    /// Within 1..=[`MAX_COLS`] and 1..=[`MAX_ROWS`].
+    pub fn clamped(self) -> Self {
+        Self {
+            cols: self.cols.clamp(1, MAX_COLS),
+            rows: self.rows.clamp(1, MAX_ROWS),
+        }
+    }
+
     fn to_pty(self) -> PtySize {
+        let size = self.clamped();
         PtySize {
-            rows: self.rows.max(1),
-            cols: self.cols.max(1),
+            rows: size.rows,
+            cols: size.cols,
             pixel_width: 0,
             pixel_height: 0,
         }
@@ -204,6 +232,14 @@ pub enum ManagerError {
     CommandNotFound(String),
     #[error("Working folder '{0}' does not exist")]
     BadCwd(PathBuf),
+    #[error(
+        "Working folder '{0}' is a network share or device path; sessions start in local folders only"
+    )]
+    RemoteCwd(PathBuf),
+    #[error("Session {0} is not reading its input; try again in a moment")]
+    Busy(SessionId),
+    #[error("At most {max} bytes can be sent to a session at once, not {len}")]
+    InputTooLarge { len: usize, max: usize },
     #[error("The title must not be empty")]
     EmptyTitle,
     #[error("{0} cannot be a team session yet: Hangar cannot pause its edits")]
@@ -245,15 +281,107 @@ pub enum ManagerError {
     Transition(#[from] TransitionError),
 }
 
-/// Errors reach the frontend as readable text.
+impl ManagerError {
+    /// A stable code for errors the window shows in its own words (`backendError.ts`); the
+    /// English text after it is only the fallback, so its wording may change freely.
+    fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::BadCwd(_) => Some("bad_cwd"),
+            Self::RemoteCwd(_) => Some("remote_cwd"),
+            _ => None,
+        }
+    }
+}
+
+/// Errors reach the frontend as readable text, prefixed with `[code] ` when they have a code.
 impl Serialize for ManagerError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.code() {
+            Some(code) => serializer.serialize_str(&format!("[{code}] {self}")),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 
 fn pty_error(error: impl std::fmt::Display) -> ManagerError {
     ManagerError::Pty(error.to_string())
+}
+
+/// A failed process start, named by the program and the OS error code only. portable-pty's own
+/// text carries the whole command line, which may hold a first prompt or the instructions, and
+/// errors reach the window and its logs.
+fn spawn_failed(program: &Path, error: &(dyn std::error::Error + 'static)) -> ManagerError {
+    let code = std::iter::successors(Some(error), |e| e.source())
+        .find_map(|e| {
+            e.downcast_ref::<io::Error>()
+                .and_then(io::Error::raw_os_error)
+        })
+        .or_else(|| os_error_code(&error.to_string()));
+    let program = program.display();
+    ManagerError::Pty(match code {
+        Some(code) => format!("'{program}' could not be started (OS error {code})"),
+        None => format!("'{program}' could not be started"),
+    })
+}
+
+/// The code of the last "(os error N)" in a text, as `io::Error` writes it.
+fn os_error_code(text: &str) -> Option<i32> {
+    const MARK: &str = "(os error ";
+    let start = text.rfind(MARK)? + MARK.len();
+    let rest = &text[start..];
+    rest[..rest.find(')')?].parse().ok()
+}
+
+pub use crate::no_links::is_network_or_device;
+
+/// A session's working folder must be a local folder or one on a mapped drive the user chose:
+/// not a share or device path and not reached through a link that leads to one. Checked before
+/// anything else touches the folder ([`no_links::folder_place`]).
+pub fn check_cwd(cwd: &Path) -> Result<(), ManagerError> {
+    match no_links::folder_place(cwd) {
+        FolderPlace::Local => Ok(()),
+        FolderPlace::Remote => Err(ManagerError::RemoteCwd(cwd.to_owned())),
+        // A relative folder would be resolved against Hangar's own working folder, which is
+        // nothing the user chose.
+        FolderPlace::NotAFolder => Err(ManagerError::BadCwd(cwd.to_owned())),
+    }
+}
+
+/// Whether the child must not find programs in its working folder (Windows,
+/// [`NO_CWD_IN_EXE_PATH`]): update sessions, every agent from the catalog, every `.cmd`/`.bat`
+/// launcher and every program that is not an interactive shell. Decided on the resolved
+/// `program`, not on where the profile came from: a user profile may well start an agent
+/// (`command = "claude"`). Only a shell keeps the lookup, where calling a program in the folder
+/// is what the user means.
+pub fn no_cwd_lookup(kind: SessionKind, source: Source, batch: bool, program: &Path) -> bool {
+    kind == SessionKind::Update
+        || source == Source::Catalog
+        || batch
+        || !is_interactive_shell(program)
+}
+
+/// Shells by file name (case-insensitive, with or without `.exe`): cmd, Windows PowerShell,
+/// PowerShell 7, WSL, Git Bash and the Unix shells a user may start on Windows. Anything else,
+/// above all an agent CLI, counts as a program that runs commands on the user's behalf.
+pub fn is_interactive_shell(program: &Path) -> bool {
+    const SHELLS: &[&str] = &[
+        "cmd",
+        "powershell",
+        "pwsh",
+        "wsl",
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "nu",
+        "git-bash",
+    ];
+    let Some(name) = program.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    let stem = name.strip_suffix(".exe").unwrap_or(&name);
+    SHELLS.contains(&stem)
 }
 
 enum Message {
@@ -268,7 +396,9 @@ type SharedMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 /// (on Windows through the Job Object) every descendant still alive.
 struct Runtime {
     master: SharedMaster,
-    input: Sender<Vec<u8>>,
+    /// Bounded ([`INPUT_DEPTH`]): a program that stops reading cannot make Hangar queue
+    /// input without end.
+    input: SyncSender<Vec<u8>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// Shared so the resources can be read outside the session lock (`tree_usages`).
     tree: Option<Arc<ProcTree>>,
@@ -280,7 +410,7 @@ struct Runtime {
 impl Runtime {
     fn kill(&self) -> io::Result<()> {
         if let Some(tree) = &self.tree {
-            if tree.terminate().is_ok() {
+            if tree.terminate_tree().is_ok() {
                 return Ok(());
             }
         }
@@ -297,6 +427,8 @@ struct Entry {
     runtime: Option<Runtime>,
     /// Last known size; a fallback after a failed resume starts with it.
     size: TermSize,
+    /// `HANGAR.md` when the session was started with it; restarts and fallbacks read it again.
+    instructions: Option<PathBuf>,
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
@@ -308,6 +440,10 @@ struct Shared {
     secrets: Arc<dyn SecretStore>,
     /// The agent gate, once the app set it ([`SessionManager::set_launch_gate`]).
     gate: Mutex<Option<Arc<dyn LaunchGate>>>,
+    /// Versions for the gate's minimum versions and version-bound settings
+    /// ([`SessionManager::set_version_source`]). Never taken together with another lock:
+    /// cloned, then asked.
+    versions: Mutex<Option<Arc<dyn VersionSource>>>,
 }
 
 impl Shared {
@@ -316,6 +452,7 @@ impl Shared {
             sessions: Mutex::default(),
             secrets,
             gate: Mutex::new(None),
+            versions: Mutex::new(None),
         }
     }
 
@@ -398,11 +535,11 @@ impl Shared {
                 entry.info.cwd.clone(),
                 entry.size,
                 entry.generation,
-                (plan, entry.info.mode),
+                (plan, entry.info.mode, entry.instructions.clone()),
                 entry.info.sub_agents,
             )
         };
-        let (plan, mode) = plan;
+        let (plan, mode, instructions) = plan;
         sink.emit(SessionEvent::ResumeFallback {
             code,
             cli_session_id: plan.cli_session_id.clone(),
@@ -413,7 +550,7 @@ impl Shared {
             id,
             next,
             &agent,
-            &Launch::normal(&plan.args, SessionKind::Agent, mode),
+            &Launch::normal(&plan.args, SessionKind::Agent, mode, instructions),
             &cwd,
             size,
             Arc::clone(sink),
@@ -529,15 +666,134 @@ struct Launch<'a> {
     kind: SessionKind,
     /// Only team sessions get the agent gate.
     mode: SessionMode,
+    extras: StartExtras,
 }
 
 impl<'a> Launch<'a> {
-    fn normal(args: &'a [String], kind: SessionKind, mode: SessionMode) -> Self {
+    /// A restart or a fallback: `HANGAR.md` again, but no first prompt.
+    fn normal(
+        args: &'a [String],
+        kind: SessionKind,
+        mode: SessionMode,
+        instructions: Option<PathBuf>,
+    ) -> Self {
         Self {
             args,
             resume: false,
             kind,
             mode,
+            extras: StartExtras {
+                instructions,
+                prompt: None,
+            },
+        }
+    }
+}
+
+/// What the window asks a new agent session to get besides its program's arguments
+/// ([`crate::instructions`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartRequest {
+    /// `HANGAR.md` for the agent, where its program takes instructions.
+    pub instructions: bool,
+    /// A first prompt, where its program takes one; ignored when the session resumes.
+    pub prompt: Option<StartPrompt>,
+}
+
+/// [`StartRequest`] resolved by the manager: the file's path and the prompt's text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartExtras {
+    /// `HANGAR.md`, read at every process start so an edit applies to the next one.
+    pub instructions: Option<PathBuf>,
+    /// The first user message; only the first process of a fresh session gets it.
+    pub prompt: Option<String>,
+}
+
+/// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
+/// arguments (`codex -c ... resume --last`), the first prompt after them. What the program does not
+/// take is left out; what cannot pass a cmd.exe launcher is left out with a logged warning, so the
+/// session still starts. The length of the whole line is checked later ([`ArgParts::fitting`]).
+pub fn extra_args(
+    agent: &Agent,
+    program: &Path,
+    extras: &StartExtras,
+) -> (Vec<String>, Vec<String>) {
+    let leave_out = |what: &str, skipped: instructions::Skipped| {
+        eprintln!("hangar: {}: {what} left out: {skipped}", agent.profile.name);
+        Vec::new()
+    };
+    let before = match (&agent.prompting.instruction_args, &extras.instructions) {
+        (Some(spec), Some(path)) => instructions::read(path).map_or_else(Vec::new, |text| {
+            let args = instructions::instruction_args(spec, &text);
+            instructions::check_launcher(program, spec, args)
+                .unwrap_or_else(|skipped| leave_out(instructions::FILE_NAME, skipped))
+        }),
+        _ => Vec::new(),
+    };
+    let after = match (&agent.prompting.prompt_args, &extras.prompt) {
+        (Some(spec), Some(prompt)) => {
+            let args = instructions::prompt_args(spec, prompt);
+            instructions::check_launcher(program, spec, args)
+                .unwrap_or_else(|skipped| leave_out("the first prompt", skipped))
+        }
+        _ => Vec::new(),
+    };
+    (before, after)
+}
+
+/// The arguments of one process start before Hangar's extras are placed.
+struct ArgParts<'a> {
+    /// `args`, `resume_args` and so on, with the conversation id.
+    start: Vec<String>,
+    gate: Option<&'a GateLaunch>,
+    /// Option and folder of programs that take the working folder as an argument.
+    cwd_flag: Option<(&'static str, String)>,
+}
+
+impl ArgParts<'_> {
+    /// The whole argument list: gate options first, then the instructions (before a subcommand
+    /// such as `codex resume --last`), the start arguments, the gate's arguments, the first prompt
+    /// (last of all options: a positional prompt must not be taken for an option's value) and the
+    /// working folder option.
+    fn compose(&self, before: &[String], after: &[String]) -> Vec<String> {
+        let (prepend, appended) = self.gate.map_or((&[][..], &[][..]), |gate| {
+            (&gate.prepend[..], &gate.args[..])
+        });
+        let mut args: Vec<String> = prepend
+            .iter()
+            .chain(before)
+            .chain(&self.start)
+            .chain(appended)
+            .chain(after)
+            .cloned()
+            .collect();
+        if let Some((flag, folder)) = &self.cwd_flag {
+            args.push((*flag).to_owned());
+            args.push(folder.clone());
+        }
+        args
+    }
+
+    /// [`Self::compose`] whose fully quoted command line fits ([`instructions::check_length`]):
+    /// the instructions go first, then the first prompt, each with a logged warning. Without
+    /// either the line is what it always was.
+    fn fitting(&self, program: &str, extra: (Vec<String>, Vec<String>), name: &str) -> Vec<String> {
+        let (mut before, mut after) = extra;
+        loop {
+            let args = self.compose(&before, &after);
+            let what = match instructions::check_length(program, &args) {
+                Ok(()) => return args,
+                Err(_) if before.is_empty() && after.is_empty() => return args,
+                Err(skipped) if !before.is_empty() => {
+                    before.clear();
+                    (instructions::FILE_NAME, skipped)
+                }
+                Err(skipped) => {
+                    after.clear();
+                    ("the first prompt", skipped)
+                }
+            };
+            eprintln!("hangar: {name}: {} left out: {}", what.0, what.1);
         }
     }
 }
@@ -576,9 +832,12 @@ pub struct SessionManager {
     home: PathBuf,
     next_id: AtomicU64,
     shared: Arc<Shared>,
-    /// Versions for the gate's minimum versions ([`Self::set_version_source`]). Never taken
-    /// together with another lock: cloned, then asked.
-    versions: Mutex<Option<Arc<dyn VersionSource>>>,
+    /// `HANGAR.md` in the config folder ([`Self::with_instructions_file`]); `None`: no session
+    /// gets instructions.
+    instructions_file: Option<PathBuf>,
+    /// Texts of the first prompts, from the embedded catalog; `None` if it had none (a test
+    /// makes sure it has).
+    start_prompts: Option<StartPrompts>,
 }
 
 impl SessionManager {
@@ -597,8 +856,18 @@ impl SessionManager {
             home,
             next_id: AtomicU64::new(1),
             shared: Arc::new(Shared::new(Arc::new(KeyringStore::default()))),
-            versions: Mutex::new(None),
+            instructions_file: None,
+            start_prompts: crate::agent_catalog::builtin_start_prompts()
+                .inspect_err(|error| eprintln!("hangar: {error}"))
+                .ok(),
         }
+    }
+
+    /// Where `HANGAR.md` lives; sessions started with [`StartRequest::instructions`] read it.
+    #[must_use]
+    pub fn with_instructions_file(mut self, path: PathBuf) -> Self {
+        self.instructions_file = Some(path);
+        self
     }
 
     /// Another place for secret values, for tests. Only before the first session starts.
@@ -652,14 +921,14 @@ impl SessionManager {
 
     /// Where the installed versions for the gate's minimum versions come from.
     pub fn set_version_source(&self, source: Arc<dyn VersionSource>) {
-        *lock(&self.versions) = Some(source);
+        *lock(&self.shared.versions) = Some(source);
     }
 
     /// [`team_blocks`] for `agents` with this manager's version source.
     fn team_blocks_for(&self, agents: &[Agent]) -> HashMap<String, Option<TeamBlock>> {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
-        let source = lock(&self.versions).clone();
+        let source = lock(&self.shared.versions).clone();
         team_blocks(
             agents,
             source.as_deref(),
@@ -850,6 +1119,43 @@ impl SessionManager {
         mode: SessionMode,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
+        self.create_requested(
+            profile_id,
+            cwd,
+            size,
+            resume,
+            cli_session_id,
+            mode,
+            StartRequest::default(),
+            sink,
+        )
+    }
+
+    /// [`Self::create_resuming`] with what the window asks for besides the program's arguments:
+    /// `HANGAR.md` and a first prompt ([`StartRequest`], [`extra_args`]).
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
+    pub fn create_requested(
+        &self,
+        profile_id: &str,
+        cwd: Option<PathBuf>,
+        size: TermSize,
+        resume: bool,
+        cli_session_id: Option<&str>,
+        mode: SessionMode,
+        request: StartRequest,
+        sink: impl EventSink,
+    ) -> Result<SessionInfo, ManagerError> {
+        let extras = StartExtras {
+            instructions: self
+                .instructions_file
+                .clone()
+                .filter(|_| request.instructions),
+            prompt: request.prompt.and_then(|prompt| {
+                self.start_prompts
+                    .as_ref()
+                    .map(|texts| texts.text(prompt).to_owned())
+            }),
+        };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
         if mode == SessionMode::Team {
@@ -866,7 +1172,7 @@ impl SessionManager {
             kind: SessionKind::Agent,
             mode,
         };
-        self.start(agent, cwd, size, plan, kind, title, sink)
+        self.start(agent, cwd, size, plan, kind, extras, title, sink)
     }
 
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
@@ -899,9 +1205,10 @@ impl SessionManager {
     /// Restarting the session repeats the update. If an update is already running for the
     /// profile, the result is [`ManagerError::UpdateRunning`].
     ///
-    /// The working folder is the profile's fixed folder, otherwise the user's home folder, never one
-    /// chosen by the frontend: on Windows `npm.cmd` looks for `node` in the current folder first, and
-    /// a foreign project could plant a `node.cmd` there.
+    /// The working folder is always the user's home folder: neither the frontend nor the profile's
+    /// fixed folder chooses it ([`updates::update_agent`] drops that folder), so no foreign
+    /// project's `.npmrc` or `pip.conf` steers the installer. On Windows the update also runs
+    /// without the program lookup in its folder ([`no_cwd_lookup`]).
     pub fn create_update(
         &self,
         profile_id: &str,
@@ -937,7 +1244,9 @@ impl SessionManager {
             kind: SessionKind::Update,
             mode: SessionMode::Private,
         };
-        self.start(updater, None, size, plan, kind, title, sink)
+        // An installer, not the agent: no instructions, no prompt.
+        let extras = StartExtras::default();
+        self.start(updater, None, size, plan, kind, extras, title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -961,10 +1270,12 @@ impl SessionManager {
         size: TermSize,
         plan: Plan,
         start: Start,
+        mut extras: StartExtras,
         title: String,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
         let Start { kind, mode } = start;
+        let size = size.clamped();
         let profile = &agent.profile;
         // A folder fixed in the profile wins over the one chosen in the sidebar.
         let cwd = profile
@@ -972,11 +1283,7 @@ impl SessionManager {
             .clone()
             .or(cwd)
             .unwrap_or_else(|| self.home.clone());
-        // A relative folder would be resolved against Hangar's own working folder, which is
-        // nothing the user chose.
-        if !cwd.is_absolute() || !cwd.is_dir() {
-            return Err(ManagerError::BadCwd(cwd));
-        }
+        check_cwd(&cwd)?;
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         // Register first, then start: if the process exits at once, the threads find their session.
@@ -1011,16 +1318,22 @@ impl SessionManager {
                     generation: 0,
                     runtime: None,
                     size,
+                    instructions: extras.instructions.clone(),
                     kill_requested: false,
                 },
             );
             plan
         };
+        // A first prompt belongs to a fresh conversation, never to a resumed one.
+        if plan.resume {
+            extras.prompt = None;
+        }
         let launch = Launch {
             args: &plan.args,
             resume: plan.resume,
             kind,
             mode,
+            extras,
         };
 
         match spawn(
@@ -1070,7 +1383,7 @@ impl SessionManager {
             entry.info.mark_restarting()?;
             entry.info.resumed = false;
             entry.generation += 1;
-            entry.size = size;
+            entry.size = size.clamped();
             entry.kill_requested = false;
             // A fresh conversation under a new id: the old id may already name one.
             let plan = Plan::normal(&entry.agent.profile, None);
@@ -1080,16 +1393,17 @@ impl SessionManager {
                 entry.info.cwd.clone(),
                 entry.generation,
                 kind,
-                entry.info.mode,
+                (entry.info.mode, entry.instructions.clone()),
                 plan,
             )
         };
+        let (mode, instructions) = mode;
         match spawn(
             &self.shared,
             id,
             generation,
             &agent,
-            &Launch::normal(&plan.args, kind, mode),
+            &Launch::normal(&plan.args, kind, mode, instructions),
             &cwd,
             size,
             Arc::new(sink),
@@ -1105,16 +1419,28 @@ impl SessionManager {
         }
     }
 
+    /// Queues `data` for the session's input thread without waiting. A full queue (the program
+    /// does not read) is [`ManagerError::Busy`]; more than [`MAX_WRITE`] bytes are refused.
     pub fn write(&self, id: SessionId, data: &str) -> Result<(), ManagerError> {
+        if data.len() > MAX_WRITE {
+            return Err(ManagerError::InputTooLarge {
+                len: data.len(),
+                max: MAX_WRITE,
+            });
+        }
         let sessions = lock(&self.shared.sessions);
         let runtime = running(&sessions, id)?;
         runtime
             .input
-            .send(data.as_bytes().to_vec())
-            .map_err(|_| ManagerError::NotRunning(id))
+            .try_send(data.as_bytes().to_vec())
+            .map_err(|error| match error {
+                TrySendError::Full(_) => ManagerError::Busy(id),
+                TrySendError::Disconnected(_) => ManagerError::NotRunning(id),
+            })
     }
 
     pub fn resize(&self, id: SessionId, size: TermSize) -> Result<(), ManagerError> {
+        let size = size.clamped();
         let master = {
             let mut sessions = lock(&self.shared.sessions);
             let master = Arc::clone(&running(&sessions, id)?.master);
@@ -1150,15 +1476,12 @@ impl SessionManager {
     }
 
     pub fn rename(&self, id: SessionId, title: &str) -> Result<SessionInfo, ManagerError> {
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(ManagerError::EmptyTitle);
-        }
+        let title = session_title(title)?;
         let mut sessions = lock(&self.shared.sessions);
         let entry = sessions
             .get_mut(&id)
             .ok_or(ManagerError::UnknownSession(id))?;
-        title.clone_into(&mut entry.info.title);
+        entry.info.title = title;
         Ok(entry.info.clone())
     }
 
@@ -1189,6 +1512,20 @@ impl SessionManager {
             env,
             home: self.home.clone(),
         })
+    }
+
+    /// The transcript target of a session and its program's name, for the session report
+    /// (`crate::report`); the same sessions as the sub-agent view.
+    pub fn report_target(
+        &self,
+        id: SessionId,
+    ) -> Result<(subagents::Target, String), ManagerError> {
+        let target = self.sub_agent_target(id)?;
+        let program = lock(&self.shared.sessions)
+            .get(&id)
+            .map(|entry| entry.agent.profile.name.clone())
+            .ok_or(ManagerError::UnknownSession(id))?;
+        Ok((target, program))
     }
 
     /// Every session whose program keeps transcripts Hangar can read (the same ones as the
@@ -1234,7 +1571,9 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Ends all sessions, for example when the app closes.
+    /// Ends all sessions when the app closes, and returns only once every tree got its last
+    /// signal ([`proctree::end_all`]): on Unix at most [`proctree::KILL_GRACE`] for all sessions
+    /// together, then SIGKILL, so no program that ignores SIGHUP outlives Hangar.
     pub fn shutdown(&self) {
         let entries: Vec<Entry> = {
             let mut sessions = lock(&self.shared.sessions);
@@ -1244,10 +1583,20 @@ impl SessionManager {
             }
             entries
         };
-        for runtime in entries.into_iter().filter_map(|e| e.runtime) {
+        let runtimes: Vec<Runtime> = entries.into_iter().filter_map(|e| e.runtime).collect();
+        let mut trees = Vec::new();
+        for runtime in &runtimes {
             runtime.flow.close();
-            let _ = runtime.kill();
+            match &runtime.tree {
+                Some(tree) => trees.push(Arc::clone(tree)),
+                // Failure usually means the process was already gone.
+                None => {
+                    let _ = lock(&runtime.killer).kill();
+                }
+            }
         }
+        proctree::end_all(&trees);
+        drop(runtimes);
     }
 }
 
@@ -1291,6 +1640,20 @@ fn spawn_thread(name: String, body: impl FnOnce() + Send + 'static) -> Result<()
     Ok(())
 }
 
+/// The installed version of a program whose gate settings depend on it (Claude Code's hook
+/// `onFailure`, [`crate::gate::claude_blocks_on_failure`]), from the cached version query;
+/// `None` for every other program, without a version source or when it is not known.
+fn gate_version(shared: &Shared, agent: &Agent, program: &Path) -> Option<String> {
+    if agent.capabilities.gate_format() != Some(crate::agent_catalog::HookFormat::ClaudeSettings) {
+        return None;
+    }
+    let source = lock(&shared.versions).clone()?;
+    source
+        .versions(&[(agent.clone(), program.to_path_buf())])
+        .remove(agent.id())
+        .flatten()
+}
+
 #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
 fn spawn(
     shared: &Arc<Shared>,
@@ -1309,7 +1672,7 @@ fn spawn(
         .ok_or_else(|| ManagerError::CommandNotFound(agent.command_label()))?
         .program;
     let profile = &agent.profile;
-    let mut args = launch.args.to_vec();
+    let args = launch.args.to_vec();
     // Only team sessions get the gate; update sessions never: they run an installer, not the
     // agent.
     let own_hooks = agent
@@ -1321,7 +1684,8 @@ fn spawn(
             GatePlan::Unavailable(GateStatus::ProfileSettings)
         }
         (SessionKind::Agent, SessionMode::Team, Some(gate)) => {
-            gate.prepare(id, agent, &program, &args)
+            let version = gate_version(shared, agent, &program);
+            gate.prepare(id, agent, &program, &args, version.as_deref())
         }
         _ => GatePlan::Skip,
     };
@@ -1330,14 +1694,20 @@ fn spawn(
         GatePlan::Launch(launch) => Some(launch),
         GatePlan::Skip | GatePlan::Unavailable(_) => None,
     };
-    if let Some(gate) = &gate {
-        args.splice(0..0, gate.prepend.iter().cloned());
-        args.extend(gate.args.iter().cloned());
-    }
-    if let Some(flag) = agent.cwd_flag {
-        args.push(flag.to_owned());
-        args.push(cwd.to_string_lossy().into_owned());
-    }
+    // Update sessions run an installer, never the agent: neither instructions nor a prompt.
+    let extra = if launch.kind == SessionKind::Agent {
+        extra_args(agent, &program, &launch.extras)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let parts = ArgParts {
+        start: args,
+        gate: gate.as_ref(),
+        cwd_flag: agent
+            .cwd_flag
+            .map(|flag| (flag, cwd.to_string_lossy().into_owned())),
+    };
+    let args = parts.fitting(&program.to_string_lossy(), extra, &agent.profile.name);
     let batch = batch::is_batch(&program);
     if batch {
         batch::check(&program, &args).map_err(|reason| ManagerError::UnsafeBatch {
@@ -1353,9 +1723,7 @@ fn spawn(
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     command.cwd(cwd);
-    // No program lookup in the working folder for update sessions and `.cmd`/`.bat` launchers.
-    // Shells (.exe) do not get it: there the user calls programs in the folder on purpose.
-    let no_cwd_lookup = launch.kind == SessionKind::Update || batch;
+    let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch, &program);
     crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
     // Straight into the child's environment; the values are not kept anywhere else.
     for (name, value) in
@@ -1368,7 +1736,10 @@ fn spawn(
         command.env(name, value.as_str());
     }
     let started = Instant::now();
-    let mut child = pair.slave.spawn_command(command).map_err(pty_error)?;
+    let mut child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| spawn_failed(&program, error.as_ref()))?;
     // Close our end of the slave side, otherwise EOF never arrives on Unix.
     drop(pair.slave);
 
@@ -1393,7 +1764,7 @@ fn spawn(
     let master: SharedMaster = Arc::new(Mutex::new(Some(pair.master)));
     let flow = Arc::new(Flow::new(HIGH_WATER, FLOW_STALL));
     let (tx, rx) = sync_channel(CHANNEL_DEPTH);
-    let (input_tx, input_rx) = mpsc::channel();
+    let (input_tx, input_rx) = sync_channel(INPUT_DEPTH);
     if launch.kind == SessionKind::Update {
         // The exact argv, dimmed, before any output of the update: the user sees what runs.
         // Through the batcher like program output, so flow control counts it too.
@@ -1409,13 +1780,20 @@ fn spawn(
     })?;
 
     let master_wait = Arc::clone(&master);
+    let tree_wait = tree.clone();
     spawn_thread(format!("pty-wait-{id}"), move || {
         let code = child.wait().ok().map(|status| status.exit_code());
+        // From now on the child's id may name another process (Unix): no more signals to it.
+        if let Some(tree) = &tree_wait {
+            tree.mark_reaped();
+        }
         // Measured here, not in the batcher: there backpressure can delay the report.
         let at = Instant::now();
         // ConPTY closes the output only once the pseudo console is closed. Without this
-        // the read thread would never reach EOF on Windows.
-        lock(&master_wait).take();
+        // the read thread would never reach EOF on Windows. Closing it can block until ConPTY
+        // has flushed, so it happens outside the lock that resize and kill also take.
+        let master = lock(&master_wait).take();
+        drop(master);
         let _ = tx.send(Message::Exited(code, at));
     })?;
 
@@ -1528,10 +1906,168 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
     sink.emit(SessionEvent::Output { data, bytes });
 }
 
+/// A session title is at most this many characters; longer ones are cut. The title goes into
+/// every session list, the work log and the workspace file.
+pub const MAX_TITLE_CHARS: usize = 256;
+
+/// The title as stored: trimmed, not empty, cut to [`MAX_TITLE_CHARS`].
+pub fn session_title(title: &str) -> Result<String, ManagerError> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(ManagerError::EmptyTitle);
+    }
+    Ok(title
+        .chars()
+        .take(MAX_TITLE_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent_catalog::HookFormat;
+
+    #[test]
+    fn session_titles_are_trimmed_and_bounded() {
+        assert_eq!(session_title("  Review  ").unwrap(), "Review");
+        assert!(matches!(
+            session_title(" \t "),
+            Err(ManagerError::EmptyTitle)
+        ));
+        let long = "\u{e4}".repeat(MAX_TITLE_CHARS + 50);
+        let cut = session_title(&long).unwrap();
+        assert_eq!(cut.chars().count(), MAX_TITLE_CHARS);
+        // Cut at a character, never inside one.
+        assert!(cut.chars().all(|c| c == '\u{e4}'));
+        let exact = "x".repeat(MAX_TITLE_CHARS);
+        assert_eq!(session_title(&exact).unwrap(), exact);
+    }
+
+    fn prompted_agent(extra: &str) -> Agent {
+        let source = format!("[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\n{extra}");
+        Agent::from_catalog(crate::agent_catalog::parse(&source).unwrap().remove(0))
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn extras_reach_only_programs_that_take_them() {
+        let tmp = crate::test_support::TempDir::new("manager-extras");
+        let file = tmp.path().join(instructions::FILE_NAME);
+        std::fs::write(&file, "<!-- hidden -->\nUse tabs.\n").unwrap();
+        let program = Path::new("/bin/p");
+        let extras = StartExtras {
+            instructions: Some(file.clone()),
+            prompt: Some("Check upstream.".into()),
+        };
+        let both = prompted_agent(
+            "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
+        );
+        assert_eq!(
+            extra_args(&both, program, &extras),
+            (
+                strings(&["--append-system-prompt", "Use tabs."]),
+                strings(&["Check upstream."])
+            )
+        );
+        let by_file = prompted_agent("instruction_args = ['--read', '{file}']\n");
+        assert_eq!(
+            extra_args(&by_file, program, &extras),
+            (
+                vec!["--read".to_owned(), file.to_string_lossy().into_owned()],
+                Vec::new()
+            )
+        );
+        // A program without either field gets nothing, whatever the window asked for.
+        let plain = prompted_agent("");
+        assert_eq!(
+            extra_args(&plain, program, &extras),
+            (Vec::new(), Vec::new())
+        );
+        // Off, or an empty file: no arguments at all.
+        assert_eq!(
+            extra_args(&both, program, &StartExtras::default()),
+            (Vec::new(), Vec::new())
+        );
+        std::fs::write(&file, "<!-- only the template -->\n").unwrap();
+        assert_eq!(extra_args(&both, program, &extras).0, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_too_long_command_line_loses_the_instructions_first() {
+        let gate = GateLaunch {
+            prepend: strings(&["--hook-trust"]),
+            args: strings(&["--settings", "gate.json"]),
+            env: Vec::new(),
+        };
+        let parts = ArgParts {
+            start: strings(&["resume", "--last"]),
+            gate: Some(&gate),
+            cwd_flag: Some(("--cd", "/work".to_owned())),
+        };
+        let before = strings(&["--append-system-prompt=Use tabs."]);
+        let after = strings(&["Check upstream."]);
+        // Everything in its place.
+        assert_eq!(
+            parts.fitting("p", (before.clone(), after.clone()), "P"),
+            strings(&[
+                "--hook-trust",
+                "--append-system-prompt=Use tabs.",
+                "resume",
+                "--last",
+                "--settings",
+                "gate.json",
+                "Check upstream.",
+                "--cd",
+                "/work",
+            ])
+        );
+        // The gate's arguments count: instructions that fit alone but not with them go.
+        let base = instructions::command_line_units("p", &parts.compose(&[], &after));
+        let room = instructions::COMMAND_LINE_MAX - base - 1;
+        let exactly = vec!["x".repeat(room)];
+        assert_eq!(
+            parts.fitting("p", (exactly.clone(), after.clone()), "P"),
+            parts.compose(&exactly, &after)
+        );
+        let one_more = vec!["x".repeat(room + 1)];
+        assert_eq!(
+            parts.fitting("p", (one_more, after.clone()), "P"),
+            parts.compose(&[], &after)
+        );
+        // Quoting counts: the same length of quotes does not fit.
+        let quoted = vec!["\"".repeat(room)];
+        assert_eq!(
+            parts.fitting("p", (quoted, after.clone()), "P"),
+            parts.compose(&[], &after)
+        );
+        // A prompt that alone is too long goes as well; the start itself stays.
+        let huge = vec!["y".repeat(instructions::COMMAND_LINE_MAX)];
+        assert_eq!(
+            parts.fitting("p", (before, huge), "P"),
+            parts.compose(&[], &[])
+        );
+    }
+
+    #[test]
+    fn a_profile_inherits_prompting_only_for_the_catalogs_program() {
+        let catalog = crate::agent_catalog::parse(
+            "[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\nprompt_args = ['{prompt}']\n",
+        )
+        .unwrap();
+        let profile = |command: &str| {
+            let text = format!("id = 'p'\nname = 'Mine'\ncommand = '{command}'\n");
+            toml::from_str::<Profile>(&text).unwrap()
+        };
+        let same = merge_all(vec![profile("p")], catalog.clone(), Vec::new());
+        assert_eq!(same[0].prompting.prompt_args, Some(strings(&["{prompt}"])));
+        let wrapper = merge_all(vec![profile("my-wrapper")], catalog, Vec::new());
+        assert_eq!(wrapper[0].prompting.prompt_args, None);
+    }
 
     #[test]
     fn own_settings_are_found_in_both_spellings_only() {
@@ -1570,6 +2106,198 @@ mod tests {
         assert_eq!(
             shown_team_block(&free, Some(TeamBlock::NoHooks)),
             Some(TeamBlock::NoHooks)
+        );
+    }
+
+    #[test]
+    fn only_shells_of_the_users_own_profiles_keep_the_program_lookup_in_the_folder() {
+        use SessionKind::{Agent as A, Update as U};
+        let shell = Path::new(r"C:\Windows\System32\cmd.exe");
+        let agent = Path::new(r"C:\Users\x\.local\bin\claude.exe");
+        // (kind, source, batch, program) -> protected
+        let table = [
+            (A, Source::User, false, shell, false),
+            (A, Source::User, true, shell, true),
+            // A user profile that starts an agent (`command = "claude"`) is protected as well.
+            (A, Source::User, false, agent, true),
+            (A, Source::Catalog, false, shell, true),
+            (A, Source::Catalog, false, agent, true),
+            (A, Source::Catalog, true, agent, true),
+            (U, Source::User, false, shell, true),
+            (U, Source::Catalog, false, agent, true),
+        ];
+        for (kind, source, batch, program, expected) in table {
+            assert_eq!(
+                no_cwd_lookup(kind, source, batch, program),
+                expected,
+                "{kind:?} {source:?} batch={batch} {program:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shells_are_known_by_their_file_name() {
+        for shell in [
+            r"C:\Windows\System32\cmd.exe",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE",
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+            r"C:\Windows\System32\wsl.exe",
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\git-bash.exe",
+            r"C:\tools\nu.exe",
+            "/bin/sh",
+            "/usr/bin/zsh",
+            "/usr/local/bin/fish",
+        ] {
+            assert!(is_interactive_shell(Path::new(shell)), "{shell}");
+        }
+        for program in [
+            r"C:\Users\x\.local\bin\claude.exe",
+            r"C:\tools\cmd-agent.exe",
+            r"C:\tools\bash.cmd",
+            "/usr/bin/codex",
+            "",
+        ] {
+            assert!(!is_interactive_shell(Path::new(program)), "{program}");
+        }
+    }
+
+    #[test]
+    fn terminal_sizes_are_clamped() {
+        let huge = TermSize {
+            cols: u16::MAX,
+            rows: u16::MAX,
+        };
+        assert_eq!(
+            huge.clamped(),
+            TermSize {
+                cols: MAX_COLS,
+                rows: MAX_ROWS
+            }
+        );
+        let pty = huge.to_pty();
+        assert_eq!((pty.cols, pty.rows), (4096, 2048));
+        let zero = TermSize { cols: 0, rows: 0 }.to_pty();
+        assert_eq!((zero.cols, zero.rows), (1, 1));
+        let normal = TermSize {
+            cols: 120,
+            rows: 40,
+        };
+        assert_eq!(normal.clamped(), normal);
+    }
+
+    #[test]
+    fn a_failed_start_names_the_program_and_the_code_only() {
+        let program = Path::new(r"C:\tools\agent.exe");
+        // The shape of portable-pty's ConPTY error: the whole command line, then the OS error.
+        let text = "CreateProcessW `\"agent.exe\" HANGAR-SECRET-MARKER` in cwd `None` failed: \
+                    The system cannot find the file specified. (os error 2)";
+        let error: Box<dyn std::error::Error> = text.into();
+        let shown = spawn_failed(program, error.as_ref()).to_string();
+        assert!(!shown.contains("HANGAR-SECRET-MARKER"), "{shown}");
+        assert!(shown.contains(r"C:\tools\agent.exe"), "{shown}");
+        assert!(shown.contains("OS error 2"), "{shown}");
+        // An io::Error in the chain gives its code directly.
+        let io = io::Error::from_raw_os_error(13);
+        let shown = spawn_failed(program, &io).to_string();
+        assert!(shown.contains("OS error 13"), "{shown}");
+        let plain: Box<dyn std::error::Error> = "HANGAR-SECRET-MARKER broke".into();
+        let shown = spawn_failed(program, plain.as_ref()).to_string();
+        assert!(!shown.contains("HANGAR-SECRET-MARKER"), "{shown}");
+        assert_eq!(os_error_code("x (os error 5) y (os error 32)"), Some(32));
+        assert_eq!(os_error_code("no code"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn network_and_device_folders_are_recognized() {
+        for remote in [
+            r"\\host\share\project",
+            r"\\?\UNC\host\share\project",
+            r"\\.\PhysicalDrive0",
+            r"\\?\GLOBALROOT\Device",
+        ] {
+            assert!(is_network_or_device(Path::new(remote)), "{remote}");
+        }
+        for local in [r"C:\work", r"\\?\C:\work", r"D:\", r"relative\folder"] {
+            assert!(!is_network_or_device(Path::new(local)), "{local}");
+        }
+    }
+
+    #[test]
+    fn working_folders_must_be_local_folders() {
+        let here = std::env::current_dir().unwrap();
+        assert!(check_cwd(&here).is_ok());
+        assert!(matches!(
+            check_cwd(Path::new("relative")),
+            Err(ManagerError::BadCwd(_))
+        ));
+        assert!(matches!(
+            check_cwd(&here.join("hangar-missing-folder")),
+            Err(ManagerError::BadCwd(_))
+        ));
+        #[cfg(windows)]
+        for remote in [
+            r"\\hangar-test.invalid\share",
+            "//hangar-test.invalid/share/x",
+        ] {
+            assert!(
+                matches!(
+                    check_cwd(Path::new(remote)),
+                    Err(ManagerError::RemoteCwd(_))
+                ),
+                "{remote}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_unix_paths_are_never_network_paths() {
+        assert!(!is_network_or_device(Path::new("/home/user/work")));
+        assert!(!is_network_or_device(Path::new("work")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_network_folder_is_refused_before_it_is_touched() {
+        let manager = SessionManager::new(
+            Vec::new(),
+            crate::agent_catalog::parse(
+                "[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['hangar-not-needed']\n",
+            )
+            .unwrap(),
+            std::env::temp_dir(),
+        );
+        let size = TermSize { cols: 80, rows: 24 };
+        // The host name is reserved (RFC 2606); the check comes before any lookup.
+        let error = manager
+            .create(
+                "p",
+                Some(PathBuf::from(r"\\hangar-test.invalid\share")),
+                size,
+                |_| {},
+            )
+            .unwrap_err();
+        assert!(matches!(error, ManagerError::RemoteCwd(_)), "{error}");
+    }
+
+    #[test]
+    fn folder_errors_carry_a_stable_code_for_the_window() {
+        let text = |error: ManagerError| serde_json::to_value(error).unwrap();
+        let remote = text(ManagerError::RemoteCwd(PathBuf::from(r"\\server\share")));
+        assert!(
+            remote.as_str().unwrap().starts_with("[remote_cwd] "),
+            "{remote}"
+        );
+        let missing = text(ManagerError::BadCwd(PathBuf::from("/gone")));
+        assert!(
+            missing.as_str().unwrap().starts_with("[bad_cwd] "),
+            "{missing}"
+        );
+        // Errors without a code stay plain text.
+        assert_eq!(
+            text(ManagerError::EmptyTitle),
+            "The title must not be empty"
         );
     }
 

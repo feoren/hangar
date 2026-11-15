@@ -477,6 +477,7 @@ pub fn commit_diff(git: &Git, cwd: &Path, sha: &str) -> Result<GitCommitDiff, Gi
     let changes = diff_trees(
         git,
         &root,
+        &[],
         commit.parents.first().map(String::as_str),
         &full,
         deadline,
@@ -486,10 +487,12 @@ pub fn commit_diff(git: &Git, cwd: &Path, sha: &str) -> Result<GitCommitDiff, Gi
 
 /// The changes from `from` to `to` (both object ids of commits or trees git already resolved):
 /// file list with status and +/-, the unified diff cut at [`MAX_DIFF_BYTES`] on a whole line.
-/// Without `from`, `to` must be a commit and is compared with the empty tree (`--root`).
+/// Without `from`, `to` must be a commit and is compared with the empty tree (`--root`). `env`:
+/// variables for these calls only (the snapshots' object folders, git_snapshots.rs).
 pub(crate) fn diff_trees(
     git: &Git,
     root: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
     from: Option<&str>,
     to: &str,
     deadline: Instant,
@@ -500,7 +503,7 @@ pub(crate) fn diff_trees(
         None => vec!["--root", to],
     };
     let run = |mode: &[&str], limit: usize| {
-        let output = git.run(
+        let output = git.run_with_env(
             root,
             neutral
                 .iter()
@@ -509,6 +512,8 @@ pub(crate) fn diff_trees(
                 .chain(mode.iter().copied())
                 .chain(target.iter().copied())
                 .chain(["--"]),
+            env,
+            None,
             deadline,
             limit,
         )?;

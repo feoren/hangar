@@ -1,0 +1,397 @@
+## Everyday agent commands of the command guard's third audit (ADR 0010), each read in its
+## own dialect (B POSIX, P PowerShell, C cmd) and again in all three (as the `Shell` tool).
+## Verdict, dialect, command: PASS must not ask; ASK marks the few that name a folder outside
+## the project or feed SQL through a pipe, which the guard asks about on purpose.
+PASS	B	git status
+PASS	B	git status --short
+PASS	B	git diff
+PASS	B	git diff --stat HEAD~1
+PASS	B	git diff --cached -- src/
+PASS	B	git log --oneline -20
+PASS	B	git log --oneline --graph --all -n 30
+PASS	B	git log -p -1 -- src/main.rs
+PASS	B	git show HEAD --stat
+PASS	B	git show HEAD:src/lib.rs | head -50
+PASS	B	git branch -a
+PASS	B	git branch --show-current
+PASS	B	git checkout -b feature/x
+PASS	B	git switch -c fix/y
+PASS	B	git add -A
+PASS	B	git add src/ tests/
+PASS	B	git add -p
+PASS	B	git commit -m "fix: handle empty input"
+PASS	B	git commit -am "chore: bump"
+PASS	B	git commit -m "$(cat <<'EOF'<NL>feat: add parser<NL><NL>Handles (nested) quotes and $vars.<NL>EOF<NL>)"
+PASS	B	git commit --amend --no-edit
+PASS	B	git push
+PASS	B	git push -u origin feature/x
+PASS	B	git push origin HEAD
+PASS	B	git push --force-with-lease
+PASS	B	git push --force-with-lease origin feature/x
+PASS	B	git pull --rebase
+PASS	B	git fetch --all --prune
+PASS	B	git rebase -i HEAD~3
+PASS	B	git rebase origin/main
+PASS	B	git merge --no-ff feature/x
+PASS	B	git stash
+PASS	B	git stash pop
+PASS	B	git reset HEAD~1
+PASS	B	git reset --soft HEAD~1
+PASS	B	git restore --staged file.txt
+PASS	B	git rm --cached secret.txt
+PASS	B	git rm -r --cached node_modules
+PASS	B	git clean -n
+PASS	B	git clean -nd
+PASS	B	git tag v1.2.3
+PASS	B	git remote -v
+PASS	B	git rev-parse --show-toplevel
+PASS	B	git worktree list
+PASS	B	git blame -L 10,20 src/main.rs
+PASS	B	git grep -n "TODO"
+PASS	B	git cherry-pick abc123
+PASS	B	git config user.name
+PASS	B	git -C ../other status
+PASS	B	git ls-files | wc -l
+PASS	B	gh pr create --title "feat: x" --body "Adds x."
+PASS	B	gh pr view 12 --json title,body
+PASS	B	gh issue list --limit 20
+PASS	B	ls -la
+PASS	B	ls -la src/
+PASS	B	pwd
+PASS	B	cd src && ls
+PASS	B	cd .. && ls
+PASS	B	cat README.md
+PASS	B	head -n 40 src/main.rs
+PASS	B	tail -f log.txt
+PASS	B	wc -l src/*.rs
+PASS	B	find . -name "*.rs" -not -path "./target/*"
+PASS	B	find . -type f -name "*.tmp" -delete
+PASS	B	find src -name '*.ts' | xargs grep -l "any"
+PASS	B	grep -rn "TODO" src/
+PASS	B	grep -rn --include="*.ts" "useEffect" src/
+PASS	B	rg "fn main" -t rust
+PASS	B	rg -n 'unwrap\(\)' src-tauri/src
+PASS	B	sed -n '1,80p' src/lib.rs
+PASS	B	sed -i 's/foo/bar/g' src/a.ts
+PASS	B	awk '{print $1}' data.txt | sort | uniq -c | sort -rn | head
+PASS	B	echo "hello" > out.txt
+PASS	B	echo $PATH
+PASS	B	echo "${HOME}/x"
+PASS	B	export NODE_ENV=production
+PASS	B	mkdir -p tests/.tmp/run1
+PASS	B	touch tests/.tmp/a.txt
+PASS	B	cp -r src/ backup/
+PASS	B	mv old.txt new.txt
+PASS	B	rm file.txt
+PASS	B	rm -f dist/bundle.js
+PASS	B	rm -rf node_modules
+PASS	B	rm -rf dist build
+PASS	B	rm -rf ./target/debug/incremental
+PASS	B	rm -rf tests/.tmp/*
+PASS	B	rm -r tests/.tmp
+PASS	B	rm -rf .next
+PASS	B	rm -rf "$(pwd)/dist"
+PASS	B	rm -rf ./coverage .nyc_output
+ASK	B	rm -rf ~/.cache/my-tool-test
+PASS	B	chmod +x scripts/build.sh
+PASS	B	./scripts/build.sh
+PASS	B	bash scripts/test.sh
+PASS	B	sh -c 'echo hi && ls'
+PASS	B	bash -c "cd src && cargo check"
+PASS	B	npm install
+PASS	B	npm ci
+PASS	B	npm run build
+PASS	B	npm test -- --watch=false
+PASS	B	npx tsc --noEmit
+PASS	B	npx prettier --write "src/**/*.ts"
+PASS	B	npx eslint . --fix
+PASS	B	pnpm install
+PASS	B	pnpm add -D vitest
+PASS	B	pnpm test
+PASS	B	pnpm build
+PASS	B	pnpm format:check && pnpm lint && pnpm test && pnpm build
+PASS	B	yarn
+PASS	B	node -e "console.log(process.version)"
+PASS	B	node scripts/gen.js
+PASS	B	python3 -m venv .venv
+PASS	B	source .venv/bin/activate
+PASS	B	. .venv/bin/activate
+PASS	B	pip install -r requirements.txt
+PASS	B	python -m pytest -q
+PASS	B	python3 -c 'import sys; print(sys.version)'
+PASS	B	py -3 -m unittest discover tools
+PASS	B	uv run pytest
+PASS	B	cargo build
+PASS	B	cargo build --release
+PASS	B	cargo test -- --nocapture
+PASS	B	cargo clippy --all-targets -- -D warnings
+PASS	B	cargo fmt --check
+PASS	B	export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path src-tauri/Cargo.toml
+PASS	B	cargo run -- --help
+PASS	B	go test ./...
+PASS	B	go build -o bin/app ./cmd/app
+PASS	B	make
+PASS	B	make clean
+PASS	B	make -j8 test
+PASS	B	docker ps
+PASS	B	docker build -t app .
+PASS	B	docker compose up -d
+PASS	B	docker run --rm -it app sh
+PASS	B	kubectl get pods -n dev
+PASS	B	curl -s https://api.example.invalid/health | jq .
+PASS	B	curl -fsSL -o out.json https://example.invalid/data.json
+PASS	B	wget -q https://example.invalid/x.tar.gz
+PASS	B	tar -xzf x.tar.gz -C vendor/
+PASS	B	unzip -o archive.zip -d out/
+PASS	B	ps aux | grep node
+PASS	B	kill 1234
+PASS	B	lsof -i :3000
+PASS	B	env | sort
+PASS	B	which node
+PASS	B	type cargo
+PASS	B	command -v pnpm
+PASS	B	date +%Y-%m-%d
+PASS	B	sleep 2
+PASS	B	time cargo build
+PASS	B	timeout 60 npm test
+PASS	B	for f in src/*.ts; do echo "$f"; done
+PASS	B	for i in 1 2 3; do echo $i; done
+PASS	B	while read -r line; do echo "$line"; done < list.txt
+PASS	B	if [ -f .env ]; then echo yes; fi
+PASS	B	[ -d dist ] || mkdir dist
+PASS	B	test -f Cargo.toml && echo ok
+PASS	B	cat > notes.md <<'EOF'<NL># Notes<NL>- item (one)<NL>EOF
+PASS	B	cat <<EOF > config.json<NL>{"a": 1, "b": "$HOME"}<NL>EOF
+PASS	B	diff -u a.txt b.txt
+PASS	B	jq '.dependencies | keys' package.json
+PASS	B	echo '{"key": "{value}", "list": [1,2]}' | jq .
+PASS	B	printf '%s\n' a b c
+PASS	B	xargs -n1 echo < list.txt
+PASS	B	tee out.log < in.txt
+PASS	B	npm run dev > /dev/null 2>&1 &
+PASS	B	nohup npm start > server.log 2>&1 &
+PASS	B	psql -c "SELECT count(*) FROM users"
+PASS	B	sqlite3 app.db "SELECT * FROM t LIMIT 5"
+PASS	B	sqlite3 app.db .tables
+PASS	B	mysql -e "SHOW TABLES" app
+PASS	B	psql -f migrations/001.sql
+ASK	B	echo "SELECT 1" | psql
+PASS	B	du -sh node_modules
+PASS	B	df -h
+PASS	B	ssh-keygen -lf ~/.ssh/id_ed25519.pub
+PASS	B	openssl rand -hex 16
+PASS	B	eval "$(ssh-agent -s)"
+PASS	B	eval "$(fnm env)"
+PASS	B	eval "$(pyenv init -)"
+PASS	B	source ~/.bashrc
+PASS	B	ln -s ../shared shared
+PASS	B	git diff --name-only | xargs npx prettier --check
+PASS	B	cd "$(git rev-parse --show-toplevel)" && git status
+PASS	B	cd /c/work/other && git status
+PASS	B	git log --format='%H %s' | head -5
+PASS	B	git log --pretty=format:"%h - %an, %ar : %s"
+PASS	B	echo "a{b,c}d"
+PASS	B	echo 'use {x, y} from z'
+PASS	B	npm pkg set scripts.test="vitest run"
+PASS	B	code .
+PASS	B	explorer.exe .
+PASS	B	start .
+PASS	B	cmd //c dir
+PASS	B	cmd.exe /c "echo hi"
+PASS	B	powershell -NoProfile -Command "Get-Process | Select-Object -First 5"
+PASS	B	pwsh -NoProfile -c 'Get-ChildItem'
+PASS	B	wsl ls -la
+PASS	B	wsl -e uname -a
+PASS	B	git push origin main 2>&1 | tail -5
+PASS	B	git status --porcelain | grep '^??' | cut -c4-
+PASS	B	docker exec -it db psql -U postgres -c "\dt"
+PASS	B	find . -name node_modules -prune -o -name '*.js' -print
+PASS	B	rm -rf build && mkdir build && cd build && cmake .. && make
+PASS	B	cd build; cmake ..
+PASS	B	cd ../..; ls
+PASS	B	rm -rf ../build-cache
+PASS	B	rm -r ../tmp-output
+PASS	C	dir
+PASS	C	dir /b /s *.rs
+PASS	C	dir /a
+PASS	C	cd src
+PASS	C	cd ..
+PASS	C	cd /d C:\work\proj\src
+PASS	C	type README.md
+PASS	C	type nul > empty.txt
+PASS	C	echo hello > out.txt
+PASS	C	echo %PATH%
+PASS	C	set NODE_ENV=production
+PASS	C	set PATH=%PATH%;C:\tools
+PASS	C	mkdir tests\.tmp\run1
+PASS	C	md build
+PASS	C	copy a.txt b.txt
+PASS	C	xcopy /E /I src backup
+PASS	C	robocopy src backup /E
+PASS	C	move old.txt new.txt
+PASS	C	ren a.txt b.txt
+PASS	C	del file.txt
+PASS	C	del /q dist\*.js
+PASS	C	del /s /q dist\*.map
+PASS	C	rd /s /q node_modules
+PASS	C	rd /s /q dist
+PASS	C	rmdir /s /q build
+PASS	C	rd /s /q tests\.tmp
+PASS	C	rd /s /q "out dir"
+PASS	C	rd /s /q ..\build-cache
+PASS	C	if exist dist rd /s /q dist
+PASS	C	if exist node_modules (rd /s /q node_modules)
+PASS	C	git status
+PASS	C	git log --oneline -20
+PASS	C	git add -A && git commit -m "fix: x"
+PASS	C	git push -u origin main
+PASS	C	git push --force-with-lease
+PASS	C	cargo build --release
+PASS	C	cargo test
+PASS	C	npm install
+PASS	C	npm run build
+PASS	C	pnpm test
+PASS	C	npx tsc --noEmit
+PASS	C	node -e "console.log(1)"
+PASS	C	python -m pytest
+PASS	C	py -3 -m unittest discover tools
+PASS	C	where node
+PASS	C	where.exe cargo
+PASS	C	tasklist | findstr node
+PASS	C	taskkill /F /IM node.exe
+PASS	C	netstat -ano | findstr :1420
+PASS	C	findstr /s /i "TODO" *.ts
+PASS	C	for %f in (*.txt) do echo %f
+PASS	C	for /f "tokens=*" %a in ('git rev-parse HEAD') do echo %a
+PASS	C	for /r %f in (*.tmp) do del "%f"
+PASS	C	call npm run build
+PASS	C	start "" notepad.txt
+PASS	C	start /b npm run dev
+PASS	C	cmd /c "echo hi"
+PASS	C	powershell -NoProfile -Command "Get-ChildItem"
+PASS	C	powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+PASS	C	pwsh -NoProfile -c "Get-Date"
+PASS	C	wsl ls
+PASS	C	ver
+PASS	C	systeminfo | findstr /B /C:"OS Name"
+PASS	C	echo %DATE% %TIME%
+PASS	C	cls
+PASS	C	(echo line1 & echo line2) > out.txt
+PASS	C	@echo off
+PASS	C	setlocal enabledelayedexpansion
+PASS	C	echo !PATH!
+PASS	P	Get-ChildItem
+PASS	P	Get-ChildItem -Recurse -Filter *.rs | Select-Object FullName
+PASS	P	gci src -r -include *.ts
+PASS	P	Get-Content README.md -TotalCount 40
+PASS	P	Get-Content log.txt -Tail 20 -Wait
+PASS	P	Select-String -Path src\*.ts -Pattern "TODO"
+PASS	P	Get-ChildItem -Recurse -File | Select-String "unwrap()"
+PASS	P	Set-Location src
+PASS	P	cd ..
+PASS	P	Push-Location src; cargo check; Pop-Location
+PASS	P	New-Item -ItemType Directory -Force tests\.tmp\run1
+PASS	P	New-Item -ItemType File notes.md
+PASS	P	Copy-Item -Recurse src backup
+PASS	P	Move-Item old.txt new.txt
+PASS	P	Remove-Item file.txt
+PASS	P	Remove-Item -Recurse -Force node_modules
+PASS	P	Remove-Item -Recurse -Force dist, build
+PASS	P	Remove-Item -Recurse -Force .\target\debug\incremental
+PASS	P	Remove-Item -Recurse -Force tests\.tmp\*
+PASS	P	Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist
+PASS	P	Remove-Item -LiteralPath "out dir" -Recurse -Force
+PASS	P	rm -r -fo node_modules
+PASS	P	rm -Recurse -Force dist
+ASK	P	Remove-Item -Recurse -Force "$env:TEMP\mytool-test"
+PASS	P	Remove-Item -Recurse -Force ..\build-cache
+PASS	P	Get-ChildItem -Recurse -Filter *.tmp | Remove-Item -Force
+PASS	P	Get-ChildItem dist -Recurse | Remove-Item -Recurse -Force
+PASS	P	if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+PASS	P	Test-Path .env
+PASS	P	$env:NODE_ENV = "production"
+PASS	P	$env:PATH += ";C:\tools"
+PASS	P	$PSVersionTable.PSVersion
+PASS	P	Get-Process | Where-Object { $_.CPU -gt 100 } | Sort-Object CPU -Descending | Select-Object -First 5
+PASS	P	Get-Process node -ErrorAction SilentlyContinue | Stop-Process
+PASS	P	Stop-Process -Name hangar -Force
+PASS	P	Get-Command cargo
+PASS	P	(Get-Command node).Source
+PASS	P	Get-Item .\Cargo.toml | Format-List
+PASS	P	Get-ChildItem Env: | Sort-Object Name
+PASS	P	[System.Environment]::OSVersion
+PASS	P	$x = Get-Content package.json | ConvertFrom-Json; $x.version
+PASS	P	(Get-Content package.json -Raw | ConvertFrom-Json).dependencies
+PASS	P	Get-Content data.json | ConvertFrom-Json | ConvertTo-Json -Depth 5
+PASS	P	Set-Content -Path out.txt -Value "hello"
+PASS	P	Add-Content log.txt "line"
+PASS	P	"hello" | Out-File out.txt -Encoding utf8
+PASS	P	Write-Host "Done" -ForegroundColor Green
+PASS	P	Write-Output "x"
+PASS	P	Measure-Object -Line -InputObject (Get-Content a.txt)
+PASS	P	(Get-Content a.txt | Measure-Object -Line).Lines
+PASS	P	Invoke-WebRequest -Uri https://example.invalid -OutFile x.zip
+PASS	P	Expand-Archive x.zip -DestinationPath out -Force
+PASS	P	Compress-Archive -Path dist\* -DestinationPath dist.zip -Force
+PASS	P	Start-Process -FilePath "notepad.exe" -ArgumentList "a.txt"
+PASS	P	Start-Process pwsh -ArgumentList "-NoProfile","-File","build.ps1" -Wait
+PASS	P	& .\build.ps1
+PASS	P	& "C:\Program Files\nodejs\node.exe" --version
+PASS	P	.\scripts\test.ps1 -Verbose
+PASS	P	pwsh -NoProfile -File tools\screenshot.ps1 -Out shot.png
+PASS	P	git status
+PASS	P	git log --oneline -20
+PASS	P	git diff --stat
+PASS	P	git add -A; git commit -m "fix: x"
+PASS	P	git commit -m "feat: add (optional) flag"
+PASS	P	git push -u origin feature/x
+PASS	P	git push --force-with-lease
+PASS	P	git checkout -b fix/y
+PASS	P	git stash; git pull --rebase; git stash pop
+PASS	P	git -C ..\other status
+PASS	P	git log --format="%H %s" -5
+PASS	P	cargo build --release
+PASS	P	cargo test --manifest-path src-tauri/Cargo.toml
+PASS	P	cargo clippy --all-targets -- -D warnings
+PASS	P	pnpm install
+PASS	P	pnpm test
+PASS	P	pnpm format:check; if ($LASTEXITCODE -eq 0) { pnpm lint }
+PASS	P	npm run build 2>&1 | Tee-Object build.log
+PASS	P	npx tsc --noEmit
+PASS	P	node -e "console.log(1)"
+PASS	P	py -3 -m unittest discover tools
+PASS	P	python -m pip install -r requirements.txt
+PASS	P	.\.venv\Scripts\Activate.ps1
+PASS	P	foreach ($f in Get-ChildItem *.md) { Write-Host $f.Name }
+PASS	P	Get-ChildItem *.log | ForEach-Object { $_.Name }
+PASS	P	1..5 | % { "item $_" }
+PASS	P	$files = Get-ChildItem -Recurse *.ts; $files.Count
+PASS	P	$out = cargo test 2>&1; $out | Select-Object -Last 20
+PASS	P	$r = git rev-parse HEAD
+PASS	P	$branch = git branch --show-current
+PASS	P	try { cargo build } catch { Write-Error $_ }
+PASS	P	[IO.File]::ReadAllText("$PWD\a.txt")
+PASS	P	Get-FileHash dist\app.exe -Algorithm SHA256
+PASS	P	Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run
+PASS	P	Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue
+PASS	P	tasklist /FI "IMAGENAME eq hangar.exe"
+PASS	P	where.exe cargo
+PASS	P	cmd /c "echo hi"
+PASS	P	cmd /c dir /b
+PASS	P	wsl ls -la
+PASS	P	Resolve-Path ..\other
+PASS	P	Join-Path $PWD "src"
+PASS	P	Split-Path -Parent $PSCommandPath
+PASS	P	Get-Date -Format "yyyy-MM-dd"
+PASS	P	Start-Sleep -Seconds 2
+PASS	P	Clear-Host
+PASS	P	Get-ChildItem -Recurse -Force -Directory -Filter node_modules | Remove-Item -Recurse -Force
+PASS	P	Remove-Item -Recurse -Force "$PWD\dist"
+PASS	P	Remove-Item (Join-Path $PWD "dist") -Recurse -Force
+PASS	P	Set-Location (git rev-parse --show-toplevel)
+PASS	P	@"<NL>line one (x)<NL>line two $env:USERNAME<NL>"@ | Set-Content notes.md
+PASS	P	@'<NL># Title<NL>- {item}<NL>'@ | Set-Content readme.md
+PASS	P	$json = @{ name = "x"; list = @(1,2) } | ConvertTo-Json; $json
+PASS	P	Invoke-RestMethod https://api.example.invalid/health
+PASS	P	Get-Service | Where-Object Status -eq Running
+PASS	P	Get-ChildItem -Path . -Include *.bak -Recurse | Remove-Item

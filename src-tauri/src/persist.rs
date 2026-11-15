@@ -227,6 +227,22 @@ impl Store {
         write_atomic(&path, &json).map_err(io_error(&path))
     }
 
+    /// The keys of the saved sessions, lower case: an empty list without a saved workspace,
+    /// `None` when one exists but cannot be read (what belongs to it is then unknown).
+    pub fn workspace_keys(&self) -> Option<std::collections::BTreeSet<String>> {
+        if !self.workspace_path().exists() {
+            return Some(std::collections::BTreeSet::new());
+        }
+        let workspace = self.load_workspace()?;
+        Some(
+            workspace
+                .sessions
+                .iter()
+                .filter_map(|session| normalize_key(&session.key).ok())
+                .collect(),
+        )
+    }
+
     /// `None` if there is no saved workspace or it is unusable. The
     /// reason goes to the log, the content never does (not even excerpts from parser errors).
     pub fn load_workspace(&self) -> Option<Workspace> {
@@ -345,18 +361,192 @@ pub(crate) fn remove_if_exists(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Reads at most `max` bytes. `Ok(None)`: file missing. `Err`: reason without content.
-pub(crate) fn read_limited(path: &Path, max: usize) -> Result<Option<Vec<u8>>, String> {
-    let meta = match fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.to_string()),
-    };
-    if usize::try_from(meta.len()).map_or(true, |len| len > max) {
-        return Err(format!("larger than {max} bytes"));
+/// Opens `path` for reading only if it is a regular file. A link at the last component is not
+/// followed: a symbolic link or junction placed in a repository could lead to a device, a FIFO
+/// or, on Windows, a network share that receives the user's NTLM credentials. A FIFO does not
+/// block the open (`O_NONBLOCK`), and the type is checked on the open handle, so nothing swapped
+/// in after an earlier check is read. Others may keep writing, renaming or deleting the file.
+pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        options.share_mode(0x1 | 0x2 | 0x4);
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // On a regular file O_NONBLOCK changes nothing.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    #[cfg(windows)]
+    let file = windows_reparse::through_placeholder(file, path)?;
+    Ok(file)
+}
+
+/// A regular file that is still a reparse point on Windows: a cloud placeholder (OneDrive), a
+/// deduplicated, a compressed system or a projected file. Opened as the reparse point itself,
+/// its filter driver does not supply the content, so it is opened once more the ordinary way:
+/// first through the handle already open (`ReOpenFile`, no second lookup of the path), and only
+/// if that fails by its path again, then accepted only if it is still the same file. The tag is
+/// read on the first handle and must be one of those content tags; name surrogates (symbolic
+/// links, junctions, mount points) and every other tag are refused.
+#[cfg(windows)]
+mod windows_reparse {
+    use std::fs::{File, OpenOptions};
+    use std::io;
+    use std::mem::size_of;
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+    use std::os::windows::io::AsRawHandle as _;
+    use std::path::Path;
+
+    use std::os::windows::io::FromRawHandle as _;
+
+    use windows_sys::Win32::Foundation::{GENERIC_READ, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileAttributeTagInfo, GetFileInformationByHandle, GetFileInformationByHandleEx, ReOpenFile,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TAG_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    /// IO_REPARSE_TAG_CLOUD with its sixteen subtypes (bits 12 to 15), ntifs.h.
+    const TAG_CLOUD: u32 = 0x9000_001A;
+    const TAG_CLOUD_MASK: u32 = 0xFFFF_0FFF;
+    /// IO_REPARSE_TAG_DEDUP, IO_REPARSE_TAG_WOF, IO_REPARSE_TAG_PROJFS.
+    const CONTENT_TAGS: [u32; 3] = [0x8000_0013, 0x8000_0017, 0x9000_001C];
+
+    /// `IsReparseTagNameSurrogate` of winnt.h: the tag names another path.
+    pub(super) fn names_another_path(tag: u32) -> bool {
+        tag & 0x2000_0000 != 0
+    }
+
+    /// A tag whose filter supplies the file's own content (a placeholder, deduplicated,
+    /// compressed or projected file), never another path.
+    pub(super) fn supplies_content(tag: u32) -> bool {
+        !names_another_path(tag)
+            && (tag & TAG_CLOUD_MASK == TAG_CLOUD || CONTENT_TAGS.contains(&tag))
+    }
+
+    pub(super) fn through_placeholder(file: File, path: &Path) -> io::Result<File> {
+        if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
+            return Ok(file);
+        }
+        let tag = reparse_tag(&file)?;
+        if !supplies_content(tag) {
+            return Err(refused());
+        }
+        // [UNVERIFIED] whether every content filter supplies the data for a reopened handle as it
+        // does for an open by path; where the reopen fails, the path is opened once more.
+        if let Ok(content) = reopen(&file) {
+            return Ok(content);
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        options.share_mode(0x1 | 0x2 | 0x4);
+        let content = options.open(path)?;
+        if identity(&content)? != identity(&file)? {
+            return Err(refused());
+        }
+        Ok(content)
+    }
+
+    fn refused() -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")
+    }
+
+    /// The same file opened anew through `file` (`ReOpenFile`), for reading, without
+    /// FILE_FLAG_OPEN_REPARSE_POINT; the path is not looked up again.
+    pub(super) fn reopen(file: &File) -> io::Result<File> {
+        // SAFETY: the handle is open for the call; ReOpenFile does not take it over and
+        // returns a new handle or INVALID_HANDLE_VALUE.
+        let handle = unsafe {
+            ReOpenFile(
+                file.as_raw_handle(),
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                0,
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE || handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `handle` is a new, valid handle owned by nobody else; File closes it.
+        let reopened = unsafe { File::from_raw_handle(handle) };
+        if identity(&reopened)? != identity(file)? || !reopened.metadata()?.is_file() {
+            return Err(refused());
+        }
+        Ok(reopened)
+    }
+
+    fn reparse_tag(file: &File) -> io::Result<u32> {
+        let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+        let size = u32::try_from(size_of::<FILE_ATTRIBUTE_TAG_INFO>()).unwrap_or(u32::MAX);
+        // SAFETY: the handle is open for the call; `info` is a writable FILE_ATTRIBUTE_TAG_INFO
+        // of exactly `size` bytes, which is what FileAttributeTagInfo writes.
+        let done = unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileAttributeTagInfo,
+                (&raw mut info).cast(),
+                size,
+            )
+        };
+        if done == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(info.ReparseTag)
+    }
+
+    /// Volume and file index: the same pair means the same file.
+    fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle is open for the call and `info` is a writable
+        // BY_HANDLE_FILE_INFORMATION.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ))
+    }
+}
+
+/// At most `max` bytes from `reader`, `None` when it holds more. Never reads more than `max + 1`
+/// bytes, whatever a size read earlier said.
+fn read_up_to(reader: impl io::Read, max: usize) -> io::Result<Option<Vec<u8>>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    reader.take(limit).read_to_end(&mut bytes)?;
+    Ok((bytes.len() <= max).then_some(bytes))
+}
+
+/// A regular file of at most `max` bytes ([`open_regular`]). `Ok(None)`: the file holds more.
+pub(crate) fn read_regular_capped(path: &Path, max: usize) -> io::Result<Option<Vec<u8>>> {
+    read_up_to(open_regular(path)?, max)
+}
+
+/// Reads a regular file of at most `max` bytes ([`read_regular_capped`]). `Ok(None)`: file
+/// missing. `Err`: reason without content (larger, a link, a folder, a FIFO, a device).
+pub(crate) fn read_limited(path: &Path, max: usize) -> Result<Option<Vec<u8>>, String> {
+    match read_regular_capped(path, max) {
+        Ok(Some(bytes)) => Ok(Some(bytes)),
+        Ok(None) => Err(format!("larger than {max} bytes")),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
     }
@@ -421,6 +611,149 @@ pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
 mod tests {
     use super::*;
     use crate::test_support::TempDir;
+
+    /// Counts what the caller pulled, to prove the limit holds whatever the source holds.
+    struct Counting<R> {
+        inner: R,
+        read: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl<R: io::Read> io::Read for Counting<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.read.set(self.read.get() + n);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn capped_reads_stop_one_byte_past_the_limit() {
+        let read = std::rc::Rc::new(std::cell::Cell::new(0));
+        let endless = Counting {
+            inner: io::repeat(b'x'),
+            read: read.clone(),
+        };
+        assert_eq!(read_up_to(endless, 4096).unwrap(), None);
+        assert_eq!(read.get(), 4097);
+        assert_eq!(
+            read_up_to(&b"exact"[..], 5).unwrap().as_deref(),
+            Some(&b"exact"[..])
+        );
+        assert_eq!(read_up_to(&b"longer"[..], 5).unwrap(), None);
+    }
+
+    #[test]
+    fn read_limited_refuses_large_files_folders_and_links() {
+        let dir = TempDir::new("persist-read-limited");
+        let big = dir.path().join(".git");
+        fs::write(&big, vec![b'x'; 10 * 1024 * 1024]).unwrap();
+        assert!(read_limited(&big, 4096).is_err());
+        assert_eq!(read_regular_capped(&big, 4096).unwrap(), None);
+        assert_eq!(read_limited(&dir.path().join("missing"), 64), Ok(None));
+        assert!(read_limited(dir.path(), 64).is_err());
+        let small = dir.path().join("HEAD");
+        fs::write(&small, "ref: refs/heads/main\n").unwrap();
+        assert_eq!(
+            read_limited(&small, 64).unwrap().as_deref(),
+            Some(&b"ref: refs/heads/main\n"[..])
+        );
+        let link = dir.path().join("link");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&small, &link);
+        // File symbolic links need Developer Mode or an elevated process on Windows.
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&small, &link);
+        match made {
+            Ok(()) => assert!(read_limited(&link, 64).is_err(), "a link was followed"),
+            Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
+        }
+    }
+
+    /// Placeholders and other reparse points that name no other path are read through their
+    /// filter; links are not.
+    #[cfg(windows)]
+    #[test]
+    fn only_reparse_points_that_name_no_path_are_read_through() {
+        use windows_reparse::names_another_path;
+        assert!(names_another_path(0xA000_000C), "symbolic link");
+        assert!(names_another_path(0xA000_0003), "junction or mount point");
+        assert!(!names_another_path(0x9000_001A), "OneDrive placeholder");
+        assert!(!names_another_path(0x9000_401A), "OneDrive placeholder");
+        assert!(!names_another_path(0x8000_0013), "deduplicated file");
+        assert!(!names_another_path(0x8000_0017), "compressed system file");
+
+        use windows_reparse::supplies_content;
+        for tag in [
+            0x9000_001A,
+            0x9000_401A,
+            0x9000_F01A,
+            0x8000_0013,
+            0x8000_0017,
+        ] {
+            assert!(supplies_content(tag), "{tag:#x}");
+        }
+        // Links, an app execution alias, a Unix socket and an unknown tag are refused.
+        for tag in [
+            0xA000_000C,
+            0xA000_0003,
+            0x8000_001B,
+            0x8000_0023,
+            0x0000_0001,
+        ] {
+            assert!(!supplies_content(tag), "{tag:#x}");
+        }
+    }
+
+    /// The second open goes through the handle already open: same file, readable content.
+    #[cfg(windows)]
+    #[test]
+    fn reopening_through_the_handle_reads_the_same_file() {
+        use std::io::Read as _;
+        let dir = TempDir::new("persist-reopen");
+        let path = dir.path().join("plain.txt");
+        fs::write(&path, "same content").unwrap();
+        let first = open_regular(&path).unwrap();
+        let mut again = windows_reparse::reopen(&first).unwrap();
+        let mut text = String::new();
+        again.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "same content");
+        // Replaced by name after the first open: the reopen still reads the first file.
+        let first = open_regular(&path).unwrap();
+        fs::rename(&path, dir.path().join("moved.txt")).unwrap();
+        fs::write(&path, "swapped in").unwrap();
+        let mut again = windows_reparse::reopen(&first).unwrap();
+        let mut text = String::new();
+        again.read_to_string(&mut text).unwrap();
+        assert_eq!(text, "same content");
+    }
+
+    /// Runs `read` on a thread; a read that blocks fails the test instead of hanging it.
+    #[cfg(unix)]
+    fn finishes_quickly(path: PathBuf) -> Result<Option<Vec<u8>>, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_limited(&path, 4096));
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the read blocked")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_or_a_link_to_a_device_is_refused_at_once() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = TempDir::new("persist-read-fifo");
+        let fifo = dir.path().join("HEAD");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is a valid NUL-terminated path that lives for the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(finishes_quickly(fifo).is_err());
+        let zero = dir.path().join("commondir");
+        std::os::unix::fs::symlink("/dev/zero", &zero).unwrap();
+        assert!(finishes_quickly(zero).is_err());
+        // Not even the device itself, named directly.
+        assert!(finishes_quickly(PathBuf::from("/dev/zero")).is_err());
+    }
 
     const KEY: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
     const KEY2: &str = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -672,6 +1005,28 @@ mod tests {
         let mut w = workspace();
         w.sessions[0].emoji = Some("\u{1F600}\u{1F600}\u{1F600}\u{1F600}".into());
         store.0.save_workspace(&w).unwrap();
+    }
+
+    #[test]
+    fn workspace_keys_tell_missing_from_unreadable() {
+        let store = TempStore::new("ws-keys");
+        assert_eq!(store.0.workspace_keys(), Some(Default::default()));
+        fs::create_dir_all(store.0.dir()).unwrap();
+        let path = store.0.dir().join(WORKSPACE_FILE);
+        fs::write(&path, "{").unwrap();
+        assert_eq!(store.0.workspace_keys(), None);
+        let key = "0F8FAD5B-D9CB-469F-A165-70867728950E";
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":1,"sessions":[{{"key":"{key}","profileId":"a","cwd":"c","title":"t","order":0}}]}}"#
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            store.0.workspace_keys(),
+            Some(std::collections::BTreeSet::from([key.to_ascii_lowercase()]))
+        );
     }
 
     #[test]

@@ -37,12 +37,12 @@ export function statusSubject(
 }
 
 /**
- * The folder at the start of the detail line; `null` when the folder already is the row's title
- * (the program it replaced there now leads the status line).
+ * The project folder at the start of the second line, always: the line says where a session runs
+ * even when the folder also is the row's title or the project group's header.
  */
 export function detailPlace(label: SessionLabel | null, folder: string): string | null {
-  if (label === null) return folder;
-  return label.byFolder ? null : label.secondary;
+  const place = label === null ? folder : label.byFolder ? label.primary : label.secondary;
+  return place === "" ? null : place;
 }
 
 /**

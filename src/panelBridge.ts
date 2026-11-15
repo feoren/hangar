@@ -8,8 +8,8 @@
 import { EMPTY_CLAIMS, parseClaimsSnapshot, type ClaimsSnapshot } from "./claims";
 import type { SideTab } from "./layout";
 import { MAX_NOTE_BYTES } from "./notes";
+import { isShellKind, type ShellKind } from "./pathQuote";
 import { EMPTY_ACTIVITY, parseTeamActivity, type TeamActivity } from "./team";
-import { isSessionKey } from "./workspace";
 
 /** Event from the backend to the main window; payload checked by `panel_to_main`. */
 export const PANEL_MESSAGE = "panel-message";
@@ -151,13 +151,13 @@ export interface PanelSession {
   repo: string | null;
   /** Runs an agent, not a plain shell (sessionChip.ts, `runsAgent`): diff comments go to it. */
   agent: boolean;
+  /** How its program reads typed paths (pathQuote.ts, `shellKind`), for the Files tab. */
+  shell: ShellKind;
 }
 
 /** What the tabs of the detached panel show; the main window computes it. */
 export interface PanelContext {
   activeId: number | null;
-  /** Workspace key of the active session, which names its timeline (timeline.ts). */
-  activeKey: string | null;
   /** Working folder of the active session. */
   cwd: string | null;
   /** The active session's attention state: a change reads the changes again. */
@@ -170,7 +170,6 @@ export interface PanelContext {
 
 export const EMPTY_PANEL_CONTEXT: PanelContext = {
   activeId: null,
-  activeKey: null,
   cwd: null,
   trigger: "none",
   sessions: [],
@@ -181,7 +180,6 @@ export const EMPTY_PANEL_CONTEXT: PanelContext = {
 /** The `panel-context` event's payload: plain JSON, no maps. */
 export interface PanelContextPayload {
   activeId: number | null;
-  activeKey: string | null;
   cwd: string | null;
   trigger: string;
   sessions: readonly PanelSession[];
@@ -193,7 +191,6 @@ export interface PanelContextPayload {
 export function panelContextPayload(context: PanelContext): PanelContextPayload {
   return {
     activeId: context.activeId,
-    activeKey: context.activeKey,
     cwd: context.cwd,
     trigger: context.trigger,
     sessions: context.sessions,
@@ -222,10 +219,11 @@ function parseSessions(value: unknown): PanelSession[] | null {
     const program = field(entry, "program");
     const repo = field(entry, "repo");
     const agent = field(entry, "agent");
+    const shell = field(entry, "shell");
     if (!isId(id) || typeof title !== "string" || typeof running !== "boolean") return null;
     if (typeof program !== "string" || (repo !== null && typeof repo !== "string")) return null;
-    if (typeof agent !== "boolean") return null;
-    sessions.push({ id, title, running, program, repo, agent });
+    if (typeof agent !== "boolean" || !isShellKind(shell)) return null;
+    sessions.push({ id, title, running, program, repo, agent, shell });
   }
   return sessions;
 }
@@ -250,23 +248,26 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
   const value = record(payload);
   if (!value) return null;
   const activeId = field(value, "activeId");
-  const activeKey = field(value, "activeKey");
   const cwd = field(value, "cwd");
   const trigger = field(value, "trigger");
   const sessions = parseSessions(field(value, "sessions"));
   const claims = parseClaimsSnapshot(field(value, "claims"));
   const activities = parseTeams(field(value, "teams"));
   if (activeId !== null && !isId(activeId)) return null;
-  if (activeKey !== null && !isSessionKey(activeKey)) return null;
   if (cwd !== null && (typeof cwd !== "string" || cwd === "")) return null;
   if (typeof trigger !== "string" || trigger.length > MAX_TRIGGER) return null;
   if (sessions === null || claims === null || activities === null) return null;
-  return { activeId, activeKey, cwd, trigger, sessions, claims, activities };
+  return { activeId, cwd, trigger, sessions, claims, activities };
 }
 
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */
 export function panelSessionName(sessions: readonly PanelSession[], id: number): string {
   return sessions.find((session) => session.id === id)?.title ?? `#${String(id)}`;
+}
+
+/** How the session's program reads typed paths; an unknown session counts as an agent. */
+export function panelSessionShell(sessions: readonly PanelSession[], id: number | null): ShellKind {
+  return sessions.find((session) => session.id === id)?.shell ?? "agent";
 }
 
 /** Whether the session runs an agent; `false` for an unknown session. */
@@ -300,13 +301,24 @@ export const WINDOW_PREFS_KEY = "hangar.panelWindow";
 /** Before ADR 0007 only the notes could be detached; their prefs carry over once. */
 export const LEGACY_WINDOW_PREFS_KEY = "hangar.notesWindow";
 
+/** The largest side of a window (as `panel_window.rs` `MAX_SIDE`) and the farthest position. */
+const MAX_SIDE = 16_384;
+const MAX_POSITION = 100_000;
+const BOUNDS_FIELDS = ["x", "y", "width", "height"];
+
+/**
+ * A remembered place, read strictly: any window of this origin can write the prefs, so only the
+ * four numbers within what a screen can hold count, and nothing else may come along.
+ */
 function parseBounds(value: unknown): PanelBounds | null {
   const entry = record(value);
   if (!entry) return null;
-  const [x, y, width, height] = ["x", "y", "width", "height"].map((name) => field(entry, name));
+  if (Object.keys(entry).some((key) => !BOUNDS_FIELDS.includes(key))) return null;
+  const [x, y, width, height] = BOUNDS_FIELDS.map((name) => field(entry, name));
   const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
   if (!finite(x) || !finite(y) || !finite(width) || !finite(height)) return null;
-  if (width <= 0 || height <= 0) return null;
+  if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) return null;
+  if (Math.abs(x) > MAX_POSITION || Math.abs(y) > MAX_POSITION) return null;
   return { x, y, width, height };
 }
 

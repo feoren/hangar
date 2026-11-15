@@ -253,44 +253,22 @@ export function changeEntries(result: GitDiff): ChangeEntry[] {
 }
 
 /**
- * The one file open by itself: the last one in the list that has a diff to show. Everything above
- * it stays closed, so the list reads as an overview and the newest change is right there.
+ * Files the user opened by hand; they keep that state across refreshes. Everything else stays
+ * closed, so the list opens as an overview.
  */
-export function autoOpenPath(entries: readonly ChangeEntry[]): string | null {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-    if (entry !== undefined && (entry.diff?.lines.length ?? 0) > 0) return entry.path;
-  }
-  return null;
+export type OpenChoices = ReadonlySet<string>;
+
+export const NO_CHOICES: OpenChoices = new Set();
+
+export function isFileOpen(path: string, choices: OpenChoices): boolean {
+  return choices.has(path);
 }
 
-/** Files the user opened or closed by hand; they keep that state across refreshes. */
-export interface OpenChoices {
-  opened: ReadonlySet<string>;
-  closed: ReadonlySet<string>;
-}
-
-export const NO_CHOICES: OpenChoices = { opened: new Set(), closed: new Set() };
-
-/** A hand choice wins; otherwise only the automatically opened file is open. */
-export function isFileOpen(path: string, auto: string | null, choices: OpenChoices): boolean {
-  if (choices.opened.has(path)) return true;
-  if (choices.closed.has(path)) return false;
-  return path === auto;
-}
-
-/** `choices` after the user toggled `path`, which was `open` before. */
-export function toggleFile(choices: OpenChoices, path: string, open: boolean): OpenChoices {
-  const opened = new Set(choices.opened);
-  const closed = new Set(choices.closed);
-  if (open) {
-    opened.delete(path);
-    closed.add(path);
-  } else {
-    closed.delete(path);
-    opened.add(path);
-  }
-  return { opened, closed };
+/** `choices` after the user toggled `path`. */
+export function toggleFile(choices: OpenChoices, path: string): OpenChoices {
+  const next = new Set(choices);
+  if (!next.delete(path)) next.add(path);
+  return next;
 }
 
 /** Folder part and file name, so the list can show the name first. */

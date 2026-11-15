@@ -30,6 +30,12 @@ export type AttentionReason =
   | "storage"
   | "otherInstance"
   | "otherAccount"
+  /** The team's log names another owner than the website: the relay may show an invented team. */
+  | "ownerMismatch"
+  /** The relay sent a longer team log than a team may have. */
+  | "logFull"
+  /** The website names no owner for the project, so a new device cannot trust the log. */
+  | "noWebsiteOwner"
   | "unknown";
 
 /** State of one project's team connection (Rust: `TeamStatus`). */
@@ -40,12 +46,35 @@ export type TeamStatus =
   | { state: "connected"; epoch: number; members: number; devices: number }
   /** This device waits until another device of the person, or an owner or admin, confirms it. */
   | { state: "waitingForConfirmation"; safetyNumber: string[] }
+  /**
+   * The team admitted this device; before it shares anything the person compares the admitting
+   * device's safety number and the log's with that device and confirms.
+   */
+  | {
+      state: "confirmAdmission";
+      /** Opaque ids of the admitting member and device, shown muted and shortened. */
+      member: string;
+      device: string;
+      safetyNumber: string[];
+      logIndex: number;
+      logSafetyNumber: string[];
+    }
+  /** A device or member left; nothing new is shared until an owner or admin changes the key. */
+  | { state: "waitingForKeyChange"; reason: KeyChangeWait }
   /** `unknown`: a reason (or a state) this Hangar does not know yet. */
   | { state: "needsAttention"; reason: AttentionReason }
   | { state: "removed" }
   | { state: "projectDeleted" };
 
-export type ConfirmationKind = "ownDevice" | "newMember" | "unknown";
+/**
+ * Why a device waits for a new team key (Rust: `KeyChangeWait`): the log removed someone, the
+ * website removed a member the log still names, a key change that could wait is overdue, or
+ * such a member cannot be removed because the log is full.
+ */
+export type KeyChangeWait = "removal" | "memberLeft" | "overdue" | "logFull";
+
+/** `roleChange`: the website made a member an admin; the owner confirms it for the team. */
+export type ConfirmationKind = "ownDevice" | "newMember" | "roleChange" | "unknown";
 
 /** A new device waiting for this device's confirmation (Rust: `PendingConfirmation`). */
 export interface PendingConfirmation {
@@ -58,6 +87,8 @@ export interface PendingConfirmation {
   safetyNumber: string[];
   /** The member was removed from the team before; confirming admits them again. */
   readmitted: boolean;
+  /** The team's log is full: this request can no longer be confirmed. */
+  logFull: boolean;
 }
 
 /** What a session is doing, as the window's attention logic sees it (Rust: `SessionState`). */
@@ -214,6 +245,36 @@ export interface TeamActivity {
   sessions: number[];
   /** The repository of each of `sessions` (Rust: `SessionRepo`). */
   sessionRepos: SessionRepo[];
+  /** The signed-in person's devices in the team, this one first. */
+  devices: OwnDevice[];
+  /** The log's safety number at its head, for a newcomer to compare; `null` before the log. */
+  log: LogSafety | null;
+  /**
+   * The team's log has room only for removals and key changes: no new device or member can be
+   * admitted any more; sharing goes on.
+   */
+  logFull: boolean;
+  /**
+   * A teammate's signed record names newer team history than the relay hands this device, also
+   * after asking again: the relay holds entries back.
+   */
+  historyWithheld: boolean;
+}
+
+/** One of the signed-in person's devices in the team (Rust: `OwnDevice`). */
+export interface OwnDevice {
+  device: string;
+  /** This computer. */
+  this: boolean;
+  /** The offline device of a recovery code. */
+  recovery: boolean;
+  safetyNumber: string[];
+}
+
+/** The team log's safety number at one entry (Rust: `LogSafety`). */
+export interface LogSafety {
+  index: number;
+  safetyNumber: string[];
 }
 
 /** One of this device's shared sessions and the root commit of its repository. */
@@ -232,6 +293,10 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   notices: [],
   sessions: [],
   sessionRepos: [],
+  devices: [],
+  log: null,
+  logFull: false,
+  historyWithheld: false,
 };
 
 export interface TeamEntry {
@@ -240,7 +305,10 @@ export interface TeamEntry {
   activity: TeamActivity;
 }
 
-/** Payload of `team-changed`. A project missing from `teams` is off. */
+/**
+ * Answer of `team_snapshot`, read after each payload-free `team-changed`. A project missing from
+ * `teams` is off.
+ */
 export interface TeamSnapshot {
   teams: TeamEntry[];
   pending: PendingConfirmation[];
@@ -252,6 +320,10 @@ export type TeamErrorKind =
   | "notSignedIn"
   | "unknownProject"
   | "unknownRequest"
+  /** What the person confirmed is no longer what the team shows; compare again. */
+  | "changed"
+  /** The team's log has no room for another device or member. */
+  | "logFull"
   | "unknownRepository"
   | "invalidTask"
   | "unknownTask"
@@ -276,12 +348,17 @@ const REASONS: readonly AttentionReason[] = [
   "storage",
   "otherInstance",
   "otherAccount",
+  "ownerMismatch",
+  "logFull",
+  "noWebsiteOwner",
 ];
-const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember"];
+const KINDS: readonly ConfirmationKind[] = ["ownDevice", "newMember", "roleChange"];
 const ERROR_KINDS: readonly TeamErrorKind[] = [
   "notSignedIn",
   "unknownProject",
   "unknownRequest",
+  "changed",
+  "logFull",
   "unknownRepository",
   "invalidTask",
   "unknownTask",
@@ -317,6 +394,17 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
     case "removed":
     case "projectDeleted":
       return { state };
+    case "waitingForKeyChange": {
+      // Absent or unknown (an older or newer backend): the general reason.
+      const reason = field(value, "reason");
+      return {
+        state,
+        reason:
+          reason === "memberLeft" || reason === "overdue" || reason === "logFull"
+            ? reason
+            : "removal",
+      };
+    }
     case "connecting": {
       const retrying = field(value, "retrying");
       return typeof retrying === "boolean" ? { state, retrying } : null;
@@ -331,6 +419,17 @@ export function parseTeamStatus(value: unknown): TeamStatus | null {
     case "waitingForConfirmation": {
       const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
       return safetyNumber === null ? null : { state, safetyNumber };
+    }
+    case "confirmAdmission": {
+      const member = text(field(value, "member"));
+      const device = text(field(value, "device"));
+      const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+      const logIndex = field(value, "logIndex");
+      const logSafetyNumber = parseSafetyNumber(field(value, "logSafetyNumber"));
+      // Every part is compared by the person: a missing one is malformed, never empty.
+      if (member === null || device === null || safetyNumber === null) return null;
+      if (!isCount(logIndex) || logSafetyNumber === null) return null;
+      return { state, member, device, safetyNumber, logIndex, logSafetyNumber };
     }
     case "needsAttention": {
       const reason = field(value, "reason");
@@ -348,16 +447,28 @@ function parsePending(value: unknown): PendingConfirmation | null {
   const id = text(field(value, "id"));
   const projectId = text(field(value, "projectId"));
   const member = text(field(value, "member"));
-  const device = text(field(value, "device"));
   const kindValue = field(value, "kind");
-  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
   const readmitted = field(value, "readmitted");
-  if (id === null || projectId === null || member === null || device === null) return null;
-  if (typeof kindValue !== "string" || safetyNumber === null) return null;
+  if (id === null || projectId === null || member === null) return null;
+  if (typeof kindValue !== "string") return null;
   // Missing counts as malformed, never as "not readmitted": the warning must not get lost.
   if (typeof readmitted !== "boolean") return null;
+  // Absent from an older backend means room; anything but a flag is malformed.
+  const logFullValue = field(value, "logFull");
+  if (logFullValue !== undefined && typeof logFullValue !== "boolean") return null;
+  const logFull = logFullValue === true;
   const kind = KINDS.find((entry) => entry === kindValue) ?? "unknown";
-  return { id, projectId, member, device, kind, safetyNumber, readmitted };
+  if (kind === "roleChange") {
+    // A role change names a member only: no device, no safety number to compare.
+    if (field(value, "device") !== "") return null;
+    const groups = field(value, "safetyNumber");
+    if (!Array.isArray(groups) || groups.length !== 0) return null;
+    return { id, projectId, member, device: "", kind, safetyNumber: [], readmitted, logFull };
+  }
+  const device = text(field(value, "device"));
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (device === null || safetyNumber === null) return null;
+  return { id, projectId, member, device, kind, safetyNumber, readmitted, logFull };
 }
 
 /** Checks the list of pending confirmations; `null` if an entry is malformed or an id repeats. */
@@ -590,6 +701,25 @@ function optionalList<T>(value: unknown, parse: (value: unknown) => T[] | null):
   return value === undefined ? [] : parse(value);
 }
 
+function parseOwnDevice(value: unknown): OwnDevice | null {
+  const device = text(field(value, "device"));
+  const isThis = field(value, "this");
+  const recovery = field(value, "recovery");
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (device === null || typeof isThis !== "boolean" || typeof recovery !== "boolean") return null;
+  if (safetyNumber === null) return null;
+  return { device, this: isThis, recovery, safetyNumber };
+}
+
+/** The log's safety number; absent or `null` is none, malformed is `undefined`. */
+function parseLogSafety(value: unknown): LogSafety | null | undefined {
+  if (value === undefined || value === null) return null;
+  const index = field(value, "index");
+  const safetyNumber = parseSafetyNumber(field(value, "safetyNumber"));
+  if (!isCount(index) || safetyNumber === null) return undefined;
+  return { index, safetyNumber };
+}
+
 function parseSessionRepo(value: unknown): SessionRepo | null {
   const sessionId = field(value, "sessionId");
   const repo = text(field(value, "repo"));
@@ -610,10 +740,32 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
     list(v, (item) => (isCount(item) ? item : null)),
   );
   const sessionRepos = optionalList(field(value, "sessionRepos"), (v) => list(v, parseSessionRepo));
+  const devices = optionalList(field(value, "devices"), (v) => list(v, parseOwnDevice));
+  const log = parseLogSafety(field(value, "log"));
+  const logFullValue = field(value, "logFull");
+  if (logFullValue !== undefined && typeof logFullValue !== "boolean") return null;
+  const logFull = logFullValue === true;
+  const withheldValue = field(value, "historyWithheld");
+  if (withheldValue !== undefined && typeof withheldValue !== "boolean") return null;
+  const historyWithheld = withheldValue === true;
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
-  if (sessionRepos === null) return null;
-  return { linked, peers, overlaps, divergent, tasks, attempts, notices, sessions, sessionRepos };
+  if (sessionRepos === null || devices === null || log === undefined) return null;
+  return {
+    linked,
+    peers,
+    overlaps,
+    divergent,
+    tasks,
+    attempts,
+    notices,
+    sessions,
+    sessionRepos,
+    devices,
+    log,
+    logFull,
+    historyWithheld,
+  };
 }
 
 function parseTeamEntry(value: unknown): TeamEntry | null {
@@ -624,7 +776,7 @@ function parseTeamEntry(value: unknown): TeamEntry | null {
   return { projectId, status, activity };
 }
 
-/** Checks the payload of `team-changed`; `null` if anything is malformed or a project repeats. */
+/** Checks the answer of `team_snapshot`; `null` if anything is malformed or a project repeats. */
 export function parseTeamSnapshot(value: unknown): TeamSnapshot | null {
   const teams = list(field(value, "teams"), parseTeamEntry);
   const pending = parsePendingConfirmations(field(value, "pending"));
@@ -690,7 +842,17 @@ const REASON_TEXTS: Record<AttentionReason, MessageKey> = {
   storage: "team.status.storage",
   otherInstance: "team.status.otherInstance",
   otherAccount: "team.status.otherAccount",
+  ownerMismatch: "team.status.ownerMismatch",
+  logFull: "team.status.logFull",
+  noWebsiteOwner: "team.status.noWebsiteOwner",
   unknown: "team.status.attention",
+};
+
+const KEY_CHANGE_TEXTS: Record<KeyChangeWait, MessageKey> = {
+  removal: "team.status.waitingForKeyChange",
+  memberLeft: "team.status.memberLeftKeyUnchanged",
+  overdue: "team.status.keyChangeOverdue",
+  logFull: "team.status.memberLeftLogFull",
 };
 
 /** The text key of a status; `null` for off, which shows nothing below the switch. */
@@ -704,6 +866,10 @@ export function statusKey(status: TeamStatus): MessageKey | null {
       return "team.status.connected";
     case "waitingForConfirmation":
       return "team.status.waiting";
+    case "confirmAdmission":
+      return "team.status.confirmAdmission";
+    case "waitingForKeyChange":
+      return KEY_CHANGE_TEXTS[status.reason];
     case "needsAttention":
       return REASON_TEXTS[status.reason];
     case "removed":
@@ -720,6 +886,8 @@ export function statusTone(status: TeamStatus): StatusTone {
     case "connecting":
       return status.retrying ? "problem" : "busy";
     case "waitingForConfirmation":
+    case "confirmAdmission":
+    case "waitingForKeyChange":
       return "busy";
     case "needsAttention":
       // Another window holds the connection: this one waits, nothing is broken.
@@ -746,6 +914,7 @@ export function statusLine(status: TeamStatus, t: Translate): StatusLine | null 
 const KIND_TEXTS: Record<ConfirmationKind, MessageKey> = {
   ownDevice: "team.confirm.ownDevice",
   newMember: "team.confirm.newMember",
+  roleChange: "team.confirm.roleChange",
   unknown: "team.confirm.unknown",
 };
 
@@ -757,6 +926,8 @@ const ERROR_TEXTS: Record<TeamErrorKind, MessageKey> = {
   notSignedIn: "account.error.notSignedIn",
   unknownProject: "team.error.unknownProject",
   unknownRequest: "team.error.unknownRequest",
+  changed: "team.error.changed",
+  logFull: "team.error.logFull",
   unknownRepository: "team.error.unknownRepository",
   invalidTask: "team.error.invalidTask",
   unknownTask: "team.error.unknownTask",
@@ -817,6 +988,37 @@ export function armDelayLeft(shownAt: number, now: number, delay = ARM_DELAY_MS)
   // A clock running backwards counts as just shown rather than as long armed.
   if (now < shownAt) return delay;
   return Math.max(0, delay - (now - shownAt));
+}
+
+/**
+ * Everything a pending request shows, as one key: a request whose content changes under the same
+ * id (other keys, another kind) is a new request to the person and starts disarmed again.
+ */
+export function pendingContentKey(request: PendingConfirmation): string {
+  return JSON.stringify([
+    request.id,
+    request.projectId,
+    request.member,
+    request.device,
+    request.kind,
+    request.safetyNumber,
+    request.readmitted,
+    request.logFull,
+  ]);
+}
+
+/**
+ * Everything the admission check shows, as one key: new numbers are a new check and start
+ * disarmed again.
+ */
+export function admissionKey(status: Extract<TeamStatus, { state: "confirmAdmission" }>): string {
+  return JSON.stringify([
+    status.member,
+    status.device,
+    status.safetyNumber,
+    status.logIndex,
+    status.logSafetyNumber,
+  ]);
 }
 
 /** Whether Confirm and Reject of a request shown at `shownAt` may be used at `now`. */

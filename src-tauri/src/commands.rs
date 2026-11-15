@@ -14,6 +14,7 @@ use crate::agent_catalog::ProfileView;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
+use crate::daily_review::{self, DailyReview, ReviewError};
 use crate::desktop;
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
@@ -22,31 +23,42 @@ use crate::file_viewer::{
 };
 use crate::gate::{Answer, GateSnapshot};
 use crate::gate_rules::GateRule;
-use crate::gate_service::GateService;
+use crate::gate_service::{GateService, GuardInfo};
 use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::git_snapshots::{
-    self, RestoreOutcome, SnapshotEnv, SnapshotError, SnapshotList, Snapshots, TakeOutcome,
+    self, Neighbours, RestoreOutcome, SnapshotEnv, SnapshotError, SnapshotList, Snapshots,
+    TakeOutcome,
 };
+use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
-use crate::manager::{EventSink, ManagerError, SessionEvent, SessionManager, TermSize};
+use crate::instructions::{self, StartPrompt};
+use crate::main_store::{
+    self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
+    SecuritySwitches, WorkspaceTemplate,
+};
+use crate::manager::{
+    EventSink, ManagerError, SessionEvent, SessionManager, StartRequest, TermSize,
+};
 use crate::notes::{
     FolderInfo, NoteFolder, NoteInfo, NotesError, NotesStore, SearchHit, TrashInfo,
 };
 use crate::notify::{self, Notifier};
-use crate::panel_window::{self, PanelMessage, PanelWindowError};
+use crate::panel_window::{self, PanelMessage, PanelScope, PanelWindowError};
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
+use crate::path_links::{self, Opened, PathKind, PathLinkError};
 use crate::persist::{PersistError, Store, Workspace};
 use crate::profile::{self, ProfileProblem};
 use crate::profile_edit::{self, EditError, ProfileInput};
 use crate::project_notes::{self, ProjectNotes, ProjectNotesError, SharedStatus};
 use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
+use crate::report::{self, ReportError};
 use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
-use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode};
+use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode, Status};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::system_usage::{SystemMonitor, SystemUsage};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
@@ -55,7 +67,9 @@ use crate::team_share::SessionState;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
+use crate::work_log::{self, WorkLog, WorkLogError};
 use crate::worktree::{self, Removal, Worktree, WorktreeError};
+use crate::worktree_cleanup;
 
 /// Result of loading the profiles at startup. A broken profile file must not keep the app from
 /// starting; it shows up as an error in the window instead. A successful reload
@@ -86,8 +100,67 @@ fn channel_sink(channel: Channel<SessionEvent>) -> impl EventSink {
     }
 }
 
-/// Event with the result of an update session ([`updates::UpdateOutcome`]).
+/// Passes every event on and writes the work log's end record when the process exits.
+/// `session` is set once the start returned the id.
+fn work_log_sink(
+    log: WorkLog,
+    session: Arc<OnceLock<SessionId>>,
+    inner: impl EventSink,
+) -> impl EventSink {
+    move |event: SessionEvent| {
+        if matches!(event, SessionEvent::Exit { .. }) {
+            if let Some(id) = session.get() {
+                log.ended(*id, work_log::now_ms());
+            }
+        }
+        inner.emit(event);
+    }
+}
+
+/// The work log's start record of a session that just started (ADR 0011).
+fn log_started(log: &WorkLog, manager: &SessionManager, info: &SessionInfo) {
+    let names = manager.profile_names();
+    let program = names
+        .get(&info.profile_id)
+        .map_or(info.profile_id.as_str(), String::as_str);
+    let now = work_log::now_ms();
+    log.started(info, program, now);
+    // A process that exited before its id was known reported the exit to nobody.
+    let exited = manager
+        .list()
+        .iter()
+        .any(|session| session.id == info.id && session.status == Status::Exited);
+    if exited {
+        log.ended(info.id, now);
+    }
+}
+
+/// Signal without payload: an update session's result ([`updates::UpdateOutcome`]) waits in
+/// [`UpdateResults`] for the main window's `take_update_results`.
 pub const UPDATE_RESULT_EVENT: &str = "program-update-result";
+
+/// Update results not yet taken by the main window, oldest first. Bounded: a window that never
+/// asks keeps only the newest ones.
+#[derive(Default)]
+pub struct UpdateResults(Mutex<std::collections::VecDeque<updates::UpdateOutcome>>);
+
+impl UpdateResults {
+    /// More results than programs updated at once is no realistic number.
+    const MAX: usize = 32;
+
+    pub fn push(&self, outcome: updates::UpdateOutcome) {
+        let mut queue = crate::lock(&self.0);
+        if queue.len() == Self::MAX {
+            queue.pop_front();
+        }
+        queue.push_back(outcome);
+    }
+
+    /// Every waiting result, each handed out once.
+    pub fn take(&self) -> Vec<updates::UpdateOutcome> {
+        crate::lock(&self.0).drain(..).collect()
+    }
+}
 
 /// What an update session needs to report its result: the program, the version before the
 /// update (if already known) and the session id once the start returned.
@@ -143,8 +216,11 @@ fn report_update(app: tauri::AppHandle, watch: UpdateWatch, code: Option<u32>) {
                 running,
                 copies,
             );
-            // Only the main window listens for this.
-            let _ = app.emit_to(panel_window::MAIN_LABEL, UPDATE_RESULT_EVENT, outcome);
+            // A signal only: listeners of other windows receive events emitted to the main one,
+            // and the outcome names program paths. The main window takes it through
+            // `take_update_results`.
+            app.state::<UpdateResults>().push(outcome);
+            let _ = app.emit_to(panel_window::MAIN_LABEL, UPDATE_RESULT_EVENT, ());
         });
     if let Err(error) = spawned {
         eprintln!("hangar: update result not checked: {error}");
@@ -355,7 +431,7 @@ pub async fn open_profile_file(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let load = app.state::<ProfileLoad>();
         let path = profile::ensure_file(&load.dir).map_err(|error| error.to_string())?;
-        desktop::open(&path, desktop::Target::TextFile)
+        desktop::open_text_file(&path)
             .map_err(|error| format!("{} cannot be opened: {error}", path.display()))
     })
     .await
@@ -495,11 +571,17 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 }
 
 /// `mode`: private or team session (ADR 0008); without one, a private session, which never
-/// gets the agent gate and never reaches the team.
+/// gets the agent gate and never reaches the team. `instructions`: hand the agent `HANGAR.md`
+/// (Settings); `start_prompt`: a first prompt by name, whose text comes from the catalog, never
+/// from the window. Both apply only where the program takes them ([`crate::instructions`]).
+///
+/// Async on a blocking thread: the start searches the PATH, may wait for the WSL detection and
+/// the version query of the gate, and spawns a process; on the main thread that would freeze
+/// the window.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
-pub fn create_session(
-    manager: Manager<'_>,
+pub async fn create_session(
+    app: tauri::AppHandle,
     profile_id: String,
     cwd: Option<PathBuf>,
     size: TermSize,
@@ -507,17 +589,54 @@ pub fn create_session(
     resume: Option<bool>,
     cli_session_id: Option<String>,
     mode: Option<SessionMode>,
+    instructions: Option<bool>,
+    start_prompt: Option<StartPrompt>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Optional, so existing calls without `resume`, `cliSessionId` or `mode` stay valid.
-    manager.create_resuming(
-        &profile_id,
-        cwd,
-        size,
-        resume.unwrap_or(false),
-        cli_session_id.as_deref(),
-        mode.unwrap_or_default(),
-        channel_sink(on_event),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        let work_log = app.state::<WorkLog>();
+        let session = Arc::new(OnceLock::new());
+        let sink = work_log_sink(
+            work_log.inner().clone(),
+            Arc::clone(&session),
+            channel_sink(on_event),
+        );
+        // Optional, so existing calls without the later arguments stay valid.
+        let info = manager.create_requested(
+            &profile_id,
+            cwd,
+            size,
+            resume.unwrap_or(false),
+            cli_session_id.as_deref(),
+            mode.unwrap_or_default(),
+            StartRequest {
+                instructions: instructions.unwrap_or(false),
+                prompt: start_prompt,
+            },
+            sink,
+        )?;
+        let _ = session.set(info.id);
+        log_started(&work_log, &manager, &info);
+        Ok(info)
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
+}
+
+/// Opens exactly this machine's `HANGAR.md` in the default editor; if it is missing, it is
+/// created from the commented template ([`crate::instructions::DEFAULT_TEXT`]). Takes no path:
+/// the window cannot open any other file with it.
+#[tauri::command]
+pub async fn open_hangar_md(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let load = app.state::<ProfileLoad>();
+        let path = instructions::ensure_file(&load.dir)
+            .map_err(|error| format!("{} cannot be created: {error}", load.dir.display()))?;
+        desktop::open_text_file(&path)
+            .map_err(|error| format!("{} cannot be opened: {error}", path.display()))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Starts a program update as a session of its own. The frontend only names the profile; the
@@ -553,13 +672,20 @@ pub async fn create_update_session(
     .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
+/// `false` when the session's input queue is full (its program does not read right now); the
+/// window sends the same text again a moment later. At most [`crate::manager::MAX_WRITE`] bytes
+/// per call: the window splits a larger paste.
 #[tauri::command]
 pub fn write_session(
     manager: Manager<'_>,
     id: SessionId,
     data: String,
-) -> Result<(), ManagerError> {
-    manager.write(id, &data)
+) -> Result<bool, ManagerError> {
+    match manager.write(id, &data) {
+        Ok(()) => Ok(true),
+        Err(ManagerError::Busy(_)) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -576,61 +702,75 @@ pub fn ack_session(manager: Manager<'_>, id: SessionId, bytes: usize) -> Result<
     manager.ack(id, bytes)
 }
 
+/// On a blocking thread: ending a tree terminates a Job Object, which may wait on the processes.
 #[tauri::command]
-pub fn kill_session(manager: Manager<'_>, id: SessionId) -> Result<(), ManagerError> {
-    manager.kill(id)
+pub async fn kill_session(app: tauri::AppHandle, id: SessionId) -> Result<(), ManagerError> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<SessionManager>().kill(id))
+        .await
+        .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
+/// Async on a blocking thread, like [`create_session`].
 #[tauri::command]
-pub fn restart_session(
+pub async fn restart_session(
     app: tauri::AppHandle,
-    manager: Manager<'_>,
-    watchers: State<'_, Watchers>,
     id: SessionId,
     size: TermSize,
     on_event: Channel<SessionEvent>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Restarting an update session repeats the update; after that it behaves like a start.
-    let update_profile = manager
-        .list()
-        .into_iter()
-        .find(|info| info.id == id && info.kind == SessionKind::Update)
-        .map(|info| info.profile_id);
-    let info = if let Some(profile_id) = update_profile {
-        let watch = UpdateWatch::new(&app, &profile_id);
-        let _ = watch.session.set(id);
-        manager.restart(id, size, update_sink(app, on_event, watch))
-    } else {
-        manager.restart(id, size, channel_sink(on_event))
-    }?;
-    // The restart runs under a new conversation id; a watch would keep following the old one.
-    // The window starts a new watch with the returned `SessionInfo` if it wants one.
-    watchers.stop(id);
-    Ok(info)
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        let work_log = app.state::<WorkLog>();
+        // Restarting an update session repeats the update; after that it behaves like a start.
+        let update_profile = manager
+            .list()
+            .into_iter()
+            .find(|info| info.id == id && info.kind == SessionKind::Update)
+            .map(|info| info.profile_id);
+        let info = if let Some(profile_id) = update_profile {
+            let watch = UpdateWatch::new(&app, &profile_id);
+            let _ = watch.session.set(id);
+            manager.restart(id, size, update_sink(app.clone(), on_event, watch))
+        } else {
+            let session = Arc::new(OnceLock::from(id));
+            let sink = work_log_sink(work_log.inner().clone(), session, channel_sink(on_event));
+            manager.restart(id, size, sink)
+        }?;
+        log_started(&work_log, &manager, &info);
+        // The restart runs under a new conversation id; a watch would keep following the old
+        // one. The window starts a new watch with the returned `SessionInfo` if it wants one.
+        app.state::<Watchers>().stop(id);
+        Ok(info)
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
 #[tauri::command]
 pub fn rename_session(
     manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
     id: SessionId,
     title: String,
 ) -> Result<SessionInfo, ManagerError> {
-    manager.rename(id, &title)
+    let info = manager.rename(id, &title)?;
+    work_log.renamed(id, &info.title);
+    Ok(info)
 }
 
-/// Also withdraws the session's desktop notification, off the main thread, and ends its
-/// sub-agent watch.
+/// Also withdraws the session's desktop notification and ends its sub-agent watch. All on a
+/// blocking thread: ending the tree and closing the pseudo console may wait.
 #[tauri::command]
-pub fn close_session(
-    app: tauri::AppHandle,
-    manager: Manager<'_>,
-    watchers: State<'_, Watchers>,
-    id: SessionId,
-) -> Result<(), ManagerError> {
-    manager.close(id)?;
-    watchers.stop(id);
-    tauri::async_runtime::spawn_blocking(move || app.state::<Notifier>().forget(id));
-    Ok(())
+pub async fn close_session(app: tauri::AppHandle, id: SessionId) -> Result<(), ManagerError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<SessionManager>().close(id)?;
+        app.state::<WorkLog>().ended(id, work_log::now_ms());
+        app.state::<Watchers>().stop(id);
+        app.state::<Notifier>().forget(id);
+        Ok(())
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
 // Sub-agent view (subagents/). Contract: docs/wiki/pages/syntheses/agent-workflow-features.md, item 23.
@@ -775,6 +915,21 @@ async fn notes_blocking<T: Send + 'static>(
         .map_err(|error| NotesError::Task(error.to_string()))?
 }
 
+/// The panel window reaches the shared notes of its session's working folder only
+/// ([`PanelScope::allows_folder`]); any other folder is answered as if it were no repository,
+/// before anything touches it.
+fn notes_in_scope(
+    label: &str,
+    scope: &PanelScope,
+    folder: &NoteFolder,
+) -> Result<(), ProjectNotesError> {
+    if scope.allows_folder(label, folder) {
+        Ok(())
+    } else {
+        Err(ProjectNotesError::NotRepository)
+    }
+}
+
 #[tauri::command]
 pub async fn list_note_folders(
     store: State<'_, NotesStore>,
@@ -785,10 +940,13 @@ pub async fn list_note_folders(
 
 #[tauri::command]
 pub async fn list_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<NoteInfo>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -801,11 +959,14 @@ pub async fn list_notes(
 
 #[tauri::command]
 pub async fn read_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -818,12 +979,15 @@ pub async fn read_note(
 
 #[tauri::command]
 pub async fn write_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     content: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -836,11 +1000,14 @@ pub async fn write_note(
 
 #[tauri::command]
 pub async fn create_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     title: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -853,12 +1020,15 @@ pub async fn create_note(
 
 #[tauri::command]
 pub async fn rename_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
     title: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -871,11 +1041,14 @@ pub async fn rename_note(
 
 #[tauri::command]
 pub async fn delete_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -889,11 +1062,14 @@ pub async fn delete_note(
 /// Shared notes sort by their last change and have no manual order: a no-op for them.
 #[tauri::command]
 pub async fn reorder_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     ids: Vec<String>,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(&folder, |s| s.reorder_notes(&folder, &ids), |_| Ok(()))
     })
@@ -902,10 +1078,13 @@ pub async fn reorder_notes(
 
 #[tauri::command]
 pub async fn reveal_notes_folder(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -921,24 +1100,35 @@ pub async fn reveal_notes_folder(
 /// run are decrypted in memory and included.
 #[tauri::command]
 pub async fn search_notes(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     query: String,
 ) -> Result<Vec<SearchHit>, NotesError> {
-    notes_blocking(store, shared, move |n| {
+    let hits = notes_blocking(store, shared, move |n| {
         let private = n.private.search(&query)?;
         let shared = n.shared.search(&query)?;
         Ok(crate::notes::merge_hits(&query, private, shared))
     })
-    .await
+    .await?;
+    // The panel sees the shared notes of its session's folder only (`notes_in_scope`).
+    let label = window.label();
+    Ok(hits
+        .into_iter()
+        .filter(|hit| scope.allows_hit(label, hit))
+        .collect())
 }
 
 #[tauri::command]
 pub async fn list_trash(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<Vec<TrashInfo>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -952,11 +1142,14 @@ pub async fn list_trash(
 /// Returns the restored note's ID (the old one unless it is taken again).
 #[tauri::command]
 pub async fn restore_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -970,12 +1163,16 @@ pub async fn restore_note(
 /// Moves a note between the private notes of a folder and its shared notes. Returns the new ID.
 #[tauri::command]
 pub async fn move_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     from: NoteFolder,
     id: String,
     to: NoteFolder,
 ) -> Result<String, NotesError> {
+    notes_in_scope(window.label(), &scope, &from)?;
+    notes_in_scope(window.label(), &scope, &to)?;
     notes_blocking(store, shared, move |n| {
         project_notes::move_note(&n.private, &n.shared, &from, &id, &to)
     })
@@ -986,6 +1183,7 @@ pub async fn move_note(
 /// `None` when the dialog was cancelled, otherwise the path written.
 #[tauri::command]
 pub async fn export_note(
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     store: State<'_, NotesStore>,
@@ -993,6 +1191,7 @@ pub async fn export_note(
     folder: NoteFolder,
     id: String,
 ) -> Result<Option<String>, NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         let (title, content) = n.dispatch(
             &folder,
@@ -1051,20 +1250,26 @@ async fn shared_blocking<T: Send + 'static>(
 /// first; `label` names the copies ("Title (label, Name)").
 #[tauri::command]
 pub async fn shared_notes_status(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     label: String,
     untitled: String,
 ) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.status(&folder, &label, &untitled)).await
 }
 
 /// First step of turning shared notes on: returns the notes recovery code to show once.
 #[tauri::command]
 pub async fn shared_notes_prepare(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<String, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| {
         p.prepare(&folder).map(|code| code.to_string())
     })
@@ -1076,12 +1281,14 @@ pub async fn shared_notes_prepare(
 /// where the code could be committed. `heading` is the first line, in the window's language.
 #[tauri::command]
 pub async fn shared_notes_save_code(
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     heading: String,
 ) -> Result<project_notes::SaveCode, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     use tauri_plugin_dialog::DialogExt as _;
     let heading: String = heading
         .chars()
@@ -1133,10 +1340,13 @@ pub async fn shared_notes_save_code(
 /// clipboard after a minute if it still holds the code.
 #[tauri::command]
 pub async fn shared_notes_copy_code(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     use tauri_plugin_clipboard_manager::ClipboardExt as _;
     let code = shared_blocking(shared, move |p| p.pending_code(&folder)).await?;
     app.clipboard()
@@ -1163,32 +1373,41 @@ pub async fn shared_notes_copy_code(
 /// The setup dialog closed without turning shared notes on: the prepared key and code go.
 #[tauri::command]
 pub async fn shared_notes_cancel(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
 ) -> Result<(), ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.cancel(&folder)).await
 }
 
 /// Second step, after "I saved it": writes the vault and stores the key; nothing is staged.
 #[tauri::command]
 pub async fn shared_notes_enable(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     label: String,
     untitled: String,
 ) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     shared_blocking(shared, move |p| p.enable(&folder, &label, &untitled)).await
 }
 
 /// Unlocks the shared notes on this computer with the notes recovery code.
 #[tauri::command]
 pub async fn shared_notes_unlock(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     code: String,
     label: String,
     untitled: String,
 ) -> Result<project_notes::Unlock, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     let code = zeroize::Zeroizing::new(code);
     shared_blocking(shared, move |p| p.unlock(&folder, &code, &label, &untitled)).await
 }
@@ -1264,17 +1483,40 @@ pub fn set_panel_on_top(
     Ok(())
 }
 
+/// Closes the panel window: the calling window itself, never another one. The close runs the
+/// window's own close handler, which saves pending input and then calls
+/// [`destroy_panel_window`]. Instead of `core:window:allow-close`, whose command takes any
+/// window's label.
+#[tauri::command]
+pub fn close_panel_window(window: tauri::WebviewWindow) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
+    window.close()?;
+    Ok(())
+}
+
+/// Ends the panel window once its close handler saved pending input: the calling window itself,
+/// never another one. Instead of `core:window:allow-destroy`.
+#[tauri::command]
+pub fn destroy_panel_window(window: tauri::WebviewWindow) -> Result<(), PanelWindowError> {
+    panel_window::check_sender(window.label())?;
+    window.destroy()?;
+    Ok(())
+}
+
 /// The only way from the panel window to the main window: a validated [`PanelMessage`],
 /// delivered as event `panel-message` to `main` alone. The panel window may not emit events
-/// itself, so it cannot fake events such as `tray-quit`.
+/// itself, so it cannot fake events such as `tray-quit`. Text goes to the session the main
+/// window handed the panel only ([`PanelMessage::scoped`]).
 #[tauri::command]
 pub fn panel_to_main(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    scope: State<'_, PanelScope>,
     message: PanelMessage,
 ) -> Result<(), PanelWindowError> {
     panel_window::check_sender(window.label())?;
     message.validate()?;
+    let message = message.scoped(&scope)?;
     if message.shows_main() {
         tray::show_main_window(&app);
     }
@@ -1289,11 +1531,14 @@ pub fn panel_to_main(
 /// Shows the note's file selected in Explorer or Finder (Linux: its folder).
 #[tauri::command]
 pub async fn reveal_note(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
     folder: NoteFolder,
     id: String,
 ) -> Result<(), NotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
     notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
@@ -1360,16 +1605,18 @@ pub async fn notify_session(
 
 // Session resources (resources.rs) and push to the phone (push.rs).
 
-/// CPU and memory of every running session's process tree. The window asks every few seconds
+/// CPU, memory and GPU of every running session's process tree. The window asks every few seconds
 /// while it is visible and the setting is on; nothing samples in between, and an answer younger
 /// than a second is repeated.
 #[tauri::command]
 pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<ResourceMonitor>()
-            .sample(std::time::Instant::now(), || {
-                app.state::<SessionManager>().tree_usages()
-            })
+        let now = std::time::Instant::now();
+        app.state::<ResourceMonitor>().sample(
+            now,
+            || app.state::<SessionManager>().tree_usages(),
+            || app.state::<GpuMonitor>().snapshot(now),
+        )
     })
     .await
     .unwrap_or_default()
@@ -1380,11 +1627,19 @@ pub async fn session_resources(app: tauri::AppHandle) -> Vec<SessionResources> {
 #[tauri::command]
 pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
     tauri::async_runtime::spawn_blocking(move || {
+        let now = std::time::Instant::now();
         app.state::<SystemMonitor>()
-            .sample(std::time::Instant::now())
+            .sample(now, || app.state::<GpuMonitor>().snapshot(now))
     })
     .await
     .unwrap_or_default()
+}
+
+/// Whether the machine runs on battery, read afresh (power.rs); later changes arrive as
+/// `power-changed` events with the same shape. One system call or a few small sysfs files.
+#[tauri::command]
+pub fn power_state(monitor: State<'_, crate::power::PowerMonitor>) -> crate::power::PowerState {
+    monitor.refresh(crate::power::read())
 }
 
 /// The keychain may take a moment or ask the user, hence on a blocking thread.
@@ -1464,11 +1719,96 @@ pub async fn git_branches(paths: Vec<String>) -> Result<HashMap<String, Option<S
         .map_err(|error| GitError::Task(error.to_string()))?
 }
 
+/// Repository place per folder for the project overview (`git::RepoPlace`): the work tree and
+/// the repository's main folder, read from `.git` files without a process, like `git_branches`.
 #[tauri::command]
-pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
-    tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
+pub async fn git_repo_places(
+    paths: Vec<String>,
+) -> Result<HashMap<String, Option<git::RepoPlace>>, GitError> {
+    tauri::async_runtime::spawn_blocking(move || git::repo_places(&paths))
         .await
         .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// A git read of a session's folder failed: the session is unknown, or git itself failed.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionGitError {
+    #[error("Unknown session {0}")]
+    UnknownSession(SessionId),
+    #[error(transparent)]
+    Git(#[from] GitError),
+}
+
+impl Serialize for SessionGitError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+/// The working folder of session `id`. The git reads name a session, never a folder: git runs
+/// programs a repository's config names (fsmonitor, filters), so a window must not be able to
+/// point it at any folder it likes, and the side panel cannot start sessions at all.
+pub fn session_folder(manager: &SessionManager, id: SessionId) -> Result<PathBuf, SessionGitError> {
+    manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(SessionGitError::UnknownSession(id))
+}
+
+/// Runs one git read in the folder of session `id` (with `root`: the main folder of its
+/// repository, as `git_repo_places` names it) on a blocking thread.
+async fn session_git<T: Send + 'static>(
+    manager: &SessionManager,
+    id: SessionId,
+    root: bool,
+    work: impl FnOnce(&Git, &std::path::Path) -> Result<T, GitError> + Send + 'static,
+) -> Result<T, SessionGitError> {
+    let cwd = session_folder(manager, id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = if root {
+            let key = cwd.to_string_lossy().into_owned();
+            git::repo_places(std::slice::from_ref(&key))?
+                .remove(&key)
+                .flatten()
+                .map_or(cwd, |place| PathBuf::from(place.root))
+        } else {
+            cwd
+        };
+        Ok(work(&Git::locate()?, &folder)?)
+    })
+    .await
+    .map_err(|error| SessionGitError::Git(GitError::Task(error.to_string())))?
+}
+
+/// The panel window reaches only the session the main window handed it ([`PanelScope`]); any
+/// other id is answered like an unknown session.
+fn in_scope(window: &tauri::Window, scope: &PanelScope, id: SessionId) -> bool {
+    scope.allows(window.label(), id)
+}
+
+#[tauri::command]
+pub async fn git_diff(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<GitDiff, SessionGitError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SessionGitError::UnknownSession(id));
+    }
+    session_git(&manager, id, false, git::diff).await
+}
+
+/// How many files `git_diff` would list for the session's folder (`None`: no repository), for
+/// the notice when a session is done; costs one `git status` instead of the whole diff.
+#[tauri::command]
+pub async fn git_changed_count(
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<Option<u32>, SessionGitError> {
+    session_git(&manager, id, false, git::changed_count).await
 }
 
 /// The user's own commits in the repositories of `folders`, for the activity calendar
@@ -1480,25 +1820,76 @@ pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, Activity
         .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
 }
 
-/// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.
+/// A working phase of a session ended (`from`, `to` in Unix ms); the window reports one event
+/// per phase, never per output chunk. Only times: the backend adds the session's details.
 #[tauri::command]
-pub async fn git_log(cwd: PathBuf, skip: u32, limit: u32) -> Result<GitLog, GitError> {
+pub async fn log_work_phase(
+    work_log: State<'_, WorkLog>,
+    id: SessionId,
+    from: i64,
+    to: i64,
+) -> Result<(), WorkLogError> {
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || log.phase(id, from, to, work_log::now_ms()))
+        .await
+        .map_err(|error| WorkLogError::Task(error.to_string()))?
+}
+
+/// The daily review of one local day, `[start, end)` in Unix ms as the window computed it
+/// (daily_review.rs, ADR 0011).
+#[tauri::command]
+pub async fn daily_review(
+    work_log: State<'_, WorkLog>,
+    start: i64,
+    end: i64,
+) -> Result<DailyReview, ReviewError> {
+    let log = work_log.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        git_history::log(&Git::locate()?, &cwd, skip, limit)
+        let git = Git::locate().ok();
+        daily_review::review(&log, git.as_ref(), start, end, work_log::now_ms())
     })
     .await
-    .map_err(|error| GitError::Task(error.to_string()))?
+    .map_err(|error| ReviewError::Task(error.to_string()))?
+}
+
+/// One page of the commits reachable from HEAD of the session's folder (git_history.rs); with
+/// `root`, of its repository's main folder (the project overview). `limit` is clamped to 1..=100.
+#[tauri::command]
+pub async fn git_log(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    manager: Manager<'_>,
+    id: SessionId,
+    skip: u32,
+    limit: u32,
+    root: Option<bool>,
+) -> Result<GitLog, SessionGitError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SessionGitError::UnknownSession(id));
+    }
+    session_git(&manager, id, root.unwrap_or(false), move |git, cwd| {
+        git_history::log(git, cwd, skip, limit)
+    })
+    .await
 }
 
 /// The changes of one commit against its first parent, in the shape of `git_diff`'s answer plus
 /// the commit's header. `sha` must be 7 to 64 hex characters.
 #[tauri::command]
-pub async fn git_commit_diff(cwd: PathBuf, sha: String) -> Result<GitCommitDiff, GitError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_history::commit_diff(&Git::locate()?, &cwd, &sha)
+pub async fn git_commit_diff(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    manager: Manager<'_>,
+    id: SessionId,
+    sha: String,
+) -> Result<GitCommitDiff, SessionGitError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SessionGitError::UnknownSession(id));
+    }
+    session_git(&manager, id, false, move |git, cwd| {
+        git_history::commit_diff(git, cwd, &sha)
     })
     .await
-    .map_err(|error| GitError::Task(error.to_string()))?
 }
 
 /// The working folder of a session, for the git actions: the window names only the session.
@@ -1513,37 +1904,33 @@ fn action_folder(manager: &SessionManager, id: SessionId) -> Result<PathBuf, Act
 
 /// Runs one git action (git_actions.rs) on a blocking thread, in the session's folder.
 async fn git_action(
+    window: &tauri::Window,
+    scope: &PanelScope,
     manager: &SessionManager,
     id: SessionId,
     work: impl FnOnce(&Git, &std::path::Path) -> Result<(), ActionError> + Send + 'static,
 ) -> Result<(), ActionError> {
+    if !in_scope(window, scope, id) {
+        return Err(ActionError::UnknownSession(id));
+    }
     let cwd = action_folder(manager, id)?;
     tauri::async_runtime::spawn_blocking(move || work(&Git::locate()?, &cwd))
         .await
         .map_err(|error| ActionError::Task(error.to_string()))?
 }
 
-/// The empty folder stage, unstage and discard name as `core.hooksPath`, below Hangar's local
-/// data folder (git_actions.rs, `no_hooks_folder`).
-fn no_hooks(app: &tauri::AppHandle) -> Result<PathBuf, ActionError> {
-    let data = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| ActionError::NoHooksFolder(error.to_string()))?;
-    git_actions::no_hooks_folder(&data)
-}
-
 /// Stages files of the session's repository; `paths` relative to its root, as `git_diff` lists
 /// them. The repository's hooks do not run.
 #[tauri::command]
 pub async fn git_stage(
-    app: tauri::AppHandle,
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
-    git_action(&manager, id, move |git, cwd| {
-        git_actions::stage(git, &no_hooks(&app)?, cwd, &paths)
+    git_action(&window, &scope, &manager, id, move |git, cwd| {
+        git_actions::stage(git, cwd, &paths)
     })
     .await
 }
@@ -1552,13 +1939,14 @@ pub async fn git_stage(
 /// repository's hooks do not run.
 #[tauri::command]
 pub async fn git_unstage(
-    app: tauri::AppHandle,
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
-    git_action(&manager, id, move |git, cwd| {
-        git_actions::unstage(git, &no_hooks(&app)?, cwd, &paths)
+    git_action(&window, &scope, &manager, id, move |git, cwd| {
+        git_actions::unstage(git, cwd, &paths)
     })
     .await
 }
@@ -1567,13 +1955,14 @@ pub async fn git_unstage(
 /// through links are refused, the repository's hooks do not run.
 #[tauri::command]
 pub async fn git_discard(
-    app: tauri::AppHandle,
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     id: SessionId,
     paths: Vec<String>,
 ) -> Result<(), ActionError> {
-    git_action(&manager, id, move |git, cwd| {
-        git_actions::discard(git, &no_hooks(&app)?, cwd, &paths)
+    git_action(&window, &scope, &manager, id, move |git, cwd| {
+        git_actions::discard(git, cwd, &paths)
     })
     .await
 }
@@ -1581,57 +1970,83 @@ pub async fn git_discard(
 /// Commits what is staged in the session's repository; hooks run as configured.
 #[tauri::command]
 pub async fn git_commit(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     id: SessionId,
     message: String,
 ) -> Result<(), ActionError> {
-    git_action(&manager, id, move |git, cwd| {
+    git_action(&window, &scope, &manager, id, move |git, cwd| {
         git_actions::commit(git, cwd, &message)
     })
     .await
 }
 
-// Timeline of a session's work tree (git_snapshots.rs). The window names the session by ID (its
-// folder comes from the session manager) and by its workspace key, which names the snapshots.
+// Timeline of a session's work tree (git_snapshots.rs). Windows name the session by ID only: its
+// folder comes from the session manager and its workspace key from the binding the main window
+// sets with `snapshot_bind`, so the panel window can reach no other session's snapshots.
 
-/// Emitted to every window with the session key whenever its snapshots change.
+/// Emitted to every window with the session ID whenever its snapshots change.
 pub const SNAPSHOTS_CHANGED: &str = "snapshots-changed";
 
-/// Runs one snapshot call on a blocking thread, in the session's folder, with the empty hooks
-/// folder and the temporary index folder below Hangar's local data folder.
+/// Runs one snapshot call on a blocking thread, with the side repositories below Hangar's local
+/// data folder.
 async fn snapshot_call<T: Send + 'static>(
     app: tauri::AppHandle,
-    manager: &SessionManager,
-    id: SessionId,
-    work: impl FnOnce(&Snapshots, &SnapshotEnv<'_>, &std::path::Path) -> Result<T, SnapshotError>
-        + Send
-        + 'static,
+    work: impl FnOnce(&Snapshots, &SnapshotEnv<'_>) -> Result<T, SnapshotError> + Send + 'static,
 ) -> Result<T, SnapshotError> {
-    let cwd = action_folder(manager, id).map_err(|_| SnapshotError::UnknownSession(id))?;
     tauri::async_runtime::spawn_blocking(move || {
-        let data = app
+        let folder = app
             .path()
             .app_local_data_dir()
-            .map_err(|error| SnapshotError::TempFolder(error.to_string()))?;
-        let no_hooks = git_actions::no_hooks_folder(&data)?;
-        let temp_dir = data.join(git_snapshots::TEMP_FOLDER);
+            .map_err(|error| SnapshotError::DataFolder(error.to_string()))?
+            .join(git_snapshots::FOLDER);
         let git = Git::locate()?;
-        let env = SnapshotEnv {
-            git: &git,
-            no_hooks: &no_hooks,
-            temp_dir: &temp_dir,
-            max_snapshots: git_snapshots::MAX_SNAPSHOTS,
-            max_files: git_snapshots::MAX_CHANGED_FILES,
-        };
-        work(app.state::<Snapshots>().inner(), &env, &cwd)
+        work(
+            app.state::<Snapshots>().inner(),
+            &SnapshotEnv::new(&git, &folder),
+        )
     })
     .await
     .map_err(|error| SnapshotError::Task(error.to_string()))?
 }
 
-fn snapshots_changed(app: &tauri::AppHandle, key: &str) {
+/// The running sessions with their folders, and which of them the window reports as working.
+fn snapshot_neighbours(manager: &SessionManager, team: &TeamService) -> Neighbours {
+    Neighbours {
+        sessions: manager
+            .list()
+            .into_iter()
+            .map(|info| (info.id, info.cwd))
+            .collect(),
+        working: team.working_sessions(),
+    }
+}
+
+fn snapshots_changed(app: &tauri::AppHandle, id: SessionId) {
     // A window that misses it reads the timeline again on its next refresh.
-    let _ = app.emit(SNAPSHOTS_CHANGED, key.to_ascii_lowercase());
+    let _ = app.emit(SNAPSHOTS_CHANGED, id);
+}
+
+/// Binds the session's workspace key, which names its snapshots across restarts; the main window
+/// calls it once it knows both. A session keeps its key, and a key of another running session is
+/// refused.
+#[tauri::command]
+pub fn snapshot_bind(
+    snapshots: State<'_, Snapshots>,
+    manager: Manager<'_>,
+    id: SessionId,
+    key: String,
+) -> Result<(), SnapshotError> {
+    let sessions = manager.list();
+    let cwd = sessions
+        .iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd.clone())
+        .ok_or(SnapshotError::UnknownSession(id))?;
+    snapshots.bind(id, &key, &cwd, &|other| {
+        sessions.iter().any(|info| info.id == other)
+    })
 }
 
 /// Takes a snapshot of the session's work tree after an agent step (the window calls it when the
@@ -1639,15 +2054,12 @@ fn snapshots_changed(app: &tauri::AppHandle, key: &str) {
 #[tauri::command]
 pub async fn snapshot_take(
     app: tauri::AppHandle,
-    manager: Manager<'_>,
     id: SessionId,
-    key: String,
     prompt: Option<String>,
 ) -> Result<TakeOutcome, SnapshotError> {
     let notify = app.clone();
-    let named = key.clone();
-    let outcome = snapshot_call(app, &manager, id, move |snapshots, env, cwd| {
-        snapshots.take(env, cwd, &key, prompt.as_deref().unwrap_or_default())
+    let outcome = snapshot_call(app, move |snapshots, env| {
+        snapshots.take(env, id, prompt.as_deref().unwrap_or_default())
     })
     .await;
     // A skipped or failed step changes the timeline's note too.
@@ -1655,21 +2067,28 @@ pub async fn snapshot_take(
         outcome,
         Ok(TakeOutcome::Unchanged | TakeOutcome::NotARepository)
     ) {
-        snapshots_changed(&notify, &named);
+        snapshots_changed(&notify, id);
     }
     outcome
 }
 
-/// The session's snapshots, newest first, and why its newest step was not saved, if it was not.
+/// The session's snapshots, newest first, why its newest step was not saved, and the other
+/// sessions in its work tree.
 #[tauri::command]
 pub async fn snapshot_list(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     manager: Manager<'_>,
+    team: State<'_, TeamService>,
     id: SessionId,
-    key: String,
 ) -> Result<SnapshotList, SnapshotError> {
-    snapshot_call(app, &manager, id, move |snapshots, env, cwd| {
-        snapshots.list(env, cwd, &key)
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    let neighbours = snapshot_neighbours(&manager, &team);
+    snapshot_call(app, move |snapshots, env| {
+        snapshots.list(env, id, &neighbours)
     })
     .await
 }
@@ -1677,54 +2096,53 @@ pub async fn snapshot_list(
 /// What one step changed, in the shape of `git_diff`'s answer.
 #[tauri::command]
 pub async fn snapshot_diff(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
-    manager: Manager<'_>,
     id: SessionId,
-    key: String,
     number: u64,
 ) -> Result<GitDiff, SnapshotError> {
-    snapshot_call(app, &manager, id, move |_, env, cwd| {
-        git_snapshots::diff(env, cwd, &key, number)
-    })
-    .await
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    snapshot_call(app, move |snapshots, env| snapshots.diff(env, id, number)).await
 }
 
 /// Makes the session's work tree match a snapshot after saving the current state; the window
-/// asks first. Paths through links are refused, the repository's hooks and filters do not run.
+/// asks first. Refused while a session in the same work tree is working; paths through links,
+/// files that need a filter and folders in the way are refused, hooks and filters do not run.
 #[tauri::command]
 pub async fn snapshot_restore(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
     manager: Manager<'_>,
+    team: State<'_, TeamService>,
     id: SessionId,
-    key: String,
     number: u64,
 ) -> Result<RestoreOutcome, SnapshotError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    let neighbours = snapshot_neighbours(&manager, &team);
     let notify = app.clone();
-    let named = key.clone();
-    let outcome = snapshot_call(app, &manager, id, move |snapshots, env, cwd| {
-        snapshots.restore(env, cwd, &key, number)
+    let outcome = snapshot_call(app, move |snapshots, env| {
+        snapshots.restore(env, id, number, &neighbours)
     })
     .await;
     // Even a failed jump may have saved the current state as its undo point.
-    snapshots_changed(&notify, &named);
+    snapshots_changed(&notify, id);
     outcome
 }
 
-/// Deletes the session's snapshots; the window calls it before it closes the session.
+/// Deletes the session's snapshots and its key; the window calls it once the session is closed,
+/// or on quit when sessions are not restored. Works after the session ended: the binding keeps
+/// its folder.
 #[tauri::command]
-pub async fn snapshot_forget(
-    app: tauri::AppHandle,
-    manager: Manager<'_>,
-    id: SessionId,
-    key: String,
-) -> Result<(), SnapshotError> {
+pub async fn snapshot_forget(app: tauri::AppHandle, id: SessionId) -> Result<(), SnapshotError> {
     let notify = app.clone();
-    let named = key.clone();
-    snapshot_call(app, &manager, id, move |snapshots, env, cwd| {
-        snapshots.forget(env, cwd, &key)
-    })
-    .await?;
-    snapshots_changed(&notify, &named);
+    snapshot_call(app, move |snapshots, env| snapshots.forget(env, id)).await?;
+    snapshots_changed(&notify, id);
     Ok(())
 }
 
@@ -1734,11 +2152,16 @@ pub async fn snapshot_forget(
 /// its thread keeps the folder claimed until it ends.
 #[tauri::command]
 pub async fn list_session_folder(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     tree: State<'_, FileTree>,
     id: SessionId,
     relative: String,
 ) -> Result<FolderListing, FileTreeError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(FileTreeError::UnknownSession(id));
+    }
     let cwd = manager
         .list()
         .into_iter()
@@ -1772,14 +2195,67 @@ pub async fn open_local_url(url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+// Paths and addresses clicked in the terminal (path_links.rs).
+
+/// File, folder or nothing for each of at most 64 local absolute paths a session printed, so the
+/// terminal underlines only paths that exist. Never reads a file.
+#[tauri::command]
+pub async fn stat_paths(paths: Vec<String>) -> Result<Vec<Option<PathKind>>, PathLinkError> {
+    if paths.len() > path_links::MAX_PATHS {
+        return Err(PathLinkError::TooMany);
+    }
+    let task = tauri::async_runtime::spawn_blocking(move || path_links::kinds(&paths));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| PathLinkError::Task(error.to_string()))?,
+        Err(_) => Err(PathLinkError::TimedOut),
+    }
+}
+
+/// Opens a path clicked in the terminal: a folder in the file manager, a file in its default
+/// program when it is plainly harmless (path_links.rs), anything else selected in the file
+/// manager. Only from the focused window, since it follows a click.
+#[tauri::command]
+pub async fn open_path(
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<Opened, PathLinkError> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err(PathLinkError::NotFocused);
+    }
+    let task = tauri::async_runtime::spawn_blocking(move || path_links::open(&path));
+    match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
+        Ok(joined) => joined.map_err(|error| PathLinkError::Task(error.to_string()))?,
+        Err(_) => Err(PathLinkError::TimedOut),
+    }
+}
+
+/// Opens a plain http(s) address clicked in the terminal in the default browser; only from the
+/// focused window.
+#[tauri::command]
+pub async fn open_web_url(window: tauri::WebviewWindow, url: String) -> Result<(), PathLinkError> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err(PathLinkError::NotFocused);
+    }
+    let url = path_links::web_url(&url).ok_or(PathLinkError::NotWeb)?;
+    tauri::async_runtime::spawn_blocking(move || desktop::open_url(&url))
+        .await
+        .map_err(|error| PathLinkError::Task(error.to_string()))?
+        .map_err(PathLinkError::Open)
+}
+
 /// Every path below a session's folder for the file tree's filter (file_tree.rs, `PathIndex`):
 /// bounded in number, depth and time, ignored files left out. Takes only the session's ID.
 #[tauri::command]
 pub async fn list_session_paths(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     tree: State<'_, FileTree>,
     id: SessionId,
 ) -> Result<PathIndex, FileTreeError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(FileTreeError::UnknownSession(id));
+    }
     let cwd = manager
         .list()
         .into_iter()
@@ -1804,9 +2280,14 @@ pub async fn list_session_paths(
 /// can never name a path to open.
 #[tauri::command]
 pub async fn reveal_session_folder(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     id: SessionId,
 ) -> Result<(), FileTreeError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(FileTreeError::UnknownSession(id));
+    }
     let cwd = manager
         .list()
         .into_iter()
@@ -1817,7 +2298,7 @@ pub async fn reveal_session_folder(
         if !cwd.is_dir() {
             return Err(FileTreeError::NotAFolder);
         }
-        crate::desktop::open(&cwd, crate::desktop::Target::Folder).map_err(FileTreeError::Io)
+        crate::desktop::open_folder(&cwd).map_err(FileTreeError::Io)
     });
     match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
         Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
@@ -1835,12 +2316,16 @@ pub async fn reveal_session_folder(
 pub async fn open_file_viewer(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    scope: State<'_, PanelScope>,
     manager: Manager<'_>,
     viewers: State<'_, Viewers>,
     session_id: SessionId,
     path: String,
 ) -> Result<(), FileViewerError> {
     file_viewer::check_opener(window.label())?;
+    if !scope.allows(window.label(), session_id) {
+        return Err(FileViewerError::UnknownSession(session_id));
+    }
     let cwd = manager
         .list()
         .into_iter()
@@ -1985,15 +2470,26 @@ fn worktrees_dir(store: &Store) -> PathBuf {
     store.dir().join(worktree::DIR_NAME)
 }
 
+/// The new worktree counts as in use for the cleanup until a session works in it.
 #[tauri::command]
 pub async fn create_worktree(
+    app: tauri::AppHandle,
     store: State<'_, Store>,
     cwd: PathBuf,
     label: String,
 ) -> Result<Worktree, WorktreeError> {
+    // No session exists yet, so the folder comes from the window; at least never a share, a
+    // device or a link to one, which git would contact before any other check
+    // (no_links::folder_place).
+    if crate::no_links::folder_place(&cwd) == crate::no_links::FolderPlace::Remote {
+        return Err(GitError::InvalidPath("a network share or device path").into());
+    }
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
-        worktree::create(&Git::locate()?, &base, &cwd, &label)
+        let created = worktree::create(&Git::locate()?, &base, &cwd, &label)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .add(&created.path, std::time::Instant::now());
+        Ok(created)
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
@@ -2012,6 +2508,8 @@ pub async fn remove_worktree(
     tauri::async_runtime::spawn_blocking(move || {
         worktree::check_shape(&worktree)?;
         worktree::check_managed(&base, &worktree.path, &worktree.repo_root)?;
+        app.state::<worktree_cleanup::PendingWorktrees>()
+            .remove(&worktree.path);
         let claims = app.state::<ClaimsService>();
         let released = claims.release(&worktree.path);
         let removal = Git::locate()
@@ -2022,6 +2520,154 @@ pub async fn remove_worktree(
             claims.unrelease(released);
         }
         removal
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+// Worktree cleanup (worktree_cleanup.rs). Contract: agent-workflow-features.md, "Worktree
+// cleanup".
+
+/// Folders that occupy a worktree: every session's folder (running or ended, still in the
+/// list), every saved session's folder and worktree, which a restart brings back, and the
+/// worktrees created for a session that has not started yet ([`worktree_cleanup::PendingWorktrees`]).
+fn occupied_folders(app: &tauri::AppHandle, store: &Store) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut occupied: Vec<PathBuf> = app
+        .state::<SessionManager>()
+        .list()
+        .into_iter()
+        .map(|info| info.cwd)
+        .collect();
+    let mut roots = Vec::new();
+    if let Some(workspace) = store.load_workspace() {
+        for session in workspace.sessions {
+            occupied.push(session.cwd);
+            if let Some(worktree) = session.worktree {
+                occupied.push(worktree.path);
+                roots.push(worktree.repo_root);
+            }
+        }
+    }
+    let occupied = app
+        .state::<worktree_cleanup::PendingWorktrees>()
+        .with_pending(
+            occupied,
+            std::time::Instant::now(),
+            worktree_cleanup::PENDING_TIMEOUT,
+        );
+    (occupied, roots)
+}
+
+/// The worktrees Hangar created, each with its state. `folders` are the window's folders whose
+/// repositories count too (recent folders, favorites, sessions' repositories), at most
+/// [`worktree_cleanup::MAX_FOLDERS`]; a missing worktree folder is only found through them.
+#[tauri::command]
+pub async fn list_hangar_worktrees(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    folders: Vec<PathBuf>,
+) -> Result<Vec<worktree_cleanup::CleanupEntry>, WorktreeError> {
+    if folders.len() > worktree_cleanup::MAX_FOLDERS {
+        return Err(GitError::TooManyPaths.into());
+    }
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        let (occupied, roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        Ok(worktree_cleanup::list(&cx, &folders, &roots))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Size of one worktree folder below Hangar's worktrees folder, bounded in files and time.
+#[tauri::command]
+pub async fn hangar_worktree_size(
+    store: State<'_, Store>,
+    path: PathBuf,
+) -> Result<worktree_cleanup::WorktreeSize, WorktreeError> {
+    let base = worktrees_dir(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree_cleanup::check_measurable(&base, &path)?;
+        Ok(worktree_cleanup::measure(
+            &path,
+            worktree_cleanup::SIZE_MAX_FILES,
+            worktree_cleanup::SIZE_BUDGET,
+        ))
+    })
+    .await
+    .map_err(|error| GitError::Task(error.to_string()))?
+}
+
+/// Checks the state again and removes the worktree only when it is still merged or clean.
+#[tauri::command]
+pub async fn remove_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Remove,
+    )
+    .await
+}
+
+/// Checks the state again and drops git's record only when the folder is still missing.
+#[tauri::command]
+pub async fn prune_hangar_worktree(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    path: PathBuf,
+    repo_root: PathBuf,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    clean_up_worktree(
+        app,
+        &store,
+        path,
+        repo_root,
+        worktree_cleanup::Action::Prune,
+    )
+    .await
+}
+
+/// Like [`remove_worktree`], the claims let go of the folder first and take it back when it
+/// stays.
+async fn clean_up_worktree(
+    app: tauri::AppHandle,
+    store: &Store,
+    path: PathBuf,
+    repo_root: PathBuf,
+    action: worktree_cleanup::Action,
+) -> Result<worktree_cleanup::CleanupOutcome, WorktreeError> {
+    let store = store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let git = Git::locate()?;
+        let base = worktrees_dir(&store);
+        worktree::check_managed(&base, &path, &repo_root)?;
+        let (occupied, _roots) = occupied_folders(&app, &store);
+        let cx = worktree_cleanup::Context {
+            git: &git,
+            base: &base,
+            occupied: &occupied,
+        };
+        let claims = app.state::<ClaimsService>();
+        let released = claims.release(&path);
+        let outcome = worktree_cleanup::clean_up(&cx, &path, &repo_root, action);
+        if !outcome.as_ref().is_ok_and(|outcome| outcome.done) {
+            claims.unrelease(released);
+        }
+        outcome
     })
     .await
     .map_err(|error| GitError::Task(error.to_string()))?
@@ -2045,8 +2691,8 @@ pub fn claims_snapshot(claims: State<'_, ClaimsService>) -> ClaimsSnapshot {
 // Agent gate (gate.rs, gate_service.rs). Contract: team-service-v1.md, step B.
 
 /// Turns the agent gate on or off (the window's setting). Only agents started while it is on get
-/// the hook; turning it off lets every waiting edit through. Emits `gate-changed` with a
-/// [`GateSnapshot`] whenever the waiting edits change.
+/// the hook; turning it off lets every waiting edit through. Emits the payload-free `gate-changed`
+/// signal whenever the waiting edits change; the window then reads `gate_snapshot`.
 #[tauri::command]
 pub fn configure_gate(gate: State<'_, GateService>, enabled: bool) {
     gate.configure(enabled);
@@ -2058,10 +2704,19 @@ pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
 }
 
 /// The person's answer to a waiting edit; `false` when it no longer waits (answered, timed out,
-/// session ended).
+/// session ended). On a blocking thread: an "always" answer writes the rules file.
 #[tauri::command]
-pub fn answer_gate(gate: State<'_, GateService>, id: u64, answer: Answer) -> bool {
-    gate.answer(id, answer)
+pub async fn answer_gate(
+    gate: State<'_, GateService>,
+    id: u64,
+    answer: Answer,
+) -> Result<bool, ()> {
+    let gate = gate.inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || gate.answer(id, answer))
+            .await
+            .unwrap_or(false),
+    )
 }
 
 /// The person's gate rules, per project (`gate_rules.rs`).
@@ -2070,14 +2725,38 @@ pub fn gate_rules(gate: State<'_, GateService>) -> Vec<GateRule> {
     gate.rules()
 }
 
-/// Deletes a gate rule; `false` when no rule has that id.
+/// Deletes a gate rule; `false` when no rule has that id. On a blocking thread: it rewrites the
+/// rules file.
 #[tauri::command]
-pub fn delete_gate_rule(gate: State<'_, GateService>, id: u64) -> bool {
-    gate.delete_rule(id)
+pub async fn delete_gate_rule(gate: State<'_, GateService>, id: u64) -> Result<bool, ()> {
+    let gate = gate.inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || gate.delete_rule(id))
+            .await
+            .unwrap_or(false),
+    )
+}
+
+/// Turns the command guard on or off (the window's setting; on by default). It applies at once,
+/// also to running team sessions; turning it off lets every held shell command go on.
+#[tauri::command]
+pub fn configure_command_guard(gate: State<'_, GateService>, enabled: bool) {
+    gate.configure_command_guard(enabled);
+}
+
+/// The command guard's rules file, its rules and what could not be read in it. On a blocking
+/// thread: it reads the rules file.
+#[tauri::command]
+pub async fn command_guard_info(gate: State<'_, GateService>) -> Result<GuardInfo, String> {
+    let gate = gate.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || gate.command_guard_info())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 // Hangar account (account.rs, account_service.rs). Contract: hangar-account-api.md. Every change
-// of the state is also emitted as `account-changed` with an `AccountView`.
+// of the state is signalled as the payload-free `account-changed`; the window then reads
+// `account_status`.
 
 /// The sign-in state; reads a stored sign-in from the keychain on the first call.
 #[tauri::command]
@@ -2108,6 +2787,13 @@ pub async fn account_sign_out(
     account.sign_out().await
 }
 
+/// The signed-in person's profile picture as a `data:` URL, `null` without one. Separate from
+/// the view, which carries only `user.avatarVersion`, so every status and event stays small.
+#[tauri::command]
+pub fn account_avatar(account: State<'_, AccountService>) -> Option<String> {
+    account.avatar()
+}
+
 #[tauri::command]
 pub async fn account_projects(
     account: State<'_, AccountService>,
@@ -2124,17 +2810,21 @@ pub async fn account_set_base_url(
     account.set_base_url(base_url).await
 }
 
-/// Opens one of the account's pages; the window names the page, never a URL.
+/// Opens one of the account's pages; the window names the page, never a URL. On a blocking
+/// thread: starting the browser may take a while.
 #[tauri::command]
-pub fn account_open(
+pub async fn account_open(
     account: State<'_, AccountService>,
     page: AccountPage,
 ) -> Result<(), AccountError> {
-    account.open(page)
+    let account = account.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || account.open(page))
+        .await
+        .map_err(|error| AccountError::Open(error.to_string()))?
 }
 
 // Team connection (team.rs, team_engine.rs, team_service.rs; step F part 2a). Every change is
-// also emitted as `team-changed` with a `TeamSnapshot`.
+// signalled as the payload-free `team-changed`; the main window reads `team_snapshot`.
 
 /// The connection state of one project ("Share with team" off when never turned on).
 #[tauri::command]
@@ -2176,6 +2866,37 @@ pub async fn team_reject(team: State<'_, TeamService>, request: String) -> Resul
     team.reject(&request).await
 }
 
+/// Every team's connection, the pending confirmations and the repositories to link: what the
+/// payload-free `team-changed` signal asks the main window to fetch.
+#[tauri::command]
+pub fn team_snapshot(team: State<'_, TeamService>) -> crate::team::TeamSnapshot {
+    team.snapshot()
+}
+
+/// This device joined the team the person expected: they compared the admitting device's and
+/// the log's safety numbers. Only then does the device share anything. `log_index` and
+/// `safety_number` are the numbers the window showed; a team that moved on refuses them.
+#[tauri::command]
+pub async fn team_confirm_admission(
+    team: State<'_, TeamService>,
+    project_id: String,
+    log_index: u64,
+    safety_number: Vec<String>,
+) -> Result<(), TeamError> {
+    team.confirm_admission(&project_id, log_index, safety_number)
+        .await
+}
+
+/// Removes another device of the signed-in person from the team (a lost one, for example).
+#[tauri::command]
+pub async fn team_remove_device(
+    team: State<'_, TeamService>,
+    project_id: String,
+    device: String,
+) -> Result<(), TeamError> {
+    team.remove_device(&project_id, &device).await
+}
+
 /// What a session is doing, as the window's attention logic says.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2196,23 +2917,28 @@ pub fn team_session_states(team: State<'_, TeamService>, states: Vec<SessionStat
     );
 }
 
-/// Links or unlinks a repository folder (its root commit and clone folder, from `team-changed`'s
+/// Links or unlinks a repository folder (its root commit and clone folder, from `team_snapshot`'s
 /// `repos`) to a shared project: its sessions' presence and changed files go to the team from
 /// now on. `folder: null` names a link from before folders were bound, which can only be
 /// removed (`on: false`).
+/// On a blocking thread: it writes the team settings.
 #[tauri::command]
-pub fn team_link_repo(
+pub async fn team_link_repo(
     team: State<'_, TeamService>,
     project_id: String,
     root: String,
     folder: Option<String>,
     on: bool,
 ) -> Result<(), TeamError> {
-    match (folder, on) {
+    let team = team.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || match (folder, on) {
         (Some(folder), on) => team.link_repo(&project_id, &root, &folder, on),
         (None, false) => team.unlink_legacy_repo(&project_id, &root),
         (None, true) => Err(TeamError::UnknownRepository),
-    }
+    })
+    .await
+    // A task that could not finish: nothing was linked, the window may try again.
+    .map_err(|_| TeamError::Busy)?
 }
 
 /// Reserves a task in a shared project ("I'm working on ..."): a short title, optionally linked
@@ -2235,7 +2961,7 @@ pub async fn team_reserve_task(
 }
 
 /// Releases a task this device holds, or gives up an attempt someone else's hold blocks. `task`
-/// is the task's keyed hash from `team-changed`.
+/// is the task's keyed hash from `team_snapshot`.
 #[tauri::command]
 pub async fn team_release_task(
     team: State<'_, TeamService>,
@@ -2303,6 +3029,51 @@ pub async fn export_session(
     .map_err(|error| ExportError::Task(error.to_string()))?
 }
 
+/// Saves the conversation of a session as a Markdown report read from the agent's own
+/// transcript (report/). The backend renders it, then opens the save dialog itself. `None` when
+/// the dialog was cancelled. `utcOffsetMinutes`: the window's offset from UTC for the times shown;
+/// `labels`: the report's headings in the window's language.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn export_report(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    manager: Manager<'_>,
+    session_id: SessionId,
+    title: String,
+    suggested_name: String,
+    utc_offset_minutes: i32,
+    labels: report::Labels,
+) -> Result<Option<String>, ReportError> {
+    use tauri_plugin_dialog::DialogExt as _;
+    let (target, program) = manager.report_target(session_id)?;
+    let source = report::Source {
+        target,
+        program,
+        title,
+    };
+    let labels = labels.cleaned();
+    let name = export::report_file_name(&suggested_name);
+    tauri::async_runtime::spawn_blocking(move || {
+        let content = report::build(&source, &labels, utc_offset_minutes)?;
+        let chosen = app
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name(name)
+            .add_filter(export::NOTE_FILTER, &[export::NOTE_EXTENSION])
+            .blocking_save_file();
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let path = chosen.into_path().map_err(|_| ExportError::NotAPath)?;
+        export::write(&path, &content)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+    .map_err(|error| ReportError::Task(error.to_string()))?
+}
+
 /// Saves the clipboard's image as a PNG in the app's cache folder and returns its path, for the
 /// window to paste like a dropped file. One paste at a time: while one runs, another answers
 /// `Busy`. Off the main thread: reading the clipboard there may deadlock on Linux.
@@ -2342,4 +3113,206 @@ pub async fn configure_tray(
     labels: TrayLabels,
 ) -> Result<(), TrayError> {
     tray::configure(&app, enabled, &labels)
+}
+
+// Main window only (main_store.rs, panel_window.rs): state the panel and file viewer windows,
+// which share the main window's origin and storage, must not be able to write or read.
+
+/// The security switches as stored; `null` when nothing was stored yet (the window then migrates
+/// its old values once).
+#[tauri::command]
+pub async fn security_switches(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<SecuritySwitches>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_switches())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn save_security_switches(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    switches: SecuritySwitches,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_switches(switches))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The queued messages per session key; `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn load_message_queue(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<QueuedMessages>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_queue())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+/// Replaces the stored queued messages; an empty map removes them all.
+#[tauri::command]
+pub async fn save_message_queue(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    entries: QueuedMessages,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_queue(entries))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The settings that decide what reaches an agent or the machine (paste warning, automatic
+/// updates, HANGAR.md, snippets); `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn protected_settings(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<ProtectedSettings>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_settings())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn save_protected_settings(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    settings: ProtectedSettings,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_settings(settings))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// Where and how the next session starts and whether a waiting session shows itself (start
+/// mode, last program, folders, session restore, notices); `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn main_prefs(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<MainPrefs>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_prefs())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn save_main_prefs(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    prefs: MainPrefs,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_prefs(prefs))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The workspace templates; `null` when nothing was stored yet.
+#[tauri::command]
+pub async fn load_templates(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Option<Vec<WorkspaceTemplate>>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_templates())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+/// Replaces the stored workspace templates; an empty list removes them all.
+#[tauri::command]
+pub async fn save_templates(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    templates: Vec<WorkspaceTemplate>,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_templates(templates))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The session the panel window shows from now on (`null`: none). The main window calls it
+/// before it sends the panel its context; the panel's session commands answer for this session
+/// only, its shared notes for this session's working folder only ([`PanelScope`]). The folder
+/// comes from the session manager; an id it does not know hands the panel nothing.
+#[tauri::command]
+pub fn set_panel_session(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    manager: Manager<'_>,
+    id: Option<SessionId>,
+) -> Result<(), PanelWindowError> {
+    panel_window::check_main(window.label())?;
+    let handed = id.and_then(|id| session_folder(&manager, id).ok().map(|cwd| (id, cwd)));
+    scope.set(handed.as_ref().map(|(id, cwd)| (*id, cwd.as_path())));
+    Ok(())
+}
+
+/// The results of finished update sessions not yet taken, each handed out once. The
+/// `program-update-result` signal says that one is waiting.
+#[tauri::command]
+pub fn take_update_results(
+    window: tauri::Window,
+    results: State<'_, UpdateResults>,
+) -> Result<Vec<updates::UpdateOutcome>, PanelWindowError> {
+    panel_window::check_main(window.label())?;
+    Ok(results.take())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The git reads find the folder through the session; an id the manager does not know is
+    /// refused before git runs anywhere.
+    #[test]
+    fn git_reads_refuse_an_unknown_session() {
+        let manager = SessionManager::new(Vec::new(), Vec::new(), std::env::temp_dir());
+        let error = session_folder(&manager, 42).unwrap_err();
+        assert!(matches!(error, SessionGitError::UnknownSession(42)));
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            serde_json::json!("Unknown session 42")
+        );
+    }
+
+    #[test]
+    fn update_results_are_handed_out_once_and_bounded() {
+        let results = UpdateResults::default();
+        let outcome =
+            |id: &str| updates::outcome(id, Some(1), Some(0), None, None, false, Vec::new());
+        results.push(outcome("a"));
+        results.push(outcome("b"));
+        let taken: Vec<String> = results.take().into_iter().map(|o| o.profile_id).collect();
+        assert_eq!(taken, ["a", "b"]);
+        assert!(results.take().is_empty());
+        for i in 0..=UpdateResults::MAX {
+            results.push(outcome(&i.to_string()));
+        }
+        let taken = results.take();
+        assert_eq!(taken.len(), UpdateResults::MAX);
+        assert_eq!(taken[0].profile_id, "1", "the oldest went first");
+    }
 }

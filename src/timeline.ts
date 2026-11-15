@@ -5,7 +5,7 @@
 
 import { isFullSha } from "./gitHistory";
 
-/** Emitted by the backend with the session key whenever that session's snapshots change. */
+/** Emitted by the backend with the session ID whenever that session's snapshots change. */
 export const SNAPSHOTS_CHANGED = "snapshots-changed";
 
 /** Characters of the prompt sent with a snapshot; the backend cuts at the same length. */
@@ -30,17 +30,26 @@ export interface Snapshot {
 
 /** Why the newest step was not saved. */
 export type Skipped =
-  { reason: "tooManyFiles"; limit: number } | { reason: "failed"; message: string };
+  | { reason: "tooManyFiles"; limit: number }
+  | { reason: "tooLarge"; fileMib: number; totalMib: number }
+  | { reason: "failed"; message: string };
 
 export interface SnapshotList {
   isRepo: boolean;
   /** Newest first. */
   snapshots: Snapshot[];
   skipped: Skipped | null;
+  /** Other sessions whose folder lies in the same work tree. */
+  others: number;
+  /** A session in that work tree is working: the backend refuses to go back. */
+  busy: boolean;
 }
 
 export type RestoreOutcome =
-  { kind: "restored"; files: number; undo: number } | { kind: "alreadyThere" };
+  | { kind: "restored"; files: number; undo: number }
+  | { kind: "alreadyThere" }
+  /** Writing stopped part way; the state from before is saved as snapshot `undo`. */
+  | { kind: "incomplete"; undo: number; message: string };
 
 function record(value: unknown): object | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -73,6 +82,11 @@ function skipped(value: unknown): Skipped | null {
     const limit = count(Reflect.get(entry, "limit"));
     return limit === null ? null : { reason, limit };
   }
+  if (reason === "tooLarge") {
+    const fileMib = count(Reflect.get(entry, "fileMib"));
+    const totalMib = count(Reflect.get(entry, "totalMib"));
+    return fileMib === null || totalMib === null ? null : { reason, fileMib, totalMib };
+  }
   if (reason === "failed") {
     const message: unknown = Reflect.get(entry, "message");
     return typeof message === "string" ? { reason, message } : null;
@@ -86,11 +100,16 @@ export function parseSnapshotList(value: unknown): SnapshotList | null {
   if (answer === null) return null;
   const isRepo: unknown = Reflect.get(answer, "isRepo");
   const snapshots: unknown = Reflect.get(answer, "snapshots");
+  const others = count(Reflect.get(answer, "others"));
+  const busy: unknown = Reflect.get(answer, "busy");
   if (typeof isRepo !== "boolean" || !Array.isArray(snapshots)) return null;
+  if (others === null || typeof busy !== "boolean") return null;
   return {
     isRepo,
     snapshots: snapshots.map(snapshot).filter((entry): entry is Snapshot => entry !== null),
     skipped: skipped(Reflect.get(answer, "skipped")),
+    others,
+    busy,
   };
 }
 
@@ -100,9 +119,13 @@ export function parseRestoreOutcome(value: unknown): RestoreOutcome | null {
   if (answer === null) return null;
   const kind: unknown = Reflect.get(answer, "kind");
   if (kind === "alreadyThere") return { kind };
+  const undo = count(Reflect.get(answer, "undo"));
+  if (kind === "incomplete") {
+    const message: unknown = Reflect.get(answer, "message");
+    return undo === null || typeof message !== "string" ? null : { kind, undo, message };
+  }
   if (kind !== "restored") return null;
   const files = count(Reflect.get(answer, "files"));
-  const undo = count(Reflect.get(answer, "undo"));
   return files === null || undo === null ? null : { kind, files, undo };
 }
 
@@ -139,7 +162,15 @@ export function snapshotTitle(entry: Snapshot): SnapshotTitle {
   };
 }
 
-/** Whether a `snapshots-changed` payload concerns the session `key` (keys compare in lower case). */
-export function concernsSession(payload: unknown, key: string | null): boolean {
-  return typeof payload === "string" && key !== null && payload === key.toLowerCase();
+/** Whether a `snapshots-changed` payload concerns the session `id`. */
+export function concernsSession(payload: unknown, id: number): boolean {
+  return payload === id;
+}
+
+/**
+ * Whether "Go back to this state" can be used: the backend refuses while an agent works in the
+ * work tree; its own session's state is fresher in the window than in the list.
+ */
+export function canRestore(list: SnapshotList, working: boolean): boolean {
+  return !working && !list.busy;
 }

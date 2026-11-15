@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-hangar-worktrees"
+description = "Enables the list_hangar_worktrees command without any pre-configured scope."
+commands.allow = ["list_hangar_worktrees"]
+
+[[permission]]
+identifier = "deny-list-hangar-worktrees"
+description = "Denies the list_hangar_worktrees command without any pre-configured scope."
+commands.deny = ["list_hangar_worktrees"]

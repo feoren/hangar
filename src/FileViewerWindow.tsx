@@ -2,7 +2,7 @@
 // session's folder, read-only, with line numbers and highlighting as in a code editor, a preview
 // for Markdown and images, and the file's changes against the last commit. It may only read its
 // own file (`file_viewer_content`, `file_viewer_stamp`, `file_viewer_diff`), open a checked web
-// link (`file_viewer_open_link`), listen to events and copy text. The file is read again when it
+// link (`file_viewer_open_link`) and copy text; it may not listen to events. The file is read again when it
 // changes on disk (live refresh, `pollStamps`). Language, app theme, viewer theme and font come
 // from the settings in localStorage, which it shares with the main window; the `storage` event
 // brings changes over while it is open.
@@ -58,6 +58,8 @@ import { loadSettings } from "./settings";
 import { fontStack } from "./terminalLook";
 import { applyDocumentTheme, resolveTheme, subscribeSystemTheme, systemPrefersDark } from "./theme";
 import type { FileView } from "./viewerEditor";
+import { viewerLinkAction, wordAround } from "./viewerLink";
+import { ViewerLinkCheck } from "./ViewerLinkCheck";
 import { viewerCssVariables, viewerPalette } from "./viewerThemes";
 
 /** How long the copy button shows its check mark. */
@@ -120,6 +122,10 @@ function FileViewer({ language }: { language: string }) {
   const [chosenMode, setChosenMode] = useState<ViewerMode | null>(null);
   const [diff, setDiff] = useState<DiffLoad>({ kind: "idle" });
   const [linkError, setLinkError] = useState<string | null>(null);
+  /** A link whose text claims another address, waiting for "Open" (viewerLink.ts). */
+  const [linkCheck, setLinkCheck] = useState<string | null>(null);
+  /** The link that asked, so the focus goes back to it once the question is answered. */
+  const linkCheckFrom = useRef<HTMLElement | null>(null);
   const view = useRef<FileView | null>(null);
   /** The stamp of what is shown, for the live refresh. */
   const shownStamp = useRef<string | null>(null);
@@ -245,9 +251,29 @@ function FileViewer({ language }: { language: string }) {
 
   const openLink = (url: string) => {
     setLinkError(null);
+    setLinkCheck(null);
     api.fileViewerOpenLink(url).catch((failure: unknown) => {
       setLinkError(t("viewer.linkFailed", { error: errorText(failure) }));
     });
+  };
+
+  /** A click on a Markdown link: opens it, or first shows where it really leads. */
+  const requestLink = (href: string, shown: string, own: string, from: HTMLElement) => {
+    const action = viewerLinkAction(href, shown, own);
+    if (action.kind === "open") openLink(action.url);
+    if (action.kind === "confirm") {
+      linkCheckFrom.current = from;
+      setLinkCheck(action.url);
+    }
+  };
+
+  /** Closes the link question and puts the focus back on the link it came from. */
+  const endLinkCheck = (open: boolean) => {
+    if (open && linkCheck !== null) openLink(linkCheck);
+    setLinkCheck(null);
+    const from = linkCheckFrom.current;
+    linkCheckFrom.current = null;
+    if (from?.isConnected === true) from.focus();
   };
 
   const switchMode = (next: ViewerMode) => {
@@ -389,6 +415,17 @@ function FileViewer({ language }: { language: string }) {
       {(body.kind === "text" || body.kind === "markdown") && body.truncated && (
         <p className="viewer-hint">{t("viewer.truncated")}</p>
       )}
+      {linkCheck !== null && (
+        <ViewerLinkCheck
+          url={linkCheck}
+          onOpen={() => {
+            endLinkCheck(true);
+          }}
+          onCancel={() => {
+            endLinkCheck(false);
+          }}
+        />
+      )}
       {linkError !== null && (
         <p className="viewer-hint selectable" role="alert">
           {linkError}
@@ -412,7 +449,7 @@ function FileViewer({ language }: { language: string }) {
       {body.kind === "text" && content !== null && (
         <CodeView text={body.text} fileName={content.name} handle={view} />
       )}
-      {body.kind === "markdown" && <MarkdownView text={body.text} onOpenLink={openLink} />}
+      {body.kind === "markdown" && <MarkdownView text={body.text} onOpenLink={requestLink} />}
       {body.kind === "image" && content !== null && (
         <div className="viewer-image">
           {/* A data address only: nothing is fetched, and an SVG drawn by <img> runs no script. */}
@@ -424,8 +461,33 @@ function FileViewer({ language }: { language: string }) {
   );
 }
 
-/** The rendered Markdown of the file; http(s) links open in the browser through the backend. */
-function MarkdownView({ text, onOpenLink }: { text: string; onOpenLink: (url: string) => void }) {
+/** Elements that hold one block of rendered Markdown; a link's word never runs past them. */
+const MARKDOWN_BLOCK = "p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, pre, dt, dd";
+
+/**
+ * What a link reads like on the page: its text with the text touching it in the same block,
+ * including code and neighbouring links (viewerLink.ts `wordAround`).
+ */
+function shownAround(link: HTMLElement): string {
+  const block = link.parentElement?.closest(MARKDOWN_BLOCK) ?? link.parentElement;
+  if (block === null) return link.textContent;
+  const before = document.createRange();
+  before.selectNodeContents(block);
+  before.setEndBefore(link);
+  const start = before.toString().length;
+  return wordAround(block.textContent, start, start + link.textContent.length);
+}
+
+/**
+ * The rendered Markdown of the file; http(s) links open in the browser through the backend.
+ * `onOpenLink` gets the address, the text around the link and its own visible text, which may
+ * claim another one.
+ */
+function MarkdownView(props: {
+  text: string;
+  onOpenLink: (href: string, shown: string, own: string, from: HTMLElement) => void;
+}) {
+  const { text, onOpenLink } = props;
   const t = useT();
   const [html, setHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -443,9 +505,14 @@ function MarkdownView({ text, onOpenLink }: { text: string; onOpenLink: (url: st
     };
   }, [text]);
 
-  const linkOf = (target: EventTarget | null): string | null => {
+  const linkOf = (
+    target: EventTarget | null,
+  ): { href: string; shown: string; own: string; element: HTMLElement } | null => {
     if (!(target instanceof Element)) return null;
-    return target.closest<HTMLElement>("[data-href]")?.dataset.href ?? null;
+    const element = target.closest<HTMLElement>("[data-href]");
+    const href = element?.dataset.href;
+    if (element === null || href === undefined) return null;
+    return { href, shown: shownAround(element), own: element.textContent, element };
   };
 
   if (failed) {
@@ -463,17 +530,17 @@ function MarkdownView({ text, onOpenLink }: { text: string; onOpenLink: (url: st
       // address only in data-href, which goes through the backend's check.
       dangerouslySetInnerHTML={{ __html: html }}
       onClick={(event) => {
-        const href = linkOf(event.target);
-        if (href === null) return;
+        const link = linkOf(event.target);
+        if (link === null) return;
         event.preventDefault();
-        onOpenLink(href);
+        onOpenLink(link.href, link.shown, link.own, link.element);
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter") return;
-        const href = linkOf(event.target);
-        if (href === null) return;
+        const link = linkOf(event.target);
+        if (link === null) return;
         event.preventDefault();
-        onOpenLink(href);
+        onOpenLink(link.href, link.shown, link.own, link.element);
       }}
     />
   );

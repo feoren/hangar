@@ -431,8 +431,16 @@ fn post(
     Ok((status, body.to_owned()))
 }
 
+/// Why an edit naming a path the gate cannot read does not simply go ahead.
+pub fn unreadable_path_reason() -> String {
+    "Hangar: a file path of this edit is too long or holds a NUL character, so the gate cannot \
+     check it. Ask the user to confirm."
+        .to_owned()
+}
+
 /// Asks the gate about every path of `call`, one after the other; the first deny or ask decides.
-/// A path the endpoint cannot answer for counts as allowed (reported on `notes`).
+/// A path the endpoint cannot answer for counts as allowed (reported on `notes`); a path the
+/// endpoint would not read is asked about.
 fn decide(
     call: &ToolCall,
     port: u16,
@@ -440,10 +448,15 @@ fn decide(
     deadline: Instant,
     notes: &mut impl Write,
 ) -> Verdict {
+    if call
+        .paths
+        .iter()
+        .take(MAX_PATHS)
+        .any(|path| path.len() > MAX_FIELD_BYTES || path.contains('\0'))
+    {
+        return Verdict::Ask(unreadable_path_reason());
+    }
     for path in call.paths.iter().take(MAX_PATHS) {
-        if path.len() > MAX_FIELD_BYTES || path.contains('\0') {
-            continue;
-        }
         let body = gate_request(&call.tool, path, call.cwd.as_deref());
         let verdict = post(port, token, &body, deadline).and_then(|(status, body)| {
             if status == 200 {
@@ -831,6 +844,34 @@ mod tests {
             serde_json::json!({ "tool_name": "apply_patch", "tool_input": { "command": "x" } });
         let (code, out, err) = run_with(&["codex", "pre-tool-use"], None, &none.to_string());
         assert_eq!((code, out.as_str(), err.as_str()), (0, "", ""));
+    }
+
+    #[test]
+    fn a_path_the_gate_cannot_read_is_asked_about_not_skipped() {
+        // Nothing listens on the port: a path that were sent would fail open with a note.
+        let closed = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        for path in ["a".repeat(MAX_FIELD_BYTES + 1), "a\0b".to_owned()] {
+            let call = ToolCall {
+                tool: "write_file".into(),
+                paths: vec!["ok.rs".into(), path],
+                cwd: Some("/repo".into()),
+            };
+            let mut notes = Vec::new();
+            let verdict = decide(
+                &call,
+                port,
+                "abc",
+                Instant::now() + Duration::from_secs(5),
+                &mut notes,
+            );
+            assert_eq!(verdict, Verdict::Ask(unreadable_path_reason()));
+            assert!(notes.is_empty());
+        }
+        // Codex reads an ask as a deny that says so.
+        let reply = reply(HookAgent::Codex, &Verdict::Ask(unreadable_path_reason()));
+        assert!(reply.stdout.contains("deny"));
     }
 
     #[test]

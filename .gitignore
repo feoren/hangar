@@ -21,3 +21,4 @@ output/
 
 # Local test files (test data stays inside the project)
 tests/.tmp/
+src-tauri/tests/.tmp/

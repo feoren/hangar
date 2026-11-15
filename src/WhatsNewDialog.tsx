@@ -5,20 +5,17 @@ import {
   entryHeading,
   initiallyOpenVersion,
   itemText,
-  parseChangelog,
   toggleVersion,
   type ChangelogEntry,
 } from "./changelog";
-import changelogText from "./changelog.json?raw";
 import { Dialog } from "./Dialog";
 import { useT, type Language } from "./i18n";
 import { ChevronIcon, CloseIcon } from "./icons";
 import { VersionText } from "./VersionText";
 
-/** Checked once on load; invalid entries are dropped (changelog.ts). */
-export const CHANGELOG: readonly ChangelogEntry[] = parseChangelog(changelogText);
-
 interface Props {
+  /** Every entry of the changelog (changelogData.ts). */
+  changelog: readonly ChangelogEntry[];
   language: Language;
   /** Only entries after this version up to `current`; `null` shows all. */
   since: string | null;
@@ -28,20 +25,20 @@ interface Props {
 }
 
 /** "What's New": versions newest first, items as a list, in the UI language. */
-export function WhatsNewDialog({ language, since, current, onClose }: Props) {
+export function WhatsNewDialog({ changelog, language, since, current, onClose }: Props) {
   const t = useT();
   const body = useRef<HTMLElement>(null);
   const [showAll, setShowAll] = useState(since === null || current === null);
   const entries = useMemo(
     () =>
       showAll || since === null || current === null
-        ? CHANGELOG
-        : entriesSince(CHANGELOG, since, current),
-    [showAll, since, current],
+        ? changelog
+        : entriesSince(changelog, since, current),
+    [changelog, showAll, since, current],
   );
   // `null` while nobody has toggled anything: the default applies and follows "All changes" too.
   const [openState, setOpenState] = useState<ReadonlySet<string> | null>(null);
-  const defaultOpen = initiallyOpenVersion(CHANGELOG, entries);
+  const defaultOpen = initiallyOpenVersion(changelog, entries);
   const collapsible = defaultOpen !== null;
   const open: ReadonlySet<string> = openState ?? new Set(defaultOpen === null ? [] : [defaultOpen]);
   const idBase = useId();

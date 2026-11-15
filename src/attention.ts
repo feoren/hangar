@@ -46,6 +46,10 @@ export const systemClock: Clock = {
 export class AttentionTracker {
   private current: AttentionState = "idle";
   private why: AttentionReason | null = null;
+  /** Why the newest change happened; see `endedBy`. */
+  private ending: AttentionReason | null = null;
+  /** The user interrupted this working phase (Ctrl+C, Escape): its quiet end is no "quiet". */
+  private interrupting = false;
   private burstBytes = 0;
   private lastOutput = 0;
   private ignoreUntil = Number.NEGATIVE_INFINITY;
@@ -70,6 +74,15 @@ export class AttentionTracker {
     return this.why;
   }
 
+  /**
+   * Why the program stopped working, read inside the change listener: "quiet", "bell" or "exit"
+   * also while the session is watched, where the state only turns "idle" and carries no reason.
+   * `null` when the user stopped or interrupted it, on a reset and while working.
+   */
+  get endedBy(): AttentionReason | null {
+    return this.ending;
+  }
+
   output(bytes: number): void {
     // An open notice stays until the user looks.
     if (!this.config.enabled || this.current === "attention" || this.stopping) return;
@@ -77,7 +90,11 @@ export class AttentionTracker {
     if (now < this.ignoreUntil) return;
     this.burstBytes += bytes;
     this.lastOutput = now;
-    if (this.burstBytes >= ATTENTION_TIMING.minBurstBytes) this.set("working");
+    if (this.burstBytes >= ATTENTION_TIMING.minBurstBytes) {
+      if (this.current !== "working") this.interrupting = false;
+      this.ending = null;
+      this.set("working");
+    }
     this.arm(this.config.quietMs);
   }
 
@@ -97,6 +114,14 @@ export class AttentionTracker {
     this.seen();
   }
 
+  /**
+   * The user sent Ctrl+C or Escape while the program works: the quiet that follows ends the phase
+   * with `endedBy` null, so nothing takes the interruption for finished work (messageQueue.ts).
+   */
+  interrupted(): void {
+    if (this.current === "working") this.interrupting = true;
+  }
+
   /** The session was shown. */
   seen(): void {
     if (this.current === "attention") this.set("idle");
@@ -111,6 +136,7 @@ export class AttentionTracker {
   exited(): void {
     if (this.stopping) {
       this.stopping = false;
+      this.ending = null;
       this.set("idle");
       return;
     }
@@ -124,6 +150,7 @@ export class AttentionTracker {
   stopRequested(): void {
     this.stopping = true;
     this.cancel();
+    this.ending = null;
     this.set("idle");
   }
 
@@ -137,6 +164,8 @@ export class AttentionTracker {
     this.cancel();
     this.stopping = false;
     this.ignoreUntil = Number.NEGATIVE_INFINITY;
+    this.ending = null;
+    this.interrupting = false;
     this.set("idle");
   }
 
@@ -144,6 +173,7 @@ export class AttentionTracker {
     this.config = config;
     if (!config.enabled) {
       this.cancel();
+      this.ending = null;
       this.set("idle");
     }
   }
@@ -155,6 +185,7 @@ export class AttentionTracker {
   private alert(reason: AttentionReason): void {
     if (!this.config.enabled) return;
     this.cancel();
+    this.ending = reason;
     if (this.isWatched()) this.set("idle");
     else this.set("attention", reason);
   }
@@ -179,6 +210,8 @@ export class AttentionTracker {
     }
     this.burstBytes = 0;
     if (this.current !== "working") return;
+    this.ending = this.interrupting ? null : "quiet";
+    this.interrupting = false;
     if (this.isWatched()) this.set("idle");
     else this.set("attention", "quiet");
   }

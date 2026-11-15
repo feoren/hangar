@@ -5,9 +5,12 @@ import {
   commitMode,
   diffKey,
   discardDeletes,
+  GIT_MAX_PATHS,
   lineComment,
   newLineNumbers,
+  pathBatches,
   stageAction,
+  stageAllBox,
   stageAllPaths,
   stageState,
 } from "./gitActions";
@@ -18,6 +21,47 @@ describe("stage all", () => {
     expect(stageAllPaths(files)).toEqual(["a", "b", "d"]);
     expect(commitMode([file("??", "new")])).toBe("none");
     expect(commitMode([file("??", "new"), file(" M", "a")])).toBe("stageAll");
+  });
+});
+
+describe("stageAllBox", () => {
+  it("is empty and stages everything, untracked files too, while nothing is staged", () => {
+    expect(stageAllBox([file(" M", "a"), file("??", "b")])).toEqual({
+      state: "unstaged",
+      action: "stage",
+      paths: ["a", "b"],
+    });
+  });
+
+  it("is mixed and stages only the rest while some changes are staged", () => {
+    expect(stageAllBox([file("M ", "a"), file("??", "dir/"), file("MM", "c")])).toEqual({
+      state: "partial",
+      action: "stage",
+      paths: ["dir/", "c"],
+    });
+    // One partly staged file alone is enough for the mixed look.
+    expect(stageAllBox([file("MM", "a")])?.state).toBe("partial");
+  });
+
+  it("is checked and unstages everything once all is staged", () => {
+    expect(stageAllBox([file("M ", "a"), file("A ", "b"), file("D ", "c")])).toEqual({
+      state: "staged",
+      action: "unstage",
+      paths: ["a", "b", "c"],
+    });
+  });
+
+  it("does not show without files", () => {
+    expect(stageAllBox([])).toBeNull();
+  });
+});
+
+describe("pathBatches", () => {
+  it("splits a long list into calls the backend accepts", () => {
+    expect(pathBatches(["a", "b", "c", "d", "e"], 2)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    expect(pathBatches([], 2)).toEqual([]);
+    const many = Array.from({ length: GIT_MAX_PATHS + 1 }, (_, index) => String(index));
+    expect(pathBatches(many).map((batch) => batch.length)).toEqual([GIT_MAX_PATHS, 1]);
   });
 });
 

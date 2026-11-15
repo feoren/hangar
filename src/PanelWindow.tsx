@@ -2,9 +2,10 @@
 // Files in a window of their own. The main window stays the single source of truth: it pushes the
 // active session's context (`panel-context`) and commands (`panel-command`); this window only
 // listens and asks through `panel_to_main` (panelBridge.ts). Language and theme come from
-// localStorage, which it shares with the main window.
+// localStorage, which it shares with the main window. It holds no window permissions: it keeps
+// itself on top, closes and ends itself through its own backend commands.
 
-import { listen } from "@tauri-apps/api/event";
+import { listen, TauriEvent } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -26,11 +27,13 @@ import {
   PANEL_CONTEXT,
   panelSessionIsAgent,
   panelSessionName,
+  panelSessionShell,
   parsePanelCommand,
   parsePanelContext,
   updateWindowPrefs,
   WINDOW_PREFS_KEY,
 } from "./panelBridge";
+import { insertPathText } from "./pathQuote";
 import { loadSettings } from "./settings";
 import { focusCycleStep, matchShortcut, nextFocusZone } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
@@ -182,16 +185,24 @@ export function PanelWindow() {
     }
   });
 
-  // Closing this window docks the panel back into the main window. The handler is awaited before
-  // Tauri destroys the window, so pending input is written first; `pagehide` gave no such
-  // guarantee. A failed save must not keep the window from closing.
+  // Closing this window docks the panel back into the main window. While this listener exists,
+  // Tauri does not close the window itself: pending input is written first (`pagehide` gave no
+  // such guarantee), then the window ends itself through its own command. Not `onCloseRequested`,
+  // which needs `core:window:allow-destroy`, a permission whose command takes any window's label.
+  // A failed save must not keep the window from closing.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let disposed = false;
     getCurrentWindow()
-      .onCloseRequested(async () => {
-        await flushNotes().catch(() => undefined);
-        if (!quitting.current) updateWindowPrefs({ detached: false });
+      .listen(TauriEvent.WINDOW_CLOSE_REQUESTED, () => {
+        void (async () => {
+          try {
+            await flushNotes().catch(() => undefined);
+            if (!quitting.current) updateWindowPrefs({ detached: false });
+          } finally {
+            await api.destroyPanelWindow().catch(() => undefined);
+          }
+        })();
       })
       .then((stop) => {
         if (disposed) stop();
@@ -280,9 +291,7 @@ export function PanelWindow() {
   };
 
   const dock = () => {
-    getCurrentWindow()
-      .close()
-      .catch(() => undefined);
+    api.closePanelWindow().catch(() => undefined);
   };
 
   const onChanged = (folder: NoteFolder) => {
@@ -299,10 +308,15 @@ export function PanelWindow() {
       .catch(() => undefined);
   };
 
-  const { activeId, activeKey, cwd, sessions, claims, activities } = context;
+  const { activeId, cwd, sessions, claims, activities } = context;
+  // Text from this window reaches the active session only: the backend refuses any other
+  // (`panel_to_main`, the session the main window handed this window).
   const sendTargets = useMemo(
-    () => sessions.filter((s) => s.running).map((s) => ({ id: s.id, title: s.title })),
-    [sessions],
+    () =>
+      sessions
+        .filter((s) => s.running && s.id === activeId)
+        .map((s) => ({ id: s.id, title: s.title })),
+    [sessions, activeId],
   );
   const overlapsById = useMemo(() => overlapsBySession(claims), [claims]);
   const teammatesById = useMemo(() => teammateOverlapsBySession(activities), [activities]);
@@ -360,7 +374,6 @@ export function PanelWindow() {
               }}
               cwd={cwd}
               sessionId={activeId}
-              sessionKey={activeKey}
               agent={
                 panelSessionIsAgent(sessions, activeId) &&
                 sessions.some((session) => session.id === activeId && session.running)
@@ -383,8 +396,11 @@ export function PanelWindow() {
               sessions={sessions}
               nameOf={nameOf}
               focusToken={filesFocusToken}
-              onMention={(text) => {
-                onSend(text, null);
+              onInsertPath={(item) => {
+                // The panel only ever shows the active session's tree, so that is the target.
+                if (cwd === null) return;
+                const text = insertPathText(item, cwd, panelSessionShell(sessions, activeId));
+                if (text !== "") onSend(text, activeId);
               }}
             />
           }

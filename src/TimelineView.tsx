@@ -11,6 +11,7 @@ import { ChevronIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import {
+  canRestore,
   concernsSession,
   parseRestoreOutcome,
   parseSnapshotList,
@@ -25,13 +26,11 @@ import { useClock } from "./useClock";
 interface Props {
   /** The active session; the parent remounts this view for another session. */
   sessionId: number;
-  /** Its workspace key, which names its snapshots. */
-  sessionKey: string;
   /** Changes when the list should be read again (attention state, "Refresh"). */
   reload: string;
   /** UI language, for relative times and dates. */
   language: string;
-  /** The session's agent is working: going back now mixes its next writes with the old state. */
+  /** The session's agent is working: going back waits until it is done. */
   working: boolean;
   /** Whether the list is being read, for the spinning refresh button. */
   onBusy: (busy: boolean) => void;
@@ -46,7 +45,11 @@ type DetailLoad =
   { kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: GitDiff };
 
 /** The last jump back, shown above the list until the next one. */
-type Notice = { kind: "restored" } | { kind: "alreadyThere" } | { kind: "error"; message: string };
+type Notice =
+  | { kind: "restored" }
+  | { kind: "alreadyThere" }
+  | { kind: "incomplete"; message: string }
+  | { kind: "error"; message: string };
 
 const MINUTE_MS = 60_000;
 
@@ -55,15 +58,7 @@ const MINUTE_MS = 60_000;
  * first, in the "Timeline" view of the changes panel. A click opens a step's changes; "Go back to
  * this state" asks, then makes the files match that snapshot after saving the current state.
  */
-export function TimelineView({
-  sessionId,
-  sessionKey,
-  reload,
-  language,
-  working,
-  onBusy,
-  onRestored,
-}: Props) {
+export function TimelineView({ sessionId, reload, language, working, onBusy, onRestored }: Props) {
   const t = useT();
   const now = useClock(MINUTE_MS);
   const [changed, setChanged] = useState(0);
@@ -81,7 +76,7 @@ export function TimelineView({
     let disposed = false;
     let stop: (() => void) | null = null;
     listen<unknown>(SNAPSHOTS_CHANGED, (event) => {
-      if (concernsSession(event.payload, sessionKey)) setChanged((value) => value + 1);
+      if (concernsSession(event.payload, sessionId)) setChanged((value) => value + 1);
     })
       .then((unlisten) => {
         if (disposed) unlisten();
@@ -93,7 +88,7 @@ export function TimelineView({
       disposed = true;
       stop?.();
     };
-  }, [sessionKey]);
+  }, [sessionId]);
 
   useEffect(() => {
     latest.current = key;
@@ -102,7 +97,7 @@ export function TimelineView({
       if (latest.current === key) setAnswer({ key, load });
     };
     api
-      .snapshotList(sessionId, sessionKey)
+      .snapshotList(sessionId)
       .then((value) => {
         const list = parseSnapshotList(value);
         settle(
@@ -114,7 +109,7 @@ export function TimelineView({
       });
     // `t` only changes with the language; a new language needs no new git call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, sessionKey, key]);
+  }, [sessionId, key]);
 
   const busy = answer?.key !== key || restoring;
   useEffect(() => {
@@ -133,7 +128,7 @@ export function TimelineView({
       setDetails((current) => new Map(current).set(number, detail));
     };
     api
-      .snapshotDiff(sessionId, sessionKey, number)
+      .snapshotDiff(sessionId, number)
       .then((value) => {
         const result = parseGitDiff(value);
         settle(
@@ -163,13 +158,15 @@ export function TimelineView({
     setRestoring(true);
     setNotice(null);
     api
-      .snapshotRestore(sessionId, sessionKey, entry.number)
+      .snapshotRestore(sessionId, entry.number)
       .then((value) => {
         const outcome = parseRestoreOutcome(value);
         setNotice(
           outcome === null
             ? { kind: "error", message: t("error.unknown") }
-            : { kind: outcome.kind },
+            : outcome.kind === "incomplete"
+              ? { kind: "incomplete", message: outcome.message }
+              : { kind: outcome.kind },
         );
       })
       .catch((e: unknown) => {
@@ -199,6 +196,7 @@ export function TimelineView({
   }
   const { list } = load;
   if (!list.isRepo) return <p className="changes-message">{t("changes.notRepo")}</p>;
+  const restorable = canRestore(list, working);
 
   return (
     <div className="changes-body">
@@ -221,11 +219,14 @@ export function TimelineView({
               age={commitAge(entry.createdAt, now, language)}
               date={commitDate(entry.createdAt, language)}
               restoring={restoring}
+              restorable={restorable}
               onToggle={() => {
                 toggle(entry.number);
               }}
               onRestore={() => {
                 setAsking(entry);
+                // The other sessions in the folder may have changed since the list was read.
+                setChanged((value) => value + 1);
               }}
             />
           ))}
@@ -233,7 +234,8 @@ export function TimelineView({
       )}
       {asking !== null && (
         <RestoreDialog
-          working={working}
+          others={list.others}
+          restorable={restorable}
           onCancel={() => {
             setAsking(null);
           }}
@@ -250,6 +252,8 @@ function skippedText(skipped: Skipped, t: Translate): string {
   switch (skipped.reason) {
     case "tooManyFiles":
       return t("timeline.skippedFiles", { limit: skipped.limit });
+    case "tooLarge":
+      return t("timeline.skippedLarge", { file: skipped.fileMib, total: skipped.totalMib });
     case "failed":
       return t("timeline.skippedFailed", { error: skipped.message });
   }
@@ -270,6 +274,12 @@ function NoticeLine({ notice }: { notice: Notice }) {
           {t("timeline.alreadyThere")}
         </p>
       );
+    case "incomplete":
+      return (
+        <p className="changes-hint error-text selectable" role="alert">
+          {t("timeline.restoreIncomplete", { error: notice.message })}
+        </p>
+      );
     case "error":
       return (
         <p className="changes-hint error-text selectable" role="alert">
@@ -286,6 +296,7 @@ function StepItem({
   age,
   date,
   restoring,
+  restorable,
   onToggle,
   onRestore,
 }: {
@@ -295,6 +306,8 @@ function StepItem({
   age: string;
   date: string;
   restoring: boolean;
+  /** No agent works in the folder; otherwise the button says why it waits. */
+  restorable: boolean;
   onToggle: () => void;
   onRestore: () => void;
 }) {
@@ -335,11 +348,12 @@ function StepItem({
           <button
             type="button"
             className="link-button timeline-restore"
-            disabled={restoring}
+            disabled={restoring || !restorable}
             onClick={onRestore}
           >
             {t("timeline.restore")}
           </button>
+          {!restorable && <p className="commit-note">{t("timeline.restoreBusy")}</p>}
           <StepDetail detail={detail} />
         </div>
       )}
@@ -372,11 +386,15 @@ function StepDetail({ detail }: { detail: DetailLoad | undefined }) {
 
 /** Says what going back does before anything is written. */
 function RestoreDialog({
-  working,
+  others,
+  restorable,
   onCancel,
   onConfirm,
 }: {
-  working: boolean;
+  /** Other sessions in the same work tree: their files go back too. */
+  others: number;
+  /** An agent started working since the button was pressed: the confirmation waits. */
+  restorable: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -385,12 +403,13 @@ function RestoreDialog({
     <Dialog labelledBy="timeline-restore-title" onClose={onCancel}>
       <h2 id="timeline-restore-title">{t("timeline.restoreTitle")}</h2>
       <p className="muted">{t("timeline.restoreBody")}</p>
-      {working && <p>{t("timeline.restoreWorking")}</p>}
+      {others > 0 && <p>{t("timeline.restoreOthers", { count: others })}</p>}
+      {!restorable && <p>{t("timeline.restoreBusy")}</p>}
       <div className="dialog-actions">
         <button type="button" className="secondary-button" data-autofocus onClick={onCancel}>
           {t("common.cancel")}
         </button>
-        <button type="button" className="primary-button" onClick={onConfirm}>
+        <button type="button" className="primary-button" disabled={!restorable} onClick={onConfirm}>
           {t("timeline.restoreConfirm")}
         </button>
       </div>

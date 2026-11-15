@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Notes (contract)
@@ -93,9 +93,10 @@ Capabilities:
   `allow-git-diff`, `allow-git-log`, `allow-git-commit-diff`, `allow-list-session-folder`,
   `allow-open-file-viewer`, `allow-panel-to-main`, `allow-set-panel-on-top`,
   `core:event:allow-listen` and `core:event:allow-unlisten` (listening only, never `allow-emit`
-  or `allow-emit-to`), `core:window:allow-close`, `core:window:allow-destroy` (the close handler
-  destroys the window once input is saved), `core:window:allow-set-focus`, never
-  `core:window:allow-set-always-on-top`, `clipboard-manager:allow-write-text` (copy;
+  or `allow-emit-to`), `allow-close-panel-window` and `allow-destroy-panel-window` (the close
+  handler ends the window once input is saved; both act on the calling window only), no
+  `core:window:*` permission at all (those commands take any window's label),
+  `clipboard-manager:allow-write-text` (copy;
   `navigator.clipboard` fails in WebView2). No session commands; text reaches a session only as
   a validated paste through the main window (`panel_to_main`). No
   claims, gate or team commands (the main window pushes what the tabs show), no profiles,
@@ -137,8 +138,20 @@ Capabilities:
   last runs at once. In that case, and when the text holds bidi or zero-width characters
   (`hasInvisible`, line breaks, tabs and emoji joiners ignored), the main window shows an inline
   question with Cancel (focused, also Escape) and "Send anyway"; nothing is written before the
-  answer, and nothing at all if the session closes meanwhile. Ctrl+V
-  and Shift+Insert stay unchanged. The editor marks invisible characters with CodeMirror's
+  answer, and nothing at all if the session closes meanwhile. Since the security audit of
+  2026-11-15, Ctrl+V and Shift+Insert ask the same question (`src/clipboardPaste.ts`): a web page
+  can put a hidden line break and a command into the clipboard (pastejacking), and without
+  bracketed paste that line runs as it arrives. Windows Terminal warns before a multi-line paste
+  too. The setting "Warn before pasting several lines" (`warnMultilinePaste`, on by default)
+  turns the question off for the clipboard; text without anything to warn about still pastes
+  synchronously. After a yes, the warning is computed again with the current mode
+  (`askBeforePaste`): a program that turned bracketed paste off while the question was open gets
+  a second question with the new warning, and the text is dropped if the mode changes again.
+  Residual risk: the mode is xterm's view (`term.modes.bracketedPasteMode`), set when xterm
+  parses the program's DECSET 2004 output. A program that turns the mode off in output still in
+  flight (written by the PTY, not yet parsed by xterm) can receive the paste unbracketed; no
+  terminal can close that gap, because the program can change the mode at any time after the
+  paste was sent. The editor marks invisible characters with CodeMirror's
   `highlightSpecialChars`, extended by the bidi embeddings, U+2068 and U+2060 to U+2064.
 - While detached, the main window shows no right panel (the terminal gets the space); the
   sidebar buttons, the menu entries and the shortcuts for notes, changes and files bring the
@@ -205,9 +218,14 @@ type SharedStatus =
   `git check-ignore` of `vault.json`; `unreadable`: note files that do not open here.
 - The notes window has the same commands (`capabilities/notes.json`).
 
-UI: "This project" (and another opened project) shows two groups, **Shared** (lock icon, "in the
-repository", its own "+") and **Only on this computer** (today's notes, its own "+"). The Shared
-group shows one line per state with at most one action; quiet hints below say what is not
-committed, ignored or unreadable. "All" and search show shared notes with a lock icon. A note's
+UI: where the shown project (the opened one, else the active session's) can have shared notes, a
+segmented switch **Private | Shared** with counts sits above the list (`src/notesSide.ts`, choice in
+`localStorage` `hangar.notesSide`). Private lists the notes on this computer with the scope chips;
+Shared lists the project's shared notes and shows one line per state with at most one action;
+quiet hints below say what is not committed, ignored or unreadable. Search lists the hits of the
+chosen side. The toolbar "+" and the quick note create on the chosen side (on a locked or off
+Shared side they go to the private notes); captured terminal output always goes to the private
+notes. Without the switch (no project, no Git repository) search shows shared hits with a lock
+icon. A note's
 More menu offers "Move to shared notes" or "Move to this computer". Setup is one dialog: the code,
 Copy, Save as file, "I saved the code", and "Turn on" only after that box is ticked.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canRestore,
   concernsSession,
   parseRestoreOutcome,
   parseSnapshotList,
@@ -39,34 +40,53 @@ describe("parseSnapshotList", () => {
         null,
       ],
       skipped: { reason: "tooManyFiles", limit: 2000 },
+      others: 1,
+      busy: true,
     });
     expect(list).toEqual({
       isRepo: true,
       snapshots: [entry({ number: 2, kind: "undo", prompt: "" }), entry()],
       skipped: { reason: "tooManyFiles", limit: 2000 },
+      others: 1,
+      busy: true,
     });
   });
 
-  it("keeps a failed step's message and drops an unknown reason", () => {
+  it("keeps a failed or too large step and drops an unknown reason", () => {
+    const base = { isRepo: true, snapshots: [], others: 0, busy: false };
     expect(
       parseSnapshotList({
-        isRepo: true,
-        snapshots: [],
+        ...base,
         skipped: { reason: "failed", message: "git did not finish in time" },
       })?.skipped,
     ).toEqual({ reason: "failed", message: "git did not finish in time" });
     expect(
-      parseSnapshotList({ isRepo: true, snapshots: [], skipped: { reason: "other" } })?.skipped,
+      parseSnapshotList({ ...base, skipped: { reason: "tooLarge", fileMib: 50, totalMib: 200 } })
+        ?.skipped,
+    ).toEqual({ reason: "tooLarge", fileMib: 50, totalMib: 200 });
+    expect(
+      parseSnapshotList({ ...base, skipped: { reason: "tooLarge", fileMib: 50 } })?.skipped,
     ).toBeNull();
-    expect(parseSnapshotList({ isRepo: false, snapshots: [], skipped: null })).toEqual({
+    expect(parseSnapshotList({ ...base, skipped: { reason: "other" } })?.skipped).toBeNull();
+    expect(parseSnapshotList({ ...base, isRepo: false, skipped: null })).toEqual({
+      ...base,
       isRepo: false,
-      snapshots: [],
       skipped: null,
     });
   });
 
   it("refuses answers of the wrong shape", () => {
-    for (const bad of [null, [], "x", { isRepo: true }, { isRepo: "yes", snapshots: [] }]) {
+    const good = { isRepo: true, snapshots: [], skipped: null, others: 0, busy: false };
+    for (const bad of [
+      null,
+      [],
+      "x",
+      { isRepo: true },
+      { ...good, isRepo: "yes" },
+      { ...good, others: -1 },
+      { ...good, others: undefined },
+      { ...good, busy: "no" },
+    ]) {
       expect(parseSnapshotList(bad)).toBeNull();
     }
   });
@@ -80,10 +100,22 @@ describe("parseRestoreOutcome", () => {
       undo: 4,
     });
     expect(parseRestoreOutcome({ kind: "alreadyThere" })).toEqual({ kind: "alreadyThere" });
+    expect(parseRestoreOutcome({ kind: "incomplete", undo: 5, message: "denied" })).toEqual({
+      kind: "incomplete",
+      undo: 5,
+      message: "denied",
+    });
   });
 
   it("refuses anything else", () => {
-    for (const bad of [null, {}, { kind: "restored" }, { kind: "restored", files: 1, undo: -1 }]) {
+    for (const bad of [
+      null,
+      {},
+      { kind: "restored" },
+      { kind: "restored", files: 1, undo: -1 },
+      { kind: "incomplete", undo: 5 },
+      { kind: "incomplete", message: "denied" },
+    ]) {
       expect(parseRestoreOutcome(bad)).toBeNull();
     }
   });
@@ -116,11 +148,18 @@ describe("snapshotTitle", () => {
 });
 
 describe("concernsSession", () => {
-  it("matches the session key in lower case", () => {
-    const key = "0F8FAD5B-D9CB-469F-A165-70867728950E";
-    expect(concernsSession(key.toLowerCase(), key)).toBe(true);
-    expect(concernsSession("11111111-2222-3333-4444-555555555555", key)).toBe(false);
-    expect(concernsSession(key.toLowerCase(), null)).toBe(false);
-    expect(concernsSession(42, key)).toBe(false);
+  it("matches the session ID", () => {
+    expect(concernsSession(7, 7)).toBe(true);
+    expect(concernsSession(8, 7)).toBe(false);
+    expect(concernsSession("7", 7)).toBe(false);
+  });
+});
+
+describe("canRestore", () => {
+  const list = { isRepo: true, snapshots: [], skipped: null, others: 0, busy: false };
+  it("is off while this session or another one in the work tree works", () => {
+    expect(canRestore(list, false)).toBe(true);
+    expect(canRestore(list, true)).toBe(false);
+    expect(canRestore({ ...list, busy: true }, false)).toBe(false);
   });
 });

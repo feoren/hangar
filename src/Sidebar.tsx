@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import type { Profile } from "./api";
+import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -9,12 +9,15 @@ import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
+import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import { peekNotes } from "./peek";
+import type { PeekContent } from "./peekStyle";
 import { useT } from "./i18n";
 import {
   AlertIcon,
   BranchIcon,
   ChevronIcon,
+  ClockIcon,
   CloseIcon,
   DownloadIcon,
   EditIcon,
@@ -44,9 +47,8 @@ import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
-import { markerColorText, SessionMarker } from "./SessionMarker";
+import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
-import { shortBranch } from "./worktree";
 import type { WorkspaceTemplate } from "./templates";
 import { TemplatesMenu } from "./TemplatesMenu";
 import { revealInvisible } from "./invisible";
@@ -92,9 +94,15 @@ import { pillProgress, updatePill, updatePillHint } from "./updatePill";
 import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
-import { ContextMeter } from "./ContextMeter";
-import { resourceText } from "./resources";
+import { resourceParts } from "./resources";
+import { contextHint } from "./contextUsage";
+import { loadSummary, planRow, rowAttributes, type RowLayout, type RowPlan } from "./rowLayout";
+import { SessionRowBody } from "./SessionRow";
+import { useSessionContext } from "./useContextUsage";
+import { CompactAction } from "./CompactAction";
+import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionResources } from "./useSessionResources";
+import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
 import { displayVersion } from "./version";
@@ -217,6 +225,8 @@ interface Props {
   onRename: (id: number, title: string) => void;
   /** Right click or context menu key on a session: the session menu at this point. */
   onSessionMenu: (id: number, x: number, y: number) => void;
+  /** The compact button of a row: types the program's compact command into that session. */
+  onAgentCommand: (id: number, command: AgentCommand, at: number) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
   drag: { id: number; line: DropLine | null } | null;
   /** Mouse down on a session row: may become a drag (useSessionDrag). */
@@ -247,7 +257,30 @@ interface Props {
    * The last lines of a session's terminal for the peek beside its row; `null` when the session
    * has none to show, for instance because it is on screen.
    */
-  peekLines: (id: number) => readonly string[] | null;
+  peekLines: (id: number) => PeekContent | null;
+  /** Queued message per session id (messageQueue.ts): a quiet clock on the row, the text in the peek. */
+  queued: ReadonlyMap<number, QueuedMessage>;
+  /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
+  stalls: ReadonlyMap<number, number>;
+  /**
+   * "Show last lines" from the session menu: the peek of that row opens at once; a new `token`
+   * opens it again. If the row is not in the list (a folded group), the session is shown instead.
+   */
+  peekRequest: { id: number; token: number } | null;
+  /** How a session row lays out its facts (rowLayout.ts). */
+  rowLayout: RowLayout;
+}
+
+/** The peek's line about a queued message: when it goes out, then the text. */
+function queuedNote(
+  entry: QueuedMessage | undefined,
+  asks: boolean,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (entry === undefined) return null;
+  const text = queuedPreview(entry.text);
+  if (asks || entry.waiting === true) return t("queue.noteAsks", { text });
+  return entry.armed ? t("queue.note", { text }) : t("queue.noteRestored", { text });
 }
 
 export function Sidebar(props: Props) {
@@ -320,8 +353,11 @@ export function Sidebar(props: Props) {
   const peekOnScreen =
     peekSession !== undefined &&
     (peekSession.id === activeId || props.placements.has(peekSession.id));
-  /** CPU and memory of the peeked session, for its peek; nothing while none is peeked. */
+  /** The peeked session's numbers, for its outlier note; the row itself shows CPU, RAM and GPU. */
   const peekResources = useSessionResources(peekSession?.id ?? -1);
+  const peekContext = useSessionContext(peekSession?.id ?? -1);
+  // Once per layout, not per row and render.
+  const plan = useMemo(() => planRow(props.rowLayout), [props.rowLayout]);
   /** Mouse handlers of a session row for the peek. */
   const peekHandlers = (id: number): PeekEvents => ({
     onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
@@ -330,6 +366,20 @@ export function Sidebar(props: Props) {
     onMouseLeave: peekState.leave,
     onPointerDownCapture: peekState.leave,
   });
+
+  // "Show last lines" from the session menu, once per request.
+  const peekRequest = props.peekRequest;
+  const { show: showPeek } = peekState;
+  const { onActivate } = props;
+  useEffect(() => {
+    if (peekRequest === null) return;
+    const row = root.current?.querySelector<HTMLElement>(
+      `[data-session-row="${String(peekRequest.id)}"]`,
+    );
+    if (row == null || !showPeek(peekRequest.id, row)) onActivate(peekRequest.id);
+    // Only a new request opens it; a changed callback does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peekRequest]);
 
   useEffect(() => {
     if (!refocusToggle.current) return;
@@ -362,6 +412,7 @@ export function Sidebar(props: Props) {
         t,
         props.language,
         props.reasons.get(session.id) ?? null,
+        props.stalls.get(session.id) ?? null,
       ),
       // A worktree's folder name repeats its branch; the repository's name says more.
       detail: detailLine(
@@ -489,9 +540,27 @@ export function Sidebar(props: Props) {
           overlap: props.overlaps.get(peekSession.id),
           gateOff: gateHint(peekSession.gate, t),
           exit: exitDetail(peekSession, t),
-          resources:
-            peekResources === undefined ? null : resourceText(peekResources, props.language, t),
+          queued: queuedNote(props.queued.get(peekSession.id), chipOf(peekSession) === "asks", t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
+          // Load and context the row leaves out are spelled out here.
+          ...(plan.peekLoad
+            ? {
+                load:
+                  peekResources === undefined || peekSession.status === "exited"
+                    ? null
+                    : loadSummary(resourceParts(peekResources, props.language), {
+                        cpu: t("system.cpu"),
+                        memory: t("system.memory"),
+                        gpu: t("system.gpu"),
+                      }),
+              }
+            : {}),
+          ...(plan.peekContext
+            ? {
+                context:
+                  peekContext === undefined ? null : contextHint(peekContext, props.language, t),
+              }
+            : {}),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
           cwd: peekSession.cwd,
@@ -667,6 +736,7 @@ export function Sidebar(props: Props) {
                       name,
                       status,
                       props.overlaps.get(session.id),
+                      props.queued.has(session.id) ? t("queue.marker") : "",
                       placeText,
                       markerColorText(session.marker, t),
                     ]
@@ -865,6 +935,7 @@ export function Sidebar(props: Props) {
                   onRestart={onRestart}
                   onRenameStart={onRename}
                   onRowKey={onRowKey}
+                  plan={plan}
                 />
                 {/* The tree belongs to the row above it; as its own item, the row's layout stays.
                     Below a middle row, the program group's guide line runs on past it. */}
@@ -917,7 +988,7 @@ export function Sidebar(props: Props) {
 
       {/* One group per program or project folder, top to bottom; together they take the free
           height and scroll. */}
-      <div className="session-groups">
+      <div className="session-groups" {...rowAttributes(plan)}>
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul
           className="session-list"
@@ -1204,7 +1275,7 @@ function GroupSection({
  * sessions it hides and whether the active session is among them. Right click or the context
  * menu key on the header offers the other grouping.
  */
-function AgentGroupSection({
+export function AgentGroupSection({
   groupKey,
   name,
   look,
@@ -1474,6 +1545,8 @@ interface ItemProps extends Props {
   /** Where the session is shown in a split layout; `null` in single view or when hidden. */
   placement: PanePlacement | null;
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
+  /** The row layout, made ready once for every row (rowLayout.ts planRow). */
+  plan: RowPlan;
 }
 
 function SessionItem({
@@ -1506,23 +1579,39 @@ function SessionItem({
   devServers,
   onOpenDevServer,
   language,
+  queued: queuedMessages,
+  profiles,
+  reasons,
+  onAgentCommand,
+  plan,
+  badgeFor,
 }: ItemProps) {
   const t = useT();
+  // Read here rather than in the context line: the ring and the small bars show it too. Only this
+  // row re-renders when this session's numbers change.
+  const context = useSessionContext(session.id);
   const exited = session.status === "exited";
   const waiting = state === "attention";
   const line = lines.status;
   const where = lines.detail;
-  // In a project group the header names the folder: the row leads with the program instead.
+  // In a project group the header names the folder: the row's title leads with the program
+  // instead. The second line names the folder in every row, so rows read alike.
   const inProject = badge !== null;
   const name = inProject ? projectRowName(label, session.title) : (label?.primary ?? session.title);
-  const place = inProject ? null : detailPlace(label, where.folder);
+  const place = detailPlace(label, where.folder);
+  // A team session's worktree branch, with its short name on screen.
+  const teamBranch =
+    session.worktree && isTeamSession(session) ? (where.branch ?? session.worktree.branch) : null;
   const overlap = overlaps.get(session.id);
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
-  // Only while the setting is on and the window visible; the peek names the numbers, the row
-  // shows a mark for an outlier only.
+  const queued = queuedMessages.has(session.id);
+  // Only while the setting is on and the window visible; the third line shows the numbers, the
+  // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
   const outlier = resources?.outlier === true ? t("session.outlier") : null;
+  const usage = resources === undefined || exited ? null : resourceParts(resources, language);
+  const gpuColumn = useGpuColumn();
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
@@ -1593,104 +1682,83 @@ function SessionItem({
             openSessionMenu(event, session.id, onSessionMenu);
           }}
         >
-          <span className="session-text">
-            <span className="session-title-row">
-              {badge !== null && <Badge look={badge} />}
-              <SessionMarker marker={session.marker} tooltip={false} />
-              <span className="session-title">{name}</span>
-              {overlap !== undefined && (
-                <span className="session-overlap">
-                  <OverlapIcon size={12} />
-                  <span className="sr-only">{overlap}</span>
-                </span>
-              )}
-              {outlier !== null && (
-                <span className="session-outlier">
-                  <GaugeIcon size={12} />
-                  <span className="sr-only">{outlier}</span>
-                </span>
-              )}
-              {/* Rare and lasting (no endpoint, unusable data path): visible, but quiet. */}
-              {gateOff !== null && (
-                <span className="session-gate-off">
-                  <AlertIcon size={12} />
-                  <span className="sr-only">{gateOff}</span>
-                </span>
-              )}
-              {/* Right-aligned at the end of the title line, so the two lines below keep the
-                  full width; the title ellipsizes first. */}
-              <span className="session-title-end">
-                {session.worktree && <RepoTeammates sessionId={session.id} />}
-                {/* A quiet sign that a dev server runs; the globe in the actions opens it. */}
-                {devServer !== undefined && (
-                  <span className="session-dev-server" aria-hidden="true">
-                    <GlobeIcon size={12} />
-                  </span>
-                )}
-                {placement !== null && <LayoutGlyph placement={placement} />}
-                {chip !== null && <StatusChip kind={chip} />}
-              </span>
-            </span>
-            {/* The program leads its status ("Claude Code is working"); the state's shape sits in
-                the chip above, so the icon replaces the former status dot. */}
-            <span className="session-meta">
-              <span className="state-dot" aria-hidden="true" />
-              {/* Only the sentence ellipsizes; the duration after it stays whole. */}
-              <span className={waiting ? "session-status attention-text" : "session-status"}>
-                {line.sentence}
-              </span>
-              {line.duration !== null && (
-                <span className="session-status-duration">
-                  <span aria-hidden="true">·</span>
-                  {line.duration}
-                </span>
-              )}
-            </span>
-            <span className="session-detail">
-              {place !== null && <span className="session-path">{place}</span>}
-              {session.worktree && isTeamSession(session) ? (
-                <span className="session-branch worktree">
-                  <span aria-hidden="true">·</span>
-                  <TeamIcon size={11} />
-                  <span className="sr-only">
-                    {t("worktree.sessionHint", {
-                      branch: revealInvisible(where.branch ?? session.worktree.branch),
-                    })}
-                  </span>
-                  {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
-                  <span className="session-branch-name" aria-hidden="true">
-                    <Revealed text={shortBranch(where.branch ?? session.worktree.branch)} />
-                  </span>
-                </span>
-              ) : (
-                where.branch !== null && (
-                  <span className="session-branch">
-                    <span aria-hidden="true">·</span>
-                    <BranchIcon size={11} />
-                    <span className="sr-only">
-                      {t("session.branch", { branch: revealInvisible(where.branch) })}
+          <SessionRowBody
+            plan={plan}
+            name={name}
+            badge={badge}
+            program={badgeFor(session.profileId)}
+            marker={session.marker}
+            line={line}
+            waiting={waiting}
+            chip={chip}
+            place={place}
+            branch={teamBranch ?? where.branch}
+            team={teamBranch !== null}
+            usage={usage}
+            gpuColumn={gpuColumn}
+            runtime={where.runtime}
+            context={context}
+            language={language}
+            signs={
+              (gateOff !== null ||
+                overlap !== undefined ||
+                outlier !== null ||
+                queued ||
+                placement !== null ||
+                devServer !== undefined ||
+                session.worktree !== undefined) && (
+                <span className="session-signs">
+                  {/* Problems first: no state reports (rare, lasting), then work overlapping
+                      another session's files, then a load outlier; after them where it shows,
+                      a running dev server and the teammates in the same repository. */}
+                  {gateOff !== null && (
+                    <span className="session-gate-off">
+                      <AlertIcon size={12} />
+                      <span className="sr-only">{gateOff}</span>
                     </span>
-                    <span className="session-branch-name" aria-hidden="true">
-                      <Revealed text={where.branch} />
+                  )}
+                  {overlap !== undefined && (
+                    <span className="session-overlap">
+                      <OverlapIcon size={12} />
+                      <span className="sr-only">{overlap}</span>
                     </span>
-                  </span>
-                )
-              )}
-              {where.runtime !== null && (
-                <span className="session-runtime">
-                  <span aria-hidden="true">·</span>
-                  <span className="sr-only">
-                    {t("session.runtime", { duration: where.runtime })}
-                  </span>
-                  <span aria-hidden="true">{where.runtime}</span>
+                  )}
+                  {outlier !== null && (
+                    <span className="session-outlier">
+                      <GaugeIcon size={12} />
+                      <span className="sr-only">{outlier}</span>
+                    </span>
+                  )}
+                  {/* A queued message: a quiet clock, the text is in the peek. */}
+                  {queued && (
+                    <span className="session-queued">
+                      <ClockIcon size={12} />
+                      <span className="sr-only">{t("queue.marker")}</span>
+                    </span>
+                  )}
+                  {placement !== null && <LayoutGlyph placement={placement} />}
+                  {/* A quiet sign that a dev server runs; the globe in the actions opens it. */}
+                  {devServer !== undefined && (
+                    <span className="session-dev-server" aria-hidden="true">
+                      <GlobeIcon size={12} />
+                    </span>
+                  )}
+                  {session.worktree && <RepoTeammates sessionId={session.id} />}
                 </span>
-              )}
-              <ContextMeter sessionId={session.id} language={language} />
-            </span>
-          </span>
+              )
+            }
+          />
         </button>
       )}
       <div className="session-actions">
+        {!editing && (
+          <CompactAction
+            sessionId={session.id}
+            commands={sessionCommands(session, profiles)}
+            busy={commandBusy(state, reasons.get(session.id) ?? null)}
+            onRun={onAgentCommand}
+          />
+        )}
         {openDevServer !== null && !editing && (
           <IconButton
             label={openDevServer}

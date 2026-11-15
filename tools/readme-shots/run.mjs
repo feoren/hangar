@@ -142,12 +142,18 @@ const SCENES = [
     ],
   },
   {
-    // The panel shows either the list or one note; the list is what tells shared notes apart.
+    // The panel opens on the private notes; the Shared side shows the notes kept in the repository.
     name: "notes",
     file: "hangar-notes",
     maxBytes: 300 * KB,
     layout: { snapLayout: "single", sideOpen: true, sideTab: "notes" },
-    steps: [{ ready: shows(".notes", "Release checklist") }],
+    steps: [
+      { ready: shows(".notes-sides .segment", "Shared") },
+      {
+        run: click(".notes-sides .segment", "Shared"),
+        ready: shows(".notes", "Release checklist"),
+      },
+    ],
   },
   {
     name: "settings",

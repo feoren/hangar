@@ -25,6 +25,7 @@ import {
   parseExportResult,
   TRAY_QUIT,
   parsePathIndex,
+  type AgentCommand,
   type NoteFolder,
   type Profile,
   type SessionInfo,
@@ -46,7 +47,14 @@ import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
 import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths, parseBranches } from "./gitBranches";
-import { decideWhatsNew, loadLastSeen, saveLastSeen } from "./changelog";
+import {
+  decideWhatsNew,
+  loadLastSeen,
+  saveLastSeen,
+  whatsNewNeedsEntries,
+  type ChangelogEntry,
+} from "./changelog";
+import { loadChangelog } from "./changelogData";
 import { pasteFromApp, type PasteWarning } from "./appPaste";
 import { agentIcon } from "./agentIcons";
 import { Badge } from "./Badge";
@@ -55,13 +63,12 @@ import { BroadcastDialog } from "./BroadcastDialog";
 import { writeClipboard } from "./clipboard";
 import { Dialog } from "./Dialog";
 import {
+  EMPTY_FOLDERS,
   folderName,
   forgetFolder,
-  loadFolderPrefs,
   moveFavorite,
   recordRecent,
   samePath,
-  saveFolderPrefs,
   toggleFavorite,
   type FolderPrefs,
 } from "./folders";
@@ -76,15 +83,34 @@ import { formatShortTime, statusText } from "./format";
 import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon, TemplateIcon } from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
+import { LinkAddress } from "./LinkAddress";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
-import { sessionMenuEntries, type SessionAction } from "./sessionMenu";
-import { usableSnippets, snippetLabel, type Snippet } from "./snippets";
+import { queueOffer, sessionMenuEntries, stallOffer, type SessionAction } from "./sessionMenu";
+import { canExportReport, reportLabels, utcOffsetMinutes } from "./sessionReport";
+import {
+  asksQuestion,
+  awaitsAnswer,
+  commandBusy,
+  commandMenuEntries,
+  compactRepeated,
+  sendCommand,
+  sessionCommands,
+} from "./agentCommands";
+import { AgentCommandConfirm } from "./AgentCommandConfirm";
+import {
+  newSnippetId,
+  usableSnippets,
+  snippetLabel,
+  snippetTextFromSelection,
+  type Snippet,
+} from "./snippets";
+import { SaveSnippetDialog } from "./SaveSnippetDialog";
 import { dropLine } from "./sessionDrag";
 import { groupedOrder, groupPosition, sessionGroupKey } from "./sessionGroups";
 import { SnapBar } from "./SnapBar";
-import { DEFAULT_RATIOS, LAYOUT_IDS, LAYOUT_NAMES, type SnapTarget } from "./snapLayouts";
-import { loadLastProgram, pickProgram, saveLastProgram } from "./launch";
+import { LAYOUT_IDS, LAYOUT_NAMES, type Ratios, type SnapTarget } from "./snapLayouts";
+import { pickProgram } from "./launch";
 import {
   clampFontSize,
   clampNotesWidth,
@@ -128,15 +154,39 @@ import {
   type SendTarget,
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
-import { dropText, shellKind } from "./pathQuote";
+import { dropText, insertPathText, shellKind, unsafeDropPath, type TreePath } from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
-import { setResourcesEnabled } from "./useSessionResources";
+import {
+  isPowerSaving,
+  onPowerSavingChange,
+  setPowerSavingEnabled,
+  startPowerWatch,
+} from "./usePower";
+import { pollInterval } from "./power";
+import { observeResources, setResourcesEnabled } from "./useSessionResources";
+import {
+  discardMessage,
+  EMPTY_QUEUE,
+  guardedEnd,
+  phaseEnded,
+  phaseEnd,
+  saveMessage,
+  queueMessage,
+  restoredQueue,
+  storedQueue,
+  workStarted,
+  type MessageQueue,
+  type QueuedMessage,
+} from "./messageQueue";
+import { looksLikeQuestion } from "./promptGuard";
+import { QueueDialog } from "./QueueDialog";
+import { StallMonitor, stallThresholdMs, wallClock } from "./stall";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
 import {
-  changedFileCount,
+  doneFileCount,
   DONE_NOTICE_MS,
   finishedWork,
   offersDoneNotice,
@@ -155,11 +205,11 @@ import {
   type UpdateOutcome,
 } from "./programUpdates";
 import type { UpdateActions } from "./ProgramUpdateOffer";
+import { startOptions } from "./startOptions";
 import { resolveStartTarget, runningProjects, startPlaces, worktreeChance } from "./startTarget";
 import {
+  DEFAULT_START_MODE,
   effectiveMode,
-  loadStartMode,
-  saveStartMode,
   sessionMode,
   startModeFor,
   type StartMode,
@@ -184,10 +234,30 @@ import {
   type ExportFormat,
 } from "./sessionExport";
 import {
+  legacyMainPrefs,
+  loadMainPrefs,
+  loadProtectedSettings,
+  loadQueuedMessages,
+  loadSecuritySwitches,
+  loadStoredTemplates,
+  saveMainPrefs,
+  saveProtectedSettings,
+  saveQueuedMessages,
+  saveStoredTemplates,
+  type MainPrefs,
+} from "./mainStore";
+import {
   gateActive,
   hasStoredSettings,
+  legacyProtected,
+  legacySwitches,
   loadSettings,
+  noticesOf,
+  protectedOf,
+  readStoredSettingsText,
   saveSettings,
+  switchesOf,
+  type SecuritySwitches,
   type Settings,
 } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
@@ -204,17 +274,19 @@ import {
   type Shortcut,
 } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
-import { useSidebarMotion } from "./sidebarMotion";
+import { useSidebarMotion, useWindowResizing } from "./sidebarMotion";
 import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
+import { openLink } from "./terminalLinkOpen";
 import { snapshotPrompt } from "./timeline";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
+import { osc8DecisionOf } from "./termSafety";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
-import { ratiosFor } from "./paneRatios";
+import { ratiosFor, sameRatios, SUB_AGENT_LAYOUT, subAgentRatios } from "./paneRatios";
 import type { PanePlacement } from "./paneGlyph";
 import {
   isDue,
@@ -279,10 +351,15 @@ import { GateCard, GateRuleNote } from "./GateCard";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
-import { CHANGELOG, WhatsNewDialog } from "./WhatsNewDialog";
+import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ChangesPanel } from "./ChangesPanel";
 import { COMMIT_PAGE, parseGitLog, type ChangesView, type CommitFocus } from "./gitHistory";
 import { OverviewDialog, type OverviewTile } from "./OverviewDialog";
+import { WorktreeCleanupDialog } from "./WorktreeCleanupDialog";
+import { cleanupFolders } from "./worktreeCleanup";
+import { ProjectOverview } from "./ProjectOverview";
+import { DailyReviewDialog } from "./DailyReviewDialog";
+import { PhaseRecorder, type WorkPhase } from "./dailyReview";
 import { tailLines } from "./overview";
 import { PEEK_LINES } from "./peek";
 import { edgeClass, rowEdge, runsAgent, sessionChip } from "./sessionChip";
@@ -290,8 +367,8 @@ import { SessionSearchDialog } from "./SessionSearchDialog";
 import type { LineMatch } from "./sessionSearch";
 import { useActivityRecorder } from "./activityStore";
 import { localSessionsOf } from "./fileActivity";
-import { FilesPanel, type MentionDrag } from "./FilesPanel";
-import { mentionText, takesMention } from "./fileTree";
+import { FilesPanel, type PathDrag } from "./FilesPanel";
+import { mentionText } from "./fileTree";
 import { fileOf, forgetFile, rememberFile } from "./fileContext";
 import { parseGitDiff } from "./gitDiff";
 import {
@@ -304,10 +381,8 @@ import {
 } from "./snippetVariables";
 import {
   deleteTemplate,
-  loadTemplates,
   planTemplate,
   renameTemplate,
-  saveTemplates,
   storeTemplate,
   templateFolders,
   templateReport,
@@ -346,7 +421,6 @@ import {
   type Workspace,
 } from "./workspace";
 
-const LAST_CWD_KEY = "hangar.lastCwd";
 /** How long "Claude Code starts in hangar" stays after Ctrl+Shift+T. */
 const START_HINT_MS = 2500;
 /** How long a successful update result stays. */
@@ -357,7 +431,31 @@ const COPY_KEYS: Shortcut = { mods: ["ctrl"], key: "C" };
 const PASTE_KEYS: Shortcut = { mods: ["ctrl"], key: "V" };
 
 type OpenDialog =
-  "about" | "settings" | "whatsNew" | "launcher" | "broadcast" | "searchAll" | "overview" | null;
+  | "about"
+  | "settings"
+  | "whatsNew"
+  | "launcher"
+  | "broadcast"
+  | "searchAll"
+  | "overview"
+  | "worktreeCleanup"
+  | "dailyReview"
+  | null;
+
+/**
+ * Working phases of the sessions for the work log (ADR 0011): one event when a phase ends,
+ * never per output chunk. Module wide like `terminals`: one window, one recorder.
+ */
+const phases = new PhaseRecorder();
+
+function reportPhase(phase: WorkPhase | null): Promise<void> {
+  if (phase === null) return Promise.resolve();
+  // The log is a convenience; a failed write must not disturb the session.
+  return api.logWorkPhase(phase.id, phase.from, phase.to).then(
+    () => undefined,
+    () => undefined,
+  );
+}
 
 /** Enter after a broadcast paste comes separately, so TUIs do not take it as part of the paste. */
 const BROADCAST_ENTER_DELAY_MS = 80;
@@ -456,15 +554,6 @@ function isPlaceholder(id: number): boolean {
   return id < 0;
 }
 
-/** Start folder of older versions; only a fallback until the first start is recorded as recent. */
-function readLastCwd(): string | null {
-  try {
-    return localStorage.getItem(LAST_CWD_KEY);
-  } catch {
-    return null;
-  }
-}
-
 /**
  * How a session ended, for the chime: the exit code may reach the terminal before the reducer
  * has stored it, so the terminal's own code counts too.
@@ -489,21 +578,67 @@ export function App() {
   /** Folder chosen in the folder menu for the next start only (startTarget.ts). */
   const [chosenCwd, setChosenCwd] = useState<string | null>(null);
   /** Private or team session for the next start, as the switch shows it (startMode.ts). */
-  const [startMode, setStartModeState] = useState<StartMode>(loadStartMode);
-  const setStartMode = useCallback((mode: StartMode) => {
-    setStartModeState(mode);
-    saveStartMode(mode);
-  }, []);
+  const [startMode, setStartMode] = useState<StartMode>(DEFAULT_START_MODE);
   const [home, setHome] = useState<string | null>(null);
-  const [legacyLastCwd] = useState(readLastCwd);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>(loadLayout);
   /** The app grid; its sidebar column glides when the sidebar folds (sidebarMotion.ts). */
   const appGrid = useRef<HTMLDivElement>(null);
   useSidebarMotion(appGrid, layout.collapsed, layout.sidebarWidth);
+  useWindowResizing();
+  /** What an older version stored of the security switches, read before anything saves. */
+  const [oldSwitches] = useState(() => legacySwitches(readStoredSettingsText()));
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
+  /**
+   * The security switches as the backend keeps them (mainStore.ts); `null` until they are read.
+   * Until then the gate and the command guard are not configured.
+   */
+  const savedSwitches = useRef<SecuritySwitches | null>(null);
+  const [switchesReady, setSwitchesReady] = useState(false);
+  useEffect(() => {
+    void loadSecuritySwitches(oldSwitches).then((switches) => {
+      savedSwitches.current = switches;
+      setSettings((current) => ({ ...current, ...switches }));
+      setSwitchesReady(true);
+    });
+  }, [oldSwitches]);
+  /** What an older version stored of the protected settings, read before anything saves. */
+  const [oldProtected] = useState(() =>
+    legacyProtected(readStoredSettingsText(), detectLanguage(navigator.language)),
+  );
+  /**
+   * The protected settings (paste warning, updates, HANGAR.md, snippets) as the backend keeps
+   * them (mainStore.ts), as JSON for the comparison; `null` until they are read. Sessions are
+   * restored only afterwards, so they start with the user's HANGAR.md choice.
+   */
+  const savedProtected = useRef<string | null>(null);
+  const [protectedReady, setProtectedReady] = useState(false);
+  useEffect(() => {
+    void loadProtectedSettings(oldProtected, detectLanguage(navigator.language)).then((stored) => {
+      savedProtected.current = JSON.stringify(stored);
+      setSettings((current) => ({ ...current, ...stored }));
+      setProtectedReady(true);
+    });
+  }, [oldProtected]);
+  /** What an older version stored of the start and notice preferences, read before any save. */
+  const [oldPrefs] = useState(() => {
+    let storage: Storage | null = null;
+    try {
+      storage = localStorage;
+    } catch {
+      // Blocked storage: nothing to migrate.
+    }
+    return legacyMainPrefs(storage, readStoredSettingsText());
+  });
+  /**
+   * The start and notice preferences as the backend keeps them (mainStore.ts), as JSON for the
+   * comparison; `null` until they are read. Sessions are restored only afterwards, so the restore
+   * setting and the start folder are the user's, not the defaults.
+   */
+  const savedPrefs = useRef<string | null>(null);
+  const [prefsReady, setPrefsReady] = useState(false);
   const grouping = settings.sessionGrouping;
   // The session list follows the sidebar's grouping, so cycling and the rail match it.
   useEffect(() => {
@@ -518,6 +653,8 @@ export function App() {
   const [teamOpen, setTeamOpen] = useState(false);
   /** What's New starting at this version; `null` shows all entries (opened from the menu). */
   const [whatsNewSince, setWhatsNewSince] = useState<string | null>(null);
+  /** The changelog, once What's New needed it (changelogData.ts). */
+  const [changelog, setChangelog] = useState<readonly ChangelogEntry[] | null>(null);
   // Read before the settings are saved for the first time: has Hangar run here before?
   const [knownUser] = useState(hasStoredSettings);
   const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -541,10 +678,16 @@ export function App() {
   const [closingId, setClosingId] = useState<number | null>(null);
   /** Context menu of the terminal, open at this position in the window. */
   const [terminalMenu, setTerminalMenu] = useState<{ x: number; y: number } | null>(null);
+  /** "Save as snippet": the cleaned selection the dialog starts with; `null` while closed. */
+  const [snippetDraft, setSnippetDraft] = useState<string | null>(null);
   /** Most recently started program (Ctrl+Shift+T, empty state). */
-  const [lastProgramId, setLastProgramId] = useState(loadLastProgram);
+  const [lastProgramId, setLastProgramId] = useState<string | null>(null);
   /** Clicked terminal link, for as long as its hint is shown. */
-  const [link, setLink] = useState<{ url: string; copied: boolean } | null>(null);
+  /**
+   * The link notice: an address to copy when the browser could not open it, or, with `ask`, an
+   * OSC 8 link whose visible text claims another address, shown with an Open button.
+   */
+  const [link, setLink] = useState<{ url: string; copied: boolean; ask?: boolean } | null>(null);
   /** Newest local dev server address per session, from its current process (devServer.ts). */
   const [devServers, setDevServers] = useState<ReadonlyMap<number, string>>(() => new Map());
   /** An agent session just finished with changed files in its folder (doneNotice.ts). */
@@ -565,9 +708,28 @@ export function App() {
   const viewportWidth = useSyncExternalStore(subscribeWindowWidth, windowWidth);
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
-  const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
-  /** Workspace templates (templates.ts), stored per machine like the folders. */
-  const [templates, setTemplates] = useState<WorkspaceTemplate[]>(loadTemplates);
+  const [folders, setFolders] = useState<FolderPrefs>(EMPTY_FOLDERS);
+  useEffect(() => {
+    void loadMainPrefs(oldPrefs).then((stored) => {
+      const { startMode: mode, lastProgram, favorites, recent, ...notices } = stored;
+      savedPrefs.current = JSON.stringify(stored);
+      setStartMode(mode);
+      setLastProgramId(lastProgram);
+      setFolders({ favorites, recent });
+      setSettings((current) => ({ ...current, ...notices }));
+      setPrefsReady(true);
+    });
+  }, [oldPrefs]);
+  /** Workspace templates (templates.ts), kept by the backend for this window (mainStore.ts). */
+  const [templates, setTemplates] = useState<WorkspaceTemplate[]>([]);
+  /** The list the backend holds; the templates are saved only once it was read, and changed. */
+  const savedTemplates = useRef<WorkspaceTemplate[] | null>(null);
+  useEffect(() => {
+    void loadStoredTemplates().then((stored) => {
+      savedTemplates.current = stored;
+      setTemplates(stored);
+    });
+  }, []);
   /** A template is starting its sessions; another start waits until it is done. */
   const templateStarting = useRef(false);
   /** Save or rename dialog of the templates. */
@@ -582,6 +744,43 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** Session menu (right click on a session), open at this position. */
   const [sessionMenu, setSessionMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** The commands submenu of a session (session menu, "Commands …"), at the menu's place. */
+  const [commandMenu, setCommandMenu] = useState<{ id: number; x: number; y: number } | null>(null);
+  /** A command with `confirm` that waits for the answer of its dialog. */
+  const [commandAsk, setCommandAsk] = useState<{ id: number; command: AgentCommand } | null>(null);
+  /** When each session last got a compact from its row button (the click's `timeStamp`). */
+  const compactSentAt = useRef(new Map<number, number>());
+  /**
+   * Queued messages per session key (messageQueue.ts). The ref is the truth the attention
+   * listener reads and writes outside React; the state renders it.
+   */
+  const [queue, setQueue] = useState<MessageQueue>(EMPTY_QUEUE);
+  const queueRef = useRef<MessageQueue>(queue);
+  const changeQueue = useCallback((next: MessageQueue) => {
+    if (next === queueRef.current) return;
+    queueRef.current = next;
+    setQueue(next);
+  }, []);
+  /** The stored messages are back from the backend; only then is the queue saved again. */
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  useEffect(() => {
+    void loadQueuedMessages().then((stored) => {
+      // A message queued while the backend answered wins over the stored one.
+      changeQueue(new Map([...restoredQueue(stored), ...queueRef.current]));
+      setQueueLoaded(true);
+    });
+  }, [changeQueue]);
+  /** The queued message editor: for which session, and where the menu was (`null`: centered). */
+  const [queueEditor, setQueueEditor] = useState<{
+    id: number;
+    anchor: { x: number; y: number } | null;
+  } | null>(null);
+  /** Sends a queued message once its session is done; set below, read by the listener. */
+  const sendQueuedRef = useRef<(id: number, text: string) => void>(() => undefined);
+  /** "Show last lines" from the session menu, for the sidebar's peek. */
+  const [peekRequest, setPeekRequest] = useState<{ id: number; token: number } | null>(null);
+  /** Working agent sessions that have shown nothing new for a while, and since when (stall.ts). */
+  const [stalls, setStalls] = useState<ReadonlyMap<number, number>>(() => new Map());
   /**
    * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
    * is the active one; switching sessions or arranging the panes ends the view.
@@ -602,6 +801,11 @@ export function App() {
    */
   const [putAside, setPutAside] = useState(false);
   const homeShown = state.sessions.length === 0 || putAside;
+  /**
+   * How often each session finished a stretch of work the user asked for: the project overview
+   * asks git again for a card when one of its sessions finished, and only then.
+   */
+  const [finishedRuns, setFinishedRuns] = useState<ReadonlyMap<number, number>>(() => new Map());
   /** Screen reader message after a session moved in the sidebar. */
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   // Async so that a synchronous error (browser without Tauri) also arrives as a rejection.
@@ -748,7 +952,59 @@ export function App() {
     setResourcesEnabled(settings.showResources);
     setSystemUsageEnabled(settings.showResources);
   }, [settings.showResources]);
+  // Power saving on battery: slower polls and still row pulses (power.ts); on AC nothing changes.
+  useEffect(() => {
+    setPowerSavingEnabled(settings.powerSaving);
+    startPowerWatch();
+  }, [settings.powerSaving]);
   const profilesRef = useRef(profiles);
+  /**
+   * The stall hint (stall.ts): samples the screens of working agent sessions outside React and
+   * reports only when a hint comes or goes. Plain shells and sessions without attention never get
+   * one.
+   */
+  const [stallMonitor] = useState(() => new StallMonitor(wallClock, setStalls));
+  useEffect(() => {
+    stallMonitor.setSources(() =>
+      stateRef.current.sessions.map((session) => {
+        const terminal = terminals.get(session.id);
+        const command = profilesRef.current.find((p) => p.id === session.profileId)?.command;
+        return {
+          id: session.id,
+          working: terminal?.attention.state === "working",
+          detected:
+            settingsRef.current.attentionEnabled &&
+            session.status === "running" &&
+            !isPlaceholder(session.id) &&
+            runsAgent(command, session.kind),
+          lines: () => terminal?.screenLines() ?? [],
+        };
+      }),
+    );
+  }, [stallMonitor]);
+  useEffect(() => {
+    stallMonitor.setThreshold(
+      settings.attentionEnabled ? stallThresholdMs(settings.stallMinutes) : null,
+    );
+  }, [stallMonitor, settings.attentionEnabled, settings.stallMinutes]);
+  // On battery the screens are compared less often (power.ts `pollInterval`).
+  useEffect(() => {
+    const follow = () => {
+      stallMonitor.setSampleInterval(pollInterval("stall", isPowerSaving()));
+    };
+    follow();
+    return onPowerSavingChange(follow);
+  }, [stallMonitor]);
+  // CPU use of a session's process tree counts as busy; without readings only the screen counts.
+  useEffect(() => {
+    const stop = observeResources((readings) => {
+      for (const [id, reading] of readings) stallMonitor.cpu(id, reading.cpu);
+    });
+    return () => {
+      stop();
+      stallMonitor.dispose();
+    };
+  }, [stallMonitor]);
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({
     fontSize: layout.fontSize,
@@ -855,17 +1111,25 @@ export function App() {
     profileEditPending.current = true;
   }, []);
 
+  const openHangarMd = useCallback(async () => {
+    await api.openHangarMd();
+  }, []);
+
   useEffect(() => {
     loadProfiles(showError);
     api.defaultCwd().then(setHome).catch(showError);
     getVersion()
-      .then((v) => {
+      .then(async (v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
         // After an update, show once what's new. The version is stored right away so the
-        // dialog does not come back even after a crash or reload.
-        const decision = decideWhatsNew(CHANGELOG, v, loadLastSeen(), knownUser);
+        // dialog does not come back even after a crash or reload. On an ordinary start the
+        // decision needs no entries, and the changelog is not loaded.
+        const lastSeen = loadLastSeen();
+        const entries = whatsNewNeedsEntries(v, lastSeen, knownUser) ? await loadChangelog() : [];
+        const decision = decideWhatsNew(entries, v, lastSeen, knownUser);
         if (decision.remember !== null) saveLastSeen(decision.remember);
         if (!decision.show) return;
+        setChangelog(entries);
         setWhatsNewSince(decision.since);
         setDialog((current) => current ?? "whatsNew");
       })
@@ -899,6 +1163,33 @@ export function App() {
     saveSettings(settings);
   }, [settings]);
 
+  // The switches go to the backend, the one place other windows cannot write to.
+  useEffect(() => {
+    if (!switchesReady) return;
+    const next = switchesOf(settings);
+    const saved = savedSwitches.current;
+    if (
+      saved !== null &&
+      saved.claimsEnabled === next.claimsEnabled &&
+      saved.gateEnabled === next.gateEnabled &&
+      saved.commandGuardEnabled === next.commandGuardEnabled
+    ) {
+      return;
+    }
+    savedSwitches.current = next;
+    api.saveSecuritySwitches(next).catch(() => undefined);
+  }, [settings, switchesReady]);
+
+  // The protected settings likewise.
+  useEffect(() => {
+    if (!protectedReady) return;
+    const next = protectedOf(settings);
+    const text = JSON.stringify(next);
+    if (text === savedProtected.current) return;
+    savedProtected.current = text;
+    saveProtectedSettings(next).catch(() => undefined);
+  }, [settings, protectedReady]);
+
   useEffect(() => {
     setCurrentLanguage(settings.language);
     document.documentElement.lang = settings.language;
@@ -917,24 +1208,40 @@ export function App() {
     for (const terminal of terminals.values()) terminal.setLook(terminalLook, theme);
   }, [theme, terminalLook]);
 
+  // The start and notice preferences go to the backend too, once they were read, and only when
+  // they changed.
   useEffect(() => {
-    saveFolderPrefs(folders);
-  }, [folders]);
+    if (!prefsReady) return;
+    const next: MainPrefs = {
+      startMode,
+      lastProgram: lastProgramId,
+      favorites: folders.favorites,
+      recent: folders.recent,
+      ...noticesOf(settings),
+    };
+    const text = JSON.stringify(next);
+    if (text === savedPrefs.current) return;
+    savedPrefs.current = text;
+    saveMainPrefs(next).catch(() => undefined);
+  }, [prefsReady, startMode, lastProgramId, folders, settings]);
 
-  // Not on the first render: an unreadable stored list stays as it is until the user changes one.
-  const templatesLoaded = useRef(false);
+  // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
-    if (!templatesLoaded.current) {
-      templatesLoaded.current = true;
-      return;
-    }
-    saveTemplates(templates);
+    if (savedTemplates.current === null || savedTemplates.current === templates) return;
+    savedTemplates.current = templates;
+    saveStoredTemplates(templates).catch(() => undefined);
   }, [templates]);
 
   useEffect(() => {
     modalRef.current =
-      dialog !== null || closingId !== null || markerId !== null || templateDialog !== null;
-  }, [dialog, closingId, markerId, templateDialog]);
+      dialog !== null ||
+      closingId !== null ||
+      markerId !== null ||
+      queueEditor !== null ||
+      templateDialog !== null ||
+      snippetDraft !== null ||
+      commandAsk !== null;
+  }, [dialog, closingId, markerId, queueEditor, templateDialog, snippetDraft, commandAsk]);
 
   useEffect(() => {
     orphansShown.current = orphans.length > 0;
@@ -1044,7 +1351,10 @@ export function App() {
   });
   // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
   // notification once, under the same settings as a session that starts waiting.
-  const gate = useGate(gateActive(settings), (fresh) => {
+  // Not configured before the switches are read from the backend (`null`).
+  const gateSetting = switchesReady ? gateActive(settings) : null;
+  const guardSetting = switchesReady ? settings.commandGuardEnabled : null;
+  const gate = useGate(gateSetting, guardSetting, (fresh) => {
     const current = noticesAt(settingsRef.current, new Date());
     if (!current.attentionEnabled) return;
     const watched = windowWatched();
@@ -1069,6 +1379,11 @@ export function App() {
     () => gate.pending.filter((decision) => !answeredGate.has(decision.id)),
     [gate.pending, answeredGate],
   );
+  /** Sessions with a pending gate decision, for the attention listener (a queued message waits). */
+  const gateWaitingRef = useRef<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    gateWaitingRef.current = waitingSessions({ enabled: gate.enabled, pending: pendingGate });
+  }, [gate.enabled, pendingGate]);
   // A session waiting for a decision looks like any waiting session, with the reason "gate".
   const { attention, reasons } = useMemo(
     () =>
@@ -1204,7 +1519,7 @@ export function App() {
   const target = resolveStartTarget({
     chosen: chosenCwd,
     active: activeSession,
-    lastUsed: folders.recent[0] ?? legacyLastCwd,
+    lastUsed: folders.recent[0] ?? null,
     home,
   });
   const targetPath = target.path;
@@ -1237,9 +1552,19 @@ export function App() {
   // The marker dialog or session menu of a session that is gone (closed, or replaced by a restart
   // with a new ID) closes, or the modal flag would keep blocking the shortcuts.
   if (markerId !== null && !state.sessions.some((s) => s.id === markerId)) setMarkerId(null);
+  if (queueEditor !== null && !state.sessions.some((s) => s.id === queueEditor.id)) {
+    setQueueEditor(null);
+  }
   if (sessionMenu !== null && !state.sessions.some((s) => s.id === sessionMenu.id)) {
     setSessionMenu(null);
   }
+  // The same for the commands submenu and its question, also once the session's process ended
+  // or it may show a question (agentCommands.ts `awaitsAnswer`).
+  const commandsGone = (id: number) =>
+    !state.sessions.some((s) => s.id === id && s.status === "running") ||
+    awaitsAnswer(reasons.get(id) ?? null);
+  if (commandMenu !== null && commandsGone(commandMenu.id)) setCommandMenu(null);
+  if (commandAsk !== null && commandsGone(commandAsk.id)) setCommandAsk(null);
   // The sub-agent view belongs to the active session: another one becoming active, or the
   // session closing, ends it (and with it the watch).
   if (subAgentsOf !== null && subAgentsOf !== state.activeId) setSubAgentsOf(null);
@@ -1282,6 +1607,17 @@ export function App() {
     if (state.sessions.length === 0) return;
     setPutAside((current) => !current);
     focusTerminal();
+  };
+
+  /**
+   * The project overview of the home view, from the menu or quick access; sessions keep running.
+   * Its heading takes the focus once it shows, after the menu or quick access gave the focus back.
+   */
+  const showProjects = () => {
+    if (state.sessions.length > 0) setPutAside(true);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".projects h2")?.focus();
+    });
   };
 
   /** Shows the warning for the session `name` and resolves with the user's answer. */
@@ -1401,7 +1737,23 @@ export function App() {
    * beside it, so the main agent stays in sight (and can be answered) while a sub-agent's
    * activity shows, and switching sub-agents never resizes the terminal.
    */
-  const subAgentPlan = subAgentSession === undefined ? null : { layout: "pair" as const };
+  const subAgentPlan =
+    subAgentSession === undefined
+      ? null
+      : { layout: SUB_AGENT_LAYOUT, ratios: subAgentRatios(layout.subAgentRatios) };
+  /** The splitter beside the sub-agent view; its position is remembered apart from the split view. */
+  const setSubAgentSplit = (next: Ratios) => {
+    setLayout((current) =>
+      sameRatios(subAgentRatios(current.subAgentRatios), next)
+        ? current
+        : { ...current, subAgentRatios: next },
+    );
+  };
+  const resetSubAgentSplit = () => {
+    setLayout((current) =>
+      current.subAgentRatios === null ? current : { ...current, subAgentRatios: null },
+    );
+  };
   // Sessions shown in a pane right now; the chime stays silent for them while the window has focus.
   const shown = new Set<number>(state.activeId === null ? [] : [state.activeId]);
   if (subAgentPlan === null) {
@@ -1555,17 +1907,16 @@ export function App() {
    * unless they are on screen already or the session works again by the time git answers.
    */
   const offerDone = useCallback((id: number) => {
+    setFinishedRuns((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1));
     const session = stateRef.current.sessions.find((s) => s.id === id);
     if (session === undefined || isPlaceholder(id) || session.kind === "update") return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     if (profile === undefined || shellKind(profile.command) !== "agent") return;
-    api
-      .gitDiff(session.cwd)
-      .then((answer) => {
+    doneFileCount(id, api.gitChangedCount)
+      .then((count) => {
         const terminal = terminals.get(id);
         const current = stateRef.current.sessions.find((s) => s.id === id);
         if (terminal === undefined || current === undefined) return;
-        const count = changedFileCount(answer);
         const offer = offersDoneNotice({
           count,
           sessionId: id,
@@ -1596,9 +1947,7 @@ export function App() {
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     if (profile === undefined || shellKind(profile.command) !== "agent") return;
     // The backend remembers a skipped or failed step and shows it in the timeline.
-    api
-      .snapshotTake(id, terminal.key, snapshotPrompt(terminal.lastPrompt()))
-      .catch(() => undefined);
+    api.snapshotTake(id, snapshotPrompt(terminal.lastPrompt())).catch(() => undefined);
   }, []);
 
   /** Connects a terminal to its session ID: exit, attention, visibility. */
@@ -1611,8 +1960,36 @@ export function App() {
         dispatch({ type: "fellBack", id, ...fallback });
       };
       terminal.isWatched = () => activeIdRef.current === id && windowWatched();
-      terminal.onLink = (url) => {
-        setLink({ url, copied: false });
+      // An OSC 8 link opens like a printed address; the notice shows it to copy if that fails.
+      // When its visible text claims another host or a path, the notice shows the real address
+      // and opens it only on request. Its own text and the word around it are judged both
+      // (termSafety.ts `osc8DecisionOf`).
+      terminal.onLink = (url, shown) => {
+        if (osc8DecisionOf([shown.own, shown.word], url) === "confirm") {
+          setLink({ url, copied: false, ask: true });
+          return;
+        }
+        api.openWebUrl(url).catch(() => {
+          setLink({ url, copied: false });
+        });
+      };
+      // Addresses and existing paths in the output (terminalLinkOpen.ts decides what opens).
+      terminal.cwd = () => stateRef.current.sessions.find((s) => s.id === id)?.cwd ?? null;
+      terminal.onOpenLink = (request) => {
+        void openLink(request, {
+          openUrl: (url) => api.openWebUrl(url),
+          openPath: (path) => api.openPath(path),
+          openViewer: (relative) =>
+            api.openFileViewer(id, relative).then(() => {
+              rememberFile(id, relative);
+            }),
+        }).then((outcome) => {
+          if (outcome.kind === "showUrl") setLink({ url: outcome.url, copied: false });
+          if (outcome.kind === "failed") {
+            const translate = createTranslator(settingsRef.current.language);
+            setError(translate("link.openFailed", { error: errorText(outcome.error) }));
+          }
+        });
       };
       // A pasted screenshot's path is quoted like a dropped file, for the session's program.
       terminal.shellKind = () => {
@@ -1620,6 +1997,10 @@ export function App() {
         const profile = profilesRef.current.find((p) => p.id === session?.profileId);
         return shellKind(profile?.command ?? "");
       };
+      // Ctrl+V and Shift+Insert ask like "Send to" when the text would run lines or hides some.
+      terminal.warnsBeforePaste = () => settingsRef.current.warnMultilinePaste;
+      terminal.confirmPaste = (warning) =>
+        confirmPaste(stateRef.current.sessions.find((s) => s.id === id)?.title ?? "")(warning);
       terminal.onImagePasteFailed = () => {
         setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
       };
@@ -1667,8 +2048,34 @@ export function App() {
         const entered = previous !== "attention" || next !== "attention";
         const notices = noticesAt(settingsRef.current, new Date());
         const session = stateRef.current.sessions.find((s) => s.id === id);
+        // A queued message (messageQueue.ts): armed by work that follows the user's input, sent
+        // when the work is done, kept when the program asks.
+        if (next === "working" && previous !== "working") {
+          changeQueue(workStarted(queueRef.current, terminal.key, terminal.hasTyped()));
+        }
+        const ended = phaseEnd(
+          previous,
+          next,
+          reason,
+          terminal.attention.endedBy,
+          gateWaitingRef.current.has(id),
+        );
+        // A permission dialog rings no bell: a question on screen keeps the message, because
+        // Enter after it would confirm the preselected answer (promptGuard.ts).
+        const end =
+          ended === "done" && queueRef.current.has(terminal.key)
+            ? guardedEnd(ended, looksLikeQuestion(terminal.screenLines()))
+            : ended;
+        const queued = end === null ? null : phaseEnded(queueRef.current, terminal.key, end);
+        if (queued !== null) changeQueue(queued.queue);
+        // The session goes on with the queued message right away: no notice that it waits.
+        const send = queued?.send ?? null;
+        const continues = send !== null;
+        if (send !== null) sendQueuedRef.current(id, send);
+        // The stall hint belongs to one working phase.
+        if (next !== "working") stallMonitor.progressed(id);
         const chime =
-          session === undefined || isPlaceholder(id)
+          continues || session === undefined || isPlaceholder(id)
             ? null
             : chimeFor({ previous, previousReason, next, reason }, sessionExit(session, terminal), {
                 enabled: notices.chime && notices.attentionEnabled,
@@ -1676,13 +2083,19 @@ export function App() {
                 shown: shownRef.current.has(id),
               });
         // Only work the user asked for: a program's start-up output (also on restore) is no task.
+        // A step that goes on with a queued message is still a step worth a snapshot.
         if (finishedWork(previous, next, reason) && terminal.takeTyped()) {
-          offerDone(id);
           takeSnapshot(id);
+          if (!continues) offerDone(id);
         }
         // New work makes the session's done notice stale.
         if (next === "working") {
           setDoneNotice((current) => (current?.sessionId === id ? null : current));
+        }
+        if (!isPlaceholder(id) && session?.kind !== "update") {
+          void reportPhase(
+            phases.change(id, next === "working", Date.now(), terminal.activity().lastOutput),
+          );
         }
         previous = next;
         previousReason = reason;
@@ -1691,7 +2104,7 @@ export function App() {
         // exits while it waits. Update sessions are no agent's work.
         pushes.change(
           id,
-          session === undefined || isPlaceholder(id) || session.kind === "update"
+          continues || session === undefined || isPlaceholder(id) || session.kind === "update"
             ? null
             : pushEventFor(next, terminal.exitCode),
         );
@@ -1704,11 +2117,11 @@ export function App() {
         });
         if (!entered) return;
         flasher.attentionChanged(next, {
-          enabled: notices.taskbarFlash,
+          enabled: notices.taskbarFlash && !continues,
           windowFocused: document.hasFocus(),
         });
         const notify = shouldNotify(next, {
-          enabled: notices.notifyDesktop,
+          enabled: notices.notifyDesktop && !continues,
           windowFocused: document.hasFocus(),
         });
         if (notify && session && !isPlaceholder(id)) {
@@ -1727,8 +2140,11 @@ export function App() {
         });
       });
       terminals.set(id, terminal);
+      // The backend names the session's snapshots by this key from now on; windows name the
+      // session by ID only.
+      if (!isPlaceholder(id)) api.snapshotBind(id, terminal.key).catch(() => undefined);
     },
-    [flasher, chimes, pushes, offerDone, takeSnapshot],
+    [flasher, chimes, pushes, offerDone, takeSnapshot, changeQueue, stallMonitor, confirmPaste],
   );
 
   /**
@@ -1743,6 +2159,9 @@ export function App() {
   const forgetAttention = useCallback(
     (id: number) => {
       pushes.forget(id);
+      void reportPhase(
+        phases.end(id, Date.now(), terminals.get(id)?.activity().lastOutput ?? null),
+      );
       setAttention((current) => {
         if (!current.has(id)) return current;
         const map = new Map(current);
@@ -1814,11 +2233,12 @@ export function App() {
         const info = await api.createSession(
           profile.id,
           worktree?.path ?? base,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           false,
           null,
           worktree === undefined ? "private" : "team",
+          startOptions(settingsRef.current, worktree !== undefined),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -1840,7 +2260,6 @@ export function App() {
           session: await withTitle(info, named),
           ...(worktree ? { worktree } : {}),
         });
-        saveLastProgram(profile.id);
         setLastProgramId(profile.id);
         // The folder the session really runs in (the backend may fall back to the home folder);
         // for a worktree the repository's folder, so recent folders do not fill with worktrees.
@@ -1913,7 +2332,7 @@ export function App() {
         // No working folder from here: the backend uses the profile's or the home folder.
         const info = await api.createUpdateSession(
           profileId,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           updatesRef.current.get(profileId)?.planId ?? null,
         );
@@ -2040,13 +2459,14 @@ export function App() {
         const info = await api.createSession(
           saved.profileId,
           saved.cwd,
-          INITIAL_SIZE,
+          terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
           true,
           saved.cliSessionId,
           // Worktree sessions of older workspaces come back as team sessions where the program
           // can be one.
           sessionMode(saved, profile),
+          startOptions(settingsRef.current, false),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -2095,7 +2515,7 @@ export function App() {
           const info = await api.createSession(
             session.profileId,
             session.cwd,
-            terminal.size(),
+            terminal.startSize(),
             terminal.createChannel(),
             true,
             session.cliSessionId ?? null,
@@ -2103,6 +2523,7 @@ export function App() {
               session,
               profilesRef.current.find((p) => p.id === session.profileId),
             ),
+            startOptions(settingsRef.current, false),
           );
           terminal.setId(info.id);
           terminals.delete(id);
@@ -2118,7 +2539,7 @@ export function App() {
       }
       try {
         terminal.markRestarted();
-        const info = await api.restart(id, terminal.size(), terminal.createChannel());
+        const info = await api.restart(id, terminal.startSize(), terminal.createChannel());
         dispatch({ type: "updated", session: info });
         if (terminal.exitCode !== undefined) {
           dispatch({ type: "exited", id, code: terminal.exitCode });
@@ -2156,21 +2577,23 @@ export function App() {
       const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
       let closed = true;
       if (!isPlaceholder(id)) {
-        const key = terminals.get(id)?.key;
-        // Closed means: its timeline goes too. Before `close`, which ends the backend's session.
-        if (key !== undefined) await api.snapshotForget(id, key).catch(() => undefined);
         try {
           await api.close(id);
         } catch (e) {
           closed = false;
           showError(e);
         }
+        // Closed means: its timeline goes too. Only then: a session that still runs keeps it.
+        // Before the worktree goes, while its repository is still there.
+        if (closed) await api.snapshotForget(id).catch(() => undefined);
       }
       // Remove locally even on error: the backend no longer knows the session anyway.
       const terminal = terminals.get(id);
       if (terminal) {
         // Closed means: it does not come back after a restart either.
         api.deleteScrollback(terminal.key).catch(() => undefined);
+        // Its queued message goes with it.
+        changeQueue(discardMessage(queueRef.current, terminal.key));
         terminal.dispose();
       }
       terminals.delete(id);
@@ -2206,7 +2629,7 @@ export function App() {
         }
       }
     },
-    [showError, forgetAttention, removeSessionWorktree],
+    [showError, forgetAttention, removeSessionWorktree, changeQueue],
   );
 
   /**
@@ -2358,7 +2781,10 @@ export function App() {
     await Promise.allSettled(
       orphaned.map(async ({ ids, worktree }) => {
         // A failed close rejects here, so the worktree of a still running program stays.
-        await Promise.all(ids.filter((id) => !isPlaceholder(id)).map((id) => api.close(id)));
+        const real = ids.filter((id) => !isPlaceholder(id));
+        await Promise.all(real.map((id) => api.close(id)));
+        // Nothing brings these sessions back, so neither does their timeline.
+        await Promise.allSettled(real.map((id) => api.snapshotForget(id)));
         await api.removeWorktree(worktree);
       }),
     );
@@ -2368,8 +2794,21 @@ export function App() {
     if (quitting.current) return;
     quitting.current = true;
     try {
+      // Open working phases end with the app; bounded like the rest of the quit.
+      await Promise.race([
+        Promise.all(phases.flush(Date.now()).map(reportPhase)),
+        delay(QUIT_SAVE_TIMEOUT_MS),
+      ]);
       await persistAll();
       await Promise.race([removeOrphanedWorktrees(), delay(QUIT_SAVE_TIMEOUT_MS)]);
+      if (!settingsRef.current.restoreSessions) {
+        // No session comes back, so no timeline does; the next start removes what is left.
+        const ids = stateRef.current.sessions.map((s) => s.id).filter((id) => !isPlaceholder(id));
+        await Promise.race([
+          Promise.allSettled(ids.map((id) => api.snapshotForget(id))),
+          delay(QUIT_SAVE_TIMEOUT_MS),
+        ]);
+      }
     } finally {
       // The waiting count must not stay on a Dock or launcher icon; bounded, quitting comes first.
       await Promise.race([badge.clear(), delay(BADGE_CLEAR_TIMEOUT_MS)]);
@@ -2403,7 +2842,7 @@ export function App() {
   // reloaded (development, WebView restart) and the old processes are still running: then a
   // hint appears, and saving merges with the saved state.
   useEffect(() => {
-    if (!profilesReady || restoreStarted) return;
+    if (!profilesReady || !protectedReady || !prefsReady || restoreStarted) return;
     restoreStarted = true;
     /**
      * `false`: after a reload the saved state could not be read. Saving then stays off
@@ -2458,7 +2897,7 @@ export function App() {
         savingAllowed.current = true;
         setRestored(true);
       });
-  }, [profilesReady, restoreSession, showError]);
+  }, [profilesReady, protectedReady, prefsReady, restoreSession, showError]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
@@ -2469,6 +2908,23 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [state.sessions, state.activeId, restored, settings.restoreSessions, saveWorkspaceNow]);
+
+  // Queued messages come back with their sessions: stored per session key, only for sessions that
+  // are restored (or were remembered before a reload), and only once the restore has run.
+  useEffect(() => {
+    if (!restored || !queueLoaded) return;
+    if (!settings.restoreSessions) {
+      saveQueuedMessages({}).catch(() => undefined);
+      return;
+    }
+    const keys = new Set<string>();
+    for (const session of state.sessions) {
+      const key = terminals.get(session.id)?.key;
+      if (key !== undefined) keys.add(key);
+    }
+    for (const saved of rememberedWorkspace.current?.sessions ?? []) keys.add(saved.key);
+    saveQueuedMessages(storedQueue(queue, (key) => keys.has(key))).catch(() => undefined);
+  }, [queue, state.sessions, restored, queueLoaded, settings.restoreSessions]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
@@ -2613,9 +3069,18 @@ export function App() {
       })
         .then(keep)
         .catch(() => undefined);
-      listen(PROGRAM_UPDATE_RESULT, (event) => {
-        const outcome = parseUpdateOutcome(event.payload);
-        if (outcome !== null) updateResultRef.current(outcome);
+      // A bare signal: the results name program paths, so they come from a main-only command.
+      listen(PROGRAM_UPDATE_RESULT, () => {
+        api
+          .takeUpdateResults()
+          .then((results) => {
+            if (!Array.isArray(results)) return;
+            for (const result of results) {
+              const outcome = parseUpdateOutcome(result);
+              if (outcome !== null) updateResultRef.current(outcome);
+            }
+          })
+          .catch(() => undefined);
       })
         .then(keep)
         .catch(() => undefined);
@@ -2636,20 +3101,28 @@ export function App() {
   };
 
   /**
-   * A row of the file tree dragged onto a pane: its @ mention goes into that session, if it works
-   * in the tree's folder (the active session's), as the mention is relative to it.
+   * A path from the Files tab into a session (the active one for `null`), typed for its program:
+   * an @ mention for agents, the shell's own form for shells, relative to the session's folder.
    */
-  const dragMention = (drag: MentionDrag) => {
-    const tree = stateRef.current.sessions.find((s) => s.id === activeIdRef.current);
-    const hit = drag.phase === "cancel" ? undefined : liveSessionAt(drag.x, drag.y);
-    const target = hit && tree && takesMention(tree.cwd, hit.cwd) ? hit : undefined;
+  const insertPath = (item: TreePath, sessionId: number | null) => {
+    const id = sessionId ?? activeIdRef.current;
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const profile = profilesRef.current.find((p) => p.id === session.profileId);
+    const text = insertPathText(item, session.cwd, shellKind(profile?.command ?? ""));
+    if (text !== "") sendFromNotes(text, session.id);
+  };
+
+  /** A row of the file tree dragged onto a pane: its path goes into that session. */
+  const dragPath = (drag: PathDrag) => {
+    const target = drag.phase === "cancel" ? undefined : liveSessionAt(drag.x, drag.y);
     if (drag.phase === "move") {
       setDropTarget(target?.id ?? null);
       return;
     }
     setDropTarget(null);
     if (drag.phase !== "drop" || target === undefined) return;
-    sendFromNotes(drag.text, target.id);
+    insertPath(drag.item, target.id);
     focusTerminal();
   };
 
@@ -2673,6 +3146,9 @@ export function App() {
       if (!target || !terminal) return;
       const profile = profilesRef.current.find((p) => p.id === target.profileId);
       const text = dropText(event.paths, shellKind(profile?.command ?? ""));
+      if (event.paths.some(unsafeDropPath)) {
+        setStartHint(createTranslator(settingsRef.current.language)("paste.dropSkipped"));
+      }
       if (text === "") return;
       terminal.pasteText(text);
       if (target.id !== activeIdRef.current) dispatch({ type: "activated", id: target.id });
@@ -2732,9 +3208,6 @@ export function App() {
 
   // What the detached panel shows, computed here: this window stays the single source of truth.
   const activeCwd = activeSession?.cwd ?? null;
-  /** Names the active session's timeline (timeline.ts); placeholders have no terminal yet. */
-  const activeKey =
-    activeSession === undefined ? null : (terminals.get(activeSession.id)?.key ?? null);
   const panelTrigger = activeSession ? (attention.get(activeSession.id) ?? "idle") : "none";
   const panelSessions = useMemo(
     () =>
@@ -2748,6 +3221,9 @@ export function App() {
           profiles.find((profile) => profile.id === session.profileId)?.command,
           session.kind,
         ),
+        shell: shellKind(
+          profiles.find((profile) => profile.id === session.profileId)?.command ?? "",
+        ),
       })),
     [state.sessions, localSessions, profiles],
   );
@@ -2758,7 +3234,12 @@ export function App() {
     const text = JSON.stringify(payload);
     if (!force && text === panelSent.current) return;
     panelSent.current = text;
-    emitTo(PANEL_WINDOW_LABEL, PANEL_CONTEXT, payload).catch(() => undefined);
+    // The panel may address this session only; the backend learns it before the panel does.
+    api
+      .setPanelSession(context.activeId)
+      .catch(() => undefined)
+      .then(() => emitTo(PANEL_WINDOW_LABEL, PANEL_CONTEXT, payload))
+      .catch(() => undefined);
   }, []);
   const teamActivities = teamStore.activities;
   useEffect(() => {
@@ -2766,7 +3247,6 @@ export function App() {
     pushPanelContext(
       {
         activeId: state.activeId,
-        activeKey,
         cwd: activeCwd,
         trigger: panelTrigger,
         sessions: panelSessions,
@@ -2778,7 +3258,6 @@ export function App() {
   }, [
     panelWindow.detached,
     state.activeId,
-    activeKey,
     activeCwd,
     panelTrigger,
     panelSessions,
@@ -2791,7 +3270,6 @@ export function App() {
       pushPanelContext(
         {
           activeId: state.activeId,
-          activeKey,
           cwd: activeCwd,
           trigger: panelTrigger,
           sessions: panelSessions,
@@ -3002,6 +3480,19 @@ export function App() {
     });
   };
 
+  /**
+   * "Add to notes" of the daily review: a new note in General, because a day spans several
+   * projects; then the notes show that area.
+   */
+  const saveReviewNote = async (title: string, markdown: string) => {
+    const folder: NoteFolder = { path: null };
+    const id = await api.createNote(folder, title);
+    if (typeof id !== "string") throw new Error(t("error.unknown"));
+    await api.writeNote(folder, id, markdown);
+    notesChangedHere();
+    setNotesRefresh((value) => value + 1);
+  };
+
   /** Quick access "Notes in …": that project's notes. */
   const openNotes = (folder: NoteFolder) => {
     if (panelWindow.detached) {
@@ -3055,6 +3546,12 @@ export function App() {
     askNotes((token) => ({ token, kind: "capture", text, source }));
   };
 
+  /** "Save as snippet": the selection, cleaned of terminal artifacts, into a dialog to confirm. */
+  const saveSelectionAsSnippet = () => {
+    const text = snippetTextFromSelection(activeTerminal()?.selectionText() ?? "");
+    if (text !== "") setSnippetDraft(text);
+  };
+
   /**
    * F6 and Shift+F6 while the notes are open: terminal, list, editor. Returns whether it moved
    * the focus (otherwise F6 stays with the program in the terminal).
@@ -3101,6 +3598,15 @@ export function App() {
     void Promise.allSettled(ids.map((id) => api.close(id))).then((results) => {
       const failed = results.find((result) => result.status === "rejected");
       if (failed) showError(failed.reason);
+      // Without "Remember sessions" they do not come back, nor do their timelines; otherwise
+      // the saved state keeps them.
+      if (settingsRef.current.restoreSessions) return;
+      results.forEach((result, index) => {
+        const id = ids[index];
+        if (result.status === "fulfilled" && id !== undefined) {
+          api.snapshotForget(id).catch(() => undefined);
+        }
+      });
     });
     focusActive();
   };
@@ -3130,12 +3636,23 @@ export function App() {
     setChangesFocusToken((token) => token + 1);
   };
 
+  /** "Open" on a link whose visible text differed: the user saw the real address and agreed. */
+  const openCheckedLink = () => {
+    if (link === null) return;
+    const url = link.url;
+    setLink(null);
+    focusTerminal();
+    api.openWebUrl(url).catch(() => {
+      setLink({ url, copied: false });
+    });
+  };
+
   const copyLink = () => {
     if (link === null) return;
     const url = link.url;
     writeClipboard(url)
       .then(() => {
-        setLink((current) => (current?.url === url ? { url, copied: true } : current));
+        setLink((current) => (current?.url === url ? { ...current, copied: true } : current));
       })
       .catch(showError);
   };
@@ -3207,6 +3724,26 @@ export function App() {
       .finally(focusActive);
   };
   /**
+   * Saves a session's conversation as a Markdown report. The backend reads the agent's transcript
+   * and asks for the place in its save dialog; a cancelled dialog is no error.
+   */
+  const exportReport = (id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const now = new Date();
+    api
+      .exportReport(
+        id,
+        session.title,
+        exportFileName(session.title, now, "report"),
+        utcOffsetMinutes(now),
+        reportLabels(t),
+      )
+      .then(parseExportResult)
+      .catch(showError)
+      .finally(focusActive);
+  };
+  /**
    * The values of snippet variables for one session, read right now (snippetVariables.ts).
    * Anything unavailable stays out; git errors count as unavailable.
    */
@@ -3239,7 +3776,7 @@ export function App() {
           break;
         }
         case "diff": {
-          const diff = parseGitDiff(await api.gitDiff(cwd).catch(() => null));
+          const diff = parseGitDiff(await api.gitDiff(id).catch(() => null));
           if (diff?.isRepo === true && diff.diff.trim() !== "") {
             values.diff = capDiff(diff.diff, (count) => t("snippets.diffCut", { count }));
           }
@@ -3280,6 +3817,30 @@ export function App() {
   };
 
   /**
+   * Pastes filled text into one session and sends Enter after it (broadcast.ts). Resolves to
+   * `false` only when the text was held back: several lines or hidden characters for a program
+   * without bracketed paste (`blockedFor`). A session closed meanwhile gets nothing, as before. A
+   * paste the program did not take gets no Enter and counts as sent: the terminal itself says so
+   * (`InputStalled`), and sending it again could repeat the part that did arrive.
+   */
+  const submitText = async (id: number, text: string): Promise<boolean> => {
+    const terminal = terminals.get(id);
+    if (!terminal) return true;
+    try {
+      const blocked = await sendToTargets([terminal], text, () => delay(BROADCAST_ENTER_DELAY_MS));
+      return blocked.length === 0;
+    } catch {
+      return true;
+    }
+  };
+
+  /** Says which sessions got nothing because of `blockedFor`. */
+  const reportBlocked = (ids: readonly number[]) => {
+    if (ids.length === 0) return;
+    setError(t("send.blocked", { sessions: ids.map(sessionName).join(", ") }));
+  };
+
+  /**
    * Text to several sessions: each gets it with its own variable values as a bracketed paste,
    * then Enter as a separate write. Afterwards the split view shows up to four of them. When a
    * session lacks a value nothing is sent at all, and the answer names the session and the gap.
@@ -3294,13 +3855,95 @@ export function App() {
       }
     }
     setDialog(null);
-    const pause = () => delay(BROADCAST_ENTER_DELAY_MS);
-    for (const { id, result } of filled) {
-      const terminal = terminals.get(id);
-      if (terminal && result.ok) void sendToTargets([terminal], result.text, pause);
-    }
+    const sent = filled.map(async ({ id, result }) =>
+      result.ok && !(await submitText(id, result.text)) ? id : null,
+    );
+    void Promise.all(sent).then((blocked) => {
+      reportBlocked(blocked.filter((id) => id !== null));
+    });
     splitView.showOnly(ids);
     return null;
+  };
+
+  /**
+   * A queued message whose session is done: the same path as "Send to several" (variables filled,
+   * bracketed paste, then Enter). A missing variable sends nothing; the message stays queued and
+   * a notice names the gap.
+   */
+  const sendQueued = (id: number, text: string) => {
+    const key = terminals.get(id)?.key;
+    void fillVariables(id, text).then((filled) => {
+      if (filled.ok) {
+        // A message that cannot go in safely stays queued, like one with a missing variable.
+        void submitText(id, filled.text).then((sent) => {
+          if (sent) return;
+          if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
+          reportBlocked([id]);
+        });
+        return;
+      }
+      if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
+      setError(t("snippets.notSentIn", { session: sessionName(id), details: filled.details }));
+    });
+  };
+  // The attention listener lives outside React; it always reaches the newest values.
+  useEffect(() => {
+    sendQueuedRef.current = sendQueued;
+  });
+
+  /** The session may show a question, so a command's Enter would answer it (`asksQuestion`). */
+  const sessionAsks = (id: number) =>
+    asksQuestion(reasons.get(id) ?? null, () => terminals.get(id)?.screenLines() ?? []);
+
+  /**
+   * An agent command into one running session, sent like "Send to several" (agentCommands.ts);
+   * that session shows afterwards, so its answer is in view.
+   */
+  const sendAgentCommand = (id: number, command: AgentCommand) => {
+    const session = state.sessions.find((s) => s.id === id);
+    const terminal = terminals.get(id);
+    if (session?.status !== "running" || !terminal || withholdCommand(id, command)) return;
+    // A stalled paste is reported in the terminal itself.
+    sendCommand(terminal, command, () => delay(BROADCAST_ENTER_DELAY_MS)).then(
+      (sent) => {
+        if (!sent) reportBlocked([id]);
+      },
+      () => undefined,
+    );
+    dispatch({ type: "activated", id });
+    focusTerminal();
+  };
+
+  /**
+   * The session may show a question (agentCommands.ts `asksQuestion`): the command stays unsent,
+   * since its Enter would answer that question, and a notice says why nothing happened. Menu and
+   * quick access hide the commands then; this catches the row's compact button, which cannot
+   * watch the screen, and a question that came up after the menu opened.
+   */
+  const withholdCommand = (id: number, command: AgentCommand) => {
+    if (!sessionAsks(id)) return false;
+    setError(t("agentCommand.asksFirst", { session: sessionName(id), command: command.text }));
+    return true;
+  };
+
+  /** From the menu or quick access: commands that throw the conversation away ask first. */
+  const runAgentCommand = (id: number, command: AgentCommand) => {
+    if (withholdCommand(id, command)) return;
+    if (command.confirm) setCommandAsk({ id, command });
+    else sendAgentCommand(id, command);
+  };
+
+  /**
+   * The row's compact button. It is hidden while the agent is busy; should the agent get busy
+   * between render and click, nothing is sent (agentCommands.ts `commandBusy`).
+   */
+  const compactFromRow = (id: number, command: AgentCommand, at: number) => {
+    if (commandBusy(attention.get(id) ?? "idle", reasons.get(id) ?? null)) return;
+    // The button stays until the agent's answer marks it as working; a double click in between
+    // would otherwise queue a second compact.
+    if (compactRepeated(compactSentAt.current.get(id), at)) return;
+    compactSentAt.current.set(id, at);
+    runAgentCommand(id, command);
   };
 
   const setMarker = (id: number, marker: Marker) => {
@@ -3354,6 +3997,9 @@ export function App() {
    * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
    */
   const startHere = (profile: Profile) => {
+    // Until the backend answered, the mode and folder are the defaults, not the user's: a start
+    // then could run private (without the gate) in the home folder.
+    if (!prefsReady) return;
     void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
   };
   /**
@@ -3636,8 +4282,13 @@ export function App() {
       settings.programs,
     );
   const openWhatsNew = () => {
-    setWhatsNewSince(null);
-    setDialog("whatsNew");
+    loadChangelog()
+      .then((entries) => {
+        setChangelog(entries);
+        setWhatsNewSince(null);
+        setDialog("whatsNew");
+      })
+      .catch(showError);
   };
   const menu: MenuGroup[] = [
     {
@@ -3702,6 +4353,13 @@ export function App() {
             openSaveTemplate?.();
           },
         },
+        {
+          type: "action",
+          label: t("menu.worktreeCleanup"),
+          run: () => {
+            setDialog("worktreeCleanup");
+          },
+        },
         { type: "separator" },
         {
           type: "action",
@@ -3746,6 +4404,18 @@ export function App() {
                 exportSession("html");
               },
             },
+            // Only for programs whose transcript Hangar reads; hidden for all others.
+            ...(activeSession !== undefined && canExportReport(activeSession)
+              ? [
+                  {
+                    type: "action" as const,
+                    label: t("menu.exportReport"),
+                    run: () => {
+                      exportReport(activeSession.id);
+                    },
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -3862,6 +4532,11 @@ export function App() {
           shortcut: keys("home"),
           run: toggleHome,
         },
+        {
+          type: "action",
+          label: t("projects.menu"),
+          run: showProjects,
+        },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
@@ -3887,6 +4562,13 @@ export function App() {
           disabled: state.sessions.length === 0,
           run: () => {
             perform("overview");
+          },
+        },
+        {
+          type: "action",
+          label: t("review.menu"),
+          run: () => {
+            setDialog("dailyReview");
           },
         },
         {
@@ -4011,6 +4693,13 @@ export function App() {
       disabled: activeTerminal()?.hasSelection() !== true,
       run: captureSelection,
     },
+    {
+      type: "action",
+      key: "toSnippet",
+      label: t("snippets.saveSelectionMenu"),
+      disabled: activeTerminal()?.hasSelection() !== true,
+      run: saveSelectionAsSnippet,
+    },
     { type: "separator", key: "sep" },
     {
       type: "action",
@@ -4057,13 +4746,84 @@ export function App() {
 
   const menuSession =
     sessionMenu === null ? undefined : state.sessions.find((s) => s.id === sessionMenu.id);
-  const runSessionAction = (action: SessionAction, id: number) => {
+  /** Queued message per session id, for the rows, the menu and quick access. */
+  const queuedById = new Map<number, QueuedMessage>();
+  for (const session of state.sessions) {
+    const key = terminals.get(session.id)?.key;
+    const entry = key === undefined ? undefined : queue.get(key);
+    if (entry !== undefined) queuedById.set(session.id, entry);
+  }
+  /** What the queued-message entries offer for a session (sessionMenu.ts queueOffer). */
+  const queueOfferFor = (session: SessionView) =>
+    queueOffer({
+      status: session.status,
+      agent: runsAgent(profileById.get(session.profileId)?.command, session.kind),
+      attentionEnabled: settings.attentionEnabled,
+      state: attention.get(session.id) ?? "idle",
+      queued: queuedById.has(session.id),
+    });
+  /** Discards the session's queued message. */
+  const discardQueued = (id: number) => {
+    const key = terminals.get(id)?.key;
+    if (key !== undefined) changeQueue(discardMessage(queueRef.current, key));
+  };
+  const closeQueueEditor = () => {
+    setQueueEditor(null);
+    focusActive();
+  };
+  /**
+   * Saves the editor's text. A session that finished while the editor was open (done, no
+   * question) gets it right away instead of waiting for work that will not come.
+   */
+  const saveQueued = (id: number, text: string) => {
+    const terminal = terminals.get(id);
+    if (terminal === undefined) return;
+    const session = state.sessions.find((s) => s.id === id);
+    const saved = saveMessage(queueRef.current, terminal.key, text, {
+      running: session?.status === "running",
+      working: terminal.attention.state === "working",
+      endedBy: terminal.attention.endedBy,
+      gateWaiting: gateWaitingRef.current.has(id),
+      showsQuestion: looksLikeQuestion(terminal.screenLines()),
+    });
+    changeQueue(saved.queue);
+    if (saved.send !== null) sendQueued(id, saved.send);
+    closeQueueEditor();
+  };
+  /** The session is on screen (active or in a pane): its own terminal shows more than a peek. */
+  const onScreen = (id: number) => id === state.activeId || placements.has(id);
+  const runSessionAction = (
+    action: SessionAction,
+    id: number,
+    anchor: { x: number; y: number } | null = null,
+  ) => {
     switch (action) {
+      case "queue":
+        setQueueEditor({ id, anchor });
+        break;
+      case "discardQueue":
+        discardQueued(id);
+        break;
+      case "peek":
+        setPeekRequest((current) => ({ id, token: (current?.token ?? 0) + 1 }));
+        break;
+      case "interrupt":
+        // ETX, as Ctrl+C typed in the terminal would send it; the hint starts over.
+        stallMonitor.progressed(id);
+        terminals.get(id)?.attention.interrupted();
+        api.write(id, "\x03").catch(showError);
+        break;
       case "rename":
         startRename(id);
         break;
       case "marker":
         setMarkerId(id);
+        break;
+      case "report":
+        exportReport(id);
+        break;
+      case "commands":
+        if (sessionMenu !== null) setCommandMenu({ ...sessionMenu, id });
         break;
       case "subAgents":
         toggleSubAgents(id);
@@ -4082,22 +4842,71 @@ export function App() {
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
-      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id).map(
-          (entry): PopupItem => {
-            if (entry.type === "separator") return entry;
-            const action = entry.key;
-            const id = menuSession.id;
-            return {
-              ...entry,
-              run: () => {
-                runSessionAction(action, id);
-              },
-            };
-          },
-        );
+      : sessionMenuEntries(menuSession, t, subAgentsOf === menuSession.id, {
+          queue: queueOfferFor(menuSession),
+          stall: stallOffer(
+            stalls.has(menuSession.id) && attention.get(menuSession.id) === "working",
+            onScreen(menuSession.id),
+          ),
+          commands:
+            sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
+        }).map((entry): PopupItem => {
+          if (entry.type === "separator") return entry;
+          const action = entry.key;
+          const id = menuSession.id;
+          const anchor = sessionMenu === null ? null : { x: sessionMenu.x, y: sessionMenu.y };
+          return {
+            ...entry,
+            run: () => {
+              runSessionAction(action, id, anchor);
+            },
+          };
+        });
 
   const markerSession =
     markerId === null ? undefined : state.sessions.find((s) => s.id === markerId);
+  const editorSession =
+    queueEditor === null ? undefined : state.sessions.find((s) => s.id === queueEditor.id);
+  const editorKey = editorSession === undefined ? undefined : terminals.get(editorSession.id)?.key;
+  // A session that ended (or went) meanwhile offers no commands: its menu and question go too.
+  const commandMenuSession =
+    commandMenu === null ? undefined : state.sessions.find((s) => s.id === commandMenu.id);
+  const commandItems: PopupItem[] =
+    commandMenuSession === undefined
+      ? []
+      : commandMenuEntries(
+          sessionCommands(commandMenuSession, profiles),
+          commandMenuSession.title,
+          t,
+        ).map((entry): PopupItem => {
+          if (entry.type === "heading") return entry;
+          const { command, ...item } = entry;
+          const id = commandMenuSession.id;
+          return {
+            ...item,
+            run: () => {
+              runAgentCommand(id, command);
+            },
+          };
+        });
+  const commandAskSession =
+    commandAsk === null ? undefined : state.sessions.find((s) => s.id === commandAsk.id);
+
+  /** The active session's agent commands for quick access, `null` when it offers none. */
+  const launcherCommands = () => {
+    if (activeSession === undefined) return null;
+    const commands = sessionCommands(activeSession, profiles);
+    if (commands.length === 0 || sessionAsks(activeSession.id)) return null;
+    const id = activeSession.id;
+    return {
+      commands,
+      sessionTitle: activeSession.title,
+      programName: profileById.get(activeSession.profileId)?.name ?? "",
+      run: (command: AgentCommand) => {
+        runAgentCommand(id, command);
+      },
+    };
+  };
 
   /** Entries of quick access; built only while it is open. */
   const launcherItems = () =>
@@ -4142,6 +4951,16 @@ export function App() {
               },
             }
           : null,
+      queue:
+        activeSession === undefined
+          ? null
+          : {
+              offer: queueOfferFor(activeSession),
+              open: () => {
+                setQueueEditor({ id: activeSession.id, anchor: null });
+              },
+            },
+      agentCommands: launcherCommands(),
       openSettings,
       menu,
       skipLabels: [t("menu.launcher")],
@@ -4170,7 +4989,7 @@ export function App() {
             );
       },
       async () => {
-        const log = parseGitLog(await api.gitLog(session.cwd, 0, COMMIT_PAGE));
+        const log = parseGitLog(await api.gitLog(session.id, 0, COMMIT_PAGE));
         return log === null || !log.isRepo
           ? []
           : commitItems(log.commits, openCommit, t, commitIcon);
@@ -4329,6 +5148,7 @@ export function App() {
           onSessionMenu={(id, x, y) => {
             setSessionMenu({ id, x, y });
           }}
+          onAgentCommand={compactFromRow}
           drag={
             sessionDragView === null
               ? null
@@ -4362,11 +5182,15 @@ export function App() {
           subAgentPick={subAgentPick}
           onShowSubAgent={showSubAgent}
           onDismissSubAgents={dismissSubAgents}
+          queued={queuedById}
+          stalls={stalls}
+          peekRequest={peekRequest}
+          rowLayout={settings.rowLayout}
           peekLines={(id) => {
             // A session on screen needs no peek; its own terminal shows more.
             if (shownRef.current.has(id)) return null;
             const terminal = terminals.get(id);
-            return terminal ? tailLines(terminal.rowSource(), PEEK_LINES) : null;
+            return terminal ? terminal.peekContent(PEEK_LINES) : null;
           }}
           onInstallUpdate={() => {
             if (updater.state.kind !== "available") return;
@@ -4459,7 +5283,7 @@ export function App() {
                       ? {
                           layout: subAgentPlan.layout,
                           slot: 0,
-                          ratios: DEFAULT_RATIOS[subAgentPlan.layout],
+                          ratios: subAgentPlan.ratios,
                           session,
                           ...paneLook(session)(),
                         }
@@ -4509,6 +5333,16 @@ export function App() {
                   hidden={subAgentHidden}
                   onPick={setSubAgentPick}
                   onClose={closeSubAgents}
+                  ratios={subAgentPlan.ratios}
+                />
+              )}
+              {subAgentPlan !== null && subAgentSession !== undefined && (
+                <PaneSplitters
+                  layout={subAgentPlan.layout}
+                  ratios={subAgentPlan.ratios}
+                  onChange={setSubAgentSplit}
+                  onReset={resetSubAgentSplit}
+                  label={t("subAgents.splitter")}
                 />
               )}
               {shownDecision !== null &&
@@ -4631,6 +5465,31 @@ export function App() {
                     )}
                     language={settings.language}
                   />
+                  <ProjectOverview
+                    sessions={state.sessions}
+                    rows={new Map(overviewTiles().map((tile) => [tile.id, tile]))}
+                    activeId={state.activeId}
+                    devServers={devServers}
+                    finished={finishedRuns}
+                    language={settings.language}
+                    onActivate={(id) => {
+                      setPutAside(false);
+                      dispatch({ type: "activated", id });
+                      focusTerminal();
+                    }}
+                    onOpenDevServer={openDevServer}
+                    onShowChanges={(id) => {
+                      setPutAside(false);
+                      showDoneChanges(id);
+                    }}
+                    onNewSession={
+                      nextProgram
+                        ? () => {
+                            perform("newSession");
+                          }
+                        : null
+                    }
+                  />
                 </div>
               )}
             </div>
@@ -4700,7 +5559,6 @@ export function App() {
                     onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}
                     sessionId={activeSession?.id ?? null}
-                    sessionKey={activeKey}
                     agent={
                       activeSession !== undefined &&
                       activeSession.status !== "exited" &&
@@ -4727,11 +5585,11 @@ export function App() {
                     sessions={localSessions}
                     nameOf={sessionName}
                     focusToken={filesFocusToken}
-                    onMention={(text) => {
-                      sendFromNotes(text, null);
+                    onInsertPath={(item) => {
+                      insertPath(item, null);
                       focusTerminal();
                     }}
-                    onDragMention={dragMention}
+                    onDragPath={dragPath}
                   />
                 }
               />
@@ -4991,10 +5849,15 @@ export function App() {
               </div>
             )}
             {link !== null && (
-              <div className="link-notice" role="status">
-                <span>{t("link.notice")}</span>
-                <span className="link-url selectable">{link.url}</span>
+              <div className={link.ask ? "link-notice link-check" : "link-notice"} role="status">
+                <span>{t(link.ask ? "link.checkTarget" : "link.notice")}</span>
+                <LinkAddress url={link.url} />
                 <div className="link-actions">
+                  {link.ask && (
+                    <button type="button" className="primary-button" onClick={openCheckedLink}>
+                      {t("link.open")}
+                    </button>
+                  )}
                   <button type="button" className="secondary-button" onClick={copyLink}>
                     {link.copied ? t("link.copied") : t("menu.copy")}
                   </button>
@@ -5033,6 +5896,72 @@ export function App() {
             position={sessionMenu}
             onClose={() => {
               setSessionMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {queueEditor !== null && editorSession !== undefined && editorKey !== undefined && (
+          <QueueDialog
+            key={queueEditor.id}
+            title={editorSession.title}
+            initial={queue.get(editorKey)?.text ?? ""}
+            anchor={queueEditor.anchor}
+            onSave={(text) => {
+              saveQueued(editorSession.id, text);
+            }}
+            onDiscard={
+              queue.has(editorKey)
+                ? () => {
+                    discardQueued(editorSession.id);
+                    closeQueueEditor();
+                  }
+                : null
+            }
+            onClose={closeQueueEditor}
+          />
+        )}
+        {commandMenu !== null && commandMenuSession !== undefined && (
+          <PopupMenu
+            items={commandItems}
+            label={t("agentCommand.menuFor", { session: commandMenuSession.title })}
+            position={commandMenu}
+            onClose={() => {
+              setCommandMenu(null);
+              focusActive();
+            }}
+          />
+        )}
+        {commandAsk !== null && commandAskSession !== undefined && (
+          <AgentCommandConfirm
+            command={commandAsk.command}
+            sessionTitle={commandAskSession.title}
+            onCancel={() => {
+              setCommandAsk(null);
+              focusActive();
+            }}
+            onConfirm={() => {
+              setCommandAsk(null);
+              sendAgentCommand(commandAsk.id, commandAsk.command);
+            }}
+          />
+        )}
+        {snippetDraft !== null && (
+          <SaveSnippetDialog
+            text={snippetDraft}
+            snippets={settings.snippets}
+            onSave={(text) => {
+              updateSettings({
+                snippets: [...settings.snippets, { id: newSnippetId(settings.snippets), text }],
+              });
+              setSnippetDraft(null);
+              focusActive();
+            }}
+            onShowSnippets={() => {
+              setSnippetDraft(null);
+              openSettings("snippets");
+            }}
+            onClose={() => {
+              setSnippetDraft(null);
               focusActive();
             }}
           />
@@ -5078,6 +6007,26 @@ export function App() {
             }}
             onClose={closeDialog}
             onReveal={revealMatch}
+          />
+        )}
+        {dialog === "worktreeCleanup" && (
+          <WorktreeCleanupDialog
+            folders={cleanupFolders({
+              favorites: folders.favorites,
+              recent: folders.recent,
+              sessions: state.sessions,
+            })}
+            language={settings.language}
+            onClose={closeDialog}
+          />
+        )}
+        {dialog === "dailyReview" && (
+          <DailyReviewDialog
+            language={settings.language}
+            load={api.dailyReview}
+            onCopy={writeClipboard}
+            onToNotes={saveReviewNote}
+            onClose={closeDialog}
           />
         )}
         {dialog === "overview" && (
@@ -5195,8 +6144,9 @@ export function App() {
             </div>
           </Dialog>
         )}
-        {dialog === "whatsNew" && (
+        {dialog === "whatsNew" && changelog !== null && (
           <WhatsNewDialog
+            changelog={changelog}
             language={settings.language}
             since={whatsNewSince}
             current={version}
@@ -5241,6 +6191,7 @@ export function App() {
             onChange={updateSettings}
             onClearScrollbacks={clearScrollbacks}
             onOpenProfileFile={openProfileFile}
+            onOpenHangarMd={openHangarMd}
             onReloadProfiles={reloadProfilesFromSettings}
             onProfiles={applyProfiles}
             onFontSize={(fontSize) => {

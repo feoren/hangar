@@ -36,33 +36,42 @@ describe("ProgramSelection", () => {
   it("keeps what the program copied after a drag in the terminal", () => {
     const selection = new ProgramSelection();
     selection.pointerDown(0);
-    selection.clipboardWritten("selected output");
+    selection.clipboardWritten("selected output", true);
+    expect(selection.current).toBe("selected output");
+  });
+
+  it("does not count a copy while the program does not track the mouse", () => {
+    const selection = new ProgramSelection();
+    selection.pointerDown(0);
+    selection.clipboardWritten("planted text", false);
+    expect(selection.current).toBe("");
+    selection.clipboardWritten("selected output", true);
     expect(selection.current).toBe("selected output");
   });
 
   it("does not count a copy that no mouse press led to", () => {
     const selection = new ProgramSelection();
-    selection.clipboardWritten("whole response");
+    selection.clipboardWritten("whole response", true);
     expect(selection.current).toBe("");
   });
 
   it("drops the selection on a typed key, and a later copy does not count", () => {
     const selection = new ProgramSelection();
     selection.pointerDown(0);
-    selection.clipboardWritten("selected output");
+    selection.clipboardWritten("selected output", true);
     selection.keyTyped();
     expect(selection.current).toBe("");
-    selection.clipboardWritten("copied by /copy");
+    selection.clipboardWritten("copied by /copy", true);
     expect(selection.current).toBe("");
   });
 
   it("drops the selection on a new left or middle press", () => {
     const selection = new ProgramSelection();
     selection.pointerDown(0);
-    selection.clipboardWritten("first");
+    selection.clipboardWritten("first", true);
     selection.pointerDown(0);
     expect(selection.current).toBe("");
-    selection.clipboardWritten("second");
+    selection.clipboardWritten("second", true);
     selection.pointerDown(1);
     expect(selection.current).toBe("");
   });
@@ -70,7 +79,7 @@ describe("ProgramSelection", () => {
   it("keeps the selection across the right click that opens the menu", () => {
     const selection = new ProgramSelection();
     selection.pointerDown(0);
-    selection.clipboardWritten("selected output");
+    selection.clipboardWritten("selected output", true);
     selection.pointerDown(2);
     expect(selection.current).toBe("selected output");
   });
@@ -78,10 +87,10 @@ describe("ProgramSelection", () => {
   it("forgets everything on reset", () => {
     const selection = new ProgramSelection();
     selection.pointerDown(0);
-    selection.clipboardWritten("selected output");
+    selection.clipboardWritten("selected output", true);
     selection.reset();
     expect(selection.current).toBe("");
-    selection.clipboardWritten("after restart");
+    selection.clipboardWritten("after restart", true);
     expect(selection.current).toBe("");
   });
 });

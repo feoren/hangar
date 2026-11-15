@@ -99,6 +99,7 @@ pub fn agent(distro: &str) -> Agent {
             update_hint: None,
             packages: None,
             self_update: None,
+            agent_commands: Vec::new(),
         },
         source: Source::Catalog,
         candidates: vec![command],
@@ -106,6 +107,7 @@ pub fn agent(distro: &str) -> Agent {
         install_hint: None,
         cwd_flag: Some("--cd"),
         capabilities: crate::agent_catalog::Capabilities::default(),
+        prompting: crate::agent_catalog::Prompting::default(),
     }
 }
 

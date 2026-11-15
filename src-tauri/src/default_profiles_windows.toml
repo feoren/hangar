@@ -22,6 +22,10 @@
 #   update_hint   optional: { windows = "...", unix = "..." }, an update command that overrides
 #                 the detected one; Hangar runs it on click without a shell, so no shell syntax
 #                 such as | & ; > $ "
+#   agent_commands optional: commands for the session menu, typed into a running session, e.g.
+#                 [{ label = "Review", text = "/review" }]; submit = false leaves out the Enter,
+#                 confirm = true asks first. A profile with a catalog id adds them to the catalog's
+#                 commands of that program
 #   [profile.env]  optional environment variables. Do NOT put secrets here.
 #   secret_env    optional: names of variables whose values Hangar keeps in the keychain of the
 #                 operating system, e.g. ["ANTHROPIC_API_KEY"]; enter the values in Hangar's

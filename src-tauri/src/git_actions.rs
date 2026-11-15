@@ -6,15 +6,14 @@
 //! runner of git.rs. Paths are checked to stay inside the work tree before git sees them and are
 //! handed to git as literal pathspecs on stdin (`--literal-pathspecs`, `--pathspec-from-file`), so
 //! no path is ever read as an option, a glob or pathspec magic, and no list overflows the command
-//! line. Stage, unstage and discard switch the repository's filter drivers and hooks off (hooks
-//! point at an empty folder Hangar owns), and refuse files that a filter would have to convert
-//! (Git LFS, for example): running them without their filter would store or write the wrong
-//! content. Discard also refuses any path that leads through or contains a link (symbolic link,
-//! junction), where git could delete or write outside the work tree. A commit runs the
+//! line. Stage, unstage and discard switch the repository's filter drivers and hooks off (git.rs
+//! points `core.hooksPath` where no hook can be), and refuse files that a filter would have to
+//! convert (Git LFS, for example): running them without their filter would store or write the
+//! wrong content. Discard also refuses any path that leads through or contains a link (symbolic
+//! link, junction), where git could delete or write outside the work tree. A commit runs the
 //! repository's hooks like a commit in the terminal does; nothing is bypassed there.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -39,9 +38,6 @@ pub const MAX_LINK_SCAN: usize = 100_000;
 /// Commands without a pathspec file (`ls-files`, `clean`) take their paths as arguments; a few
 /// per call keep the command line short.
 const CLEAN_CHUNK: usize = 64;
-/// Folder below Hangar's local data folder that stage, unstage and discard name as
-/// `core.hooksPath`: it stays empty, so no hook of the repository runs for them.
-pub const NO_HOOKS_FOLDER: &str = "git-no-hooks";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ActionError {
@@ -67,8 +63,6 @@ pub enum ActionError {
     EmptyMessage,
     #[error("The commit message is too long or holds control characters")]
     InvalidMessage,
-    #[error("Hangar's empty hooks folder cannot be used: {0}")]
-    NoHooksFolder(String),
     #[error("Background task aborted: {0}")]
     Task(String),
 }
@@ -86,18 +80,6 @@ fn explain_timeout(error: ActionError) -> ActionError {
         ActionError::Git(GitError::Timeout) => ActionError::TimedOut,
         other => other,
     }
-}
-
-/// The empty hooks folder below `data_dir`, created on first use. A folder that holds anything
-/// is refused, so nothing placed there can run as a hook.
-pub fn no_hooks_folder(data_dir: &Path) -> Result<PathBuf, ActionError> {
-    let folder = data_dir.join(NO_HOOKS_FOLDER);
-    let problem = |error: io::Error| ActionError::NoHooksFolder(error.to_string());
-    fs::create_dir_all(&folder).map_err(problem)?;
-    if fs::read_dir(&folder).map_err(problem)?.next().is_some() {
-        return Err(ActionError::NoHooksFolder("it is not empty".to_owned()));
-    }
-    Ok(folder)
 }
 
 /// One record of `git status --porcelain=v1 -z`, with the original path of a rename or copy.
@@ -174,11 +156,34 @@ pub fn check_path(path: &str) -> Result<(), ActionError> {
         {
             return Err(ActionError::InvalidPath("leaves the repository"));
         }
-        if effective.eq_ignore_ascii_case(".git") {
+        if names_git_folder(effective) {
             return Err(ActionError::InvalidPath("inside a git folder"));
         }
     }
     Ok(())
+}
+
+/// Code points HFS+ ignores in file names (git's `next_hfs_char`): `.g\u{200c}it` opens `.git`
+/// there.
+fn hfs_ignored(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200c}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{206a}'..='\u{206f}' | '\u{feff}'
+    )
+}
+
+/// One path component that names a git folder on some file system: `.git` in any case, with the
+/// code points HFS+ ignores, or the NTFS short name `git~<n>`. Checked on every platform, since a
+/// work tree may live on any of them.
+fn names_git_folder(part: &str) -> bool {
+    let folded: String = part.chars().filter(|c| !hfs_ignored(*c)).collect();
+    if folded.eq_ignore_ascii_case(".git") {
+        return true;
+    }
+    let lower = part.to_ascii_lowercase();
+    lower
+        .strip_prefix("git~")
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn check_paths(paths: &[String]) -> Result<(), ActionError> {
@@ -258,7 +263,7 @@ fn refuse_links_below(folder: &Path, path: &str) -> Result<(), ActionError> {
 struct Repo {
     root: PathBuf,
     deadline: Instant,
-    /// Filter overrides and `core.hooksPath`; must come before the subcommand.
+    /// Filter overrides (and hooks the config names); must come before the subcommand.
     overrides: Vec<String>,
     /// A filter driver is configured, so files have to be checked for filter attributes.
     filters: bool,
@@ -267,23 +272,20 @@ struct Repo {
 impl Repo {
     /// The work tree of the session's folder with the folder checks of git.rs, and the
     /// overrides for it. The deadline grows with the number of paths.
-    fn open(git: &Git, cwd: &Path, no_hooks: &Path, paths: usize) -> Result<Self, ActionError> {
+    fn open(git: &Git, cwd: &Path, paths: usize) -> Result<Self, ActionError> {
         let per_path =
             ACTION_TIMEOUT_PER_PATH.saturating_mul(u32::try_from(paths).unwrap_or(u32::MAX));
         let deadline = Instant::now() + ACTION_BASE_TIMEOUT + per_path;
         let root = repo_root(git, cwd, deadline)?;
-        let filters = git::filter_overrides(git, &root, deadline)?;
-        let mut overrides = vec![
-            "-c".to_owned(),
-            format!("core.hooksPath={}", no_hooks.display()),
-        ];
-        let any_filter = !filters.is_empty();
-        overrides.extend(filters);
+        // Hooks are off through Git itself (a `core.hooksPath` that can never hold a hook); a
+        // `core.hooksPath` named here would replace it with a folder that can be filled.
+        let overrides = git::filter_overrides(git, &root, deadline)?;
+        let filters = overrides.iter().any(|arg| arg.starts_with("filter."));
         Ok(Self {
             root,
             deadline,
             overrides,
-            filters: any_filter,
+            filters,
         })
     }
 }
@@ -391,14 +393,35 @@ fn refuse_filtered<S: AsRef<str>>(git: &Git, repo: &Repo, paths: &[S]) -> Result
             return Err(ActionError::Filtered);
         }
     }
+    filter_attributes(git, &repo.root, repo.deadline, files)
+}
+
+/// Refuses when a filter driver would convert one of `files` (paths of files below `root`, `/`
+/// separated, as git lists them). The caller checks first whether any driver is configured.
+pub fn refuse_filtered_files(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+    files: &[String],
+) -> Result<(), ActionError> {
+    filter_attributes(git, root, deadline, nul_list(files))
+}
+
+/// `git check-attr filter` for the NUL separated `files`; refused when one names a driver.
+fn filter_attributes(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+    files: Vec<u8>,
+) -> Result<(), ActionError> {
     if files.is_empty() {
         return Ok(());
     }
     let attributes = git.run_with_input(
-        &repo.root,
+        root,
         ["check-attr", "-z", "--stdin", "filter"],
         Some(files),
-        repo.deadline,
+        deadline,
         git::MAX_LIST_BYTES,
     )?;
     if !attributes.success {
@@ -476,10 +499,10 @@ fn with_originals(paths: &[String], entries: &[StatusEntry]) -> Vec<String> {
 }
 
 /// `git add --all` for the paths: new, changed and deleted files go into the index. Hooks off.
-pub fn stage(git: &Git, no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
+pub fn stage(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         refuse_filtered(git, &repo, paths)?;
         run_with_paths(git, &repo, &["add", "--all"], paths)?;
         Ok(())
@@ -489,15 +512,10 @@ pub fn stage(git: &Git, no_hooks: &Path, cwd: &Path, paths: &[String]) -> Result
 
 /// `git reset` for the paths: the index takes them from HEAD again (or drops them in a repository
 /// without commits); the work tree stays as it is. Hooks off.
-pub fn unstage(
-    git: &Git,
-    no_hooks: &Path,
-    cwd: &Path,
-    paths: &[String],
-) -> Result<(), ActionError> {
+pub fn unstage(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         let entries = status(git, &repo.root, &repo.overrides, repo.deadline)?;
         let all = with_originals(paths, &entries);
         run_with_paths(git, &repo, &["reset", "--quiet"], &all)?;
@@ -511,15 +529,10 @@ pub fn unstage(
 /// `git clean`, which keeps ignored files and nested repositories. Paths without changes are
 /// skipped; a path through or holding a link is refused before git runs. Hooks off. The window
 /// asks before it calls this.
-pub fn discard(
-    git: &Git,
-    no_hooks: &Path,
-    cwd: &Path,
-    paths: &[String],
-) -> Result<(), ActionError> {
+pub fn discard(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionError> {
     let run = || {
         check_paths(paths)?;
-        let repo = Repo::open(git, cwd, no_hooks, paths.len())?;
+        let repo = Repo::open(git, cwd, paths.len())?;
         let entries = status(git, &repo.root, &repo.overrides, repo.deadline)?;
         let mut tracked = Vec::new();
         let mut untracked = Vec::new();
@@ -583,7 +596,7 @@ pub fn commit(git: &Git, cwd: &Path, message: &str) -> Result<(), ActionError> {
         let root = repo_root(git, cwd, deadline)?;
         let mut input = message.as_bytes().to_vec();
         input.push(b'\n');
-        let output = git.run_with_input(
+        let output = git.with_repo_hooks().run_with_input(
             &root,
             ["commit", "--quiet", "--file=-"],
             Some(input),
@@ -611,11 +624,6 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, content).unwrap();
-    }
-
-    /// The empty hooks folder, inside the test's own folder.
-    fn hooks(tmp: &TempDir) -> PathBuf {
-        no_hooks_folder(tmp.path()).unwrap()
     }
 
     fn owned(paths: &[&str]) -> Vec<String> {
@@ -664,6 +672,8 @@ mod tests {
             "ünïcode/file.txt",
             ".github/workflows/ci.yml",
             ".gitignore",
+            "git~notes.txt",
+            "git~/x",
             "-n",
             ":(glob)*",
         ] {
@@ -683,6 +693,11 @@ mod tests {
             ".git/config",
             "sub/.GIT/hooks/pre-commit",
             "a\0b",
+            // The NTFS short name and the HFS+ spellings of `.git`.
+            "GIT~1/config",
+            "sub/git~12/hooks/pre-commit",
+            ".g\u{200c}it/config",
+            "\u{feff}.GIT/config",
         ] {
             assert!(check_path(bad).is_err(), "{bad:?}");
         }
@@ -753,13 +768,7 @@ mod tests {
 
         // From a subfolder; paths stay relative to the root.
         let sub = repo.join("new folder");
-        stage(
-            &git,
-            &hooks(&tmp),
-            &sub,
-            &owned(&["a.txt", "b.txt", "new folder/", "-n"]),
-        )
-        .unwrap();
+        stage(&git, &sub, &owned(&["a.txt", "b.txt", "new folder/", "-n"])).unwrap();
         let mut got = codes(&git, &repo);
         got.sort();
         let mut expected = vec![
@@ -773,8 +782,8 @@ mod tests {
         assert_eq!(got, expected);
 
         // `[ab].txt` is a literal name, not a glob that would stage `a.txt` and `b.txt`.
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt", "b.txt", "-n"])).unwrap();
-        stage(&git, &hooks(&tmp), &repo, &owned(&["[ab].txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt", "b.txt", "-n"])).unwrap();
+        stage(&git, &repo, &owned(&["[ab].txt"])).unwrap();
         let mut got = codes(&git, &repo);
         got.sort();
         let mut expected = vec![
@@ -793,7 +802,7 @@ mod tests {
 
         // A rename is unstaged as a whole.
         git_ok(&git, &repo, &["mv", "a.txt", "renamed.txt"]);
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["renamed.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["renamed.txt"])).unwrap();
         let got = codes(&git, &repo);
         assert!(got.contains(&pair(" D", "a.txt")), "{got:?}");
         assert!(got.contains(&pair("??", "renamed.txt")), "{got:?}");
@@ -806,13 +815,13 @@ mod tests {
         let repo = tmp.path().join("repo");
         init_repo(&git, &repo);
         write(&repo.join("a.txt"), "one\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert_eq!(codes(&git, &repo), [pair("A ", "a.txt")]);
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert_eq!(codes(&git, &repo), [pair("??", "a.txt")]);
         // Discarding a file that exists only in the index and the work tree removes it.
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!repo.join("a.txt").exists());
         assert!(codes(&git, &repo).is_empty());
     }
@@ -839,7 +848,6 @@ mod tests {
 
         discard(
             &git,
-            &hooks(&tmp),
             &repo,
             &owned(&["a.txt", "b.txt", "added.txt", "loose.txt", "scratch/"]),
         )
@@ -855,7 +863,7 @@ mod tests {
 
         // A rename goes back as a whole; a path without changes is skipped.
         git_ok(&git, &repo, &["mv", "a.txt", "moved.txt"]);
-        discard(&git, &hooks(&tmp), &repo, &owned(&["moved.txt", "b.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["moved.txt", "b.txt"])).unwrap();
         assert!(repo.join("a.txt").exists());
         assert!(!repo.join("moved.txt").exists());
         assert_eq!(codes(&git, &repo), [pair("??", "kept.txt")]);
@@ -871,22 +879,22 @@ mod tests {
         for bad in ["../outside.txt", ".git/config", "/outside.txt"] {
             let paths = owned(&[bad]);
             assert!(matches!(
-                stage(&git, &hooks(&tmp), &repo, &paths),
+                stage(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
             assert!(matches!(
-                unstage(&git, &hooks(&tmp), &repo, &paths),
+                unstage(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
             assert!(matches!(
-                discard(&git, &hooks(&tmp), &repo, &paths),
+                discard(&git, &repo, &paths),
                 Err(ActionError::InvalidPath(_))
             ));
         }
         assert!(outside.exists());
         // No work tree: the test folder lies inside Hangar's own checkout, so only the git
         // directory itself is a folder outside any work tree (as in git.rs).
-        let error = stage(&git, &hooks(&tmp), &repo.join(".git"), &owned(&["a.txt"])).unwrap_err();
+        let error = stage(&git, &repo.join(".git"), &owned(&["a.txt"])).unwrap_err();
         assert!(
             matches!(error, ActionError::Git(GitError::NotARepository)),
             "{error}"
@@ -909,16 +917,16 @@ mod tests {
         write(&repo.join("a.txt"), "one\nmore\n");
 
         assert!(matches!(
-            stage(&git, &hooks(&tmp), &repo, &owned(&["data/"])),
+            stage(&git, &repo, &owned(&["data/"])),
             Err(ActionError::Filtered)
         ));
         assert!(matches!(
-            stage(&git, &hooks(&tmp), &repo, &owned(&["data/big.bin"])),
+            stage(&git, &repo, &owned(&["data/big.bin"])),
             Err(ActionError::Filtered)
         ));
         // Files without the attribute still work, and no filter ran for them.
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!marker.exists(), "a repository filter ran");
     }
 
@@ -929,7 +937,7 @@ mod tests {
         let repo = committed_repo(&git, &tmp);
         write(&repo.join("a.txt"), "one\nnew\n");
         write(&repo.join("b.txt"), "two\nnot staged\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         commit(&git, &repo, "  feat: a change\n\n--looks like an option\n").unwrap();
         let log = git
             .run(
@@ -970,7 +978,7 @@ mod tests {
         git_ok(&git, &repo, &["config", "user.name", ""]);
         git_ok(&git, &repo, &["config", "user.email", ""]);
         write(&repo.join("a.txt"), "one\nnew\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
         let error = commit(&git, &repo, "fix: something").unwrap_err();
         assert!(
             matches!(error, ActionError::Git(GitError::Failed(_))),
@@ -1000,37 +1008,46 @@ mod tests {
         marker_hook(&repo, "post-index-change", &marker);
         write(&repo.join("a.txt"), "one\nchanged\n");
 
-        // The test is only meaningful if plain git runs the hook here.
-        git_ok(&git, &repo, &["add", "a.txt"]);
+        // The test is only meaningful if git with the repository's hooks runs the hook here.
+        git_ok(&git.with_repo_hooks(), &repo, &["add", "a.txt"]);
         assert!(marker.exists(), "git did not run the hook; test is void");
         git_ok(&git, &repo, &["reset", "--quiet"]);
         fs::remove_file(&marker).unwrap();
 
-        stage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        unstage(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
-        discard(&git, &hooks(&tmp), &repo, &owned(&["a.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        unstage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        discard(&git, &repo, &owned(&["a.txt"])).unwrap();
         assert!(!marker.exists(), "a repository hook ran");
-        assert!(fs::read_dir(hooks(&tmp)).unwrap().next().is_none());
 
         // A commit keeps the repository's hooks.
         let committed = tmp.path().join("commit-hook-ran");
         marker_hook(&repo, "post-commit", &committed);
         write(&repo.join("b.txt"), "two\nchanged\n");
-        stage(&git, &hooks(&tmp), &repo, &owned(&["b.txt"])).unwrap();
+        stage(&git, &repo, &owned(&["b.txt"])).unwrap();
         commit(&git, &repo, "test: hooks").unwrap();
         assert!(committed.exists(), "the commit hook did not run");
     }
 
+    /// Git switches hooks off with a `core.hooksPath` no hook can live under; a second one from
+    /// the caller would replace it.
     #[test]
-    fn a_hooks_folder_with_content_is_refused() {
-        let tmp = TempDir::new("git-actions-no-hooks");
-        let folder = no_hooks_folder(tmp.path()).unwrap();
-        assert!(folder.is_dir());
-        write(&folder.join("pre-commit"), "#!/bin/sh\n");
-        assert!(matches!(
-            no_hooks_folder(tmp.path()),
-            Err(ActionError::NoHooksFolder(_))
-        ));
+    fn stage_names_core_hooks_path_once() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-actions-hooks-path");
+        let repo = committed_repo(&git, &tmp);
+        let opened = Repo::open(&git, &repo, 1).unwrap();
+        let args: Vec<&str> = opened
+            .overrides
+            .iter()
+            .map(String::as_str)
+            .chain(["add", "--all"])
+            .collect();
+        let argv = git.test_argv(&repo, &args);
+        let named = argv
+            .iter()
+            .filter(|arg| arg.to_ascii_lowercase().starts_with("core.hookspath"))
+            .count();
+        assert_eq!(named, 1, "{argv:?}");
     }
 
     #[test]
@@ -1090,8 +1107,7 @@ mod tests {
         let listed = codes(&git, &repo);
         for (code, path) in &listed {
             if code == "??" || path.starts_with("sub") {
-                let error =
-                    discard(&git, &hooks(&tmp), &repo, std::slice::from_ref(path)).unwrap_err();
+                let error = discard(&git, &repo, std::slice::from_ref(path)).unwrap_err();
                 assert!(matches!(error, ActionError::Linked(_)), "{path}: {error}");
             }
         }
