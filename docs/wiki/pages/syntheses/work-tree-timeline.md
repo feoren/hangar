@@ -33,11 +33,17 @@ after the user typed), also when a queued message continues the session right aw
 sessions only (`takesSnapshots` in `src/timeline.ts`: an agent profile by `runsAgent`, no update
 sessions, no placeholders).
 
-The prompt (`StepPrompt`, `SessionTerminal.takeStepPrompt()`) is the first non-empty line
-submitted with Enter while the agent was not working (attention state idle or waiting), cut to
-200 characters on arrival and by the backend, and reset once the step's snapshot was asked for.
-Lines submitted while the agent works (a password prompt of a tool it runs) are never kept, nor a
-line whose cursor row ends in a password hint and a colon (`Password:`, `Passphrase:`,
+The prompt (`StepPrompt`, `SessionTerminal.takeStepPrompt()`) is the last non-empty line
+submitted with Enter while the agent waited for a task (attention state idle) before the step's
+working phase began, so a command without work (`/clear`, `/model`) gives way to the real prompt
+typed after it. A line answered while the agent asks something (attention state waiting) only
+fills an empty slot. The transition to working (`StepPrompt.workStarted()`, from the attention
+listener in `src/terminal.ts`) fixes the candidate for the step: answers given during the step
+change nothing. Work without a candidate fixes nothing, because work nobody asked for (start-up
+output) ends without a snapshot and would otherwise block the next prompt. The line is cut to 200
+characters on arrival and by the backend; the candidate and the fixed state are reset once the
+step's snapshot was asked for. Lines submitted while the agent works (a password prompt of a tool
+it runs) are never kept, nor a line whose cursor row ends in a password hint and a colon (`Password:`, `Passphrase:`,
 `Kennwort:`, `PIN:`, `token:` and others); a prompt of the user's own that ends that way is
 dropped too. The prompt is stored in plain text as the subject of the snapshot commit in the side
 repository, below Hangar's local data folder, and leaves the machine only if the user copies
@@ -101,7 +107,9 @@ and a jump back the user's git folder holds the same files with the same sizes, 
 5. `commit-tree --no-gpg-sign <tree> -p HEAD -F -` with Hangar's own identity
    (`Hangar <snapshots@hangar.invalid>`) and the subject `hangar-snapshot <step|undo> <files>
    <prompt>`; then one `update-ref --stdin` transaction in the side repository creates
-   `refs/hangar/snapshots/<key>/<n>` and deletes the oldest beyond 50.
+   `refs/hangar/snapshots/<key>/<n>` and deletes the oldest beyond 50. The undo point of a jump
+   back never deletes the jump's target, so going back to the oldest of 50 keeps it in the list
+   (the next oldest goes instead; with a cap of one, the list holds two).
 
 HEAD, the branch, the index, `refs/stash` and every reflog stay as they were. End of line
 conversion works as with `git stash`: text attributes and `core.autocrlf` apply on the way in and

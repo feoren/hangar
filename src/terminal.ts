@@ -221,7 +221,10 @@ export class SessionTerminal {
       (state, reason) => {
         // Only state changes arrive here, so this costs nothing per output chunk.
         if (state !== "working") this.workingSince = null;
-        else this.workingSince ??= Date.now();
+        else {
+          this.workingSince ??= Date.now();
+          this.stepPrompt.workStarted();
+        }
         this.attentionListener?.(state, reason);
       },
     );
@@ -807,8 +810,9 @@ export class SessionTerminal {
   }
 
   /**
-   * The prompt for the snapshot of the step that just ended: the first line the user submitted
-   * while the agent waited, cut (`StepPrompt`). Resets, so the next step starts without one.
+   * The prompt for the snapshot of the step that just ended: the last line the user submitted
+   * while the agent waited, before it began working, cut (`StepPrompt`). Resets, so the next step
+   * starts without one.
    */
   takeStepPrompt(): string | null {
     return this.stepPrompt.take();

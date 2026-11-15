@@ -269,6 +269,29 @@ describe("StepPrompt", () => {
     expect(prompt.take()).toBe("next task");
   });
 
+  it("keeps the last line before the work starts, not a command without work", () => {
+    const prompt = new StepPrompt();
+    prompt.submitted("/clear", "idle", "> /clear");
+    prompt.submitted("fix login", "idle", "> fix login");
+    prompt.workStarted();
+    prompt.submitted("1", "attention", "> 1");
+    prompt.submitted("also the logout", "idle", "> also the logout");
+    expect(prompt.take()).toBe("fix login");
+    prompt.submitted("/model", "idle", "> /model");
+    prompt.submitted("   ", "idle", ">");
+    prompt.workStarted();
+    expect(prompt.take()).toBe("/model");
+  });
+
+  it("fixes nothing when work starts without a candidate, such as start-up output", () => {
+    const prompt = new StepPrompt();
+    prompt.workStarted();
+    prompt.submitted("write the tests", "idle", "> write the tests");
+    prompt.workStarted();
+    prompt.submitted("2", "attention", "> 2");
+    expect(prompt.take()).toBe("write the tests");
+  });
+
   it("never keeps a line submitted while the agent works", () => {
     const prompt = new StepPrompt();
     prompt.submitted("hunter-marker", "working", "[sudo] password for dev: ");

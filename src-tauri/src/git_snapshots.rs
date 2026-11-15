@@ -1064,7 +1064,9 @@ enum Taken {
 }
 
 /// Keeps `tree` as the session's next snapshot, unless it matches the newest one (or, for the
-/// first step, HEAD), and prunes the oldest beyond the cap in the same ref transaction.
+/// first step, HEAD), and prunes the oldest beyond the cap in the same ref transaction. The
+/// snapshot numbered `keep` (the target of a jump back) is never pruned, so it stays in the list
+/// as the state the work tree now holds; the cap may then be passed by one.
 fn record(
     env: &SnapshotEnv<'_>,
     repo: &Repo,
@@ -1072,6 +1074,7 @@ fn record(
     prompt: &str,
     kind: SnapshotKind,
     tree: &str,
+    keep: Option<u64>,
 ) -> Result<Taken, SnapshotError> {
     let list = entries(env, repo, key)?;
     let head = repo.resolve(env, "HEAD^{commit}")?;
@@ -1104,7 +1107,11 @@ fn record(
     let number = last.map_or(1, |last| last.number + 1);
     let mut transaction = format!("create {}{number} {commit}\n", ref_folder(key));
     let excess = (list.len() + 1).saturating_sub(env.max_snapshots.max(1));
-    for old in list.iter().take(excess) {
+    for old in list
+        .iter()
+        .filter(|entry| Some(entry.snapshot.number) != keep)
+        .take(excess)
+    {
         transaction.push_str(&format!("delete {}\n", old.name));
     }
     repo.side_run(
@@ -1144,7 +1151,7 @@ pub fn take(
         }
     };
     Ok(
-        match record(env, &repo, &key, prompt, SnapshotKind::Step, &tree)? {
+        match record(env, &repo, &key, prompt, SnapshotKind::Step, &tree, None)? {
             Taken::Created { number, files } => TakeOutcome::Created { number, files },
             Taken::Unchanged { .. } => TakeOutcome::Unchanged,
         },
@@ -1437,7 +1444,16 @@ pub fn restore(
     let staging = Staging::new(&env.temp_dir())?;
     stage(env, &repo, &staging, &written, &target_tree)?;
 
-    let undo = match record(env, &repo, &key, "", SnapshotKind::Undo, &current_tree) {
+    let undo = record(
+        env,
+        &repo,
+        &key,
+        "",
+        SnapshotKind::Undo,
+        &current_tree,
+        Some(target.snapshot.number),
+    );
+    let undo = match undo {
         Ok(Taken::Created { number, .. })
         | Ok(Taken::Unchanged {
             number: Some(number),
@@ -2628,6 +2644,29 @@ mod tests {
         assert!(fx.numbers().is_empty());
         assert_eq!(list(&env, &fx.repo, OTHER).unwrap().snapshots.len(), 1);
         assert_eq!(forget(&env, &fx.repo, KEY).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_jump_back_to_the_oldest_snapshot_keeps_it_in_the_list() {
+        let Some(fx) = Fixture::new("snapshot-prune-target") else {
+            return;
+        };
+        let env = SnapshotEnv {
+            max_snapshots: 3,
+            ..fx.env()
+        };
+        for step in 1..=3 {
+            write(&fx.repo.join("a.txt"), &format!("step {step}\n"));
+            take(&env, &fx.repo, KEY, "").unwrap();
+        }
+        write(&fx.repo.join("a.txt"), "unsaved\n");
+        assert!(matches!(
+            restore(&env, &fx.repo, KEY, 1, &idle).unwrap(),
+            RestoreOutcome::Restored { undo: 4, .. }
+        ));
+        // Step 2 makes room for the undo point; the target stays where the work tree now is.
+        assert_eq!(fx.numbers(), [4, 3, 1]);
+        assert_eq!(read(&fx.repo.join("a.txt")), "step 1\n");
     }
 
     #[test]

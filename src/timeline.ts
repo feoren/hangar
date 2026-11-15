@@ -241,27 +241,43 @@ const SECRET_CUE =
   /(pass(word|phrase|wort)|kennwort|\bpin\b|token|secret|mot de passe|contraseña|senha|пароль|密码|パスワード)[^:：]*[:：]\s*$/iu;
 
 /**
- * The prompt kept for a step's snapshot, which lands in plain text in the side repository. Keeps
- * only the first line the user submits while the agent waits for input; a line submitted while
- * it works (an answer to a tool's question, a password) and a line typed at a prompt that hides
- * its input are never kept. Cut on arrival, so no long text stays in memory.
+ * The prompt kept for a step's snapshot, which lands in plain text in the side repository. Until
+ * the step's working phase begins, the last line the user submits while the agent waits for a
+ * task (`idle`) is the candidate, so a command without work (`/clear`, `/model`) gives way to the
+ * real prompt after it; a line answered while the agent asks something (`attention`) only fills
+ * an empty slot. When the work starts (`workStarted`) the candidate is fixed for the step. A line
+ * submitted while it works (an answer to a tool's question, a password) and a line typed at a
+ * prompt that hides its input are never kept. Cut on arrival, so no long text stays in memory.
  */
 export class StepPrompt {
   private text: string | null = null;
+  /** The step's working phase has begun: the prompt is fixed until the snapshot takes it. */
+  private started = false;
 
   /**
    * A line submitted with Enter, the attention state at that moment and the screen row under the
    * cursor before the Enter (the program's prompt and the echo of the line).
    */
   submitted(line: string, state: AttentionState, row: string): void {
-    if (this.text !== null || state === "working" || SECRET_CUE.test(row)) return;
-    this.text = snapshotPrompt({ text: line });
+    if (this.started || state === "working" || SECRET_CUE.test(row)) return;
+    if (state === "attention" && this.text !== null) return;
+    this.text = snapshotPrompt({ text: line }) ?? this.text;
+  }
+
+  /**
+   * The agent began working: the step's prompt is the candidate held now. Without one nothing is
+   * fixed, because work nobody asked for (a program's start-up output) ends without a snapshot,
+   * so no `take` would release the slot for the real prompt.
+   */
+  workStarted(): void {
+    if (this.text !== null) this.started = true;
   }
 
   /** The step's prompt for its snapshot; the next step starts without one. */
   take(): string | null {
     const text = this.text;
     this.text = null;
+    this.started = false;
     return text;
   }
 }

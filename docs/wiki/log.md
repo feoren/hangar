@@ -922,3 +922,9 @@ checked again, the cross-process lock for the clean-up, `gc`, the 2 GiB cap, sid
 missing drives kept, coded refusals, the view offered only where snapshots are taken, the prompt
 kept only from the waiting state, and the residual risks.
 Pages changed: [[work-tree-timeline]], [[timeline-restore-measurement]] (new), index.
+
+## [2026-11-15] update | Timeline step prompt and prune target
+The step's prompt is now the last line submitted while the agent waits for a task, fixed when the
+working phase begins, so `/clear` or `/model` before the real prompt no longer names the step.
+The undo point of a jump back no longer prunes the jump's target.
+Pages changed: [[work-tree-timeline]].
