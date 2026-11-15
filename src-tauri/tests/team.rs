@@ -1281,8 +1281,16 @@ impl Device {
                 *s == want || matches!(s, TeamStatus::ConfirmAdmission { .. })
             })
             .await;
-        if status != want {
-            self.team.confirm_admission(PROJECT).await.unwrap();
+        if let TeamStatus::ConfirmAdmission {
+            log_index,
+            safety_number,
+            ..
+        } = status
+        {
+            self.team
+                .confirm_admission(PROJECT, log_index, safety_number)
+                .await
+                .unwrap();
             self.until(&format!("{want:?}"), |s| *s == want).await;
         }
     }
@@ -1403,7 +1411,10 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
             (log.index, log.safety_number),
             (log_index, log_safety_number)
         );
-        a2.team.confirm_admission(PROJECT).await.unwrap();
+        a2.team
+            .confirm_admission(PROJECT, log_index, safety_number)
+            .await
+            .unwrap();
         a2.connected(1, 1, 2).await;
         assert!(
             a2.keys().is_some_and(|k| k.admitted),

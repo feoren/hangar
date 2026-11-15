@@ -335,13 +335,17 @@ impl Problem {
     }
 }
 
-/// Server text for the window: control characters and bidirectional marks dropped (they could
-/// reorder what the person reads), at most [`MAX_TEXT_CHARS`].
+/// Server text for the window: control, invisible and bidirectional characters and line or
+/// paragraph separators dropped (they could hide or reorder what the person reads), at most
+/// [`MAX_TEXT_CHARS`].
 pub fn clean_text(text: &str) -> String {
     text.chars()
+        // Invisible and reordering characters could hide or reorder what the window shows next
+        // to the text; the line and paragraph separators would break a one-line label.
         .filter(|&c| {
             !c.is_control()
-                && !matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                && !crate::text::is_invisible(c)
+                && !matches!(c, '\u{2028}' | '\u{2029}')
         })
         .take(MAX_TEXT_CHARS)
         .collect::<String>()
@@ -1269,6 +1273,12 @@ mod tests {
         assert_eq!(oauth.message().as_deref(), Some("Too fast"));
         let bidi = Problem::parse("{\"detail\":\"a\u{202e}b\u{2066}c\"}".as_bytes()).unwrap();
         assert_eq!(bidi.message().as_deref(), Some("abc"));
+        // Invisible characters, the Arabic letter mark, the Mongolian vowel separator and line
+        // or paragraph separators go too.
+        assert_eq!(
+            clean_text("a\u{200B}b\u{FEFF}c\u{061C}d\u{180E}e\u{2028}f\u{2029}g\u{00AD}h"),
+            "abcdefgh"
+        );
         assert!(Problem::parse(b"<html>").is_none());
         assert!(Problem::parse(b"[]").is_none());
         let long = format!(r#"{{"detail":"{}"}}"#, "x".repeat(1000));

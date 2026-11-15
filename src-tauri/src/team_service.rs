@@ -98,8 +98,9 @@ enum Command {
     Reject(String, oneshot::Sender<Result<(), TeamError>>),
     /// Another device of the signed-in person leaves the team (a lost one, for example).
     RemoveDevice(DeviceId, oneshot::Sender<Result<(), TeamError>>),
-    /// The person compared the safety numbers of the device that admitted this one.
-    ConfirmAdmission(oneshot::Sender<Result<(), TeamError>>),
+    /// The person compared the safety numbers of the device that admitted this one: the log
+    /// index and the admitting device's safety number the window showed.
+    ConfirmAdmission(u64, Vec<String>, oneshot::Sender<Result<(), TeamError>>),
     /// What the project shares from this device now (part 2b).
     Share(LocalShare),
     /// Reserves a task (title, linked session, folder of its repository).
@@ -895,9 +896,19 @@ impl TeamService {
 
     /// The person compared the admitting device's and the log's safety numbers and confirms
     /// that this device joined the right team.
-    pub async fn confirm_admission(&self, project: &str) -> Result<(), TeamError> {
+    /// `log_index` and `safety_number` are what the window showed; the engine refuses them when
+    /// the team shows something else by now ([`TeamError::Changed`]).
+    pub async fn confirm_admission(
+        &self,
+        project: &str,
+        log_index: u64,
+        safety_number: Vec<String>,
+    ) -> Result<(), TeamError> {
         let tx = self.team_tx(project)?;
-        Self::send_command(tx, Command::ConfirmAdmission).await
+        Self::send_command(tx, move |reply| {
+            Command::ConfirmAdmission(log_index, safety_number, reply)
+        })
+        .await
     }
 
     /// Sets a worker's view, unless a newer worker took over the team.
@@ -1189,7 +1200,7 @@ impl Worker {
             Command::Confirm(_, reply)
             | Command::Reject(_, reply)
             | Command::RemoveDevice(_, reply)
-            | Command::ConfirmAdmission(reply)
+            | Command::ConfirmAdmission(_, _, reply)
             | Command::ReserveTask(_, reply)
             | Command::ReleaseTask(_, reply)
             | Command::AskRelease(_, reply)
@@ -1442,6 +1453,14 @@ impl Worker {
         if self.other_account() {
             return Ok(attention(AttentionReason::OtherAccount));
         }
+        // A device not bound yet binds to the account of its first welcome, which must be the
+        // one signed in: until the website said who that is (`/me`), it does not connect. Asking
+        // for the status starts that read; the reconnect policy tries again later.
+        let unbound = self.engine.as_ref().is_some_and(|e| e.member().is_none());
+        if unbound && self.signed_in_account().is_none() {
+            let _ = self.service.inner.account.status().await;
+            return Ok(SessionEnd::Lost);
+        }
         let ticket = match self.ticket().await {
             Ok(ticket) => ticket,
             Err(end) => return Ok(end),
@@ -1577,7 +1596,9 @@ impl Worker {
             Command::Confirm(id, reply) => (engine.confirm(&id), reply),
             Command::Reject(id, reply) => (engine.reject(&id), reply),
             Command::RemoveDevice(device, reply) => (engine.remove_own_device(&device), reply),
-            Command::ConfirmAdmission(reply) => (engine.confirm_admission(), reply),
+            Command::ConfirmAdmission(index, number, reply) => {
+                (engine.confirm_admission(index, &number), reply)
+            }
             Command::ReserveTask(task, reply) => (
                 engine.reserve_task(&task.title, task.session, task.area.as_deref()),
                 reply,

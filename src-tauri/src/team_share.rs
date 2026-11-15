@@ -607,6 +607,10 @@ pub struct TeamActivity {
     pub devices: Vec<OwnDevice>,
     /// The verified log's safety number at its head, for a newcomer to compare.
     pub log: Option<LogSafety>,
+    /// The log has room only for removing members and changing the key
+    /// (`TeamState::log_full`): no device or member can be admitted any more, everything else
+    /// goes on.
+    pub log_full: bool,
 }
 
 /// One of the signed-in person's devices in the verified log.
@@ -687,10 +691,15 @@ fn cut(text: &str) -> String {
 
 /// A teammate's text as this device shows and passes it on (names, agents, titles): without
 /// control, invisible or reordering characters, which could hide or reorder what the person
-/// reads next to it, then cut like any label.
+/// reads next to it, and without line or paragraph separators, which would break the label;
+/// then cut like any label.
 fn plain(text: &str) -> String {
     text.chars()
-        .filter(|&c| !c.is_control() && !crate::text::is_invisible(c))
+        .filter(|&c| {
+            !c.is_control()
+                && !crate::text::is_invisible(c)
+                && !matches!(c, '\u{2028}' | '\u{2029}')
+        })
         .take(MAX_LABEL_CHARS)
         .collect()
 }
@@ -790,8 +799,8 @@ mod tests {
         let detail = serde_json::json!({
             "v": 1,
             "name": "\u{202E}evil",
-            "agent": "x\u{2067}y",
-            "title": "t\u{0}",
+            "agent": "x\u{2067}y\u{2028}",
+            "title": "t\u{0}\u{2029}",
             "base": null,
             "files": [],
             "truncated": false,

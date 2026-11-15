@@ -824,3 +824,11 @@ Pages changed: [[release-rollout]], [[tauri-updater-and-nsis]].
 ## [2026-11-15] ingest | Second security round for links, paste and session input
 OSC 8 link text is now judged as the whole word around the link (also through wrapped rows), word by word without punctuation, after NFKC and with ideographic dots; invisible characters, bare file names of another target and addresses with a user name ask or are refused. The file viewer's Markdown links get the same check. The paste question is asked again when bracketed paste went off meanwhile (residual mode lag documented), blank text sends no lone Enter, a stall drops the writes queued behind it, and dropped paths with bidi controls or line and paragraph separators are left out (zero-width joiners stay allowed for Persian, Indic and emoji file names).
 Pages changed: [[terminal-links]], [[notes]], [[queued-messages-and-stall-hint]], [[process-launch-hardening]], [[agent-workflow-features]].
+
+## [2026-11-15] update | Second security round on teams, accounts and crypto
+Membership log capped at 8192 entries with 64 places kept for removing a member and rotating; a due rotation that only removes devices added after the epoch began is deferred to at most one per 10 minutes and holds no sharing; refused rotations are bounded per connection; a website promotion to admin waits for the owner's confirmation while demotions follow at once; the admission confirmation is bound to the numbers shown and armed with a delay; no binding before `/me` is known; no trust without a website owner for devices not admitted before; reports of other devices no longer stop the team; the `v1` keys migration needs an epoch secret; text cleaning drops invisible characters and line separators. Recovery derivation without team salt accepted with reasoning; relay rate limit filed as a server requirement.
+Pages changed: [[team-crypto]].
+
+## [2026-11-15] update | A full team log stays visible and names its way out
+A log that reached its reserved places no longer goes unnoticed: every device reports it without stopping, requests that no longer fit stay listed as such, and owners and admins are told the way out that exists (remove the member on the website, a new project for new devices). A website without a project owner now stops new devices with its own reason, `NoWebsiteOwner`.
+Pages changed: [[team-crypto]].

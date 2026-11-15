@@ -8,15 +8,19 @@ import {
   type Project,
 } from "./account";
 import { useT } from "./i18n";
+import { revealInvisible } from "./invisible";
+import { Revealed } from "./Revealed";
 import { TeamRepos } from "./TeamActivityView";
 import { TeamCard } from "./TeamCard";
 import {
   ARM_DELAY_MS,
+  admissionKey,
   armDelayLeft,
   canToggle,
   confirmationKindText,
   isArmed,
   isSharing,
+  pendingContentKey,
   personTag,
   releaseRequestKey,
   requestPosition,
@@ -35,11 +39,34 @@ import {
   type TeamStatus,
 } from "./team";
 import { account } from "./useAccount";
-import { deviceKey, taskKey, team } from "./useTeam";
+import { deviceKey, loadTeamStatuses, taskKey, team } from "./useTeam";
 
 // The Team window's building blocks: a project's details and share switch, connecting a first
 // project, the waiting help with the safety number, and the requests that wait for an answer
 // (new devices to confirm, tasks to hand over).
+
+/**
+ * Whether the answers of a request may be used: `false` for ARM_DELAY_MS after the component
+ * appears, so a stray Enter or a double click meant for something else cannot answer it. Callers
+ * key the component by everything it shows, so new content starts disarmed again.
+ */
+function useArmed(): boolean {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    const shownAt = performance.now();
+    let timer = 0;
+    const check = () => {
+      const now = performance.now();
+      if (isArmed(shownAt, now)) setArmed(true);
+      else timer = window.setTimeout(check, armDelayLeft(shownAt, now));
+    };
+    timer = window.setTimeout(check, ARM_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
+  return armed;
+}
 
 /**
  * One project in the Team window's "People" tab: role, plan, seats (per account of the owner)
@@ -64,7 +91,11 @@ export function ProjectDetails(props: {
     <div className="team-columns team-details">
       <TeamCard
         className="team-project-card"
-        title={<span title={project.name}>{project.name}</span>}
+        title={
+          <span title={revealInvisible(project.name)}>
+            <Revealed text={project.name} />
+          </span>
+        }
         action={role === null ? undefined : <span className="team-role">{role}</span>}
       >
         {meta.length > 0 && (
@@ -105,6 +136,7 @@ export function ProjectDetails(props: {
             {accountErrorText(inviteProblem, t)}
           </p>
         )}
+        {props.activity.logFull && <LogFullNotice manages={manages(project)} />}
       </TeamCard>
       {status.state === "connected" && (
         <TeamRepos
@@ -118,6 +150,25 @@ export function ProjectDetails(props: {
         props.activity.devices.length > 0 && (
           <TeamDevices projectId={project.id} activity={props.activity} busy={props.busy} />
         )}
+    </div>
+  );
+}
+
+/** Owners and admins act on the website's member list, which the team's log follows. */
+function manages(project: Project): boolean {
+  return project.role === "owner" || project.role === "admin";
+}
+
+/**
+ * The team's log is full: what still works for everyone, and for owners and admins the one way
+ * on that exists (the website removes members and creates projects).
+ */
+function LogFullNotice({ manages }: { manages: boolean }) {
+  const t = useT();
+  return (
+    <div className="team-help" role="status">
+      <p className="team-confirm-warning">{t("team.logFull.notice")}</p>
+      {manages && <p className="team-help">{t("team.logFull.manage")}</p>}
     </div>
   );
 }
@@ -236,9 +287,19 @@ export function AdmissionCheck(props: {
   status: Extract<TeamStatus, { state: "confirmAdmission" }>;
   busy: boolean;
 }) {
+  // New numbers are a new check: fresh state, disarmed again.
+  return <AdmissionNumbers key={admissionKey(props.status)} {...props} />;
+}
+
+function AdmissionNumbers(props: {
+  projectId: string;
+  status: Extract<TeamStatus, { state: "confirmAdmission" }>;
+  busy: boolean;
+}) {
   const t = useT();
   const { status } = props;
   const [problem, setProblem] = useState<TeamProblem | null>(null);
+  const armed = useArmed();
   return (
     <div className="team-waiting">
       <p className="team-waiting-title">{t("team.admission.title")}</p>
@@ -259,12 +320,16 @@ export function AdmissionCheck(props: {
         <button
           type="button"
           className="primary-button"
-          disabled={props.busy}
+          disabled={props.busy || !armed}
           onClick={() => {
             setProblem(null);
             team
-              .confirmAdmission(props.projectId)
-              .then(setProblem)
+              .confirmAdmission(props.projectId, status.logIndex, status.safetyNumber)
+              .then((next) => {
+                setProblem(next);
+                // The team moved on: read the numbers it shows now.
+                if (next?.kind === "changed") loadTeamStatuses([props.projectId]);
+              })
               .catch(() => undefined);
           }}
         >
@@ -313,8 +378,8 @@ function ConnectRow(props: { project: Project; status: TeamStatus; busy: boolean
   return (
     <li className="team-connect-row">
       <div className="team-connect-text">
-        <span className="team-project-name" title={project.name}>
-          {project.name}
+        <span className="team-project-name" title={revealInvisible(project.name)}>
+          <Revealed text={project.name} />
         </span>
         {details.length > 0 && <span className="team-project-meta">{details.join(" · ")}</span>}
         {line !== null && (
@@ -472,7 +537,7 @@ export function PendingConfirmations(props: {
     <section ref={sectionRef} className="team-confirm" aria-labelledby={titleId} tabIndex={-1}>
       <div className="team-confirm-head">
         <h3 id={titleId} className="team-confirm-title">
-          {t("team.confirm.title")}
+          {t(request.kind === "roleChange" ? "team.confirm.roleTitle" : "team.confirm.title")}
         </h3>
         {position !== null && position.count > 1 && (
           <span className="team-confirm-position">
@@ -481,8 +546,9 @@ export function PendingConfirmations(props: {
         )}
       </div>
       <PendingRequest
-        // A new request gets fresh state: disarmed answers, no open reject question, no error.
-        key={request.id}
+        // A new request, or new content under the same id, gets fresh state: disarmed answers,
+        // no open reject question, no error.
+        key={pendingContentKey(request)}
         request={request}
         projectName={projectName}
         busy={props.busy.has(request.id)}
@@ -509,28 +575,12 @@ function PendingRequest(props: {
 }) {
   const t = useT();
   const { request } = props;
-  const [armed, setArmed] = useState(false);
+  const armed = useArmed();
   const [askingReject, setAskingReject] = useState(false);
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
   const rejectRef = useRef<HTMLButtonElement>(null);
   const askedOnce = useRef(false);
-
-  // The answers stay disabled for ARM_DELAY_MS after the request appears; the component is keyed
-  // by the request, so every new request starts disarmed.
-  useEffect(() => {
-    const shownAt = performance.now();
-    let timer = 0;
-    const check = () => {
-      const now = performance.now();
-      if (isArmed(shownAt, now)) setArmed(true);
-      else timer = window.setTimeout(check, armDelayLeft(shownAt, now));
-    };
-    timer = window.setTimeout(check, ARM_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, []);
 
   // The question before rejecting takes the focus on its safe answer; going back returns it to
   // Reject, where it came from.
@@ -558,14 +608,15 @@ function PendingRequest(props: {
   };
 
   const disabled = props.busy || !armed;
+  const roleChange = request.kind === "roleChange";
 
   return (
     <div className="team-confirm-item">
       <div className="team-confirm-kind">{confirmationKindText(request.kind, t)}</div>
       <div className="team-confirm-meta">
         {props.projectName !== undefined && (
-          <span className="team-confirm-project" title={props.projectName}>
-            {props.projectName}
+          <span className="team-confirm-project" title={revealInvisible(props.projectName)}>
+            <Revealed text={props.projectName} />
           </span>
         )}
         {request.kind !== "ownDevice" && (
@@ -573,13 +624,22 @@ function PendingRequest(props: {
             {t("team.confirm.member", { id: shortId(request.member) })}
           </span>
         )}
-        <span title={request.device}>
-          {t("team.confirm.device", { id: shortId(request.device) })}
-        </span>
+        {!roleChange && (
+          <span title={request.device}>
+            {t("team.confirm.device", { id: shortId(request.device) })}
+          </span>
+        )}
       </div>
       {request.readmitted && <p className="team-confirm-warning">{t("team.confirm.readmitted")}</p>}
-      <SafetyNumber groups={request.safetyNumber} />
-      <p className="team-help">{t("team.confirm.compare")}</p>
+      {request.logFull && <p className="team-confirm-warning">{t("team.confirm.logFull")}</p>}
+      {roleChange ? (
+        <p className="team-help">{t("team.confirm.roleHelp")}</p>
+      ) : (
+        <>
+          <SafetyNumber groups={request.safetyNumber} />
+          <p className="team-help">{t("team.confirm.compare")}</p>
+        </>
+      )}
       {askingReject ? (
         <div className="team-confirm-ask" role="group" aria-label={t("team.confirm.reject")}>
           <p className="team-help">{t("team.confirm.rejectQuestion")}</p>
@@ -609,16 +669,18 @@ function PendingRequest(props: {
         </div>
       ) : (
         <div className="team-confirm-actions">
-          <button
-            type="button"
-            className="primary-button"
-            disabled={disabled}
-            onClick={() => {
-              answer(true);
-            }}
-          >
-            {t("team.confirm.accept")}
-          </button>
+          {!request.logFull && (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={disabled}
+              onClick={() => {
+                answer(true);
+              }}
+            >
+              {t("team.confirm.accept")}
+            </button>
+          )}
           <button
             ref={rejectRef}
             type="button"
@@ -706,24 +768,10 @@ function ReleaseRequest(props: {
 }) {
   const t = useT();
   const { task } = props;
-  const [armed, setArmed] = useState(false);
+  // Keyed by the request: every new request starts disarmed for ARM_DELAY_MS.
+  const armed = useArmed();
   const [problem, setProblem] = useState<TeamProblem | null>(null);
   const [sent, setSent] = useState(false);
-
-  // Keyed by the request: every new request starts disarmed for ARM_DELAY_MS.
-  useEffect(() => {
-    const shownAt = performance.now();
-    let timer = 0;
-    const check = () => {
-      const now = performance.now();
-      if (isArmed(shownAt, now)) setArmed(true);
-      else timer = window.setTimeout(check, armDelayLeft(shownAt, now));
-    };
-    timer = window.setTimeout(check, ARM_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, []);
 
   const request = task.request;
   const answer = (accept: boolean) => {
@@ -750,8 +798,8 @@ function ReleaseRequest(props: {
     <div className="team-confirm-item">
       {props.projectName !== undefined && (
         <div className="team-confirm-meta">
-          <span className="team-confirm-project" title={props.projectName}>
-            {props.projectName}
+          <span className="team-confirm-project" title={revealInvisible(props.projectName)}>
+            <Revealed text={props.projectName} />
           </span>
         </div>
       )}
