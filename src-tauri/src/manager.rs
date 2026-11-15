@@ -479,7 +479,12 @@ impl Shared {
         }
     }
 
-    fn attach(&self, id: SessionId, runtime: Runtime) -> Result<SessionInfo, ManagerError> {
+    fn attach(
+        &self,
+        id: SessionId,
+        generation: u64,
+        runtime: Runtime,
+    ) -> Result<SessionInfo, ManagerError> {
         let mut sessions = lock(&self.sessions);
         let Some(entry) = sessions.get_mut(&id) else {
             // Closed during startup. On Unix, Drop does not end the process, hence
@@ -488,6 +493,16 @@ impl Shared {
             let _ = runtime.kill();
             return Err(ManagerError::UnknownSession(id));
         };
+        // A newer process took over before this one was attached: a resume attempt that failed
+        // so fast that its fallback started first. This process has exited and was reaped (no
+        // kill: its pid may belong to another process by now); installing its runtime would
+        // replace the live one's, whose own attach would then drop it.
+        if entry.generation != generation {
+            let info = entry.info.clone();
+            drop(sessions);
+            runtime.flow.close();
+            return Ok(info);
+        }
         entry.info.gate = runtime.gate;
         // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
         if entry.info.status == Status::Starting {
@@ -559,7 +574,7 @@ impl Shared {
             Ok(runtime) => {
                 // If the session is gone by now, `attach` has already cleaned up; the batch thread
                 // of the new process reports its exit itself.
-                let _ = self.attach(id, runtime);
+                let _ = self.attach(id, next, runtime);
             }
             Err(error) => {
                 eprintln!("hangar: session {id}: normal start after resume failed: {error}");
@@ -1346,7 +1361,7 @@ impl SessionManager {
             size,
             Arc::new(sink),
         ) {
-            Ok(runtime) => self.shared.attach(id, runtime),
+            Ok(runtime) => self.shared.attach(id, 0, runtime),
             Err(error) => {
                 let mut sessions = lock(&self.shared.sessions);
                 sessions.remove(&id);
@@ -1408,7 +1423,7 @@ impl SessionManager {
             size,
             Arc::new(sink),
         ) {
-            Ok(runtime) => self.shared.attach(id, runtime),
+            Ok(runtime) => self.shared.attach(id, generation, runtime),
             Err(error) => {
                 if let Some(entry) = lock(&self.shared.sessions).get_mut(&id) {
                     let _ = entry.info.mark_exited(None);

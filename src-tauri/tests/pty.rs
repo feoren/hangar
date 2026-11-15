@@ -845,7 +845,9 @@ fn resume_fails_fast_then_exactly_one_normal_start() {
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
     let (info, rx) = start_team(&manager, "r-fail", true);
-    assert!(info.resumed);
+    // No `info.resumed` here: when the attempt fails before it is attached (a loaded machine),
+    // the info is already its fallback's. The output order below shows the resume came first;
+    // `resume_succeeds_without_fallback` checks the flag of an attached resume.
     let (output, code) = collect_until_exit(&manager, info.id, &rx);
     let position = |needle: &str| {
         output
@@ -1511,7 +1513,10 @@ fn restore_resumes_the_stored_id_and_falls_back_under_the_same_id() {
             move |e| tx.send(e).unwrap_or(()),
         )
         .unwrap();
-    assert!(info.resumed);
+    // The info is the state when the process was attached: still the resume attempt, or,
+    // when the attempt failed before that (a loaded machine), already its fallback. Both run
+    // under the stored id; the output below shows that the resume came first, and
+    // `resume_succeeds_without_fallback` checks the flag of an attached resume.
     assert_eq!(info.cli_session_id.as_deref(), Some(STORED_ID));
     let deadline = Instant::now() + TIMEOUT;
     let mut output = String::new();
