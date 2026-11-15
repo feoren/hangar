@@ -8,6 +8,7 @@ export const SETTINGS_SECTIONS = [
   "attention",
   "programs",
   "snippets",
+  "dictation",
   "account",
   "updates",
 ] as const;
@@ -21,6 +22,7 @@ export const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   attention: "settings.attention",
   programs: "settings.programs",
   snippets: "settings.snippets",
+  dictation: "settings.dictation",
   account: "settings.account",
   updates: "settings.updates",
 };

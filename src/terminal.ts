@@ -858,7 +858,12 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    const action = terminalKeyAction(event, this.term.hasSelection(), focusCycleActive);
+    const action = terminalKeyAction(
+      event,
+      this.term.hasSelection(),
+      focusCycleActive,
+      dictationKeyActive,
+    );
     switch (action.kind) {
       case "app":
         // App shortcuts (session switching, sidebar, font) belong to the app, not to the process.
@@ -887,6 +892,13 @@ let focusCycleActive = false;
 
 export function setFocusCycleActive(active: boolean): void {
   focusCycleActive = active;
+}
+
+/** Dictation is on (App): Ctrl+Shift+Space belongs to the app, not to the program. */
+let dictationKeyActive = false;
+
+export function setDictationKeyActive(active: boolean): void {
+  dictationKeyActive = active;
 }
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */

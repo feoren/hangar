@@ -117,6 +117,11 @@ const COMMANDS: &[&str] = &[
     "team_release_task",
     "team_ask_release",
     "team_answer_release",
+    "dictation_status",
+    "dictation_start",
+    "dictation_stop",
+    "dictation_install_model",
+    "dictation_remove_model",
 ];
 
 fn main() {

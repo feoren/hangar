@@ -6,6 +6,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 import type { AccountPage } from "./account";
 import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
+import type { DictationLanguage, DictationModel } from "./dictation";
 import type { GateAnswer } from "./gate";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
@@ -533,6 +534,19 @@ export const api = {
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),
+
+  /** Dictation state for `model` and which models are installed (`parseDictationStatus`). */
+  dictationStatus: (model: DictationModel) => invoke<unknown>("dictation_status", { model }),
+  /** Opens the microphone; the text goes to session `id` later. Rejects with an error kind. */
+  dictationStart: (id: number, model: DictationModel, language: DictationLanguage) =>
+    invoke<null>("dictation_start", { id, model, language }),
+  /** Closes the microphone and transcribes; harmless when nothing records. */
+  dictationStop: () => invoke<null>("dictation_stop"),
+  /** Downloads a speech model after the user agreed. Rejects with an error kind. */
+  dictationInstallModel: (model: DictationModel) =>
+    invoke<null>("dictation_install_model", { model }),
+  dictationRemoveModel: (model: DictationModel) =>
+    invoke<null>("dictation_remove_model", { model }),
 };
 
 /** Menu texts and tooltip of the notification area icon (Rust: `TrayLabels` in tray.rs). */
@@ -556,6 +570,10 @@ export const GATE_CHANGED = "gate-changed";
 export const ACCOUNT_CHANGED = "account-changed";
 /** Event with every project's team connection and the pending confirmations (`parseTeamSnapshot`). */
 export const TEAM_CHANGED = "team-changed";
+/** Dictation: the state (`parseDictationStatus`), the input level and the finished text. */
+export const DICTATION_STATUS = "dictation-status";
+export const DICTATION_LEVEL = "dictation-level";
+export const DICTATION_TEXT = "dictation-text";
 
 /** Session ID from the `notification-activated` payload `{ sessionId }`; `null` if malformed. */
 export function parseActivatedSession(payload: unknown): number | null {

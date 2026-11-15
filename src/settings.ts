@@ -2,6 +2,7 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply.
 
+import { DEFAULT_DICTATION, parseDictationPrefs, type DictationPrefs } from "./dictation";
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
@@ -104,6 +105,8 @@ export interface Settings {
   sessionGrouping: SessionGrouping;
   /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
   snippets: Snippet[];
+  /** Hold a key to dictate into the session (dictation.ts); off by default. */
+  dictation: DictationPrefs;
 }
 
 type Flag =
@@ -155,6 +158,7 @@ export function defaultSettings(language: Language): Settings {
     viewerTheme: DEFAULT_VIEWER_THEME,
     sessionGrouping: "program",
     snippets: defaultSnippets(language),
+    dictation: DEFAULT_DICTATION,
   };
 }
 
@@ -242,6 +246,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     viewerTheme: isViewerTheme(viewerTheme) ? viewerTheme : defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
     snippets: parseSnippets(get("snippets"), chosenLanguage),
+    dictation: parseDictationPrefs(get("dictation")),
   };
 }
 

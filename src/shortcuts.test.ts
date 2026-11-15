@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  DICTATION_SHORTCUT,
+  endsDictation,
   focusCycleStep,
+  isDictationChord,
+  KeyHold,
   nextFocusZone,
   formatShortcut,
   ignoresRepeat,
@@ -220,5 +224,83 @@ describe("focus cycle", () => {
     expect(nextFocusZone(zones, null, 1)).toBe("terminal");
     expect(nextFocusZone(["terminal", "list"], "editor", 1)).toBe("terminal");
     expect(nextFocusZone([], "list", 1)).toBeNull();
+  });
+});
+
+describe("dictation hold", () => {
+  const chord = (repeat = false) => ({ ...key(" ", "Space", { shift: true }), repeat });
+
+  it("recognizes only Ctrl+Shift+Space", () => {
+    expect(isDictationChord(key(" ", "Space", { shift: true }))).toBe(true);
+    expect(isDictationChord(key(" ", "Space"))).toBe(false);
+    expect(isDictationChord(key(" ", "Space", { shift: true, alt: true }))).toBe(false);
+    expect(isDictationChord(key(" ", "Space", { shift: true, meta: true }))).toBe(false);
+    expect(isDictationChord(key("S", "KeyS", { shift: true }))).toBe(false);
+    // Not an app shortcut that fires on press: it only works as a hold.
+    expect(matchShortcut(key(" ", "Space", { shift: true }))).toBeNull();
+    expect(endsDictation({ key: "Control", code: "ControlRight" })).toBe(true);
+    expect(endsDictation({ key: "a", code: "KeyA" })).toBe(false);
+  });
+
+  it("starts once despite key repeat and ends on release", () => {
+    const calls: string[] = [];
+    const hold = new KeyHold(
+      () => calls.push("start"),
+      () => calls.push("end"),
+    );
+    expect(hold.keydown(chord())).toBe(true);
+    expect(hold.keydown(chord(true))).toBe(true);
+    expect(hold.keydown(chord(true))).toBe(true);
+    expect(hold.active).toBe(true);
+    expect(hold.keyup({ key: " ", code: "Space" })).toBe(true);
+    expect(hold.active).toBe(false);
+    expect(calls).toEqual(["start", "end"]);
+    // The keyup of the other keys afterwards does nothing.
+    expect(hold.keyup({ key: "Shift", code: "ShiftLeft" })).toBe(false);
+    expect(calls).toEqual(["start", "end"]);
+  });
+
+  it("ends on the release of Ctrl or Shift, and on blur", () => {
+    for (const release of [
+      { key: "Control", code: "ControlLeft" },
+      { key: "Shift", code: "ShiftRight" },
+    ]) {
+      let ended = 0;
+      const hold = new KeyHold(
+        () => undefined,
+        () => (ended += 1),
+      );
+      hold.keydown(chord());
+      expect(hold.keyup({ key: "a", code: "KeyA" })).toBe(false);
+      expect(hold.keyup(release)).toBe(true);
+      expect(ended).toBe(1);
+    }
+    let ended = 0;
+    const hold = new KeyHold(
+      () => undefined,
+      () => (ended += 1),
+    );
+    hold.keydown(chord());
+    hold.release();
+    hold.release();
+    expect(ended).toBe(1);
+  });
+
+  it("does not start from a repeat alone and ignores other keys", () => {
+    let started = 0;
+    const hold = new KeyHold(
+      () => (started += 1),
+      () => undefined,
+    );
+    expect(hold.keydown(chord(true))).toBe(true);
+    expect(hold.keydown({ ...key("a", "KeyA"), repeat: false })).toBe(false);
+    expect(started).toBe(0);
+  });
+
+  it("names the key in the UI language", () => {
+    expect(formatShortcut(DICTATION_SHORTCUT, createTranslator("de"))).toBe(
+      "Strg+Umschalt+Leertaste",
+    );
+    expect(formatShortcut(DICTATION_SHORTCUT, createTranslator("en"))).toBe("Ctrl+Shift+Space");
   });
 });

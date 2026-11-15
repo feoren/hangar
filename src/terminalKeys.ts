@@ -1,7 +1,7 @@
 // What a key press inside the terminal does, before xterm turns it into input for the process.
 // Pure, so the rules for copy and paste are testable without a terminal.
 
-import { focusCycleStep, matchShortcut } from "./shortcuts";
+import { focusCycleStep, isDictationChord, matchShortcut } from "./shortcuts";
 
 type KeyInfo = Pick<
   KeyboardEvent,
@@ -9,8 +9,8 @@ type KeyInfo = Pick<
 >;
 
 /**
- * - `app`: an app shortcut, or F6 while `focusCycle` (the notes are open); xterm ignores the key,
- *   the window listener handles it.
+ * - `app`: an app shortcut, F6 while `focusCycle` (the notes are open), or Ctrl+Shift+Space while
+ *   `dictation` is on; xterm ignores the key, the window listener handles it.
  * - `copy`: copy the selection; `clearSelection` for Ctrl+C (Ctrl+Shift+C keeps it, like Windows
  *   Terminal). The default action is suppressed.
  * - `paste`: xterm ignores the key, but the browser's default action stays. It fires the native
@@ -30,8 +30,11 @@ export function terminalKeyAction(
   event: KeyInfo,
   hasSelection: boolean,
   focusCycle = false,
+  dictation = false,
 ): TerminalKeyAction {
   if (matchShortcut(event)) return { kind: "app" };
+  // Held for dictation (keydown, keypress and keyup alike): the program never sees Ctrl+Space.
+  if (dictation && isDictationChord(event)) return { kind: "app" };
   // F6 moves the focus to the notes while they are open; the process must not get it as well.
   if (focusCycle && event.type === "keydown" && focusCycleStep(event) !== null) {
     return { kind: "app" };

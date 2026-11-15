@@ -13,6 +13,7 @@ pub mod clipboard_image;
 mod commands;
 pub mod context_usage;
 pub mod desktop;
+pub mod dictation;
 pub mod exe_image;
 pub mod exec_alias;
 pub mod export;
@@ -217,6 +218,28 @@ pub fn run() -> tauri::Result<()> {
             // Local rather than roaming: scrollback is large, may contain secrets and belongs to
             // this machine (Windows: %LOCALAPPDATA%\<identifier>).
             let local_dir = app.path().app_local_data_dir()?;
+            // Local dictation: idle until the window starts a recording; the speech models are
+            // large and belong to this machine, hence the local data folder.
+            let events = app.handle().clone();
+            app.manage(dictation::DictationService::new(
+                local_dir.join("models"),
+                std::sync::Arc::new(dictation::audio::CpalSource),
+                std::sync::Arc::new(dictation::whisper::Whisper),
+                std::sync::Arc::new(move |notice| {
+                    let main = panel_window::MAIN_LABEL;
+                    let _ = match notice {
+                        dictation::Notice::Status(status) => {
+                            events.emit_to(main, dictation::STATUS_EVENT, status)
+                        }
+                        dictation::Notice::Level(level) => {
+                            events.emit_to(main, dictation::LEVEL_EVENT, level)
+                        }
+                        dictation::Notice::Text(text) => {
+                            events.emit_to(main, dictation::TEXT_EVENT, text)
+                        }
+                    };
+                }),
+            ));
             let notes = notes::NotesStore::new(&local_dir);
             notes.migrate_legacy_layout();
             app.manage(notes);
@@ -428,11 +451,18 @@ pub fn run() -> tauri::Result<()> {
             commands::team_release_task,
             commands::team_ask_release,
             commands::team_answer_release,
+            commands::dictation_status,
+            commands::dictation_start,
+            commands::dictation_stop,
+            commands::dictation_install_model,
+            commands::dictation_remove_model,
         ])
         .build(tauri::generate_context!())?;
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // The microphone closes with the app.
+            handle.state::<dictation::DictationService>().stop();
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
             handle.state::<context_usage::ContextUsage>().stop();

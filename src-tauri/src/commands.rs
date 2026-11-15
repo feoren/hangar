@@ -15,6 +15,9 @@ use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
 use crate::desktop;
+use crate::dictation::model::ModelId;
+use crate::dictation::whisper::Language;
+use crate::dictation::{self, DictationError, DictationService, DictationStatus};
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
 use crate::file_viewer::{
@@ -2202,4 +2205,63 @@ pub async fn configure_tray(
     labels: TrayLabels,
 ) -> Result<(), TrayError> {
     tray::configure(&app, enabled, &labels)
+}
+
+// ------------------------------------------------------------------------------------------
+// Local dictation (dictation/)
+// ------------------------------------------------------------------------------------------
+
+/// State of dictation for the model the window chose, and which models are installed.
+#[tauri::command]
+pub fn dictation_status(dictation: State<'_, DictationService>, model: ModelId) -> DictationStatus {
+    dictation.status(model)
+}
+
+/// Opens the microphone; the text later goes to session `id` (event `dictation-text`).
+/// Async because opening the device takes a moment.
+#[tauri::command]
+pub async fn dictation_start(
+    app: tauri::AppHandle,
+    id: SessionId,
+    model: ModelId,
+    language: Language,
+) -> Result<(), DictationError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let known = app
+            .state::<SessionManager>()
+            .list()
+            .iter()
+            .any(|info| info.id == id);
+        if !known {
+            return Err(DictationError::UnknownSession);
+        }
+        app.state::<DictationService>().start(id, model, language)
+    })
+    .await
+    .map_err(|_| DictationError::Microphone)?
+}
+
+/// Closes the microphone and transcribes; nothing happens when no recording runs.
+#[tauri::command]
+pub fn dictation_stop(dictation: State<'_, DictationService>) {
+    dictation.stop();
+}
+
+/// Downloads a speech model (pinned file and SHA-256). The window asks for consent first.
+#[tauri::command]
+pub async fn dictation_install_model(
+    app: tauri::AppHandle,
+    model: ModelId,
+) -> Result<(), DictationError> {
+    let service = app.state::<DictationService>().inner().clone();
+    dictation::install(&service, model).await
+}
+
+/// Deletes a speech model's file.
+#[tauri::command]
+pub fn dictation_remove_model(
+    dictation: State<'_, DictationService>,
+    model: ModelId,
+) -> Result<(), DictationError> {
+    dictation.remove(model)
 }
