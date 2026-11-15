@@ -900,3 +900,7 @@ Pages changed: [[session-row-layout]].
 ## [2026-11-15] update | Row builder acceptance measurements
 Tree guide geometry of all presets compared against main in Edge 157 headless (identical), editor drag, keyboard and focus driven over the DevTools protocol; arrow buttons at an edge are now `aria-disabled`.
 Pages changed: [[session-row-layout]].
+
+## [2026-11-15] update | Seven screenshot scenes per release
+The README screenshots now come from seven scenes: the overview plus six for the release's most visible features; for 0.8.0 `home`, `queue`, `guard`, `review`, `worktrees` and `row-builder` replace `subagent`, `files`, `team`, `notes` and `settings`.
+Pages changed: [[release-rollout]].

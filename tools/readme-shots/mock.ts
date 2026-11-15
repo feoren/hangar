@@ -1,9 +1,10 @@
 // In-memory stand-in for the Tauri backend, used only for the README screenshots. It answers the
-// IPC calls the frontend makes and plays a scripted, fictional scene in the project "acme-shop":
+// IPC calls the frontend makes and plays a scripted, fictional day in the project "acme-shop":
 // Claude Code working with sub-agents next to Codex CLI in its own worktree, Gemini CLI done with
-// the API docs, Aider waiting for an answer, a resting PowerShell, a signed-in account with two
-// teammates online, the project's file tree and a few notes. The driver (run.mjs) picks what each
-// screenshot shows by clicking through the real frontend.
+// the API docs, Aider waiting for an answer, a PowerShell running the docs site's dev server, a
+// signed-in account with two teammates online, the repositories' commits for the home view, the
+// daily review, Hangar's worktrees and, per scene, a queued message or a command the guard holds.
+// The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
 declare const __README_SHOTS_VERSION__: string;
@@ -33,15 +34,40 @@ const SHOT_TIME = FIXED_START + 30_000;
 const realNow = Date.now.bind(Date);
 const clockOffset = FIXED_START - realNow();
 Date.now = () => (control.freeze ? SHOT_TIME : Math.min(realNow() + clockOffset, SHOT_TIME));
+// `new Date()` without arguments reads the same clock (the activity calendar and the daily review
+// take "today" from it); every other form of the constructor and every static method stay real.
+window.Date = new Proxy(Date, {
+  construct(target, args: unknown[], newTarget) {
+    return Reflect.construct(target, args.length === 0 ? [Date.now()] : args, newTarget);
+  },
+});
 /** A moment `ms` before the screenshot. */
 const ago = (ms: number) => SHOT_TIME - ms;
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/**
+ * The scene the driver renders (run.mjs stores its name before the app starts). Most data is the
+ * same in every scene; the few differences are named where they are made.
+ */
+const SCENE = ((): string => {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem("readmeShots.scene") ?? "null");
+    return typeof value === "string" ? value : "overview";
+  } catch {
+    return "overview";
+  }
+})();
+/** The guard scene: the Claude Code session runs as a team session in its own worktree. */
+const TEAM_CLAUDE = SCENE === "guard";
 
 const ROOT = "C:\\src\\acme-shop";
 const WORKTREE = "C:\\src\\acme-shop-cart-rounding";
 const WORKTREE_BRANCH = "hangar/cart-rounding";
+const TEAM_WORKTREE = "C:\\src\\acme-shop-webhook-retries";
+const TEAM_BRANCH = "hangar/webhook-retries";
 const DOCS = "C:\\src\\acme-docs";
-const INFRA = "C:\\src\\acme-infra";
 
 function catalogProfile(id: string, name: string, resumeArgs: string[] | null) {
   return {
@@ -59,8 +85,27 @@ function catalogProfile(id: string, name: string, resumeArgs: string[] | null) {
   };
 }
 
+const command = (labelKey: string, text: string, confirm = false) => ({
+  labelKey,
+  text,
+  submit: true,
+  confirm,
+});
+
 const profiles = [
-  catalogProfile("claude", "Claude Code", ["--continue"]),
+  {
+    ...catalogProfile("claude", "Claude Code", ["--continue"]),
+    teamCapable: true,
+    teamBlock: null,
+    // As the agent catalog lists them for Claude Code.
+    agentCommands: [
+      command("compact", "/compact"),
+      command("context", "/context"),
+      command("usage", "/usage"),
+      command("model", "/model"),
+      command("clear", "/clear", true),
+    ],
+  },
   catalogProfile("codex", "Codex CLI", ["resume", "--last"]),
   catalogProfile("gemini", "Gemini CLI", null),
   catalogProfile("aider", "Aider", null),
@@ -93,19 +138,20 @@ const workspace = {
     {
       key: uuid(1),
       profileId: "claude",
-      cwd: ROOT,
-      title: "Claude Code",
+      cwd: TEAM_CLAUDE ? TEAM_WORKTREE : ROOT,
+      title: TEAM_CLAUDE ? "Webhook retries" : "Claude Code",
       order: 0,
       color: null,
       emoji: null,
-      worktree: null,
+      worktree: TEAM_CLAUDE ? { path: TEAM_WORKTREE, branch: TEAM_BRANCH, repoRoot: ROOT } : null,
       cliSessionId: "cccccccc-0000-4000-8000-000000000001",
     },
     {
       key: uuid(2),
       profileId: "codex",
       cwd: WORKTREE,
-      title: "Codex CLI",
+      // Renamed after its task, as people do with worktree sessions.
+      title: "Cart rounding",
       order: 1,
       color: null,
       emoji: null,
@@ -134,7 +180,7 @@ const workspace = {
     {
       key: uuid(5),
       profileId: "pwsh",
-      cwd: INFRA,
+      cwd: DOCS,
       title: "PowerShell",
       order: 4,
       color: null,
@@ -207,6 +253,40 @@ const claudeOut = lines([
   dim("  ? for shortcuts"),
 ]);
 const HIDE_CURSOR = `${E}?25l`;
+
+// The guard scene: the same work, now in a team session, ends with a force push the command guard
+// holds until the person answers.
+const GUARD_CARD_LINES = 11;
+const GUARDED_PUSH = `git push --force origin ${TEAM_BRANCH}`;
+const claudeGuardOut = lines([
+  // Room for the guard's card at the top of the pane, so it covers no output.
+  ...Array<string>(GUARD_CARD_LINES).fill(""),
+  dim("> ") + "Rebase the webhook retries on main and push",
+  dim("  ") + "the branch for review",
+  "",
+  "● I'll rebase on the latest main, run the payment",
+  "  tests again and push the branch.",
+  "",
+  green("●") + " " + bold("Bash") + "(git fetch origin && git rebase origin/main)",
+  dim("  ⎿  Successfully rebased and updated"),
+  dim("     refs/heads/" + TEAM_BRANCH + "."),
+  "",
+  green("●") + " " + bold("Bash") + "(pnpm vitest run src/payments)",
+  dim("  ⎿  Test Files  1 passed (1)"),
+  dim("          Tests  17 passed (17)"),
+  "",
+  "● The rebase rewrote commits that are already on",
+  "  the remote, so a plain push is rejected. I'll",
+  "  push with --force.",
+  "",
+  yellow("●") + " " + bold("Bash") + `(${GUARDED_PUSH})`,
+  dim("  ⎿  Running PreToolUse hook…"),
+  "",
+  dim("─".repeat(52)),
+  `> ${E}7m ${E}27m`,
+  dim("─".repeat(52)),
+  dim("  ? for shortcuts"),
+]);
 
 const codexOut = lines([
   dim("╭" + "─".repeat(42) + "╮"),
@@ -314,12 +394,20 @@ const aiderOut = lines([
   yellow("Add these files to the chat? (Y)es/(N)o [Yes]: "),
 ]);
 
+// The docs site's dev server: its address puts a globe on the row and on the project's card.
 const pwshOut = lines([
   "PowerShell 7.6.9",
   "",
-  green(`PS ${INFRA}> `) + "git pull",
-  "Already up to date.",
-  green(`PS ${INFRA}> `),
+  green(`PS ${DOCS}> `) + "pnpm docs:dev",
+  "",
+  dim("> acme-docs@1.4.0 docs:dev C:\\src\\acme-docs"),
+  dim("> vitepress dev"),
+  "",
+  `  ${green("vitepress")} ${green("v1.6.3")}`,
+  "",
+  `  ${green("➜")}  ${bold("Local")}:   ${cyan("http://localhost:5173/")}`,
+  `  ${green("➜")}  ${dim("Network: use --host to expose")}`,
+  "",
 ]);
 
 const CODEX_START_SECONDS = 41;
@@ -329,7 +417,7 @@ function codexSpinner(seconds: number, frame: number): string {
 }
 
 const scripts: Record<string, string> = {
-  claude: CLEAR + HIDE_CURSOR + claudeOut,
+  claude: CLEAR + HIDE_CURSOR + (TEAM_CLAUDE ? claudeGuardOut : claudeOut),
   codex: CLEAR + codexOut + codexSpinner(CODEX_START_SECONDS, 0) + codexFooter,
   gemini: CLEAR + (geminiOut[0] ?? ""),
   aider: CLEAR + aiderOut,
@@ -401,7 +489,8 @@ function createSession(args: Args): unknown {
     resumed: args.resume === true,
     cliSessionId: typeof args.cliSessionId === "string" ? args.cliSessionId : null,
     subAgents: profileId === "claude",
-    gate: "none",
+    gate: profileId === "claude" ? "active" : "none",
+    mode: args.mode === "team" ? "team" : "private",
   };
   const channel = channelId(args.onEvent);
   if (channel !== undefined) channelOfSession.set(id, channel);
@@ -415,7 +504,13 @@ function createSession(args: Args): unknown {
         (s, f) => `${RESTORE_CURSOR}${E}2K${codexSpinner(s, f)}`,
       );
     }
-    if (profileId === "claude") {
+    // The held push: the guard's decision reaches the window once the session is there.
+    if (profileId === "claude" && TEAM_CLAUDE) {
+      setTimeout(() => {
+        emitEvent("gate-changed", null);
+      }, 300);
+    }
+    if (profileId === "claude" && !TEAM_CLAUDE) {
       keepTicking(
         id,
         CLAUDE_START_SECONDS,
@@ -481,80 +576,13 @@ const subAgents = [
   },
 ];
 
-/** A tool result Claude Code sums up in one line ("Read 84 lines"). */
-const summed = (summary: unknown) => ({
-  kind: "result",
-  lines: [],
-  moreLines: 0,
-  error: false,
-  summary,
-});
-
-const subAgentLogs: Record<string, unknown[]> = {
-  "agent-tests": [
-    {
-      kind: "prompt",
-      text:
-        "Write Vitest tests for the new retry loop in src/payments/webhook.ts: retry on 503, " +
-        "give up after 4 attempts, keep the event id stable. Use fake timers and do not change " +
-        "the handler.",
-    },
-    { kind: "text", text: "I'll read the handler and the existing tests first." },
-    { kind: "tool", name: "Read", detail: "src/payments/webhook.ts" },
-    summed({ kind: "read", lines: 84 }),
-    { kind: "tool", name: "Read", detail: "src/payments/webhook.test.ts" },
-    summed({ kind: "read", lines: 42 }),
-    { kind: "tool", name: "Grep", detail: "sleep\\( in src/payments" },
-    summed({ kind: "matches", count: 1 }),
-    {
-      kind: "text",
-      text:
-        "The handler waits with sleep() between attempts, so fake timers can skip the delays. " +
-        "I'll add three cases next to the existing ones.",
-    },
-    { kind: "tool", name: "Edit", detail: "src/payments/webhook.test.ts" },
-    summed({ kind: "edited", added: 38, removed: 0 }),
-    { kind: "tool", name: "Bash", detail: "pnpm vitest run src/payments" },
-    {
-      kind: "result",
-      lines: ["FAIL  gives up after 4 attempts", "AssertionError: expected 4 calls, got 5"],
-      moreLines: 12,
-      error: true,
-      summary: null,
-    },
-    {
-      kind: "text",
-      text: "The test counts the first try as a retry. Fixing the expectation, the handler is right.",
-    },
-    { kind: "tool", name: "Edit", detail: "src/payments/webhook.test.ts" },
-    summed({ kind: "edited", added: 1, removed: 1 }),
-    { kind: "tool", name: "Bash", detail: "pnpm vitest run src/payments" },
-    {
-      kind: "result",
-      lines: ["Test Files  1 passed (1)", "     Tests  17 passed (17)"],
-      moreLines: 1,
-      error: false,
-      summary: null,
-    },
-    { kind: "text", text: "All 17 tests pass. Checking the timing assertions once more." },
-    { kind: "tool", name: "Read", detail: "src/payments/webhook.test.ts" },
-  ],
-};
-/** Tool calls per sub-agent so far, for the footer of its log. */
-const toolUses: Record<string, number> = { "agent-tests": 11 };
-
 /** The watch's channel per session, and the sub-agent whose log it streams. */
 const subAgentWatch = new Map<number, number>();
 
+/** No scene opens a sub-agent's log: an empty one for whichever is asked. */
 function sendSubAgentLog(channel: number, focus: unknown): void {
   if (typeof focus !== "string") return;
-  send(channel, {
-    type: "log",
-    agentId: focus,
-    reset: true,
-    entries: subAgentLogs[focus] ?? [],
-    toolUses: toolUses[focus] ?? 0,
-  });
+  send(channel, { type: "log", agentId: focus, reset: true, entries: [], toolUses: 0 });
 }
 
 function watchSubAgents(args: Args): null {
@@ -634,15 +662,6 @@ const teamSnapshot = {
                 moreFiles: 0,
                 repo: ACME_ROOT_COMMIT,
               },
-              {
-                key: "mika-2",
-                agent: "PowerShell",
-                title: "Release notes",
-                state: "idle",
-                files: [],
-                moreFiles: 0,
-                repo: ACME_ROOT_COMMIT,
-              },
             ],
           },
           {
@@ -658,15 +677,6 @@ const teamSnapshot = {
                 title: "Search ranking",
                 state: "waiting",
                 files: ["src/search/rank.ts"],
-                moreFiles: 0,
-                repo: ACME_ROOT_COMMIT,
-              },
-              {
-                key: "jonas-2",
-                agent: "Gemini CLI",
-                title: "Load tests",
-                state: "working",
-                files: ["tests/load/checkout.k6.js", "src/payments/refund.ts"],
                 moreFiles: 0,
                 repo: ACME_ROOT_COMMIT,
               },
@@ -721,7 +731,8 @@ const teamSnapshot = {
         ],
         attempts: [],
         notices: [],
-        sessions: [1, 2, 3, 4, 5],
+        // Only the acme-shop sessions are shared with the team.
+        sessions: [1, 2, 4],
         sessionRepos: [1, 2, 4].map((sessionId) => ({ sessionId, repo: ACME_ROOT_COMMIT })),
       },
     },
@@ -730,120 +741,8 @@ const teamSnapshot = {
   repos: [{ root: ACME_ROOT_COMMIT, folder: `${ROOT}\\.git`, name: "acme-shop" }],
 };
 
-// Notes of acme-shop: two shared with everyone who has the repository, two only on this computer.
-const notes: Record<string, { id: string; title: string; content: string; age: number }[]> = {
-  shared: [
-    {
-      id: "release-checklist",
-      title: "Release checklist",
-      age: 18,
-      content: [
-        "# Release checklist",
-        "",
-        "Before tagging a release of acme-shop:",
-        "",
-        "- [x] Webhook retries merged",
-        "- [x] Cart rounding fix reviewed",
-        "- [ ] Checkout emails in German and French",
-        "- [ ] Bump the API version in `package.json`",
-        "",
-        "## Smoke test",
-        "",
-        "1. Place an order with a test card",
-        "2. Check that the webhook arrives exactly once",
-        "3. Refund it from the admin page",
-        "",
-        "Ask **Mika** before touching the email templates.",
-        "",
-      ].join("\n"),
-    },
-    {
-      id: "provider-quirks",
-      title: "Payment provider quirks",
-      age: 260,
-      content:
-        "# Payment provider quirks\n\nThe sandbox answers 503 for a few seconds after midnight UTC.\n",
-    },
-  ],
-  local: [
-    {
-      id: "cart-ideas",
-      title: "Ideas for the cart",
-      age: 95,
-      content: "# Ideas for the cart\n\n- Save the cart for later\n- Show the discount per line\n",
-    },
-    {
-      id: "standup",
-      title: "Standup",
-      age: 1500,
-      content: "# Standup\n\n- Webhook retries: tests are being written\n- Next: refunds\n",
-    },
-  ],
-};
-
-function notesOf(folder: unknown) {
-  if (typeof folder !== "object" || folder === null) return [];
-  const path = "path" in folder ? folder.path : null;
-  if (path !== ROOT) return [];
-  return "shared" in folder && folder.shared === true ? notes.shared : notes.local;
-}
-
-function noteList(args: Args): unknown {
-  return (notesOf(args.folder) ?? []).map((note, order) => ({
-    id: note.id,
-    title: note.title,
-    updatedAt: ago(note.age * MINUTE),
-    order,
-  }));
-}
-
-function readNote(args: Args): unknown {
-  const note = (notesOf(args.folder) ?? []).find((entry) => entry.id === args.id);
-  return note?.content ?? null;
-}
-
-// The file tree of acme-shop: folders first, as the backend lists them. "!" marks an entry git
-// ignores, a trailing "/" a folder.
-const tree: Record<string, string[]> = {
-  "": [
-    ".github/",
-    "docs/",
-    "!node_modules/",
-    "src/",
-    "tests/",
-    ".gitignore",
-    "package.json",
-    "pnpm-lock.yaml",
-    "README.md",
-    "tsconfig.json",
-  ],
-  src: ["admin/", "cart/", "emails/", "payments/", "search/", "index.ts"],
-  "src/emails": ["checkout.de.json", "checkout.en.json", "checkout.fr.json"],
-  "src/payments": ["client.ts", "refund.ts", "retry.ts", "webhook.test.ts", "webhook.ts"],
-  "src/search": ["rank.test.ts", "rank.ts"],
-  tests: ["e2e/", "load/"],
-};
-
-function listSessionFolder(args: Args): unknown {
-  const id = typeof args.id === "number" ? args.id : -1;
-  const relative = typeof args.relative === "string" ? args.relative : "";
-  const info = sessions.get(id);
-  const root = typeof info?.cwd === "string" ? info.cwd : ROOT;
-  const names = root === ROOT ? (tree[relative] ?? []) : [];
-  return {
-    root,
-    repoRoot: root === ROOT ? ROOT : null,
-    entries: names.map((raw) => {
-      const ignored = raw.startsWith("!");
-      const name = raw.replace(/^!/, "").replace(/\/$/, "");
-      return { name, kind: raw.endsWith("/") ? "dir" : "file", ignored };
-    }),
-    truncated: false,
-  };
-}
-
 // What this device's sessions changed: the Claude Code session in acme-shop and Codex CLI in its
-// worktree. The file tree shows them as git letters, the sidebar knows no collision.
+// worktree, with no collision between them.
 const claimsSession = (sessionId: number, root: string, claims: [string, string][]) => ({
   sessionId,
   state: { kind: "ready" },
@@ -882,6 +781,316 @@ const claimsSnapshot = {
 // from Claude Code's transcript only.
 const contextUsage = { sessions: [{ sessionId: 1, used: 123_000, window: 1_000_000 }] };
 
+// Git for the home view: where each folder's repository is, how many files are changed per
+// checkout and the newest commits of each repository.
+const SECONDS = 1000;
+/** A made-up but random-looking commit id, the same for the same `n` (xorshift). */
+function commitHash(n: number): string {
+  let state = (n * 2_654_435_761) >>> 0 || 1;
+  let hex = "";
+  while (hex.length < 40) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    hex += state.toString(16).padStart(8, "0");
+  }
+  return hex.slice(0, 40);
+}
+const repoOf = (cwd: string) => (cwd === DOCS ? DOCS : ROOT);
+const commitsOf: Record<string, [string, string, number][]> = {
+  [ROOT]: [
+    ["fix(search): rank exact SKU matches first", "Jonas Berg", 47 * MINUTE],
+    ["feat(checkout): send order confirmations in German", "Mika Rossi", 2 * HOUR + 10 * MINUTE],
+    ["chore(payments): update the payment client to 4.2", "Sam Carter", 21 * HOUR],
+  ],
+  [DOCS]: [
+    ["docs(api): describe the order endpoints", "Sam Carter", 3 * HOUR + 5 * MINUTE],
+    ["docs: add the checkout guide", "Mika Rossi", 26 * HOUR],
+    ["chore: update VitePress to 1.6", "Sam Carter", 3 * DAY],
+  ],
+};
+/** Changed files per checkout, as `git status` would count them. */
+const changedFiles: Record<string, number> = {
+  [ROOT]: 4,
+  [WORKTREE]: 2,
+  [TEAM_WORKTREE]: 3,
+  [DOCS]: 1,
+};
+
+function sessionCwd(args: Args): string {
+  const info = typeof args.id === "number" ? sessions.get(args.id) : undefined;
+  return typeof info?.cwd === "string" ? info.cwd : ROOT;
+}
+
+function gitLog(args: Args): unknown {
+  const repo = repoOf(sessionCwd(args));
+  const limit = typeof args.limit === "number" ? args.limit : 3;
+  const commits = (commitsOf[repo] ?? []).slice(0, limit).map(([subject, author, age], index) => {
+    const sha = commitHash(index + (repo === DOCS ? 50 : 10));
+    return {
+      sha,
+      shortSha: sha.slice(0, 7),
+      subject,
+      author,
+      authoredAt: Math.floor(ago(age) / SECONDS),
+      pushed: true,
+    };
+  });
+  return { isRepo: true, commits, upstream: "origin/main", aheadCount: 0, hasMore: false };
+}
+
+/**
+ * The person's commits of the last year for the calendar: a steady working week with quiet
+ * weekends, a few busy stretches and a holiday, the same in every run (a fixed pseudo-random row).
+ */
+function gitActivity(): unknown {
+  let seed = 20_261_110;
+  const random = () => {
+    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return seed / 2_147_483_648;
+  };
+  const commits: number[] = [];
+  for (let back = 0; back < 365; back += 1) {
+    const day = new Date(SHOT_TIME - back * DAY);
+    const weekday = day.getUTCDay();
+    const weekend = weekday === 0 || weekday === 6;
+    // Two weeks off in August, busier before the spring and autumn releases.
+    const month = day.getUTCMonth();
+    const holiday = month === 7 && day.getUTCDate() >= 3 && day.getUTCDate() <= 16;
+    const busy = month === 2 || month === 9 ? 1.6 : 1;
+    const roll = random();
+    let count = 0;
+    if (holiday) count = 0;
+    else if (weekend) count = roll > 0.85 ? Math.ceil(roll * 3) : 0;
+    else count = roll < 0.12 ? 0 : Math.round(roll * 7 * busy);
+    // Today only what is done by half past nine.
+    if (back === 0) count = 2;
+    for (let n = 0; n < count; n += 1) {
+      commits.push(Math.floor((SHOT_TIME - back * DAY - (n + 1) * 37 * MINUTE) / SECONDS));
+    }
+  }
+  return { commits };
+}
+
+// The daily review of the day before the screenshot: two projects, four sessions, their times
+// and the commits of the day. Times count from the start of the day the window asks for.
+function dailyReview(args: Args): unknown {
+  const start = typeof args.start === "number" ? args.start : SHOT_TIME - (SHOT_TIME % DAY);
+  const end = typeof args.end === "number" ? args.end : start + DAY;
+  const at = (hours: number, minutes: number) => start + hours * HOUR + minutes * MINUTE;
+  const span = (hours: number, minutes: number) => hours * HOUR + minutes * MINUTE;
+  const session = (
+    key: string,
+    program: string,
+    title: string,
+    cwd: string,
+    from: [number, number],
+    to: [number, number],
+    active: [number, number],
+    worktree = false,
+  ) => ({
+    key,
+    title,
+    program,
+    cwd,
+    worktree,
+    first: at(...from),
+    last: at(...to),
+    activeMs: span(...active),
+    runMs: at(...to) - at(...from),
+    running: false,
+  });
+  const commit = (n: number, subject: string, time: [number, number], files: string[]) => ({
+    hash: commitHash(n),
+    subject,
+    time: at(...time),
+    files,
+    fileCount: files.length,
+  });
+  const shop = {
+    path: ROOT,
+    isRepo: true,
+    sessions: [
+      session("s1", "Claude Code", "Payment webhook", ROOT, [8, 52], [12, 40], [2, 6]),
+      session("s2", "Codex CLI", "Cart rounding", WORKTREE, [13, 30], [16, 55], [1, 22], true),
+      session("s3", "Aider", "Checkout emails", ROOT, [15, 10], [17, 45], [0, 41]),
+    ],
+    commits: [
+      commit(
+        31,
+        "feat(payments): retry the webhook with backoff",
+        [11, 58],
+        ["src/payments/webhook.ts", "src/payments/retry.ts"],
+      ),
+      commit(
+        32,
+        "test(payments): cover retries with fake timers",
+        [12, 31],
+        ["src/payments/webhook.test.ts"],
+      ),
+      commit(
+        33,
+        "fix(cart): round the total once, not per line",
+        [16, 40],
+        ["src/cart/total.ts", "src/cart/total.test.ts"],
+      ),
+      commit(
+        34,
+        "feat(emails): checkout emails in German and French",
+        [17, 38],
+        ["src/emails/checkout.de.json", "src/emails/checkout.fr.json"],
+      ),
+    ],
+    files: [
+      "src/cart/total.test.ts",
+      "src/cart/total.ts",
+      "src/emails/checkout.de.json",
+      "src/emails/checkout.fr.json",
+      "src/payments/retry.ts",
+      "src/payments/webhook.test.ts",
+      "src/payments/webhook.ts",
+    ],
+    uncommitted: [],
+  };
+  const docs = {
+    path: DOCS,
+    isRepo: true,
+    // The refund pages were written but not committed that day; the section ends with the
+    // session, so the dialog shows the whole review without a cut line at its bottom.
+    sessions: [session("s4", "Gemini CLI", "Refund docs", DOCS, [10, 5], [11, 20], [0, 48])],
+    commits: [],
+    files: [],
+    uncommitted: [],
+  };
+  // Time counts once where sessions ran side by side.
+  const unionMs = (spans: readonly { first: number; last: number }[]) => {
+    let total = 0;
+    let reached = 0;
+    for (const { first, last } of [...spans].sort((a, b) => a.first - b.first)) {
+      const from = Math.max(first, reached);
+      if (last > from) total += last - from;
+      reached = Math.max(reached, last);
+    }
+    return total;
+  };
+  const projects = [shop, docs].map((project) => {
+    const activeMs = project.sessions.reduce((sum, entry) => sum + entry.activeMs, 0);
+    const runMs = unionMs(project.sessions);
+    return { ...project, activeMs, runMs, fileCount: project.files.length };
+  });
+  return {
+    start,
+    end,
+    activeMs: projects.reduce((sum, project) => sum + project.activeMs, 0),
+    runMs: unionMs(projects.flatMap((project) => project.sessions)),
+    sessionCount: projects.reduce((sum, project) => sum + project.sessions.length, 0),
+    commitCount: projects.reduce((sum, project) => sum + project.commits.length, 0),
+    projects,
+    truncated: false,
+  };
+}
+
+// The worktrees Hangar made over the last weeks, one in each state that matters for the cleanup.
+const hangarWorktrees = [
+  {
+    path: WORKTREE,
+    repoRoot: ROOT,
+    branch: WORKTREE_BRANCH,
+    modified: ago(MINUTE),
+    state: { kind: "inUse" },
+    size: 312,
+  },
+  {
+    path: "C:\\src\\acme-shop-order-export",
+    repoRoot: ROOT,
+    branch: "hangar/order-export",
+    modified: ago(21 * HOUR),
+    state: { kind: "merged" },
+    size: 288,
+  },
+  {
+    path: "C:\\src\\acme-shop-search-ranking",
+    repoRoot: ROOT,
+    branch: "hangar/search-ranking",
+    modified: ago(2 * DAY + 3 * HOUR),
+    state: { kind: "changes" },
+    size: 301,
+  },
+  {
+    path: "C:\\src\\acme-shop-refund-flow",
+    repoRoot: ROOT,
+    branch: "hangar/refund-flow",
+    modified: ago(6 * DAY),
+    state: { kind: "clean" },
+    size: 295,
+  },
+  {
+    path: "C:\\src\\acme-shop-coupon-codes",
+    repoRoot: ROOT,
+    branch: "hangar/coupon-codes",
+    modified: ago(19 * DAY),
+    state: { kind: "missing" },
+    size: 0,
+  },
+];
+
+function worktreeSize(args: Args): unknown {
+  const entry = hangarWorktrees.find((tree) => tree.path === args.path);
+  const megabytes = entry?.size ?? 0;
+  return {
+    bytes: Math.round(megabytes * 1024 * 1024),
+    files: Math.round(megabytes * 41),
+    complete: true,
+    newest: null,
+  };
+}
+
+// The guard scene: the command guard holds the team session's force push.
+const gateSnapshot = TEAM_CLAUDE
+  ? {
+      enabled: true,
+      pending: [
+        {
+          id: 1,
+          sessionId: 1,
+          tool: "Bash",
+          path: "",
+          otherSessions: [],
+          teammates: [],
+          reserved: [],
+          level: "sameFile",
+          lines: [],
+          createdAt: ago(9_000),
+          command: {
+            rules: [
+              {
+                id: "git-push-force",
+                description: "git push --force overwrites the branch on the remote",
+                builtin: true,
+              },
+            ],
+            call: GUARDED_PUSH,
+            text: GUARDED_PUSH,
+            hidden: 0,
+            rememberable: true,
+          },
+        },
+      ],
+      log: [],
+    }
+  : { enabled: true, pending: [], log: [] };
+
+// The queue scene: the next message for the Claude Code session, kept since it was written.
+const messageQueue =
+  SCENE === "queue"
+    ? {
+        [uuid(1)]:
+          "When the tests pass, add a short section about the retries to docs/payments.md " +
+          "and list the new environment variables.",
+      }
+    : {};
+
 // Events: the frontend listens through the event plugin; the mock answers some right away.
 const listeners = new Map<string, number[]>();
 let nextEventId = 1;
@@ -899,6 +1108,13 @@ function listen(args: Args): number {
   return id;
 }
 
+/** Sends a backend event to every listener of `event`. */
+function emitEvent(event: string, payload: unknown): void {
+  for (const handler of listeners.get(event) ?? []) {
+    callbacks.get(handler)?.({ event, id: 0, payload });
+  }
+}
+
 const handlers: Record<string, (args: Args) => unknown> = {
   list_profiles: () => profiles,
   default_cwd: () => ROOT,
@@ -913,11 +1129,20 @@ const handlers: Record<string, (args: Args) => unknown> = {
   git_branches: (args) => {
     const paths = Array.isArray(args.paths) ? args.paths : [];
     return Object.fromEntries(
-      paths.map((p: unknown) => [p, p === WORKTREE ? WORKTREE_BRANCH : "main"]),
+      paths.map((p: unknown) => [
+        p,
+        p === WORKTREE ? WORKTREE_BRANCH : p === TEAM_WORKTREE ? TEAM_BRANCH : "main",
+      ]),
     );
   },
   git_diff: () => ({ files: [] }),
-  list_session_folder: listSessionFolder,
+  // No scene opens the file tree or the notes.
+  list_session_folder: (args) => ({
+    root: sessionCwd(args),
+    repoRoot: repoOf(sessionCwd(args)),
+    entries: [],
+    truncated: false,
+  }),
   context_usage: () => contextUsage,
   configure_tray: () => null,
   create_session: createSession,
@@ -935,11 +1160,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const sessionId = typeof args.sessionId === "number" ? args.sessionId : -1;
     return subAgentWatch.delete(sessionId);
   },
-  list_note_folders: () => [
-    { folderKey: "acme-shop", path: ROOT, noteCount: notes.local?.length ?? 0, updatedAt: ago(0) },
-  ],
-  list_notes: noteList,
-  read_note: readNote,
+  list_note_folders: () => [],
+  list_notes: () => [],
+  read_note: () => null,
   write_note: () => null,
   search_notes: () => [],
   list_trash: () => [],
@@ -978,10 +1201,57 @@ const handlers: Record<string, (args: Args) => unknown> = {
     memoryTotal: 32 * 1024 ** 3,
     gpuMemory: 2.4 * 1024 ** 3,
   }),
-  // Features these scenes do not show (gates): nothing to report.
+  team_snapshot: () => teamSnapshot,
+  power_state: () => "ac",
+  // Settings kept by the backend: none saved yet, so the defaults apply.
+  security_switches: () => null,
+  save_security_switches: () => null,
+  protected_settings: () => null,
+  save_protected_settings: () => null,
+  main_prefs: () => null,
+  save_main_prefs: () => null,
+  load_templates: () => null,
+  save_templates: () => null,
+  load_message_queue: () => messageQueue,
+  save_message_queue: () => null,
+  log_work_phase: () => null,
+  // Home view.
+  git_repo_places: (args) => {
+    const paths = Array.isArray(args.paths) ? args.paths : [];
+    return Object.fromEntries(
+      paths.map((p: unknown) => {
+        const path = typeof p === "string" ? p : "";
+        const root = repoOf(path);
+        return [path, { root, workTree: path === DOCS ? DOCS : root }];
+      }),
+    );
+  },
+  git_changed_count: (args) => changedFiles[sessionCwd(args)] ?? 0,
+  git_log: gitLog,
+  git_activity: gitActivity,
+  daily_review: dailyReview,
+  list_hangar_worktrees: () =>
+    hangarWorktrees.map(({ path, repoRoot, branch, modified, state }) => ({
+      path,
+      repoRoot,
+      branch,
+      modified,
+      state,
+    })),
+  hangar_worktree_size: worktreeSize,
   profile_path: () => null,
   configure_gate: () => null,
-  gate_snapshot: () => null,
+  configure_command_guard: () => null,
+  command_guard_info: () => ({
+    enabled: true,
+    file: "",
+    rules: [],
+    problems: [],
+    defaults: true,
+    defaultCount: 0,
+  }),
+  gate_rules: () => [],
+  gate_snapshot: () => gateSnapshot,
 };
 
 function asArgs(value: unknown): Args {

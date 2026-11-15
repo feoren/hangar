@@ -148,6 +148,8 @@ export async function launchBrowser(executable, profileDir) {
       "--hide-scrollbars",
       "--mute-audio",
       "--force-color-profile=srgb",
+      // English dates and weeks in the shots, whatever the machine's language.
+      "--lang=en-US",
       "about:blank",
     ],
     { stdio: "ignore" },
