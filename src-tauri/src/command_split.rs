@@ -15,10 +15,13 @@ pub const MAX_DEPTH: usize = 6;
 pub const MAX_CALLS: usize = 512;
 /// Longest decoded `-EncodedCommand` script, in bytes of base64 text.
 const MAX_ENCODED: usize = 256 * 1024;
+/// Start folders of one `find` that its `-exec` command is read for.
+const MAX_FIND_STARTS: usize = 8;
 
 /// The shell language a script is written in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Dialect {
+    #[default]
     Posix,
     PowerShell,
     Cmd,
@@ -29,6 +32,8 @@ pub enum Dialect {
 pub struct Analysis {
     /// Each program call's words, wrappers removed, program first, in order.
     pub calls: Vec<Vec<String>>,
+    /// Where each call of [`Analysis::calls`] stands and what it reads, at the same index.
+    pub info: Vec<CallInfo>,
     /// Something was not followed: nested too deep or too many calls.
     pub truncated: bool,
     /// A quote, substitution or here-document was left open: the shell would read more than the
@@ -42,9 +47,24 @@ pub struct Analysis {
     pub redirects: Vec<(usize, String)>,
 }
 
+/// How one program call was written and what it reads.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CallInfo {
+    /// The dialect of the script the call stands in (an inline script's own).
+    pub dialect: Dialect,
+    /// Its stdin is the output of the command before it (`a | b`).
+    pub piped: bool,
+    /// The call whose output it reads, when that is one call of [`Analysis::calls`].
+    pub upstream: Option<usize>,
+    /// Here-strings and here-document bodies it reads on stdin, as the shell passes them.
+    pub fed: Vec<String>,
+}
+
 /// A word whose value Hangar cannot know (a substitution); it reads as a variable, so a path
 /// built from it counts as unplaceable.
 pub const UNKNOWN: &str = "$?";
+/// The file a process substitution (`<(cmd)`) names: a pipe of the running shell.
+pub const PROCESS_FILE: &str = "/dev/fd/$?";
 
 /// Every program call of `command` read as `dialect`.
 pub fn split(command: &str, dialect: Dialect) -> Analysis {
@@ -53,11 +73,32 @@ pub fn split(command: &str, dialect: Dialect) -> Analysis {
     splitter.analysis
 }
 
-/// One part of a script in order: a simple command's words, or a nested script to split.
+/// One simple command as a lexer read it.
+struct Simple {
+    words: Vec<String>,
+    redirects: Vec<String>,
+    /// Its stdin is the output of the command before it.
+    piped: bool,
+    /// Here-strings and here-document bodies it reads.
+    fed: Vec<String>,
+}
+
+/// One part of a script in order: a simple command, or a nested script to split.
 enum Piece {
-    /// The words and the redirection targets of one simple command.
-    Command(Vec<String>, Vec<String>),
+    Command(Simple),
     Script(String, Dialect),
+}
+
+/// A POSIX here-document whose body is still to come.
+struct Heredoc {
+    /// The delimiter line, quotes removed.
+    delimiter: String,
+    /// Any part of the delimiter was quoted: the body is plain data.
+    quoted: bool,
+    /// `<<-`: leading tabs are removed from the body and the delimiter line.
+    strip_tabs: bool,
+    /// The piece of the command that reads it.
+    owner: Option<usize>,
 }
 
 /// The words of the simple command being lexed.
@@ -69,7 +110,16 @@ struct Words {
     in_word: bool,
     /// The next word is a redirection's target, not an argument.
     target: bool,
+    /// The next word is a here-string's text (`<<<`).
+    here_string: bool,
     redirects: Vec<String>,
+    fed: Vec<String>,
+    /// The current command reads the previous one's output.
+    piped: bool,
+    /// Here-documents of the current command.
+    open_docs: Vec<Heredoc>,
+    /// Here-documents of finished commands; their bodies start after the next line break.
+    ready_docs: Vec<Heredoc>,
     unclosed: bool,
 }
 
@@ -91,6 +141,9 @@ impl Words {
         if self.target {
             self.target = false;
             self.redirects.push(word);
+        } else if self.here_string {
+            self.here_string = false;
+            self.fed.push(word);
         } else {
             self.words.push(word);
         }
@@ -100,11 +153,36 @@ impl Words {
     fn end_command(&mut self) {
         self.end_word();
         self.target = false;
-        if !self.words.is_empty() || !self.redirects.is_empty() {
-            self.pieces.push(Piece::Command(
-                std::mem::take(&mut self.words),
-                std::mem::take(&mut self.redirects),
-            ));
+        self.here_string = false;
+        let owner = if !self.words.is_empty() || !self.redirects.is_empty() || !self.fed.is_empty()
+        {
+            self.pieces.push(Piece::Command(Simple {
+                words: std::mem::take(&mut self.words),
+                redirects: std::mem::take(&mut self.redirects),
+                piped: self.piped,
+                fed: std::mem::take(&mut self.fed),
+            }));
+            Some(self.pieces.len() - 1)
+        } else {
+            None
+        };
+        self.piped = false;
+        for mut doc in std::mem::take(&mut self.open_docs) {
+            doc.owner = owner;
+            self.ready_docs.push(doc);
+        }
+    }
+
+    /// A pipe: the command after it reads this one's output.
+    fn pipe(&mut self) {
+        self.end_command();
+        self.piped = true;
+    }
+
+    /// Text a finished command reads on stdin.
+    fn feed(&mut self, owner: Option<usize>, text: String) {
+        if let Some(Piece::Command(simple)) = owner.and_then(|at| self.pieces.get_mut(at)) {
+            simple.fed.push(text);
         }
     }
 
@@ -120,9 +198,9 @@ impl Words {
         self.target = true;
     }
 
-    fn substitution(&mut self, inner: String, dialect: Dialect) {
+    fn substitution(&mut self, inner: String, dialect: Dialect, value: &str) {
         self.pieces.push(Piece::Script(inner, dialect));
-        self.push_str(UNKNOWN);
+        self.push_str(value);
     }
 
     fn push_str(&mut self, text: &str) {
@@ -131,12 +209,43 @@ impl Words {
     }
 }
 
-/// Where the `)` closing a `(` before `start` is, aware of quotes; `None` when it never closes.
+/// Where the `)` closing a `(` before `start` is, aware of quotes and, in POSIX shells, of
+/// here-document bodies (a quote or `)` in one is text, as in `$(cat <<'EOF' ... EOF)`); `None`
+/// when it never closes.
 fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize> {
+    let posix = dialect == Dialect::Posix;
+    // `$((...))` is arithmetic: `<<` there shifts.
+    let arithmetic = chars.get(start) == Some(&'(');
+    // Here-documents opened on the current line: delimiter and whether tabs are stripped.
+    let mut docs: Vec<(String, bool)> = Vec::new();
     let mut depth = 1usize;
     let mut i = start;
     while i < chars.len() {
         match chars[i] {
+            // A here-string (`<<<`) is no here-document.
+            '<' if posix && chars.get(i + 1) == Some(&'<') && chars.get(i + 2) == Some(&'<') => {
+                i += 2;
+            }
+            '<' if posix && !arithmetic && chars.get(i + 1) == Some(&'<') => {
+                let mut j = i + 2;
+                let strip_tabs = chars.get(j) == Some(&'-');
+                if strip_tabs {
+                    j += 1;
+                }
+                while matches!(chars.get(j), Some(' ' | '\t')) {
+                    j += 1;
+                }
+                let (delimiter, _, end) = heredoc_word(chars, j);
+                if !delimiter.is_empty() {
+                    docs.push((delimiter, strip_tabs));
+                }
+                i = end;
+                continue;
+            }
+            '\n' if !docs.is_empty() => {
+                i = after_heredoc_bodies(chars, i + 1, &std::mem::take(&mut docs));
+                continue;
+            }
             '\\' if dialect == Dialect::Posix => i += 1,
             '`' if dialect == Dialect::PowerShell => i += 1,
             '\'' => {
@@ -170,6 +279,38 @@ fn closing_paren(chars: &[char], start: usize, dialect: Dialect) -> Option<usize
     None
 }
 
+/// Where the line after the bodies of `docs` begins, the first body starting at `start`, read as
+/// [`heredoc_bodies`] reads them. `start` when a delimiter line never comes: the text is then
+/// scanned as commands, and the lexer reports the open document as unclosed.
+fn after_heredoc_bodies(chars: &[char], start: usize, docs: &[(String, bool)]) -> usize {
+    let mut i = start;
+    for (delimiter, strip_tabs) in docs {
+        let mut closed = false;
+        while i < chars.len() {
+            let end = chars[i..]
+                .iter()
+                .position(|c| *c == '\n')
+                .map_or(chars.len(), |n| i + n);
+            let mut line = &chars[i..end];
+            i = (end + 1).min(chars.len());
+            if *strip_tabs {
+                while let Some(rest) = line.strip_prefix(&['\t']) {
+                    line = rest;
+                }
+            }
+            let bare = line.strip_suffix(&['\r']).unwrap_or(line);
+            if bare.iter().copied().eq(delimiter.chars()) {
+                closed = true;
+                break;
+            }
+        }
+        if !closed {
+            return start;
+        }
+    }
+    i
+}
+
 /// Where the backtick closing one before `start` is; `None` when it never closes.
 fn closing_backtick(chars: &[char], start: usize) -> Option<usize> {
     let mut i = start;
@@ -188,7 +329,8 @@ fn text_of(chars: &[char], from: usize, to: usize) -> String {
     chars.get(from..to).unwrap_or_default().iter().collect()
 }
 
-/// POSIX shell: quotes, every backslash outside quotes escapes, `$'...'`, `$(...)`, backticks.
+/// POSIX shell: quotes, every backslash outside quotes escapes, `$'...'`, `$(...)`, backticks,
+/// here-documents and here-strings, process substitutions.
 fn lex_posix(text: &str) -> Words {
     let chars: Vec<char> = text.chars().collect();
     let mut w = Words::default();
@@ -198,7 +340,14 @@ fn lex_posix(text: &str) -> Words {
         let next = chars.get(i + 1).copied();
         match c {
             ' ' | '\t' | '\r' => w.end_word(),
-            '\n' | ';' => w.end_command(),
+            '\n' => {
+                w.end_command();
+                if !w.ready_docs.is_empty() {
+                    i = heredoc_bodies(&mut w, &chars, i + 1);
+                    continue;
+                }
+            }
+            ';' => w.end_command(),
             '&' if next == Some('>') => {
                 w.end_word();
                 i += 1;
@@ -213,14 +362,65 @@ fn lex_posix(text: &str) -> Words {
                     i += 1;
                 }
             }
-            '|' => {
+            '|' if next == Some('|') => {
                 w.end_command();
-                if matches!(next, Some('|' | '&')) {
+                i += 1;
+            }
+            '|' => {
+                w.pipe();
+                if next == Some('&') {
                     i += 1;
                 }
             }
             '(' | ')' => w.end_command(),
-            '{' | '}' if !w.in_word => w.end_command(),
+            // `{` and `}` group commands only as words of their own; inside a word they are
+            // text or a brace expansion (`{git,push}`, `{}`).
+            '{' if !w.in_word && matches!(next, None | Some(' ' | '\t' | '\n' | '\r')) => {
+                w.end_command()
+            }
+            '}' if !w.in_word
+                && matches!(
+                    next,
+                    None | Some(' ' | '\t' | '\n' | '\r' | ';' | '&' | '|' | ')')
+                ) =>
+            {
+                w.end_command()
+            }
+            '<' if next == Some('<') && chars.get(i + 2) != Some(&'<') => {
+                // A here-document: its body follows the next line break.
+                w.redirect();
+                w.target = false;
+                i += 2;
+                let strip_tabs = chars.get(i) == Some(&'-');
+                if strip_tabs {
+                    i += 1;
+                }
+                while matches!(chars.get(i), Some(' ' | '\t')) {
+                    i += 1;
+                }
+                let (delimiter, quoted, end) = heredoc_word(&chars, i);
+                if delimiter.is_empty() && !quoted {
+                    w.unclosed = true;
+                }
+                w.open_docs.push(Heredoc {
+                    delimiter,
+                    quoted,
+                    strip_tabs,
+                    owner: None,
+                });
+                i = end;
+                continue;
+            }
+            '<' if next == Some('<') => {
+                // A here-string: the next word is what the command reads.
+                w.redirect();
+                w.target = false;
+                w.here_string = true;
+                i += 2;
+            }
+            '<' | '>' if next == Some('(') => {
+                i = posix_substitution_as(&mut w, &chars, i + 2, true, PROCESS_FILE);
+            }
             '<' | '>' => {
                 w.redirect();
                 while matches!(chars.get(i + 1), Some('<' | '>' | '&' | '|')) {
@@ -301,6 +501,17 @@ fn lex_posix(text: &str) -> Words {
 /// A `$(...)` (`paren`) or backtick substitution from `start`; returns the index of its closing
 /// character, or the end of the text when it never closes.
 fn posix_substitution(w: &mut Words, chars: &[char], start: usize, paren: bool) -> usize {
+    posix_substitution_as(w, chars, start, paren, UNKNOWN)
+}
+
+/// [`posix_substitution`] whose value in the word is `value`.
+fn posix_substitution_as(
+    w: &mut Words,
+    chars: &[char],
+    start: usize,
+    paren: bool,
+    value: &str,
+) -> usize {
     let end = if paren {
         closing_paren(chars, start, Dialect::Posix)
     } else {
@@ -310,8 +521,139 @@ fn posix_substitution(w: &mut Words, chars: &[char], start: usize, paren: bool) 
         w.unclosed = true;
         chars.len()
     });
-    w.substitution(text_of(chars, start, end), Dialect::Posix);
+    w.substitution(text_of(chars, start, end), Dialect::Posix, value);
     end
+}
+
+/// The delimiter word of a here-document from `start`: its text without quotes, whether any part
+/// was quoted, and the index after it.
+fn heredoc_word(chars: &[char], start: usize) -> (String, bool, usize) {
+    let mut out = String::new();
+    let mut quoted = false;
+    let mut i = start;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            ' ' | '\t' | '\n' | '\r' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
+            '\'' => {
+                quoted = true;
+                i += 1;
+                while i < chars.len() && chars[i] != '\'' {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            '"' => {
+                quoted = true;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    if chars[i] == '\\' && matches!(chars.get(i + 1), Some('"' | '\\' | '$' | '`'))
+                    {
+                        i += 1;
+                    }
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            '\\' => {
+                quoted = true;
+                i += 1;
+                if let Some(&escaped) = chars.get(i) {
+                    out.push(escaped);
+                }
+            }
+            '$' if chars.get(i + 1) == Some(&'\'') => {
+                quoted = true;
+                let (decoded, end) = ansi_c(chars, i + 2);
+                out.push_str(&decoded);
+                i = end.unwrap_or(chars.len());
+            }
+            other => out.push(other),
+        }
+        i += 1;
+    }
+    (out, quoted, i.min(chars.len()))
+}
+
+/// Reads the bodies of the here-documents waiting for the line break before `start`, one after
+/// the other; returns where the next line of commands starts. A quoted document is data; in an
+/// unquoted one only `$(...)` and backticks run. A body whose delimiter line never comes leaves
+/// the rest of the text unread, which counts as unclosed.
+fn heredoc_bodies(w: &mut Words, chars: &[char], start: usize) -> usize {
+    let mut i = start;
+    for doc in std::mem::take(&mut w.ready_docs) {
+        let mut body = String::new();
+        let mut closed = false;
+        while i < chars.len() {
+            let end = chars[i..]
+                .iter()
+                .position(|c| *c == '\n')
+                .map_or(chars.len(), |n| i + n);
+            let mut line = &chars[i..end];
+            i = (end + 1).min(chars.len());
+            if doc.strip_tabs {
+                while let Some(rest) = line.strip_prefix(&['\t']) {
+                    line = rest;
+                }
+            }
+            let bare = line.strip_suffix(&['\r']).unwrap_or(line);
+            if bare.iter().copied().eq(doc.delimiter.chars()) {
+                closed = true;
+                break;
+            }
+            body.extend(line);
+            body.push('\n');
+        }
+        if !closed {
+            w.unclosed = true;
+        }
+        let text = if doc.quoted {
+            body
+        } else {
+            heredoc_substitutions(w, &body)
+        };
+        w.feed(doc.owner, text);
+    }
+    i
+}
+
+/// An unquoted here-document's body with its substitutions split as scripts of their own and
+/// read as [`UNKNOWN`]; `\$`, `` \` `` and `\\` stay plain characters.
+fn heredoc_substitutions(w: &mut Words, body: &str) -> String {
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' if matches!(chars.get(i + 1), Some('$' | '`' | '\\')) => {
+                out.push(chars[i + 1]);
+                i += 1;
+            }
+            '\\' if chars.get(i + 1) == Some(&'\n') => i += 1,
+            '$' if chars.get(i + 1) == Some(&'(') => {
+                let end = closing_paren(&chars, i + 2, Dialect::Posix).unwrap_or_else(|| {
+                    w.unclosed = true;
+                    chars.len()
+                });
+                w.pieces
+                    .push(Piece::Script(text_of(&chars, i + 2, end), Dialect::Posix));
+                out.push_str(UNKNOWN);
+                i = end;
+            }
+            '`' => {
+                let end = closing_backtick(&chars, i + 1).unwrap_or_else(|| {
+                    w.unclosed = true;
+                    chars.len()
+                });
+                w.pieces
+                    .push(Piece::Script(text_of(&chars, i + 1, end), Dialect::Posix));
+                out.push_str(UNKNOWN);
+                i = end;
+            }
+            other => out.push(other),
+        }
+        i += 1;
+    }
+    out
 }
 
 /// The text of a `$'...'` string from `start` (after the quote) and the index of its closing
@@ -409,10 +751,20 @@ fn lex_powershell(text: &str) -> Words {
                     i += 1;
                 }
             }
-            '|' => {
+            '|' if next == Some('|') => {
                 w.end_command();
-                if next == Some('|') {
-                    i += 1;
+                i += 1;
+            }
+            '|' => w.pipe(),
+            // `[scriptblock]::Create('...')`, `.InvokeScript('...')`: a literal argument is a
+            // script, read like `Invoke-Expression`'s.
+            '(' if w.in_word && creates_script(&w.word) => {
+                i = match ps_literal_in_parens(&chars, i + 1) {
+                    Some((text, end)) => {
+                        w.substitution(text, Dialect::PowerShell, UNKNOWN);
+                        end
+                    }
+                    None => ps_substitution(&mut w, &chars, i + 1),
                 }
             }
             // `Remove-Item -Recurse (Join-Path $HOME x)`: an argument in parentheses is a value
@@ -424,6 +776,17 @@ fn lex_powershell(text: &str) -> Words {
                         end
                     }
                     None => ps_substitution(&mut w, &chars, i + 1),
+                }
+            }
+            // A here-string: `@'` or `@"` at the end of a line, up to a line starting with the
+            // same quote and `@`.
+            '@' if next.is_some_and(|q| ps_single(q) || ps_double(q)) => {
+                match here_string_body(&chars, i + 2) {
+                    Some(body) => {
+                        i = ps_here_string(&mut w, &chars, body, next.is_some_and(ps_double));
+                        continue;
+                    }
+                    None => w.push('@'),
                 }
             }
             '(' | ')' => w.end_command(),
@@ -563,8 +926,70 @@ fn ps_substitution(w: &mut Words, chars: &[char], start: usize) -> usize {
         w.unclosed = true;
         chars.len()
     });
-    w.substitution(text_of(chars, start, end), Dialect::PowerShell);
+    w.substitution(text_of(chars, start, end), Dialect::PowerShell, UNKNOWN);
     end
+}
+
+/// Whether a PowerShell word ends in a method that turns its string argument into a script.
+fn creates_script(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    ["scriptblock]::create", ".invokescript", ".newscriptblock"]
+        .iter()
+        .any(|method| lower.ends_with(method))
+}
+
+/// Where a here-string's text starts: only blanks may follow `@'` or `@"` (from `start`) on its
+/// line. `None` when it is no here-string.
+fn here_string_body(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    while matches!(chars.get(i), Some(' ' | '\t')) {
+        i += 1;
+    }
+    if chars.get(i) == Some(&'\r') {
+        i += 1;
+    }
+    (chars.get(i) == Some(&'\n')).then_some(i + 1)
+}
+
+/// The text of a here-string from `start` up to the line that begins with its closing quote and
+/// `@`; returns the index after that `@`. A double quoted one keeps its backtick escapes and
+/// runs its `$(...)`; a single quoted one is literal.
+fn ps_here_string(w: &mut Words, chars: &[char], start: usize, double: bool) -> usize {
+    w.start();
+    let closes = |c: char| if double { ps_double(c) } else { ps_single(c) };
+    let mut i = start;
+    let mut line_start = true;
+    while let Some(&c) = chars.get(i) {
+        if line_start && closes(c) && chars.get(i + 1) == Some(&'@') {
+            // The line break before the closing line is not part of the text.
+            if w.word.ends_with('\n') {
+                w.word.pop();
+                if w.word.ends_with('\r') {
+                    w.word.pop();
+                }
+            }
+            return i + 2;
+        }
+        line_start = c == '\n';
+        match c {
+            '`' if double => {
+                if let Some(&escaped) = chars.get(i + 1) {
+                    w.word.push(escaped);
+                    line_start = escaped == '\n';
+                }
+                i += 2;
+            }
+            '$' if double && chars.get(i + 1) == Some(&'(') => {
+                i = ps_substitution(w, chars, i + 2) + 1;
+            }
+            other => {
+                w.word.push(other);
+                i += 1;
+            }
+        }
+    }
+    w.unclosed = true;
+    chars.len()
 }
 
 /// cmd.exe: `^` escapes the next character, double quotes group, `,` and `;` separate words, a
@@ -585,12 +1010,11 @@ fn lex_cmd(text: &str) -> Words {
                     i += 1;
                 }
             }
-            '|' => {
+            '|' if next == Some('|') => {
                 w.end_command();
-                if next == Some('|') {
-                    i += 1;
-                }
+                i += 1;
             }
+            '|' => w.pipe(),
             '(' | ')' if !w.in_word => w.end_command(),
             '<' | '>' => {
                 w.redirect();
@@ -617,12 +1041,38 @@ fn lex_cmd(text: &str) -> Words {
                 }
             }
             '@' if !w.in_word && w.words.is_empty() => {}
+            // cmd expands `%name:~0,1%` and `%name:a=b%` before it splits the line, so the
+            // separators inside belong to the expansion.
+            '%' => match cmd_edit_end(&chars, i) {
+                Some(end) => {
+                    w.push_str(&text_of(&chars, i, end + 1));
+                    i = end;
+                }
+                None => w.push('%'),
+            },
             other => w.push(other),
         }
         i += 1;
     }
     w.end_command();
     w
+}
+
+/// The index of the `%` closing a cmd substring or replace expansion (`%name:...%`) that starts
+/// at `start`; `None` when none starts there.
+fn cmd_edit_end(chars: &[char], start: usize) -> Option<usize> {
+    let close = chars[start + 1..]
+        .iter()
+        .take_while(|c| **c != '\n')
+        .position(|c| *c == '%')
+        .map(|at| at + start + 1)?;
+    let inner: String = text_of(chars, start + 1, close);
+    let (name, _) = inner.split_once(':')?;
+    let plain = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-.()".contains(c));
+    plain.then_some(close)
 }
 
 #[derive(Default)]
@@ -644,31 +1094,42 @@ impl Splitter {
         if words.unclosed {
             self.analysis.unclosed = true;
         }
+        // The call of the last command at this level, which a pipe hands its output on from.
+        let mut last: Option<usize> = None;
         for piece in words.pieces {
             match piece {
-                Piece::Command(words, redirects) => {
+                Piece::Command(simple) => {
                     let at = self.analysis.calls.len();
                     self.analysis
                         .redirects
-                        .extend(redirects.into_iter().map(|target| (at, target)));
-                    self.command(&words, dialect, depth);
+                        .extend(simple.redirects.into_iter().map(|target| (at, target)));
+                    let meta = CallInfo {
+                        dialect,
+                        piped: simple.piped,
+                        upstream: if simple.piped { last } else { None },
+                        fed: simple.fed,
+                    };
+                    self.command(&simple.words, dialect, depth, &meta);
+                    let now = self.analysis.calls.len();
+                    last = (now > at).then(|| now - 1);
                 }
                 Piece::Script(inner, dialect) => self.script(&inner, dialect, depth + 1),
             }
         }
     }
 
-    fn push(&mut self, words: &[String]) {
+    fn push(&mut self, words: &[String], meta: &CallInfo) {
         if self.analysis.calls.len() >= MAX_CALLS {
             self.analysis.truncated = true;
             return;
         }
         self.analysis.calls.push(words.to_vec());
+        self.analysis.info.push(meta.clone());
     }
 
     /// One simple command: wrappers in front of the program are skipped, inline scripts are
     /// split in turn, and what is left is one program call.
-    fn command(&mut self, words: &[String], dialect: Dialect, depth: usize) {
+    fn command(&mut self, words: &[String], dialect: Dialect, depth: usize, meta: &CallInfo) {
         if depth > MAX_DEPTH {
             self.analysis.truncated = true;
             return;
@@ -684,9 +1145,41 @@ impl Splitter {
             let program = crate::command_guard::program_name(first);
             let args = &rest[1..];
             match program.as_str() {
+                // A sourced file is a script, not a wrapper; from stdin or a process its text is
+                // not on the command line. PowerShell's `.` runs what follows.
+                "." | "source" if dialect == Dialect::Posix => {
+                    if args.first().is_some_and(|file| is_stdin_path(file)) {
+                        self.analysis.stdin_script = true;
+                    }
+                    self.push(rest, meta);
+                    return;
+                }
                 "{" | "}" | "!" | "then" | "do" | "else" | "elif" | "if" | "while" | "until"
                 | "time" | "command" | "builtin" | "exec" | "nohup" | "&" | "." | "call"
-                | "noglob" => rest = args,
+                | "noglob" | "busybox" => rest = args,
+                "winpty" => rest = skip_options(args, &["--title"]),
+                "setsid" => rest = skip_options(args, &[]),
+                "stdbuf" => rest = skip_options(args, &["-i", "-o", "-e"]),
+                "ionice" => rest = skip_options(args, &["-c", "-n", "-p", "-P", "-u"]),
+                "trap" if dialect == Dialect::Posix => {
+                    // `trap 'cmd' EXIT` runs its first argument as a script later.
+                    if let Some(script) = skip_options(args, &[]).first().filter(|s| *s != "-") {
+                        self.script(script, Dialect::Posix, depth + 1);
+                    }
+                    self.push(rest, meta);
+                    return;
+                }
+                "find" => {
+                    self.push(rest, meta);
+                    let inline = CallInfo {
+                        dialect,
+                        ..CallInfo::default()
+                    };
+                    for call in find_commands(args) {
+                        self.command(&call, dialect, depth + 1, &inline);
+                    }
+                    return;
+                }
                 "sudo" | "doas" => {
                     rest = skip_options(
                         args,
@@ -717,9 +1210,9 @@ impl Splitter {
                         }
                         ShellScript::Stdin => {
                             self.analysis.stdin_script = true;
-                            self.push(rest);
+                            self.push(rest, meta);
                         }
-                        ShellScript::File => self.push(rest),
+                        ShellScript::File => self.push(rest, meta),
                     }
                     return;
                 }
@@ -730,13 +1223,13 @@ impl Splitter {
                         }
                         ShellScriptOwned::Undecodable => {
                             self.analysis.unclosed = true;
-                            self.push(rest);
+                            self.push(rest, meta);
                         }
                         ShellScriptOwned::Stdin => {
                             self.analysis.stdin_script = true;
-                            self.push(rest);
+                            self.push(rest, meta);
                         }
-                        ShellScriptOwned::File => self.push(rest),
+                        ShellScriptOwned::File => self.push(rest, meta),
                     }
                     return;
                 }
@@ -752,7 +1245,7 @@ impl Splitter {
                         ),
                         None => {
                             self.analysis.stdin_script = true;
-                            self.push(rest);
+                            self.push(rest, meta);
                         }
                     }
                     return;
@@ -807,7 +1300,7 @@ impl Splitter {
                         }
                         None => {
                             self.analysis.stdin_script = true;
-                            self.push(rest);
+                            self.push(rest, meta);
                             return;
                         }
                     }
@@ -815,20 +1308,76 @@ impl Splitter {
                 "start" | "start-process" | "saps" => {
                     let call = started_program(args);
                     if call.is_empty() {
-                        self.push(rest);
+                        self.push(rest, meta);
                     } else {
                         // One level deeper, so `start start start ...` ends at MAX_DEPTH.
-                        self.command(&call, dialect, depth + 1);
+                        self.command(&call, dialect, depth + 1, meta);
                     }
                     return;
                 }
                 _ => {
-                    self.push(rest);
+                    self.push(rest, meta);
                     return;
                 }
             }
         }
     }
+}
+
+/// A file that is the shell's own stdin or a pipe of the running shell (`/dev/stdin`,
+/// `/dev/fd/0`, `/proc/self/fd/0`, a process substitution).
+fn is_stdin_path(path: &str) -> bool {
+    path == "/dev/stdin"
+        || path.starts_with("/dev/fd/")
+        || (path.starts_with("/proc/") && path.contains("/fd/"))
+}
+
+/// The commands `find` runs for what it finds (`-exec`, `-execdir`, `-ok`, `-okdir` up to `;`
+/// or `+`), with `{}` read as `<start>/*` for each of its start folders: what it finds lies
+/// below them, and a wildcard right in the project counts as inside it.
+fn find_commands(args: &[String]) -> Vec<Vec<String>> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "-H" | "-L" | "-P" => i += 1,
+            "-D" => i += 2,
+            _ if arg.starts_with("-O") => i += 1,
+            _ => break,
+        }
+    }
+    let mut starts: Vec<&str> = Vec::new();
+    while let Some(arg) = args.get(i) {
+        if arg.starts_with('-') || arg == "(" || arg == "!" || arg == "," {
+            break;
+        }
+        starts.push(arg);
+        i += 1;
+    }
+    if starts.is_empty() {
+        starts.push(".");
+    }
+    let mut out = Vec::new();
+    while i < args.len() {
+        if !matches!(args[i].as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
+            i += 1;
+            continue;
+        }
+        let begin = i + 1;
+        let mut end = begin;
+        while end < args.len() && args[end] != ";" && args[end] != "+" {
+            end += 1;
+        }
+        for start in starts.iter().take(MAX_FIND_STARTS) {
+            out.push(
+                args[begin..end]
+                    .iter()
+                    .map(|word| word.replace("{}", &format!("{start}/*")))
+                    .collect(),
+            );
+        }
+        i = end + 1;
+    }
+    out
 }
 
 /// `NAME=value` in front of a program.
@@ -895,6 +1444,8 @@ fn shell_script(args: &[String]) -> ShellScript<'_> {
         } else {
             return if wants {
                 ShellScript::Inline(arg)
+            } else if is_stdin_path(arg) {
+                ShellScript::Stdin
             } else {
                 ShellScript::File
             };
@@ -1059,7 +1610,10 @@ fn powershell_script(args: &[String], windows_powershell: bool) -> ShellScriptOw
             };
         }
         if is_ps_param(arg, "file", 1) {
-            return ShellScriptOwned::File;
+            return match args.get(i + 1) {
+                Some(file) if file == "-" || is_stdin_path(file) => ShellScriptOwned::Stdin,
+                _ => ShellScriptOwned::File,
+            };
         }
         // `-Version` names the engine for Windows PowerShell and prints the version in pwsh;
         // `-Help` and `-?` print help: no script either way for pwsh.
@@ -1420,6 +1974,253 @@ mod tests {
                 "--force".into()
             ])
         );
+    }
+
+    fn push_force() -> Vec<String> {
+        vec!["git".to_owned(), "push".into(), "--force".into()]
+    }
+
+    #[test]
+    fn heredoc_body_is_data_and_keeps_quotes_in_sync() {
+        // The apostrophe in the body is data: the command after the delimiter line is seen and
+        // the quote at the end of the last line belongs to a comment.
+        let analysis = split(
+            "cat <<EOF\nit's\nEOF\ngit push --force\necho marker #'",
+            Dialect::Posix,
+        );
+        assert!(!analysis.unclosed, "{analysis:?}");
+        assert_eq!(
+            analysis.calls,
+            vec![
+                vec!["cat".to_owned()],
+                push_force(),
+                vec!["echo".into(), "marker".into()]
+            ]
+        );
+        assert_eq!(analysis.info[0].fed, ["it's\n"]);
+        // `<<-` strips leading tabs from the body and the delimiter line.
+        let analysis = split(
+            "cat <<-END\n\tdon't\n\tEND\ngit push --force",
+            Dialect::Posix,
+        );
+        assert!(!analysis.unclosed);
+        assert!(analysis.calls.contains(&push_force()), "{analysis:?}");
+        // A quoted delimiter makes the body plain data; an unquoted one runs its substitutions.
+        for quoted in ["'EOF'", "\"EOF\"", "\\EOF", "E\"O\"F"] {
+            let command = format!("cat <<{quoted}\n$(git push --force)\nEOF\necho marker");
+            let analysis = split(&command, Dialect::Posix);
+            assert!(!analysis.calls.contains(&push_force()), "{command}");
+            assert!(!analysis.unclosed, "{command}");
+        }
+        for body in [
+            "$(git push --force)",
+            "`git push --force`",
+            "x $(git push --force) y",
+        ] {
+            let command = format!("cat <<EOF\n{body}\nEOF");
+            assert!(
+                calls(&command, Dialect::Posix).contains(&push_force()),
+                "{command}"
+            );
+        }
+        // Escaped in an unquoted body: plain text.
+        assert!(
+            !calls("cat <<EOF\n\\$(git push --force)\nEOF", Dialect::Posix).contains(&push_force())
+        );
+        // Two documents on one line are read one after the other.
+        let analysis = split(
+            "cat <<A; cat <<B\na'\nA\nb'\nB\ngit push --force",
+            Dialect::Posix,
+        );
+        assert!(!analysis.unclosed);
+        assert!(analysis.calls.contains(&push_force()));
+        // A delimiter that never comes leaves the rest unread: asked about.
+        assert!(split("cat <<EOF\ngit push --force", Dialect::Posix).unclosed);
+        // A here-string is no here-document, and a document without a body hides nothing.
+        assert!(!split("cat <<< 'x'", Dialect::Posix).unclosed);
+        assert!(!split("cat <<EOF", Dialect::Posix).unclosed);
+        assert!(!split("echo $((1 << 2))", Dialect::Posix).unclosed);
+    }
+
+    #[test]
+    fn heredoc_inside_a_substitution_keeps_its_quotes_and_parens_to_itself() {
+        // The way agents write a commit message: the apostrophes and the `)` in the body are
+        // text, not the end of the substitution.
+        let message =
+            "git commit -m \"$(cat <<'EOF'\nfix: don't drop it (1)\n\nIt's kept.\nEOF\n)\"";
+        let analysis = split(message, Dialect::Posix);
+        assert!(!analysis.unclosed, "{analysis:?}");
+        assert!(analysis.calls.iter().any(|call| call[0] == "git"));
+        // A `)` in the body does not end the substitution early, so what runs after the
+        // delimiter line inside it is seen, quoted outside or not.
+        for command in [
+            "echo \"$(cat <<'EOF'\n)\nEOF\ngit push --force\n)\"",
+            "echo $(cat <<EOF\n)\nEOF\ngit push --force\n)",
+            "echo \"$(cat <<-EOF\n\t)\n\tEOF\ngit push --force\n)\"",
+        ] {
+            let analysis = split(command, Dialect::Posix);
+            assert!(analysis.calls.contains(&push_force()), "{command:?}");
+            assert!(!analysis.unclosed, "{command:?}");
+        }
+        // A here-string and arithmetic shifts inside a substitution are no documents.
+        assert!(!split("echo \"$(cat <<< 'x')\"", Dialect::Posix).unclosed);
+        assert!(!split("echo \"$((1 << 2))\"\necho marker", Dialect::Posix).unclosed);
+        // A document in a substitution whose delimiter never comes is still asked about.
+        assert!(split("echo \"$(cat <<EOF\nit's\n)\"", Dialect::Posix).unclosed);
+    }
+
+    #[test]
+    fn powershell_here_strings_are_one_word() {
+        let analysis = split("echo @'\nx'\n'@\ngit push --force #'", Dialect::PowerShell);
+        assert!(!analysis.unclosed, "{analysis:?}");
+        assert_eq!(analysis.calls[0], ["echo", "x'"]);
+        assert!(analysis.calls.contains(&push_force()));
+        let analysis = split(
+            "echo @\"\nx\"\n\"@\ngit push --force #\"",
+            Dialect::PowerShell,
+        );
+        assert!(!analysis.unclosed, "{analysis:?}");
+        assert!(analysis.calls.contains(&push_force()));
+        // A double quoted here-string runs its substitutions; a single quoted one does not.
+        assert!(
+            calls("$x = @\"\n$(git push --force)\n\"@", Dialect::PowerShell)
+                .contains(&push_force())
+        );
+        assert!(
+            !calls("$x = @'\n$(git push --force)\n'@", Dialect::PowerShell).contains(&push_force())
+        );
+        // The end is only a line starting with the quote and `@`.
+        assert!(split("echo @'\nx '@\n", Dialect::PowerShell).unclosed);
+        assert!(split("echo @\"\nx\n", Dialect::PowerShell).unclosed);
+    }
+
+    #[test]
+    fn braces_group_only_as_words_of_their_own() {
+        assert_eq!(
+            calls("{git,push,--force}", Dialect::Posix),
+            vec![vec!["{git,push,--force}"]]
+        );
+        assert_eq!(
+            calls("git push {-f,-q}", Dialect::Posix),
+            vec![vec!["git", "push", "{-f,-q}"]]
+        );
+        assert_eq!(
+            calls("{ git push --force; }", Dialect::Posix),
+            vec![push_force()]
+        );
+        assert_eq!(
+            calls("find . -exec rm {} +", Dialect::Posix)[0],
+            ["find", ".", "-exec", "rm", "{}", "+"]
+        );
+    }
+
+    #[test]
+    fn scripts_read_from_stdin_or_a_process_are_reported() {
+        for command in [
+            "echo 'git push --force' | bash /dev/stdin",
+            "echo 'git push --force' | bash /dev/fd/0",
+            "echo 'git push --force' | sh /proc/self/fd/0",
+            "echo 'git push --force' | pwsh -File -",
+            "echo 'git push --force' | source /dev/stdin",
+            ". <(echo git push --force)",
+            "bash <(echo git push --force)",
+            "source <(curl x)",
+        ] {
+            assert!(split(command, Dialect::Posix).stdin_script, "{command}");
+        }
+        // A sourced file is a script file, not a wrapper around a program call.
+        let analysis = split(". ./env.sh", Dialect::Posix);
+        assert!(!analysis.stdin_script);
+        assert_eq!(analysis.calls, vec![vec![".", "./env.sh"]]);
+        // PowerShell's dot operator runs what follows.
+        assert!(calls(". git push --force", Dialect::PowerShell).contains(&push_force()));
+    }
+
+    #[test]
+    fn pipelines_tell_each_call_where_its_input_comes_from() {
+        let analysis = split(
+            r"Get-ChildItem C:\x -Recurse | Remove-Item -Force; echo y",
+            Dialect::PowerShell,
+        );
+        assert_eq!(analysis.info.len(), analysis.calls.len());
+        assert_eq!(analysis.info[0].upstream, None);
+        assert_eq!(analysis.info[1].upstream, Some(0));
+        assert!(analysis.info[1].piped);
+        assert!(!analysis.info[2].piped);
+        let analysis = split(
+            "echo 'DROP TABLE x' | psql && psql <<< 'SELECT 1'",
+            Dialect::Posix,
+        );
+        assert!(analysis.info[1].piped);
+        assert!(!analysis.info[2].piped);
+        assert_eq!(analysis.info[2].fed, ["SELECT 1"]);
+        assert_eq!(
+            split("cmd /c git status", Dialect::Posix).info[0].dialect,
+            Dialect::Cmd
+        );
+    }
+
+    #[test]
+    fn more_wrappers_and_inline_commands_are_unwrapped() {
+        for (command, dialect) in [
+            ("winpty git push --force", Dialect::Posix),
+            ("setsid -f git push --force", Dialect::Posix),
+            ("stdbuf -o L git push --force", Dialect::Posix),
+            ("ionice -c 3 git push --force", Dialect::Posix),
+            ("busybox sh -c 'git push --force'", Dialect::Posix),
+            ("trap 'git push --force' EXIT", Dialect::Posix),
+            ("find . -name x -exec git push --force \\;", Dialect::Posix),
+            ("find . -execdir git push --force {} +", Dialect::Posix),
+            (
+                "& ([scriptblock]::Create('git push --force'))",
+                Dialect::PowerShell,
+            ),
+            (
+                "$ExecutionContext.InvokeCommand.InvokeScript('git push --force')",
+                Dialect::PowerShell,
+            ),
+        ] {
+            let found = calls(command, dialect);
+            assert!(
+                found
+                    .iter()
+                    .any(|call| call.len() >= 3 && call[..3] == push_force()[..]),
+                "{command}: {found:?}"
+            );
+        }
+        // find's `{}` stands for what it found below its start folder.
+        assert!(
+            calls("find /tmp/marker -exec rm -r {} +", Dialect::Posix).contains(&vec![
+                "rm".to_owned(),
+                "-r".into(),
+                "/tmp/marker/*".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn huge_here_documents_and_here_strings_stay_bounded() {
+        let body = "line with 'quote' and $(x) and `y`\n".repeat(1800);
+        for (text, dialect) in [
+            (
+                format!("cat <<EOF\n{body}EOF\ngit push --force"),
+                Dialect::Posix,
+            ),
+            (format!("cat <<EOF\n{body}"), Dialect::Posix),
+            ("cat <<A\n".repeat(8000), Dialect::Posix),
+            (
+                format!("echo @\"\n{body}\"@\ngit push --force"),
+                Dialect::PowerShell,
+            ),
+            (format!("echo @'\n{body}"), Dialect::PowerShell),
+            ("@'\n".repeat(20_000), Dialect::PowerShell),
+        ] {
+            assert!(text.len() <= 64 * 1024 + 64, "{}", text.len());
+            let started = std::time::Instant::now();
+            let analysis = split(&text, dialect);
+            assert!(analysis.calls.len() <= MAX_CALLS);
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        }
     }
 
     #[test]

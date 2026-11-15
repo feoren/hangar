@@ -29,20 +29,40 @@ use crate::team_tasks::{self, TeamTask};
 /// Environment variable of the PTY child that carries its session's token. Claude Code puts it
 /// into the hook's `Authorization` header (`allowedEnvVars`); it is never written to a file.
 pub const TOKEN_ENV: &str = "HANGAR_HOOK_TOKEN";
-/// Tools that change files, as Claude Code names them.
-pub const EDIT_MATCHER: &str = "Edit|Write|MultiEdit|NotebookEdit";
+/// Tools that change files, as the hooks name them: Claude Code's, and those the other agents'
+/// edit matchers send through the helper or an extension (`hook_recipes.rs`, `gate_plugins`).
+/// A test keeps every recipe's matcher inside this list.
+pub const EDIT_TOOLS: &[&str] = &[
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+    "write_file",
+    "replace",
+    "edit",
+    "create",
+    "apply_patch",
+    "Create",
+    "ApplyPatch",
+];
 /// Tools that run a shell command, for the command guard (`command_guard.rs`), each with
 /// `tool_input.command`: Claude Code's `Bash` and `PowerShell` (the names and the `command`
 /// field are in its transcripts, docs/wiki/pages/sources/shell-tool-input-shapes.md; the hook
 /// input is not measured live). The in-process extensions send `Bash` or `PowerShell` for a
 /// known shell and `Shell` for one they cannot tell (OpenCode on Windows).
 pub const SHELL_TOOLS: &[&str] = &["Bash", "PowerShell", "Shell"];
-/// The shell tools Claude Code's hook matcher names; `Shell` is the extensions' own.
-pub const CLAUDE_SHELL_MATCHER: &str = "Bash|PowerShell";
+/// Claude Code's hook matcher: every tool. Which tool is an edit and which runs a command is
+/// decided here, so a shell tool Hangar does not know by name still reaches the guard.
+pub const CLAUDE_MATCHER: &str = "*";
 
 /// Whether `tool` (as a hook names it) runs shell commands.
 pub fn is_shell_tool(tool: &str) -> bool {
     SHELL_TOOLS.contains(&tool)
+}
+
+/// Whether `tool` (as a hook names it) changes files.
+pub fn is_edit_tool(tool: &str) -> bool {
+    EDIT_TOOLS.contains(&tool)
 }
 /// How long a decision waits for the person; then the edit is denied with "no answer".
 pub const DECISION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -106,7 +126,7 @@ pub fn claude_settings(port: u16, context: bool) -> String {
     hooks.insert(
         "PreToolUse".to_owned(),
         serde_json::json!([{
-            "matcher": format!("{EDIT_MATCHER}|{CLAUDE_SHELL_MATCHER}"),
+            "matcher": CLAUDE_MATCHER,
             "hooks": [hook(ROUTE_PRE_TOOL_USE, HOOK_TIMEOUT_SECS)],
         }]),
     );
@@ -245,8 +265,12 @@ pub struct EditRequest {
     /// As the agent named it; absolute in every measured case.
     pub path: Option<String>,
     pub cwd: Option<String>,
-    /// The command line of a shell tool ([`is_shell_tool`]); `None` for every other tool.
+    /// The command line of a shell tool ([`is_shell_tool`]) or of any other tool with a string
+    /// `tool_input.command` that is no edit tool; `None` otherwise.
     pub command: Option<CommandText>,
+    /// An edit's path that is too long or holds a NUL, cut for the card: the gate cannot check
+    /// it, so it asks instead of refusing the request (a refused request lets the edit through).
+    pub unreadable_path: Option<String>,
 }
 
 fn checked(value: String) -> Result<String, HookError> {
@@ -268,17 +292,23 @@ pub fn parse_pre_tool_use(reader: impl Read) -> Result<EditRequest, HookError> {
         serde_json::from_reader(std::io::BufReader::with_capacity(16 * 1024, reader))
             .map_err(|_| HookError::Shape)?;
     let tool = checked(body.tool_name)?;
-    let shell = is_shell_tool(&tool);
+    let command_text = body.tool_input.command.0;
+    let shell = is_shell_tool(&tool) || (!is_edit_tool(&tool) && command_text.is_some());
     let named = body.tool_input.file_path.or(body.tool_input.notebook_path);
     // A working folder Hangar cannot use is dropped for every tool: refusing the request would
     // let the call through unchecked.
     let cwd = body.cwd.and_then(|cwd| checked(cwd).ok());
-    let path = if shell {
-        named.and_then(|path| checked(path).ok())
-    } else {
-        named.map(checked).transpose()?
+    let mut unreadable_path = None;
+    let path = match named {
+        Some(path) if path.len() > MAX_FIELD_BYTES || path.contains('\0') => {
+            if !shell {
+                unreadable_path = Some(path.chars().take(MAX_SHOWN_COMMAND).collect());
+            }
+            None
+        }
+        named => named,
     };
-    let command = body.tool_input.command.0.filter(|_| shell).map(|text| {
+    let command = command_text.filter(|_| shell).map(|text| {
         if text.len() > crate::command_guard::MAX_COMMAND_BYTES || text.contains('\0') {
             CommandText::TooLong(text.chars().take(MAX_SHOWN_COMMAND).collect())
         } else {
@@ -290,6 +320,7 @@ pub fn parse_pre_tool_use(reader: impl Read) -> Result<EditRequest, HookError> {
         path,
         cwd,
         command,
+        unreadable_path,
     })
 }
 
@@ -475,6 +506,16 @@ pub fn full_reason(path: &str, titles: &[String]) -> String {
          edits already wait for a decision in Hangar, so please confirm here. {}",
         facts(path, titles)
     )
+}
+
+/// Why a tool call was not made, when its session has more hooks open at once than Hangar takes
+/// from one session. Denied rather than left unanswered: an unanswered hook lets the call go
+/// ahead unchecked.
+pub fn busy_reason() -> String {
+    "Hangar: this session has too many tool calls waiting for Hangar's check at once, so this \
+     one was not made. Try it again in a moment, or after the user has answered the open \
+     questions in Hangar."
+        .to_owned()
 }
 
 /// Why an edit was not made, when the session ended or Hangar quit while it waited.
@@ -1761,10 +1802,7 @@ mod tests {
     fn settings_hold_the_hooks_but_no_token() {
         let json: serde_json::Value = serde_json::from_str(&claude_settings(4711, true)).unwrap();
         let pre = &json["hooks"]["PreToolUse"][0];
-        assert_eq!(
-            pre["matcher"],
-            "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell"
-        );
+        assert_eq!(pre["matcher"], "*");
         let hook = &pre["hooks"][0];
         assert_eq!(hook["type"], "http");
         assert_eq!(hook["url"], "http://127.0.0.1:4711/v1/pre-tool-use");
@@ -1832,6 +1870,7 @@ mod tests {
                 path: Some(r"C:\r\a.txt".into()),
                 cwd: Some(r"C:\r".into()),
                 command: None,
+                unreadable_path: None,
             }
         );
         let notebook =
@@ -1846,11 +1885,13 @@ mod tests {
 
     #[test]
     fn hostile_request_bodies_are_refused() {
+        // An overlong or NUL path is kept and asked about (see
+        // `an_edit_path_hangar_cannot_read_is_kept_to_ask_about`); a tool name is not.
         let long = format!(
-            r#"{{"tool_name":"Edit","tool_input":{{"file_path":"{}"}}}}"#,
+            r#"{{"tool_name":"{}","tool_input":{{}}}}"#,
             "a".repeat(MAX_FIELD_BYTES + 1)
         );
-        let nul = r#"{"tool_name":"Edit","tool_input":{"file_path":"a\u0000b"}}"#;
+        let nul = r#"{"tool_name":"Ed\u0000it","tool_input":{}}"#;
         let cases: &[&[u8]] = &[
             b"",
             b"null",
@@ -1882,6 +1923,77 @@ mod tests {
         };
         assert!(parse_pre_tool_use(nested("ignored").as_bytes()).is_ok());
         assert!(parse_pre_tool_use(nested("tool_input").as_bytes()).is_err());
+    }
+
+    #[test]
+    fn an_edit_path_hangar_cannot_read_is_kept_to_ask_about() {
+        let long = format!(
+            r#"{{"tool_name":"Edit","tool_input":{{"file_path":"{}"}}}}"#,
+            "a".repeat(MAX_FIELD_BYTES + 1)
+        );
+        let nul = r#"{"tool_name":"Write","tool_input":{"file_path":"a\u0000b"}}"#;
+        for body in [long.as_str(), nul] {
+            let request = parse_pre_tool_use(body.as_bytes()).unwrap();
+            assert_eq!(request.path, None);
+            let shown = request.unreadable_path.unwrap();
+            assert!(!shown.is_empty() && shown.chars().count() <= MAX_SHOWN_COMMAND);
+        }
+        // A shell tool's stray path field is only dropped: its command is what counts.
+        let shell = format!(
+            r#"{{"tool_name":"Bash","tool_input":{{"command":"ls","file_path":"{}"}}}}"#,
+            "a".repeat(MAX_FIELD_BYTES + 1)
+        );
+        let request = parse_pre_tool_use(shell.as_bytes()).unwrap();
+        assert_eq!(request.unreadable_path, None);
+        assert_eq!(request.command, Some(CommandText::Text("ls".into())));
+    }
+
+    #[test]
+    fn any_tool_with_a_command_that_is_no_edit_is_a_shell_command() {
+        for tool in ["Bash", "PowerShell", "Shell", "mcp__box__run", "Terminal"] {
+            let body =
+                format!(r#"{{"tool_name":"{tool}","tool_input":{{"command":"git status"}}}}"#);
+            let request = parse_pre_tool_use(body.as_bytes()).unwrap();
+            assert_eq!(
+                request.command,
+                Some(CommandText::Text("git status".into())),
+                "{tool}"
+            );
+        }
+        // Codex's patch tool carries its patch in `command`: an edit, not a shell command.
+        let patch = r#"{"tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"}}"#;
+        assert_eq!(parse_pre_tool_use(patch.as_bytes()).unwrap().command, None);
+        // A read names a file but is no edit.
+        let read = r#"{"tool_name":"Read","tool_input":{"file_path":"/r/a.rs"}}"#;
+        let request = parse_pre_tool_use(read.as_bytes()).unwrap();
+        assert!(!is_edit_tool(&request.tool) && request.command.is_none());
+    }
+
+    #[test]
+    fn every_recipe_edit_matcher_names_known_edit_tools() {
+        use crate::hook_recipes as recipes;
+        for matcher in [
+            recipes::QWEN_EDIT_MATCHER,
+            recipes::GEMINI_EDIT_MATCHER,
+            recipes::COPILOT_EDIT_MATCHER,
+            recipes::CODEX_EDIT_MATCHER,
+            recipes::DROID_EDIT_MATCHER,
+        ] {
+            let names = matcher.trim_start_matches("^(").trim_end_matches(")$");
+            for tool in names.split('|') {
+                assert!(is_edit_tool(tool), "{tool} of {matcher}");
+            }
+        }
+        // The extensions send their edits as `Write` and `Edit`.
+        for plugin in [
+            include_str!("gate_plugins/pi.js"),
+            include_str!("gate_plugins/opencode.js"),
+        ] {
+            for tool in ["Write", "Edit"] {
+                assert!(plugin.contains(&format!("tool: \"{tool}\"")), "{tool}");
+                assert!(is_edit_tool(tool));
+            }
+        }
     }
 
     #[test]

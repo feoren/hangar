@@ -777,9 +777,9 @@ fn post_hook(port: u16, token: &str, body: &str) -> (u16, String) {
     (status, body.to_owned())
 }
 
-/// Claude Code's start for a team session carries `Bash` in the hook's matcher, and a `Bash`
-/// call with a force push waits for the person; a harmless one does not. The commands are only
-/// text here; nothing runs them.
+/// Claude Code's start for a team session hooks every tool (matcher `*`), and a `Bash` call
+/// with a force push waits for the person; a harmless one does not. The commands are only text
+/// here; nothing runs them.
 #[test]
 fn claude_bash_hook_holds_a_risky_command_until_the_person_answers() {
     let fixture = fixture("gate-guard-claude");
@@ -790,11 +790,9 @@ fn claude_bash_hook_holds_a_risky_command_until_the_person_answers() {
         &[],
     ));
     let settings: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
-    let matcher = settings["hooks"]["PreToolUse"][0]["matcher"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert!(matcher.split('|').any(|tool| tool == "Bash"), "{matcher}");
+    let groups = settings["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(groups.len(), 1, "{settings}");
+    assert_eq!(groups[0]["matcher"], "*", "{settings}");
     let token = launch
         .env
         .iter()
@@ -904,6 +902,86 @@ fn pi_and_opencode_extensions_send_shell_commands_to_the_guard() {
             answer["thrown"].as_str().unwrap().to_owned()
         };
         assert!(reason.contains("git-push-force"), "{kind}: {reason}");
+    }
+}
+
+/// A shell command the extensions cannot ask about is blocked, while an edit in the same
+/// situation goes ahead: the command guard fails closed, the edit gate open.
+#[test]
+fn extension_shell_commands_fail_closed_when_the_endpoint_is_unreachable() {
+    if !node_available() {
+        eprintln!("node not found; the extension shell tests are skipped");
+        return;
+    }
+    let closed = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let gate = format!("{port}:abc123");
+    for (kind, agent) in [("pi", "pi"), ("opencode", "opencode")] {
+        let fixture = fixture(&format!("gate-guard-closed-{kind}"));
+        let dir = TempDir::new(&format!("gate-guard-closed-{kind}-run"));
+        let launch = launched(fixture.service.prepare(
+            1,
+            &catalog_agent(agent),
+            Path::new(&format!("{agent}.exe")),
+            &[],
+        ));
+        let file = extension_file(&launch, kind);
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "bash",
+            serde_json::json!({ "command": "echo marker" }),
+            &fixture.root,
+            &gate,
+        ));
+        let reason = if kind == "pi" {
+            assert_eq!(answer["result"]["block"], true, "{answer}");
+            answer["result"]["reason"].as_str().unwrap().to_owned()
+        } else {
+            answer["thrown"].as_str().unwrap().to_owned()
+        };
+        assert!(reason.contains("could not check"), "{kind}: {reason}");
+        let edit_args = if kind == "pi" {
+            serde_json::json!({ "path": "src/own.rs", "content": "x" })
+        } else {
+            serde_json::json!({ "filePath": fixture.root.join("src").join("own.rs"), "content": "x" })
+        };
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "write",
+            edit_args,
+            &fixture.root,
+            &gate,
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{kind} {answer}");
+        // Failing closed never locks an agent out: without the variable (a session started
+        // without the gate) and with the gate switched off later, a risky command goes ahead.
+        let risky = serde_json::json!({ "command": "git push --force" });
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "bash",
+            risky.clone(),
+            &fixture.root,
+            "",
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{kind} {answer}");
+        fixture.service.configure(false);
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "bash",
+            risky,
+            &fixture.root,
+            &gate_env(&launch),
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{kind} {answer}");
     }
 }
 

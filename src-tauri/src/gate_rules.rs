@@ -280,7 +280,15 @@ impl RuleBook {
         if self.rules.len() >= MAX_RULES {
             return None;
         }
-        let id = self.rules.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+        // A hand-edited file may hold the largest id: then the book takes no new rule, as when
+        // it is full, instead of overflowing.
+        let id = self
+            .rules
+            .iter()
+            .map(|r| r.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)?;
         let rule = GateRule {
             id,
             project: project.to_owned(),
@@ -498,6 +506,45 @@ mod tests {
         assert!(book.remove(1));
         assert!(!book.remove(1));
         assert_eq!(book.find(PROJECT, "src/a.ts").unwrap().id, 2);
+    }
+
+    #[test]
+    fn the_largest_id_in_a_file_does_not_overflow() {
+        let mut book = RuleBook::default();
+        book.add(
+            PROJECT,
+            "git-push-force",
+            RuleScope::Command,
+            RuleEffect::Allow,
+            1,
+        )
+        .unwrap();
+        let mut json: serde_json::Value = serde_json::from_slice(&book.to_json()).unwrap();
+        json["rules"][0]["id"] = serde_json::json!(u64::MAX);
+        let mut book = RuleBook::parse(json.to_string().as_bytes());
+        assert_eq!(book.rules()[0].id, u64::MAX);
+        // No new id is left: no rule is added, nothing panics.
+        assert_eq!(
+            book.add(
+                PROJECT,
+                "git-reset-hard",
+                RuleScope::Command,
+                RuleEffect::Deny,
+                2
+            ),
+            None
+        );
+        // The rule that exists still takes a new effect.
+        let changed = book
+            .add(
+                PROJECT,
+                "git-push-force",
+                RuleScope::Command,
+                RuleEffect::Deny,
+                3,
+            )
+            .unwrap();
+        assert_eq!((changed.id, changed.effect), (u64::MAX, RuleEffect::Deny));
     }
 
     #[test]

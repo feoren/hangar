@@ -780,3 +780,7 @@ Pages changed: [[agent-commands]].
 ## [2026-11-14] query | Stall hint on battery
 The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
 Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-15] decision | Command guard hardening after an audit
+The command guard reads POSIX here-documents and PowerShell here-strings, brace expansion in every word, `$IFS` and default values, cmd substring expansions, abbreviated long options, `.`/`source` and `/dev/stdin` scripts, PowerShell `-Path:` values and pipelines into `Remove-Item`, more wrappers, `find -exec` and `trap`, and keeps the working folder before a `cd`. Claude Code's hook matcher is `*`; any tool with a command that is no edit is checked. An unreadable edit path asks instead of failing open; links into Hangar's folder are resolved; the extensions block a shell command they cannot ask about; silent connections cannot crowd out hooks, a burst of parallel hooks is never cut, and a session over its 32 connections is denied unread instead of left unanswered. A quote or `)` in a here-document inside `$(...)` no longer ends the substitution.
+Pages changed: [[0010-command-guard]].

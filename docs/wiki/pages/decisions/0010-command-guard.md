@@ -6,7 +6,7 @@ superseded_by:
 tags: [gate, hooks, team, shell, security, claude-code, pi, opencode, codex]
 sources: ["[[shell-tool-input-shapes]]", "[[opencode-gate-live-measurement]]", "[[agent-hooks-per-session-research]]", "[[codex-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # ADR 0010: Command guard in the agent gate
@@ -75,11 +75,19 @@ Option 2 with reach A.
   `ask_command`, `settle_commands`, `guard_rules`, `place_for`), `gate_plugins/*.js`
   (`decideCommand`). Window: `GateCard.tsx`, `CommandGuardSettings.tsx`, `commandGuard.ts`,
   `gate.ts` (`ruleText`).
-- **Hooks.** Claude Code's matcher becomes `Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell`.
+- **Hooks.** Claude Code's matcher is `*` (every tool; amended 2026-11-15, it was
+  `Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell`): which tool is an edit
+  (`gate::EDIT_TOOLS`, a test keeps every recipe's edit matcher inside it) and which runs a
+  command is decided by Hangar. `Bash`, `PowerShell`, `Shell` and any other tool with a string
+  `tool_input.command` that is no edit tool are checked by the guard, the unknown ones in all
+  three dialects; every other tool passes at once. A named list would let a shell tool Hangar
+  does not know (a new Claude Code tool, an MCP tool) through unseen.
   Pi's extension sends `bash` as `Bash` and `powershell` as `PowerShell`; OpenCode's sends `bash`
   as `Bash`, on Windows as `Shell` (shell not known in advance), with `workdir` resolved against
   the session's folder as the working folder. Every one goes to the same endpoint with
-  `tool_input.command`. The shell tools always get the hook in a team session; the setting is
+  `tool_input.command`. The extensions block a shell command whose question to the endpoint
+  fails (unreachable, refused, unreadable answer): the guard fails closed there, edits still
+  fail open. The shell tools always get the hook in a team session; the setting is
   read per command, so switching it applies to running sessions.
 - **Not covered, and why.** Codex: its shell tool name (`Bash` or `exec_command`) and input shape
   are not measured, and a second matcher entry changes the measured `-c` value that must pass
@@ -111,12 +119,32 @@ Option 2 with reach A.
   an `-EncodedCommand` that does not decode), `hangar-stdin-script` (a shell reading its script
   from stdin: a pipe into `sh`/`bash`/`pwsh`/`cmd`, a here-string, `bash -s`, `pwsh -Command -`),
   `hangar-too-long` (over 64 KiB or with a NUL; the card shows the start) and `hangar-config`
-  (below).
+  (below). `hangar-too-long` also holds an edit whose path is over 4 KiB or has a NUL: the
+  endpoint keeps such a request and asks instead of refusing it (a refused request makes Claude
+  Code go on), and the `gate-hook` helper answers "ask" for it instead of skipping it.
+  `hangar-too-complex` also covers cmd's substring and replace expansions (`%x:~0,0%`, also read
+  with them removed) and delayed variables (`!x!`), and `git -c alias.*=...`,
+  `-c clean.requireForce=...` or `--config-env` for them; `hangar-stdin-script` also a database
+  client (mysql, mariadb, psql, sqlite3, sqlcmd, duckdb, clickhouse-client) fed by a pipe without
+  an SQL option or argument, or by a here-document built from variables.
 - **Reading a command.** The dialect follows the tool: `Bash` POSIX, `PowerShell` PowerShell,
   `Shell` all three with every hit counted. POSIX: quotes, every backslash outside quotes
   escapes (as Git Bash reads it), `$'...'` decoded, `$(...)` and backticks checked as commands of
-  their own with an unknown value. PowerShell: backtick escapes, a backslash is plain, doubled
-  quotes, typographic quotes and dashes, `$(...)`, `<# #>`, `--%`. cmd: carets removed, double
+  their own with an unknown value. POSIX here-documents (`<<`, `<<-`): the body is
+  read from the next line break outside quotes up to the delimiter line (quotes removed, tabs
+  stripped for `<<-`); a quoted delimiter makes it data, an unquoted one runs only its `$(...)`
+  and backticks; a missing delimiter line is unclosed. Inside `$(...)` the end of the
+  substitution is looked for past such bodies, so a quote or `)` in one is text (the commit
+  message an agent writes with `git commit -m "$(cat <<'EOF' ... EOF)"`). Here-strings and here-document bodies are
+  what the call reads, matched by `words` (`psql <<< 'DROP TABLE x'`). Process substitutions
+  (`<(...)`) are split and name a pipe. `{` and `}` group only as words of their own; inside a
+  word they are brace expansion, applied to every word of a POSIX call (`{git,push,--force}`)
+  within the bounds below. `$IFS` reads as a word break and `${x:-w}`, `${x-w}`, `${x:=w}`,
+  `${x=w}` as `w`, each as one more reading of the call. PowerShell: backtick escapes, a
+  backslash is plain, doubled quotes, typographic quotes and dashes, `$(...)`, `<# #>`, `--%`,
+  here-strings (`@'...'@` literal, `@"..."@` with `$(...)`, ending only at a line that starts
+  with the quote and `@`, unclosed otherwise), `[scriptblock]::Create('...')`,
+  `.InvokeScript('...')` and `.NewScriptBlock('...')` with a literal argument read like `iex`. cmd: carets removed, double
   quotes, no backslash escape. Separators and comments in each; redirection targets are kept
   apart from the arguments and checked against Hangar's own settings (`> command-guard.toml`).
   A POSIX `$"..."` drops its `$`; `$@`, `$*` and `${...}` inside a word are also read as empty
@@ -124,7 +152,11 @@ Option 2 with reach A.
   and its inside is split as a command of its own; a single plain string in parentheses
   (`(".\build")`) is read as that string.
   Wrappers skipped: assignments, `sudo`, `doas`, `env` (also `-S`), `nohup`, `nice`, `time`,
-  `timeout`, `command`, `exec`, shell keywords. Inline scripts split again in their own dialect:
+  `timeout`, `command`, `exec`, `winpty`, `setsid`, `stdbuf`, `ionice`, `busybox`, shell
+  keywords. `find -exec`/`-execdir`/`-ok`/`-okdir` runs its command with `{}` read as
+  `<start folder>/*`; `trap 'cmd' SIG` splits its script. A POSIX `.` or `source` is a script
+  file, not a wrapper; from `/dev/stdin`, `/dev/fd/*`, `/proc/*/fd/*` or a process substitution
+  it is a script from stdin, as is `bash /dev/stdin` and `pwsh -File -`. Inline scripts split again in their own dialect:
   `sh`/`bash`/`zsh`/... `-c` (also after options with a value: `-o`, `+o`, `-O`, `+O`,
   `--rcfile`, `--init-file`), `pwsh`/`powershell` `-Command`, `-CommandWithArgs`/`-cwa` and
   `-EncodedCommand` (base64 UTF-16LE), Windows PowerShell's positional command, `cmd /c`, `/k`
@@ -133,8 +165,11 @@ Option 2 with reach A.
   (`-FilePath`, `-ArgumentList` with commas, positional values, cmd's `/b` and an empty title):
   agents on Windows reach for them, and the unwrapping is a few lines; each unwrapping counts as
   one level of the depth limit. `--version`, `--help`,
-  `pwsh -Version` and `-?` are not taken for a script from stdin. A `cd` moves the working
-  folder for the calls after it; `cd -`, a bare `cd` and `popd` leave it unknown.
+  `pwsh -Version` and `-?` are not taken for a script from stdin. A `cd` adds its target to the
+  working folders the later calls may run in and keeps the folder before it (a `cd` in a
+  subshell, a pipeline or one that fails changes nothing); a path counts as outside when it is
+  outside from any of them, at most 16 folders, then unknown. `cd -`, a bare `cd` and `popd` add
+  an unknown folder.
 - **Every hit counts.** All rules that match any call are collected, each once. A remembered deny
   for any of them blocks the command; rules with a remembered allow drop out; the rest go on one
   card. "Always allow" remembers each rule shown (the card repeats them next to the button).
@@ -142,7 +177,11 @@ Option 2 with reach A.
   `~`, `$HOME`, `$env:USERPROFILE`, `%USERPROFILE%` are the home folder; drive letters, UNC paths
   and Git Bash's `/c/...`, `/cygdrive/c/...`, `/mnt/c/...` on Windows; `..` resolved. It counts as
   outside unless it lies strictly inside the session's worktree and not in its `.git`; a
-  wildcard right in the worktree (`./*`) is inside. A path built from a variable or a
+  wildcard right in the worktree (`./*`) is inside. Long options count by any prefix of two
+  letters or more (`--ha` for `--hard`, as git and getopt read an unambiguous prefix; an
+  ambiguous one asks too). PowerShell's `-Path:C:\x` names a path like a positional argument,
+  and a delete with no path of its own in a pipeline takes the paths and switches of the call
+  before it (`Get-ChildItem x -Recurse | Remove-Item`), or counts as unplaceable. A path built from a variable or a
   substitution cannot be placed and counts as outside, and so does every relative path when the
   hook sent no usable working folder (an over-long or NUL `cwd` is dropped for every tool, not
   refused, so the request is still checked): the person is asked rather than not.
@@ -156,7 +195,9 @@ Option 2 with reach A.
   file name or the identifier as a path part, also through a wildcard (`*`, `?`, `[...]`) with
   at least five letters of its own outside a plain extension (`com.f*`, `command-g*.toml`,
   `[c]ommand-guard.toml`; not `*.json` or `com.*`) or a Windows 8.3 short name (`COMFEO~1`,
-  `COMMAN~1.TOM`). A wildcard right below the folder Hangar's folder sits in counts whatever it
+  `COMMAN~1.TOM`). An edit is also held when the path with its existing part resolved (the same
+  resolution the conflict check uses, only on local drives or the worktree's share) lies in one
+  of them: a junction or symlink inside the project into Hangar's folder. A wildcard right below the folder Hangar's folder sits in counts whatever it
   spells (`~/.config/c*`, `$env:APPDATA\c*`, `%LOCALAPPDATA%\c*`, `$XDG_CONFIG_HOME/*`,
   `~/Library/Application Support/c*`). A path inside the project counts by where it lies only. The rule applies
   while the guard setting is off, switching the setting off does not release it, and it offers
@@ -180,9 +221,20 @@ Option 2 with reach A.
   names the rules. A full queue denies it too ("too many decisions waiting, retry"): Claude
   Code's "ask" is not always a person [UNVERIFIED: in its bypass, auto-accept and `-p` modes the
   permission prompt may be skipped or fail], and OpenCode turns Hangar's "ask" into a thrown
-  error (the tool is blocked, no prompt). Errors still fail open (endpoint gone, malformed
-  answer): the gate stays a coordination aid, and a dead Hangar must not stop every shell
-  command.
+  error (the tool is blocked, no prompt). The extensions block a shell command whose question
+  fails (amended 2026-11-15); Claude Code's own HTTP hook fails open on any error, which Hangar
+  cannot change, so the endpoint keeps errors rare: when every slot for unknown clients is
+  taken the oldest is closed for the newcomer once it waited 1 s for its head, instead of
+  turning the newcomer away (a hook sends its head at once, so silent clients cannot keep hooks
+  out and a burst of parallel hooks is never cut; the head limit stays 5 s, as no measurement
+  says how fast the head arrives), and at most 128 threads read heads unless a silent one makes
+  room. A known session holds at most 32 connections (128 in all); one more is not left
+  unanswered but denied unread with "too many tool calls waiting, retry" while the gate is on,
+  since Claude Code hooks every tool and an unanswered hook would let a shell command run
+  unchecked. Only a flood past 128 fresh connections a second can still make a hook fail; that
+  needs code already running as the user.
+  Switching the guard off is read again under the gate's lock right before a card opens, so a
+  command checked just before cannot open a card that nothing releases.
 - **Setting.** On by default, under the gate setting and only effective while the gate is
   (Settings > General); its help text names the agents it works for (Claude Code, Pi, OpenCode).
   Turning it off lets held commands go on, except `hangar-config`.
@@ -193,14 +245,21 @@ Option 2 with reach A.
   overflow there would end the app and every session in it.
 - **Honest limits.** A safety net, not a sandbox. Not recognized: a script file (`bash x.sh`,
   `pwsh -File`), a program in a variable, an alias or function, `xargs`, `find -delete`, a
-  refspec force push (`git push origin +main`), tools other than the rules name. Asked about but
-  not read: scripts from stdin, encoded or too complex commands. Nothing is enforced when the
-  agent's hook fails open.
+  refspec force push (`git push origin +main`), tools other than the rules name, a command
+  started by another language (`python -c "os.system(...)"`, `node -e`). Text put together at
+  run time is not read: PowerShell string arithmetic (`git push ('--for'+'ce')`), splatting
+  (`git @a`), `[scriptblock]::Create($a + $b)` or `& $block`, `Invoke-Command` with a script
+  block held in a variable, `$ExecutionContext` calls with a computed argument, git
+  configuration from the environment (`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`), an `IFS`
+  set to something else than blanks. Brace expansion and default values are an extra reading
+  of the call, so a quoted brace may ask without need. Asked about but not read: scripts from
+  stdin, encoded or too complex commands. Nothing is enforced when Claude Code's hook fails
+  open (the endpoint unreachable or overloaded).
 
 ## Consequences
 - Claude Code team sessions started before this version keep their old matcher until restart.
-- Each `Bash` call of a Claude Code team session makes one local HTTP round trip, also while the
-  guard is off.
+- Each tool call of a Claude Code team session makes one local HTTP round trip (matcher `*`),
+  also while the guard is off; tools that are neither edits nor commands are answered at once.
 - A Hangar older than this version reading `gate-rules.json` skips command rules (unknown scope)
   and drops them on its next save.
 - The default rule descriptions in the file are English, as the file is the user's; the card
@@ -225,7 +284,37 @@ Option 2 with reach A.
   `a_working_folder_hangar_cannot_use_still_asks`,
   `hangars_own_settings_are_asked_about_even_with_the_guard_off`,
   `switching_the_guard_off_lets_a_held_command_go_on`,
-  `the_rules_file_is_written_once_and_read_again_when_it_changes`, `an_edit_with_a_working_folder_hangar_cannot_use_is_still_checked`, `hangars_worktrees_in_its_data_folder_are_not_its_settings`; `command_guard::tests` also `a_huge_brace_expansion_does_not_exhaust_a_small_stack`, `hangars_own_worktrees_are_ordinary_projects`, `redirections_wildcards_and_short_names_reach_the_settings`, `empty_special_parameters_do_not_hide_a_rule`, `powershell_parenthesized_and_wsl_arguments_are_read`; `command_split::tests::shell_options_with_values_do_not_hide_the_script`, `redirection_targets_and_parenthesized_values_are_kept_apart`; `tests/gate_hook.rs`
+  `the_rules_file_is_written_once_and_read_again_when_it_changes`, `an_edit_with_a_working_folder_hangar_cannot_use_is_still_checked`, `hangars_worktrees_in_its_data_folder_are_not_its_settings`; `command_guard::tests` also `a_huge_brace_expansion_does_not_exhaust_a_small_stack`, `hangars_own_worktrees_are_ordinary_projects`, `redirections_wildcards_and_short_names_reach_the_settings`, `empty_special_parameters_do_not_hide_a_rule`, `powershell_parenthesized_and_wsl_arguments_are_read`; `command_split::tests::shell_options_with_values_do_not_hide_the_script`, `redirection_targets_and_parenthesized_values_are_kept_apart`; `command_split::tests::heredoc_body_is_data_and_keeps_quotes_in_sync`,
+  `powershell_here_strings_are_one_word`, `braces_group_only_as_words_of_their_own`,
+  `scripts_read_from_stdin_or_a_process_are_reported`,
+  `pipelines_tell_each_call_where_its_input_comes_from`,
+  `more_wrappers_and_inline_commands_are_unwrapped`,
+  `huge_here_documents_and_here_strings_stay_bounded`; `command_guard::tests`
+  `heredoc_bodies_do_not_hide_the_commands_after_them`,
+  `powershell_here_strings_do_not_hide_the_commands_after_them`,
+  `brace_expansion_counts_in_every_position`, `field_separators_and_default_values_are_read`,
+  `cmd_substrings_and_delayed_variables_are_read_or_asked_about`,
+  `abbreviated_long_options_and_git_overrides_count`,
+  `scripts_from_stdin_and_processes_are_asked_about`,
+  `powershell_deletes_with_colon_values_and_pipelines_are_placed`,
+  `a_cd_that_may_not_apply_keeps_the_old_folder_too`, `sql_on_stdin_is_read_or_asked_about`,
+  `more_wrappers_and_inline_commands_are_looked_through`,
+  `huge_here_documents_and_here_strings_are_checked_quickly`; `gate::tests`
+  `an_edit_path_hangar_cannot_read_is_kept_to_ask_about`,
+  `any_tool_with_a_command_that_is_no_edit_is_a_shell_command`,
+  `every_recipe_edit_matcher_names_known_edit_tools`; `gate_service::tests`
+  `idle_connections_do_not_block_a_new_hook`, `one_session_cannot_take_every_slot`,
+  `a_risky_command_among_a_storm_of_parallel_reads_is_never_waved_through`,
+  `a_hundred_hooks_of_tools_that_change_nothing_are_answered_quickly`; `command_split::tests`
+  `heredoc_inside_a_substitution_keeps_its_quotes_and_parens_to_itself`; `command_guard::tests`
+  `everyday_agent_commands_raise_no_question`; `gate_service::tests`
+  `an_edit_path_hangar_cannot_read_is_asked_about`,
+  `every_tool_reaches_the_endpoint_but_only_edits_and_commands_are_checked`,
+  `a_command_found_before_the_guard_was_switched_off_opens_no_card`,
+  `an_edit_through_a_link_into_hangars_folder_is_asked_about`;
+  `gate_hook::tests::a_path_the_gate_cannot_read_is_asked_about_not_skipped`;
+  `gate_rules::tests::the_largest_id_in_a_file_does_not_overflow`; `tests/gate_hook.rs`
+  `extension_shell_commands_fail_closed_when_the_endpoint_is_unreachable`,
   `claude_bash_hook_holds_a_risky_command_until_the_person_answers`,
   `pi_and_opencode_extensions_send_shell_commands_to_the_guard`,
   `extension_shell_tools_carry_their_dialect_and_working_folder`; Vitest `gate.test.ts` ("held
