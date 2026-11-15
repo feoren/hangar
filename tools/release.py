@@ -510,9 +510,28 @@ def build_input_problems(root, ancestors=None):
     return found
 
 
-def check_build_inputs(root=None, ancestors=None):
-    """Aborts when build_input_problems() finds anything; names the files, never their content."""
+def tracked_build_inputs(paths):
+    """The `paths` Git tracks in this repository. A tracked file is part of the commit and shows up
+    in `git status` when changed, so it is no hidden build input: `.cargo/config.toml` sets the
+    whisper.cpp build flags for every build, the release included."""
+    inside = {}
+    for path in paths:
+        try:
+            inside[Path(path).resolve().relative_to(ROOT).as_posix()] = path
+        except ValueError:
+            continue
+    if not inside:
+        return set()
+    listed = git_run("ls-files", "-z", "--", *inside).stdout
+    return {inside[name] for name in listed.split("\0") if name in inside}
+
+
+def check_build_inputs(root=None, ancestors=None, tracked=None):
+    """Aborts when build_input_problems() finds anything Git does not track (`tracked`, default
+    tracked_build_inputs()); names the files, never their content."""
     found = build_input_problems(ROOT if root is None else root, ancestors)
+    known = tracked_build_inputs(found) if tracked is None else tracked
+    found = [path for path in found if path not in known]
     if found:
         fail(
             "these files would change the build but Git does not check them; move them away or "

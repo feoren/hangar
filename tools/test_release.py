@@ -777,6 +777,34 @@ class BuildInputTest(unittest.TestCase):
         (self.parent / ".npmrc").write_text("", encoding="utf-8")
         self.assertEqual(self.problems(), [])
 
+    def test_a_tracked_cargo_config_passes(self):
+        planted = self.root / ".cargo" / "config.toml"
+        planted.parent.mkdir()
+        planted.write_text("", encoding="utf-8")
+        hidden = self.root / "src-tauri" / ".cargo" / "config.toml"
+        hidden.parent.mkdir()
+        hidden.write_text("", encoding="utf-8")
+        # Tracked: part of the commit, reviewed like any file. Untracked: still aborts.
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.check_build_inputs(self.root, [self.parent, self.folder], tracked={planted})
+        printed = "".join(str(call.args[0]) for call in err.write.call_args_list if call.args)
+        self.assertIn(str(hidden), printed)
+        self.assertNotIn(str(planted), printed)
+        hidden.unlink()
+        release.check_build_inputs(self.root, [self.parent, self.folder], tracked={planted})
+
+    def test_tracked_inputs_come_from_git_ls_files(self):
+        config = release.ROOT / ".cargo" / "config.toml"
+        # Above the repository: git is not asked about it, and it never counts as tracked.
+        outside = release.ROOT.parent / ".cargo" / "config.toml"
+        listed = subprocess.CompletedProcess([], 0, stdout=".cargo/config.toml\0", stderr="")
+        with mock.patch.object(release, "git_run", return_value=listed) as run:
+            self.assertEqual(release.tracked_build_inputs([config, outside]), {config})
+        self.assertEqual(run.call_args.args, ("ls-files", "-z", "--", ".cargo/config.toml"))
+        with mock.patch.object(release, "git_run") as run:
+            self.assertEqual(release.tracked_build_inputs([]), set())
+        run.assert_not_called()
+
     def test_the_folders_above_default_to_every_parent(self):
         planted = self.folder / ".cargo" / "config.toml"
         planted.parent.mkdir()

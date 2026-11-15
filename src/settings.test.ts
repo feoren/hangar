@@ -81,6 +81,7 @@ describe("parseSettings", () => {
       sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
       dailyBudget: 12.5,
+      dictation: { enabled: true, model: "small", language: "de" },
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,

@@ -158,6 +158,20 @@
         "zh": "在“外观”中可自己搭建会话行：拖动各部分排列，为每个部分选择形式，隐藏不需要的。另有 14 种模板可作为起点。"
       },
       {
+        "de": "Diktieren: Halte Strg+Umschalt+Leertaste, sprich und lass los. Die Sprache wird auf deinem Rechner erkannt. Einschalten unter Einstellungen > Diktieren.",
+        "en": "Dictation: hold Ctrl+Shift+Space, speak, let go. Your speech is recognized on your own computer. Turn it on under Settings > Dictation.",
+        "el": "Υπαγόρευση: κράτα Ctrl+Shift+Διάστημα, μίλα και άφησε. Η ομιλία αναγνωρίζεται στον υπολογιστή σου. Ενεργοποίηση στις Ρυθμίσεις > Υπαγόρευση.",
+        "es": "Dictado: mantén Ctrl+Mayús+Espacio, habla y suelta. Tu voz se reconoce en tu propio equipo. Actívalo en Configuración > Dictado.",
+        "fr": "Dictée : maintiens Ctrl+Maj+Espace, parle, relâche. Ta voix est reconnue sur ton propre ordinateur. À activer dans Paramètres > Dictée.",
+        "it": "Dettatura: tieni premuto Ctrl+Maiusc+Spazio, parla e rilascia. La voce viene riconosciuta sul tuo computer. Attivala in Impostazioni > Dettatura.",
+        "ja": "音声入力：Ctrl+Shift+スペースを押したまま話し、離すと入力されます。音声はこのコンピューター上で認識されます。設定 > 音声入力 で有効にできます。",
+        "pl": "Dyktowanie: przytrzymaj Ctrl+Shift+Spacja, mów i puść. Mowa jest rozpoznawana na twoim komputerze. Włącz je w Ustawienia > Dyktowanie.",
+        "pt": "Ditado: segure Ctrl+Shift+Espaço, fale e solte. Sua fala é reconhecida no seu próprio computador. Ative em Configurações > Ditado.",
+        "ru": "Диктовка: удерживай Ctrl+Shift+Пробел, говори и отпусти. Речь распознаётся на твоём компьютере. Включается в Настройки > Диктовка.",
+        "tr": "Dikte: Ctrl+Shift+Boşluk tuşlarını basılı tut, konuş, bırak. Konuşman kendi bilgisayarında tanınır. Ayarlar > Dikte bölümünden aç.",
+        "zh": "语音输入：按住 Ctrl+Shift+空格，说话后松开。语音在你自己的电脑上识别。可在 设置 > 语音输入 中开启。"
+      },
+      {
         "de": "Sicherer: Terminal-Links öffnen nur lokale Ziele, neue Worktrees führen keine Repository-Hooks aus, und das Team-Relay nimmt einfaches ws nur lokal an.",
         "en": "Safer: terminal links open only local targets, new worktrees run no repository hooks, and the team relay accepts plain ws only from this machine.",
         "el": "Πιο ασφαλές: οι σύνδεσμοι τερματικού ανοίγουν μόνο τοπικούς στόχους, τα νέα worktrees δεν τρέχουν hooks και το relay δέχεται απλό ws μόνο τοπικά.",

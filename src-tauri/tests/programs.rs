@@ -122,10 +122,18 @@ fn profile_env_reaches_the_query() {
 /// Only killing the whole tree delivers EOF; the partial output still counts.
 #[test]
 fn time_limit_kills_the_process_tree() {
+    // ping by its full path: cargo prepends every native library folder of the build to PATH
+    // (whisper.cpp adds over a hundred, about 12800 characters measured). With such a PATH
+    // cmd.exe no longer finds a bare `ping` although System32 is listed, and the child would
+    // exit at once instead of hanging.
     #[cfg(windows)]
     let (program, list) = (
         "cmd",
-        ["/d", "/c", "echo 9.8.7 & ping -n 60 127.0.0.1 >nul"],
+        [
+            "/d",
+            "/c",
+            r"echo 9.8.7 & %SystemRoot%\System32\PING.EXE -n 60 127.0.0.1 >nul",
+        ],
     );
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo 9.8.7; sleep 60; echo never"]);

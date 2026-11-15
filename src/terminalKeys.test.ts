@@ -114,4 +114,17 @@ describe("terminal keys", () => {
       kind: "terminal",
     });
   });
+
+  it("keeps Ctrl+Shift+Space from the process only while dictation is on", () => {
+    const chord = { ...key("Space", { ctrl: true, shift: true }), key: " " };
+    expect(terminalKeyAction(chord, false)).toEqual({ kind: "terminal" });
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      expect(terminalKeyAction({ ...chord, type }, false, false, false, true)).toEqual({
+        kind: "app",
+      });
+    }
+    // Ctrl+Space alone stays with the shell (set mark) and the IME.
+    const ctrlSpace = { ...key("Space", { ctrl: true }), key: " " };
+    expect(terminalKeyAction(ctrlSpace, false, false, false, true)).toEqual({ kind: "terminal" });
+  });
 });

@@ -16,6 +16,17 @@ pnpm install
 pnpm tauri dev
 ```
 
+Besides Rust, Node.js and pnpm, the backend needs what the local dictation's speech engine
+(whisper.cpp, built from source) needs: **CMake**, a **C++ compiler** and **libclang** for bindgen.
+
+- Windows: Visual Studio Build Tools (C++ workload, which includes CMake) and LLVM
+  (`winget install LLVM.LLVM`). Put CMake on `PATH` and set `LIBCLANG_PATH` to LLVM's `bin` folder.
+- macOS: the Xcode Command Line Tools and `brew install cmake`.
+- Linux: `cmake`, `clang`, `libclang-dev` and, for the microphone, `libasound2-dev`, next to the
+  [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+`.cargo/config.toml` fixes the CPU baseline of that build (x86-64 with AVX2, no `-march=native`).
+
 The whole check suite must pass before a pull request is merged:
 
 ```sh

@@ -140,6 +140,66 @@ export function ignoresRepeat(action: AppAction): boolean {
   );
 }
 
+/**
+ * Dictation: hold Ctrl+Shift+Space, speak, let go. Space keeps both modifiers free of letters,
+ * and shells and agent CLIs bind no Ctrl+Shift+Space (without Shift, Ctrl+Space is set-mark in
+ * Readline and the IME switch on Windows, so it stays with them). Any event type: keydown,
+ * the browser's keypress and keyup of Space all belong to the app while dictation is on.
+ */
+export function isDictationChord(event: KeyInfo): boolean {
+  return (
+    event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && event.code === "Space"
+  );
+}
+
+/** Releasing any key of the chord ends the hold, so a lost keyup of one never keeps it on. */
+export function endsDictation(event: Pick<KeyboardEvent, "key" | "code">): boolean {
+  return event.code === "Space" || event.key === "Control" || event.key === "Shift";
+}
+
+type HoldKey = KeyInfo & Pick<KeyboardEvent, "repeat">;
+
+/**
+ * Hold semantics for Ctrl+Shift+Space: `onStart` once on the first keydown (repeats ignored),
+ * `onEnd` once on the release of Ctrl, Shift or Space, or on `release` (window blur). The
+ * methods return whether the event belonged to the hold, so the caller can stop its default.
+ */
+export class KeyHold {
+  private held = false;
+
+  constructor(
+    private readonly onStart: () => void,
+    private readonly onEnd: () => void,
+  ) {}
+
+  get active(): boolean {
+    return this.held;
+  }
+
+  keydown(event: HoldKey): boolean {
+    if (!isDictationChord(event)) return false;
+    if (!this.held && !event.repeat) {
+      this.held = true;
+      this.onStart();
+    }
+    return true;
+  }
+
+  keyup(event: Pick<KeyboardEvent, "key" | "code">): boolean {
+    if (!this.held || !endsDictation(event)) return false;
+    this.held = false;
+    this.onEnd();
+    return true;
+  }
+
+  /** The window lost the focus: its keyup would never arrive. */
+  release(): void {
+    if (!this.held) return;
+    this.held = false;
+    this.onEnd();
+  }
+}
+
 export type Modifier = "ctrl" | "shift";
 
 export interface Shortcut {
@@ -168,10 +228,14 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   launcher: { mods: ["ctrl", "shift"], key: "P" },
 };
 
+/** Held, not pressed: shown as "Hold Ctrl+Shift+Space". */
+export const DICTATION_SHORTCUT: Shortcut = { mods: ["ctrl", "shift"], key: "Space" };
+
 /** Keys of the shortcut in display order, modifiers in the UI language. */
 export function shortcutKeys(shortcut: Shortcut, t: Translate): string[] {
   const names: Record<Modifier, string> = { ctrl: t("key.ctrl"), shift: t("key.shift") };
-  return [...shortcut.mods.map((mod) => names[mod]), shortcut.key];
+  const key = shortcut.key === "Space" ? t("key.space") : shortcut.key;
+  return [...shortcut.mods.map((mod) => names[mod]), key];
 }
 
 export function formatShortcut(shortcut: Shortcut, t: Translate): string {

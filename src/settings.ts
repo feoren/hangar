@@ -8,6 +8,7 @@
 // neither read from nor written to localStorage here.
 
 import { parseBudget } from "./costs";
+import { DEFAULT_DICTATION, parseDictationPrefs, type DictationPrefs } from "./dictation";
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
@@ -203,6 +204,13 @@ export interface Settings {
    * budget.
    */
   dailyBudget: number | null;
+  /**
+   * Hold a key to dictate into the session (dictation.ts); off by default. Kept in localStorage,
+   * not with the protected settings: another window that rewrote it could only claim the key. The
+   * microphone opens only while the user holds it in the main window, and a model is downloaded
+   * only through the main window's consent box (main-window commands).
+   */
+  dictation: DictationPrefs;
 }
 
 type Flag =
@@ -267,6 +275,7 @@ export function defaultSettings(language: Language): Settings {
     sessionGrouping: "program",
     snippets: defaultSnippets(language),
     dailyBudget: null,
+    dictation: DEFAULT_DICTATION,
   };
 }
 
@@ -372,6 +381,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     snippets: defaultSnippets(chosenLanguage),
     // Never from localStorage either: the backend keeps it with the notices (mainStore.ts).
     dailyBudget: defaults.dailyBudget,
+    dictation: parseDictationPrefs(get("dictation")),
   };
 }
 

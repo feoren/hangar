@@ -169,6 +169,12 @@ fn commands_are_registered_allowed_and_wired() {
         "set_panel_session",
         "take_update_results",
         "claims_snapshot",
+        // Dictation opens the microphone and downloads models: main window only.
+        "dictation_status",
+        "dictation_start",
+        "dictation_stop",
+        "dictation_install_model",
+        "dictation_remove_model",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));

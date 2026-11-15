@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-10
+updated: 2026-11-15
 ---
 
 # Overview
@@ -54,3 +54,9 @@ the keychain and in a code slot under the notes recovery code, conflicts resolve
 versions ([[0006-encrypted-project-notes]], [[notes]]). The `.gitattributes` behaviour is measured
 on Windows ([[note-gitattributes-measurement]]). Open: the same measurement on macOS and Linux,
 team mode (phase 2), and the external crypto review covering the notes formats.
+
+## Local dictation
+Built on whisper.cpp through whisper-rs with cpal capture ([[local-dictation]]); speed and accuracy
+measured on Windows ([[dictation-measurement]]). Open: the live microphone path on all three
+platforms, the macOS audio-input entitlement under hardened runtime, Ctrl+Shift+Space with Asian
+IMEs.

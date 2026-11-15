@@ -25,6 +25,7 @@ import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { RowLayoutField } from "./RowLayoutSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
+import { DictationSettings } from "./DictationSettings";
 import { SnippetsSettings } from "./SnippetsSettings";
 import { instructionsUnavailable } from "./startOptions";
 import {
@@ -299,6 +300,8 @@ function SectionContent(props: Props & { section: SettingsSection }) {
           }}
         />
       );
+    case "dictation":
+      return <DictationSettings settings={props.settings} onChange={props.onChange} />;
     case "account":
       return <AccountSettings />;
     case "updates":

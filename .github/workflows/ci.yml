@@ -41,13 +41,36 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      # Per the Tauri prerequisites for Linux: WebKitGTK 4.1 and companion libraries.
+      # Per the Tauri prerequisites for Linux: WebKitGTK 4.1 and companion libraries. The local
+      # dictation builds whisper.cpp from source (CMake, libclang for bindgen) and captures the
+      # microphone through ALSA.
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            cmake clang libclang-dev libasound2-dev
+
+      # whisper.cpp on Windows: CMake and the MSVC compiler come with the runner image; bindgen
+      # needs libclang, which LLVM provides (installed only when the image lacks it).
+      - name: Windows whisper.cpp tools
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if [ ! -f "/c/Program Files/LLVM/bin/libclang.dll" ]; then
+            choco install llvm --no-progress -y
+          fi
+          echo 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
+          cmake --version
+
+      # whisper.cpp on macOS: Apple's clang and libclang come with Xcode; CMake from Homebrew if
+      # the runner image lacks it.
+      - name: macOS whisper.cpp tools
+        if: runner.os == 'macOS'
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          cmake --version
 
       - run: pnpm install --frozen-lockfile
 

@@ -417,6 +417,36 @@
           "markdownDescription": "Enables the detect_versions command without any pre-configured scope."
         },
         {
+          "description": "Enables the dictation_install_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-install-model",
+          "markdownDescription": "Enables the dictation_install_model command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictation_remove_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-remove-model",
+          "markdownDescription": "Enables the dictation_remove_model command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictation_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-start",
+          "markdownDescription": "Enables the dictation_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-status",
+          "markdownDescription": "Enables the dictation_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictation_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-stop",
+          "markdownDescription": "Enables the dictation_stop command without any pre-configured scope."
+        },
+        {
           "description": "Enables the export_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-export-note",
@@ -1345,6 +1375,36 @@
           "type": "string",
           "const": "deny-detect-versions",
           "markdownDescription": "Denies the detect_versions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_install_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-install-model",
+          "markdownDescription": "Denies the dictation_install_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_remove_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-remove-model",
+          "markdownDescription": "Denies the dictation_remove_model command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-start",
+          "markdownDescription": "Denies the dictation_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-status",
+          "markdownDescription": "Denies the dictation_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-stop",
+          "markdownDescription": "Denies the dictation_stop command without any pre-configured scope."
         },
         {
           "description": "Denies the export_note command without any pre-configured scope.",

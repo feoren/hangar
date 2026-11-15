@@ -92,6 +92,7 @@ describe("quick access beyond sessions", () => {
       "settings:attention",
       "settings:programs",
       "settings:snippets",
+      "settings:dictation",
       "settings:account",
       "settings:updates",
     ]);

@@ -310,7 +310,10 @@ import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
-import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
+import { SessionTerminal, setDictationKeyActive, setFocusCycleActive, terminals } from "./terminal";
+import { busySession, pasteForm } from "./dictation";
+import { DictationIndicator, type IndicatorMode } from "./DictationIndicator";
+import { useDictationKey, useDictationStatus, type DictationProblem } from "./useDictation";
 import { openLink } from "./terminalLinkOpen";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { osc8DecisionOf } from "./termSafety";
@@ -1676,6 +1679,48 @@ export function App() {
     setSettingsSection(section);
     setDialog("settings");
   }, []);
+
+  // Dictation: hold Ctrl+Shift+Space in a session, speak, let go; the text goes into the session
+  // that was active on key down, through the same paste path as dropped files (no Enter).
+  const dictationStatus = useDictationStatus(settings.dictation.model);
+  const [dictationProblem, setDictationProblem] = useState<{
+    session: number;
+    problem: DictationProblem;
+  } | null>(null);
+  useEffect(() => {
+    setDictationKeyActive(settings.dictation.enabled);
+  }, [settings.dictation.enabled]);
+  useEffect(() => {
+    if (dictationProblem === null) return;
+    const timer = window.setTimeout(() => {
+      setDictationProblem(null);
+    }, 4000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [dictationProblem]);
+  useDictationKey({
+    prefs: settings.dictation,
+    status: dictationStatus,
+    target: () => activeIdRef.current,
+    blocked: () => modalRef.current,
+    onSetup: () => {
+      openSettings("dictation");
+    },
+    onText: ({ session, text }) => {
+      terminals.get(session)?.pasteText(pasteForm(text));
+    },
+    onProblem: (problem, session) => {
+      setDictationProblem({ problem, session });
+    },
+  });
+  const dictationSession = busySession(dictationStatus.state);
+  const dictationMode = (id: number): IndicatorMode | null => {
+    if (dictationSession === id) {
+      return dictationStatus.state.kind === "recording" ? "recording" : "transcribing";
+    }
+    return dictationProblem?.session === id ? dictationProblem.problem : null;
+  };
 
   /** After a mouse click on a button: focus back to the terminal, even if the button has it. */
   const focusTerminal = useCallback(() => {
@@ -5637,6 +5682,7 @@ export function App() {
                           ...paneLook(session)(),
                         }
                       : null;
+                const dictation = dictationMode(session.id);
                 return (
                   <TerminalPane
                     key={session.id}
@@ -5660,6 +5706,7 @@ export function App() {
                     {shownDecision?.sessionId !== session.id && (
                       <GateRuleNote entry={ruleNotes.get(session.id)} />
                     )}
+                    {dictation !== null && <DictationIndicator mode={dictation} />}
                     {searchTerminal === terminal && search !== null && (
                       <SearchBar
                         key={search.sessionId}

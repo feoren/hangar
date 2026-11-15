@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by the Tauri bundler into the macOS app's Info.plist. Without the usage text macOS
+     ends the app the moment the local dictation opens the microphone. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Hangar listens only while you hold the dictation key and recognizes your speech on this Mac.</string>
+</dict>
+</plist>

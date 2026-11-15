@@ -1,0 +1,10 @@
+# Build settings for whisper.cpp (local dictation, src-tauri/src/dictation). whisper-rs-sys passes
+# every GGML_*, WHISPER_* and CMAKE_* environment variable to CMake as a define. Values already set
+# in the environment win, so a build can still override them.
+[env]
+# A shipped binary must run on any x86-64 CPU from about 2013 on, not only on the build machine:
+# no -march=native, AVX2 (with FMA, F16C, BMI2) as the baseline. Ignored on arm64.
+GGML_NATIVE = "OFF"
+GGML_AVX2 = "ON"
+# Keeps MSVC's optimization flags, which the cmake crate drops (see the included file).
+CMAKE_PROJECT_INCLUDE = { value = ".cargo/whisper-release-flags.cmake", relative = true }

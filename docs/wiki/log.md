@@ -933,3 +933,15 @@ Pages changed: [[costs-and-handover]].
 ## [2026-11-15] update | Agent arena on the hardened worktree code
 After merging the security rounds the arena follows the worktree rules of main: worktrees are added with `--no-checkout` and checked out inside, discarding names no `core.hooksPath` of its own and takes a hand-deleted folder's record with `worktree remove` instead of `worktree prune`, `arena_create` refuses share and device paths and marks its worktrees as pending for the cleanup, and arena sessions get no upstream check. Taking over now requires the project folder to be the top of the repository that lists the contestant's worktree.
 Pages changed: [[agent-arena]].
+
+## [2026-11-15] ingest | Dictation measurement
+Filed the whisper-rs build and speed measurement of 2026-11-12/13 as a source page: libclang and CMake requirements, the cmake crate dropping MSVC optimization flags and the `CMAKE_PROJECT_INCLUDE` fix, the AVX2 baseline, speed, RAM and hand-scored word errors of base and small q5_1.
+Pages changed: [[dictation-measurement]] (new), [[local-dictation-research]] (index line), index.
+
+## [2026-11-15] update | Local dictation as built
+Hold Ctrl+Shift+Space to dictate into the session active on key down. Documented the states, commands and events, the model download (pinned revision, size, SHA-256, `.part` then rename, Hugging Face hosts only), the audio path and privacy rules, the key handling, the build and CI needs (CMake, C++ compiler, libclang, ALSA headers on Linux) and the platform notes (`NSMicrophoneUsageDescription`, entitlement and IME behavior unverified).
+Pages changed: [[local-dictation]] (new), [[overview]], index.
+
+## [2026-11-15] update | Dictation acceptance fixes
+A quick tap no longer reads as a blocked microphone (no buffer yet is judged only after 500 ms), each transcript ends with one space so consecutive holds form a sentence, and the page records why the dictation choices stay in localStorage. `release.py` no longer refuses the tracked `.cargo/config.toml` as a hidden build input.
+Pages changed: [[local-dictation]], [[release-rollout]].

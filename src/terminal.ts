@@ -1006,6 +1006,7 @@ export class SessionTerminal {
       this.term.hasSelection(),
       focusCycleActive,
       this.shellKind() === "agent",
+      dictationKeyActive,
     );
     switch (action.kind) {
       case "app":
@@ -1044,6 +1045,13 @@ let focusCycleActive = false;
 
 export function setFocusCycleActive(active: boolean): void {
   focusCycleActive = active;
+}
+
+/** Dictation is on (App): Ctrl+Shift+Space belongs to the app, not to the program. */
+let dictationKeyActive = false;
+
+export function setDictationKeyActive(active: boolean): void {
+  dictationKeyActive = active;
 }
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */

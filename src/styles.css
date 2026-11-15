@@ -12093,3 +12093,122 @@ body.session-dragging .session-actions {
   margin-top: 12px;
   font-size: 12.5px;
 }
+
+/* Dictation: a calm pill at the top of the pane the text goes to. The red dot says the
+   microphone is open; the bar shows that Hangar hears something. */
+.dictation-indicator {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  z-index: 21;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 48px);
+  padding: 4px 12px 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px var(--shadow);
+}
+
+.dictation-indicator.problem {
+  color: var(--error);
+}
+
+.dictation-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: var(--error);
+  border-radius: 50%;
+  animation: dictation-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dictation-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.dictation-level {
+  width: 48px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.dictation-level > span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transform-origin: left center;
+  transition: transform 90ms linear;
+}
+
+.dictation-spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: dictation-spin 0.8s linear infinite;
+}
+
+@keyframes dictation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dictation-dot,
+  .dictation-spinner {
+    animation: none;
+  }
+
+  .dictation-level > span {
+    transition: none;
+  }
+}
+
+.dictation-model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.dictation-model {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dictation-model[data-selected="true"] {
+  border-color: var(--accent);
+}
+
+.dictation-model label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dictation-model-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dictation-progress {
+  width: 120px;
+}

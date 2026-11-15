@@ -261,3 +261,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Arena (Agenten-Arena)                           | agent arena, arena                | one task for 2 to 4 agents in worktrees from one commit; `arena.rs`, `arena.ts`     |
 | Teilnehmer (Arena)                              | contestant                        | one agent of an arena with its session and worktree; `Contestant`                   |
 | Übernehmen (Arena)                              | take over                         | the winner's changes into the project folder, uncommitted; `arena_apply`            |
+| Diktieren                                       | dictation                         | hold a key, speak, the text lands in the prompt; `src-tauri/src/dictation/`         |
+| Diktiertaste (gehalten)                         | dictation key                     | Ctrl+Shift+Space, held, not pressed; `KeyHold`, `DICTATION_SHORTCUT`                |
+| Sprachmodell                                    | speech model                      | a whisper model file, downloaded after consent; `model.rs`                          |
+| Aufnahmeanzeige                                 | recording indicator               | the pill on the pane while the microphone is open; `DictationIndicator.tsx`         |
+| Energieschwelle                                 | energy gate                       | drops silence before recognition; `has_speech`                                      |
+| Erkannter Text (Diktieren)                      | transcript (dictation)            | inside `dictation/` only; never stored, `clean_transcript`, `DictationText`         |

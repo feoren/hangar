@@ -48,7 +48,9 @@ collects its items under that same version without a date. `src/versionSync.test
      `src-tauri/tauri.<anything>.conf.json`, `Tauri.toml`, `tauri.conf.json5` and their platform
      forms next to `tauri.conf.json`; `.cargo/config`, `.cargo/config.toml`, `rust-toolchain` and
      `rust-toolchain.toml` in `src-tauri`, the repository and every folder above it up to the drive
-     root; `.npmrc` in the repository. Cargo's own `%USERPROFILE%\.cargo\config.toml` is not
+     root; `.npmrc` in the repository. A file Git tracks counts as reviewed and passes
+     (`tracked_build_inputs`, `git ls-files`): the repository's own `.cargo/config.toml` sets the
+     whisper.cpp build flags of the local dictation ([[local-dictation]]). Cargo's own `%USERPROFILE%\.cargo\config.toml` is not
      checked (see "Release from a fresh clone")
    - refuses to run while `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is set in the environment (every
      program started from that shell could read it); the password is asked for at the console

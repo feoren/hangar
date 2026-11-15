@@ -119,6 +119,16 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 # MIT/Apache-2.0. Adds notify, notify-types and on Linux inotify, on macOS objc2-core-services;
 # walkdir, crossbeam and the rest are already in the tree.
 notify = "8.2"
+# Local dictation (dictation/): speech to text on this machine, nothing leaves it. whisper.cpp
+# (MIT, ggml-org) through its Rust binding (Unlicense; the GitHub repo is archived, development
+# continues on Codeberg, hence the exact pin). Alternatives: Vosk (weaker in German, no
+# punctuation), the OS dictation services (cloud on Windows, none on Linux). Builds whisper.cpp
+# from source: needs CMake, a C++ compiler and libclang (bindgen); see CONTRIBUTING.md and
+# .cargo/config.toml for the CPU baseline. Adds about 1.2 MB to the binary (measured).
+whisper-rs = "=0.16.0"
+# Microphone capture for dictation on all three platforms (WASAPI, CoreAudio, ALSA). The de facto
+# standard audio I/O crate, RustAudio org, Apache-2.0. Linux builds need the ALSA headers.
+cpal = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

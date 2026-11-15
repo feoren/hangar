@@ -157,6 +157,11 @@ const COMMANDS: &[&str] = &[
     "save_templates",
     "set_panel_session",
     "take_update_results",
+    "dictation_status",
+    "dictation_start",
+    "dictation_stop",
+    "dictation_install_model",
+    "dictation_remove_model",
 ];
 
 fn main() {
