@@ -1062,3 +1062,7 @@ Pages changed: [[sub-agent-library]], [[crew-column]].
 The plinth became a low round pedestal and shows the sub-agent's name instead of the state word;
 the state shows by color alone on screen and stays as a word in the tooltip and accessible name.
 Pages changed: [[crew-column]].
+
+## [2026-11-16] update | Show the crew again from the session menu
+A hidden crew could only come back through Settings. The session menu and quick access now
+offer "Show crew" and "Hide crew" for sessions with sub-agents. Pages changed: [[crew-column]].

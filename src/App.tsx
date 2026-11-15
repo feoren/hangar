@@ -5227,6 +5227,9 @@ export function App() {
       case "subAgents":
         toggleSubAgents(id);
         break;
+      case "crew":
+        updateSettings({ crewColumn: !settings.crewColumn });
+        break;
       case "restart":
         void restart(id);
         break;
@@ -5253,6 +5256,7 @@ export function App() {
             handoverTargets(startable, menuSession.profileId).length > 0,
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
+          crewShown: settings.crewColumn,
         }).map((entry): PopupItem => {
           if (entry.type === "separator") return entry;
           const action = entry.key;
@@ -5440,6 +5444,15 @@ export function App() {
               shown: subAgentsOf === activeSession.id,
               toggle: () => {
                 toggleSubAgents(activeSession.id);
+              },
+            }
+          : null,
+      crew:
+        activeSession?.subAgents === true
+          ? {
+              shown: settings.crewColumn,
+              toggle: () => {
+                updateSettings({ crewColumn: !settings.crewColumn });
               },
             }
           : null,

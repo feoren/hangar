@@ -407,6 +407,21 @@ describe("buildLauncherItems", () => {
     expect(hide?.label).toBe(createTranslator("en")("session.hideSubAgents"));
   });
 
+  it("shows or hides the crew of the active session only where it has sub-agents", () => {
+    expect(buildLauncherItems(context()).some((item) => item.key === "crew")).toBe(false);
+    const toggle = vi.fn();
+    const show = buildLauncherItems(context({ crew: { shown: false, toggle } })).find(
+      (item) => item.key === "crew",
+    );
+    expect(show?.label).toBe(createTranslator("en")("crew.show"));
+    show?.run();
+    expect(toggle).toHaveBeenCalledOnce();
+    const hide = buildLauncherItems(context({ crew: { shown: true, toggle } })).find(
+      (item) => item.key === "crew",
+    );
+    expect(hide?.label).toBe(createTranslator("en")("crew.hide"));
+  });
+
   it("offers the queued message for the active session only where the menu would", () => {
     const keys = (queue: Parameters<typeof context>[0]) =>
       buildLauncherItems(context(queue)).filter((item) => item.key === "queue");

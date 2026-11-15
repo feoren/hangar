@@ -153,6 +153,8 @@ export interface LauncherContext {
    * `shown` makes the entry hide the view.
    */
   subAgents: { shown: boolean; toggle: () => void } | null;
+  /** The crew column of the active session (only with sub-agents): show or hide it. */
+  crew?: { shown: boolean; toggle: () => void } | null;
   /**
    * The active session's queued message (sessionMenu.ts queueOffer): `offer` queues one, `queued`
    * edits it; `null` hides the entry (no working agent session, or attention off).
@@ -339,6 +341,16 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       keywords: "agents subagents task",
       primary: true,
       run: subAgents.toggle,
+    });
+  }
+  const crew = ctx.crew ?? null;
+  if (crew !== null) {
+    items.push({
+      key: "crew",
+      section: "commands",
+      label: crew.shown ? t("crew.hide") : t("crew.show"),
+      keywords: "crew column figures sub-agents subagents",
+      run: crew.toggle,
     });
   }
   const queue = ctx.queue;

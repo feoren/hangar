@@ -27,8 +27,10 @@ the backend changes.
 - **Fallback, crew strip:** a pane narrower than `CREW_COLUMN_MIN_PANE` (560 px) gets a strip
   between header and terminal instead: one chip per sub-agent with the face, a one-line text and a
   colored bottom edge. Chips wrap, no horizontal scrollbar.
-- **Switch:** "Hide crew" on the column or strip itself, and "Show sub-agents next to the terminal"
-  in Settings (`crewColumn`, default on). Off means no column and no watch for it.
+- **Switch:** "Hide crew" on the column or strip itself; "Show crew" / "Hide crew" in the session
+  menu (below the sub-agents entry) and in quick access for a session that has sub-agents; and
+  "Show sub-agents next to the terminal" in Settings (`crewColumn`, default on, one setting for
+  all three). Off means no column and no watch for it.
 - **Split view:** the watch is one per window, so only the active pane shows its crew.
 - **Many sub-agents:** at most `MAX_CREW` (6) figures; ranking waiting, working, quiet, done, then
   newer first; the rest is a "+N more" line. Order on screen stays the start order.

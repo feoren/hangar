@@ -74,6 +74,26 @@ describe("sessionMenuEntries", () => {
     expect(keys(false, true)).toContain("subAgents");
   });
 
+  it("shows or hides the crew beside the sub-agents, only for sessions that have them", () => {
+    const crew = (subAgents: boolean, crewShown: boolean | undefined) =>
+      sessionMenuEntries({ status: "running", subAgents }, t, false, {
+        queue: null,
+        stall: null,
+        ...(crewShown === undefined ? {} : { crewShown }),
+      }).find((entry) => entry.key === "crew");
+    const label = (entry: ReturnType<typeof crew>) => (entry?.type === "action" ? entry.label : "");
+    expect(label(crew(true, false))).toBe(t("crew.show"));
+    expect(label(crew(true, true))).toBe(t("crew.hide"));
+    expect(crew(false, false)).toBeUndefined();
+    expect(crew(true, undefined)).toBeUndefined();
+    const keys = sessionMenuEntries({ status: "running", subAgents: true }, t, false, {
+      queue: null,
+      stall: null,
+      crewShown: false,
+    }).map((entry) => entry.key);
+    expect(keys.indexOf("crew")).toBe(keys.indexOf("subAgents") + 1);
+  });
+
   it("offers the handover only where the caller allows it, after the marker", () => {
     const keys = (handover: boolean) =>
       sessionMenuEntries({ status: "running" }, t, false, {

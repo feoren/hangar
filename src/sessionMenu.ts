@@ -14,6 +14,7 @@ export type SessionAction =
   | "commands"
   | "report"
   | "subAgents"
+  | "crew"
   | "queue"
   | "discardQueue"
   | "peek"
@@ -65,6 +66,11 @@ export interface SessionMenuExtras {
   commands?: boolean;
   /** An agent session another installed agent can take over (handover.ts canHandOver). */
   handover?: boolean;
+  /**
+   * Whether the crew column beside the terminal is on (crew.ts); offered only for sessions that
+   * have sub-agents, so it can be hidden and shown again where it is seen.
+   */
+  crewShown?: boolean;
 }
 
 const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
@@ -92,6 +98,15 @@ export function sessionMenuEntries(
             key: "subAgents",
             label: subAgentsShown ? t("session.hideSubAgents") : t("session.showSubAgents"),
           },
+          ...(session.subAgents === true && extras.crewShown !== undefined
+            ? [
+                {
+                  type: "action",
+                  key: "crew",
+                  label: extras.crewShown ? t("crew.hide") : t("crew.show"),
+                } as const,
+              ]
+            : []),
         ]
       : [];
   const stall: SessionMenuEntry[] = [];
