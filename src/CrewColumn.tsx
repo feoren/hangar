@@ -27,6 +27,8 @@ interface Props {
   form: CrewForm;
   sessionId: number;
   sessionTitle: string;
+  /** The session's folder: which definitions, and so which figures, its sub-agents have. */
+  cwd: string | null;
   /** The watch to read (useSubAgentWatch). */
   watchKey: string | null;
   /** Sub-agents the user removed from the sidebar's tree. */
@@ -53,6 +55,7 @@ function CrewBody({
   form,
   sessionId,
   sessionTitle,
+  cwd,
   agents,
   sessionWaits,
   waitingSince = null,
@@ -81,6 +84,7 @@ function CrewBody({
             key={entry.agent.id}
             entry={entry}
             form={form}
+            cwd={cwd}
             text={texts.get(entry.agent.id) ?? wanted.get(entry.agent.id)?.text ?? ""}
             picked={entry.agent.id === picked}
             onShow={(byKeyboard) => {
@@ -120,19 +124,21 @@ function CrewBody({
 function CrewItem({
   entry,
   form,
+  cwd,
   text,
   picked,
   onShow,
 }: {
   entry: CrewEntry;
   form: CrewForm;
+  cwd: string | null;
   text: string;
   picked: boolean;
   onShow: (byKeyboard: boolean) => void;
 }) {
   const t = useT();
   const { agent, state } = entry;
-  const figure = useCrewFigure(agent.agentType);
+  const figure = useCrewFigure(agent.agentType, cwd);
   const name = agentName(agent, t);
   const stateLabel = t(STATE_LABELS[state]);
   return (

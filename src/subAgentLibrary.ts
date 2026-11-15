@@ -314,6 +314,28 @@ export function sessionFigure(
   };
 }
 
+/**
+ * The figure of a running sub-agent of type `name` in a session started in `cwd`: the definition
+ * Claude Code takes in that folder (`defsFor`), so a project that overrides the name elsewhere
+ * leaves this session's figure alone. Without a folder, any project override keeps the chosen
+ * figure off, as a repository's agent must never wear the trusted one. `null` when no definition
+ * of that name is listed.
+ */
+export function runningFigure(
+  library: Library,
+  chosen: ReadonlyMap<string, FigureView>,
+  name: string,
+  cwd: string | null,
+): Figure | null {
+  if (cwd === null) {
+    const defs = library.defs.filter((entry) => entry.name === name);
+    const def = defs.find((entry) => overridesGlobal(library, entry)) ?? defs[0];
+    return def === undefined ? null : defFigure(def, library, chosen);
+  }
+  const def = defsFor(library, cwd).find((entry) => entry.name === name);
+  return def === undefined ? null : defFigure(def, library, chosen);
+}
+
 /** The first line of a description, for a menu entry. */
 export function firstLine(text: string): string {
   return text.split(/\r?\n/)[0]?.trim() ?? "";

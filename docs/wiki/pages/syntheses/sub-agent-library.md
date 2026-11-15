@@ -92,8 +92,10 @@ A repository brings its own definitions. Wherever one is offered (menu, quick ac
 the session's tooltip) it says "from project <folder>", and "replaces the global one" when a
 global definition has its name. Figures belong to names and so to the global definitions: a
 project definition that overrides a global one never wears that figure but its initial on a
-neutral grey (`defFigure`), so a repository cannot pass its agent off as the trusted one. In
-the sub-agent tree, which knows no folder, any such override keeps the global figure off.
+neutral grey (`defFigure`), so a repository cannot pass its agent off as the trusted one. The
+sub-agent tree and the crew column judge this per session folder (`runningFigure` with the
+session's `cwd`): an override in one project leaves the figures in every other project alone.
+Only without a folder does any override keep the global figure off.
 
 ### Fields beyond the prompt
 

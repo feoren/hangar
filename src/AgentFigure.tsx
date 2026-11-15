@@ -7,7 +7,7 @@
 import type { CSSProperties } from "react";
 
 import { useSubAgentLibrary } from "./subAgentLibraryStore";
-import { defFigure, figureFor, overridesGlobal, type Figure } from "./subAgentLibrary";
+import { figureFor, runningFigure, type Figure } from "./subAgentLibrary";
 
 const FILES = import.meta.glob<string>("./assets/sub-agents/*.webp", {
   eager: true,
@@ -77,25 +77,21 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
 }
 
 /**
- * The figure of a known sub-agent definition by name (`agentType` of a running sub-agent), `null`
- * when no definition of that name is listed.
+ * The figure of a known sub-agent definition by name (`agentType` of a running sub-agent) in a
+ * session started in `cwd` (`runningFigure`), `null` when no definition of that name is listed.
  */
-export function useKnownFigure(name: string | null): Figure | null {
+export function useKnownFigure(name: string | null, cwd: string | null): Figure | null {
   const { library, figures } = useSubAgentLibrary();
   if (name === null) return null;
-  const defs = library.defs.filter((entry) => entry.name === name);
-  // The tree knows no folder: a project file that overrides the global definition anywhere
-  // keeps the global figure off, so a repository's agent never wears the trusted one.
-  const def = defs.find((entry) => overridesGlobal(library, entry)) ?? defs[0];
-  return def === undefined ? null : defFigure(def, library, figures);
+  return runningFigure(library, figures, name, cwd);
 }
 
 /**
  * The figure of a running sub-agent of type `name` for the crew: a known definition's figure like
  * `useKnownFigure`, else the figure the name alone points to (a built-in type such as `Explore`).
  */
-export function useCrewFigure(name: string | null): Figure {
-  const known = useKnownFigure(name);
+export function useCrewFigure(name: string | null, cwd: string | null): Figure {
+  const known = useKnownFigure(name, cwd);
   const { figures } = useSubAgentLibrary();
   return known ?? figureFor(name ?? "agent", null, figures);
 }

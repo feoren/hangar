@@ -980,6 +980,7 @@ export function Sidebar(props: Props) {
                     <SubAgentTree
                       sessionId={session.id}
                       sessionTitle={session.title}
+                      cwd={session.cwd}
                       watchKey={tree.watchKey}
                       picked={props.subAgentsOpen === session.id ? props.subAgentPick : null}
                       hidden={tree.hidden}

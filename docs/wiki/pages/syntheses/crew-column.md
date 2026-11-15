@@ -89,8 +89,9 @@ session has sub-agents.
 
 ## Figures
 
-Whole figure (88 px high, 59 px wide, [[sub-agent-library]] "Whole figure and head") of the sub-agent type (`agentType`) through `defFigure` like the tree: a project
-definition that overrides a global one gets the neutral figure. Unknown types get a role figure
+Whole figure (88 px high, 59 px wide, [[sub-agent-library]] "Whole figure and head") of the sub-agent type (`agentType`) through `runningFigure` with the session's folder, like the
+tree: a project definition that overrides a global one gets the neutral figure, but only in
+sessions started in that project. Unknown types get a role figure
 from the name or the initial. No animation anywhere: the old breathing and bobbing of figure
 heads (`figure-breathe`, `figure-bob`, `busy`) is removed in the tree, the pane header and the
 session look as well.

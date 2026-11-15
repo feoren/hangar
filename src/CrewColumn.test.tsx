@@ -70,6 +70,7 @@ function mount(
           form={form}
           sessionId={7}
           sessionTitle="Main session"
+          cwd={null}
           watchKey="7:cli"
           hidden={new Set()}
           sessionWaits={false}

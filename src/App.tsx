@@ -5803,6 +5803,7 @@ export function App() {
                         ? {
                             sessionId: session.id,
                             sessionTitle: session.title,
+                            cwd: session.cwd,
                             watchKey: subAgentKey,
                             hidden: subAgentHidden,
                             sessionWaits: waitsForDecision(

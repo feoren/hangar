@@ -33,6 +33,7 @@ function item(status: SubAgentStatus, language: "de" | "en" = "de"): string {
   return render(
     <SubAgentItem
       agent={agent(status)}
+      cwd={null}
       now={60_000}
       picked={false}
       onShow={() => undefined}

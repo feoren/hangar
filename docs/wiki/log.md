@@ -1051,3 +1051,9 @@ Pages changed: [[prompt-mouse-editing]], [[claude-prompt-wrap-measurement]].
 Specified the crew column (sub-agents as still figures with speech bubbles beside the terminal, plinth
 color per state, strip fallback, throttle, shared watch store, privacy). Removed the head motion of
 figures from the plan. Pages changed: [[crew-column]], index.
+
+## [2026-11-16] update | Sub-agent figures judged per session folder
+The crew column and the sub-agent tree showed the neutral initial for every session as soon as
+any project overrode a global definition of that name (Hangar's own `.claude/agents` did). They
+now pass the session's folder to `runningFigure`, which follows `defsFor` like the session rows.
+Pages changed: [[sub-agent-library]], [[crew-column]].

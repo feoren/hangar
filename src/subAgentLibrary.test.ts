@@ -12,6 +12,7 @@ import {
   firstLine,
   NEUTRAL_FIGURE_COLOR,
   overridesGlobal,
+  runningFigure,
   sessionFigure,
   figureErrorCode,
   figureFor,
@@ -236,5 +237,45 @@ describe("figure errors", () => {
     expect(figureErrorCode("[too_many] Too many figures: at most 256")).toBeNull();
     expect(figureErrorCode("The clipboard holds no image")).toBeNull();
     expect(figureErrorCode({ kind: "io" })).toBeNull();
+  });
+});
+
+describe("runningFigure", () => {
+  const OTHER = "E:\\work\\website";
+  const library: Library = {
+    defs: [
+      def("backend", { scope: "project", folder: PROJECT, file: "backend.md" }),
+      def("backend"),
+    ],
+    problems: [],
+  };
+  const chosen = new Map([["backend", { kind: "builtin" as const, id: "backend-01" }]]);
+
+  it("wears the chosen figure in a project that does not override the name", () => {
+    // Regression: a project override elsewhere turned every session's figure neutral.
+    expect(runningFigure(library, chosen, "backend", OTHER)).toEqual({
+      kind: "builtin",
+      id: "backend-01",
+    });
+  });
+
+  it("stays neutral in the project that overrides the name", () => {
+    expect(runningFigure(library, chosen, "backend", PROJECT)).toEqual({
+      kind: "initial",
+      letter: "B",
+      color: NEUTRAL_FIGURE_COLOR,
+    });
+  });
+
+  it("stays neutral without a folder while any project overrides the name", () => {
+    expect(runningFigure(library, chosen, "backend", null)).toEqual({
+      kind: "initial",
+      letter: "B",
+      color: NEUTRAL_FIGURE_COLOR,
+    });
+  });
+
+  it("is null for a name no definition has", () => {
+    expect(runningFigure(library, chosen, "Explore", OTHER)).toBeNull();
   });
 });

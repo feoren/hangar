@@ -30,6 +30,8 @@ const TICK_MS = 1000;
 interface Props {
   sessionId: number;
   sessionTitle: string;
+  /** The session's folder: which definitions, and so which figures, its sub-agents have. */
+  cwd: string | null;
   /** The watch to read (useSubAgentWatch); its snapshots re-render this tree only. */
   watchKey: string;
   /** Sub-agent shown in the open view, `null` when the view is closed or shows the list. */
@@ -48,6 +50,7 @@ interface Props {
 export function SubAgentTree({
   sessionId,
   sessionTitle,
+  cwd,
   watchKey,
   picked,
   hidden,
@@ -91,6 +94,7 @@ export function SubAgentTree({
         <SubAgentItem
           key={agent.id}
           agent={agent}
+          cwd={cwd}
           now={now}
           picked={agent.id === picked}
           onShow={(byKeyboard) => {
@@ -147,12 +151,15 @@ export function SubAgentTree({
  */
 export function SubAgentItem({
   agent,
+  cwd,
   now,
   picked,
   onShow,
   onClose,
 }: {
   agent: SubAgent;
+  /** The session's folder (`runningFigure`). */
+  cwd: string | null;
   now: number;
   /** Shown in the open view. */
   picked: boolean;
@@ -171,7 +178,7 @@ export function SubAgentItem({
   const closable = agent.status === "finished";
   const closeLabel = t("subAgents.close");
   // The figure of a known definition of that type (Settings > Sub-agents).
-  const figure = useKnownFigure(agent.agentType);
+  const figure = useKnownFigure(agent.agentType, cwd);
   const details = [
     name === title ? null : title,
     // A finished one's activity line repeats its status.

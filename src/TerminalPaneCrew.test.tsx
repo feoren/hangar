@@ -53,6 +53,7 @@ const terminal = fakeTerminal();
 const crew = {
   sessionId: 1,
   sessionTitle: "Main",
+  cwd: null,
   watchKey: null,
   hidden: new Set<string>(),
   sessionWaits: false,
