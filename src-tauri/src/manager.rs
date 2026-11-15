@@ -2379,6 +2379,90 @@ mod tests {
         assert_eq!(line, "\x1b[2m/usr/bin/npm install \"a b\" x[31m\x1b[0m\r\n");
     }
 
+    /// Counts kills instead of signalling anything, so a test sees whether `attach` tried one.
+    #[derive(Debug)]
+    struct CountingKiller(Arc<AtomicU64>);
+
+    impl ChildKiller for CountingKiller {
+        fn kill(&mut self) -> io::Result<()> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(Self(Arc::clone(&self.0)))
+        }
+    }
+
+    /// A runtime without a process: its flow and kill counter tell what `attach` did with it.
+    fn fake_runtime(gate: GateStatus) -> (Runtime, Arc<Flow>, Arc<AtomicU64>, Receiver<Vec<u8>>) {
+        let flow = Arc::new(Flow::new(HIGH_WATER, FLOW_STALL));
+        let kills = Arc::new(AtomicU64::new(0));
+        let (input, input_rx) = sync_channel(INPUT_DEPTH);
+        let runtime = Runtime {
+            master: Arc::new(Mutex::new(None)),
+            input,
+            killer: Mutex::new(Box::new(CountingKiller(Arc::clone(&kills)))),
+            tree: None,
+            flow: Arc::clone(&flow),
+            gate,
+        };
+        (runtime, flow, kills, input_rx)
+    }
+
+    #[test]
+    fn a_stale_attach_neither_replaces_nor_kills_the_live_process() {
+        let shared = Shared::new(Arc::new(KeyringStore::default()));
+        let id: SessionId = 7;
+        // The state right after `resume_fallback`: the resume attempt (generation 0) exited, the
+        // fallback (generation 1) is spawned but not yet attached.
+        let mut info = SessionInfo::new(id, "p".into(), "T".into(), PathBuf::from("/w"), 0);
+        info.mark_exited(Some(1)).unwrap();
+        info.mark_restarting().unwrap();
+        lock(&shared.sessions).insert(
+            id,
+            Entry {
+                info,
+                agent: prompted_agent(""),
+                generation: 1,
+                runtime: None,
+                size: TermSize { cols: 80, rows: 24 },
+                instructions: None,
+                kill_requested: false,
+            },
+        );
+
+        let (stale, stale_flow, stale_kills, stale_input) = fake_runtime(GateStatus::Active);
+        let reported = shared.attach(id, 0, stale).unwrap();
+        // Left alone: not installed, not marked running, its gate not taken over.
+        assert_eq!(reported.status, Status::Starting);
+        assert_eq!(reported.gate, GateStatus::None);
+        {
+            let sessions = lock(&shared.sessions);
+            let entry = &sessions[&id];
+            assert!(entry.runtime.is_none());
+            assert_eq!(entry.generation, 1);
+        }
+        // Closed (its batch thread stops waiting for acknowledgements) and dropped, never
+        // killed: its pid is already released.
+        assert!(!stale_flow.wait_below_high());
+        assert_eq!(stale_kills.load(Ordering::SeqCst), 0);
+        assert!(stale_input.recv().is_err());
+
+        // The fallback's own attach then installs it as usual.
+        let (live, live_flow, live_kills, _live_input) = fake_runtime(GateStatus::NoEndpoint);
+        let reported = shared.attach(id, 1, live).unwrap();
+        assert_eq!(reported.status, Status::Running);
+        assert_eq!(reported.gate, GateStatus::NoEndpoint);
+        {
+            let sessions = lock(&shared.sessions);
+            let installed = sessions[&id].runtime.as_ref().unwrap();
+            assert!(Arc::ptr_eq(&installed.flow, &live_flow));
+        }
+        assert!(live_flow.wait_below_high());
+        assert_eq!(live_kills.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn events_serialize_as_in_contract() {
         let json = |event| serde_json::to_value(event).unwrap();
