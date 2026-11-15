@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  loadProtectedSettings,
   loadQueuedMessages,
   loadSecuritySwitches,
+  loadStoredTemplates,
+  parseProtected,
   parseSwitches,
+  saveProtectedSettings,
   saveQueuedMessages,
+  saveStoredTemplates,
   type MainBackend,
 } from "./mainStore";
 import { QUEUE_STORAGE_KEY } from "./messageQueue";
-import { SETTINGS_STORAGE_KEY, type SecuritySwitches } from "./settings";
+import { SETTINGS_STORAGE_KEY, type ProtectedSettings, type SecuritySwitches } from "./settings";
+import { defaultSnippets } from "./snippets";
+import { TEMPLATES_STORAGE_KEY, type WorkspaceTemplate } from "./templates";
 
 const KEY = "0b0e7c1e-5d3a-4c1b-9a3e-2f6d8e9a1b2c";
 const ON: SecuritySwitches = { claimsEnabled: true, gateEnabled: true, commandGuardEnabled: true };
@@ -32,12 +39,34 @@ function memoryStorage(initial: Record<string, string> = {}) {
   };
 }
 
-function backend(switches: unknown, queue: unknown) {
-  const saved: { switches: SecuritySwitches[]; queues: Record<string, string>[] } = {
+function backend(
+  switches: unknown,
+  queue: unknown,
+  settings: unknown = null,
+  templates: unknown = null,
+) {
+  const saved: {
+    switches: SecuritySwitches[];
+    queues: Record<string, string>[];
+    settings: ProtectedSettings[];
+    templates: (readonly WorkspaceTemplate[])[];
+  } = {
     switches: [],
     queues: [],
+    settings: [],
+    templates: [],
   };
   const fake: MainBackend = {
+    protectedSettings: () => Promise.resolve(settings),
+    saveProtectedSettings: (value) => {
+      saved.settings.push(value);
+      return Promise.resolve(null);
+    },
+    loadTemplates: () => Promise.resolve(templates),
+    saveTemplates: (value) => {
+      saved.templates.push(value);
+      return Promise.resolve(null);
+    },
     securitySwitches: () => Promise.resolve(switches),
     saveSecuritySwitches: (value) => {
       saved.switches.push(value);
@@ -121,5 +150,125 @@ describe("queued messages", () => {
     const { fake, saved } = backend(null, null);
     await saveQueuedMessages({ [KEY]: "go\n\n", other: "x" }, fake);
     expect(saved.queues).toEqual([{ [KEY]: "go" }]);
+  });
+});
+
+const PROTECTED: ProtectedSettings = {
+  warnMultilinePaste: true,
+  autoUpdate: true,
+  hangarMd: true,
+  snippets: [{ id: "mine", text: "Fix the build" }],
+};
+
+describe("protected settings", () => {
+  it("reads only complete answers", () => {
+    expect(parseProtected(PROTECTED, "en")).toEqual(PROTECTED);
+    expect(parseProtected(null, "en")).toBeNull();
+    expect(parseProtected({ ...PROTECTED, autoUpdate: "no" }, "en")).toBeNull();
+    expect(parseProtected({ ...PROTECTED, snippets: undefined }, "en")).toBeNull();
+  });
+
+  it("migrates the old values once and removes them from localStorage", async () => {
+    const storage = memoryStorage({
+      [SETTINGS_STORAGE_KEY]: JSON.stringify({
+        language: "de",
+        warnMultilinePaste: false,
+        autoUpdate: false,
+        hangarMd: false,
+        snippets: [],
+      }),
+    });
+    const { fake, saved } = backend(null, null);
+    const legacy = { warnMultilinePaste: false, autoUpdate: false, hangarMd: false, snippets: [] };
+    expect(await loadProtectedSettings(legacy, "de", fake, storage)).toEqual(legacy);
+    expect(saved.settings).toEqual([legacy]);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({ language: "de" });
+  });
+
+  it("stores the defaults when there was nothing to migrate", async () => {
+    // Otherwise the backend stays "never stored" and a value a viewer writes to the old place
+    // later would be migrated on the next start.
+    const { fake, saved } = backend(null, null);
+    const legacy = { ...PROTECTED, snippets: defaultSnippets("en") };
+    expect(await loadProtectedSettings(legacy, "en", fake, memoryStorage())).toEqual(legacy);
+    expect(saved.settings).toEqual([legacy]);
+  });
+
+  it("takes the backend's values once stored and ignores what a viewer wrote", async () => {
+    const planted = { warnMultilinePaste: false, snippets: [{ id: "x", text: "HANGAR-MARKER" }] };
+    const storage = memoryStorage({ [SETTINGS_STORAGE_KEY]: JSON.stringify(planted) });
+    const { fake, saved } = backend(null, null, PROTECTED);
+    const legacy = { ...PROTECTED, warnMultilinePaste: false, snippets: planted.snippets };
+    expect(await loadProtectedSettings(legacy, "en", fake, storage)).toEqual(PROTECTED);
+    expect(saved.settings).toEqual([]);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({});
+  });
+
+  it("keeps the warning and updates on without a backend", async () => {
+    const fake: MainBackend = {
+      ...backend(null, null).fake,
+      protectedSettings: () => Promise.reject(new Error("no backend")),
+    };
+    const off = { warnMultilinePaste: false, autoUpdate: false, hangarMd: false, snippets: [] };
+    const settings = await loadProtectedSettings(off, "en", fake, null);
+    expect(settings.warnMultilinePaste).toBe(true);
+    expect(settings.autoUpdate).toBe(true);
+    expect(settings.snippets).toEqual(defaultSnippets("en"));
+  });
+
+  it("saves only what the backend takes", async () => {
+    const { fake, saved } = backend(null, null);
+    await saveProtectedSettings(
+      { ...PROTECTED, snippets: [...PROTECTED.snippets, { id: "new", text: "  " }] },
+      fake,
+    );
+    expect(saved.settings).toEqual([PROTECTED]);
+  });
+});
+
+const TEMPLATE: WorkspaceTemplate = {
+  id: "template-1",
+  name: "Morning",
+  sessions: [{ profileId: "claude", folder: "/home/user/repo", mode: "private" }],
+};
+
+describe("workspace templates", () => {
+  it("migrates the old list once, then only the backend counts", async () => {
+    const storage = memoryStorage({ [TEMPLATES_STORAGE_KEY]: JSON.stringify([TEMPLATE]) });
+    const { fake, saved } = backend(null, null);
+    expect(await loadStoredTemplates(fake, storage)).toEqual([TEMPLATE]);
+    expect(saved.templates).toEqual([[TEMPLATE]]);
+    expect(storage.store.has(TEMPLATES_STORAGE_KEY)).toBe(false);
+  });
+
+  it("never reads templates from localStorage once the backend has stored them", async () => {
+    const planted = { ...TEMPLATE, name: "Planted" };
+    const storage = memoryStorage({ [TEMPLATES_STORAGE_KEY]: JSON.stringify([planted]) });
+    const { fake, saved } = backend(null, null, null, [TEMPLATE]);
+    expect(await loadStoredTemplates(fake, storage)).toEqual([TEMPLATE]);
+    expect(saved.templates).toEqual([]);
+    expect(storage.store.has(TEMPLATES_STORAGE_KEY)).toBe(false);
+  });
+
+  it("stores an empty list when there was nothing to migrate", async () => {
+    const { fake, saved } = backend(null, null);
+    expect(await loadStoredTemplates(fake, memoryStorage())).toEqual([]);
+    expect(saved.templates).toEqual([[]]);
+  });
+
+  it("has no templates without a backend", async () => {
+    const fake: MainBackend = {
+      ...backend(null, null).fake,
+      loadTemplates: () => Promise.reject(new Error("no backend")),
+    };
+    const storage = memoryStorage({ [TEMPLATES_STORAGE_KEY]: JSON.stringify([TEMPLATE]) });
+    expect(await loadStoredTemplates(fake, storage)).toEqual([]);
+  });
+
+  it("saves only what the backend takes", async () => {
+    const { fake, saved } = backend(null, null);
+    const broken = { ...TEMPLATE, id: "t-2", name: "Broken", sessions: [] };
+    await saveStoredTemplates([TEMPLATE, broken], fake);
+    expect(saved.templates).toEqual([[TEMPLATE]]);
   });
 });

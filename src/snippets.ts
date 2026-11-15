@@ -51,9 +51,19 @@ export function parseSnippets(value: unknown, language: Language): Snippet[] {
       if (!ids.has(candidate)) key = candidate;
     }
     ids.add(key);
-    result.push({ id: key, text: text.slice(0, SNIPPET_MAX_LENGTH) });
+    result.push({ id: key, text: cutUnits(text, SNIPPET_MAX_LENGTH) });
   }
   return result;
+}
+
+/**
+ * At most `limit` UTF-16 units, never ending on half a surrogate pair: the backend store reads the
+ * value as UTF-8 and refuses a lone surrogate, which would fail the whole save.
+ */
+function cutUnits(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const end = /[\uD800-\uDBFF]/u.test(text.charAt(limit - 1)) ? limit - 1 : limit;
+  return text.slice(0, end);
 }
 
 /** New, unused ID for a snippet added in Settings. */

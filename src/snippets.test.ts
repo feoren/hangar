@@ -25,6 +25,13 @@ describe("defaultSnippets", () => {
 });
 
 describe("parseSnippets", () => {
+  it("never cuts a long text inside a surrogate pair", () => {
+    const text = "x".repeat(SNIPPET_MAX_LENGTH - 1) + "\u{1F600}";
+    const [snippet] = parseSnippets([{ id: "a", text }], "en");
+    expect(snippet?.text).toBe("x".repeat(SNIPPET_MAX_LENGTH - 1));
+    expect(snippet?.text).not.toMatch(/[\uD800-\uDBFF]$/u);
+  });
+
   it("seeds the defaults when nothing was stored", () => {
     expect(parseSnippets(undefined, "en")).toEqual(defaultSnippets("en"));
     expect(parseSnippets("nonsense", "en")).toEqual(defaultSnippets("en"));

@@ -235,12 +235,22 @@ import {
   utf8Bytes,
   type ExportFormat,
 } from "./sessionExport";
-import { loadQueuedMessages, loadSecuritySwitches, saveQueuedMessages } from "./mainStore";
+import {
+  loadProtectedSettings,
+  loadQueuedMessages,
+  loadSecuritySwitches,
+  loadStoredTemplates,
+  saveProtectedSettings,
+  saveQueuedMessages,
+  saveStoredTemplates,
+} from "./mainStore";
 import {
   gateActive,
   hasStoredSettings,
+  legacyProtected,
   legacySwitches,
   loadSettings,
+  protectedOf,
   readStoredSettingsText,
   saveSettings,
   switchesOf,
@@ -367,10 +377,8 @@ import {
 } from "./snippetVariables";
 import {
   deleteTemplate,
-  loadTemplates,
   planTemplate,
   renameTemplate,
-  saveTemplates,
   storeTemplate,
   templateFolders,
   templateReport,
@@ -607,6 +615,24 @@ export function App() {
       setSwitchesReady(true);
     });
   }, [oldSwitches]);
+  /** What an older version stored of the protected settings, read before anything saves. */
+  const [oldProtected] = useState(() =>
+    legacyProtected(readStoredSettingsText(), detectLanguage(navigator.language)),
+  );
+  /**
+   * The protected settings (paste warning, updates, HANGAR.md, snippets) as the backend keeps
+   * them (mainStore.ts), as JSON for the comparison; `null` until they are read. Sessions are
+   * restored only afterwards, so they start with the user's HANGAR.md choice.
+   */
+  const savedProtected = useRef<string | null>(null);
+  const [protectedReady, setProtectedReady] = useState(false);
+  useEffect(() => {
+    void loadProtectedSettings(oldProtected, detectLanguage(navigator.language)).then((stored) => {
+      savedProtected.current = JSON.stringify(stored);
+      setSettings((current) => ({ ...current, ...stored }));
+      setProtectedReady(true);
+    });
+  }, [oldProtected]);
   const grouping = settings.sessionGrouping;
   // The session list follows the sidebar's grouping, so cycling and the rail match it.
   useEffect(() => {
@@ -677,8 +703,16 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(loadFolderPrefs);
-  /** Workspace templates (templates.ts), stored per machine like the folders. */
-  const [templates, setTemplates] = useState<WorkspaceTemplate[]>(loadTemplates);
+  /** Workspace templates (templates.ts), kept by the backend for this window (mainStore.ts). */
+  const [templates, setTemplates] = useState<WorkspaceTemplate[]>([]);
+  /** The list the backend holds; the templates are saved only once it was read, and changed. */
+  const savedTemplates = useRef<WorkspaceTemplate[] | null>(null);
+  useEffect(() => {
+    void loadStoredTemplates().then((stored) => {
+      savedTemplates.current = stored;
+      setTemplates(stored);
+    });
+  }, []);
   /** A template is starting its sessions; another start waits until it is done. */
   const templateStarting = useRef(false);
   /** Save or rename dialog of the templates. */
@@ -1129,6 +1163,16 @@ export function App() {
     api.saveSecuritySwitches(next).catch(() => undefined);
   }, [settings, switchesReady]);
 
+  // The protected settings likewise.
+  useEffect(() => {
+    if (!protectedReady) return;
+    const next = protectedOf(settings);
+    const text = JSON.stringify(next);
+    if (text === savedProtected.current) return;
+    savedProtected.current = text;
+    saveProtectedSettings(next).catch(() => undefined);
+  }, [settings, protectedReady]);
+
   useEffect(() => {
     setCurrentLanguage(settings.language);
     document.documentElement.lang = settings.language;
@@ -1151,14 +1195,11 @@ export function App() {
     saveFolderPrefs(folders);
   }, [folders]);
 
-  // Not on the first render: an unreadable stored list stays as it is until the user changes one.
-  const templatesLoaded = useRef(false);
+  // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
-    if (!templatesLoaded.current) {
-      templatesLoaded.current = true;
-      return;
-    }
-    saveTemplates(templates);
+    if (savedTemplates.current === null || savedTemplates.current === templates) return;
+    savedTemplates.current = templates;
+    saveStoredTemplates(templates).catch(() => undefined);
   }, [templates]);
 
   useEffect(() => {
@@ -2737,7 +2778,7 @@ export function App() {
   // reloaded (development, WebView restart) and the old processes are still running: then a
   // hint appears, and saving merges with the saved state.
   useEffect(() => {
-    if (!profilesReady || restoreStarted) return;
+    if (!profilesReady || !protectedReady || restoreStarted) return;
     restoreStarted = true;
     /**
      * `false`: after a reload the saved state could not be read. Saving then stays off
@@ -2792,7 +2833,7 @@ export function App() {
         savingAllowed.current = true;
         setRestored(true);
       });
-  }, [profilesReady, restoreSession, showError]);
+  }, [profilesReady, protectedReady, restoreSession, showError]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;

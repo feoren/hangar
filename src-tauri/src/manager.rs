@@ -1472,15 +1472,12 @@ impl SessionManager {
     }
 
     pub fn rename(&self, id: SessionId, title: &str) -> Result<SessionInfo, ManagerError> {
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(ManagerError::EmptyTitle);
-        }
+        let title = session_title(title)?;
         let mut sessions = lock(&self.shared.sessions);
         let entry = sessions
             .get_mut(&id)
             .ok_or(ManagerError::UnknownSession(id))?;
-        title.clone_into(&mut entry.info.title);
+        entry.info.title = title;
         Ok(entry.info.clone())
     }
 
@@ -1890,10 +1887,44 @@ fn send_text(data: String, flow: &Flow, sink: &dyn EventSink) {
     sink.emit(SessionEvent::Output { data, bytes });
 }
 
+/// A session title is at most this many characters; longer ones are cut. The title goes into
+/// every session list, the work log and the workspace file.
+pub const MAX_TITLE_CHARS: usize = 256;
+
+/// The title as stored: trimmed, not empty, cut to [`MAX_TITLE_CHARS`].
+pub fn session_title(title: &str) -> Result<String, ManagerError> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err(ManagerError::EmptyTitle);
+    }
+    Ok(title
+        .chars()
+        .take(MAX_TITLE_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent_catalog::HookFormat;
+
+    #[test]
+    fn session_titles_are_trimmed_and_bounded() {
+        assert_eq!(session_title("  Review  ").unwrap(), "Review");
+        assert!(matches!(
+            session_title(" \t "),
+            Err(ManagerError::EmptyTitle)
+        ));
+        let long = "\u{e4}".repeat(MAX_TITLE_CHARS + 50);
+        let cut = session_title(&long).unwrap();
+        assert_eq!(cut.chars().count(), MAX_TITLE_CHARS);
+        // Cut at a character, never inside one.
+        assert!(cut.chars().all(|c| c == '\u{e4}'));
+        let exact = "x".repeat(MAX_TITLE_CHARS);
+        assert_eq!(session_title(&exact).unwrap(), exact);
+    }
 
     fn prompted_agent(extra: &str) -> Agent {
         let source = format!("[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\n{extra}");

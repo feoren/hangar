@@ -23,7 +23,12 @@ fn build_commands() -> Vec<String> {
 }
 
 /// Commands granted to the side panel window and to no other window.
-const PANEL_WINDOW_ONLY: &[&str] = &["panel_to_main", "set_panel_on_top"];
+const PANEL_WINDOW_ONLY: &[&str] = &[
+    "panel_to_main",
+    "set_panel_on_top",
+    "close_panel_window",
+    "destroy_panel_window",
+];
 /// Commands granted to the file viewer windows and to no other window.
 const FILE_VIEWER_ONLY: &[&str] = &[
     "file_viewer_content",
@@ -155,6 +160,10 @@ fn commands_are_registered_allowed_and_wired() {
         "save_security_switches",
         "load_message_queue",
         "save_message_queue",
+        "protected_settings",
+        "save_protected_settings",
+        "load_templates",
+        "save_templates",
         "set_panel_session",
         "take_update_results",
         "claims_snapshot",
@@ -198,10 +207,6 @@ fn panel_window_capability_is_narrow() {
         // such as `tray-quit`. Messages go through `panel_to_main`.
         "core:event:allow-listen",
         "core:event:allow-unlisten",
-        // Close asks the window's own handler first; destroy ends it once input is saved.
-        "core:window:allow-close",
-        "core:window:allow-destroy",
-        "core:window:allow-set-focus",
         "clipboard-manager:allow-write-text",
         "allow-list-note-folders",
         "allow-list-notes",
@@ -241,6 +246,10 @@ fn panel_window_capability_is_narrow() {
         "allow-open-file-viewer",
         "allow-panel-to-main",
         "allow-set-panel-on-top",
+        // Close asks the window's own handler first; destroy ends it once input is saved. Both
+        // act on the calling window only, unlike core:window:allow-close and allow-destroy.
+        "allow-close-panel-window",
+        "allow-destroy-panel-window",
     ];
     expected.sort_unstable();
     assert_eq!(permissions, expected);
@@ -279,6 +288,62 @@ fn panel_window_capability_is_narrow() {
         .exists());
 }
 
+/// The window plugin's commands take a window label and act on whichever window it names: a
+/// panel or viewer holding `core:window:allow-close` could close the main window, one holding
+/// `allow-set-focus` could pull it to the front at will. Only the trusted main window holds such
+/// permissions; the panel closes itself through its own commands.
+#[test]
+fn no_window_permissions_outside_the_main_window() {
+    for path in ["capabilities/panel.json", "capabilities/file-viewer.json"] {
+        let capability: serde_json::Value = serde_json::from_str(&read(path)).unwrap();
+        for permission in capability["permissions"].as_array().unwrap() {
+            let permission = permission.as_str().unwrap_or_default();
+            for forbidden in ["core:window:", "core:webview:", "core:app:", "core:default"] {
+                assert!(
+                    !permission.starts_with(forbidden),
+                    "{path} grants {permission}"
+                );
+            }
+        }
+    }
+}
+
+/// The body of `pub fn <name>(` (sync or async) up to the next command attribute.
+fn command_body<'a>(source: &'a str, name: &str) -> &'a str {
+    let start = source
+        .find(&format!("pub fn {name}("))
+        .or_else(|| source.find(&format!("pub async fn {name}(")))
+        .unwrap_or_else(|| panic!("{name} is not a command"));
+    let rest = &source[start..];
+    let end = rest[1..]
+        .find("#[tauri::command]")
+        .map_or(rest.len(), |i| i + 1);
+    &rest[..end]
+}
+
+/// The panel's own window commands check the caller and act on the calling window only: they
+/// take no label and use the window Tauri hands the command.
+#[test]
+fn panel_window_commands_act_on_the_caller_only() {
+    let commands = read("src/commands.rs");
+    for name in [
+        "close_panel_window",
+        "destroy_panel_window",
+        "set_panel_on_top",
+        "panel_to_main",
+    ] {
+        let body = command_body(&commands, name);
+        assert!(
+            body.contains("panel_window::check_sender(window.label())?;"),
+            "{name} does not check the caller"
+        );
+        let signature = &body[..body.find('{').unwrap()];
+        assert!(!signature.contains("label"), "{name}: {signature}");
+    }
+    assert!(command_body(&commands, "close_panel_window").contains("window.close()"));
+    assert!(command_body(&commands, "destroy_panel_window").contains("window.destroy()"));
+}
+
 /// A file viewer window reads the one file the backend bound to it and nothing else: no
 /// sessions, no notes, no other files, no events at all (listening would let it read every event
 /// the app emits, since a listener for any target receives events meant for the main window).
@@ -303,9 +368,6 @@ fn file_viewer_capability_is_narrow() {
             "allow-file-viewer-open-link",
             "allow-file-viewer-stamp",
             "clipboard-manager:allow-write-text",
-            "core:window:allow-close",
-            "core:window:allow-set-focus",
-            "core:window:allow-set-title",
         ]
     );
     for command in FILE_VIEWER_ONLY {

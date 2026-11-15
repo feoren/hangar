@@ -1,17 +1,21 @@
 //! State only the main window may read and write: the security switches (local claims, the agent
-//! gate, the command guard) and the queued messages per session.
+//! gate, the command guard), the queued messages per session, the settings that decide what
+//! reaches an agent or the machine ([`ProtectedSettings`]: the paste warning, automatic updates,
+//! HANGAR.md for every agent, the snippets) and the workspace templates (program and folder of
+//! each session they start).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
-//! off for the next start, or queue a message that Hangar later pastes into an agent session.
-//! Here the files sit in the local app data folder, written atomically
-//! ([`crate::persist::write_atomic`]) and validated on reading and on writing; the commands
-//! answer the main window only ([`check_main`]).
+//! off for the next start, queue a message or plant a snippet that Hangar later pastes into an
+//! agent session, switch the paste warning or updates off, or plant a template that starts a
+//! program in a folder of its choice. Here the files sit in the local app data folder, written
+//! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
+//! commands answer the main window only ([`check_main`]).
 //!
 //! `None` from a load means nothing was stored yet: the main window then migrates the values it
 //! kept in `localStorage` before (once) and removes them there.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -21,13 +25,32 @@ use crate::persist::{normalize_key, read_limited, write_atomic};
 
 pub const SWITCHES_FILE: &str = "security-switches.json";
 pub const QUEUE_FILE: &str = "queued-messages.json";
+pub const SETTINGS_FILE: &str = "protected-settings.json";
+pub const TEMPLATES_FILE: &str = "workspace-templates.json";
 /// Queued messages kept at most, one per session ([`crate::persist::MAX_SESSIONS`]).
 pub const MAX_QUEUED: usize = crate::persist::MAX_SESSIONS;
 /// Length of one queued message in UTF-16 units, as the window counts (`MAX_QUEUED_CHARS`).
 pub const MAX_QUEUED_UNITS: usize = 20_000;
+/// Snippets kept at most, and the length of one in UTF-16 units, as the window bounds them
+/// (`snippets.ts`: `SNIPPET_LIMIT`, `SNIPPET_MAX_LENGTH`).
+pub const MAX_SNIPPETS: usize = 50;
+pub const MAX_SNIPPET_UNITS: usize = 8000;
+/// Workspace templates as the window bounds them (`templates.ts`).
+pub const MAX_TEMPLATES: usize = 30;
+pub const MAX_TEMPLATE_SESSIONS: usize = 16;
+pub const MAX_TEMPLATE_NAME_CHARS: usize = 60;
+pub const MAX_TEMPLATE_TITLE_CHARS: usize = 80;
+pub const MAX_FOLDER_UNITS: usize = 4096;
+pub const MAX_PROFILE_ID_UNITS: usize = 200;
+/// IDs of snippets and templates: `^[a-z0-9-]{1,40}$`, as the window checks them.
+const MAX_ID_LEN: usize = 40;
 const MAX_SWITCHES_BYTES: usize = 4 * 1024;
 /// Every message at its longest in UTF-8, with room for the keys and the JSON around them.
 const MAX_QUEUE_BYTES: usize = MAX_QUEUED * (MAX_QUEUED_UNITS * 3 + 128);
+/// Every snippet at its longest in UTF-8 (JSON may escape a character to six bytes), with room.
+const MAX_SETTINGS_BYTES: usize = MAX_SNIPPETS * (MAX_SNIPPET_UNITS * 6 + 128) + 1024;
+/// Every template at its longest: sessions with long folders dominate.
+const MAX_TEMPLATES_BYTES: usize = MAX_TEMPLATES * MAX_TEMPLATE_SESSIONS * 32 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MainStoreError {
@@ -35,6 +58,10 @@ pub enum MainStoreError {
     WrongWindow,
     #[error("Invalid queued message: {0}")]
     Invalid(&'static str),
+    #[error("Invalid setting: {0}")]
+    InvalidSetting(&'static str),
+    #[error("Invalid workspace template: {0}")]
+    InvalidTemplate(&'static str),
     #[error("File {path} cannot be read or written: {source}")]
     Io {
         path: PathBuf,
@@ -45,7 +72,7 @@ pub enum MainStoreError {
     Task(String),
 }
 
-/// No error text carries a queued message.
+/// No error text carries a queued message, a snippet or a folder.
 impl Serialize for MainStoreError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
@@ -102,6 +129,146 @@ pub fn validate_queue(entries: QueuedMessages) -> Result<QueuedMessages, MainSto
         valid.insert(key, text);
     }
     Ok(valid)
+}
+
+/// One stored text for agents (`snippets.ts`), pasted into a session like the clipboard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Snippet {
+    pub id: String,
+    pub text: String,
+}
+
+/// Settings that decide what reaches an agent or the machine. A damaged file gives the safe
+/// defaults: the warning, updates and HANGAR.md on, no snippets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtectedSettings {
+    /// Ctrl+V and Shift+Insert ask before text that would run line by line.
+    pub warn_multiline_paste: bool,
+    pub auto_update: bool,
+    /// Every agent start hands the agent HANGAR.md.
+    pub hangar_md: bool,
+    pub snippets: Vec<Snippet>,
+}
+
+impl Default for ProtectedSettings {
+    fn default() -> Self {
+        Self {
+            warn_multiline_paste: true,
+            auto_update: true,
+            hangar_md: true,
+            snippets: Vec::new(),
+        }
+    }
+}
+
+/// `^[a-z0-9-]{1,40}$`
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// C0 controls and DEL, as the window's `CONTROL` pattern.
+fn has_control(text: &str) -> bool {
+    text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}')
+}
+
+/// Not too many snippets, IDs valid and unique, texts not blank and not too long.
+pub fn validate_settings(settings: &ProtectedSettings) -> Result<(), MainStoreError> {
+    if settings.snippets.len() > MAX_SNIPPETS {
+        return Err(MainStoreError::InvalidSetting("too many snippets"));
+    }
+    let mut ids = BTreeSet::new();
+    for snippet in &settings.snippets {
+        if !valid_id(&snippet.id) || !ids.insert(snippet.id.as_str()) {
+            return Err(MainStoreError::InvalidSetting("snippet id"));
+        }
+        if snippet.text.trim().is_empty() {
+            return Err(MainStoreError::InvalidSetting("empty snippet"));
+        }
+        if snippet.text.encode_utf16().count() > MAX_SNIPPET_UNITS {
+            return Err(MainStoreError::InvalidSetting("snippet too long"));
+        }
+    }
+    Ok(())
+}
+
+/// Whether a template session starts privately or as a team session in a fresh worktree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TemplateMode {
+    Private,
+    Team,
+}
+
+/// One session of a template (`templates.ts`, `TemplateSession`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TemplateSession {
+    pub profile_id: String,
+    pub folder: String,
+    pub mode: TemplateMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// A named set of sessions that starts again with one click (`templates.ts`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkspaceTemplate {
+    pub id: String,
+    pub name: String,
+    pub sessions: Vec<TemplateSession>,
+}
+
+/// A name or title as the window cleans it: not blank, no control characters, not too long.
+fn valid_label(text: &str, max_chars: usize) -> bool {
+    !text.trim().is_empty() && !has_control(text) && text.chars().count() <= max_chars
+}
+
+/// The bounds the window keeps (`parseTemplates`): not too many templates and sessions, IDs
+/// valid and unique, every session with a program and a folder. Names are not compared: the
+/// window ignores case by the user's locale, which no check here could match exactly.
+pub fn validate_templates(templates: &[WorkspaceTemplate]) -> Result<(), MainStoreError> {
+    if templates.len() > MAX_TEMPLATES {
+        return Err(MainStoreError::InvalidTemplate("too many templates"));
+    }
+    let mut ids = BTreeSet::new();
+    for template in templates {
+        if !valid_id(&template.id) || !ids.insert(template.id.as_str()) {
+            return Err(MainStoreError::InvalidTemplate("template id"));
+        }
+        if !valid_label(&template.name, MAX_TEMPLATE_NAME_CHARS) {
+            return Err(MainStoreError::InvalidTemplate("name"));
+        }
+        if template.sessions.is_empty() || template.sessions.len() > MAX_TEMPLATE_SESSIONS {
+            return Err(MainStoreError::InvalidTemplate("number of sessions"));
+        }
+        for session in &template.sessions {
+            let profile = session.profile_id.encode_utf16().count();
+            if session.profile_id.trim().is_empty() || profile > MAX_PROFILE_ID_UNITS {
+                return Err(MainStoreError::InvalidTemplate("program"));
+            }
+            if session.folder.trim().is_empty()
+                || has_control(&session.folder)
+                || session.folder.encode_utf16().count() > MAX_FOLDER_UNITS
+            {
+                return Err(MainStoreError::InvalidTemplate("folder"));
+            }
+            if session
+                .title
+                .as_deref()
+                .is_some_and(|title| !valid_label(title, MAX_TEMPLATE_TITLE_CHARS))
+            {
+                return Err(MainStoreError::InvalidTemplate("title"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> MainStoreError + '_ {
@@ -162,6 +329,37 @@ impl MainStore {
     pub fn save_queue(&self, entries: QueuedMessages) -> Result<(), MainStoreError> {
         let entries = validate_queue(entries)?;
         save(&self.dir.join(QUEUE_FILE), &entries)
+    }
+
+    /// `None`: never stored. A damaged file, or one that fails the checks, gives the defaults
+    /// (warning, updates and HANGAR.md on, no snippets).
+    pub fn load_settings(&self) -> Option<ProtectedSettings> {
+        let path = self.dir.join(SETTINGS_FILE);
+        load::<ProtectedSettings>(&path, MAX_SETTINGS_BYTES).map(|settings| {
+            settings
+                .filter(|settings| validate_settings(settings).is_ok())
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn save_settings(&self, settings: ProtectedSettings) -> Result<(), MainStoreError> {
+        validate_settings(&settings)?;
+        save(&self.dir.join(SETTINGS_FILE), &settings)
+    }
+
+    /// `None`: never stored. A damaged file, or one that fails the checks, gives no templates.
+    pub fn load_templates(&self) -> Option<Vec<WorkspaceTemplate>> {
+        let path = self.dir.join(TEMPLATES_FILE);
+        load::<Vec<WorkspaceTemplate>>(&path, MAX_TEMPLATES_BYTES).map(|templates| {
+            templates
+                .filter(|templates| validate_templates(templates).is_ok())
+                .unwrap_or_default()
+        })
+    }
+
+    pub fn save_templates(&self, templates: Vec<WorkspaceTemplate>) -> Result<(), MainStoreError> {
+        validate_templates(&templates)?;
+        save(&self.dir.join(TEMPLATES_FILE), &templates)
     }
 }
 
@@ -238,5 +436,161 @@ mod tests {
         // A file someone else wrote with a bad key gives no messages at all.
         std::fs::write(tmp.path().join(QUEUE_FILE), r#"{"../x":"HANGAR-MARKER"}"#).unwrap();
         assert_eq!(store.load_queue(), Some(QueuedMessages::new()));
+    }
+
+    fn snippet(id: &str, text: &str) -> Snippet {
+        Snippet {
+            id: id.to_owned(),
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn protected_settings_round_trip_and_start_unset() {
+        let tmp = TempDir::new("main-store-settings");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_settings(), None);
+        let settings = ProtectedSettings {
+            warn_multiline_paste: false,
+            auto_update: false,
+            hangar_md: false,
+            snippets: vec![snippet("default-1", "Review the diff")],
+        };
+        store.save_settings(settings.clone()).unwrap();
+        assert_eq!(store.load_settings(), Some(settings.clone()));
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            serde_json::json!({ "warnMultilinePaste": false, "autoUpdate": false,
+                "hangarMd": false, "snippets": [{ "id": "default-1", "text": "Review the diff" }] })
+        );
+        // Damaged or foreign content: stored, but the safe defaults.
+        for foreign in [
+            r#"{"warnMultilinePaste":"no"}"#,
+            r#"{"warnMultilinePaste":false,"autoUpdate":false,"hangarMd":false,"snippets":[],"x":1}"#,
+            r#"{"warnMultilinePaste":false,"autoUpdate":false,"hangarMd":false,"snippets":[{"id":"../x","text":"HANGAR-MARKER"}]}"#,
+        ] {
+            std::fs::write(tmp.path().join(SETTINGS_FILE), foreign).unwrap();
+            assert_eq!(
+                store.load_settings(),
+                Some(ProtectedSettings::default()),
+                "{foreign}"
+            );
+        }
+        assert!(ProtectedSettings::default().warn_multiline_paste);
+        assert!(ProtectedSettings::default().auto_update);
+    }
+
+    #[test]
+    fn snippets_are_checked_like_the_window_checks_them() {
+        let with = |snippets: Vec<Snippet>| ProtectedSettings {
+            snippets,
+            ..ProtectedSettings::default()
+        };
+        assert!(validate_settings(&with(vec![snippet("snippet-1", "x")])).is_ok());
+        // Exactly at the limit, counted in UTF-16 units like the window.
+        let emoji = "\u{1F600}".repeat(MAX_SNIPPET_UNITS / 2);
+        assert!(validate_settings(&with(vec![snippet("a", &emoji)])).is_ok());
+        for bad in [
+            vec![snippet("", "x")],
+            vec![snippet("Upper", "x")],
+            vec![snippet(&"a".repeat(MAX_ID_LEN + 1), "x")],
+            vec![snippet("a", "x"), snippet("a", "y")],
+            vec![snippet("a", " \n ")],
+            vec![snippet("a", &"y".repeat(MAX_SNIPPET_UNITS + 1))],
+            (0..=MAX_SNIPPETS)
+                .map(|i| snippet(&format!("s-{i}"), "x"))
+                .collect(),
+        ] {
+            assert!(validate_settings(&with(bad.clone())).is_err(), "{bad:?}");
+        }
+    }
+
+    fn session(folder: &str) -> TemplateSession {
+        TemplateSession {
+            profile_id: "claude".to_owned(),
+            folder: folder.to_owned(),
+            mode: TemplateMode::Private,
+            title: None,
+        }
+    }
+
+    fn template(id: &str, name: &str, sessions: Vec<TemplateSession>) -> WorkspaceTemplate {
+        WorkspaceTemplate {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            sessions,
+        }
+    }
+
+    #[test]
+    fn templates_round_trip_and_start_unset() {
+        let tmp = TempDir::new("main-store-templates");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_templates(), None);
+        let mut team = session("C:\\Work\\Repo");
+        team.mode = TemplateMode::Team;
+        team.title = Some("Review".to_owned());
+        let templates = vec![template("template-1", "Morning", vec![team])];
+        store.save_templates(templates.clone()).unwrap();
+        assert_eq!(store.load_templates(), Some(templates.clone()));
+        assert_eq!(
+            serde_json::to_value(&templates).unwrap(),
+            serde_json::json!([{ "id": "template-1", "name": "Morning", "sessions": [
+                { "profileId": "claude", "folder": "C:\\Work\\Repo", "mode": "team",
+                  "title": "Review" }] }])
+        );
+        // An empty list is stored too: the migration ran.
+        store.save_templates(Vec::new()).unwrap();
+        assert_eq!(store.load_templates(), Some(Vec::new()));
+        // A file someone else wrote that fails the checks gives no templates at all.
+        std::fs::write(
+            tmp.path().join(TEMPLATES_FILE),
+            r#"[{"id":"t","name":"x","sessions":[{"profileId":"p","folder":"","mode":"private"}]}]"#,
+        )
+        .unwrap();
+        assert_eq!(store.load_templates(), Some(Vec::new()));
+    }
+
+    #[test]
+    fn templates_are_checked_like_the_window_checks_them() {
+        let ok = template("t-1", "Work", vec![session("/home/a/repo")]);
+        assert!(validate_templates(std::slice::from_ref(&ok)).is_ok());
+        let mut bad_mode = serde_json::to_value(&ok).unwrap();
+        bad_mode["sessions"][0]["mode"] = serde_json::json!("root");
+        assert!(serde_json::from_value::<WorkspaceTemplate>(bad_mode).is_err());
+        let mut titled = session("/x");
+        titled.title = Some("a\u{7}b".to_owned());
+        let mut no_program = session("/x");
+        no_program.profile_id = " ".to_owned();
+        for bad in [
+            vec![template("T", "Work", vec![session("/x")])],
+            vec![template("t", " ", vec![session("/x")])],
+            vec![template(
+                "t",
+                &"n".repeat(MAX_TEMPLATE_NAME_CHARS + 1),
+                vec![session("/x")],
+            )],
+            vec![template("t", "Work", Vec::new())],
+            vec![template(
+                "t",
+                "Work",
+                vec![session("/x"); MAX_TEMPLATE_SESSIONS + 1],
+            )],
+            vec![template("t", "Work", vec![session("")])],
+            vec![template("t", "Work", vec![session("/a\nb")])],
+            vec![template(
+                "t",
+                "Work",
+                vec![session(&"f".repeat(MAX_FOLDER_UNITS + 1))],
+            )],
+            vec![template("t", "Work", vec![titled.clone()])],
+            vec![template("t", "Work", vec![no_program.clone()])],
+            vec![ok.clone(), template("t-1", "Other", vec![session("/x")])],
+            (0..=MAX_TEMPLATES)
+                .map(|i| template(&format!("t-{i}"), &format!("n{i}"), vec![session("/x")]))
+                .collect(),
+        ] {
+            assert!(validate_templates(&bad).is_err(), "{bad:?}");
+        }
     }
 }

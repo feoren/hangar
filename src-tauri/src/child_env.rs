@@ -1,6 +1,8 @@
 //! The environment of every program Hangar starts: sessions in a PTY (`manager.rs`) and the
-//! version query (`version.rs`). One rule for both, so a protection added for one cannot be
-//! missing in the other.
+//! version query (`version.rs`) get [`apply`]; helper programs (git in `git.rs`, the file manager
+//! and opened files in `desktop.rs`) get [`scrub`], the same removals without the terminal and
+//! profile settings. One rule for all, so a protection added for one cannot be missing in the
+//! other.
 
 use std::collections::BTreeMap;
 
@@ -133,15 +135,20 @@ fn is_editor_askpass(value: &str) -> bool {
         || file.starts_with("intellij-ssh-askpass")
 }
 
+/// Hangar's own environment as `(name, value)` pairs; names and values that are not UTF-8 are no
+/// editor's variables.
+fn inherited() -> Vec<(String, String)> {
+    std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .collect()
+}
+
 pub fn apply(
     target: &mut impl Target,
     profile_env: &BTreeMap<String, String>,
     no_cwd_lookup: bool,
 ) {
-    // Names and values that are not UTF-8 are no editor's variables.
-    let inherited: Vec<(String, String)> = std::env::vars_os()
-        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
+    let inherited = inherited();
     // First, so a profile can still set one of them on purpose.
     for name in ide_variables(inherited.iter().map(|(n, v)| (n.as_str(), v.as_str()))) {
         target.remove(&name);
@@ -151,6 +158,41 @@ pub fn apply(
             Change::Set(key, value) => target.set(key, value),
             Change::Remove(key) => target.remove(key),
         }
+    }
+}
+
+/// The names a helper program must not inherit: the calling agent session's markers, the gate's
+/// token and helper variables (every gate variable when Hangar itself runs in a gated session)
+/// and an editor's git and IPC variables among `inherited`. A repository's hooks and helpers, or
+/// a program a clicked file opens in, would otherwise reach that session's gate or editor.
+pub fn removals<'a>(
+    inherited: impl IntoIterator<Item = (&'a str, &'a str)>,
+    inside_gate: bool,
+) -> Vec<String> {
+    let mut names = ide_variables(inherited);
+    names.extend(
+        changes_with(&BTreeMap::new(), false, inside_gate)
+            .into_iter()
+            .filter_map(|change| match change {
+                Change::Remove(name) => Some(name.to_owned()),
+                Change::Set(..) => None,
+            }),
+    );
+    names
+}
+
+/// Removes [`removals`] from a helper program's environment. Sets nothing: helpers need neither
+/// a terminal type nor a profile's variables.
+pub fn scrub(target: &mut impl Target) {
+    let inherited = inherited();
+    let inside_gate = [crate::gate::TOKEN_ENV, crate::hook_recipes::HELPER_ENV]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some());
+    for name in removals(
+        inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        inside_gate,
+    ) {
+        target.remove(&name);
     }
 }
 
@@ -301,6 +343,48 @@ mod tests {
             .iter()
             .position(|c| c == "set VSCODE_GIT_HANGAR_TEST_MARKER=again");
         assert!(removed.is_some() && removed < set, "{:?}", target.0);
+    }
+
+    #[test]
+    fn helpers_lose_markers_gate_and_editor_variables() {
+        let inherited = [
+            ("VSCODE_GIT_IPC_HANDLE", "marker"),
+            ("PATH", "/usr/bin"),
+            ("CLAUDE_CODE_USE_BEDROCK", "1"),
+        ];
+        let outside = removals(inherited, false);
+        for name in [
+            "VSCODE_GIT_IPC_HANDLE",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID",
+            "VSCODE_IPC_HOOK_CLI",
+            crate::gate::TOKEN_ENV,
+            crate::hook_recipes::HELPER_ENV,
+        ] {
+            assert!(outside.iter().any(|n| n == name), "{name}: {outside:?}");
+        }
+        // The user's own settings stay; nothing is set.
+        for kept in ["PATH", "CLAUDE_CODE_USE_BEDROCK", "TERM"] {
+            assert!(!outside.iter().any(|n| n == kept), "{kept}");
+        }
+        let inside = removals(inherited, true);
+        for name in crate::hook_recipes::GATE_ENV_NAMES {
+            assert!(inside.iter().any(|n| n == name), "{name}: {inside:?}");
+        }
+    }
+
+    #[test]
+    fn scrub_only_removes() {
+        let mut target = Recorded::default();
+        scrub(&mut target);
+        assert!(
+            target.0.iter().all(|c| c.starts_with("remove ")),
+            "{:?}",
+            target.0
+        );
+        assert!(target
+            .0
+            .contains(&format!("remove {}", crate::gate::TOKEN_ENV)));
     }
 
     #[test]

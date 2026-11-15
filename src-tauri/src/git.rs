@@ -470,11 +470,10 @@ impl Git {
                 command.env_remove(&key);
             }
         }
-        // A calling agent session's identifiers would reach the repository's hooks and helpers
-        // (manager.rs explains why sessions never get them either).
-        for key in crate::manager::INHERITED_SESSION_MARKERS {
-            command.env_remove(key);
-        }
+        // A calling agent session's identifiers, the gate's token and an editor's git helpers
+        // would reach the repository's hooks and helpers (manager.rs explains why sessions never
+        // get them either).
+        crate::child_env::scrub(&mut command);
         // Replace refs (`git replace`, `refs/replace/`) let a clone show another history than
         // its objects hold, such as another root commit, the repository's identity in the team.
         command
@@ -1575,8 +1574,12 @@ pub(crate) mod tests {
             envs.get(OsStr::new("GIT_ALLOW_PROTOCOL")),
             Some(&Some(OsStr::new("none")))
         );
-        // A calling agent session's markers never reach git or its hooks.
-        for key in crate::manager::INHERITED_SESSION_MARKERS {
+        // A calling agent session's markers and the gate's variables never reach git or its
+        // hooks.
+        for key in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
             assert_eq!(envs.get(OsStr::new(key)), Some(&None), "{key}");
         }
         let fixture = git

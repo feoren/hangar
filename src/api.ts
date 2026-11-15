@@ -9,9 +9,10 @@ import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
-import type { SecuritySwitches } from "./settings";
+import type { ProtectedSettings, SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
+import type { WorkspaceTemplate } from "./templates";
 import type { SessionState } from "./team";
 
 export type SessionStatus = "starting" | "running" | "exited";
@@ -378,6 +379,10 @@ export const api = {
     invoke<null>("open_panel_window", { alwaysOnTop, bounds }),
   /** Panel window only: keeps itself above other windows or not. */
   setPanelOnTop: (onTop: boolean) => invoke<null>("set_panel_on_top", { onTop }),
+  /** Panel window only: closes itself; its close handler saves input, then destroys it. */
+  closePanelWindow: () => invoke<null>("close_panel_window"),
+  /** Panel window only: ends itself once pending input is saved. */
+  destroyPanelWindow: () => invoke<null>("destroy_panel_window"),
   /** Panel window only: the one way to ask something of the main window (panelBridge.ts). */
   panelToMain: (message: PanelMessage) => invoke<null>("panel_to_main", { message }),
   /**
@@ -393,6 +398,17 @@ export const api = {
   securitySwitches: () => invoke<unknown>("security_switches"),
   saveSecuritySwitches: (switches: SecuritySwitches) =>
     invoke<null>("save_security_switches", { switches }),
+  /**
+   * Paste warning, automatic updates, HANGAR.md and snippets, `null` before the first save;
+   * check with `parseProtected`.
+   */
+  protectedSettings: () => invoke<unknown>("protected_settings"),
+  saveProtectedSettings: (settings: ProtectedSettings) =>
+    invoke<null>("save_protected_settings", { settings }),
+  /** The workspace templates, `null` before the first save; check with `parseTemplates`. */
+  loadTemplates: () => invoke<unknown>("load_templates"),
+  saveTemplates: (templates: readonly WorkspaceTemplate[]) =>
+    invoke<null>("save_templates", { templates }),
   /** Queued message texts per session key, `null` before the first save. */
   loadMessageQueue: () => invoke<unknown>("load_message_queue"),
   /** Replaces the stored queued messages; keys are session keys (UUIDs). */

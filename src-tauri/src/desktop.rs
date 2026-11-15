@@ -173,16 +173,17 @@ pub fn open_file(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Opens a folder in the file manager. On Windows through `ShellExecuteW` ("open" on a folder
-/// opens Explorer there), so the path never goes through explorer.exe's own command line parsing,
-/// which splits at commas.
+/// Opens a folder in the file manager. On Windows through `ShellExecuteExW` with the shell's
+/// `Folder` class, so the path never goes through explorer.exe's own command line parsing, which
+/// splits at commas, and the verb is always the folder's: a folder swapped for a program between
+/// the check and this call (path_links.rs) is opened as a folder, which fails, never run.
 pub fn open_folder(path: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
         let text = path.to_str().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
         })?;
-        shell_open(text)
+        shell_open_folder(text)
     }
     #[cfg(not(windows))]
     {
@@ -239,6 +240,53 @@ fn shell_error(code: isize) -> io::Error {
     ))
 }
 
+/// The shell class whose verbs open a folder (`HKEY_CLASSES_ROOT\Folder`). With
+/// `SEE_MASK_CLASSNAME`, `ShellExecuteExW` takes the verb from this class instead of from the
+/// file's own type (SHELLEXECUTEINFOW, `lpClass`, Microsoft Learn).
+#[cfg_attr(not(windows), allow(dead_code))]
+const FOLDER_CLASS: &str = "Folder";
+
+/// The `fMask` of [`shell_open_folder`]: the class is given, and the call returns only once the
+/// shell is done, since the caller is a blocking thread that may end right after.
+#[cfg(windows)]
+fn folder_mask() -> u32 {
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_CLASSNAME, SEE_MASK_NOASYNC};
+    SEE_MASK_CLASSNAME | SEE_MASK_NOASYNC
+}
+
+/// "open" of the `Folder` class on `path`.
+#[cfg(windows)]
+fn shell_open_folder(path: &str) -> io::Result<()> {
+    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb = wide("open");
+    let file = wide(path);
+    let class = wide(FOLDER_CLASS);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: u32::try_from(std::mem::size_of::<SHELLEXECUTEINFOW>())
+            .map_err(io::Error::other)?,
+        fMask: folder_mask(),
+        lpVerb: verb.as_ptr(),
+        lpFile: file.as_ptr(),
+        lpClass: class.as_ptr(),
+        nShow: SW_SHOWNORMAL,
+        ..Default::default()
+    };
+    // SAFETY: `info` is a fully initialized SHELLEXECUTEINFOW with its own size in `cbSize`; the
+    // three strings are zero-terminated UTF-16 that live until the call returns, and every other
+    // pointer and handle is null, which the documentation allows for the fields this mask uses.
+    let ok = unsafe { ShellExecuteExW(&mut info) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "the folder did not open: {}",
+            io::Error::last_os_error()
+        )))
+    }
+}
+
 /// `ShellExecuteW` with `verb`; the error is its result code (32 or less).
 #[cfg(windows)]
 fn shell_execute(verb: &str, address: &str) -> Result<(), isize> {
@@ -269,12 +317,20 @@ fn shell_execute(verb: &str, address: &str) -> Result<(), isize> {
     }
 }
 
-fn spawn_detached(mut command: Command) -> io::Result<()> {
-    let mut child = command
+/// The file manager or opener as it starts: no streams, and without the variables of a calling
+/// agent session, its gate or an editor (`child_env::scrub`), which the opened program would
+/// otherwise inherit.
+fn detached(mut command: Command) -> Command {
+    crate::child_env::scrub(&mut command);
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    command
+}
+
+fn spawn_detached(command: Command) -> io::Result<()> {
+    let mut child = detached(command).spawn()?;
     // Reap it so no zombie remains on Unix; explorer.exe exits right away anyway.
     std::thread::Builder::new()
         .name("open-wait".into())
@@ -401,11 +457,39 @@ mod tests {
         assert_eq!(text.iter().filter(|&&unit| unit == 0).count(), 1);
     }
 
+    /// The folder opens through the folder class, never through the verb of the path's own type.
+    #[cfg(windows)]
+    #[test]
+    fn folders_open_through_the_folder_class() {
+        use windows_sys::Win32::UI::Shell::SEE_MASK_CLASSNAME;
+        assert_eq!(FOLDER_CLASS, "Folder");
+        assert_ne!(folder_mask() & SEE_MASK_CLASSNAME, 0);
+        let class = wide(FOLDER_CLASS);
+        assert_eq!(class.last(), Some(&0));
+    }
+
     #[test]
     fn only_a_missing_association_asks_for_a_program() {
         assert!(needs_open_with(31));
         for other in [0, 2, 3, 5, 8, 26, 27, 28, 30, 32] {
             assert!(!needs_open_with(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn opened_programs_inherit_no_session_or_gate_variables() {
+        let command = detached(Command::new("opener"));
+        let envs: std::collections::HashMap<&std::ffi::OsStr, Option<&std::ffi::OsStr>> =
+            command.get_envs().collect();
+        for key in crate::manager::INHERITED_SESSION_MARKERS
+            .iter()
+            .chain([&crate::gate::TOKEN_ENV, &crate::hook_recipes::HELPER_ENV])
+        {
+            assert_eq!(
+                envs.get(std::ffi::OsStr::new(key)),
+                Some(&None),
+                "{key} is inherited"
+            );
         }
     }
 
