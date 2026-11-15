@@ -1,7 +1,33 @@
-# Proposes updates for the commit-pinned actions in .github/workflows.
+# Proposes updates for the commit-pinned actions in .github/workflows and for the locked Rust and
+# npm dependencies. Weekly with a small number of open pull requests, so updates stay reviewable.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: /crates/hangar-team-crypto
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: cargo
+    directory: /crates/hangar-team-protocol
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
