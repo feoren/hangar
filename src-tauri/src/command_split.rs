@@ -17,6 +17,9 @@ pub const MAX_CALLS: usize = 512;
 const MAX_ENCODED: usize = 256 * 1024;
 /// Start folders of one `find` that its `-exec` command is read for.
 const MAX_FIND_STARTS: usize = 8;
+/// Offsets a launcher's inner command is read at, so an option the guard does not know cannot
+/// hide the command behind it.
+const MAX_LAUNCH_OFFSETS: usize = 8;
 
 /// The shell language a script is written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -45,6 +48,14 @@ pub struct Analysis {
     /// Redirection targets (`> file`, `2>> log`), each with the number of calls found before
     /// its command, so a `cd` before it is known.
     pub redirects: Vec<(usize, String)>,
+    /// Names of variables the command writes (a `for` header, an assignment, `read`, `printf -v`,
+    /// `Set-Variable`, ...), as the lexers see the raw words, once per write. A loop variable is
+    /// placed in its body only when it is written exactly once (its own header).
+    pub writes: Vec<String>,
+    /// The command runs an inline script (`sh -c`, `pwsh -Command`, `cmd /c`, `eval`, a
+    /// substitution): a variable could be written where the loop reader does not see it, so a loop
+    /// variable is not placed in its body.
+    pub has_inline_script: bool,
 }
 
 /// How one program call was written and what it reads.
@@ -1766,6 +1777,76 @@ fn cmd_for_set(chars: &[char], start: usize) -> Option<(String, Option<String>, 
     None
 }
 
+/// Items of a cmd `for` set that are read as paths: the do-command, once per item, with the loop
+/// variable placed. `for %d in (build dist) do rd /s /q %d` reads the variable as `build` and as
+/// `dist`; `for /d /r <root> %d in (<name>) do ...` reads it as `<root>/<name>`, since a recursive
+/// loop finds entries of that name below the root. `None` when the header cannot be read as such:
+/// a `/f` set (command output) or `/l` set (numbers), or a missing `in`/`do`; the caller then runs
+/// the do-command with the variable left in place (unplaceable, asked about).
+fn cmd_for_commands(args: &[String]) -> Option<Vec<Vec<String>>> {
+    let do_at = args.iter().position(|a| a.eq_ignore_ascii_case("do"))?;
+    let in_at = args[..do_at]
+        .iter()
+        .position(|a| a.eq_ignore_ascii_case("in"))?;
+    let header = &args[..in_at];
+    let variable = header.last().filter(|v| v.starts_with('%'))?;
+    let options: Vec<String> = header[..header.len() - 1]
+        .iter()
+        .filter(|w| w.starts_with('/'))
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
+    // `/f` runs a command for its items, `/l` counts a numeric range: neither names paths.
+    if options.iter().any(|o| o == "/f" || o == "/l") {
+        return None;
+    }
+    let recursive = options.iter().any(|o| o == "/r");
+    // The recursion root is the one non-option word before the variable; without it `/r` starts
+    // in the current folder.
+    let root = header[..header.len() - 1]
+        .iter()
+        .find(|w| !w.starts_with('/'))
+        .map(String::as_str);
+    let set = args.get(in_at + 1).filter(|_| in_at + 1 < do_at)?;
+    let do_command = &args[do_at + 1..];
+    if do_command.is_empty() {
+        return None;
+    }
+    // A wildcard set (`for %i in (*)`) matches unknown entries of the folder, so the variable
+    // cannot be placed: left as written, it is asked about. So is a set with a quote, caret,
+    // percent or any other character cmd may read specially (`("..\x")` is the item `..\x`).
+    // cmd splits a set at spaces, tabs, commas, semicolons and equals signs.
+    let plain = |c: char| {
+        c.is_alphanumeric()
+            || c.is_whitespace()
+            || matches!(
+                c,
+                '.' | '_' | '-' | '\\' | '/' | ':' | '~' | ',' | ';' | '='
+            )
+    };
+    if !set.chars().all(plain) {
+        return None;
+    }
+    let mut commands = Vec::new();
+    for name in set
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '='))
+        .filter(|name| !name.is_empty())
+        .take(MAX_FIND_STARTS)
+    {
+        let reading = if recursive {
+            format!("{}/{name}", root.unwrap_or("."))
+        } else {
+            name.to_owned()
+        };
+        commands.push(
+            do_command
+                .iter()
+                .map(|word| word.replace(variable.as_str(), &reading))
+                .collect(),
+        );
+    }
+    (!commands.is_empty()).then_some(commands)
+}
+
 /// The index of the `%` closing a cmd substring or replace expansion (`%name:...%`) that starts
 /// at `start`; `None` when none starts there.
 fn cmd_edit_end(chars: &[char], start: usize) -> Option<usize> {
@@ -1813,6 +1894,19 @@ impl Splitter {
         self.pieces(lex_posix_in(text, true), Dialect::Posix, depth);
     }
 
+    /// Marks that the command runs an inline script in the current shell (`sh -c`, `pwsh
+    /// -Command`, `cmd /c`, `eval`, a sourced file), where a variable could be written where the
+    /// loop reader does not see it, so no loop variable is placed in its body.
+    fn inline_script(&mut self, text: &str, dialect: Dialect, depth: usize) {
+        self.analysis.has_inline_script = true;
+        self.script(text, dialect, depth);
+    }
+
+    fn inline_scripts(&mut self, texts: &[String], dialect: Dialect, depth: usize) {
+        self.analysis.has_inline_script = true;
+        self.scripts(texts, dialect, depth);
+    }
+
     fn pieces(&mut self, words: Words, dialect: Dialect, depth: usize) {
         if words.unclosed {
             self.analysis.unclosed = true;
@@ -1825,6 +1919,7 @@ impl Splitter {
             match piece {
                 Piece::Command(simple) => {
                     let at = self.analysis.calls.len();
+                    collect_writes(&simple.words, dialect, &mut self.analysis.writes);
                     self.analysis
                         .redirects
                         .extend(simple.redirects.into_iter().map(|target| (at, target)));
@@ -1872,6 +1967,34 @@ impl Splitter {
         }
         self.analysis.calls.push(words.to_vec());
         self.analysis.info.push(meta.clone());
+    }
+
+    /// A launcher's inner command, read at every plausible start: option parsing for the many
+    /// launcher flags cannot be known in full, so the command is read starting at each word that is
+    /// no option, bounded by [`MAX_LAUNCH_OFFSETS`]. A lone interactive shell (`docker run -it img
+    /// sh`) reads the container's terminal, not a hidden script, unless the launcher is fed by a
+    /// pipe (`echo ... | docker exec -i c sh`), which it then reads as a script from stdin.
+    fn launch(&mut self, tail: &[String], dialect: Dialect, depth: usize, meta: &CallInfo) {
+        let mut read = 0;
+        for (index, word) in tail.iter().enumerate() {
+            if read >= MAX_LAUNCH_OFFSETS {
+                break;
+            }
+            // A command starts with a program name, never with an option or a `--` separator.
+            if word.starts_with('-') {
+                continue;
+            }
+            let candidate = &tail[index..];
+            if bare_interactive_shell(candidate) {
+                if meta.piped {
+                    self.analysis.stdin_script = true;
+                }
+                read += 1;
+                continue;
+            }
+            self.command(candidate, dialect, depth + 1, meta);
+            read += 1;
+        }
     }
 
     /// Several readings of one script (see [`scripts_of`]), each split on its own.
@@ -1965,6 +2088,23 @@ impl Splitter {
             let Some(first) = rest.first() else {
                 return;
             };
+            // cmd's `@` in front of a command turns off its echo and is no part of the program
+            // name. It can lead any command, also one after `do`, `if <condition>` or `else`,
+            // where the lexer leaves it glued to the first word (`do @rd`, `else @git`).
+            if dialect == Dialect::Cmd {
+                if let Some(stripped) = first.strip_prefix('@') {
+                    let mut without = Vec::with_capacity(rest.len());
+                    if !stripped.is_empty() {
+                        without.push(stripped.to_owned());
+                    }
+                    without.extend(rest[1..].iter().cloned());
+                    if without.is_empty() {
+                        return;
+                    }
+                    self.command(&without, dialect, depth, meta);
+                    return;
+                }
+            }
             // A program word the shell reads as more than one word (`rd/s`, `cd..`, `=git`).
             if let Some(mut respelled) = respelled(first, dialect) {
                 respelled.extend(rest[1..].iter().cloned());
@@ -1980,6 +2120,9 @@ impl Splitter {
                     if args.first().is_some_and(|file| is_stdin_path(file)) {
                         self.analysis.stdin_script = true;
                     }
+                    // A sourced file runs in the current shell and may write a loop variable where
+                    // the reader does not see it.
+                    self.analysis.has_inline_script = true;
                     self.push(rest, meta);
                     return;
                 }
@@ -1987,6 +2130,16 @@ impl Splitter {
                 "if" if dialect == Dialect::Cmd => rest = after_cmd_condition(args),
                 // cmd's `for ... in (set) do command`.
                 "for" if dialect == Dialect::Cmd => {
+                    // When the set is a list of literal paths, the loop variable reads as each of
+                    // them (`for %d in (.git) do rd /s /q "%d"` deletes `.git`), so the do-command
+                    // is checked once per item with the variable placed. `/f` and `/l` sets are
+                    // not paths and keep the variable (unplaceable, asked about).
+                    if let Some(commands) = cmd_for_commands(args) {
+                        for command in commands {
+                            self.command(&command, dialect, depth + 1, meta);
+                        }
+                        return;
+                    }
                     match args.iter().position(|a| a.eq_ignore_ascii_case("do")) {
                         Some(at) => rest = &args[at + 1..],
                         None => {
@@ -2089,6 +2242,83 @@ impl Splitter {
                         ],
                     )
                 }
+                // Privilege and sandbox wrappers that run a command after their own options
+                // (`gsudo -u x git ...`, `strace -o log git ...`, `xvfb-run git ...`, `npx git ...`,
+                // `bunx git ...`). The option set is open, so the command is read at every offset.
+                "gsudo" | "strace" | "ltrace" | "xvfb-run" | "proot" | "npx" | "bunx" | "uvx"
+                | "pipx" | "systemd-run" => {
+                    self.launch(args, dialect, depth, meta);
+                    return;
+                }
+                // `dotenv [-e file] -- <command>` and `dotenvx run -- <command>`.
+                "dotenv" | "dotenvx" => {
+                    rest = match args.iter().position(|w| w == "--") {
+                        Some(at) => &args[at + 1..],
+                        None => skip_options_with(args, "ef", &["--env", "--file"]),
+                    };
+                }
+                // `nix-shell --run <script>`, `nix develop -c <command>`, `nix shell ... -c <cmd>`.
+                "nix" | "nix-shell" | "nix-build" => {
+                    if let Some(script) = nix_script(args) {
+                        self.script(&script, Dialect::Posix, depth + 1);
+                    } else {
+                        self.push(rest, meta);
+                    }
+                    return;
+                }
+                // `cross-env NAME=value ... <command>`: the assignments are skipped, then the
+                // command is read at every offset.
+                "cross-env" | "env-cmd" => {
+                    let mut tail = args;
+                    while tail.first().is_some_and(|word| is_assignment(word)) {
+                        tail = &tail[1..];
+                    }
+                    self.launch(tail, dialect, depth, meta);
+                    return;
+                }
+                // Wrappers whose command follows a `run`/`exec` subcommand (`uv run`, `poetry run`,
+                // `pnpm exec`, `conda run`, `direnv exec`, `mise exec`, `op run`, `aws-vault exec`),
+                // possibly after global options (`uv --directory x run`, `pnpm -C x exec`). The
+                // command after the subcommand is read at every offset.
+                "uv" | "poetry" | "pipenv" | "pdm" | "rye" | "hatch" | "pnpm" | "yarn" | "npm"
+                | "bun" | "conda" | "micromamba" | "mamba" | "direnv" | "mise" | "rtx" | "op"
+                | "doppler" | "infisical" | "aws-vault" | "devbox" => {
+                    match runner_tail(&program, args) {
+                        Some(tail) => self.launch(tail, dialect, depth, meta),
+                        None => self.push(rest, meta),
+                    }
+                    return;
+                }
+                // `su [-] [user] (-c <script> | --command=<script>) ` and `runuser ... -- <cmd>`:
+                // the script runs in a login shell (an inline script), the words after `--` run
+                // directly.
+                "su" | "runuser" => {
+                    match su_command(args) {
+                        SuCommand::Script(script) => {
+                            self.inline_script(&script, Dialect::Posix, depth + 1)
+                        }
+                        SuCommand::Direct(after) => self.launch(after, dialect, depth, meta),
+                        SuCommand::None => self.push(rest, meta),
+                    }
+                    return;
+                }
+                // `docker|podman|nerdctl [globals] exec|run|compose ... <command...>`: the command
+                // after the container, service or image is read at every offset.
+                "docker" | "podman" | "nerdctl" | "docker-compose" | "podman-compose" => {
+                    match container_tail(&program, args) {
+                        Some(tail) => self.launch(tail, dialect, depth, meta),
+                        None => self.push(rest, meta),
+                    }
+                    return;
+                }
+                // `kubectl|oc [globals] exec [options] POD [-- ] <command...>`.
+                "kubectl" | "oc" | "k3s" => {
+                    match kubectl_tail(args) {
+                        Some(tail) => self.launch(tail, dialect, depth, meta),
+                        None => self.push(rest, meta),
+                    }
+                    return;
+                }
                 "env" => {
                     if let Some(script) = env_split_string(args) {
                         match script {
@@ -2100,7 +2330,7 @@ impl Splitter {
                     rest = skip_options_with(args, "uC", &["--unset", "--chdir"]);
                 }
                 "nice" => rest = skip_options_with(args, "n", &["--adjustment"]),
-                "timeout" => {
+                "timeout" | "gtimeout" => {
                     let after = skip_options_with(args, "sk", &["--signal", "--kill-after"]);
                     rest = after.get(1..).unwrap_or_default();
                 }
@@ -2178,7 +2408,7 @@ impl Splitter {
                                 && !script.contains("<<")
                                 && lex_posix(script).unclosed;
                             if !rejected {
-                                self.script(script, Dialect::Posix, depth + 1);
+                                self.inline_script(script, Dialect::Posix, depth + 1);
                                 match posix_positional(script, after) {
                                     Positional::Same => {}
                                     Positional::Read(text) => {
@@ -2199,7 +2429,7 @@ impl Splitter {
                 "pwsh" | "powershell" => {
                     match powershell_script(args, program == "powershell") {
                         ShellScriptOwned::Inline(scripts) => {
-                            self.scripts(&scripts, Dialect::PowerShell, depth + 1)
+                            self.inline_scripts(&scripts, Dialect::PowerShell, depth + 1)
                         }
                         ShellScriptOwned::Undecodable => {
                             self.analysis.unclosed = true;
@@ -2217,7 +2447,7 @@ impl Splitter {
                     match cmd_script(args) {
                         Some((scripts, delayed)) => {
                             let outer = std::mem::replace(&mut self.delayed, delayed);
-                            self.scripts(&scripts, Dialect::Cmd, depth + 1);
+                            self.inline_scripts(&scripts, Dialect::Cmd, depth + 1);
                             self.delayed = outer;
                         }
                         None => {
@@ -2228,7 +2458,7 @@ impl Splitter {
                     return;
                 }
                 "eval" => {
-                    self.scripts(&scripts_of(args, dialect), dialect, depth + 1);
+                    self.inline_scripts(&scripts_of(args, dialect), dialect, depth + 1);
                     return;
                 }
                 "iex" | "invoke-expression" => {
@@ -2251,7 +2481,7 @@ impl Splitter {
                         self.push(rest, meta);
                         return;
                     }
-                    self.scripts(&scripts, Dialect::PowerShell, depth + 1);
+                    self.inline_scripts(&scripts, Dialect::PowerShell, depth + 1);
                     return;
                 }
                 "wsl" => {
@@ -2561,6 +2791,235 @@ fn script_command(args: &[String]) -> Option<&str> {
     None
 }
 
+/// A lone interactive shell (`sh`, `bash -l`, `pwsh`) with no inline script: run in a container it
+/// reads that container's own terminal, not a script Hangar cannot see, so unwrapping it must not
+/// report a stdin script.
+fn bare_interactive_shell(call: &[String]) -> bool {
+    let Some(first) = call.first() else {
+        return true;
+    };
+    let program = crate::command_guard::program_name(first);
+    if !matches!(
+        program.as_str(),
+        "sh" | "bash"
+            | "zsh"
+            | "dash"
+            | "ksh"
+            | "ash"
+            | "mksh"
+            | "fish"
+            | "pwsh"
+            | "powershell"
+            | "cmd"
+    ) {
+        return false;
+    }
+    // Only a shell with nothing but these start-up switches is bare; any other argument may
+    // carry a script (`bash -lc`, `pwsh -c`, `sh script.sh`), so the call is unwrapped and read.
+    call[1..].iter().all(|arg| {
+        matches!(
+            arg.to_ascii_lowercase().as_str(),
+            "-l" | "-i"
+                | "-il"
+                | "-li"
+                | "--login"
+                | "--norc"
+                | "--noprofile"
+                | "-nologo"
+                | "-noprofile"
+                | "-noexit"
+                | "/q"
+        )
+    })
+}
+
+/// Global options of a program runner before its subcommand that take the next word as a value
+/// (`uv --directory x run`, `pnpm -C x exec`, `poetry -C x run`, `conda --name x run`).
+fn skip_runner_globals(args: &[String]) -> &[String] {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "-C" | "--directory" | "--project" | "--cwd" | "--config" | "-c" | "--name" | "-n"
+            | "--prefix" | "-p" => i += 2,
+            _ if arg.starts_with('-') => i += 1,
+            _ => break,
+        }
+    }
+    args.get(i..).unwrap_or_default()
+}
+
+/// The words after a program runner's `run`/`exec` subcommand, where its inner command starts
+/// (read at every offset by [`Splitter::launch`]); global options before the subcommand are
+/// skipped. `None` when the subcommand runs no arbitrary command (`npm install`, `uv sync`).
+fn runner_tail<'a>(program: &str, args: &'a [String]) -> Option<&'a [String]> {
+    let args = skip_runner_globals(args);
+    let sub = args.first().map(String::as_str);
+    let runs = matches!((program, sub), (_, Some("run" | "exec" | "dlx" | "x")))
+        || matches!(
+            (
+                program,
+                args.first().map(String::as_str),
+                args.get(1).map(String::as_str)
+            ),
+            ("uv", Some("tool"), Some("run"))
+        );
+    if !runs {
+        return None;
+    }
+    let after = if sub == Some("tool") {
+        args.get(2..)
+    } else {
+        args.get(1..)
+    };
+    after.filter(|rest| !rest.is_empty())
+}
+
+/// The command of `su`/`runuser`.
+enum SuCommand<'a> {
+    /// `-c <script>`, `-c<script>`, `--command=<script>`: a login shell runs it.
+    Script(String),
+    /// `-- <command...>`: run directly.
+    Direct(&'a [String]),
+    /// No command found: run nothing further.
+    None,
+}
+
+/// `su [-] [user] (-c <script> | -c<script> | --command=<script>)` or `runuser [-u user] [-]
+/// [user] (-c <script> | -- <command>)`: the script a login shell runs, or the words after `--`.
+fn su_command(args: &[String]) -> SuCommand<'_> {
+    if let Some(at) = args.iter().position(|w| w == "--") {
+        let after = &args[at + 1..];
+        if !after.is_empty() {
+            return SuCommand::Direct(after);
+        }
+    }
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        if arg == "-c" || arg == "--command" {
+            return match args.get(i + 1) {
+                Some(script) => SuCommand::Script(script.clone()),
+                None => SuCommand::None,
+            };
+        }
+        if let Some(script) = arg.strip_prefix("--command=") {
+            return SuCommand::Script(script.to_owned());
+        }
+        if let Some(script) = arg.strip_prefix("-c").filter(|s| !s.is_empty()) {
+            return SuCommand::Script(script.to_owned());
+        }
+        // Options that take the next word as their value and so do not start the command.
+        if matches!(
+            arg.as_str(),
+            "-u" | "--user" | "-g" | "--group" | "-s" | "--shell" | "-w"
+        ) {
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    SuCommand::None
+}
+
+/// Global options of docker/podman before the subcommand that take a value (`docker -H host
+/// exec`, `docker --context x exec`), skipped so the subcommand is found.
+fn skip_docker_globals(args: &[String]) -> &[String] {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "-H" | "--host" | "--context" | "-c" | "--config" | "-l" | "--log-level"
+            | "--tlscacert" | "--tlscert" | "--tlskey" => i += 2,
+            _ if arg.starts_with('-') => i += 1,
+            _ => break,
+        }
+    }
+    args.get(i..).unwrap_or_default()
+}
+
+/// The words after a container command's `exec`/`run`/`create` subcommand (where the inner
+/// command starts, read at every offset): `docker|podman [globals] [container] exec|run ...`,
+/// `... compose [globals] exec|run ...`, and `docker-compose`/`podman-compose`. `None` for any
+/// other subcommand (`docker build`, `docker ps`).
+fn container_tail<'a>(program: &str, args: &'a [String]) -> Option<&'a [String]> {
+    if program.ends_with("compose") {
+        return compose_tail(args);
+    }
+    let args = skip_docker_globals(args);
+    // `docker container exec ...`, `docker image ...`: the object word before the verb.
+    let args = match args.first().map(String::as_str) {
+        Some("container" | "image" | "service") => args.get(1..).unwrap_or_default(),
+        _ => args,
+    };
+    match args.first().map(String::as_str) {
+        Some("compose") => compose_tail(args.get(1..).unwrap_or_default()),
+        Some("exec" | "run" | "create") => args.get(1..).filter(|rest| !rest.is_empty()),
+        _ => None,
+    }
+}
+
+/// `compose [globals] exec|run ... <command...>`: the words after the subcommand.
+fn compose_tail(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "-f"
+            | "--file"
+            | "-p"
+            | "--project-name"
+            | "--project-directory"
+            | "--profile"
+            | "--env-file" => i += 2,
+            _ if arg.starts_with('-') => i += 1,
+            _ => break,
+        }
+    }
+    let args = args.get(i..).unwrap_or_default();
+    match args.first().map(String::as_str) {
+        Some("exec" | "run") => args.get(1..).filter(|rest| !rest.is_empty()),
+        _ => None,
+    }
+}
+
+/// `kubectl|oc [globals] exec [opts] POD [-- ] <command...>`: the words where the inner command
+/// starts (after `--` when present), read at every offset.
+fn kubectl_tail(args: &[String]) -> Option<&[String]> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "-n" | "--namespace" | "--context" | "-s" | "--server" | "--kubeconfig" | "--as"
+            | "--cluster" => i += 2,
+            _ if arg.starts_with('-') => i += 1,
+            _ => break,
+        }
+    }
+    let args = args.get(i..).unwrap_or_default();
+    if args.first().map(String::as_str) != Some("exec") {
+        return None;
+    }
+    let args = args.get(1..).unwrap_or_default();
+    if let Some(at) = args.iter().position(|w| w == "--") {
+        return args.get(at + 1..).filter(|rest| !rest.is_empty());
+    }
+    Some(args).filter(|rest| !rest.is_empty())
+}
+
+/// The script of `nix-shell --run <script>` or `nix develop|shell ... -c <command...>`; `None`
+/// without one.
+fn nix_script(args: &[String]) -> Option<String> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            "--run" => return args.get(i + 1).cloned(),
+            "-c" | "--command" => {
+                let rest = args.get(i + 1..).unwrap_or_default();
+                // A single quoted word is the whole script; several words are a command line.
+                return (!rest.is_empty()).then(|| rest.join(" "));
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
 /// How an inline script reads the words after it.
 enum Positional {
     /// It names none of them, or none follow.
@@ -2730,6 +3189,10 @@ fn find_commands(args: &[String]) -> (Vec<Vec<String>>, bool) {
     if starts.is_empty() {
         starts.push(".");
     }
+    // `{}` reads as `<start>/*`, which a leading-dot name (`.git`) escapes. When nothing limits
+    // the names found, or a name test can match `.git`, the entries may be the project's `.git`,
+    // so the command is also read with `{}` as `<start>/.git`.
+    let reaches_git = find_matches_git(args);
     let mut out = Vec::new();
     let all_starts = starts.len() <= MAX_FIND_STARTS;
     while i < args.len() {
@@ -2742,18 +3205,227 @@ fn find_commands(args: &[String]) -> (Vec<Vec<String>>, bool) {
         while end < args.len() && args[end] != ";" && args[end] != "+" {
             end += 1;
         }
+        let substitutions = if reaches_git {
+            ["*", ".git"].as_slice()
+        } else {
+            ["*"].as_slice()
+        };
         for start in starts.iter().take(MAX_FIND_STARTS) {
-            out.push(
-                args[begin..end]
-                    .iter()
-                    .map(|word| word.replace("{}", &format!("{start}/*")))
-                    .collect(),
-            );
+            for found in substitutions {
+                out.push(
+                    args[begin..end]
+                        .iter()
+                        .map(|word| word.replace("{}", &format!("{start}/{found}")))
+                        .collect(),
+                );
+            }
         }
         i = end + 1;
     }
     let commands = !out.is_empty();
     (out, all_starts || !commands)
+}
+
+/// Whether a `find`'s entries may be the project's `.git`: no name test limits them, a regular
+/// expression test is used (not read as a glob), or a name, path or whole-name test can match
+/// `.git`.
+fn find_matches_git(args: &[String]) -> bool {
+    // Lowercase: `-iname .GIT` matches `.git`, and so does `-name .GIT` where names ignore case.
+    let hits_git = |value: &str| {
+        let value = value.to_lowercase();
+        let base = value.rsplit(['/', '\\']).next().unwrap_or(&value);
+        crate::command_guard::glob_match(&value, ".git")
+            || crate::command_guard::glob_match(base, ".git")
+    };
+    let mut has_name_test = false;
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        match arg.as_str() {
+            // A regular expression is not read as a glob; a negation or an alternative
+            // (`-not -name x`, `-name x -o -type d`) lets through entries no name test limits.
+            "-regex" | "-iregex" | "!" | "-not" | "-o" | "-or" | "," => return true,
+            "-name" | "-iname" | "-path" | "-ipath" | "-wholename" | "-iwholename" | "-lname"
+            | "-ilname" => {
+                has_name_test = true;
+                if args.get(i + 1).is_some_and(|value| hits_git(value)) {
+                    return true;
+                }
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    !has_name_test
+}
+
+/// Whether a name is a plain shell identifier.
+fn plain_identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The names a simple command writes, appended to `out`, as the lexer's raw words show them
+/// (before wrappers are stripped), so a loop variable can be bound only when written exactly once.
+/// Conservative: when unsure it records a name, which only makes the guard ask more.
+fn collect_writes(words: &[String], dialect: Dialect, out: &mut Vec<String>) {
+    match dialect {
+        Dialect::Posix => collect_posix_writes(words, out),
+        Dialect::PowerShell => collect_powershell_writes(words, out),
+        Dialect::Cmd => {}
+    }
+}
+
+fn collect_posix_writes(words: &[String], out: &mut Vec<String>) {
+    // Reserved words in front of a command (`do d=x`, `then d=x`, `! d=x`, `{ d=x`) leave the
+    // assignment after them.
+    let mut rest = words;
+    while rest.first().is_some_and(|word| {
+        matches!(
+            word.as_str(),
+            "do" | "then" | "else" | "elif" | "if" | "while" | "until" | "!" | "{" | "(" | "time"
+        )
+    }) {
+        rest = &rest[1..];
+    }
+    // `NAME=` / `NAME+=` assignments at the front of the command.
+    while let Some(word) = rest.first() {
+        if let Some(name) = posix_assignment_name(word) {
+            out.push(name);
+            rest = &rest[1..];
+        } else {
+            break;
+        }
+    }
+    let Some(program) = rest.first().map(String::as_str) else {
+        return;
+    };
+    let args = &rest[1..];
+    match program {
+        "for" if rest.get(2).map(String::as_str) == Some("in") => {
+            if let Some(name) = rest.get(1).filter(|n| plain_identifier(n)) {
+                out.push(name.clone());
+            }
+        }
+        "export" | "declare" | "local" | "typeset" | "readonly" => {
+            // A name reference (`declare -n r=d`) writes `d` through every later write of `r`.
+            if args
+                .iter()
+                .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains('n'))
+            {
+                out.push(ANY_WRITE.to_owned());
+            }
+            for arg in args {
+                let name = arg.split_once('=').map_or(arg.as_str(), |(name, _)| name);
+                if plain_identifier(name) {
+                    out.push(name.to_owned());
+                }
+            }
+        }
+        // `read [opts] NAME...`, `mapfile/readarray [opts] NAME`, `getopts opts NAME`: the plain
+        // identifiers among the arguments are written.
+        "read" | "mapfile" | "readarray" | "getopts" => {
+            for arg in args {
+                if plain_identifier(arg) {
+                    out.push(arg.clone());
+                }
+            }
+        }
+        // `printf -v NAME ...`.
+        "printf" => {
+            let mut iter = args.iter();
+            while let Some(arg) = iter.next() {
+                if arg == "-v" {
+                    if let Some(name) = iter.next().filter(|n| plain_identifier(n)) {
+                        out.push(name.clone());
+                    }
+                } else if let Some(name) = arg.strip_prefix("-v").filter(|n| plain_identifier(n)) {
+                    out.push(name.to_owned());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `NAME=` or `NAME+=` at the start of a word: the variable name.
+fn posix_assignment_name(word: &str) -> Option<String> {
+    let at = word.find('=')?;
+    let name = word[..at].strip_suffix('+').unwrap_or(&word[..at]);
+    // An array element (`a[0]=`) writes the array.
+    let name = name.split_once('[').map_or(name, |(base, _)| base);
+    plain_identifier(name).then(|| name.to_owned())
+}
+
+/// The variable name of a PowerShell variable word (`$d`, `$d++`, `${d}`, `$global:d`,
+/// `$d,`), lowercase since PowerShell ignores case in names: without `$`, braces, a scope
+/// prefix, a trailing `++`/`--` and a list comma.
+fn ps_lvalue_name(word: &str) -> Option<String> {
+    let rest = word.strip_prefix('$')?;
+    let rest = rest.trim_end_matches(',');
+    let rest = rest
+        .strip_suffix("++")
+        .or_else(|| rest.strip_suffix("--"))
+        .unwrap_or(rest);
+    let rest = rest.split('=').next().unwrap_or(rest);
+    let rest = rest
+        .strip_prefix('{')
+        .and_then(|inner| inner.strip_suffix('}'))
+        .unwrap_or(rest);
+    let rest = rest.rsplit(':').next().unwrap_or(rest);
+    Some(rest.to_ascii_lowercase())
+}
+
+/// Recorded when a command may write variables Hangar cannot name (a dot-sourced script, a bash
+/// name reference): no loop variable is bound then.
+pub const ANY_WRITE: &str = "\u{0}any";
+
+fn collect_powershell_writes(words: &[String], out: &mut Vec<String>) {
+    // A dot-sourced script (`. .\x.ps1`) runs in this scope and may set any variable.
+    if words.first().is_some_and(|w| w == ".") {
+        out.push(ANY_WRITE.to_owned());
+    }
+    // `foreach ($d in ...)`: the lexer leaves `$d in ...`.
+    if words.get(1).is_some_and(|w| w.eq_ignore_ascii_case("in")) {
+        if let Some(name) = words
+            .first()
+            .and_then(|w| ps_lvalue_name(w))
+            .filter(|n| plain_identifier(n))
+        {
+            out.push(name);
+        }
+    }
+    // Every variable before an assignment operator (`$d = ...`, `$d, $e = ...`) and every
+    // glued write (`$d=1`, `$d++`, `$d--`).
+    let operator = words
+        .iter()
+        .position(|w| PS_ASSIGNMENTS.contains(&w.as_str()) || w.starts_with('='));
+    for (index, word) in words.iter().enumerate() {
+        let Some(name) = ps_lvalue_name(word) else {
+            continue;
+        };
+        if !plain_identifier(&name) {
+            continue;
+        }
+        let glued = word.ends_with("++") || word.ends_with("--") || word.contains('=');
+        if glued || operator.is_some_and(|at| index < at) {
+            out.push(name);
+        }
+    }
+    // A bare word may name a variable to a cmdlet (`Set-Variable d`, `-OutVariable d`,
+    // `-ErrorVariable d`, `New-Variable -Name D`): every plain word counts as a possible write,
+    // which only makes the guard ask more.
+    for word in words {
+        let bare = word.trim_matches(['"', '\'']).to_ascii_lowercase();
+        if plain_identifier(&bare) {
+            out.push(bare);
+        }
+    }
 }
 
 /// `NAME=value` in front of a program.
