@@ -9,6 +9,7 @@ import { EMPTY_CLAIMS, parseClaimsSnapshot, type ClaimsSnapshot } from "./claims
 import type { SideTab } from "./layout";
 import { MAX_NOTE_BYTES } from "./notes";
 import { EMPTY_ACTIVITY, parseTeamActivity, type TeamActivity } from "./team";
+import { isSessionKey } from "./workspace";
 
 /** Event from the backend to the main window; payload checked by `panel_to_main`. */
 export const PANEL_MESSAGE = "panel-message";
@@ -155,6 +156,8 @@ export interface PanelSession {
 /** What the tabs of the detached panel show; the main window computes it. */
 export interface PanelContext {
   activeId: number | null;
+  /** Workspace key of the active session, which names its timeline (timeline.ts). */
+  activeKey: string | null;
   /** Working folder of the active session. */
   cwd: string | null;
   /** The active session's attention state: a change reads the changes again. */
@@ -167,6 +170,7 @@ export interface PanelContext {
 
 export const EMPTY_PANEL_CONTEXT: PanelContext = {
   activeId: null,
+  activeKey: null,
   cwd: null,
   trigger: "none",
   sessions: [],
@@ -177,6 +181,7 @@ export const EMPTY_PANEL_CONTEXT: PanelContext = {
 /** The `panel-context` event's payload: plain JSON, no maps. */
 export interface PanelContextPayload {
   activeId: number | null;
+  activeKey: string | null;
   cwd: string | null;
   trigger: string;
   sessions: readonly PanelSession[];
@@ -188,6 +193,7 @@ export interface PanelContextPayload {
 export function panelContextPayload(context: PanelContext): PanelContextPayload {
   return {
     activeId: context.activeId,
+    activeKey: context.activeKey,
     cwd: context.cwd,
     trigger: context.trigger,
     sessions: context.sessions,
@@ -244,16 +250,18 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
   const value = record(payload);
   if (!value) return null;
   const activeId = field(value, "activeId");
+  const activeKey = field(value, "activeKey");
   const cwd = field(value, "cwd");
   const trigger = field(value, "trigger");
   const sessions = parseSessions(field(value, "sessions"));
   const claims = parseClaimsSnapshot(field(value, "claims"));
   const activities = parseTeams(field(value, "teams"));
   if (activeId !== null && !isId(activeId)) return null;
+  if (activeKey !== null && !isSessionKey(activeKey)) return null;
   if (cwd !== null && (typeof cwd !== "string" || cwd === "")) return null;
   if (typeof trigger !== "string" || trigger.length > MAX_TRIGGER) return null;
   if (sessions === null || claims === null || activities === null) return null;
-  return { activeId, cwd, trigger, sessions, claims, activities };
+  return { activeId, activeKey, cwd, trigger, sessions, claims, activities };
 }
 
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */

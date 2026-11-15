@@ -191,6 +191,13 @@ fn panel_window_capability_is_narrow() {
         "allow-git-unstage",
         "allow-git-discard",
         "allow-git-commit",
+        // The timeline view: list a session's snapshots, one step's changes, and go back to one
+        // after the window asked (the backend saves the current state first). Taking a snapshot
+        // and deleting them stay with the main window, which sees the attention changes and
+        // closes sessions.
+        "allow-snapshot-list",
+        "allow-snapshot-diff",
+        "allow-snapshot-restore",
         "allow-list-session-folder",
         "allow-list-session-paths",
         "allow-reveal-session-folder",

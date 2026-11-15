@@ -4,9 +4,12 @@
 
 import { parseGitDiff, type GitDiff } from "./gitDiff";
 
-/** What the changes panel shows: the uncommitted changes or the commit history. */
-export type ChangesView = "open" | "commits";
-export const CHANGES_VIEWS: readonly ChangesView[] = ["open", "commits"];
+/**
+ * What the changes panel shows: the uncommitted changes, the commit history or the timeline of
+ * the session's agent steps (timeline.ts).
+ */
+export type ChangesView = "open" | "commits" | "timeline";
+export const CHANGES_VIEWS: readonly ChangesView[] = ["open", "commits", "timeline"];
 
 /** A commit the history should open and scroll to; a new `token` asks again for the same one. */
 export interface CommitFocus {

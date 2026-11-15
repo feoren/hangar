@@ -16,12 +16,15 @@ import { RestartIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import type { TeammateOverlap } from "./team";
+import { TimelineView } from "./TimelineView";
 
 interface Props {
   /** Working folder of the active session; `null` without a session. */
   cwd: string | null;
   /** The active session, whose folder is shown; the git actions name it. */
   sessionId: number | null;
+  /** Its workspace key, which names its timeline's snapshots; `null` without one. */
+  sessionKey: string | null;
   /** It runs an agent: diff lines take comments and the commit box asks it for a message. */
   agent: boolean;
   /** Text into the active session's prompt, as pasted (no Enter). */
@@ -53,6 +56,7 @@ interface Props {
 const VIEW_LABELS = {
   open: "changes.viewOpen",
   commits: "changes.viewCommits",
+  timeline: "changes.viewTimeline",
 } as const satisfies Record<ChangesView, MessageKey>;
 
 /** A text that belongs to one folder: a draft or an error of another folder is not shown. */
@@ -280,6 +284,23 @@ export function ChangesPanel(props: Props) {
         </>
       ) : cwd === null ? (
         <p className="changes-message">{t("changes.noSession")}</p>
+      ) : view === "timeline" ? (
+        sessionId === null || props.sessionKey === null ? (
+          <p className="changes-message">{t("changes.noSession")}</p>
+        ) : (
+          <TimelineView
+            key={props.sessionKey}
+            sessionId={sessionId}
+            sessionKey={props.sessionKey}
+            reload={reload}
+            language={props.language}
+            working={trigger === "working"}
+            onBusy={onHistoryBusy}
+            onRestored={() => {
+              setManual((value) => value + 1);
+            }}
+          />
+        )
       ) : (
         <CommitHistory
           key={cwd}

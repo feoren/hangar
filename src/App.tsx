@@ -210,6 +210,7 @@ import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
 import { SessionTerminal, setFocusCycleActive, terminals } from "./terminal";
+import { snapshotPrompt } from "./timeline";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
 import { PaneSplitters } from "./PaneSplitters";
@@ -1583,6 +1584,23 @@ export function App() {
       .catch(() => undefined);
   }, []);
 
+  /**
+   * Saves the work tree of an agent session that just finished a step, silently, for its
+   * timeline (timeline.ts). The backend skips it when nothing changed or outside a repository.
+   */
+  const takeSnapshot = useCallback((id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    const terminal = terminals.get(id);
+    if (session === undefined || terminal === undefined || isPlaceholder(id)) return;
+    if (session.kind === "update") return;
+    const profile = profilesRef.current.find((p) => p.id === session.profileId);
+    if (profile === undefined || shellKind(profile.command) !== "agent") return;
+    // The backend remembers a skipped or failed step and shows it in the timeline.
+    api
+      .snapshotTake(id, terminal.key, snapshotPrompt(terminal.lastPrompt()))
+      .catch(() => undefined);
+  }, []);
+
   /** Connects a terminal to its session ID: exit, attention, visibility. */
   const wire = useCallback(
     (terminal: SessionTerminal, id: number) => {
@@ -1658,7 +1676,10 @@ export function App() {
                 shown: shownRef.current.has(id),
               });
         // Only work the user asked for: a program's start-up output (also on restore) is no task.
-        if (finishedWork(previous, next, reason) && terminal.takeTyped()) offerDone(id);
+        if (finishedWork(previous, next, reason) && terminal.takeTyped()) {
+          offerDone(id);
+          takeSnapshot(id);
+        }
         // New work makes the session's done notice stale.
         if (next === "working") {
           setDoneNotice((current) => (current?.sessionId === id ? null : current));
@@ -1707,7 +1728,7 @@ export function App() {
       });
       terminals.set(id, terminal);
     },
-    [flasher, chimes, pushes, offerDone],
+    [flasher, chimes, pushes, offerDone, takeSnapshot],
   );
 
   /**
@@ -2135,6 +2156,9 @@ export function App() {
       const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
       let closed = true;
       if (!isPlaceholder(id)) {
+        const key = terminals.get(id)?.key;
+        // Closed means: its timeline goes too. Before `close`, which ends the backend's session.
+        if (key !== undefined) await api.snapshotForget(id, key).catch(() => undefined);
         try {
           await api.close(id);
         } catch (e) {
@@ -2708,6 +2732,9 @@ export function App() {
 
   // What the detached panel shows, computed here: this window stays the single source of truth.
   const activeCwd = activeSession?.cwd ?? null;
+  /** Names the active session's timeline (timeline.ts); placeholders have no terminal yet. */
+  const activeKey =
+    activeSession === undefined ? null : (terminals.get(activeSession.id)?.key ?? null);
   const panelTrigger = activeSession ? (attention.get(activeSession.id) ?? "idle") : "none";
   const panelSessions = useMemo(
     () =>
@@ -2739,6 +2766,7 @@ export function App() {
     pushPanelContext(
       {
         activeId: state.activeId,
+        activeKey,
         cwd: activeCwd,
         trigger: panelTrigger,
         sessions: panelSessions,
@@ -2750,6 +2778,7 @@ export function App() {
   }, [
     panelWindow.detached,
     state.activeId,
+    activeKey,
     activeCwd,
     panelTrigger,
     panelSessions,
@@ -2762,6 +2791,7 @@ export function App() {
       pushPanelContext(
         {
           activeId: state.activeId,
+          activeKey,
           cwd: activeCwd,
           trigger: panelTrigger,
           sessions: panelSessions,
@@ -4670,6 +4700,7 @@ export function App() {
                     onShowSession={showSession}
                     cwd={activeSession?.cwd ?? null}
                     sessionId={activeSession?.id ?? null}
+                    sessionKey={activeKey}
                     agent={
                       activeSession !== undefined &&
                       activeSession.status !== "exited" &&

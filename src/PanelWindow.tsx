@@ -299,7 +299,7 @@ export function PanelWindow() {
       .catch(() => undefined);
   };
 
-  const { activeId, cwd, sessions, claims, activities } = context;
+  const { activeId, activeKey, cwd, sessions, claims, activities } = context;
   const sendTargets = useMemo(
     () => sessions.filter((s) => s.running).map((s) => ({ id: s.id, title: s.title })),
     [sessions],
@@ -360,6 +360,7 @@ export function PanelWindow() {
               }}
               cwd={cwd}
               sessionId={activeId}
+              sessionKey={activeKey}
               agent={
                 panelSessionIsAgent(sessions, activeId) &&
                 sessions.some((session) => session.id === activeId && session.running)

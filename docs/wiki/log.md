@@ -636,3 +636,10 @@ The system bar's gauges became tiles with the sparkline as background; measured 
 pane-placed sessions (without terminal lines) and names the program and version; the context
 meter and the marker dot in a session row lost their tooltips.
 Pages changed: [[session-resources-and-phone-push]].
+
+## [2026-11-13] ingest | Work tree timeline
+Filed the contract of the timeline in the Changes tab: snapshots of a session's work tree after
+each agent step (temporary index, `commit-tree`, private refs `refs/hangar/snapshots/<key>/<n>`,
+cap 50, deleted on close), the timeline view, and going back with an undo snapshot first. Measured
+in `git_snapshots.rs` tests that clone, fetch and pushes of branches and tags do not carry the refs.
+Pages changed: [[work-tree-timeline]] (new), index.

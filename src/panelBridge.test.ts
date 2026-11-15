@@ -184,6 +184,7 @@ function activity(): TeamActivity {
 function context(): PanelContext {
   return {
     activeId: 1,
+    activeKey: "0f8fad5b-d9cb-469f-a165-70867728950e",
     cwd: "C:\\work\\wt a",
     trigger: "working",
     sessions: [
@@ -215,6 +216,7 @@ describe("panel context", () => {
     const received = parsePanelContext(roundTrip(sent));
     expect(received).not.toBeNull();
     expect(received?.activeId).toBe(1);
+    expect(received?.activeKey).toBe("0f8fad5b-d9cb-469f-a165-70867728950e");
     expect(received?.cwd).toBe("C:\\work\\wt a");
     expect(received?.trigger).toBe("working");
     expect(received?.sessions).toEqual(sent.sessions);
@@ -247,6 +249,8 @@ describe("panel context", () => {
       "context",
       { ...good, activeId: -1 },
       { ...good, activeId: 1.5 },
+      { ...good, activeKey: "../refs/heads/main" },
+      { ...good, activeKey: undefined },
       { ...good, cwd: "" },
       { ...good, cwd: 3 },
       { ...good, trigger: "x".repeat(65) },

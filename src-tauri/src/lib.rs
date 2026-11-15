@@ -27,6 +27,7 @@ pub mod git;
 pub mod git_actions;
 pub mod git_activity;
 pub mod git_history;
+pub mod git_snapshots;
 pub mod hook_http;
 pub mod hook_recipes;
 pub mod icon;
@@ -194,6 +195,7 @@ pub fn run() -> tauri::Result<()> {
                     app.handle().clone(),
                 )));
             app.manage(file_tree::FileTree::default());
+            app.manage(git_snapshots::Snapshots::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
             app.manage(resources::ResourceMonitor::default());
@@ -378,6 +380,11 @@ pub fn run() -> tauri::Result<()> {
             commands::git_unstage,
             commands::git_discard,
             commands::git_commit,
+            commands::snapshot_take,
+            commands::snapshot_list,
+            commands::snapshot_diff,
+            commands::snapshot_restore,
+            commands::snapshot_forget,
             commands::list_session_folder,
             commands::list_session_paths,
             commands::reveal_session_folder,

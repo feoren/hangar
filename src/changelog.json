@@ -2,7 +2,22 @@
   {
     "version": "0.7.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Die Zeitleiste im Tab Änderungen sichert nach jedem Agentenschritt still den Stand der Dateien. Ein Klick zeigt den Schritt, du springst zu jedem Stand zurück.",
+        "en": "The timeline in the Changes tab quietly saves your files after each agent step. Click a step to see its changes and go back to any saved state.",
+        "el": "Το χρονολόγιο στις Αλλαγές αποθηκεύει αθόρυβα τα αρχεία μετά από κάθε βήμα του agent. Δες κάθε βήμα και γύρνα σε όποια κατάσταση θέλεις.",
+        "es": "La línea de tiempo en Cambios guarda en silencio tus archivos tras cada paso del agente. Mira cada paso y vuelve a cualquier estado guardado.",
+        "fr": "La chronologie de l’onglet Modifications enregistre tes fichiers après chaque étape de l’agent. Vois chaque étape et reviens à tout état enregistré.",
+        "it": "La cronologia nella scheda Modifiche salva in silenzio i file dopo ogni passo dell’agente. Guarda ogni passo e torna a qualsiasi stato salvato.",
+        "ja": "変更タブのタイムラインは、エージェントの各ステップ後にファイルを自動保存します。各ステップの変更を確認し、保存された任意の状態に戻せます。",
+        "pl": "Oś czasu w karcie Zmiany po cichu zapisuje pliki po każdym kroku agenta. Zobacz zmiany każdego kroku i wróć do dowolnego zapisanego stanu.",
+        "pt": "A linha do tempo na aba Alterações salva seus arquivos após cada passo do agente. Veja cada passo e volte a qualquer estado salvo.",
+        "ru": "Хронология во вкладке «Изменения» тихо сохраняет файлы после каждого шага агента. Смотри изменения шага и возвращайся к любому состоянию.",
+        "tr": "Değişiklikler sekmesindeki zaman çizelgesi her agent adımından sonra dosyalarını sessizce kaydeder. Adımları gör, kayıtlı her duruma geri dön.",
+        "zh": "“更改”标签中的时间线会在代理每一步之后静默保存文件。点击步骤查看其更改，并可返回任一已保存的状态。"
+      }
+    ]
   },
   {
     "version": "0.6.0",

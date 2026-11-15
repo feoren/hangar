@@ -474,14 +474,34 @@ pub fn commit_diff(git: &Git, cwd: &Path, sha: &str) -> Result<GitCommitDiff, Gi
     let commit = parse_header(&header.stdout, header.truncated)
         .ok_or_else(|| GitError::Failed("git printed an unreadable commit header".to_owned()))?;
 
-    let neutral = filter_overrides(git, &root, deadline)?;
-    let target: Vec<&str> = match commit.parents.first() {
-        Some(parent) => vec![parent.as_str(), full.as_str()],
-        None => vec!["--root", full.as_str()],
+    let changes = diff_trees(
+        git,
+        &root,
+        commit.parents.first().map(String::as_str),
+        &full,
+        deadline,
+    )?;
+    Ok(GitCommitDiff { commit, changes })
+}
+
+/// The changes from `from` to `to` (both object ids of commits or trees git already resolved):
+/// file list with status and +/-, the unified diff cut at [`MAX_DIFF_BYTES`] on a whole line.
+/// Without `from`, `to` must be a commit and is compared with the empty tree (`--root`).
+pub(crate) fn diff_trees(
+    git: &Git,
+    root: &Path,
+    from: Option<&str>,
+    to: &str,
+    deadline: Instant,
+) -> Result<GitDiff, GitError> {
+    let neutral = filter_overrides(git, root, deadline)?;
+    let target: Vec<&str> = match from {
+        Some(from) => vec![from, to],
+        None => vec!["--root", to],
     };
     let run = |mode: &[&str], limit: usize| {
         let output = git.run(
-            &root,
+            root,
             neutral
                 .iter()
                 .map(String::as_str)
@@ -515,14 +535,11 @@ pub fn commit_diff(git: &Git, cwd: &Path, sha: &str) -> Result<GitCommitDiff, Gi
             file.deletions = *deleted;
         }
     }
-    Ok(GitCommitDiff {
-        commit,
-        changes: GitDiff {
-            is_repo: true,
-            files,
-            diff: cut_text(patch.stdout, patch.truncated),
-            truncated,
-        },
+    Ok(GitDiff {
+        is_repo: true,
+        files,
+        diff: cut_text(patch.stdout, patch.truncated),
+        truncated,
     })
 }
 

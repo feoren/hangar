@@ -156,6 +156,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                                       |
 | Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`           |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel            |
+| Zeitleiste (Änderungen)                         | timeline                          | `timeline.ts`, `TimelineView.tsx`; "Timeline" view of the changes panel              |
+| Zwischenstand, Schnappschuss                    | snapshot                          | silent commit of the work tree after an agent step; `refs/hangar/snapshots/`         |
+| Auf diesen Stand zurück                         | go back (restore)                 | work tree to a snapshot, the current state saved first; `snapshot_restore`           |
 | Stagen, Unstagen                                | stage, unstage                    | a file into or out of the index; stage box per file, `git_stage`, `git_unstage`      |
 | Verwerfen (Änderungen einer Datei)              | discard                           | back to HEAD, an untracked file is deleted; asks first; `git_discard`                |
 | Commit-Feld                                     | commit box                        | message and commit button above the uncommitted changes; `CommitBox.tsx`             |
