@@ -1,0 +1,929 @@
+## Commands of the command guard's third audit (ADR 0010), each measured as passing the guard
+## before. Verdict, dialect, command: ASK must ask, PASS must not, LIMIT is a known gap of
+## ADR 0010 "Honest limits" and not asserted. Dialect: B POSIX, P PowerShell, C cmd.
+## <NL>, <CR>, <TAB>, <U+2013> and <U+2014> stand for those characters.
+ASK	B	git push --force
+PASS	B	rm -r ../../marker
+ASK	P	Remove-Item -Recurse ..\..\..\marker
+ASK	B	psql -c "DROP TABLE marker"
+ASK	B	git push -f origin main
+PASS	B	GIT PUSH --FORCE
+ASK	B	git.exe push --force
+ASK	B	/usr/bin/git push --force
+ASK	B	"C:\Program Files\Git\cmd\git.exe" push --force
+ASK	B	'/c/Program Files/Git/cmd/git.exe' push --force
+PASS	B	ｇｉｔ push --force
+PASS	B	git ｐｕｓｈ --force
+PASS	B	git push －－force
+ASK	B	git push --forc
+ASK	B	git push --fo
+PASS	B	git push --force-if-includes
+PASS	B	git push --force-with-lease
+ASK	B	git push --mirror
+ASK	B	git push --delete origin main
+ASK	B	git push origin :main
+ASK	B	git push origin +main
+ASK	B	git push --no-verify -f
+ASK	B	git push -uf origin main
+ASK	B	git push -fu origin main
+ASK	B	git push -vf
+ASK	B	git -c push.default=x push -f
+ASK	B	git --no-pager push -f
+ASK	B	git --exec-path=/x push -f
+ASK	B	git --bare push -f
+ASK	B	git -P push -f
+ASK	B	git --literal-pathspecs push -f
+ASK	B	git -C. push -f
+ASK	B	git -Cx push -f
+ASK	B	git -cfoo=bar push -f
+ASK	B	git --git-dir=x push -f
+ASK	B	git --list-cmds=x push -f
+ASK	B	git --html-path push -f
+ASK	B	coproc git push --force
+ASK	B	coproc NAME { git push --force; }
+ASK	B	select x in a; do git push --force; done
+ASK	B	function f { git push --force; }; f
+ASK	B	function f() { git push --force; }
+ASK	B	f() { git push --force; }; f
+ASK	B	f() ( git push --force ); f
+ASK	B	cat <<< "$(git push --force)"
+ASK	B	echo $"$(git push --force)"
+ASK	B	x='$(git push --force)'; echo ${x@P}
+LIMIT	B	printf -v x 'git push --force'; $x
+LIMIT	B	read x <<< 'git push --force'; $x
+ASK	B	echo >(git push --force)
+ASK	B	tee >(git push --force) < /dev/null
+ASK	B	shopt -s extglob; git push --@(force)
+ASK	B	git push --@(force|x)
+ASK	B	git push --forc?
+ASK	B	git push --forc[e]
+ASK	B	git push -[f]
+ASK	B	git push -?
+ASK	B	git push --f*
+ASK	B	git push -\f
+ASK	B	git push '-f'
+ASK	B	git push "-"f
+ASK	B	git push -''f
+ASK	B	git push $'-f'
+ASK	B	git push $'\x2df'
+ASK	B	git push $'\055f'
+ASK	B	git push $'\u002df'
+ASK	B	git push $"--force"
+ASK	B	g"i"t push --force
+ASK	B	g\it pu\sh --force
+ASK	B	\git push --force
+ASK	B	builtin git push --force
+ASK	B	command -- git push --force
+ASK	B	exec -- git push --force
+ASK	B	time -- git push --force
+ASK	B	! git push --force
+ASK	B	[[ 1 ]] && git push --force
+ASK	B	if git push --force; then :; fi
+ASK	B	while git push --force; do :; done
+ASK	B	until git push --force; do :; done
+ASK	B	case x in x) git push --force;; esac
+ASK	B	{ git push --force; }
+ASK	B	(git push --force)
+ASK	B	((1)) && git push --force
+ASK	B	echo ok |& git push --force
+ASK	B	git push --force &>/dev/null
+ASK	B	git push --force 2>&1 >/dev/null
+ASK	B	>/dev/null git push --force
+ASK	B	2>x git push --force
+ASK	B	<x git push --force
+ASK	B	git push --force # comment
+ASK	B	x=1 y=2 git push --force
+ASK	B	declare x=1; git push --force
+ASK	B	export x=1 && git push --force
+ASK	B	local x; git push --force
+PASS	B	git push --force\nrm -r ../../marker
+ASK	B	git push --force;rm -r ../../../marker
+PASS	B	git push \n--force
+PASS	B	git push \\n--force
+PASS	B	git push --\\nforce
+PASS	B	gi\\nt push --force
+ASK	B	git push --force<NL>rm -r ../../../marker
+ASK	B	git push \<NL>--force
+ASK	B	git push --\<NL>force
+ASK	B	gi\<NL>t push --force
+ASK	B	git push --force<CR><NL>
+ASK	B	git<TAB>push<TAB>--force
+ASK	B	coproc { git push --force; }
+ASK	B	coproc (git push --force)
+ASK	B	x='$(git push --force)'; echo "${x@P}"
+ASK	B	echo ${x@P}
+ASK	B	echo "${!x}"
+PASS	B	echo ${x@E}
+ASK	B	echo $((x[$(git push --force)]))
+ASK	B	echo $(( $(git push --force) ))
+ASK	B	a[$(git push --force)]=1
+ASK	B	declare -a a=([$(git push --force)]=1)
+ASK	B	echo ${a[$(git push --force)]}
+ASK	B	test -v 'a[$(git push --force)]'
+ASK	B	[[ -v a[$(git push --force)] ]]
+ASK	B	(( a[$(git push --force)] ))
+ASK	B	let 'a[$(git push --force)]'
+ASK	B	let a[\$\(git\ push\ --force\)]
+LIMIT	B	printf '%s' x | xargs git push --force
+ASK	B	trap 'git push --force' EXIT
+ASK	B	trap -- 'git push --force' EXIT
+ASK	B	PROMPT_COMMAND='git push --force' bash -i
+ASK	B	BASH_ENV=<(echo git push --force) bash -c true
+LIMIT	B	env BASH_ENV=x bash -c true
+LIMIT	B	alias g='git push --force'; g
+ASK	B	git push --force 2>&1 | tee log
+LIMIT	B	git push $(echo --force)
+LIMIT	B	git push `echo --force`
+LIMIT	B	git push $(printf -- --force)
+LIMIT	B	git push "$(echo -f)"
+LIMIT	B	git $(echo push) --force
+LIMIT	B	$(echo git) push --force
+LIMIT	B	`echo git` push --force
+ASK	B	${GIT:-git} push --force
+ASK	B	${GIT-git} push ${F:-"--force"}
+ASK	B	git push ${F:+--force}
+LIMIT	B	git push ${F:?--force}
+LIMIT	B	git push ${F#x}
+ASK	B	git push ${F/x/--force}
+ASK	B	git push ${F//x/-f}
+LIMIT	B	git push ${F^^}
+LIMIT	B	git push ${F:0:7}
+LIMIT	B	git push ${F,,}
+LIMIT	B	git push $F
+LIMIT	B	git push "$@"
+LIMIT	B	set -- --force; git push "$@"
+LIMIT	B	set -- --force; git push $1
+PASS	B	git push ~+
+ASK	B	git push -$'f'
+ASK	B	git push -$"f"
+PASS	B	git push -\$f
+ASK	B	git push --for{ce,}
+ASK	B	git push --{force,x}
+ASK	B	git push -{f,}
+ASK	B	git {push,--force}
+ASK	B	git push --force{,}
+PASS	B	g{it,} push --force
+ASK	B	{git,push} --force
+ASK	B	echo; git push --force
+ASK	B	git push --force &
+ASK	B	git push --force & disown
+ASK	B	nohup git push --force &
+ASK	B	setsid -f git push --force
+ASK	B	unbuffer git push --force
+ASK	B	script -qc 'git push --force' /dev/null
+ASK	B	flock /tmp/l git push --force
+ASK	B	chronic git push --force
+ASK	B	caffeinate git push --force
+ASK	B	caffeinate -i git push --force
+ASK	B	arch -arm64 git push --force
+ASK	B	xcrun git push --force
+LIMIT	B	git-push --force
+LIMIT	B	"$(which git)" push --force
+LIMIT	B	$(command -v git) push --force
+ASK	B	watch git push --force
+ASK	B	parallel git push --force ::: x
+ASK	B	ssh host git push --force
+ASK	B	bash -O extglob -c 'git push --force'
+ASK	B	bash -O extglob -c 'git push --+(force)'
+ASK	B	bash --norc -c 'git push --force'
+ASK	B	bash -lc 'git push --force'
+ASK	B	bash -xc 'git push --force'
+ASK	B	bash -ec 'git push --force'
+ASK	B	bash -e -o pipefail -c 'git push --force'
+ASK	B	bash -c -- 'git push --force'
+ASK	B	bash -c 'git push "$1"' _ --force
+ASK	B	bash -c 'git push "$0"' --force
+ASK	B	bash -c 'git "$@"' _ push --force
+ASK	B	sh -c 'exec "$@"' sh git push --force
+ASK	B	zsh -c 'git push --force'
+ASK	B	fish -c 'git push --force'
+ASK	B	zsh -c 'git push =(echo) --force'
+ASK	B	ksh -c 'git push --force'
+ASK	B	dash -c 'git push --force'
+ASK	B	busybox sh -c 'git push --force'
+ASK	B	/bin/bash -c 'git push --force'
+ASK	B	bash.exe -c 'git push --force'
+ASK	B	"C:\Program Files\Git\bin\bash.exe" -c 'git push --force'
+ASK	B	wsl -e git push --force
+ASK	B	wsl --exec git push --force
+ASK	B	wsl -- git push --force
+ASK	B	wsl bash -c 'git push --force'
+ASK	B	wsl -d Ubuntu -u root git push --force
+ASK	B	wsl --distribution Ubuntu git push --force
+ASK	B	wsl.exe --cd /tmp git push --force
+ASK	B	wsl --shell-type login git push --force
+ASK	B	wsl -e bash -c 'git push --force'
+ASK	B	wsl -e sh -c 'rm -r /tmp/marker'
+ASK	B	wsl --exec sh -c 'git push --force'
+ASK	B	wsl -u root -e git push --force
+ASK	B	wsl ~ -e git push --force
+ASK	B	bash.exe -c "git push --force"
+ASK	B	cmd.exe /c git push --force
+ASK	B	cmd //c git push --force
+ASK	B	cmd /c "git push --force"
+ASK	B	cmd /s /c "git push --force"
+ASK	B	cmd /q/c git push --force
+ASK	B	cmd /c"git push --force"
+ASK	B	cmd /cgit push --force
+ASK	B	powershell.exe -c 'git push --force'
+ASK	B	pwsh -nop -c 'git push --force'
+ASK	B	pwsh -NoProfile -Command 'git push --force'
+ASK	B	pwsh -command 'git push --force'
+ASK	B	pwsh -co 'git push --force'
+ASK	B	pwsh -Com 'git push --force'
+ASK	B	pwsh /c 'git push --force'
+ASK	B	pwsh /Command 'git push --force'
+ASK	B	pwsh -wd x -c 'git push --force'
+ASK	B	pwsh -WorkingDirectory x -c 'git push --force'
+ASK	B	pwsh -ExecutionPolicy Bypass -c 'git push --force'
+ASK	B	pwsh -ex Bypass -c 'git push --force'
+ASK	B	pwsh -e 'ZwBpAHQAIABwAHUAcwBoACAALQAtAGYAbwByAGMAZQA='
+ASK	B	pwsh -ec ZwBpAHQAIABwAHUAcwBoACAALQAtAGYAbwByAGMAZQA=
+ASK	B	pwsh -en ZwBpAHQAIABwAHUAcwBoACAALQAtAGYAbwByAGMAZQA=
+ASK	B	pwsh -enc ZwBpAHQAIABwAHUAcwBoACAALQAtAGYAbwByAGMAZQA=
+LIMIT	B	pwsh -f x.ps1
+LIMIT	B	pwsh -File x.ps1
+LIMIT	B	pwsh x.ps1
+PASS	B	pwsh -noni 'git push --force'
+PASS	B	pwsh 'git push --force'
+ASK	B	powershell 'git push --force'
+ASK	B	powershell git push --force
+PASS	B	pwsh -mta git push --force
+ASK	B	pwsh -s -c 'git push --force'
+ASK	B	powershell -NoProfile 'git push --force'
+ASK	B	powershell -nop -ep Bypass 'Remove-Item -Recurse ..\..\..\marker'
+ASK	B	powershell "rm -r ../../../marker"
+ASK	B	pwsh -c 'git push' '--force'
+ASK	B	pwsh -c 'git' 'push --force'
+ASK	B	pwsh -Command 'git push' --force
+ASK	B	powershell -c 'git push' '--force'
+ASK	P	powershell 'git push --force'
+ASK	P	powershell "git push --force"
+ASK	P	powershell -c 'git push' '--force'
+ASK	P	pwsh -c 'git push' '--force'
+ASK	C	powershell "git push --force"
+ASK	C	powershell -nop "git push --force"
+ASK	C	pwsh -c "git push" "--force"
+ASK	C	powershell -c "git push" "--force"
+ASK	B	cmd /c 'git push' --force
+ASK	B	cmd /c '"git" push --force'
+ASK	B	pwsh -c "& {git push --force}"
+ASK	B	pwsh -cwa 'git push $args[0]' --force
+ASK	B	pwsh -CommandWithArgs 'git push @args' --force
+ASK	P	git push --force
+PASS	P	GIT PUSH --FORCE
+ASK	P	git PUSH --force
+ASK	P	& git push --force
+ASK	P	& 'git' push --force
+ASK	P	& "git.exe" push --force
+ASK	P	. git push --force
+ASK	P	&git push --force
+ASK	P	& (Get-Command git) push --force
+LIMIT	P	Get-Command git | % { & $_ push --force }
+ASK	P	& (gcm git) push --force
+ASK	P	& $env:ComSpec /c git push --force
+ASK	P	$ExecutionContext.InvokeCommand.InvokeScript('git push --force')
+ASK	P	$ExecutionContext.InvokeCommand.InvokeScript("git push --force")
+ASK	P	$ExecutionContext.InvokeCommand.NewScriptBlock('git push --force').Invoke()
+ASK	P	$ExecutionContext.SessionState.InvokeCommand.InvokeScript('git push --force')
+ASK	P	$executioncontext.invokecommand.invokescript('git push --force')
+ASK	P	$ExecutionContext.InvokeCommand.InvokeScript( 'git push --force' )
+ASK	P	$ExecutionContext.InvokeCommand.InvokeScript($false, {git push --force}, $null)
+ASK	P	$ExecutionContext.InvokeCommand.ExpandString('$(git push --force)')
+ASK	P	$ExecutionContext.InvokeCommand.ExpandString("`$(git push --force)")
+ASK	P	[scriptblock]::Create('git push --force').Invoke()
+ASK	P	[ScriptBlock]::Create("git push --force").InvokeReturnAsIs()
+ASK	P	[System.Management.Automation.ScriptBlock]::Create('git push --force').Invoke()
+ASK	P	[scriptblock]::create('git push --force') | % { & $_ }
+ASK	P	{git push --force}.Invoke()
+ASK	P	Invoke-Command -ScriptBlock {git push --force}
+ASK	P	Invoke-Command {git push --force}
+ASK	P	icm {git push --force}
+ASK	P	Invoke-Command -ScriptBlock ([scriptblock]::Create('git push --force'))
+ASK	P	Start-Job {git push --force}
+ASK	P	Start-ThreadJob {git push --force}
+ASK	P	1 | ForEach-Object -Parallel {git push --force}
+ASK	P	1 | ? {git push --force}
+LIMIT	P	New-Item function:g -Value 'git push --force'; g
+ASK	P	Set-Item function:g -Value {git push --force}; g
+LIMIT	P	ni function:g -Value 'git push --force'
+LIMIT	P	${function:g} = 'git push --force'
+ASK	P	function g { git push --force }; g
+LIMIT	P	sal g git; g push --force
+ASK	P	iex 'git push --force'
+ASK	P	Invoke-Expression -Command 'git push --force'
+ASK	P	'git push --force' | iex
+LIMIT	P	iex ('git push '+'--force')
+ASK	P	Invoke-Expression ([string]'git push --force')
+ASK	P	iex -Command:'git push --force'
+ASK	P	iex -c 'git push --force'
+ASK	P	iex -co 'git push --force'
+ASK	P	. ([scriptblock]::Create('git push --force'))
+ASK	P	& ([scriptblock]::Create('git push --force'))
+ASK	P	powershell -Command {git push --force}
+ASK	P	pwsh -c {git push --force}
+ASK	P	git push --force | Out-Null
+ASK	P	$null = git push --force
+ASK	P	$x = $(git push --force)
+ASK	P	$x = @(git push --force)
+ASK	P	[void](git push --force)
+ASK	P	if ($true) { git push --force }
+ASK	P	foreach ($x in 1) { git push --force }
+ASK	P	switch (1) { 1 { git push --force } }
+ASK	P	try { git push --force } finally { }
+ASK	P	trap { git push --force }
+ASK	P	while ($false) { git push --force }
+ASK	P	for ($i=0;$i -lt 1;$i++) { git push --force }
+ASK	P	git push --force && echo ok
+ASK	P	echo ok || git push --force
+ASK	P	git push --force &
+ASK	P	git push "--force"
+ASK	P	git push --`force
+ASK	P	git push -`-force
+ASK	P	git push `--force
+ASK	P	g`it push --force
+ASK	P	git pu`sh --force
+ASK	P	git push "-f"
+ASK	P	git push "$('--force')"
+ASK	P	git push $('--force')
+ASK	P	git push ('--force')
+ASK	P	git push @('--force')
+ASK	P	git push "--for$()ce"
+ASK	P	git push "--for$('c')e"
+ASK	P	git push --for$()ce
+ASK	P	git push "--$('force')"
+ASK	P	git push ("--force")
+ASK	P	git push ('--force','-v')
+ASK	P	git push '--force','-v'
+ASK	P	git push --force,-v
+ASK	P	git push -v,--force
+ASK	P	git push --% --force
+ASK	P	git --% push --force
+ASK	P	git push "--%" --force
+ASK	P	git push <U+2013>-force
+PASS	P	git push <U+2014><U+2014>force
+ASK	P	git push <U+2014>force
+ASK	P	git push <U+2013>f
+PASS	P	git push ‐‐force
+PASS	P	git push −−force
+ASK	P	git push ”--force”
+ASK	P	git push ‘--force’
+ASK	P	git push „--force“
+ASK	P	Remove-Item ..\..\..\marker -Recurse
+ASK	P	Remove-Item -LiteralPath ..\..\..\marker -Recurse
+ASK	P	Remove-Item -lp ..\..\..\marker -r
+ASK	P	ri ..\..\..\marker -r
+ASK	P	rm ..\..\..\marker -r
+ASK	P	rm -fo -r ..\..\..\marker
+ASK	P	del -r ..\..\..\marker
+ASK	P	rmdir ..\..\..\marker -Recurse
+ASK	P	rd ..\..\..\marker -r
+ASK	P	erase -r ..\..\..\marker
+ASK	P	Microsoft.PowerShell.Management\Remove-Item -Recurse ..\..\..\marker
+ASK	P	Remove-Item -Recurse:$true ..\..\..\marker
+ASK	P	Remove-Item -Recurse:1 ..\..\..\marker
+ASK	P	Remove-Item -Path ('..\..\..\marker') -Recurse
+ASK	P	Remove-Item -Path @('..\..\..\marker') -Recurse
+ASK	P	Remove-Item -Path ..\..\..\marker,.\x -Recurse
+ASK	P	Remove-Item -Path .\x,..\..\..\marker -Recurse
+ASK	P	Remove-Item -Path .\x, ..\..\..\marker -Recurse
+ASK	P	Remove-Item -Recurse -Path .\x , ..\..\..\marker
+ASK	P	Remove-Item -Recurse .\x ..\..\..\marker
+ASK	P	Remove-Item -Recurse C:\work\marker
+ASK	P	Remove-Item -Recurse \work\marker
+ASK	P	Remove-Item -Recurse \\?\C:\work\marker
+ASK	P	Remove-Item -Recurse \\.\C:\work\marker
+ASK	P	Remove-Item -Recurse Microsoft.PowerShell.Core\FileSystem::C:\work\marker
+ASK	P	Remove-Item -Recurse FileSystem::C:\work\marker
+ASK	P	Remove-Item -Recurse filesystem::..\..\..\marker
+ASK	P	Remove-Item -Recurse $HOME
+ASK	P	Remove-Item -Recurse ~
+ASK	P	Remove-Item -Recurse $env:TEMP\marker
+ASK	P	Remove-Item -Recurse $PWD\..\..\..\marker
+ASK	P	Remove-Item -Recurse (Resolve-Path ..\..\..\marker)
+ASK	P	Remove-Item -Recurse "..\..\..\mark*"
+ASK	P	Remove-Item -Recurse ..\..\..\*
+ASK	P	Remove-Item -Recurse ..\..\..
+ASK	P	Remove-Item -Recurse C:
+ASK	P	Remove-Item -Recurse C:marker
+ASK	P	Remove-Item -Recurse /work/marker
+ASK	P	Remove-Item -Recurse ..\..\..\marker\.
+PASS	P	Remove-Item -Recurse .\.git
+PASS	P	Remove-Item -Recurse .\.GIT
+PASS	P	Remove-Item -Recurse .\.git.
+ASK	P	Remove-Item -Recurse .\.git::$INDEX_ALLOCATION
+PASS	P	Remove-Item -Recurse .\GIT~1
+PASS	P	Remove-Item -Recurse ..
+PASS	P	Remove-Item -Recurse ...
+ASK	P	Remove-Item -Recurse .\x\..\..\..\..\marker
+ASK	P	Remove-Item -Recurse .\x/../../../../marker
+ASK	P	Get-ChildItem ..\..\..\marker | Remove-Item -Recurse
+ASK	P	gci ..\..\..\marker -Recurse | Remove-Item
+ASK	P	gci ..\..\..\marker -r | % { rm $_ -Recurse }
+LIMIT	P	gci ..\..\..\marker -r | % { $_.Delete() }
+LIMIT	P	(gi ..\..\..\marker).Delete($true)
+LIMIT	P	[IO.Directory]::Delete('..\..\..\marker', $true)
+ASK	P	cd ..\..\..; Remove-Item -Recurse marker
+ASK	P	Set-Location ..\..\..; Remove-Item -Recurse marker
+ASK	P	sl ..\..\..; Remove-Item -Recurse marker
+ASK	P	chdir ..\..\..; Remove-Item -Recurse marker
+ASK	P	pushd ..\..\..; Remove-Item -Recurse marker
+ASK	P	cd -Path ..\..\..; Remove-Item -Recurse marker
+ASK	P	cd -LiteralPath ..\..\..; Remove-Item -Recurse marker
+ASK	P	Push-Location -StackName x ..\..\..; ri -r marker
+ASK	P	cd -StackName x ..\..\..; ri -r marker
+ASK	P	Set-Location -Path:..\..\..; ri -r marker
+ASK	P	cd ..\..\..\; ri -r marker
+ASK	P	cd ~; ri -r marker
+ASK	P	cd $HOME; ri -r marker
+ASK	P	cd \; ri -r marker
+ASK	P	cd /; ri -r marker
+ASK	P	cd C:; ri -r marker
+ASK	P	cd c:\; ri -r marker
+ASK	P	cd ..;cd ..;cd ..; ri -r marker
+ASK	P	psql -c 'DROP TABLE marker'
+ASK	P	psql -c "DROP  TABLE marker"
+ASK	P	psql -c "DROP`tTABLE marker"
+ASK	P	psql -c "DROP`nTABLE marker"
+ASK	P	psql -c 'DROP/**/TABLE marker'
+ASK	P	psql -c 'DROP"TABLE" marker'
+ASK	P	psql -c 'drop table marker'
+ASK	P	psql -c 'DROP TABLE IF EXISTS marker'
+ASK	P	psql -c 'DROP -- x<NL>TABLE marker'
+ASK	P	psql -c "DROP<TAB>TABLE marker"
+ASK	P	psql -c "DROP<NL>TABLE marker"
+LIMIT	P	psql -c 'DR\OP TABLE marker'
+PASS	P	psql -c 'D""ROP TABLE marker'
+LIMIT	P	psql -c 'DELETE FROM marker'
+ASK	P	psql -c 'ALTER TABLE marker RENAME TO x; DROP TABLE x'
+LIMIT	P	psql -c 'DROP VIEW marker'
+LIMIT	P	psql -c 'DROP OWNED BY marker'
+LIMIT	P	psql -c 'DROP INDEX marker'
+LIMIT	P	psql -c 'DROP USER marker'
+ASK	P	psql -c 'TRUNCATE marker'
+ASK	P	psql -c 'TRUNCATE'
+LIMIT	P	psql -c 'drop tabl\e marker'
+LIMIT	P	psql -c 'E''\x44''ROP TABLE marker'
+LIMIT	P	psql -c 'EXECUTE ''DR'' || ''OP TABLE marker'''
+LIMIT	P	psql -c 'DO $$ BEGIN EXECUTE ''DR''||''OP TABLE marker''; END $$'
+ASK	P	Get-Content x.sql | psql
+LIMIT	P	psql -f x.sql
+LIMIT	P	psql < x.sql
+ASK	P	cmd /c psql -c "DROP TABLE marker"
+ASK	P	sqlite3 db 'DROP TABLE marker'
+LIMIT	P	sqlite3.exe db .read x.sql
+ASK	P	sqlite3 db ".shell git push --force"
+ASK	P	sqlite3 db ".system git push --force"
+ASK	P	mysql -e "DROP TABLE marker"
+ASK	P	mysql --execute="DROP TABLE marker"
+ASK	P	mysql -e'DROP TABLE marker'
+ASK	P	mysql -eDROP` TABLE` marker
+ASK	P	pg_dump x; dropdb marker
+ASK	P	dropdb marker
+ASK	P	mysqladmin drop marker
+ASK	P	sqlcmd -Q "DROP TABLE marker"
+ASK	P	Invoke-Sqlcmd -Query 'DROP TABLE marker'
+ASK	P	git push "`u{2d}`u{2d}force"
+ASK	P	git push "-`u{66}"
+ASK	P	git push "--forc`u{65}"
+ASK	P	git push "`u{2d}f"
+ASK	P	git push "`--force"
+ASK	P	psql -c "DROP`u{20}TABLE marker"
+ASK	P	Remove-Item <U+2014>Recurse ..\..\..\marker
+ASK	P	Remove-Item ―Recurse ..\..\..\marker
+ASK	P	Remove-Item <U+2013>Recurse ..\..\..\marker
+ASK	P	$r = git push --force
+ASK	P	$r = git push --force 2>&1
+ASK	P	$out = rm -r ..\..\..\marker
+ASK	P	[string]$x = git push --force
+ASK	P	$x += git push --force
+ASK	P	$a, $b = git push --force
+ASK	P	$global:x = git push --force
+ASK	P	$x = & git push --force
+ASK	P	$x = (git push --force)
+ASK	P	$x = Remove-Item -Recurse ..\..\..\marker
+ASK	P	$env:X = git push --force
+ASK	P	$x.y = git push --force
+ASK	P	$x[0] = git push --force
+ASK	P	${x} = git push --force
+ASK	P	[void]$x = git push --force
+ASK	P	$x = $y = git push --force
+ASK	P	$x ??= git push --force
+ASK	P	return git push --force
+ASK	P	throw (git push --force)
+ASK	P	exit (git push --force)
+ASK	P	Write-Output (git push --force)
+ASK	P	echo (git push --force)
+ASK	P	"$(git push --force)"
+ASK	P	@"<NL>$(git push --force)<NL>"@
+ASK	P	git push ('--force', '-v')
+ASK	P	git push ("--force","-v")
+ASK	P	git push ('-v','--force')
+ASK	P	git push -v ('--force')
+ASK	P	git push ('origin', '--force')
+ASK	P	git push ,'--force'
+ASK	P	git push (,'--force')
+ASK	P	git push @('--force','-v')
+ASK	P	Remove-Item -Recurse -Path ('.\x','..\..\..\marker')
+ASK	P	Remove-Item -Recurse -Path @('.\x','..\..\..\marker')
+ASK	P	Remove-Item -Recurse -Path .\x,..\..\..\marker
+ASK	P	Remove-Item -Recurse .\x,..\..\..\marker
+ASK	P	Remove-Item -Recurse .\x,"..\..\..\marker"
+ASK	P	Remove-Item -Recurse .\x,'..\..\..\marker'
+ASK	P	Remove-Item -Recurse -LiteralPath .\x,..\..\..\marker
+ASK	P	Remove-Item -Recurse Microsoft.PowerShell.Core\FileSystem::\\server\share\x
+ASK	P	Remove-Item -Recurse Registry::HKCU\Software\x
+ASK	P	Remove-Item -Recurse HKCU:\Software\x
+ASK	P	ri -r function:x
+ASK	B	mysql -e'DROP TABLE marker'
+ASK	B	mysql -eDROP\ TABLE\ marker
+ASK	B	mysql "-eDROP TABLE marker"
+ASK	B	psql -c'DROP TABLE marker'
+ASK	B	psql --command='DROP TABLE marker'
+ASK	B	psql -cDROP\ TABLE\ x
+ASK	B	sqlcmd -Q'DROP TABLE marker'
+ASK	B	mysql --execute='DROP TABLE marker'
+ASK	B	mysql --exec='DROP TABLE marker'
+ASK	B	echo 'DROP TABLE marker' | mysql
+ASK	B	echo 'DROP TABLE marker' | mysql db
+ASK	B	mysql db <<< 'DROP TABLE marker'
+ASK	B	mysql db < <(echo 'DROP TABLE marker')
+LIMIT	B	printf 'DROP TABLE marker' > x.sql; mysql db < x.sql
+LIMIT	B	mysql db -e "source x.sql"
+ASK	B	psql -v x='DROP TABLE marker' -c ':x'
+LIMIT	B	psql -c '\i x.sql'
+ASK	B	psql -c '\! git push --force'
+ASK	B	sqlite3 db '.shell git push --force'
+ASK	B	sqlite3 db '.system rm -r ../../../marker'
+ASK	B	duckdb -c ".shell git push --force"
+ASK	B	mysql -e 'system git push --force'
+ASK	B	mysql -e '\! git push --force'
+ASK	B	psql -c 'COPY x FROM PROGRAM $$git push --force$$'
+ASK	B	x='a[$(git push --force)]'; : "${!x}"
+ASK	B	printf -v 'a[$(git push --force)]' x
+ASK	B	read 'a[$(git push --force)]' <<< x
+ASK	B	declare 'a[$(git push --force)]=1'
+ASK	B	unset 'a[$(git push --force)]'
+ASK	B	[[ 'a[$(git push --force)]' -eq 0 ]]
+ASK	B	y='$(git push --force)'; : "${y@P}"
+ASK	B	[ -v 'a[$(git push --force)]' ]
+ASK	B	declare -n r='a[$(git push --force)]'; : "$r"
+ASK	B	coproc rm -r ../../../marker
+ASK	B	touch ./--force; git push --f*
+ASK	B	rm -r ../../../mark*
+ASK	B	rm -r ../../../*
+ASK	B	rm -r ../../.*
+ASK	B	rm -r ~/*
+ASK	B	rm -r /*
+ASK	B	rm -r ../../../[m]arker
+PASS	B	rm -r ../../..?
+PASS	B	rm -r ../../.?
+PASS	B	rm -r ../..?/x
+PASS	B	rm -r .??
+ASK	B	rm -r ../../../{marker,x}
+ASK	B	rm -r {../../../marker,x}
+ASK	B	rm -r ..{/..,}/../marker
+ASK	B	rm -r .{.,}/../../marker
+ASK	B	rm -r ~+/../../../marker
+ASK	B	rm -r ~-/marker
+ASK	B	rm -r ~root
+ASK	B	rm -r ~/
+ASK	B	rm -r "$PWD/../../../marker"
+ASK	B	rm -r $PWD/../../../marker
+ASK	B	rm -r $OLDPWD
+ASK	B	rm -r ${PWD%/*/*/*}/marker
+ASK	B	rm -rf -- ../../../marker
+ASK	B	rm -r -- -x ../../../marker
+ASK	B	rm --recursive ../../../marker
+ASK	B	rm --rec ../../../marker
+ASK	B	rm --recu=x ../../../marker
+ASK	B	rm -Rf ../../../marker
+ASK	B	rm -fR ../../../marker
+ASK	B	rm -dr ../../../marker
+PASS	B	rm -d ../../../marker
+PASS	B	rmdir ../../../marker
+LIMIT	B	rm ../../../marker/*
+ASK	B	rm -r '../../../marker'
+ASK	B	rm -r ..\\..\\..\\marker
+ASK	B	rm -r ..'/'..'/'../marker
+ASK	B	rm -r /c/work/marker
+ASK	B	rm -r /C/work/marker
+ASK	B	rm -r //c/work/marker
+ASK	B	rm -r c:/work/marker
+ASK	B	rm -r C:\\work\\marker
+ASK	B	rm -r 'C:\work\marker'
+ASK	B	rm -r /cygdrive/c/work/marker
+ASK	B	rm -r /mnt/c/work/marker
+ASK	B	rm -r /proc/cygdrive/c/work/marker
+ASK	B	rm -r /c/work/proj/../marker
+ASK	B	rm -r /c/work/proj/./../marker
+ASK	B	rm -r /c/work/proj//..//marker
+ASK	B	rm -r /c/WORK/PROJ/../marker
+ASK	B	rm -r /c/work/proj/.git
+ASK	B	rm -r /c/work/proj/.git/
+ASK	B	rm -r /c/work/proj/.GIT
+ASK	B	rm -r /c/work/proj/.git.
+ASK	B	rm -r "/c/work/proj/.git "
+ASK	B	rm -r /c/work/proj/.git::\$INDEX_ALLOCATION
+ASK	B	rm -r /c/work/proj/GIT~1
+ASK	B	rm -r /c/work/proj
+ASK	B	rm -r /c/work/proj/
+ASK	B	rm -r /c/work/proj/.
+ASK	B	rm -r /c/work/proj/sub/../..
+ASK	B	rm -r /c/work/projX
+ASK	B	rm -r /c/work/proj.
+ASK	B	rm -r /c/work/proj~1
+ASK	B	rm -r /c/work/PROJ~1
+ASK	B	rm -r /c/work/proj:stream
+ASK	B	rm -r /usr/bin/../../c/work/marker
+ASK	B	rm -r /tmp/marker
+ASK	B	rm -r /
+ASK	B	rm -r /c
+ASK	B	rm -r /c/
+ASK	B	rm -r //server/share/x
+ASK	B	rm -r '\\server\share\x'
+ASK	B	rm -r '\\?\C:\work\marker'
+ASK	B	rm -r '\\.\C:\work\marker'
+ASK	B	rm -r '\\?\UNC\server\share\x'
+ASK	B	rm -r '\??\C:\work\marker'
+ASK	B	cd /c/work; rm -r marker
+ASK	B	cd ../../..; rm -r marker
+ASK	B	cd ../../.. && rm -r marker
+ASK	B	pushd ../../..; rm -r marker
+ASK	B	pushd ../../.. >/dev/null; rm -r marker
+ASK	B	cd -P ../../..; rm -r marker
+ASK	B	cd -L ../../..; rm -r marker
+ASK	B	cd -- ../../..; rm -r marker
+ASK	B	cd -e ../../..; rm -r marker
+ASK	B	cd -@ ../../..; rm -r marker
+ASK	B	CDPATH=/c/work cd marker && rm -r x
+ASK	B	cd marker2 && rm -r ../../../../marker
+ASK	B	OLDPWD=/c/work cd - && rm -r marker
+ASK	B	HOME=/c/work cd && rm -r marker
+ASK	B	HOME=/c/work; cd; rm -r marker
+ASK	B	HOME=/c/work; rm -r ~/marker
+ASK	B	set -- /c/work; cd "$1"; rm -r marker
+ASK	B	shopt -s cdable_vars; w=/c/work; cd w; rm -r marker
+ASK	B	shopt -s autocd; ../../..; rm -r marker
+ASK	B	dirs; pushd +1; rm -r marker
+ASK	B	cd ../../..; (rm -r marker)
+ASK	B	cd ../../..; bash -c 'rm -r marker'
+ASK	B	cd ../../..; find . -maxdepth 0 -exec rm -r marker \;
+ASK	B	cd ../../..; git push --force
+ASK	B	git -C ../../.. clean -fdx
+ASK	B	git --work-tree=/c/work clean -fdx
+ASK	B	git clean -fdx
+ASK	B	git clean -xdf
+ASK	B	git clean --force -d
+PASS	B	git clean -f -n
+PASS	B	git clean -fn
+PASS	B	git clean -nf
+PASS	B	git clean -f --dry-run
+ASK	B	git clean -f -i
+ASK	B	git clean -f --interactive
+ASK	B	git clean -ff
+ASK	B	git clean -fq
+ASK	B	git clean --for
+ASK	B	git -c clean.requireForce=false clean -d
+ASK	B	git -c clean.requireforce=0 clean -d
+ASK	B	git -c CLEAN.REQUIREFORCE=false clean -d
+ASK	B	git -c alias.x=push x --force
+ASK	B	git -c core.hooksPath=x push
+ASK	B	git -c core.sshCommand='sh -c "rm -r ../../../marker"' fetch
+ASK	B	git -c core.pager='rm -r ../../../marker' log
+ASK	B	git -c core.editor='rm -r /' commit
+ASK	B	GIT_SSH_COMMAND='sh -c "git push --force"' git fetch
+ASK	B	GIT_PAGER='git push --force' git log
+ASK	B	GIT_EDITOR='rm -r /' git commit
+ASK	B	git config alias.p 'push --force'; git p
+ASK	B	git config --global alias.p 'push --force'; git p
+ASK	B	git config alias.p '!git push --force'; git p
+ASK	B	git config clean.requireForce false; git clean -d
+ASK	B	git config core.sshCommand 'rm -r /'; git fetch
+ASK	B	git reset --hard
+ASK	B	git reset --ha
+ASK	B	git reset --hard=HEAD
+PASS	B	git reset --keep
+PASS	B	git reset --merge
+LIMIT	B	git checkout -- .
+LIMIT	B	git checkout -f
+LIMIT	B	git restore .
+LIMIT	B	git restore --source=HEAD~5 .
+LIMIT	B	git switch -f main
+LIMIT	B	git stash drop
+LIMIT	B	git stash clear
+LIMIT	B	git branch -D main
+ASK	B	git push origin --delete main
+ASK	B	git push -d origin main
+ASK	B	git push origin +HEAD:main
+ASK	B	git push --prune
+ASK	B	git push --all --force
+ASK	B	git push --tags -f
+ASK	B	git push origin main --force
+PASS	B	git push origin main -- --force
+PASS	B	git push -- --force
+PASS	B	git push origin -f:main
+ASK	B	git push --repo=x -f
+ASK	B	git push --push-option=x -f
+ASK	B	git push -o x -f
+ASK	B	git push --receive-pack=x -f
+ASK	B	git push --exec='rm -r /'
+ASK	B	git push --receive-pack='rm -r /'
+ASK	B	git push -o -f
+ASK	B	git push --push-option -f
+ASK	B	git push --repo -f
+PASS	B	git push --force-with-lease=main:abc
+ASK	B	git push --force-with-lease --force
+ASK	B	git push --no-force-with-lease --force
+ASK	B	git push --no-force --force
+ASK	B	git push --force --no-force
+ASK	B	git push -f --no-force
+ASK	B	git push --forc --no-forc
+ASK	C	git push --force
+PASS	C	GIT PUSH --FORCE
+ASK	C	git push --f^orce
+ASK	C	g^it push --force
+ASK	C	^g^i^t push --force
+ASK	C	git^ push --force
+ASK	C	git push^ --force
+ASK	C	"git" push --force
+ASK	C	"git"push --force
+ASK	C	git"" push --force
+ASK	C	git push "--force"
+ASK	C	git push --"force"
+ASK	C	git push -"-"force
+ASK	C	git,push,--force
+ASK	C	git;push --force
+PASS	C	git=push --force
+ASK	C	git	push	--force
+ASK	C	@git push --force
+ASK	C	@@git push --force
+ASK	C	(git push --force)
+ASK	C	((git push --force))
+ASK	C	if 1==1 git push --force
+ASK	C	if exist x (git push --force) else (echo)
+ASK	C	if not exist x git push --force
+ASK	C	if /i a==a git push --force
+ASK	C	if defined PATH git push --force
+ASK	C	if errorlevel 0 git push --force
+ASK	C	if "a"=="a" git push --force
+ASK	C	if a equ a git push --force
+ASK	C	if 1 lss 2 git push --force
+ASK	C	if cmdextversion 2 git push --force
+ASK	C	for %i in (1) do git push --force
+ASK	C	for %%i in (1) do git push --force
+ASK	C	for /r %i in (*) do git push --force
+ASK	C	for /r . %i in (x) do git push --force
+ASK	C	for /d %i in (*) do git push --force
+ASK	C	for /l %i in (1,1,1) do git push --force
+ASK	C	for /f %i in ('echo') do git push --force
+ASK	C	for /f "delims=" %i in ('git push --force') do echo
+ASK	C	for /f "usebackq" %i in (`git push --force`) do echo
+LIMIT	C	for /f "tokens=*" %a in ("git push --force") do %a
+LIMIT	C	for %a in ("git push --force") do %~a
+LIMIT	C	for %a in (git) do %a push --force
+LIMIT	C	for /f %a in ("--force") do git push %a
+LIMIT	C	set x=git push --force & call %x%
+LIMIT	C	set x=--force && git push %x%
+ASK	C	call git push --force
+PASS	C	call :label
+PASS	C	call :label git push --force
+PASS	C	goto x
+ASK	C	start git push --force
+ASK	C	start /b git push --force
+ASK	C	start "" git push --force
+ASK	C	start "t" /b /wait git push --force
+ASK	C	start /min git push --force
+ASK	C	start /d . git push --force
+ASK	C	start /d.. git push --force
+ASK	C	start /affinity 1 git push --force
+ASK	C	start /node 0 git push --force
+ASK	C	start /high git push --force
+ASK	C	start /b /i git push --force
+ASK	C	start "" /b cmd /c git push --force
+ASK	C	start cmd /k git push --force
+ASK	C	cmd /c git push --force
+ASK	C	cmd /v:on /c git push --force
+ASK	C	cmd /v /c git push --force
+ASK	C	cmd /e:on /c git push --force
+ASK	C	cmd /d /c git push --force
+ASK	C	cmd /u /c git push --force
+ASK	C	cmd /t:0a /c git push --force
+ASK	C	cmd /a /c git push --force
+ASK	C	cmd /x /c git push --force
+ASK	C	cmd /f:on /c git push --force
+ASK	C	cmd /c"git push --force"
+ASK	C	cmd/c git push --force
+ASK	C	cmd.exe/c git push --force
+ASK	C	cmd /k git push --force
+ASK	C	cmd /r git push --force
+ASK	C	cmd /C git push --force
+ASK	C	cmd -c git push --force
+ASK	C	%ComSpec% /c git push --force
+ASK	C	%SystemRoot%\system32\cmd.exe /c git push --force
+LIMIT	C	%~dp0git push --force
+ASK	C	%~dp0\..\git push --force
+PASS	C	git %* --force
+PASS	C	git push %1
+ASK	C	git push --force %x%
+ASK	C	git push %x:a=b% --force
+ASK	C	git push !x! --force
+ASK	C	git push ^!x^! --force
+PASS	C	git push --for!x!ce
+PASS	C	git push --for%x%ce
+PASS	C	git push --for%%ce
+PASS	C	git push --for%ce
+PASS	C	git push --forc%~0e
+LIMIT	C	git push --for%=%ce
+ASK	C	git push --for%cd:~0,0%ce
+ASK	C	git push --for%PATH:~0,0%ce
+ASK	C	git push %PATH:~0,0%--force
+ASK	C	git push --force>nul
+ASK	C	git push --force 2>nul
+ASK	C	git push --force|more
+ASK	C	git push --force&echo
+ASK	C	git push --force&&echo
+ASK	C	echo&git push --force
+ASK	C	echo|git push --force
+ASK	C	echo||git push --force
+PASS	C	echo^&git push --force
+ASK	C	echo "&"&git push --force
+ASK	C	echo "^"&git push --force
+ASK	C	echo ^"&git push --force
+ASK	C	echo ^"x"&git push --force
+ASK	C	echo "x^"&git push --force
+PASS	C	echo x"&"git push --force
+ASK	C	rem & git push --force
+LIMIT	C	rem x^<NL>git push --force
+ASK	C	:: x & git push --force
+ASK	C	::x<NL>git push --force
+ASK	C	echo x ^<NL>& git push --force
+ASK	C	git push ^<NL>--force
+ASK	C	git push --^<NL>force
+ASK	C	del /s ..\..\..\marker
+ASK	C	del /S /Q ..\..\..\marker
+ASK	C	del/s ..\..\..\marker
+ASK	C	del /q/s ..\..\..\marker
+LIMIT	C	del /sq ..\..\..\marker
+PASS	C	del -s ..\..\..\marker
+ASK	C	del ..\..\..\marker /s
+ASK	C	rd /s /q ..\..\..\marker
+ASK	C	rd/s/q ..\..\..\marker
+ASK	C	rmdir /S ..\..\..\marker
+ASK	C	rd /s ..\..\..\marker\.
+ASK	C	rd /s "..\..\..\marker"
+ASK	C	rd /s ..\..\..\mark?r
+ASK	C	rd /s ..\..\..\*
+ASK	C	rd /s %USERPROFILE%
+ASK	C	rd /s %HOMEDRIVE%%HOMEPATH%
+ASK	C	rd /s %TEMP%\x
+ASK	C	rd /s C:
+ASK	C	rd /s C:\
+ASK	C	rd /s \
+ASK	C	rd /s /
+PASS	C	rd /s ..
+PASS	C	rd /s .git
+ASK	C	rd /s ..\..\.git
+ASK	C	rd /s ..\..\GIT~1
+ASK	C	cd ..\..\.. & rd /s marker
+ASK	C	cd /d C:\work & rd /s marker
+ASK	C	cd/d C:\work & rd /s marker
+ASK	C	chdir ..\..\.. & rd /s marker
+ASK	C	pushd ..\..\.. & rd /s marker
+ASK	C	pushd \\server\share & rd /s x
+ASK	C	D: & rd /s marker
+ASK	C	cd \ & rd /s work
+ASK	C	cd.. & cd.. & cd.. & rd /s marker
+ASK	C	cd..\..\.. & rd /s marker
+ASK	C	cd\ & rd /s work
+ASK	C	cd/ & rd /s work
+ASK	C	cd;..\..\.. & rd /s marker
+ASK	C	cd,..\..\.. & rd /s marker
+ASK	C	cd=..\..\.. & rd /s marker
+LIMIT	C	robocopy empty ..\..\..\marker /mir
+ASK	C	format c:
+ASK	C	format.com c:
+ASK	C	diskpart /s x.txt
+ASK	C	wsl -e git push --force
+ASK	C	wsl --exec git push --force
+ASK	C	wsl git push --force
+ASK	C	wsl bash -c "git push --force"
+ASK	C	wsl -- git push --force
+ASK	C	wsl ~ git push --force
+ASK	C	wsl ~ -e git push --force
+ASK	C	wsl --cd ~ git push --force
+ASK	C	wsl --cd ~ -e git push --force
+ASK	C	wsl -d Ubuntu --exec git push --force
+ASK	C	wsl -u root --exec git push --force
+ASK	C	wsl --user root git push --force
+ASK	C	wsl --system git push --force
+ASK	C	wsl -s git push --force
+ASK	C	wsl --shell-type none git push --force
+ASK	C	wsl --shell-type standard git push --force
+ASK	C	wsl --shell-type login git push --force
+ASK	C	wsl.exe git push --force
+ASK	C	bash -c "git push --force"
+ASK	C	bash.exe -c "git push --force"
+ASK	C	wsl -e sh -c "rm -r /mnt/c/work/marker"
+ASK	C	wsl rm -r /mnt/c/work/marker
+ASK	C	wsl rm -r ../../../marker

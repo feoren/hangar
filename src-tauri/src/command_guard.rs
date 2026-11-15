@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::command_split::{join, split, CallInfo, Dialect};
+use crate::command_split::{join, split, CallInfo, Dialect, PROCESS_FILE, WORKING_FOLDER};
 use crate::git::key_within;
 
 /// File in Hangar's config folder, next to `profiles.toml`.
@@ -77,6 +77,9 @@ impl Flag {
 
     /// Whether `option` (one argument that looks like an option) gives this flag.
     fn given_by(&self, option: &str) -> bool {
+        if matches!(self, Flag::Long(_) | Flag::Short(_)) && option_glob(option) {
+            return self.globbed_by(option);
+        }
         match self {
             // Programs using getopt_long or git's parser take an unambiguous prefix (`--ha` for
             // `--hard`); which prefixes another option of the program shares is not known here,
@@ -115,6 +118,74 @@ impl Flag {
                     name.eq_ignore_ascii_case(switch)
                 }),
         }
+    }
+}
+
+/// Whether an option word is a wildcard pattern a POSIX shell expands against the folder's
+/// files (`--f*`, `-[f]`, `--@(force|x)`): a file named like the option turns it into one.
+fn option_glob(option: &str) -> bool {
+    option.len() <= MAX_COMPONENT
+        && (option.contains(['*', '?'])
+            || (option.contains('[') && option.contains(']'))
+            || EXTGLOBS.iter().any(|open| option.contains(open)))
+}
+
+/// The openers of bash's extended globs.
+const EXTGLOBS: &[&str] = &["@(", "+(", "!(", "?(", "*("];
+
+/// Most alternatives an extended glob is taken apart into.
+const MAX_EXTGLOB_VARIANTS: usize = 64;
+
+/// The plain wildcard patterns an option word with extended globs stands for: `@(a|b)` and
+/// `+(a|b)` as `a` or `b`, `?(a)` and `*(a)` also as nothing, `!(...)` as `*`. A nested or
+/// unclosed one is `*`.
+fn extglob_variants(word: &str) -> Vec<String> {
+    let found = EXTGLOBS
+        .iter()
+        .filter_map(|open| word.find(open).map(|at| (at, *open)))
+        .min_by_key(|(at, _)| *at);
+    let Some((at, open)) = found else {
+        return vec![word.to_owned()];
+    };
+    let body_start = at + open.len();
+    let Some(close) = word[body_start..].find(')').map(|end| body_start + end) else {
+        return vec![format!("{}*", &word[..at])];
+    };
+    let (head, body, tail) = (&word[..at], &word[body_start..close], &word[close + 1..]);
+    let mut alternatives: Vec<String> = if open == "!(" || body.contains('(') {
+        vec!["*".to_owned()]
+    } else {
+        body.split('|').map(str::to_owned).collect()
+    };
+    if open == "?(" || open == "*(" {
+        alternatives.push(String::new());
+    }
+    let rests = extglob_variants(tail);
+    let mut out = Vec::new();
+    for alternative in alternatives {
+        for rest in &rests {
+            if out.len() >= MAX_EXTGLOB_VARIANTS {
+                return out;
+            }
+            out.push(format!("{head}{alternative}{rest}"));
+        }
+    }
+    out
+}
+
+impl Flag {
+    /// [`Flag::given_by`] for an option word that is a wildcard pattern: it gives the flag when
+    /// it may match the flag's text or, for a long option, a prefix of it that the program
+    /// takes for the option (`--forc?`).
+    fn globbed_by(&self, option: &str) -> bool {
+        let name = option.split_once('=').map_or(option, |(name, _)| name);
+        let text = self.text();
+        extglob_variants(name).iter().any(|pattern| match self {
+            Flag::Long(long) => (4..=long.len())
+                .filter(|end| long.is_char_boundary(*end))
+                .any(|end| glob_match(pattern, &long[..end])),
+            _ => glob_match(pattern, &text),
+        })
     }
 }
 
@@ -428,6 +499,13 @@ pub fn program_name(word: &str) -> String {
         .next()
         .unwrap_or(word)
         .to_lowercase();
+    // `%ComSpec%` and `$env:ComSpec` name cmd.exe.
+    if matches!(
+        name.as_str(),
+        "%comspec%" | "$env:comspec" | "${env:comspec}"
+    ) {
+        return "cmd".to_owned();
+    }
     for suffix in [".exe", ".com", ".cmd", ".bat"] {
         if let Some(stem) = name.strip_suffix(suffix) {
             if !stem.is_empty() {
@@ -507,6 +585,23 @@ struct Target {
     key: String,
     /// The part from the first wildcard on was cut off: the key's folder is not itself named.
     glob: bool,
+    /// That first wildcard part (`.g*`), which may name any entry of the key's folder.
+    pattern: Option<String>,
+}
+
+/// PowerShell's FileSystem provider in front of a path (`FileSystem::C:\x`), lowercase with `/`.
+const FILE_SYSTEM_PROVIDERS: &[&str] = &["microsoft.powershell.core/filesystem::", "filesystem::"];
+
+/// A PowerShell provider path that is no file (`Registry::HKCU\x`, `HKCU:\x`, `Env:x`,
+/// `function:x`): a name of two or more characters before a `:` that comes before any `/`.
+fn provider_path(text: &str) -> bool {
+    let head = text.split('/').next().unwrap_or_default();
+    head.split_once(':').is_some_and(|(name, _)| {
+        name.len() >= 2
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    })
 }
 
 /// Home folder spellings of the common shells, matched without case.
@@ -528,6 +623,31 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
     } else {
         arg.to_owned()
     };
+    if style.windows {
+        let lower = text.to_lowercase();
+        if let Some(provider) = FILE_SYSTEM_PROVIDERS
+            .iter()
+            .find(|provider| lower.starts_with(**provider))
+        {
+            text = text.get(provider.len()..).unwrap_or_default().to_owned();
+        }
+        // Another provider's item (the registry, a function, a variable) is no path Hangar can
+        // place.
+        if text.contains("::") || provider_path(&text) {
+            return None;
+        }
+    }
+    // `$PWD` (also `$(pwd)` and PowerShell's `$pwd`, which the lexers give as `$PWD`) is the
+    // working folder.
+    for name in [WORKING_FOLDER, "${PWD}"] {
+        if let Some(rest) = text.strip_prefix(name) {
+            if rest.is_empty() || rest.starts_with('/') || (style.windows && rest.starts_with('\\'))
+            {
+                text = format!("{}{rest}", cwd?);
+                break;
+            }
+        }
+    }
     let lower = text.to_lowercase();
     let home_rest = if text == "~" || text.starts_with("~/") {
         Some(text[1..].to_owned())
@@ -561,6 +681,7 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
     let (prefix, rest) = joined;
     let mut parts: Vec<&str> = Vec::new();
     let mut glob = false;
+    let mut pattern = None;
     for part in rest.split('/') {
         // Windows drops trailing dots and spaces of each part: `...` and `.. ` name the folder
         // itself, as `.` does.
@@ -576,6 +697,7 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
             }
             part if part.contains(['*', '?', '[']) => {
                 glob = true;
+                pattern = Some(part.to_owned());
                 break;
             }
             part => parts.push(part),
@@ -592,7 +714,36 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
     if style.fold_case {
         key = key.to_lowercase();
     }
-    Some(Target { key, glob })
+    Some(Target { key, glob, pattern })
+}
+
+/// Whether a wildcard part right in the project may match its `.git` folder. A leading `*`
+/// does not match a leading dot (POSIX shells; PowerShell's `*` skips the hidden `.git`
+/// without `-Force`), so `./*` and `*.log` stay inside; `.*`, `.g*`, `?git` and `[.]git` do not.
+fn may_name_git(pattern: &str, fold_case: bool) -> bool {
+    if pattern.starts_with('*') {
+        return false;
+    }
+    let pattern = if fold_case {
+        pattern.to_lowercase()
+    } else {
+        pattern.to_owned()
+    };
+    glob_match(&pattern, ".git")
+}
+
+/// A Windows 8.3 short name (`GIT~1`, `PROGRA~2.TXT`): it may stand for any long name of its
+/// folder, `.git` among them.
+fn short_name(part: &str) -> bool {
+    let (stem, rest) = match part.split_once('~') {
+        Some(split) => split,
+        None => return false,
+    };
+    let digits = rest.split('.').next().unwrap_or_default();
+    !stem.is_empty()
+        && stem.len() <= 6
+        && !digits.is_empty()
+        && digits.chars().all(|c| c.is_ascii_digit())
 }
 
 /// An absolute path's root (`""` for `/`, `c:` for a drive, `//host` for a share) and the rest;
@@ -639,9 +790,10 @@ fn split_root(text: &str, style: Style) -> Option<(Option<String>, String)> {
 }
 
 /// Whether `target` lies strictly inside `project` and not in its `.git`. A wildcard right in
-/// the project folder (`./*`) names its contents, which counts as inside.
-fn inside(target: &Target, project: &str, fold_case: bool) -> bool {
-    let project = if fold_case {
+/// the project folder (`./*`) names its contents, which counts as inside, unless it may match
+/// `.git` (`.g*`); on Windows a short name right in it (`GIT~1`) may be `.git` too.
+fn inside(target: &Target, project: &str, style: Style) -> bool {
+    let project = if style.fold_case {
         project.to_lowercase()
     } else {
         project.to_owned()
@@ -650,11 +802,15 @@ fn inside(target: &Target, project: &str, fold_case: bool) -> bool {
         return false;
     }
     if target.key == project {
-        return target.glob;
+        return target.glob
+            && !target
+                .pattern
+                .as_deref()
+                .is_some_and(|pattern| may_name_git(pattern, style.fold_case));
     }
     let rest = &target.key[project.len()..];
     let first = rest.trim_start_matches('/').split('/').next().unwrap_or("");
-    !first.eq_ignore_ascii_case(".git")
+    !first.eq_ignore_ascii_case(".git") && !(style.windows && short_name(first))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1001,6 +1157,8 @@ struct Input<'a> {
     /// A call in a piped `ForEach-Object` block: `Some` with the call whose items its `$_`
     /// names, when that one is known.
     items: Option<Option<&'a [String]>>,
+    /// cmd reads `$` as a plain character (`"$(pwd)/dist"` is a folder of that name).
+    plain_dollar: bool,
 }
 
 /// Programs whose output lists items at or below the paths they are given, so a delete fed
@@ -1008,15 +1166,34 @@ struct Input<'a> {
 /// may name any path.
 const LISTING_PROGRAMS: &[&str] = &["get-childitem", "gci", "ls", "dir", "get-item", "gi"];
 
+/// Programs of [`LISTING_PROGRAMS`] that list what lies below the folders they are given (the
+/// folder itself is not among their items), and the current folder without one.
+const LISTING_BELOW: &[&str] = &["get-childitem", "gci", "ls", "dir"];
+
 /// The paths and options of a listing call, as `rule` reads them; `None` for another program.
-fn listed<'a>(rule: &GuardRule, call: &'a [String]) -> Option<(Vec<&'a str>, Vec<&'a str>)> {
+/// The items of `Get-ChildItem x` lie below `x`, so its paths are given as `x/*` (inside the
+/// project when `x` is the project itself).
+fn listed<'a>(rule: &GuardRule, call: &'a [String]) -> Option<(Vec<String>, Vec<&'a str>)> {
     let program = program_name(call.first()?);
     if !LISTING_PROGRAMS.contains(&program.as_str()) {
         return None;
     }
     let (options, mut paths) = rule.split_args(call.get(1..).unwrap_or_default(), &program);
     paths.extend(options.iter().filter_map(|option| colon_value(option)));
-    Some((paths, options))
+    if !LISTING_BELOW.contains(&program.as_str()) {
+        return Some((paths.into_iter().map(str::to_owned).collect(), options));
+    }
+    if paths.is_empty() {
+        paths.push(".");
+    }
+    let below = paths
+        .into_iter()
+        .map(|path| {
+            let path = path.trim_end_matches(['/', '\\']);
+            format!("{}/*", if path.is_empty() { "/" } else { path })
+        })
+        .collect();
+    Some((below, options))
 }
 
 /// `$_`, `$PSItem` and their `.FullName`: the item a `ForEach-Object` block is run for.
@@ -1093,16 +1270,25 @@ impl GuardRule {
         }
         let (mut options, mut positionals) = self.split_args(&call[1..], &program);
         if !self.subcommands.is_empty() {
+            // Where file names ignore case, `git PUSH` finds `git-push` too.
+            let same = |wanted: &String, sub: &str| {
+                wanted == sub || (style.fold_case && wanted.eq_ignore_ascii_case(sub))
+            };
             match positionals.first() {
-                Some(sub) if self.subcommands.iter().any(|s| s == sub) => {
+                Some(sub) if self.subcommands.iter().any(|s| same(s, sub)) => {
                     positionals.remove(0);
                 }
                 _ => return false,
             }
         }
-        let mut paths: Vec<&str> = positionals.clone();
+        let mut paths: Vec<String> = positionals.iter().map(|path| (*path).to_owned()).collect();
         if self.outside_project {
-            paths.extend(options.iter().filter_map(|option| colon_value(option)));
+            paths.extend(
+                options
+                    .iter()
+                    .filter_map(|option| colon_value(option))
+                    .map(str::to_owned),
+            );
             // `Get-ChildItem x -Recurse | Remove-Item`: a delete without paths of its own takes
             // what the call before it lists, and that call's options.
             if paths.is_empty() && input.piped {
@@ -1143,9 +1329,7 @@ impl GuardRule {
             };
             // SQL comments split no words (`DROP/**/TABLE`); the text counts as written too,
             // since a `--` inside a string literal is no comment.
-            let found = call[1..]
-                .iter()
-                .chain(input.fed)
+            let found = texts_with_glued_values(&call[1..], input.fed)
                 .any(|arg| has(arg) || has(&without_sql_comments(arg)));
             if !found {
                 return false;
@@ -1157,11 +1341,17 @@ impl GuardRule {
                 return input.piped;
             }
             let outside = paths.iter().any(|arg| {
+                let arg = if input.plain_dollar {
+                    // Any character Hangar does not read as a variable stands in for it.
+                    arg.replace('$', "\u{ff04}")
+                } else {
+                    arg.clone()
+                };
                 match (
-                    place(arg, cwd, place_of.home.as_deref(), style),
+                    place(&arg, cwd, place_of.home.as_deref(), style),
                     &place_of.project,
                 ) {
-                    (Some(target), Some(project)) => !inside(&target, project, style.fold_case),
+                    (Some(target), Some(project)) => !inside(&target, project, style),
                     _ => true,
                 }
             });
@@ -1171,6 +1361,19 @@ impl GuardRule {
         }
         true
     }
+}
+
+/// The arguments and fed texts of a call, and the value glued to each short option
+/// (`-eDROP TABLE x` holds `DROP TABLE x`, which `upper_words` would read as `EDROP`).
+fn texts_with_glued_values<'a>(
+    args: &'a [String],
+    fed: &'a [String],
+) -> impl Iterator<Item = &'a str> + 'a {
+    let glued = args
+        .iter()
+        .filter(|arg| arg.starts_with('-') && !arg.starts_with("--"))
+        .filter_map(|arg| arg.get(2..).filter(|value| !value.is_empty()));
+    args.iter().chain(fed).map(String::as_str).chain(glued)
 }
 
 /// git's own options that take the next word as their value (`git -C x push`); after the
@@ -1293,7 +1496,7 @@ fn protected_path(arg: &str, cwd: Option<&str>, place_of: &Place, style: Style) 
             return true;
         }
         if let Some(project) = &place_of.project {
-            if inside(target, project, style.fold_case) {
+            if inside(target, project, style) {
                 return false;
             }
         }
@@ -1401,6 +1604,15 @@ pub fn check(
             add(Hit::builtin(RULE_STDIN_SCRIPT, String::new()));
         }
         let mut cwds: Vec<Option<String>> = vec![place_of.cwd.clone()];
+        // bash may find a `cd` target elsewhere (`CDPATH`, `cdable_vars`) or change folder for
+        // a bare folder name (`autocd`): any folder then.
+        if *dialect == Dialect::Posix
+            && ["CDPATH", "cdable_vars", "autocd"]
+                .iter()
+                .any(|name| command.contains(name))
+        {
+            cwds.push(None);
+        }
         let mut redirects = analysis.redirects.iter().peekable();
         for (index, call) in analysis.calls.iter().enumerate() {
             while let Some((_, target)) = redirects.next_if(|(at, _)| *at <= index) {
@@ -1422,7 +1634,7 @@ pub fn check(
                 let name = name.as_deref().unwrap_or_default();
                 if CHANGE_FOLDER.contains(&name) {
                     changes_folder = true;
-                    for folder in folders_after_cd(variant, &cwds, home, style) {
+                    for folder in folders_after_cd(variant, &cwds, home, style, info.dialect) {
                         add_folder(&mut cwds, folder);
                     }
                 } else if FOLDER_BACK.contains(&name) || is_drive_switch(variant) {
@@ -1445,7 +1657,12 @@ pub fn check(
             if unreadable_call(program, call, info) {
                 add(Hit::builtin(RULE_TOO_COMPLEX, shown_call.clone()));
             }
-            if sql_from_stdin(program, call, info) {
+            // `mysql < <(...)`: the client reads a process's output.
+            let process_input = analysis
+                .redirects
+                .iter()
+                .any(|(at, target)| *at == index && target == PROCESS_FILE);
+            if sql_from_stdin(program, call, info, process_input) {
                 add(Hit::builtin(RULE_STDIN_SCRIPT, shown_call.clone()));
             }
             let input = Input {
@@ -1460,6 +1677,7 @@ pub fn check(
                         .and_then(|at| analysis.calls.get(at))
                         .map(Vec::as_slice)
                 }),
+                plain_dollar: info.dialect == Dialect::Cmd,
             };
             for rule in rules {
                 // Only a rule about paths depends on the working folder.
@@ -1498,10 +1716,15 @@ fn folders_after_cd(
     cwds: &[Option<String>],
     home: Option<&str>,
     style: Style,
+    dialect: Dialect,
 ) -> Vec<Option<String>> {
     let mut targets: Vec<&str> = Vec::new();
     let mut unknown = false;
     for arg in call.iter().skip(1) {
+        // cmd's `cd /d x` also switches the drive, which the target names.
+        if dialect == Dialect::Cmd && arg.eq_ignore_ascii_case("/d") {
+            continue;
+        }
         if !arg.starts_with('-') || arg == "-" {
             targets.push(arg);
             continue;
@@ -1518,7 +1741,14 @@ fn folders_after_cd(
             _ => unknown = true,
         }
     }
-    if targets.len() != 1 || targets[0] == "-" {
+    // `cd -`, and `pushd +1` / `popd -0` turning the folder stack: a folder Hangar does not
+    // track.
+    let stack = |target: &str| {
+        target
+            .strip_prefix(['+', '-'])
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    if targets.len() != 1 || targets[0] == "-" || stack(targets[0]) {
         unknown = true;
     }
     let mut out: Vec<Option<String>> = Vec::new();
@@ -1572,12 +1802,29 @@ fn unreadable_call(program: &str, call: &[String], info: &CallInfo) -> bool {
     if info.dialect == Dialect::Cmd
         && call
             .iter()
-            .any(|word| has_cmd_edit(word) || has_delayed_variable(word))
+            .any(|word| has_cmd_edit(word) || (info.delayed && has_delayed_variable(word)))
     {
+        return true;
+    }
+    if info.dialect == Dialect::Posix && call.iter().any(|word| expands_to_code(word)) {
+        return true;
+    }
+    if DB_CLIENTS.contains(&program) && runs_a_shell_from_sql(call, info) {
         return true;
     }
     if program != "git" {
         return false;
+    }
+    if git_config_sets_a_command(call) {
+        return true;
+    }
+    // Options after the subcommand that name a program for git to run.
+    if call[1..].iter().any(|arg| {
+        ["--exec", "--receive-pack", "--upload-pack"]
+            .iter()
+            .any(|option| arg.starts_with(option))
+    }) {
+        return true;
     }
     let mut args = call[1..].iter();
     while let Some(arg) = args.next() {
@@ -1599,11 +1846,122 @@ fn unreadable_call(program: &str, call: &[String], info: &CallInfo) -> bool {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if key.starts_with("alias.") || key == "clean.requireforce" {
+        if key.starts_with("alias.") || key == "clean.requireforce" || git_key_runs_a_command(&key)
+        {
             return true;
         }
     }
     false
+}
+
+/// `git config <key> <value>` (also `git config set <key> <value>`) storing a key that changes
+/// what a later git command runs: an alias, a command for git to run, or `clean.requireForce`.
+fn git_config_sets_a_command(call: &[String]) -> bool {
+    let mut args = call[1..].iter();
+    let subcommand = loop {
+        let Some(arg) = args.next() else {
+            return false;
+        };
+        if GIT_VALUE_OPTIONS.contains(&arg.as_str()) {
+            args.next();
+        } else if !arg.starts_with('-') {
+            break arg;
+        }
+    };
+    if subcommand != "config" {
+        return false;
+    }
+    let positionals: Vec<&String> = args.filter(|arg| !arg.starts_with('-')).collect();
+    // A key with a value after it is set; a key alone is read.
+    let key = match positionals.as_slice() {
+        [verb, key, _value, ..] if *verb == "set" => key,
+        [key, _value, ..] => key,
+        _ => return false,
+    };
+    let key = key.to_ascii_lowercase();
+    key.starts_with("alias.") || key == "clean.requireforce" || git_key_runs_a_command(&key)
+}
+
+/// git configuration keys whose value is a command git runs (`core.pager`,
+/// `core.sshCommand`, `core.editor`, `core.hooksPath`, a diff driver's `textconv`, ...).
+fn git_key_runs_a_command(key: &str) -> bool {
+    matches!(
+        key,
+        "core.pager"
+            | "core.sshcommand"
+            | "core.editor"
+            | "core.hookspath"
+            | "core.fsmonitor"
+            | "core.askpass"
+            | "core.gitproxy"
+            | "sequence.editor"
+            | "diff.external"
+            | "credential.helper"
+            | "gpg.program"
+            | "uploadpack.packobjectshook"
+    ) || key.starts_with("pager.")
+        || [
+            ".textconv",
+            ".command",
+            ".driver",
+            ".receivepack",
+            ".uploadpack",
+            ".helper",
+            ".program",
+            ".clean",
+            ".smudge",
+            ".process",
+            ".cmd",
+        ]
+        .iter()
+        .any(|suffix| key.ends_with(suffix))
+}
+
+/// A POSIX word whose expansion runs code Hangar cannot see: bash's indirection `${!name}`
+/// (a name such as `a[$(cmd)]` is evaluated), the prompt expansion `${x@P}`, zsh's `${(e)x}`.
+/// `${!name[@]}` and `${!prefix*}` only list names.
+fn expands_to_code(word: &str) -> bool {
+    if word.contains("${(") || word.contains("@P}") {
+        return true;
+    }
+    let mut rest = word;
+    while let Some(at) = rest.find("${!") {
+        let after = &rest[at + 3..];
+        let name_end = after
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(after.len());
+        let tail = &after[name_end..];
+        let lists = tail.starts_with("[@]}")
+            || tail.starts_with("[*]}")
+            || tail.starts_with("@}")
+            || tail.starts_with("*}");
+        if !lists {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// SQL a database client hands to a shell or another program: psql's and mysql's `\!`,
+/// mysql's `system`, sqlite3's and duckdb's `.shell` and `.system`, PostgreSQL's
+/// `COPY ... FROM PROGRAM`.
+fn runs_a_shell_from_sql(call: &[String], info: &CallInfo) -> bool {
+    texts_with_glued_values(&call[1..], &info.fed).any(|text| {
+        let words = upper_words(text);
+        let program = words
+            .windows(2)
+            .any(|pair| matches!(pair[0].as_str(), "FROM" | "TO") && pair[1] == "PROGRAM");
+        program
+            || text.contains("\\!")
+            || text.split([';', '\n']).any(|statement| {
+                let lower = statement.trim_start().to_ascii_lowercase();
+                lower.starts_with(".shell")
+                    || lower.starts_with(".system")
+                    || lower.starts_with("system ")
+                    || lower.starts_with("\\system")
+            })
+    })
 }
 
 /// `%name:...%` in a word: a substring or replace expansion of cmd.
@@ -1683,14 +2041,14 @@ const SQL_FILE_OPTIONS: &[&str] = &["-f", "--file", "-i", "--queries-file", "--i
 /// A database client that reads its SQL from stdin while the text is not on the command line: a
 /// pipe into it with no SQL option or argument, a file option naming stdin (`psql -f -`), or a
 /// here-document built from variables.
-fn sql_from_stdin(program: &str, call: &[String], info: &CallInfo) -> bool {
+fn sql_from_stdin(program: &str, call: &[String], info: &CallInfo, process_input: bool) -> bool {
     if !DB_CLIENTS.contains(&program) {
         return false;
     }
     if info.fed.iter().any(|text| text.contains('$')) {
         return true;
     }
-    if !info.piped {
+    if !info.piped && !process_input {
         return false;
     }
     let args = &call[1..];
@@ -1783,9 +2141,74 @@ fn call_variants(call: &[String], info: &CallInfo) -> (Vec<Vec<String>>, bool) {
                     .collect());
             }
         }
-        Dialect::PowerShell => {}
+        // `a,b` is an array: each element is a word of its own for a native program
+        // (`git push --force,-v`) and a path of its own for a cmdlet (`Remove-Item .\x,..\y`).
+        Dialect::PowerShell => {
+            if call.iter().skip(1).any(|word| word.contains(',')) {
+                add(call
+                    .iter()
+                    .flat_map(|word| word.split(',').filter(|part| !part.is_empty()))
+                    .map(str::to_owned)
+                    .collect());
+            }
+        }
+    }
+    // A refspec push: `+main` forces like `--force`, `:main` deletes like `--delete`.
+    let refspecs: Vec<Vec<String>> = variants
+        .iter()
+        .filter_map(|variant| git_refspec_options(variant))
+        .collect();
+    for read in refspecs {
+        if !variants.contains(&read) {
+            variants.push(read);
+        }
     }
     (variants, too_complex)
+}
+
+/// A `git push` whose refspecs force (`+main`) or delete (`:main`), with the option each stands
+/// for added; `None` for any other call.
+fn git_refspec_options(call: &[String]) -> Option<Vec<String>> {
+    if program_name(call.first()?) != "git" {
+        return None;
+    }
+    let mut args = call[1..].iter();
+    // git's own options before the subcommand.
+    let subcommand = loop {
+        let arg = args.next()?;
+        if GIT_VALUE_OPTIONS.contains(&arg.as_str()) {
+            args.next();
+        } else if !arg.starts_with('-') {
+            break arg;
+        }
+    };
+    if subcommand != "push" {
+        return None;
+    }
+    let mut extra = Vec::new();
+    let mut positionals = 0;
+    for arg in args {
+        if arg.starts_with('-') {
+            continue;
+        }
+        positionals += 1;
+        // The first positional is the remote; refspecs follow it.
+        if positionals < 2 {
+            continue;
+        }
+        if arg.starts_with('+') && !extra.iter().any(|e| e == "--force") {
+            extra.push("--force".to_owned());
+        }
+        if arg.starts_with(':') && !extra.iter().any(|e| e == "--delete") {
+            extra.push("--delete".to_owned());
+        }
+    }
+    if extra.is_empty() {
+        return None;
+    }
+    let mut read = call.to_vec();
+    read.extend(extra);
+    Some(read)
 }
 
 /// Each word brace expanded into its variants; `None` when no word has a brace. A word that
@@ -1809,7 +2232,8 @@ fn brace_expanded(call: &[String]) -> Result<Option<Vec<String>>, BraceError> {
 }
 
 /// The call with `$IFS` read as a word break and `${name:-word}`, `${name-word}`,
-/// `${name:=word}` and `${name=word}` read as `word`, split again at blanks.
+/// `${name:=word}`, `${name=word}`, `${name:+word}`, `${name+word}` and the replacement of
+/// `${name/pattern/word}` read as `word`, split again at blanks.
 /// The flag says a default value was nested deeper than [`MAX_DEFAULT_NESTING`].
 fn with_defaults_and_ifs(call: &[String]) -> (Vec<String>, bool) {
     if !call.iter().any(|word| word.contains('$')) {
@@ -1855,9 +2279,17 @@ fn defaults_and_ifs(word: &str, nesting: usize, too_deep: &mut bool) -> String {
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .unwrap_or(body.len());
             let (name, op) = body.split_at(name_end);
-            let value = [":-", ":=", "-", "="]
+            // `:+` and `+` give the word when the variable is set, which Hangar cannot know.
+            // A replacement (`${x/a/b}`, `${x//a/b}`, `${x/#a/b}`) may give its text too.
+            let replacement = || {
+                let pattern = op.strip_prefix('/')?;
+                let pattern = pattern.strip_prefix(['/', '#', '%']).unwrap_or(pattern);
+                pattern.split_once('/').map(|(_, replacement)| replacement)
+            };
+            let value = [":-", ":=", ":+", "-", "=", "+"]
                 .iter()
-                .find_map(|prefix| op.strip_prefix(prefix));
+                .find_map(|prefix| op.strip_prefix(prefix))
+                .or_else(replacement);
             match value {
                 Some(value) => out.push_str(&defaults_and_ifs(value, nesting + 1, too_deep)),
                 None if name == "IFS" && op.is_empty() => out.push(' '),
@@ -2235,6 +2667,12 @@ mod tests {
         for command in ["git status", "cargo test", "ls -la", "npm run build"] {
             assert_eq!(hits_in(command, "Shell"), Vec::<String>::new(), "{command}");
         }
+        // The third audit's 393 everyday commands, in their own dialect and as `Shell`.
+        let wrong = disagreements(
+            include_str!("../tests/data/command_guard_everyday.txt"),
+            true,
+        );
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 
     #[test]
@@ -2247,12 +2685,15 @@ mod tests {
             ids,
             [
                 "git-push-force",
+                "git-push-delete",
                 "git-reset-hard",
                 "git-clean-force",
                 "rm-outside-project",
                 "remove-item-outside-project",
                 "del-outside-project",
                 "sql-drop",
+                "dropdb",
+                "mysqladmin-drop",
                 "format-disk",
             ]
         );
@@ -2700,8 +3141,12 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
-        // Too large to expand: asked about, and the option still counts by its start.
-        assert_eq!(found, [RULE_TOO_COMPLEX, "git-push-force"]);
+        // Too large to expand: asked about, and the option still counts by its start, which
+        // every long option of the push rules shares.
+        assert_eq!(
+            found,
+            [RULE_TOO_COMPLEX, "git-push-force", "git-push-delete"]
+        );
     }
 
     #[test]
@@ -3116,7 +3561,10 @@ program = ["x"]
         assert!(has(&found, RULE_TOO_COMPLEX), "{found:?}");
         let found = hits_in("cmd /c \"git push --for%COMSPEC:~0,0%ce\"", "Bash");
         assert!(has(&found, "git-push-force"), "{found:?}");
-        assert!(has(&cmd("git push !opt!"), RULE_TOO_COMPLEX));
+        // `!x!` is a variable only with delayed expansion on; plain cmd passes it as written.
+        assert!(has(&cmd("cmd /v:on /c git push !opt!"), RULE_TOO_COMPLEX));
+        assert!(has(&cmd("cmd /v /c git push !opt!"), RULE_TOO_COMPLEX));
+        assert!(!has(&cmd("git push !opt!"), RULE_TOO_COMPLEX));
         assert!(cmd("echo 100%% done & git status").is_empty());
     }
 
@@ -3619,6 +4067,8 @@ program = ["x"]
             "gci dist | %{Remove-Item $_.FullName -Recurse -Force}",
             "Get-ChildItem -Path:src | ForEach-Object -Process { Remove-Item $PSItem -Recurse }",
             "Get-ChildItem src | % { if ($_.PSIsContainer) { Remove-Item $_ -Recurse } }",
+            // Without a path it lists the working folder's items, which lie below it.
+            "Get-ChildItem | ForEach-Object { Remove-Item $_ -Recurse }",
         ] {
             assert_eq!(
                 hits_as(command, Dialect::PowerShell),
@@ -3633,7 +4083,6 @@ program = ["x"]
             "Get-Content list.txt | ForEach-Object { Remove-Item $_ -Recurse }",
             "Get-Content list.txt | Remove-Item -Recurse",
             "$list | % { Remove-Item $_ -Recurse }",
-            "Get-ChildItem | ForEach-Object { Remove-Item $_ -Recurse }",
             // Only `$_` is an item; another path in the block is placed as written.
             r"Get-ChildItem src | % { Remove-Item $_ -Recurse; Remove-Item -Recurse C:\Users\u }",
             r"Get-ChildItem src | % { Remove-Item $_, C:\Users\u -Recurse }",
@@ -3703,5 +4152,811 @@ program = ["x"]
                 &command[..20]
             );
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Third audit: every input below was measured as passing the guard.
+
+    /// The rule ids `command` hits as `tool` sends it, with Windows paths: working folder
+    /// `c:/code/app/sub/deep` inside the project `c:/code/app`, as the audit measured.
+    fn audit_hits(command: &str, dialects: &[Dialect]) -> Vec<String> {
+        let place = Place {
+            cwd: Some("c:/code/app/sub/deep".into()),
+            ..windows_place()
+        };
+        check(&defaults(), command, dialects, &place, WINDOWS)
+            .into_iter()
+            .map(|hit| hit.rule_id)
+            .collect()
+    }
+
+    const BASH: &[Dialect] = &[Dialect::Posix];
+    const PS: &[Dialect] = &[Dialect::PowerShell];
+    const CMD: &[Dialect] = &[Dialect::Cmd];
+
+    fn assert_rule(rule: &str, dialects: &[Dialect], commands: &[&str]) {
+        for command in commands {
+            let found = audit_hits(command, dialects);
+            assert!(found.iter().any(|id| id == rule), "{command}: {found:?}");
+        }
+    }
+
+    fn assert_quiet(dialects: &[Dialect], commands: &[&str]) {
+        for command in commands {
+            assert_eq!(
+                audit_hits(command, dialects),
+                Vec::<String>::new(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn scripts_from_several_words_are_read_as_the_shell_joins_them() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "powershell 'git push --force'",
+                "powershell -NoProfile 'git push --force'",
+                "pwsh -c 'git push' '--force'",
+                "pwsh -c 'git' 'push --force'",
+                "pwsh -Command 'git push' --force",
+                "powershell -c 'git push' '--force'",
+                "cmd /c 'git push' --force",
+                "eval 'git push' --force",
+            ],
+        );
+        assert_rule(
+            "remove-item-outside-project",
+            BASH,
+            &[r"powershell -nop -ep Bypass 'Remove-Item -Recurse ..\..\..\marker'"],
+        );
+        assert_rule(
+            "rm-outside-project",
+            BASH,
+            &[r#"powershell "rm -r ../../../marker""#],
+        );
+        assert_rule(
+            "git-push-force",
+            PS,
+            &[
+                "powershell 'git push --force'",
+                r#"powershell "git push --force""#,
+                "powershell -c 'git push' '--force'",
+                "pwsh -c 'git push' '--force'",
+            ],
+        );
+        assert_rule(
+            "git-push-force",
+            CMD,
+            &[
+                r#"powershell "git push --force""#,
+                r#"powershell -nop "git push --force""#,
+                r#"pwsh -c "git push" "--force""#,
+                r#"powershell -c "git push" "--force""#,
+                r#"cmd /c "git push" --force"#,
+            ],
+        );
+    }
+
+    #[test]
+    fn powershell_assignments_before_a_command_do_not_hide_it() {
+        assert_rule(
+            "git-push-force",
+            PS,
+            &[
+                "$null = git push --force",
+                "$r = git push --force",
+                "$r = git push --force 2>&1",
+                "[string]$x = git push --force",
+                "$x += git push --force",
+                "$a, $b = git push --force",
+                "$global:x = git push --force",
+                "$x = & git push --force",
+                "$env:X = git push --force",
+                "$x.y = git push --force",
+                "$x[0] = git push --force",
+                "${x} = git push --force",
+                "[void]$x = git push --force",
+                "$x = $y = git push --force",
+                "$x ??= git push --force",
+                "$x=git push --force",
+                "return git push --force",
+                "throw (git push --force)",
+            ],
+        );
+        assert_rule("rm-outside-project", PS, &[r"$out = rm -r ..\..\..\marker"]);
+        assert_rule(
+            "remove-item-outside-project",
+            PS,
+            &[r"$x = Remove-Item -Recurse ..\..\..\marker"],
+        );
+        assert_quiet(PS, &["$env:RUST_LOG = 'debug'; cargo run", "$x = 1; $x"]);
+    }
+
+    #[test]
+    fn a_cmd_paren_glued_to_a_word_ends_the_block() {
+        assert_rule(
+            "git-push-force",
+            CMD,
+            &[
+                "if exist x (git push --force) else (echo)",
+                "(git push --force)",
+                "((git push --force))",
+                "if exist x (echo) else (git push --force)",
+            ],
+        );
+        assert_quiet(
+            CMD,
+            &["if exist dist (rd /s /q dist)", "(echo a) & (echo b)"],
+        );
+    }
+
+    #[test]
+    fn powershell_comma_lists_name_every_path_and_option() {
+        assert_rule(
+            "remove-item-outside-project",
+            PS,
+            &[
+                r"Remove-Item -Path .\x,..\..\..\marker -Recurse",
+                r"Remove-Item -Path ..\..\..\marker,.\x -Recurse",
+                r"Remove-Item -Recurse .\x,..\..\..\marker",
+                r#"Remove-Item -Recurse .\x,"..\..\..\marker""#,
+                r"Remove-Item -Recurse .\x,'..\..\..\marker'",
+                r"Remove-Item -Recurse -LiteralPath .\x,..\..\..\marker",
+                r"Remove-Item -Recurse -Path ('.\x','..\..\..\marker')",
+                r"Remove-Item -Recurse -Path @('.\x','..\..\..\marker')",
+                r"Remove-Item -Path @('..\..\..\marker') -Recurse",
+            ],
+        );
+        assert_rule(
+            "git-push-force",
+            PS,
+            &[
+                "git push --force,-v",
+                "git push -v,--force",
+                "git push '--force','-v'",
+                "git push ('--force','-v')",
+                "git push ('-v','--force')",
+                "git push @('--force','-v')",
+                "git push @('--force')",
+                "git push ,'--force'",
+                "git push (,'--force')",
+            ],
+        );
+        assert_quiet(
+            PS,
+            &[r"Remove-Item -Recurse -Path .\a,.\b", "Write-Output a,b"],
+        );
+    }
+
+    #[test]
+    fn coproc_runs_its_command() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "coproc git push --force",
+                "coproc { git push --force; }",
+                "coproc NAME { git push --force; }",
+                "coproc (git push --force)",
+            ],
+        );
+        assert_rule(
+            "rm-outside-project",
+            BASH,
+            &["coproc rm -r ../../../marker"],
+        );
+    }
+
+    #[test]
+    fn builtins_that_evaluate_subscripts_have_their_substitutions_read() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "let 'a[$(git push --force)]'",
+                r"let a[\$\(git\ push\ --force\)]",
+                "test -v 'a[$(git push --force)]'",
+                "[ -v 'a[$(git push --force)]' ]",
+                "[[ 'a[$(git push --force)]' -eq 0 ]]",
+                "printf -v 'a[$(git push --force)]' x",
+                "read 'a[$(git push --force)]' <<< x",
+                "declare 'a[$(git push --force)]=1'",
+                "declare -n r='a[$(git push --force)]'; : \"$r\"",
+                "unset 'a[$(git push --force)]'",
+                "local 'a[`git push --force`]'",
+                "mapfile 'a[$(git push --force)]' < /dev/null",
+            ],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &[
+                "x='$(git push --force)'; echo ${x@P}",
+                "y='$(git push --force)'; : \"${y@P}\"",
+                "x='a[$(git push --force)]'; : \"${!x}\"",
+                "echo \"${!x}\"",
+            ],
+        );
+        assert_quiet(
+            BASH,
+            &[
+                "for i in \"${!arr[@]}\"; do echo $i; done",
+                "echo ${!prefix*}",
+                "test -f Cargo.toml && echo yes",
+                "printf '%s\\n' \"$(date)\"",
+                "export PATH=\"$HOME/bin:$PATH\"",
+                "declare -a list=(a b)",
+            ],
+        );
+    }
+
+    #[test]
+    fn positional_arguments_of_inline_scripts_are_read() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "bash -c 'git push \"$1\"' _ --force",
+                "bash -c 'git push \"$0\"' --force",
+                "bash -c 'git \"$@\"' _ push --force",
+                "sh -c 'exec \"$@\"' sh git push --force",
+                "sh -c 'git push $1' sh --force",
+                "bash -c 'git push ${1}' x --force",
+                "bash -c 'git push $*' x --force",
+                "pwsh -cwa 'git push $args[0]' --force",
+                "pwsh -CommandWithArgs 'git push @args' --force",
+            ],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &[
+                "bash -c 'git push ${@:2}' x y --force",
+                "bash -c 'shift; git $@' x y push --force",
+            ],
+        );
+        assert_quiet(
+            BASH,
+            &["bash -c 'echo \"$1\"' _ hello", "sh -c 'ls \"$@\"' sh src"],
+        );
+    }
+
+    #[test]
+    fn cmd_reads_carets_titles_glued_switches_and_folder_changes() {
+        assert_rule(
+            "git-push-force",
+            CMD,
+            &[
+                "git^ push --force",
+                "start \"t\" /b /wait git push --force",
+                "start \"\" /b git push --force",
+                "start /affinity 1 git push --force",
+                "start /node 0 git push --force",
+                "start /d . git push --force",
+                "cmd/c git push --force",
+                "cmd.exe/c git push --force",
+                "cmd /q/c git push --force",
+                "cmd /cgit push --force",
+            ],
+        );
+        assert_rule(
+            "del-outside-project",
+            CMD,
+            &[
+                r"rd/s/q ..\..\..\marker",
+                r"del/s ..\..\..\marker",
+                r"cd.. & cd.. & cd.. & rd /s marker",
+                r"cd..\..\.. & rd /s marker",
+                r"cd\ & rd /s work",
+                r"cd/ & rd /s work",
+                r"cd/d C:\work & rd /s marker",
+                r"cd /d C:\work & rd /s marker",
+                r"cd=..\..\.. & rd /s marker",
+            ],
+        );
+        assert_quiet(
+            CMD,
+            &[
+                "echo !PATH!",
+                "cd.. & dir",
+                "start \"\" notepad.exe",
+                "rd/s/q dist",
+            ],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            CMD,
+            &["cmd /v:on /c git push !x! --force"],
+        );
+    }
+
+    #[test]
+    fn powershell_values_known_before_the_command_runs_are_read() {
+        assert_rule(
+            "git-push-force",
+            PS,
+            &[
+                "git push \"`u{2d}`u{2d}force\"",
+                "git push \"-`u{66}\"",
+                "git push \"--forc`u{65}\"",
+                "git push \"`u{2d}f\"",
+                "git push \"--for$()ce\"",
+                "git push --for$()ce",
+                "git push \"--for$('c')e\"",
+                "git push \"--$('force')\"",
+                "git push \"$('--force')\"",
+                "git push $('--force')",
+                "$ExecutionContext.InvokeCommand.ExpandString('$(git push --force)')",
+                "$ExecutionContext.InvokeCommand.ExpandString(\"`$(git push --force)\")",
+            ],
+        );
+        assert_rule(
+            "sql-drop",
+            PS,
+            &[
+                "psql -c \"DROP`tTABLE marker\"",
+                "psql -c \"DROP`nTABLE marker\"",
+                "psql -c \"DROP`u{20}TABLE marker\"",
+            ],
+        );
+        assert_rule(
+            "remove-item-outside-project",
+            PS,
+            &[
+                r"Remove-Item -Recurse Microsoft.PowerShell.Core\FileSystem::C:\work\marker",
+                r"Remove-Item -Recurse FileSystem::C:\work\marker",
+                r"Remove-Item -Recurse filesystem::..\..\..\marker",
+                r"Remove-Item -Recurse Registry::HKCU\Software\x",
+                r"Remove-Item -Recurse HKCU:\Software\x",
+            ],
+        );
+        assert_quiet(
+            PS,
+            &[
+                r"Remove-Item -Recurse FileSystem::C:\code\app\dist",
+                "Write-Output \"a`tb\"",
+            ],
+        );
+    }
+
+    #[test]
+    fn wildcards_and_short_names_that_reach_the_projects_git_folder_count() {
+        let place = Place {
+            cwd: Some("c:/code/app".into()),
+            ..windows_place()
+        };
+        let in_project = |command: &str, dialect: Dialect| -> Vec<String> {
+            check(&defaults(), command, &[dialect], &place, WINDOWS)
+                .into_iter()
+                .map(|hit| hit.rule_id)
+                .collect()
+        };
+        for command in [
+            "rm -rf .*",
+            "rm -rf .?*",
+            "rm -rf .[!.]*",
+            "rm -rf .g*",
+            "rm -rf .gi?",
+            "rm -rf ?git",
+            "rm -rf GIT~1",
+            "rm -rf ./.G*",
+        ] {
+            let found = in_project(command, Dialect::Posix);
+            assert!(
+                found.iter().any(|id| id == "rm-outside-project"),
+                "{command}: {found:?}"
+            );
+        }
+        for command in [
+            "Remove-Item -Recurse -Force .gi*",
+            "ri -r -fo .g?t",
+            r"Remove-Item -Recurse .\GIT~1",
+        ] {
+            let found = in_project(command, Dialect::PowerShell);
+            assert!(
+                found.iter().any(|id| id == "remove-item-outside-project"),
+                "{command}: {found:?}"
+            );
+        }
+        for command in ["rd /s /q .gi?", "rd /s /q GIT~1"] {
+            let found = in_project(command, Dialect::Cmd);
+            assert!(
+                found.iter().any(|id| id == "del-outside-project"),
+                "{command}: {found:?}"
+            );
+        }
+        for command in [
+            "rm -rf ./*",
+            "rm -rf *.log",
+            "rm -rf src/.g*",
+            "rm -rf dist/*",
+        ] {
+            assert_eq!(
+                in_project(command, Dialect::Posix),
+                Vec::<String>::new(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn wsl_home_switch_is_skipped() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &["wsl ~ -e git push --force", "wsl ~ git push --force"],
+        );
+        assert_rule("git-push-force", CMD, &["wsl ~ -e git push --force"]);
+    }
+
+    #[test]
+    fn sql_glued_to_short_options_and_shell_escapes_are_seen() {
+        assert_rule(
+            "sql-drop",
+            BASH,
+            &[
+                "mysql -e'DROP TABLE marker'",
+                r"mysql -eDROP\ TABLE\ marker",
+                "mysql \"-eDROP TABLE marker\"",
+                "psql -c'DROP TABLE marker'",
+                r"psql -cDROP\ TABLE\ x",
+                "sqlcmd -Q'DROP TABLE marker'",
+            ],
+        );
+        assert_rule(
+            "sql-drop",
+            PS,
+            &["mysql -e'DROP TABLE marker'", "mysql -eDROP` TABLE` marker"],
+        );
+        assert_rule(
+            RULE_STDIN_SCRIPT,
+            BASH,
+            &["mysql db < <(echo 'DROP TABLE marker')"],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &[
+                "psql -c '\\! git push --force'",
+                "sqlite3 db '.shell git push --force'",
+                "sqlite3 db '.system rm -r ../../../marker'",
+                "duckdb -c \".shell git push --force\"",
+                "mysql -e 'system git push --force'",
+                "mysql -e '\\! git push --force'",
+                "psql -c 'COPY x FROM PROGRAM $$git push --force$$'",
+            ],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            PS,
+            &[
+                "sqlite3 db \".shell git push --force\"",
+                "sqlite3 db \".system git push --force\"",
+            ],
+        );
+        assert_rule("dropdb", PS, &["dropdb marker", "pg_dump x; dropdb marker"]);
+        assert_rule("mysqladmin-drop", PS, &["mysqladmin drop marker"]);
+        assert_rule(
+            "sql-drop",
+            PS,
+            &["Invoke-Sqlcmd -Query 'DROP TABLE marker'"],
+        );
+        assert_quiet(
+            BASH,
+            &[
+                "psql -c 'SELECT 1'",
+                "sqlite3 db '.schema'",
+                "mysql -e 'SELECT system FROM t'",
+                "mysqladmin status",
+            ],
+        );
+    }
+
+    #[test]
+    fn option_words_with_wildcards_count_as_every_option_they_match() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "git push --f*",
+                "git push --forc?",
+                "git push --forc[e]",
+                "git push -[f]",
+                "git push --@(force)",
+                "git push --@(force|x)",
+                "shopt -s extglob; git push --@(force)",
+                "bash -O extglob -c 'git push --+(force)'",
+            ],
+        );
+        assert_quiet(
+            BASH,
+            &["git push --tags", "ls -la *.rs", "git add src/*.ts"],
+        );
+    }
+
+    #[test]
+    fn more_wrappers_run_their_command() {
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "unbuffer git push --force",
+                "script -qc 'git push --force' /dev/null",
+                "flock /tmp/l git push --force",
+                "flock -w 5 /tmp/l git push --force",
+                "flock /tmp/l -c 'git push --force'",
+                "chronic git push --force",
+                "caffeinate git push --force",
+                "caffeinate -i git push --force",
+                "arch -arm64 git push --force",
+                "xcrun git push --force",
+                "watch git push --force",
+                "watch -n 5 git push --force",
+                "parallel git push --force ::: x",
+                "ssh host git push --force",
+                "ssh -p 22 host 'git push --force'",
+                "nocorrect git push --force",
+                "repeat 2 git push --force",
+                "=git push --force",
+                "zsh -c 'git push =(echo) --force'",
+            ],
+        );
+        assert_rule("git-push-force", CMD, &["start /d C:\\x git push --force"]);
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &["ls *(e:'git push --force':)", "echo ${(e)x}"],
+        );
+        assert_quiet(
+            BASH,
+            &["ssh host", "watch -n 1 date", "ssh -T git@github.com"],
+        );
+    }
+
+    #[test]
+    fn commands_hidden_in_git_configuration_are_asked_about() {
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &[
+                "git -c core.sshCommand='sh -c \"rm -r ../../../marker\"' fetch",
+                "git -c core.pager='rm -r ../../../marker' log",
+                "git -c core.editor='rm -r /' commit",
+                "git -c core.hooksPath=x push",
+                "git push --exec='rm -r /'",
+                "git push --receive-pack='rm -r /'",
+                "git fetch --upload-pack=x",
+            ],
+        );
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "GIT_SSH_COMMAND='sh -c \"git push --force\"' git fetch",
+                "GIT_PAGER='git push --force' git log",
+                "PROMPT_COMMAND='git push --force' bash -i",
+            ],
+        );
+        assert_rule(
+            RULE_STDIN_SCRIPT,
+            BASH,
+            &["BASH_ENV=<(echo git push --force) bash -c true"],
+        );
+        assert_quiet(
+            BASH,
+            &[
+                "git -c core.autocrlf=false status",
+                "git -c user.name=marker commit -m wip",
+            ],
+        );
+    }
+
+    #[test]
+    fn remote_branch_deletions_and_refspec_force_pushes_ask() {
+        assert_rule(
+            "git-push-delete",
+            BASH,
+            &[
+                "git push --mirror",
+                "git push --prune",
+                "git push --delete origin main",
+                "git push origin --delete main",
+                "git push -d origin main",
+                "git push origin :main",
+            ],
+        );
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &["git push origin +main", "git push origin +HEAD:main"],
+        );
+        assert_quiet(
+            BASH,
+            &[
+                "git push origin main",
+                "git push -u origin feature/x",
+                "git push origin HEAD:main",
+            ],
+        );
+    }
+
+    /// Where the audit measured: working folder `c:/work/proj/sub/deep` in the project
+    /// `c:/work/proj`.
+    fn audit_place() -> Place {
+        let config = "c:/users/me/appdata/roaming/com.example.hangar";
+        Place {
+            cwd: Some("c:/work/proj/sub/deep".into()),
+            project: Some("c:/work/proj".into()),
+            home: Some("c:/users/me".into()),
+            protected: vec![config.into()],
+            protected_files: Vec::new(),
+            protected_names: protected_names(&[config]),
+        }
+    }
+
+    /// The rows of a data file: verdict, dialects, command (`<NL>`, `<CR>`, `<TAB>`,
+    /// `<U+2013>` and `<U+2014>` stand for those characters).
+    fn recorded(text: &str) -> Vec<(&str, &'static [Dialect], String)> {
+        text.lines()
+            .filter(|line| !line.is_empty() && !line.starts_with("##"))
+            .map(|line| {
+                let mut fields = line.splitn(3, '\t');
+                let verdict = fields.next().unwrap_or_default();
+                let dialect: &'static [Dialect] = match fields.next() {
+                    Some("B") => BASH,
+                    Some("P") => PS,
+                    Some("C") => CMD,
+                    other => panic!("unknown dialect {other:?} in {line:?}"),
+                };
+                let command = fields
+                    .next()
+                    .unwrap_or_default()
+                    .replace("<NL>", "\n")
+                    .replace("<CR>", "\r")
+                    .replace("<TAB>", "\t")
+                    .replace("<U+2013>", "\u{2013}")
+                    .replace("<U+2014>", "\u{2014}");
+                (verdict, dialect, command)
+            })
+            .collect()
+    }
+
+    /// The rows of `text` whose verdict the guard does not give, as readable lines.
+    fn disagreements(text: &str, also_as_shell: bool) -> Vec<String> {
+        let rules = defaults();
+        let place = audit_place();
+        let all = [Dialect::Posix, Dialect::PowerShell, Dialect::Cmd];
+        let mut wrong = Vec::new();
+        for (verdict, dialects, command) in recorded(text) {
+            assert!(matches!(verdict, "ASK" | "PASS" | "LIMIT"), "{verdict}");
+            if verdict == "LIMIT" {
+                continue;
+            }
+            let mut readings = vec![dialects];
+            if also_as_shell {
+                readings.push(&all);
+            }
+            for dialects in readings {
+                let found = check(&rules, &command, dialects, &place, WINDOWS);
+                if found.is_empty() == (verdict == "ASK") {
+                    wrong.push(format!(
+                        "{verdict} {dialects:?} {command:?}: {:?}",
+                        ids(&found)
+                    ));
+                }
+            }
+        }
+        wrong
+    }
+
+    #[test]
+    fn third_audit_inputs_ask_or_pass_as_recorded() {
+        let wrong = disagreements(include_str!("../tests/data/command_guard_audit.txt"), false);
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    #[test]
+    fn programs_named_through_lookups_and_folder_stacks_are_read() {
+        assert_rule(
+            "git-push-force",
+            PS,
+            &[
+                "git PUSH --force",
+                "& (Get-Command git) push --force",
+                "& (gcm git) push --force",
+                "& $env:ComSpec /c git push --force",
+                "Invoke-Expression ([string]'git push --force')",
+            ],
+        );
+        assert_rule(
+            "git-push-force",
+            CMD,
+            &["%ComSpec% /c git push --force", "\"git\"push --force"],
+        );
+        assert_rule(
+            "git-push-force",
+            BASH,
+            &[
+                "git push ${F:+--force}",
+                "git push ${F+-f}",
+                "git push ${F/x/--force}",
+                "git push ${F//x/-f}",
+            ],
+        );
+        assert_rule(
+            "rm-outside-project",
+            BASH,
+            &[
+                "CDPATH=/c/work cd marker && rm -r x",
+                "shopt -s cdable_vars; w=/c/work; cd w; rm -r marker",
+                "dirs; pushd +1; rm -r marker",
+            ],
+        );
+        assert_rule(
+            RULE_TOO_COMPLEX,
+            BASH,
+            &[
+                "git config alias.p 'push --force'; git p",
+                "git config --global alias.p '!git push --force'; git p",
+                "git config clean.requireForce false; git clean -d",
+                "git config core.sshCommand 'rm -r /'; git fetch",
+                "git config set alias.p 'push --force'",
+            ],
+        );
+        assert_quiet(
+            BASH,
+            &[
+                "git config user.name marker",
+                "git config --get alias.p",
+                "git config --global core.autocrlf false",
+                "pushd src && ls && popd",
+            ],
+        );
+        assert_quiet(PS, &["& .\\build.ps1", "& { cargo test }", "git status"]);
+    }
+
+    #[test]
+    fn third_audit_false_positives_are_gone() {
+        assert_quiet(
+            BASH,
+            &[
+                "rm -rf \"$(pwd)/dist\"",
+                "rm -rf \"$PWD/dist\"",
+                "cmd //c dir",
+            ],
+        );
+        assert_rule(
+            "rm-outside-project",
+            BASH,
+            &["rm -rf \"$(pwd)/../../../x\""],
+        );
+        assert_quiet(
+            PS,
+            &[
+                r#"Remove-Item -Recurse -Force "$PWD\dist""#,
+                r#"Remove-Item (Join-Path $PWD "dist") -Recurse -Force"#,
+                "Get-ChildItem -Path . -Include *.bak -Recurse | Remove-Item",
+                "Get-ChildItem -Recurse -Force -Directory -Filter node_modules | Remove-Item -Recurse -Force",
+            ],
+        );
+        assert_rule(
+            "remove-item-outside-project",
+            PS,
+            &[r#"Remove-Item -Recurse -Force "$PWD\..\..\..\x""#],
+        );
+        assert_quiet(CMD, &["echo !PATH!"]);
+        let shell = [Dialect::Posix, Dialect::PowerShell, Dialect::Cmd];
+        assert_quiet(
+            &shell,
+            &[
+                "sh -c 'echo hi && ls'",
+                "rm -rf \"$(pwd)/dist\"",
+                "Get-ChildItem dist -Recurse | Remove-Item -Recurse -Force",
+                r#"Start-Process pwsh -ArgumentList "-NoProfile","-File","build.ps1" -Wait"#,
+            ],
+        );
     }
 }

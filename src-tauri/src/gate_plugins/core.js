@@ -73,6 +73,34 @@ function lookup(table, name) {
   return typeof name === "string" && Object.hasOwn(table, name) ? table[name] : undefined;
 }
 
+// The shell Hangar reads a tool call's command in: a known shell tool's, and "Shell" (every
+// dialect) for any other tool with a string `command` that is no edit tool, so a shell tool
+// Hangar does not know by name is still checked. Undefined for a tool that runs no command.
+function commandTool(shellTools, editTools, name, input) {
+  const known = lookup(shellTools, name);
+  if (known !== undefined) return known;
+  if (lookup(editTools, name) !== undefined) return undefined;
+  return input !== null && typeof input === "object" && typeof input.command === "string"
+    ? "Shell"
+    : undefined;
+}
+
+// After the handler itself failed: whether the call may run a shell command, which is then
+// blocked rather than let through (the command guard fails closed, edits fail open). A known
+// shell tool, any tool with a string `command`, and one whose input cannot even be read count.
+function failsClosed(shellTools, editTools, name, input) {
+  if (lookup(editTools, name) !== undefined) return false;
+  if (lookup(shellTools, name) !== undefined) return true;
+  try {
+    return input !== null && typeof input === "object" && typeof input.command === "string";
+  } catch {
+    return true;
+  }
+}
+
+const UNCHECKED_COMMAND =
+  "Hangar: the command guard could not check this command. Retry it in a moment.";
+
 // The files a write or edit tool names: a path field, a list of paths, or patch text in the
 // tool's own patch fields (`spec.patchKeys`), never in file content. At most one more than
 // MAX_PATHS, enough to know a call names too many.

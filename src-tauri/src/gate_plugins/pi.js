@@ -1,6 +1,7 @@
 
 // Pi and Oh My Pi load this file with `-e`: a `tool_call` handler that can block a write or edit
-// before it runs. Every error is caught here, because a throwing handler blocks the tool in Pi.
+// before it runs. Every error is caught here, because a throwing handler blocks the tool in Pi;
+// a call that may run a shell command is then blocked with a reason, an edit goes ahead.
 // Oh My Pi's `edit` in its apply_patch mode carries the patch in `input`.
 const EDIT_TOOLS = {
   write: { tool: "Write", patchKeys: [] },
@@ -17,7 +18,7 @@ export default function hangarGate(pi) {
     try {
       const cwd = typeof ctx?.cwd === "string" ? ctx.cwd : process.cwd();
       let verdict;
-      const shell = lookup(SHELL_TOOLS, event?.toolName);
+      const shell = commandTool(SHELL_TOOLS, EDIT_TOOLS, event?.toolName, event?.input);
       if (shell !== undefined) {
         verdict = await decideCommand(shell, event.input?.command, cwd, ctx?.signal);
       } else {
@@ -41,7 +42,9 @@ export default function hangarGate(pi) {
       }
       return undefined;
     } catch {
-      return undefined;
+      return failsClosed(SHELL_TOOLS, EDIT_TOOLS, event?.toolName, event?.input)
+        ? { block: true, reason: UNCHECKED_COMMAND }
+        : undefined;
     }
   });
 }

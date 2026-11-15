@@ -69,6 +69,21 @@ pub const DECISION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Claude Code's own limit for the hook, above [`DECISION_TIMEOUT`] so Hangar always answers
 /// first: a hook that times out lets the edit through.
 pub const HOOK_TIMEOUT_SECS: u64 = 11 * 60;
+/// The first Claude Code that knows a hook's `onFailure` ("Requires Claude Code v2.1.295 or
+/// later", docs/wiki/raw/2026-11-09-claude-hooks-reference.md). An older one gets no such
+/// field: whether it ignores an unknown hook field or rejects the whole `--settings` is not
+/// known, and a rejected one would break the session.
+pub const CLAUDE_ON_FAILURE_SINCE: &str = "2.1.295";
+
+/// Whether Claude Code `version` (as the version query found it) takes `"onFailure": "block"`;
+/// an unknown version does not.
+pub fn claude_blocks_on_failure(version: Option<&str>) -> bool {
+    let parse = crate::agent_catalog::MinVersion::parse;
+    match (version.and_then(parse), parse(CLAUDE_ON_FAILURE_SINCE)) {
+        (Some(installed), Some(since)) => installed >= since,
+        _ => false,
+    }
+}
 /// Limit of the prompt hook; facts are built from memory and answered at once.
 pub const CONTEXT_HOOK_TIMEOUT_SECS: u64 = 10;
 /// Characters of context per prompt; Claude Code caps it at 10 000.
@@ -109,8 +124,9 @@ pub const EMPTY_JSON: &str = "{}";
 
 /// `--settings` for Claude Code: the gate's hooks for this one session, merged by Claude Code
 /// with the user's own settings and hooks (measured: a project hook still ran). Holds no secret:
-/// the token stays in the environment and only its name appears here.
-pub fn claude_settings(port: u16, context: bool) -> String {
+/// the token stays in the environment and only its name appears here. `block_on_failure`
+/// ([`claude_blocks_on_failure`]) adds `onFailure` to the tool hook.
+pub fn claude_settings(port: u16, context: bool, block_on_failure: bool) -> String {
     let hook = |route: &str, timeout: u64| {
         serde_json::json!({
             "type": "http",
@@ -120,6 +136,15 @@ pub fn claude_settings(port: u16, context: bool) -> String {
             "allowedEnvVars": [TOKEN_ENV],
         })
     };
+    let mut pre_tool_use = hook(ROUTE_PRE_TOOL_USE, HOOK_TIMEOUT_SECS);
+    // A hook that cannot connect, times out or gets a non-2xx answer lets the tool run unless
+    // it says "block" (Claude Code 2.1.295 and later, docs/wiki/raw/
+    // 2026-11-09-claude-hooks-reference.md): without it an overloaded or stopped endpoint would
+    // wave every shell command through. The context hook keeps the default, so a failed fact
+    // lookup never holds up the person's prompt.
+    if let Some(fields) = pre_tool_use.as_object_mut().filter(|_| block_on_failure) {
+        fields.insert("onFailure".to_owned(), serde_json::json!("block"));
+    }
     let mut hooks = serde_json::Map::new();
     // The shell tools always get the hook: whether the guard asks is decided per command, so
     // switching it in Settings applies to running sessions too.
@@ -127,7 +152,7 @@ pub fn claude_settings(port: u16, context: bool) -> String {
         "PreToolUse".to_owned(),
         serde_json::json!([{
             "matcher": CLAUDE_MATCHER,
-            "hooks": [hook(ROUTE_PRE_TOOL_USE, HOOK_TIMEOUT_SECS)],
+            "hooks": [pre_tool_use],
         }]),
     );
     if context {
@@ -1809,7 +1834,8 @@ mod tests {
 
     #[test]
     fn settings_hold_the_hooks_but_no_token() {
-        let json: serde_json::Value = serde_json::from_str(&claude_settings(4711, true)).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&claude_settings(4711, true, false)).unwrap();
         let pre = &json["hooks"]["PreToolUse"][0];
         assert_eq!(pre["matcher"], "*");
         let hook = &pre["hooks"][0];
@@ -1829,8 +1855,45 @@ mod tests {
             "http://127.0.0.1:4711/v1/user-prompt-submit"
         );
         assert!(HOOK_TIMEOUT_SECS > DECISION_TIMEOUT.as_secs());
-        let without: serde_json::Value = serde_json::from_str(&claude_settings(1, false)).unwrap();
+        let without: serde_json::Value =
+            serde_json::from_str(&claude_settings(1, false, false)).unwrap();
         assert!(without["hooks"].get("UserPromptSubmit").is_none());
+    }
+
+    #[test]
+    fn claude_pre_tool_use_hook_blocks_on_failure() {
+        // Claude Code treats a failed http hook (no connection, timeout, non-2xx) as "continue"
+        // unless the hook says otherwise (docs/wiki/raw/2026-11-09-claude-hooks-reference.md).
+        let settings = |version: Option<&str>| -> serde_json::Value {
+            let block = claude_blocks_on_failure(version);
+            serde_json::from_str(&claude_settings(4711, true, block)).unwrap()
+        };
+        for version in ["2.1.295", "2.1.325", "2.2.0 (Claude Code)", "v3.0.0"] {
+            let json = settings(Some(version));
+            assert_eq!(
+                json["hooks"]["PreToolUse"][0]["hooks"][0]["onFailure"], "block",
+                "{version}"
+            );
+            // A failed context hook must not hold up the person's prompt.
+            assert!(json["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+                .get("onFailure")
+                .is_none());
+        }
+        // An older or unknown Claude Code may refuse the field: it gets none.
+        for version in [
+            Some("2.1.294"),
+            Some("2.0.999"),
+            Some("not a version"),
+            None,
+        ] {
+            let json = settings(version);
+            assert!(
+                json["hooks"]["PreToolUse"][0]["hooks"][0]
+                    .get("onFailure")
+                    .is_none(),
+                "{version:?}"
+            );
+        }
     }
 
     #[test]

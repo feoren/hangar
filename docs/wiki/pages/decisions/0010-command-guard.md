@@ -222,8 +222,21 @@ Option 2 with reach A.
   Code's "ask" is not always a person [UNVERIFIED: in its bypass, auto-accept and `-p` modes the
   permission prompt may be skipped or fail], and OpenCode turns Hangar's "ask" into a thrown
   error (the tool is blocked, no prompt). The extensions block a shell command whose question
-  fails (amended 2026-11-15); Claude Code's own HTTP hook fails open on any error, which Hangar
-  cannot change, so the endpoint keeps errors rare: when every slot for unknown clients is
+  fails (amended 2026-11-15), and since the third audit also one their own handler fails on
+  (an input it cannot read): only an edit goes ahead then. Claude Code's `PreToolUse` hook
+  carries `"onFailure": "block"` (third audit; documented since Claude Code 2.1.295, installed
+  2.1.325, `raw/2026-11-09-claude-hooks-reference.md` in [[claude-http-hook-measurement]]): a hook that cannot connect, times out or gets a non-2xx
+  answer blocks the tool call instead of letting it run, so a stopped or overloaded endpoint no
+  longer waves commands through. The prompt hook keeps the default ("continue"): a failed fact
+  lookup must not hold up the person's prompt. With the gate switched off the endpoint answers
+  every tool hook "no decision" (200), also one it cannot read or has no slot for, since an
+  error would now block the call. The field is written only for a Claude Code whose installed
+  version (the cached version query of [[0003-program-versions]], asked by the session
+  manager at each start of a Claude Code team session) is 2.1.295 or later
+  (`gate::CLAUDE_ON_FAILURE_SINCE`); an older or unknown version gets the settings without it,
+  as before, since whether it ignores the unknown field or rejects the whole `--settings` is
+  not known. Such a session keeps the earlier behavior: a failed hook lets the call run. Not
+  measured live. The endpoint still keeps errors rare: when every slot for unknown clients is
   taken the oldest is closed for the newcomer once it waited 1 s for its head, instead of
   turning the newcomer away (a hook sends its head at once, so silent clients cannot keep hooks
   out and a burst of parallel hooks is never cut; the head limit stays 5 s, as no measurement
@@ -277,15 +290,79 @@ Option 2 with reach A.
   `tool_input.command`, `cwd`, `file_path` or `tool_name`, broken JSON) is answered 200 with a
   deny while the gate is on, since a refused request lets Claude Code go on. A connection
   leaves the slots a newcomer may take as soon as its head is read.
+- **Read as the shells read it (amended 2026-11-15, third audit).** An audit measured 925
+  inputs, 350 of which passed (all kept as `src-tauri/tests/data/command_guard_audit.txt`, with 393
+  everyday commands in `command_guard_everyday.txt`). Now read:
+  - *Joined scripts.* Several words after `pwsh -c`, `powershell` (positional), `cmd /c`,
+    `eval`, `wsl` and `ssh host` are read twice: re-quoted as before and joined with blanks as
+    the shell joins them (`pwsh -c 'git push' '--force'`, `powershell 'git push --force'`).
+    `cmd` also takes `//c` (Git Bash), `/q/c`, `/cgit`, and only `/v` or `/v:on` makes `!x!` a
+    variable (plain `echo !PATH!` passes).
+  - *PowerShell.* Assignments in front of a pipeline (`$null = git ...`, `[string]$x`,
+    `$a, $b =`, `$x.y`, `$x[0]`, `${x}`, `$global:x`, `$env:X`, all operators, chained, also
+    glued as `$x=git`), `return` and `throw`; the call operator `&` before a value
+    (`& (Get-Command git)`, `& $env:ComSpec /c ...`, `%ComSpec%` in cmd); backtick escapes in
+    double quotes (`` `u{2d} ``, `` `t ``, ...); `$()` as nothing; `$('x')`, `@('a','b')`,
+    `('a','b')` and `[string]'x'` as their text; a comma list as one word per element for both
+    native programs (`git push --force,-v`) and paths (`Remove-Item .\x,..\y`);
+    `ExpandString('...')` like `InvokeScript`; `(Join-Path a b)` of plain words and `$PWD`,
+    `$(pwd)` as the working folder; `FileSystem::` stripped, any other provider path
+    (`Registry::`, `HKCU:`, `function:`) unplaceable.
+  - *cmd.* A `)` glued to a word closes its block (`if exist x (git push --force) else (...)`);
+    a caret before a blank still parts the words for the program (measured); `start` drops its
+    first quoted argument as the title and takes values for `/d`, `/affinity`, `/node`; a
+    switch or folder glued to a built-in is split (`rd/s/q`, `del/s`, `cmd/c`, `cd..`, `cd\`,
+    `cd/d x`, `cd=x`), and `cd /d` names its folder; a quoted program name ends at its quote
+    (`"git"push`); `NAME=value` is no assignment in cmd.
+  - *POSIX.* `coproc`, `nocorrect`, `-`, `repeat N`, `unbuffer`, `chronic`, `caffeinate`,
+    `arch`, `xcrun`, `watch`, `flock`, `parallel` (with its `:::` values), `script -c` and
+    `ssh host cmd` are unwrapped; zsh's `=git` and `=(...)`; extended globs are one word
+    (`--@(force|x)`); `bash -c '...' a b` and `pwsh -cwa '...' a` read with `$0`..`$9`, `$@`,
+    `$*`, `$args[n]`, `@args` replaced (`shift` or `${@:n}` with words after the script asks);
+    the builtins that evaluate subscripts (`let`, `test`, `[`, `[[`, `declare -n`, `read`,
+    `printf -v`, `unset`, `mapfile`, ...) have every substitution in their words read, also
+    quoted; `${x:+w}`, `${x+w}` and a replacement `${x/a/w}` are one more reading like
+    `${x:-w}`; variables whose value a program runs (`GIT_SSH_COMMAND`, `GIT_PAGER`,
+    `PROMPT_COMMAND`, ...) have it read as a script, `BASH_ENV=<(...)` is a script from stdin;
+    `pushd +1`, `CDPATH`, `cdable_vars` and `autocd` make the folder unknown; `wsl ~` is
+    skipped.
+  - *Options.* An option word with a wildcard counts as every option it may match
+    (`--f*`, `--forc?`, `-[f]`, `--@(force)`); a value glued to a short option is read for
+    SQL words (`mysql -e'DROP TABLE x'`, `psql -cDROP\ ...`); `git PUSH` counts as `git push`
+    where file names ignore case (Git for Windows finds `git-push`).
+  - *Paths.* A wildcard right in the project that may match `.git` (`.*`, `.g*`, `?git`; a
+    leading `*` does not match a dot) and a Windows short name right in it (`GIT~1`) count as
+    outside; the items of `Get-ChildItem x` lie below `x`, also of a bare `Get-ChildItem`.
+  - *Too complex.* bash's `${!name}` and `${x@P}`, zsh's `${(e)x}` and glob qualifiers that
+    run code (`*(e:...:)`); git configuration that names a program (`-c core.pager=`,
+    `core.sshCommand`, `core.editor`, `core.hooksPath`, drivers, helpers) or `git config`
+    storing such a key, an alias or `clean.requireForce`; `--exec`, `--receive-pack`,
+    `--upload-pack`; a database client's shell escape (`\!`, `system`, `.shell`, `.system`,
+    `COPY ... FROM PROGRAM`); a database client fed by `< <(...)` without SQL is a script from
+    stdin. From cmd, `sh -c '...'` with an unclosed quote on one line is not read (sh rejects
+    it whole).
+  - *Rules.* New default rules, asked like every rule: `git-push-delete` (`--delete`, `-d`,
+    `--mirror`, `--prune`, and a refspec `:main`; a refspec `+main` now counts as `--force`),
+    `dropdb`, `mysqladmin-drop`; `sql-drop` also covers `Invoke-Sqlcmd`. A rules file written
+    before keeps its rules (it is never migrated); Settings says it holds fewer than Hangar
+    ships.
 - **Bounded reading.** Every recursion over the agent's text has a fixed bound: inline scripts
   and substitutions 6 levels (`command_split::MAX_DEPTH`), brace expansion 8 braces per word
   (`command_guard::MAX_BRACE_GROUPS`, more fall back to the prefix rule). Each hook connection
   runs on a thread with an 8 MiB stack (`gate_service.rs`, `CONNECTION_STACK`), since an
   overflow there would end the app and every session in it.
 - **Honest limits.** A safety net, not a sandbox. Not recognized: a script file (`bash x.sh`,
-  `pwsh -File`), a program in a variable, an alias or function, `xargs`, `find -delete`, a
-  refspec force push (`git push origin +main`), tools other than the rules name, a command
-  started by another language (`python -c "os.system(...)"`, `node -e`). Text put together at
+  `pwsh -File`, `psql -f`, `\i`, `source`, `.read`), a program in a variable (`$x`,
+  `$(echo git)`, `"$(which git)"`, cmd's `%x%` and `for` variables), a value only known at run
+  time (`git push $F`, `"$@"` after `set --`, `$(echo --force)`, `${F#x}`, `${F^^}`), an alias
+  or function (`alias`, `sal`, `function:`), `xargs`, `find -delete`, .NET calls
+  (`[IO.Directory]::Delete`, `.Delete()`), tools other than the rules name (`git checkout -f`,
+  `git restore`, `git stash drop`, `git branch -D`, `robocopy /mir`, `DROP VIEW`, `DELETE`),
+  dynamic SQL (`EXECUTE 'DR' || 'OP ...'`), a command started by another language
+  (`python -c "os.system(...)"`, `node -e`). PowerShell's `*` with `-Force` may match the
+  hidden `.git`, but a leading `*` is read as not matching it. cmd with delayed expansion
+  switched on in the registry reads `!x!` as a variable [UNVERIFIED]; Hangar assumes the
+  default (off) unless `/v` is given. The `LIMIT` rows of the audit file list each gap. Text put together at
   run time is not read: PowerShell string arithmetic (`git push ('--for'+'ce')`), splatting
   (`git @a`), `[scriptblock]::Create($a + $b)` or `& $block`, `Invoke-Command` with a script
   block held in a variable, `$ExecutionContext` calls with a computed argument, git
@@ -366,7 +443,29 @@ Option 2 with reach A.
   `a_deeply_nested_default_value_is_asked_about_on_a_small_stack`,
   `a_for_each_block_deletes_the_items_the_call_before_it_lists`,
   `git_options_before_the_subcommand_take_their_value_in_every_rules_file`,
-  `adversarial_nesting_is_checked_quickly`; `command_split::tests`
+  `adversarial_nesting_is_checked_quickly`; third audit: `gate::tests`
+  `claude_pre_tool_use_hook_blocks_on_failure`, `command_guard::tests`
+  `third_audit_inputs_ask_or_pass_as_recorded` (the audit file),
+  `everyday_agent_commands_raise_no_question` (the everyday file, in each dialect and as
+  `Shell`), `scripts_from_several_words_are_read_as_the_shell_joins_them`,
+  `powershell_assignments_before_a_command_do_not_hide_it`,
+  `a_cmd_paren_glued_to_a_word_ends_the_block`,
+  `powershell_comma_lists_name_every_path_and_option`, `coproc_runs_its_command`,
+  `builtins_that_evaluate_subscripts_have_their_substitutions_read`,
+  `positional_arguments_of_inline_scripts_are_read`,
+  `cmd_reads_carets_titles_glued_switches_and_folder_changes`,
+  `powershell_values_known_before_the_command_runs_are_read`,
+  `wildcards_and_short_names_that_reach_the_projects_git_folder_count`,
+  `wsl_home_switch_is_skipped`, `sql_glued_to_short_options_and_shell_escapes_are_seen`,
+  `option_words_with_wildcards_count_as_every_option_they_match`,
+  `more_wrappers_run_their_command`, `commands_hidden_in_git_configuration_are_asked_about`,
+  `remote_branch_deletions_and_refspec_force_pushes_ask`,
+  `programs_named_through_lookups_and_folder_stacks_are_read`,
+  `third_audit_false_positives_are_gone`; `gate_service::tests`
+  `a_tool_call_hangar_cannot_read_is_blocked_not_refused`, `one_session_cannot_take_every_slot`
+  (gate off: "no decision"), `only_a_claude_code_that_knows_on_failure_gets_it`; `tests/gate_hook.rs`
+  `extension_failures_block_shell_commands_and_unknown_command_tools_are_checked`;
+  `command_split::tests`
   `powershell_braces_end_words_except_variables_and_hashtables`,
   `arithmetic_holds_no_here_documents`, `a_substitution_ends_where_bash_ends_it`,
   `find_with_more_start_folders_than_read_is_reported`; `gate_service::tests`
