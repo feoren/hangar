@@ -4,8 +4,9 @@
 //! reads a `.env` file, a config or a command line (`API_KEY=...`, `"token": "..."`,
 //! `password: ...`, `--password ...`, `sshpass -p ...`, `curl -u user:...`,
 //! `Authorization: Bearer|Basic|token ...`, `https://user:pass@host`,
-//! `ConvertTo-SecureString "..." -AsPlainText`, `?X-Amz-Signature=...`, `&sig=...`), well-known
-//! token prefixes and PEM private keys.
+//! `ConvertTo-SecureString "..." -AsPlainText`, `?X-Amz-Signature=...`, `&sig=...`,
+//! `.netrc` entries, `<password>...</password>`, Slack and Discord webhook URLs), well-known
+//! token prefixes and PEM private keys. An unquoted `password: ...` runs to the end of its line.
 //! Over-masking is preferred to a leak. Callers strip terminal sequences first
 //! ([`strip_controls`]), so a color code cannot split a name from its value.
 
@@ -95,6 +96,9 @@ pub fn redact(text: &str) -> String {
     let text = redact_bearer(&text);
     let text = redact_secure_string(&text);
     let text = redact_tool_flags(&text);
+    let text = redact_webhooks(&text);
+    let text = redact_xml(&text);
+    let text = redact_netrc(&text);
     let text = redact_assignments(&text);
     redact_prefixes(&text)
 }
@@ -332,16 +336,146 @@ fn redact_assignments(text: &str) -> String {
                 continue;
             }
         }
-        if bare.ends_with("cookie") && !quoted_value {
-            // `Cookie: a=1; b=2` holds several values: the whole rest of the line.
+        let to_line_end = bare.ends_with("cookie")
+            || (separator == b':' && !quoted_name && !LOOSE_NAMES.contains(&bare));
+        if to_line_end && !quoted_value {
+            // `Cookie: a=1; b=2` holds several values, `password: two words` one with spaces:
+            // the rest of the line, or up to the quote that closes a surrounding argument.
             value_end = text[value_start..]
                 .find(['\n', '"', '\''])
                 .map_or(text.len(), |e| value_start + e);
+            value_end = value_start + text[value_start..value_end].trim_end().len();
         }
         if value_end > value_start {
             ranges.push((value_start, value_end));
         }
         i = value_end.max(i);
+    }
+    mask_ranges(text, &ranges)
+}
+
+/// Webhook URLs whose path is the credential: anyone who has it can post to the channel.
+const WEBHOOKS: &[&str] = &[
+    "hooks.slack.com/services/",
+    "hooks.slack.com/workflows/",
+    "hooks.slack.com/triggers/",
+    "discord.com/api/webhooks/",
+    "discordapp.com/api/webhooks/",
+];
+
+/// Slack and Discord webhook URLs: the path after the fixed part.
+fn redact_webhooks(text: &str) -> String {
+    // ASCII lower case keeps every byte offset.
+    let lower = text.to_ascii_lowercase();
+    let bytes = text.as_bytes();
+    let mut ranges = Vec::new();
+    for pattern in WEBHOOKS {
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(pattern) {
+            let start = from + found + pattern.len();
+            let len = bytes[start..]
+                .iter()
+                .take_while(|b| is_token_byte(**b))
+                .count();
+            if len > 0 {
+                ranges.push((start, start + len));
+            }
+            from = start + len;
+        }
+    }
+    ranges.sort_unstable();
+    mask_ranges(text, &ranges)
+}
+
+/// `<password>value</password>`, `<apiKey>...</apiKey>`, `<ns:Secret attr="x">...</ns:Secret>`:
+/// the text of an element with a secret-looking name, when a closing tag follows it. Loose names
+/// stay (a plist names every entry in `<key>`).
+fn redact_xml(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut ranges = Vec::new();
+    let mut from = 0;
+    while let Some(found) = text[from..].find('<') {
+        let open = from + found;
+        from = open + 1;
+        let name_end = from
+            + bytes[from..]
+                .iter()
+                .take_while(|b| is_name_byte(**b) || **b == b':')
+                .count();
+        if name_end == from || !matches!(bytes.get(name_end), Some(b'>' | b' ' | b'\t')) {
+            continue;
+        }
+        let name = text[from..name_end].to_ascii_lowercase();
+        let local = name.rsplit(':').next().unwrap_or(&name);
+        if LOOSE_NAMES.contains(&local) || !is_secret_name(local) {
+            continue;
+        }
+        // The rest of the start tag on the same line; a self-closing tag holds nothing.
+        let Some(close) = text[name_end..]
+            .find(['>', '<', '\n'])
+            .map(|e| name_end + e)
+        else {
+            continue;
+        };
+        if bytes[close] != b'>' || bytes[close - 1] == b'/' {
+            continue;
+        }
+        let value_start = close + 1;
+        let Some(value_end) = text[value_start..].find('<').map(|e| value_start + e) else {
+            continue;
+        };
+        if !text[value_end..].starts_with("</") {
+            continue;
+        }
+        if !text[value_start..value_end].trim().is_empty() {
+            ranges.push((value_start, value_end));
+        }
+        from = value_end;
+    }
+    mask_ranges(text, &ranges)
+}
+
+/// `.netrc` entries: `machine <host> login <user> password <value>` (also `default` and
+/// `account`), on one line or spread over the lines that follow `machine`. A line counts only
+/// when all its words are such keyword-value pairs, and a line without `machine` or `default`
+/// only right after one, so `password reset` in prose stays.
+fn redact_netrc(text: &str) -> String {
+    const KEYWORDS: &[&str] = &["machine", "login", "password", "account", "port"];
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    let mut in_entry = false;
+    for line in text.split_inclusive('\n') {
+        let list = words(line, offset);
+        offset += line.len();
+        if list.is_empty() {
+            continue;
+        }
+        let word = |&(start, end): &(usize, usize)| &text[start..end];
+        // `default` stands alone; every other keyword takes a value.
+        let pairs: Vec<&[(usize, usize)]> = list
+            .split(|w| word(w) == "default")
+            .flat_map(|run| run.chunks(2))
+            .collect();
+        let starts = list
+            .iter()
+            .any(|w| matches!(word(w), "machine" | "default"));
+        let netrc = pairs.iter().all(|pair| {
+            pair.len() == 2
+                && pair
+                    .first()
+                    .is_some_and(|key| KEYWORDS.contains(&word(key)))
+        });
+        in_entry = netrc && (starts || in_entry);
+        if !in_entry {
+            continue;
+        }
+        for pair in pairs {
+            if let [key, value] = pair {
+                if matches!(word(key), "password" | "account") {
+                    ranges.push(unquote(text, *value));
+                }
+            }
+        }
     }
     mask_ranges(text, &ranges)
 }
@@ -1112,6 +1246,101 @@ AAAA
                 }
             }
         }
+    }
+
+    #[test]
+    fn netrc_entries() {
+        masks(&[
+            (
+                format!("machine example.invalid login me password {FAKE}"),
+                "machine example.invalid login me password [redacted]",
+            ),
+            (
+                format!("default login me password {FAKE} account FAKEACCOUNT"),
+                "default login me password [redacted] account [redacted]",
+            ),
+            (
+                format!("machine example.invalid\n  login me\n  password {FAKE}\n"),
+                "machine example.invalid\n  login me\n  password [redacted]\n",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn xml_elements() {
+        masks(&[
+            (
+                format!("<password>{FAKE}</password>"),
+                "<password>[redacted]</password>",
+            ),
+            (
+                format!("<Settings><apiKey>{FAKE}</apiKey><n>1</n></Settings>"),
+                "<Settings><apiKey>[redacted]</apiKey><n>1</n></Settings>",
+            ),
+            (
+                format!("<db:Password type=\"plain\">{FAKE}</db:Password>"),
+                "<db:Password type=\"plain\">[redacted]</db:Password>",
+            ),
+        ]);
+        // A plist names its keys in `<key>`; `<password/>` holds nothing.
+        keeps(&[
+            "<key>CFBundleName</key><string>Hangar</string>",
+            "<password/>",
+            "<password></password>",
+        ]);
+    }
+
+    #[test]
+    fn unquoted_values_with_spaces_run_to_the_line_end() {
+        masks(&[
+            (
+                "password: FAKE words with spaces\nuser: me".to_owned(),
+                "password: [redacted]\nuser: me",
+            ),
+            (
+                "db_secret: FAKE two parts".to_owned(),
+                "db_secret: [redacted]",
+            ),
+            (
+                format!("-H 'x-api-key: {FAKE} x' -d y"),
+                "-H 'x-api-key: [redacted]' -d y",
+            ),
+        ]);
+    }
+
+    #[test]
+    fn webhook_urls() {
+        masks(&[
+            (
+                "post to https://hooks.slack.com/services/T0FAKE/B0FAKE/FAKEVALUE now".to_owned(),
+                "post to https://hooks.slack.com/services/[redacted] now",
+            ),
+            (
+                "url=\"https://discord.com/api/webhooks/0000/FAKEVALUE-x\"".to_owned(),
+                "url=\"https://discord.com/api/webhooks/[redacted]\"",
+            ),
+            (
+                "https://discordapp.com/api/webhooks/0000/FAKEVALUE".to_owned(),
+                "https://discordapp.com/api/webhooks/[redacted]",
+            ),
+        ]);
+        keeps(&["see https://hooks.slack.com/ and https://discord.com/api/webhooks/"]);
+    }
+
+    /// Everyday sentences about passwords and keys are no secrets.
+    #[test]
+    fn prose_about_secrets_stays() {
+        keeps(&[
+            "Forgot your password? Reset it in the settings.",
+            "The password is wrong, try again.",
+            "password is wrong here",
+            "password reset",
+            "machine learning is fun",
+            "Use a passphrase manager and rotate the token often.",
+            "compass: north, then the machine room",
+            "The machine has no login password set.",
+            "Read the <token> docs and the key: value section.",
+        ]);
     }
 
     #[test]
